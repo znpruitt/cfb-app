@@ -1,0 +1,78 @@
+# -------------------------------------------------------
+# Global defaults
+# -------------------------------------------------------
+# Normalize all text files to LF in the repo
+* text=auto eol=lf
+
+# Keep Windows batch files CRLF (they need it)
+*.bat text eol=crlf
+
+# -------------------------------------------------------
+# Source code (explicit, for clarity)
+# -------------------------------------------------------
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+
+*.css  text eol=lf
+*.scss text eol=lf
+*.sass text eol=lf
+*.less text eol=lf
+
+*.html text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.graphql text eol=lf
+
+# Shell / scripts
+*.sh   text eol=lf
+*.ps1  text eol=lf
+
+# -------------------------------------------------------
+# JSON (treat as text for diffs)
+# -------------------------------------------------------
+*.json text eol=lf
+
+# Ensure project data diff nicely (aliases & teams)
+data/aliases-*.json text eol=lf
+data/teams-*.json   text eol=lf
+
+# -------------------------------------------------------
+# Lockfiles & config
+# -------------------------------------------------------
+package-lock.json text eol=lf -diff
+yarn.lock         text eol=lf -diff
+pnpm-lock.yaml    text eol=lf -diff
+.eslintrc*        text eol=lf
+.prettierrc*      text eol=lf
+.browserslistrc   text eol=lf
+.env.example      text eol=lf
+
+# -------------------------------------------------------
+# Images & binaries (no diff)
+# -------------------------------------------------------
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.svg  text  # SVG is XML; keep as text to diff
+*.pdf  binary
+*.ttf  binary
+*.otf  binary
+*.woff binary
+*.woff2 binary
+*.zip  binary
+*.gz   binary
+*.tar  binary
+
+# -------------------------------------------------------
+# Next.js build artifacts (if they ever slip in)
+# -------------------------------------------------------
+.next/** -diff
+out/**   -diff

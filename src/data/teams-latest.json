@@ -1,0 +1,1166 @@
+{
+  "year": 2025,
+  "items": [
+    {
+      "school": "Air Force",
+      "mascot": "Falcons",
+      "conference": "Mountain West",
+      "alts": ["air force", "air force falcons", "airforce", "airforcefalcons"]
+    },
+    {
+      "school": "Akron",
+      "mascot": "Zips",
+      "conference": "Mid-American",
+      "alts": ["akron", "akron zips", "akronzips"]
+    },
+    {
+      "school": "Alabama",
+      "mascot": "Crimson Tide",
+      "conference": "SEC",
+      "alts": ["alabama", "alabama crimson tide", "alabamacrimson", "alabamacrimsontide"]
+    },
+    {
+      "school": "App State",
+      "mascot": "Mountaineers",
+      "conference": "Sun Belt",
+      "alts": [
+        "app state",
+        "app state mountaineers",
+        "app st",
+        "app st.",
+        "appstate",
+        "appstatemountaineers",
+        "appst",
+        "appst."
+      ]
+    },
+    {
+      "school": "Arizona",
+      "mascot": "Wildcats",
+      "conference": "Big 12",
+      "alts": ["arizona", "arizona wildcats", "arizonawildcats"]
+    },
+    {
+      "school": "Arizona State",
+      "mascot": "Sun Devils",
+      "conference": "Big 12",
+      "alts": [
+        "arizona state",
+        "arizona state sun devils",
+        "arizona st",
+        "arizona st.",
+        "arizonastate",
+        "arizonastatesun",
+        "arizonast",
+        "arizonast."
+      ]
+    },
+    {
+      "school": "Arkansas",
+      "mascot": "Razorbacks",
+      "conference": "SEC",
+      "alts": ["arkansas", "arkansas razorbacks", "arkansasrazorbacks"]
+    },
+    {
+      "school": "Arkansas State",
+      "mascot": "Red Wolves",
+      "conference": "Sun Belt",
+      "alts": [
+        "arkansas state",
+        "arkansas state red wolves",
+        "arkansas st",
+        "arkansas st.",
+        "arkansasstate",
+        "arkansasstatered",
+        "arkansasst",
+        "arkansasst."
+      ]
+    },
+    {
+      "school": "Army",
+      "mascot": "Black Knights",
+      "conference": "American Athletic",
+      "alts": ["army", "army black knights", "armyblack", "armyblackknights"]
+    },
+    {
+      "school": "Auburn",
+      "mascot": "Tigers",
+      "conference": "SEC",
+      "alts": ["auburn", "auburn tigers", "auburntigers"]
+    },
+    {
+      "school": "Ball State",
+      "mascot": "Cardinals",
+      "conference": "Mid-American",
+      "alts": [
+        "ball state",
+        "ball state cardinals",
+        "ball st",
+        "ball st.",
+        "ballstate",
+        "ballstatecardinals",
+        "ballst",
+        "ballst."
+      ]
+    },
+    {
+      "school": "Baylor",
+      "mascot": "Bears",
+      "conference": "Big 12",
+      "alts": ["baylor", "baylor bears", "baylorbears"]
+    },
+    {
+      "school": "Boise State",
+      "mascot": "Broncos",
+      "conference": "Mountain West",
+      "alts": [
+        "boise state",
+        "boise state broncos",
+        "boise st",
+        "boise st.",
+        "boisestate",
+        "boisestatebroncos",
+        "boisest",
+        "boisest."
+      ]
+    },
+    {
+      "school": "Boston College",
+      "mascot": "Eagles",
+      "conference": "ACC",
+      "alts": ["boston college", "boston college eagles", "bostoncollege", "bostoncollegeeagles"]
+    },
+    {
+      "school": "Bowling Green",
+      "mascot": "Falcons",
+      "conference": "Mid-American",
+      "alts": ["bowling green", "bowling green falcons", "bowlinggreen", "bowlinggreenfalcons"]
+    },
+    {
+      "school": "Buffalo",
+      "mascot": "Bulls",
+      "conference": "Mid-American",
+      "alts": ["buffalo", "buffalo bulls", "buffalobulls"]
+    },
+    {
+      "school": "BYU",
+      "mascot": "Cougars",
+      "conference": "Big 12",
+      "alts": ["byu", "byu cougars", "byucougars"]
+    },
+    {
+      "school": "California",
+      "mascot": "Golden Bears",
+      "conference": "ACC",
+      "alts": ["california", "california golden bears", "californiagolden", "californiagoldenbears"]
+    },
+    {
+      "school": "Central Michigan",
+      "mascot": "Chippewas",
+      "conference": "Mid-American",
+      "alts": [
+        "central michigan",
+        "central michigan chippewas",
+        "centralmichigan",
+        "centralmichiganchippewas"
+      ]
+    },
+    {
+      "school": "Charlotte",
+      "mascot": "49ers",
+      "conference": "American Athletic",
+      "alts": ["charlotte", "charlotte 49ers", "charlotte49ers"]
+    },
+    {
+      "school": "Cincinnati",
+      "mascot": "Bearcats",
+      "conference": "Big 12",
+      "alts": ["cincinnati", "cincinnati bearcats", "cincinnatibearcats"]
+    },
+    {
+      "school": "Clemson",
+      "mascot": "Tigers",
+      "conference": "ACC",
+      "alts": ["clemson", "clemson tigers", "clemsontigers"]
+    },
+    {
+      "school": "Coastal Carolina",
+      "mascot": "Chanticleers",
+      "conference": "Sun Belt",
+      "alts": [
+        "coastal carolina",
+        "coastal carolina chanticleers",
+        "coastalcarolina",
+        "coastalcarolinachanticleers"
+      ]
+    },
+    {
+      "school": "Colorado",
+      "mascot": "Buffaloes",
+      "conference": "Big 12",
+      "alts": ["colorado", "colorado buffaloes", "coloradobuffaloes"]
+    },
+    {
+      "school": "Colorado State",
+      "mascot": "Rams",
+      "conference": "Mountain West",
+      "alts": [
+        "colorado state",
+        "colorado state rams",
+        "colorado st",
+        "colorado st.",
+        "coloradostate",
+        "coloradostaterams",
+        "coloradost",
+        "coloradost."
+      ]
+    },
+    {
+      "school": "Delaware",
+      "mascot": "Blue Hens",
+      "conference": "Conference USA",
+      "alts": ["delaware", "delaware blue hens", "delawareblue", "delawarebluehens"]
+    },
+    {
+      "school": "Duke",
+      "mascot": "Blue Devils",
+      "conference": "ACC",
+      "alts": ["duke", "duke blue devils", "dukeblue", "dukebluedevils"]
+    },
+    {
+      "school": "East Carolina",
+      "mascot": "Pirates",
+      "conference": "American Athletic",
+      "alts": ["east carolina", "east carolina pirates", "eastcarolina", "eastcarolinapirates"]
+    },
+    {
+      "school": "Eastern Michigan",
+      "mascot": "Eagles",
+      "conference": "Mid-American",
+      "alts": [
+        "eastern michigan",
+        "eastern michigan eagles",
+        "easternmichigan",
+        "easternmichiganeagles"
+      ]
+    },
+    {
+      "school": "Florida",
+      "mascot": "Gators",
+      "conference": "SEC",
+      "alts": ["florida", "florida gators", "floridagators"]
+    },
+    {
+      "school": "Florida Atlantic",
+      "mascot": "Owls",
+      "conference": "American Athletic",
+      "alts": [
+        "florida atlantic",
+        "florida atlantic owls",
+        "floridaatlantic",
+        "floridaatlanticowls"
+      ]
+    },
+    {
+      "school": "Florida International",
+      "mascot": "Panthers",
+      "conference": "Conference USA",
+      "alts": [
+        "florida international",
+        "florida international panthers",
+        "floridainternational",
+        "floridainternationalpanthers"
+      ]
+    },
+    {
+      "school": "Florida State",
+      "mascot": "Seminoles",
+      "conference": "ACC",
+      "alts": [
+        "florida state",
+        "florida state seminoles",
+        "florida st",
+        "florida st.",
+        "floridastate",
+        "floridastateseminoles",
+        "floridast",
+        "floridast."
+      ]
+    },
+    {
+      "school": "Fresno State",
+      "mascot": "Bulldogs",
+      "conference": "Mountain West",
+      "alts": [
+        "fresno state",
+        "fresno state bulldogs",
+        "fresno st",
+        "fresno st.",
+        "fresnostate",
+        "fresnostatebulldogs",
+        "fresnost",
+        "fresnost."
+      ]
+    },
+    {
+      "school": "Georgia",
+      "mascot": "Bulldogs",
+      "conference": "SEC",
+      "alts": ["georgia", "georgia bulldogs", "georgiabulldogs"]
+    },
+    {
+      "school": "Georgia Southern",
+      "mascot": "Eagles",
+      "conference": "Sun Belt",
+      "alts": [
+        "georgia southern",
+        "georgia southern eagles",
+        "georgiasouthern",
+        "georgiasoutherneagles"
+      ]
+    },
+    {
+      "school": "Georgia State",
+      "mascot": "Panthers",
+      "conference": "Sun Belt",
+      "alts": [
+        "georgia state",
+        "georgia state panthers",
+        "georgia st",
+        "georgia st.",
+        "georgiastate",
+        "georgiastatepanthers",
+        "georgiast",
+        "georgiast."
+      ]
+    },
+    {
+      "school": "Georgia Tech",
+      "mascot": "Yellow Jackets",
+      "conference": "ACC",
+      "alts": ["georgia tech", "georgia tech yellow jackets", "georgiatech", "georgiatechyellow"]
+    },
+    {
+      "school": "Hawai'i",
+      "mascot": "Rainbow Warriors",
+      "conference": "Mountain West",
+      "alts": ["hawai'i", "hawai'i rainbow warriors", "hawai'irainbow", "hawai'irainbowwarriors"]
+    },
+    {
+      "school": "Houston",
+      "mascot": "Cougars",
+      "conference": "Big 12",
+      "alts": ["houston", "houston cougars", "houstoncougars"]
+    },
+    {
+      "school": "Illinois",
+      "mascot": "Fighting Illini",
+      "conference": "Big Ten",
+      "alts": ["illinois", "illinois fighting illini", "illinoisfighting", "illinoisfightingillini"]
+    },
+    {
+      "school": "Indiana",
+      "mascot": "Hoosiers",
+      "conference": "Big Ten",
+      "alts": ["indiana", "indiana hoosiers", "indianahoosiers"]
+    },
+    {
+      "school": "Iowa",
+      "mascot": "Hawkeyes",
+      "conference": "Big Ten",
+      "alts": ["iowa", "iowa hawkeyes", "iowahawkeyes"]
+    },
+    {
+      "school": "Iowa State",
+      "mascot": "Cyclones",
+      "conference": "Big 12",
+      "alts": [
+        "iowa state",
+        "iowa state cyclones",
+        "iowa st",
+        "iowa st.",
+        "iowastate",
+        "iowastatecyclones",
+        "iowast",
+        "iowast."
+      ]
+    },
+    {
+      "school": "Jacksonville State",
+      "mascot": "Gamecocks",
+      "conference": "Conference USA",
+      "alts": [
+        "jacksonville state",
+        "jacksonville state gamecocks",
+        "jacksonville st",
+        "jacksonville st.",
+        "jacksonvillestate",
+        "jacksonvillestategamecocks",
+        "jacksonvillest",
+        "jacksonvillest."
+      ]
+    },
+    {
+      "school": "James Madison",
+      "mascot": "Dukes",
+      "conference": "Sun Belt",
+      "alts": ["james madison", "james madison dukes", "jamesmadison", "jamesmadisondukes"]
+    },
+    {
+      "school": "Kansas",
+      "mascot": "Jayhawks",
+      "conference": "Big 12",
+      "alts": ["kansas", "kansas jayhawks", "kansasjayhawks"]
+    },
+    {
+      "school": "Kansas State",
+      "mascot": "Wildcats",
+      "conference": "Big 12",
+      "alts": [
+        "kansas state",
+        "kansas state wildcats",
+        "kansas st",
+        "kansas st.",
+        "kansasstate",
+        "kansasstatewildcats",
+        "kansasst",
+        "kansasst."
+      ]
+    },
+    {
+      "school": "Kennesaw State",
+      "mascot": "Owls",
+      "conference": "Conference USA",
+      "alts": [
+        "kennesaw state",
+        "kennesaw state owls",
+        "kennesaw st",
+        "kennesaw st.",
+        "kennesawstate",
+        "kennesawstateowls",
+        "kennesawst",
+        "kennesawst."
+      ]
+    },
+    {
+      "school": "Kent State",
+      "mascot": "Golden Flashes",
+      "conference": "Mid-American",
+      "alts": [
+        "kent state",
+        "kent state golden flashes",
+        "kent st",
+        "kent st.",
+        "kentstate",
+        "kentstategolden",
+        "kentst",
+        "kentst."
+      ]
+    },
+    {
+      "school": "Kentucky",
+      "mascot": "Wildcats",
+      "conference": "SEC",
+      "alts": ["kentucky", "kentucky wildcats", "kentuckywildcats"]
+    },
+    {
+      "school": "Liberty",
+      "mascot": "Flames",
+      "conference": "Conference USA",
+      "alts": ["liberty", "liberty flames", "libertyflames"]
+    },
+    {
+      "school": "Louisiana",
+      "mascot": "Ragin' Cajuns",
+      "conference": "Sun Belt",
+      "alts": ["louisiana", "louisiana ragin' cajuns", "louisianaragin'", "louisianaragin'cajuns"]
+    },
+    {
+      "school": "Louisiana Tech",
+      "mascot": "Bulldogs",
+      "conference": "Conference USA",
+      "alts": [
+        "louisiana tech",
+        "louisiana tech bulldogs",
+        "louisianatech",
+        "louisianatechbulldogs",
+        "la tech"
+      ]
+    },
+    {
+      "school": "Louisville",
+      "mascot": "Cardinals",
+      "conference": "ACC",
+      "alts": ["louisville", "louisville cardinals", "louisvillecardinals"]
+    },
+    {
+      "school": "LSU",
+      "mascot": "Tigers",
+      "conference": "SEC",
+      "alts": ["lsu", "lsu tigers", "lsutigers"]
+    },
+    {
+      "school": "Marshall",
+      "mascot": "Thundering Herd",
+      "conference": "Sun Belt",
+      "alts": [
+        "marshall",
+        "marshall thundering herd",
+        "marshallthundering",
+        "marshallthunderingherd"
+      ]
+    },
+    {
+      "school": "Maryland",
+      "mascot": "Terrapins",
+      "conference": "Big Ten",
+      "alts": ["maryland", "maryland terrapins", "marylandterrapins"]
+    },
+    {
+      "school": "Massachusetts",
+      "mascot": "Minutemen",
+      "conference": "Mid-American",
+      "alts": ["massachusetts", "massachusetts minutemen", "umass", "massachusettsminutemen"]
+    },
+    {
+      "school": "Memphis",
+      "mascot": "Tigers",
+      "conference": "American Athletic",
+      "alts": ["memphis", "memphis tigers", "memphistigers"]
+    },
+    {
+      "school": "Miami",
+      "mascot": "Hurricanes",
+      "conference": "ACC",
+      "alts": ["miami", "miami hurricanes", "miamihurricanes", "miami (fl)"]
+    },
+    {
+      "school": "Miami (OH)",
+      "mascot": "RedHawks",
+      "conference": "Mid-American",
+      "alts": ["miami (oh)", "miami (oh) redhawks", "miami(oh)", "miami(oh)redhawks"]
+    },
+    {
+      "school": "Michigan",
+      "mascot": "Wolverines",
+      "conference": "Big Ten",
+      "alts": ["michigan", "michigan wolverines", "michiganwolverines"]
+    },
+    {
+      "school": "Michigan State",
+      "mascot": "Spartans",
+      "conference": "Big Ten",
+      "alts": [
+        "michigan state",
+        "michigan state spartans",
+        "michigan st",
+        "michigan st.",
+        "michiganstate",
+        "michiganstatespartans",
+        "michiganst",
+        "michiganst."
+      ]
+    },
+    {
+      "school": "Middle Tennessee",
+      "mascot": "Blue Raiders",
+      "conference": "Conference USA",
+      "alts": [
+        "middle tennessee",
+        "middle tennessee blue raiders",
+        "middletennessee",
+        "middletennesseeblue"
+      ]
+    },
+    {
+      "school": "Minnesota",
+      "mascot": "Golden Gophers",
+      "conference": "Big Ten",
+      "alts": ["minnesota", "minnesota golden gophers", "minnesotagolden", "minnesotagoldengophers"]
+    },
+    {
+      "school": "Mississippi State",
+      "mascot": "Bulldogs",
+      "conference": "SEC",
+      "alts": [
+        "mississippi state",
+        "mississippi state bulldogs",
+        "mississippi st",
+        "mississippi st.",
+        "mississippistate",
+        "mississippistatebulldogs",
+        "mississippist",
+        "mississippist."
+      ]
+    },
+    {
+      "school": "Missouri",
+      "mascot": "Tigers",
+      "conference": "SEC",
+      "alts": ["missouri", "missouri tigers", "missouritigers"]
+    },
+    {
+      "school": "Missouri State",
+      "mascot": "Bears",
+      "conference": "Conference USA",
+      "alts": [
+        "missouri state",
+        "missouri state bears",
+        "missouri st",
+        "missouri st.",
+        "missouristate",
+        "missouristatebears",
+        "missourist",
+        "missourist."
+      ]
+    },
+    {
+      "school": "Navy",
+      "mascot": "Midshipmen",
+      "conference": "American Athletic",
+      "alts": ["navy", "navy midshipmen", "navymidshipmen"]
+    },
+    {
+      "school": "NC State",
+      "mascot": "Wolfpack",
+      "conference": "ACC",
+      "alts": [
+        "nc state",
+        "nc state wolfpack",
+        "nc st",
+        "nc st.",
+        "ncstate",
+        "ncstatewolfpack",
+        "ncst",
+        "ncst."
+      ]
+    },
+    {
+      "school": "Nebraska",
+      "mascot": "Cornhuskers",
+      "conference": "Big Ten",
+      "alts": ["nebraska", "nebraska cornhuskers", "nebraskacornhuskers"]
+    },
+    {
+      "school": "Nevada",
+      "mascot": "Wolf Pack",
+      "conference": "Mountain West",
+      "alts": ["nevada", "nevada wolf pack", "nevadawolf", "nevadawolfpack"]
+    },
+    {
+      "school": "New Mexico",
+      "mascot": "Lobos",
+      "conference": "Mountain West",
+      "alts": ["new mexico", "new mexico lobos", "newmexico", "newmexicolobos"]
+    },
+    {
+      "school": "New Mexico State",
+      "mascot": "Aggies",
+      "conference": "Conference USA",
+      "alts": [
+        "new mexico state",
+        "new mexico state aggies",
+        "new mexico st",
+        "new mexico st.",
+        "newmexico",
+        "newmexicostate",
+        "newmexicost",
+        "newmexicost."
+      ]
+    },
+    {
+      "school": "North Carolina",
+      "mascot": "Tar Heels",
+      "conference": "ACC",
+      "alts": ["north carolina", "north carolina tar heels", "northcarolina", "northcarolinatar"]
+    },
+    {
+      "school": "Northern Illinois",
+      "mascot": "Huskies",
+      "conference": "Mid-American",
+      "alts": [
+        "northern illinois",
+        "northern illinois huskies",
+        "northernillinois",
+        "northernillinoishuskies"
+      ]
+    },
+    {
+      "school": "North Texas",
+      "mascot": "Mean Green",
+      "conference": "American Athletic",
+      "alts": ["north texas", "north texas mean green", "northtexas", "northtexasmean"]
+    },
+    {
+      "school": "Northwestern",
+      "mascot": "Wildcats",
+      "conference": "Big Ten",
+      "alts": ["northwestern", "northwestern wildcats", "northwesternwildcats"]
+    },
+    {
+      "school": "Notre Dame",
+      "mascot": "Fighting Irish",
+      "conference": "FBS Independents",
+      "alts": ["notre dame", "notre dame fighting irish", "notredame", "notredamefighting"]
+    },
+    {
+      "school": "Ohio",
+      "mascot": "Bobcats",
+      "conference": "Mid-American",
+      "alts": ["ohio", "ohio bobcats", "ohiobobcats"]
+    },
+    {
+      "school": "Ohio State",
+      "mascot": "Buckeyes",
+      "conference": "Big Ten",
+      "alts": [
+        "ohio state",
+        "ohio state buckeyes",
+        "ohio st",
+        "ohio st.",
+        "ohiostate",
+        "ohiostatebuckeyes",
+        "ohiost",
+        "ohiost."
+      ]
+    },
+    {
+      "school": "Oklahoma",
+      "mascot": "Sooners",
+      "conference": "SEC",
+      "alts": ["oklahoma", "oklahoma sooners", "oklahomasooners"]
+    },
+    {
+      "school": "Oklahoma State",
+      "mascot": "Cowboys",
+      "conference": "Big 12",
+      "alts": [
+        "oklahoma state",
+        "oklahoma state cowboys",
+        "oklahoma st",
+        "oklahoma st.",
+        "oklahomastate",
+        "oklahomastatecowboys",
+        "oklahomast",
+        "oklahomast."
+      ]
+    },
+    {
+      "school": "Old Dominion",
+      "mascot": "Monarchs",
+      "conference": "Sun Belt",
+      "alts": ["old dominion", "old dominion monarchs", "olddominion", "olddominionmonarchs"]
+    },
+    {
+      "school": "Ole Miss",
+      "mascot": "Rebels",
+      "conference": "SEC",
+      "alts": ["ole miss", "ole miss rebels", "olemiss", "olemissrebels"]
+    },
+    {
+      "school": "Oregon",
+      "mascot": "Ducks",
+      "conference": "Big Ten",
+      "alts": ["oregon", "oregon ducks", "oregonducks"]
+    },
+    {
+      "school": "Oregon State",
+      "mascot": "Beavers",
+      "conference": "Pac-12",
+      "alts": [
+        "oregon state",
+        "oregon state beavers",
+        "oregon st",
+        "oregon st.",
+        "oregonstate",
+        "oregonstatebeavers",
+        "oregonst",
+        "oregonst."
+      ]
+    },
+    {
+      "school": "Penn State",
+      "mascot": "Nittany Lions",
+      "conference": "Big Ten",
+      "alts": [
+        "penn state",
+        "penn state nittany lions",
+        "penn st",
+        "penn st.",
+        "pennstate",
+        "pennstatenittany",
+        "pennst",
+        "pennst."
+      ]
+    },
+    {
+      "school": "Pittsburgh",
+      "mascot": "Panthers",
+      "conference": "ACC",
+      "alts": ["pittsburgh", "pittsburgh panthers", "pittsburghpanthers"]
+    },
+    {
+      "school": "Purdue",
+      "mascot": "Boilermakers",
+      "conference": "Big Ten",
+      "alts": ["purdue", "purdue boilermakers", "purdueboilermakers"]
+    },
+    {
+      "school": "Rice",
+      "mascot": "Owls",
+      "conference": "American Athletic",
+      "alts": ["rice", "rice owls", "riceowls"]
+    },
+    {
+      "school": "Rutgers",
+      "mascot": "Scarlet Knights",
+      "conference": "Big Ten",
+      "alts": ["rutgers", "rutgers scarlet knights", "rutgersscarlet", "rutgersscarletknights"]
+    },
+    {
+      "school": "Sam Houston",
+      "mascot": "Bearkats",
+      "conference": "Conference USA",
+      "alts": ["sam houston", "sam houston bearkats", "samhouston", "samhoustonbearkats"]
+    },
+    {
+      "school": "San Diego State",
+      "mascot": "Aztecs",
+      "conference": "Mountain West",
+      "alts": [
+        "san diego state",
+        "san diego state aztecs",
+        "san diego st",
+        "san diego st.",
+        "sandiego",
+        "sandiegostate",
+        "sandiegost",
+        "sandiegost."
+      ]
+    },
+    {
+      "school": "San José State",
+      "mascot": "Spartans",
+      "conference": "Mountain West",
+      "alts": [
+        "san jose state",
+        "san jose state spartans",
+        "san jose st",
+        "san jose st.",
+        "sjsu",
+        "sanjose",
+        "sanjosestate",
+        "sanjosest",
+        "sanjosest.",
+        "san jose"
+      ]
+    },
+    {
+      "school": "SMU",
+      "mascot": "Mustangs",
+      "conference": "ACC",
+      "alts": ["smu", "smu mustangs", "smumustangs"]
+    },
+    {
+      "school": "South Alabama",
+      "mascot": "Jaguars",
+      "conference": "Sun Belt",
+      "alts": ["south alabama", "south alabama jaguars", "southalabama", "southalabamajaguars"]
+    },
+    {
+      "school": "South Carolina",
+      "mascot": "Gamecocks",
+      "conference": "SEC",
+      "alts": [
+        "south carolina",
+        "south carolina gamecocks",
+        "southcarolina",
+        "southcarolinagamecocks"
+      ]
+    },
+    {
+      "school": "Southern Miss",
+      "mascot": "Golden Eagles",
+      "conference": "Sun Belt",
+      "alts": ["southern miss", "southern miss golden eagles", "southernmiss", "southernmissgolden"]
+    },
+    {
+      "school": "South Florida",
+      "mascot": "Bulls",
+      "conference": "American Athletic",
+      "alts": ["south florida", "south florida bulls", "southflorida", "southfloridabulls"]
+    },
+    {
+      "school": "Stanford",
+      "mascot": "Cardinal",
+      "conference": "ACC",
+      "alts": ["stanford", "stanford cardinal", "stanfordcardinal"]
+    },
+    {
+      "school": "Syracuse",
+      "mascot": "Orange",
+      "conference": "ACC",
+      "alts": ["syracuse", "syracuse orange", "syracuseorange"]
+    },
+    {
+      "school": "TCU",
+      "mascot": "Horned Frogs",
+      "conference": "Big 12",
+      "alts": ["tcu", "tcu horned frogs", "tcuhorned", "tcuhornedfrogs"]
+    },
+    {
+      "school": "Temple",
+      "mascot": "Owls",
+      "conference": "American Athletic",
+      "alts": ["temple", "temple owls", "templeowls"]
+    },
+    {
+      "school": "Tennessee",
+      "mascot": "Volunteers",
+      "conference": "SEC",
+      "alts": ["tennessee", "tennessee volunteers", "tennesseevolunteers"]
+    },
+    {
+      "school": "Texas",
+      "mascot": "Longhorns",
+      "conference": "SEC",
+      "alts": ["texas", "texas longhorns", "texaslonghorns"]
+    },
+    {
+      "school": "Texas A&M",
+      "mascot": "Aggies",
+      "conference": "SEC",
+      "alts": [
+        "texas a&m",
+        "texas a m",
+        "texas a&m aggies",
+        "texas a m aggies",
+        "texas a and m",
+        "texas am",
+        "texasa&m",
+        "texasa",
+        "texasam",
+        "texasa&maggies",
+        "texasaand"
+      ]
+    },
+    {
+      "school": "Texas State",
+      "mascot": "Bobcats",
+      "conference": "Sun Belt",
+      "alts": [
+        "texas state",
+        "texas state bobcats",
+        "texas st",
+        "texas st.",
+        "texasstate",
+        "texasstatebobcats",
+        "texasst",
+        "texasst."
+      ]
+    },
+    {
+      "school": "Texas Tech",
+      "mascot": "Red Raiders",
+      "conference": "Big 12",
+      "alts": ["texas tech", "texas tech red raiders", "texastech", "texastechred"]
+    },
+    {
+      "school": "Toledo",
+      "mascot": "Rockets",
+      "conference": "Mid-American",
+      "alts": ["toledo", "toledo rockets", "toledorockets"]
+    },
+    {
+      "school": "Troy",
+      "mascot": "Trojans",
+      "conference": "Sun Belt",
+      "alts": ["troy", "troy trojans", "troytrojans"]
+    },
+    {
+      "school": "Tulane",
+      "mascot": "Green Wave",
+      "conference": "American Athletic",
+      "alts": ["tulane", "tulane green wave", "tulanegreen", "tulanegreenwave"]
+    },
+    {
+      "school": "Tulsa",
+      "mascot": "Golden Hurricane",
+      "conference": "American Athletic",
+      "alts": ["tulsa", "tulsa golden hurricane", "tulsagolden", "tulsagoldenhurricane"]
+    },
+    {
+      "school": "UAB",
+      "mascot": "Blazers",
+      "conference": "American Athletic",
+      "alts": ["uab", "uab blazers", "uabblazers"]
+    },
+    {
+      "school": "UCF",
+      "mascot": "Knights",
+      "conference": "Big 12",
+      "alts": ["ucf", "ucf knights", "ucfknights"]
+    },
+    {
+      "school": "UCLA",
+      "mascot": "Bruins",
+      "conference": "Big Ten",
+      "alts": ["ucla", "ucla bruins", "uclabruins"]
+    },
+    {
+      "school": "UConn",
+      "mascot": "Huskies",
+      "conference": "FBS Independents",
+      "alts": ["uconn", "uconn huskies", "uconnhuskies"]
+    },
+    {
+      "school": "UL Monroe",
+      "mascot": "Warhawks",
+      "conference": "Sun Belt",
+      "alts": [
+        "ul monroe",
+        "ul monroe warhawks",
+        "ulmonroe",
+        "ulmonroewarhawks",
+        "louisiana monroe"
+      ]
+    },
+    {
+      "school": "UNLV",
+      "mascot": "Rebels",
+      "conference": "Mountain West",
+      "alts": ["unlv", "unlv rebels", "unlvrebels"]
+    },
+    {
+      "school": "USC",
+      "mascot": "Trojans",
+      "conference": "Big Ten",
+      "alts": ["usc", "usc trojans", "usctrojans"]
+    },
+    {
+      "school": "Utah",
+      "mascot": "Utes",
+      "conference": "Big 12",
+      "alts": ["utah", "utah utes", "utahutes"]
+    },
+    {
+      "school": "Utah State",
+      "mascot": "Aggies",
+      "conference": "Mountain West",
+      "alts": [
+        "utah state",
+        "utah state aggies",
+        "utah st",
+        "utah st.",
+        "utahstate",
+        "utahstateaggies",
+        "utahst",
+        "utahst."
+      ]
+    },
+    {
+      "school": "UTEP",
+      "mascot": "Miners",
+      "conference": "Conference USA",
+      "alts": ["utep", "utep miners", "utepminers"]
+    },
+    {
+      "school": "UTSA",
+      "mascot": "Roadrunners",
+      "conference": "American Athletic",
+      "alts": ["utsa", "utsa roadrunners", "utsaroadrunners"]
+    },
+    {
+      "school": "Vanderbilt",
+      "mascot": "Commodores",
+      "conference": "SEC",
+      "alts": ["vanderbilt", "vanderbilt commodores", "vanderbiltcommodores"]
+    },
+    {
+      "school": "Virginia",
+      "mascot": "Cavaliers",
+      "conference": "ACC",
+      "alts": ["virginia", "virginia cavaliers", "virginiacavaliers"]
+    },
+    {
+      "school": "Virginia Tech",
+      "mascot": "Hokies",
+      "conference": "ACC",
+      "alts": ["virginia tech", "virginia tech hokies", "virginiatech", "virginiatechhokies"]
+    },
+    {
+      "school": "Wake Forest",
+      "mascot": "Demon Deacons",
+      "conference": "ACC",
+      "alts": ["wake forest", "wake forest demon deacons", "wakeforest", "wakeforestdemon"]
+    },
+    {
+      "school": "Washington",
+      "mascot": "Huskies",
+      "conference": "Big Ten",
+      "alts": ["washington", "washington huskies", "washingtonhuskies"]
+    },
+    {
+      "school": "Washington State",
+      "mascot": "Cougars",
+      "conference": "Pac-12",
+      "alts": [
+        "washington state",
+        "washington state cougars",
+        "washington st",
+        "washington st.",
+        "wash st",
+        "washingtonstate",
+        "washingtonstatecougars",
+        "washingtonst",
+        "washingtonst.",
+        "washst"
+      ]
+    },
+    {
+      "school": "Western Kentucky",
+      "mascot": "Hilltoppers",
+      "conference": "Conference USA",
+      "alts": [
+        "western kentucky",
+        "western kentucky hilltoppers",
+        "westernkentucky",
+        "westernkentuckyhilltoppers"
+      ]
+    },
+    {
+      "school": "Western Michigan",
+      "mascot": "Broncos",
+      "conference": "Mid-American",
+      "alts": [
+        "western michigan",
+        "western michigan broncos",
+        "westernmichigan",
+        "westernmichiganbroncos"
+      ]
+    },
+    {
+      "school": "West Virginia",
+      "mascot": "Mountaineers",
+      "conference": "Big 12",
+      "alts": [
+        "west virginia",
+        "west virginia mountaineers",
+        "westvirginia",
+        "westvirginiamountaineers"
+      ]
+    },
+    {
+      "school": "Wisconsin",
+      "mascot": "Badgers",
+      "conference": "Big Ten",
+      "alts": ["wisconsin", "wisconsin badgers", "wisconsinbadgers"]
+    },
+    {
+      "school": "Wyoming",
+      "mascot": "Cowboys",
+      "conference": "Mountain West",
+      "alts": ["wyoming", "wyoming cowboys", "wyomingcowboys"]
+    }
+  ]
+}

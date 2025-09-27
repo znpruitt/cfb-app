@@ -1,0 +1,19 @@
+[
+  {
+    "school": "San José State",
+    "add": ["san jose", "sjsu"],
+    "remove": []
+  },
+  {
+    "school": "Appalachian State",
+    "add": ["appalachian st", "app state", "app st"]
+  },
+  {
+    "school": "Texas A&M",
+    "add": ["texas a and m", "texas am"]
+  },
+  {
+    "school": "Louisiana-Monroe",
+    "add": ["ul monroe", "louisiana monroe"]
+  }
+]
