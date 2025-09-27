@@ -55,21 +55,21 @@ pnpm-lock.yaml    text eol=lf -diff
 # -------------------------------------------------------
 # Images & binaries (no diff)
 # -------------------------------------------------------
-*.png  binary
-*.jpg  binary
-*.jpeg binary
-*.gif  binary
-*.webp binary
-*.ico  binary
-*.svg  text  # SVG is XML; keep as text to diff
-*.pdf  binary
-*.ttf  binary
-*.otf  binary
-*.woff binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.svg   text
+*.pdf   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
 *.woff2 binary
-*.zip  binary
-*.gz   binary
-*.tar  binary
+*.zip   binary
+*.gz    binary
+*.tar   binary
 
 # -------------------------------------------------------
 # Next.js build artifacts (if they ever slip in)
