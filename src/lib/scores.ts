@@ -1,5 +1,7 @@
 import type { DiagEntry } from './diagnostics';
-import { normWithAliases, type AliasMap, variants } from './teamNames';
+import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
+import type { AliasMap } from './teamNames';
+import { fetchTeamsCatalog } from './teamsCatalog';
 
 export type ScoreTeam = { team: string; score: number | null };
 export type ScorePack = {
@@ -9,7 +11,7 @@ export type ScorePack = {
   time: string | null;
 };
 
-export type ScoresDiagEntry = Extract<DiagEntry, { kind: 'scores_miss' | 'week_mismatch' }>;
+export type ScoresDiagEntry = Extract<DiagEntry, { kind: 'scores_miss' | 'week_mismatch' | 'identity_resolution' }>;
 
 type GameLike = {
   key: string;
@@ -75,6 +77,16 @@ function extractRow(sg: WireFlat | WireObj): ScoreRow {
   };
 }
 
+function parseScorePayload(payload: unknown): Array<WireFlat | WireObj> {
+  if (Array.isArray(payload)) {
+    return payload as Array<WireFlat | WireObj>;
+  }
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)) {
+    return (payload as { items: Array<WireFlat | WireObj> }).items;
+  }
+  return [];
+}
+
 function groupRowsByWeek(rows: ScoreRow[]): Map<number, ScoreRow[]> {
   const out = new Map<number, ScoreRow[]>();
   for (const row of rows) {
@@ -95,7 +107,7 @@ async function fetchScoreRows(params: {
 
   const seasonRes = await fetch(`/api/scores?year=${season}`, { cache: 'no-store' });
   if (seasonRes.ok) {
-    const seasonRaw = (await seasonRes.json()) as Array<WireFlat | WireObj>;
+    const seasonRaw = parseScorePayload(await seasonRes.json());
     return seasonRaw.map(extractRow);
   }
 
@@ -111,7 +123,7 @@ async function fetchScoreRows(params: {
       continue;
     }
 
-    const raw = (await weekRes.json()) as Array<WireFlat | WireObj>;
+    const raw = parseScorePayload(await weekRes.json());
     for (const row of raw) {
       const parsed = extractRow(row);
       rows.push({ ...parsed, week: parsed.week ?? w });
@@ -129,76 +141,30 @@ export async function fetchScoresByGame(params: {
   games: GameLike[];
   aliasMap: AliasMap;
   season: number;
+  teams?: TeamCatalogItem[];
 }): Promise<{ scoresByKey: Record<string, ScorePack>; issues: string[]; diag: ScoresDiagEntry[] }> {
-  const { games, aliasMap, season } = params;
+  const { games, aliasMap, season, teams: providedTeams } = params;
   const issues: string[] = [];
   const diag: ScoresDiagEntry[] = [];
 
-  const fbsNorm = new Set<string>();
-  try {
-    const rFbs = await fetch(`/api/teams?year=${season}&level=FBS`, { cache: 'no-store' });
-    if (rFbs.ok) {
-      const data = (await rFbs.json()) as {
-        items: Array<{ school: string; mascot?: string | null }>;
-      };
-      for (const t of data.items) {
-        for (const v of variants(t.school, aliasMap)) fbsNorm.add(v);
-        if (t.mascot) fbsNorm.add(normWithAliases(`${t.school} ${t.mascot}`, aliasMap));
-      }
-    }
-  } catch {
-    // best-effort
-  }
-
-  const fbsFilterActive = fbsNorm.size > 0;
-
-  const normalizedNameCache = new Map<string, string>();
-  const normalizeName = (name: string): string => {
-    const cached = normalizedNameCache.get(name);
-    if (cached) return cached;
-    const normalized = normWithAliases(name, aliasMap);
-    normalizedNameCache.set(name, normalized);
-    return normalized;
-  };
-
-  const variantsCache = new Map<string, string[]>();
-  const variantsForName = (name: string): string[] => {
-    const cached = variantsCache.get(name);
-    if (cached) return cached;
-    const computed = variants(name, aliasMap);
-    variantsCache.set(name, computed);
-    return computed;
-  };
-
-  const isFBSName = (name: string) => {
-    if (!fbsFilterActive) return true;
-    const vs = variantsForName(name);
-    return vs.some((v) => fbsNorm.has(v));
-  };
+  const teams = providedTeams ?? (await fetchTeamsCatalog(season).catch(() => []));
+  const resolver = createTeamIdentityResolver({ aliasMap, teams });
 
   const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
-  const pairKey = (a: string, b: string) => {
-    const x = normalizeName(a);
-    const y = normalizeName(b);
-    return [x, y].sort().join('__');
-  };
-
   const globalIndex = new Map<string, Array<{ week: number; game: GameLike }>>();
-  for (const g of games) {
-    const involvesFbs = fbsFilterActive
-      ? isFBSName(g.canHome) || isFBSName(g.canAway) || isFBSName(g.csvHome) || isFBSName(g.csvAway)
-      : true;
 
-    if (!involvesFbs) continue;
+  for (const g of games) {
+    const involvesFbs = resolver.isFbsName(g.canHome) || resolver.isFbsName(g.canAway);
+    if (teams.length > 0 && !involvesFbs) continue;
 
     const keys = new Set<string>();
-    keys.add(pairKey(g.canHome, g.canAway));
-    keys.add(pairKey(g.csvHome, g.csvAway));
+    keys.add(resolver.buildPairKey(g.canHome, g.canAway));
+    keys.add(resolver.buildPairKey(g.csvHome, g.csvAway));
 
-    for (const k of keys) {
-      const arr = globalIndex.get(k) ?? [];
-      arr.push({ week: g.week, game: g });
-      globalIndex.set(k, arr);
+    for (const key of keys) {
+      const entries = globalIndex.get(key) ?? [];
+      entries.push({ week: g.week, game: g });
+      globalIndex.set(key, entries);
     }
   }
 
@@ -210,87 +176,109 @@ export async function fetchScoresByGame(params: {
   let hardMissCount = 0;
   const maxIssuesPerKind = 10;
 
-  for (const w of loadedWeeks) {
-    const weeklyRows = rowsByWeek.get(w) ?? [];
+  for (const week of loadedWeeks) {
+    const weeklyRows = rowsByWeek.get(week) ?? [];
     for (const row of weeklyRows) {
-      const { homeName, awayName, homeScore, awayScore, status, time } = row;
+      const rowInvolvesFbs = teams.length === 0 || resolver.isFbsName(row.homeName) || resolver.isFbsName(row.awayName);
+      if (teams.length > 0 && !rowInvolvesFbs) continue;
 
-      const rowInvolvesFbs = fbsFilterActive ? isFBSName(homeName) || isFBSName(awayName) : true;
-      if (fbsFilterActive && !rowInvolvesFbs) {
-        const kFcs = pairKey(homeName, awayName);
-        const maybe = globalIndex.get(kFcs);
-        if (!maybe || maybe.length === 0) continue;
-      }
+      const matchKey = resolver.buildPairKey(row.homeName, row.awayName);
+      const matchesAllWeeks = globalIndex.get(matchKey) ?? [];
 
-      const k = pairKey(homeName, awayName);
-      const matchesAllWeeks = globalIndex.get(k) ?? [];
       if (matchesAllWeeks.length === 0) {
-        if (rowInvolvesFbs && hardMissCount < maxIssuesPerKind) {
-          issues.push(`Scores miss (week ${w}): "${homeName}" vs "${awayName}"`);
+        if (hardMissCount < maxIssuesPerKind) {
+          const homeRes = resolver.resolveName(row.homeName);
+          const awayRes = resolver.resolveName(row.awayName);
+
+          issues.push(`Scores miss (week ${week}): "${row.homeName}" vs "${row.awayName}"`);
           diag.push({
             kind: 'scores_miss',
-            week: w,
-            providerHome: homeName,
-            providerAway: awayName,
+            week,
+            providerHome: row.homeName,
+            providerAway: row.awayName,
+            homeIdentity: {
+              normalizedInput: homeRes.normalizedInput,
+              resolutionSource: homeRes.resolutionSource,
+              status: homeRes.status,
+              candidates: homeRes.candidates,
+            },
+            awayIdentity: {
+              normalizedInput: awayRes.normalizedInput,
+              resolutionSource: awayRes.resolutionSource,
+              status: awayRes.status,
+              candidates: awayRes.candidates,
+            },
           });
+
+          if (homeRes.status !== 'resolved') {
+            diag.push({
+              kind: 'identity_resolution',
+              flow: 'scores',
+              rawInput: homeRes.rawInput,
+              normalizedInput: homeRes.normalizedInput,
+              resolutionSource: homeRes.resolutionSource,
+              status: homeRes.status,
+              notes: homeRes.notes,
+              candidates: homeRes.candidates,
+            });
+          }
+          if (awayRes.status !== 'resolved') {
+            diag.push({
+              kind: 'identity_resolution',
+              flow: 'scores',
+              rawInput: awayRes.rawInput,
+              normalizedInput: awayRes.normalizedInput,
+              resolutionSource: awayRes.resolutionSource,
+              status: awayRes.status,
+              notes: awayRes.notes,
+              candidates: awayRes.candidates,
+            });
+          }
         }
-        if (rowInvolvesFbs) hardMissCount++;
+
+        hardMissCount++;
         continue;
       }
 
-      const sameWeek = matchesAllWeeks.find((m) => m.week === w);
+      const sameWeek = matchesAllWeeks.find((candidate) => candidate.week === week);
       if (sameWeek) {
-        const g = sameWeek.game;
-        nextScores[g.key] = {
-          status,
-          time,
-          home: { team: homeName, score: homeScore },
-          away: { team: awayName, score: awayScore },
+        nextScores[sameWeek.game.key] = {
+          status: row.status,
+          time: row.time,
+          home: { team: row.homeName, score: row.homeScore },
+          away: { team: row.awayName, score: row.awayScore },
         };
         continue;
       }
 
-      const otherWeeks = Array.from(new Set(matchesAllWeeks.map((m) => m.week))).sort(
-        (a, b) => a - b
-      );
-      const isFinal = (status || '').toLowerCase().includes('final');
-      const isPrevWeekCarryover = otherWeeks.includes(w - 1);
-      if (isFinal && isPrevWeekCarryover) {
-        continue;
-      }
+      const otherWeeks = Array.from(new Set(matchesAllWeeks.map((entry) => entry.week))).sort((a, b) => a - b);
+      const isFinal = (row.status || '').toLowerCase().includes('final');
+      const isPrevWeekCarryover = otherWeeks.includes(week - 1);
+      if (isFinal && isPrevWeekCarryover) continue;
 
       const alreadyCaptured = matchesAllWeeks.some(({ game }) => Boolean(nextScores[game.key]));
-      if (alreadyCaptured) {
-        continue;
-      }
+      if (alreadyCaptured) continue;
 
-      if (rowInvolvesFbs && weekMismatchCount < maxIssuesPerKind) {
-        const candidates = matchesAllWeeks.map(({ week: wk, game }) => ({
+      if (weekMismatchCount < maxIssuesPerKind) {
+        const candidates = matchesAllWeeks.map(({ week: candidateWeek, game }) => ({
           csvHome: game.csvHome,
           csvAway: game.csvAway,
-          week: wk,
+          week: candidateWeek,
         }));
-        const scheduledPairs = Array.from(
-          new Map(
-            matchesAllWeeks.map(({ week: wk, game }) => [
-              `${wk}-${game.csvHome}-${game.csvAway}`,
-              `wk ${wk}: "${game.csvAway}" vs "${game.csvHome}"`,
-            ])
-          ).values()
-        ).join('; ');
 
         issues.push(
-          `Scores week ${w}: provider reported "${homeName}" vs "${awayName}". Closest scheduled matchup(s): ${scheduledPairs}. Ignoring due to week mismatch.`
+          `Scores week ${week}: provider reported "${row.homeName}" vs "${row.awayName}". Ignoring due to week mismatch.`
         );
+
         diag.push({
           kind: 'week_mismatch',
-          week: w,
-          providerHome: homeName,
-          providerAway: awayName,
+          week,
+          providerHome: row.homeName,
+          providerAway: row.awayName,
           candidates,
         });
       }
-      if (rowInvolvesFbs) weekMismatchCount++;
+      weekMismatchCount++;
     }
   }
 

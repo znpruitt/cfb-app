@@ -1,4 +1,7 @@
-import { normWithAliases, stripDiacritics, type AliasMap, variants } from './teamNames';
+import type { DiagEntry } from './diagnostics';
+import type { AliasMap } from './teamNames';
+import { createTeamIdentityResolver, stripDiacritics } from './teamIdentity';
+import { fetchTeamsCatalog } from './teamsCatalog';
 
 export async function reconcileNamesWithCatalog(params: {
   csvTeams: string[];
@@ -6,75 +9,46 @@ export async function reconcileNamesWithCatalog(params: {
   season: number;
   onTeamsCatalogError?: (message: string) => void;
   persistLearnedAliases?: (upserts: AliasMap) => Promise<void>;
+  onIdentityDiag?: (entry: DiagEntry) => void;
 }): Promise<Record<string, string>> {
-  const { csvTeams, aliasMap, season, onTeamsCatalogError, persistLearnedAliases } = params;
+  const { csvTeams, aliasMap, season, onTeamsCatalogError, persistLearnedAliases, onIdentityDiag } = params;
 
   const out: Record<string, string> = {};
-  let missing: string[] = [];
-
-  for (const raw of csvTeams) {
-    const base = stripDiacritics(raw).toLowerCase().trim();
-    const aliased = aliasMap[base];
-    if (aliased) {
-      out[raw] = aliased;
-    } else {
-      out[raw] = raw;
-      missing.push(raw);
-    }
-  }
-
-  if (!missing.length) return out;
-
   try {
-    const resp = await fetch(`/api/teams?year=${season}`, { cache: 'no-store' });
-    if (!resp.ok) return out;
-
-    const data = (await resp.json()) as {
-      items: Array<{ school: string; mascot?: string | null }>;
-    };
-
-    const index = new Map<string, string>();
-    for (const item of data.items) {
-      const school = item.school;
-      const vs = new Set<string>(variants(school, aliasMap));
-      if (item.mascot) vs.add(normWithAliases(`${school} ${item.mascot}`, aliasMap));
-      vs.forEach((v) => index.set(v, school));
-    }
+    const teams = await fetchTeamsCatalog(season);
+    const resolver = createTeamIdentityResolver({ aliasMap, teams });
 
     const upserts: AliasMap = {};
-    const newlyResolved: string[] = [];
-    for (const raw of missing) {
-      const keys = variants(raw, aliasMap);
-      let hit: string | undefined;
-      for (const k of keys) {
-        if (index.has(k)) {
-          hit = index.get(k);
-          break;
-        }
+    for (const raw of csvTeams) {
+      const resolved = resolver.resolveName(raw);
+      const canonical = resolved.canonicalName ?? raw;
+      out[raw] = canonical;
+
+      if (resolved.status !== 'resolved') {
+        onIdentityDiag?.({
+          kind: 'identity_resolution',
+          flow: 'schedule',
+          rawInput: resolved.rawInput,
+          normalizedInput: resolved.normalizedInput,
+          resolutionSource: resolved.resolutionSource,
+          status: resolved.status,
+          notes: resolved.notes,
+          candidates: resolved.candidates,
+        });
       }
-      if (!hit) {
-        const nk = normWithAliases(raw, aliasMap);
-        for (const [k, school] of index.entries()) {
-          if (k.startsWith(nk) || nk.startsWith(k)) {
-            hit = school;
-            break;
-          }
-        }
-      }
-      if (hit) {
-        out[raw] = hit;
-        upserts[stripDiacritics(raw).toLowerCase().trim()] = hit;
-        newlyResolved.push(raw);
+
+      const aliasKey = stripDiacritics(raw).toLowerCase().trim();
+      if (resolved.status === 'resolved' && canonical !== raw && !aliasMap[aliasKey]) {
+        upserts[aliasKey] = canonical;
       }
     }
 
     if (Object.keys(upserts).length) {
       await persistLearnedAliases?.(upserts);
     }
-
-    missing = missing.filter((m) => !newlyResolved.includes(m));
   } catch (err) {
     onTeamsCatalogError?.((err as Error).message);
+    for (const raw of csvTeams) out[raw] = raw;
   }
 
   return out;

@@ -1,4 +1,5 @@
-import { normWithAliases, type AliasMap, variants } from './teamNames';
+import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
+import type { AliasMap } from './teamNames';
 
 export type OddsOutcome = { name?: string; price?: number; point?: number };
 export type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
@@ -21,8 +22,6 @@ type GameLike = {
 };
 
 type PreparedOddsEvent = {
-  homeNorm: string;
-  awayNorm: string;
   pairKey: string;
   homeTeam: string;
   awayTeam: string;
@@ -39,81 +38,65 @@ function pickPreferredBook(ev: OddsEvent): OddsBookmaker | undefined {
   return books[0];
 }
 
-export function buildOddsByGame(games: GameLike[], oddsEvents: OddsEvent[], aliasMap: AliasMap) {
+export function buildOddsByGame(params: {
+  games: GameLike[];
+  oddsEvents: OddsEvent[];
+  aliasMap: AliasMap;
+  teams: TeamCatalogItem[];
+}) {
+  const { games, oddsEvents, aliasMap, teams } = params;
   const next: Record<string, CombinedOdds> = {};
 
-  const normalizedNameCache = new Map<string, string>();
-  const normalizeName = (name: string): string => {
-    const cached = normalizedNameCache.get(name);
-    if (cached) return cached;
-    const normalized = normWithAliases(name, aliasMap);
-    normalizedNameCache.set(name, normalized);
-    return normalized;
-  };
-
-  const variantsCache = new Map<string, string[]>();
-  const variantsForName = (name: string): string[] => {
-    const cached = variantsCache.get(name);
-    if (cached) return cached;
-    const computed = variants(name, aliasMap);
-    variantsCache.set(name, computed);
-    return computed;
-  };
-
-  const pairKey = (a: string, b: string) => [a, b].sort().join('__');
-
+  const resolver = createTeamIdentityResolver({ aliasMap, teams });
   const preparedEvents: PreparedOddsEvent[] = [];
-  const exactPairIndex = new Map<string, PreparedOddsEvent[]>();
+  const pairIndex = new Map<string, PreparedOddsEvent[]>();
 
   for (const ev of oddsEvents) {
     const homeTeam = ev.home_team || '';
     const awayTeam = ev.away_team || '';
-    const homeNorm = normalizeName(homeTeam);
-    const awayNorm = normalizeName(awayTeam);
-    const pKey = pairKey(homeNorm, awayNorm);
+    const key = resolver.buildPairKey(homeTeam, awayTeam);
 
     const prepared: PreparedOddsEvent = {
-      homeNorm,
-      awayNorm,
-      pairKey: pKey,
+      pairKey: key,
       homeTeam,
       awayTeam,
       book: pickPreferredBook(ev),
     };
 
     preparedEvents.push(prepared);
-    const bucket = exactPairIndex.get(pKey) ?? [];
+    const bucket = pairIndex.get(key) ?? [];
     bucket.push(prepared);
-    exactPairIndex.set(pKey, bucket);
+    pairIndex.set(key, bucket);
   }
 
   for (const g of games) {
-    const homeNorm = normalizeName(g.canHome);
-    const awayNorm = normalizeName(g.canAway);
-    const homeVars = variantsForName(g.canHome);
-    const awayVars = variantsForName(g.canAway);
-
-    let match = exactPairIndex.get(pairKey(homeNorm, awayNorm))?.[0];
+    const gamePairKey = resolver.buildPairKey(g.canHome, g.canAway);
+    let match = pairIndex.get(gamePairKey)?.[0];
 
     if (!match) {
-      match = preparedEvents.find((e) => {
-        const startsEither =
-          (homeVars.some((v) => e.homeNorm.startsWith(v)) &&
-            awayVars.some((v) => e.awayNorm.startsWith(v))) ||
-          (homeVars.some((v) => e.awayNorm.startsWith(v)) &&
-            awayVars.some((v) => e.homeNorm.startsWith(v)));
-        if (startsEither) return true;
+      const homeVariants = resolver.variantsForName(g.canHome);
+      const awayVariants = resolver.variantsForName(g.canAway);
 
-        const containsEither =
-          (homeVars.some((v) => e.homeNorm.includes(v)) &&
-            awayVars.some((v) => e.awayNorm.includes(v))) ||
-          (homeVars.some((v) => e.awayNorm.includes(v)) &&
-            awayVars.some((v) => e.homeNorm.includes(v)));
-        return containsEither;
+      match = preparedEvents.find((event) => {
+        const eventHome = resolver.variantsForName(event.homeTeam);
+        const eventAway = resolver.variantsForName(event.awayTeam);
+        const direct =
+          homeVariants.some((v) => eventHome.includes(v)) &&
+          awayVariants.some((v) => eventAway.includes(v));
+        const swapped =
+          homeVariants.some((v) => eventAway.includes(v)) &&
+          awayVariants.some((v) => eventHome.includes(v));
+        return direct || swapped;
       });
     }
 
     if (!match) continue;
+
+    const teamMatches = (left: string, right: string): boolean => {
+      const l = resolver.resolveName(left);
+      const r = resolver.resolveName(right);
+      return (l.identityKey ?? l.normalizedInput) === (r.identityKey ?? r.normalizedInput);
+    };
 
     const sourceTitle = match.book?.title || match.book?.key || null;
     const markets = match.book?.markets ?? [];
@@ -131,27 +114,24 @@ export function buildOddsByGame(games: GameLike[], oddsEvents: OddsEvent[], alia
     let mlAway: number | null = null;
 
     if (h2h?.outcomes) {
-      const matchHomeNorm = normalizeName(match.homeTeam);
-      const matchAwayNorm = normalizeName(match.awayTeam);
       for (const o of h2h.outcomes) {
-        const nm = normalizeName(o.name || '');
-        if (nm === matchHomeNorm) mlHome = typeof o.price === 'number' ? o.price : null;
-        if (nm === matchAwayNorm) mlAway = typeof o.price === 'number' ? o.price : null;
+        const side = o.name || '';
+        if (teamMatches(side, match.homeTeam)) mlHome = typeof o.price === 'number' ? o.price : null;
+        if (teamMatches(side, match.awayTeam)) mlAway = typeof o.price === 'number' ? o.price : null;
       }
     }
 
     if (spreads?.outcomes) {
-      const matchHomeNorm = normalizeName(match.homeTeam);
-      const matchAwayNorm = normalizeName(match.awayTeam);
-      const hs = spreads.outcomes.find((o) => normalizeName(o.name || '') === matchHomeNorm);
-      const as = spreads.outcomes.find((o) => normalizeName(o.name || '') === matchAwayNorm);
-      const hPoint = typeof hs?.point === 'number' ? hs.point : null;
-      const aPoint = typeof as?.point === 'number' ? as.point : null;
-      if (hPoint != null && aPoint != null) {
-        const hAbs = Math.abs(hPoint);
-        const aAbs = Math.abs(aPoint);
-        spread = hAbs <= aAbs ? hPoint : aPoint;
-        favorite = hAbs < aAbs ? match.homeTeam || null : match.awayTeam || null;
+      const homeOutcome = spreads.outcomes.find((outcome) => teamMatches(outcome.name || '', match.homeTeam));
+      const awayOutcome = spreads.outcomes.find((outcome) => teamMatches(outcome.name || '', match.awayTeam));
+
+      const homePoint = typeof homeOutcome?.point === 'number' ? homeOutcome.point : null;
+      const awayPoint = typeof awayOutcome?.point === 'number' ? awayOutcome.point : null;
+      if (homePoint != null && awayPoint != null) {
+        const homeAbs = Math.abs(homePoint);
+        const awayAbs = Math.abs(awayPoint);
+        spread = homeAbs <= awayAbs ? homePoint : awayPoint;
+        favorite = homeAbs < awayAbs ? match.homeTeam || null : match.awayTeam || null;
       }
     }
 

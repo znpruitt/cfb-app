@@ -17,52 +17,16 @@ import { saveServerAliases } from '../lib/aliasesApi';
 import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { reconcileNamesWithCatalog } from '../lib/reconcileNames';
-import { rebuildGamesFromAliasMap } from '../lib/rebuildGames';
+import { rebuildGamesFromIdentity } from '../lib/rebuildGames';
 import { pillClass } from '../lib/gameUi';
+import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
+import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 
-/* =========================
-   Flags / Season
-   ========================= */
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
 
-/* =========================
-   Types
-   ========================= */
-
-type Game = {
-  key: string;
-  week: number;
-
-  // Display names from CSV
-  csvAway: string;
-  csvHome: string;
-  neutral: boolean;
-
-  // Reconciled canonical names (for odds/scores matching)
-  canAway: string;
-  canHome: string;
-
-  // Conferences for both schools (from CSV)
-  awayConf: string;
-  homeConf: string;
-};
-
-/* =========================
-   Small utils
-   ========================= */
-
-function neutralKey(week: number, a: string, b: string): string {
-  const pair = [a, b].sort((x, y) => x.localeCompare(y));
-  return `${week}-${pair[0]}-${pair[1]}-N`;
-}
-
-/* =========================
-   Component
-   ========================= */
-
 export default function CFBScheduleApp(): React.ReactElement {
-  const [games, setGames] = useState<Game[]>([]);
+  const [games, setGames] = useState<AppGame[]>([]);
   const [weeks, setWeeks] = useState<number[]>([]);
   const [byes, setByes] = useState<Record<number, string[]>>({});
   const [conferences, setConferences] = useState<string[]>(['ALL']);
@@ -81,15 +45,16 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [editOpen, setEditOpen] = useState<boolean>(false);
   const [editDraft, setEditDraft] = useState<Array<{ key: string; value: string }>>([]);
 
-  /* === New: diagnostics + alias staging UI state === */
   const [diag, setDiag] = useState<DiagEntry[]>([]);
   const [aliasStaging, setAliasStaging] = useState<AliasStaging>({ upserts: {}, deletes: [] });
   const [aliasToast, setAliasToast] = useState<string | null>(null);
 
+  // Legacy schedule CSV cache is retained as migration fallback while API-first becomes default.
   const [scheduleLoadedFromCache, setScheduleLoadedFromCache] = useState<boolean>(false);
   const [ownersLoadedFromCache, setOwnersLoadedFromCache] = useState<boolean>(false);
   const [hasCachedSchedule, setHasCachedSchedule] = useState<boolean>(false);
   const [hasCachedOwners, setHasCachedOwners] = useState<boolean>(false);
+  const [scheduleSource, setScheduleSource] = useState<'api' | 'csv-legacy' | 'none'>('none');
 
   const applySavedAliasMap = useCallback((saved: AliasMap) => {
     setAliasMap(saved);
@@ -104,8 +69,6 @@ export default function CFBScheduleApp(): React.ReactElement {
     },
     [applySavedAliasMap]
   );
-
-  /* ===== Owners CSV ===== */
 
   const tryParseOwnersCSV = useCallback((text: string) => {
     setRoster(parseOwnersCsv(text));
@@ -124,13 +87,12 @@ export default function CFBScheduleApp(): React.ReactElement {
     setIssues([]);
     setDiag([]);
     setLastRefreshAt('');
+    setScheduleSource('none');
   }, []);
 
   const clearOwnersDerivedState = useCallback(() => {
     setRoster([]);
   }, []);
-
-  /* ===== CSV name reconciliation using aliasMap first ===== */
 
   const reconcileNames = useCallback(
     async (csvTeams: string[]): Promise<Record<string, string>> => {
@@ -141,19 +103,18 @@ export default function CFBScheduleApp(): React.ReactElement {
         onTeamsCatalogError: (message) => {
           setIssues((p) => [...p, `Teams catalog fetch failed: ${message}`]);
         },
+        onIdentityDiag: (entry) => setDiag((p) => [...p, entry]),
         persistLearnedAliases: async (upserts) => {
           try {
             await persistAliasChanges(upserts, []);
           } catch {
-            // ignore network failures; best-effort
+            // best-effort only
           }
         },
       });
     },
     [aliasMap, persistAliasChanges]
   );
-
-  /* ===== Schedule CSV (Two-pass + conflict detection + alias use) ===== */
 
   const tryParseScheduleCSV = useCallback(
     async (text: string) => {
@@ -166,17 +127,14 @@ export default function CFBScheduleApp(): React.ReactElement {
         return;
       }
 
-      // Reconcile canonical names using aliasMap + catalog fallback
-      const csvTeams = Array.from(
-        new Set<string>(draftGames.flatMap((g) => [g.csvHome, g.csvAway]))
-      );
+      const csvTeams = Array.from(new Set<string>(draftGames.flatMap((g) => [g.csvHome, g.csvAway])));
       const mapObj = await reconcileNames(csvTeams);
 
-      const finalGames: Game[] = draftGames.map((g) => {
+      const finalGames: AppGame[] = draftGames.map((g) => {
         const canAway = mapObj[g.csvAway] ?? g.csvAway;
         const canHome = mapObj[g.csvHome] ?? g.csvHome;
         const key = g.neutral
-          ? neutralKey(g.week, canHome, canAway)
+          ? `${g.week}-${[canHome, canAway].sort((x, y) => x.localeCompare(y)).join('-')}-N`
           : `${g.week}-${canHome}-${canAway}-H`;
         return {
           key,
@@ -195,17 +153,51 @@ export default function CFBScheduleApp(): React.ReactElement {
       setWeeks([...new Set(finalGames.map((g) => g.week))].sort((a, b) => a - b));
       setByes(byeMap);
       setConferences(parsedConferences);
+      setScheduleSource('csv-legacy');
       if (selectedWeek == null && finalGames.length) setSelectedWeek(finalGames[0]!.week);
     },
-    [clearScheduleDerivedState, reconcileNames, selectedWeek, setIssues]
+    [clearScheduleDerivedState, reconcileNames, selectedWeek]
   );
+
+  // API-first schedule loader. CFBD now defines the game universe for normal operation.
+  const loadScheduleFromApi = useCallback(async (overrideAliasMap?: AliasMap): Promise<boolean> => {
+    try {
+      const [scheduleItems, teams] = await Promise.all([
+        fetchSeasonSchedule(SEASON),
+        fetchTeamsCatalog(SEASON),
+      ]);
+      const built = buildScheduleFromApi({
+        scheduleItems,
+        teams,
+        aliasMap: overrideAliasMap ?? aliasMap,
+      });
+
+      if (!built.games.length) {
+        clearScheduleDerivedState();
+        return false;
+      }
+
+      setGames(built.games);
+      setWeeks(built.weeks);
+      setByes(built.byes);
+      setConferences(built.conferences);
+      setScheduleSource('api');
+      if (selectedWeek == null && built.games.length) setSelectedWeek(built.games[0]!.week);
+      return true;
+    } catch (error) {
+      setIssues((prev) => [...prev, `CFBD schedule load failed: ${(error as Error).message}`]);
+      return false;
+    }
+  }, [aliasMap, clearScheduleDerivedState, selectedWeek]);
 
   const clearCachedSchedule = useCallback(() => {
     window.localStorage.removeItem('cfb_schedule_csv');
     setHasCachedSchedule(false);
     setScheduleLoadedFromCache(false);
-    clearScheduleDerivedState();
-  }, [clearScheduleDerivedState]);
+    if (scheduleSource === 'csv-legacy') {
+      clearScheduleDerivedState();
+    }
+  }, [clearScheduleDerivedState, scheduleSource]);
 
   const clearCachedOwners = useCallback(() => {
     window.localStorage.removeItem('cfb_owners_csv');
@@ -219,35 +211,30 @@ export default function CFBScheduleApp(): React.ReactElement {
     setTimeout(() => setAliasToast(null), timeoutMs);
   }, []);
 
-  /* ===== Initial load: aliases (server -> localStorage), cached CSVs ===== */
-
-  // Bootstrap aliases and cached CSV payloads once, then parse through the same handlers.
   useEffect(() => {
     (async () => {
-      const {
-        aliasMap: bootAliasMap,
-        aliasLoadIssue,
-        scheduleCsvText,
-        ownersCsvText,
-      } = await bootstrapAliasesAndCaches({ season: SEASON, seedAliases: SEED_ALIASES });
+      const { aliasMap: bootAliasMap, aliasLoadIssue, scheduleCsvText, ownersCsvText } =
+        await bootstrapAliasesAndCaches({ season: SEASON, seedAliases: SEED_ALIASES });
 
       setAliasMap(bootAliasMap);
       if (aliasLoadIssue) setIssues((p) => [...p, aliasLoadIssue]);
 
       setHasCachedSchedule(Boolean(scheduleCsvText));
       setHasCachedOwners(Boolean(ownersCsvText));
-      if (scheduleCsvText) {
+
+      const apiLoaded = await loadScheduleFromApi(bootAliasMap);
+
+      if (!apiLoaded && scheduleCsvText) {
         setScheduleLoadedFromCache(true);
-        void tryParseScheduleCSV(scheduleCsvText);
+        await tryParseScheduleCSV(scheduleCsvText);
       }
+
       if (ownersCsvText) {
         setOwnersLoadedFromCache(true);
         tryParseOwnersCSV(ownersCsvText);
       }
     })();
-  }, [tryParseScheduleCSV, tryParseOwnersCSV]);
-
-  /* ===== File inputs ===== */
+  }, [loadScheduleFromApi, tryParseOwnersCSV, tryParseScheduleCSV]);
 
   const onScheduleFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -275,15 +262,13 @@ export default function CFBScheduleApp(): React.ReactElement {
     [tryParseOwnersCSV]
   );
 
-  /* ===== Derived ===== */
-
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of roster) m.set(r.team, r.owner);
     return m;
   }, [roster]);
 
-  function filteredWeekGames(w: number): Game[] {
+  function filteredWeekGames(w: number): AppGame[] {
     return games
       .filter((g) => g.week === w)
       .filter((g) => {
@@ -297,35 +282,30 @@ export default function CFBScheduleApp(): React.ReactElement {
         return confOk && teamOk;
       })
       .sort((a, b) => {
-        const aMarquee = Number(
-          Boolean(rosterByTeam.get(a.csvHome) || rosterByTeam.get(a.csvAway))
-        );
-        const bMarquee = Number(
-          Boolean(rosterByTeam.get(b.csvHome) || rosterByTeam.get(b.csvAway))
-        );
+        const aMarquee = Number(Boolean(rosterByTeam.get(a.csvHome) || rosterByTeam.get(a.csvAway)));
+        const bMarquee = Number(Boolean(rosterByTeam.get(b.csvHome) || rosterByTeam.get(b.csvAway)));
         return bMarquee - aMarquee || a.csvHome.localeCompare(b.csvHome);
       });
   }
 
-  /* ===== Refresh odds & scores ===== */
-
-  // Live refresh remains orchestrated here; heavy odds/scores logic is delegated to src/lib.
   const refreshLive = useCallback(async () => {
     setIssues([]);
-    setDiag([]); // clear structured diagnostics at start
+    setDiag([]);
     if (!games.length) {
-      setIssues((p) => [...p, 'No games loaded. Upload your Schedule CSV first.']);
+      setIssues((p) => [...p, 'No games loaded. CFBD schedule load may have failed; CSV fallback is still available.']);
       return;
     }
+
     setLoadingLive(true);
     try {
-      // ---- ODDS ----
+      const teams = await fetchTeamsCatalog(SEASON).catch(() => []);
+
       try {
         const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
         if (oddsRes.ok) {
           const oddsPayload = (await oddsRes.json()) as OddsEvent[] | { items?: OddsEvent[] };
           const oddsEvents = Array.isArray(oddsPayload) ? oddsPayload : (oddsPayload.items ?? []);
-          const next = buildOddsByGame(games, oddsEvents, aliasMap);
+          const next = buildOddsByGame({ games, oddsEvents, aliasMap, teams });
           setOddsByKey(next);
         } else {
           const t = await oddsRes.text().catch(() => '');
@@ -335,16 +315,12 @@ export default function CFBScheduleApp(): React.ReactElement {
         setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
       }
 
-      // ---- SCORES (robust week-scoped matching with FBS filter + quiet prior-week finals) ----
       try {
-        const {
-          scoresByKey: nextScores,
-          issues: scoreIssues,
-          diag: scoreDiag,
-        } = await fetchScoresByGame({
+        const { scoresByKey: nextScores, issues: scoreIssues, diag: scoreDiag } = await fetchScoresByGame({
           games,
           aliasMap,
           season: SEASON,
+          teams,
         });
 
         if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
@@ -360,8 +336,6 @@ export default function CFBScheduleApp(): React.ReactElement {
     }
   }, [games, aliasMap]);
 
-  /* ===== New: alias quick-add helpers (after refreshLive to avoid cyclic deps) ===== */
-
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
       setAliasStaging((prev) => stageAliasFromMiss(providerName, csvName, prev));
@@ -372,11 +346,13 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   const rebuildGamesWithCurrentAliases = useCallback(async () => {
     if (!games.length) return;
-    const teams = Array.from(new Set<string>(games.flatMap((g) => [g.csvHome, g.csvAway])));
-    const mapObj = await reconcileNames(teams);
-    const rebuilt = rebuildGamesFromAliasMap(games, mapObj);
+
+    const teams = await fetchTeamsCatalog(SEASON).catch(() => []);
+    if (!teams.length) return;
+
+    const rebuilt = rebuildGamesFromIdentity({ games, teams, aliasMap });
     setGames(rebuilt);
-  }, [games, reconcileNames]);
+  }, [games, aliasMap]);
 
   const rebuildKeysAndRefresh = useCallback(async () => {
     await rebuildGamesWithCurrentAliases();
@@ -389,14 +365,17 @@ export default function CFBScheduleApp(): React.ReactElement {
       await persistAliasChanges(aliasStaging.upserts, aliasStaging.deletes);
       setAliasStaging({ upserts: {}, deletes: [] });
       showAliasToast('Aliases saved. Rebuilding…', 1800);
-      await rebuildKeysAndRefresh();
+
+      if (scheduleSource === 'api') {
+        await loadScheduleFromApi();
+      } else {
+        await rebuildKeysAndRefresh();
+      }
     } catch (err) {
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
       showAliasToast('Alias save failed.', 1800);
     }
-  }, [aliasStaging, persistAliasChanges, rebuildKeysAndRefresh, showAliasToast]);
-
-  /* ===== Alias editor (optional) ===== */
+  }, [aliasStaging, persistAliasChanges, showAliasToast, scheduleSource, loadScheduleFromApi, rebuildKeysAndRefresh]);
 
   const openEditor = useCallback(() => {
     setEditDraft(
@@ -424,7 +403,6 @@ export default function CFBScheduleApp(): React.ReactElement {
   }, []);
 
   const saveDraft = useCallback(async () => {
-    // Build upserts and deletes from draft vs existing
     const cleaned: AliasMap = {};
     for (const row of editDraft) {
       const k = stripDiacritics(row.key).toLowerCase().trim();
@@ -441,14 +419,15 @@ export default function CFBScheduleApp(): React.ReactElement {
     try {
       await persistAliasChanges(cleaned, deletes);
       setEditOpen(false);
-      // Rebuild game keys with new aliases only if games are loaded
-      await rebuildGamesWithCurrentAliases();
+      if (scheduleSource === 'api') {
+        await loadScheduleFromApi();
+      } else {
+        await rebuildGamesWithCurrentAliases();
+      }
     } catch (err) {
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
     }
-  }, [editDraft, aliasMap, persistAliasChanges, rebuildGamesWithCurrentAliases]);
-
-  /* ===== UI ===== */
+  }, [editDraft, aliasMap, persistAliasChanges, scheduleSource, loadScheduleFromApi, rebuildGamesWithCurrentAliases]);
 
   return (
     <div className="p-6 space-y-6 text-gray-900 bg-white dark:text-zinc-100 dark:bg-zinc-950">
@@ -456,7 +435,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         <div>
           <h1 className="text-2xl font-bold">CFB Office Pool</h1>
           <p className="text-sm text-gray-600 dark:text-zinc-400">
-            Upload CSVs, maintain team aliases (persistent), then refresh odds &amp; scores.
+            API-first schedule (CFBD), owners CSV support, and persistent aliases for manual repair.
           </p>
         </div>
         <div className="flex items-end gap-2">
@@ -466,7 +445,7 @@ export default function CFBScheduleApp(): React.ReactElement {
             }`}
             onClick={() => void refreshLive()}
             disabled={loadingLive || games.length === 0}
-            title={games.length === 0 ? 'Upload your Schedule CSV first' : 'Refresh odds & scores'}
+            title={games.length === 0 ? 'Schedule load failed' : 'Refresh odds & scores'}
           >
             {loadingLive ? 'Refreshing…' : 'Refresh odds & scores'}
           </button>
@@ -476,6 +455,13 @@ export default function CFBScheduleApp(): React.ReactElement {
             title="Edit alias map (persists on server)"
           >
             Edit Aliases
+          </button>
+          <button
+            className="px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+            onClick={() => void loadScheduleFromApi()}
+            title="Reload schedule from CFBD"
+          >
+            Reload schedule
           </button>
           {lastRefreshAt && (
             <span className="text-xs text-gray-600 dark:text-zinc-400">Last: {lastRefreshAt}</span>
@@ -514,6 +500,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         ownersLoadedFromCache={ownersLoadedFromCache}
         hasCachedSchedule={hasCachedSchedule}
         hasCachedOwners={hasCachedOwners}
+        scheduleSource={scheduleSource}
         onScheduleFile={onScheduleFile}
         onOwnersFile={onOwnersFile}
         onClearCachedSchedule={clearCachedSchedule}
