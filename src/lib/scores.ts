@@ -36,6 +36,8 @@ type WireObj = {
   away: WireSide;
 };
 
+type ScoresApiPayload = Array<WireFlat | WireObj> | { items?: Array<WireFlat | WireObj> };
+
 function extractRow(sg: WireFlat | WireObj) {
   if (typeof (sg as WireFlat).home === 'string') {
     const flat = sg as WireFlat;
@@ -132,7 +134,8 @@ export async function fetchScoresByGame(params: {
       continue;
     }
 
-    const raw = (await r.json()) as Array<WireFlat | WireObj>;
+    const payload = (await r.json()) as ScoresApiPayload;
+    const raw = Array.isArray(payload) ? payload : (payload.items ?? []);
 
     for (const row of raw) {
       const { homeName, awayName, homeScore, awayScore, status, time } = extractRow(row);

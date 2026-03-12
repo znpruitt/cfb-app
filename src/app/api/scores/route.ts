@@ -11,6 +11,18 @@ interface ScorePack {
   time: string | null;
 }
 
+interface ScoresMeta {
+  source: 'cfbd' | 'espn';
+  cache: 'hit' | 'miss';
+  fallbackUsed: boolean;
+  generatedAt: string;
+}
+
+interface ScoresResponse {
+  items: ScorePack[];
+  meta: ScoresMeta;
+}
+
 /** CFBD game (we accept multiple key variants) */
 type CfbdGameLoose = {
   season?: number;
@@ -149,8 +161,13 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 /* -------- cache -------- */
 
 type CacheKey = `${number}-${number}-${SeasonType}`;
-const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[] }> = {};
+const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[]; source: 'cfbd' | 'espn' }> =
+  {};
 const CACHE_TTL_MS = 60 * 1000;
+
+function responseFrom(items: ScorePack[], meta: ScoresMeta, status = 200) {
+  return NextResponse.json<ScoresResponse>({ items, meta }, { status });
+}
 
 export async function GET(req: Request) {
   const u = new URL(req.url);
@@ -169,7 +186,12 @@ export async function GET(req: Request) {
   const now = Date.now();
   const hit = SCORES_CACHE[cacheKey];
   if (hit && now - hit.at < CACHE_TTL_MS) {
-    return NextResponse.json(hit.items, { status: 200 });
+    return responseFrom(hit.items, {
+      source: hit.source,
+      cache: 'hit',
+      fallbackUsed: hit.source === 'espn',
+      generatedAt: new Date(hit.at).toISOString(),
+    });
   }
 
   // 1) CFBD (preferred)
@@ -196,8 +218,13 @@ export async function GET(req: Request) {
       }
 
       if (items.length > 0) {
-        SCORES_CACHE[cacheKey] = { at: now, items };
-        return NextResponse.json(items, { status: 200 });
+        SCORES_CACHE[cacheKey] = { at: now, items, source: 'cfbd' };
+        return responseFrom(items, {
+          source: 'cfbd',
+          cache: 'miss',
+          fallbackUsed: false,
+          generatedAt: new Date(now).toISOString(),
+        });
       }
     }
   } catch {
@@ -222,8 +249,13 @@ export async function GET(req: Request) {
       if (pack) items.push(pack);
     }
 
-    SCORES_CACHE[cacheKey] = { at: now, items };
-    return NextResponse.json(items, { status: 200 });
+    SCORES_CACHE[cacheKey] = { at: now, items, source: 'espn' };
+    return responseFrom(items, {
+      source: 'espn',
+      cache: 'miss',
+      fallbackUsed: true,
+      generatedAt: new Date(now).toISOString(),
+    });
   } catch (err) {
     const msg = (err as Error).message || 'unknown error';
     return NextResponse.json({ error: 'all sources failed', detail: msg }, { status: 502 });

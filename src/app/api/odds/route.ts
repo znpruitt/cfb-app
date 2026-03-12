@@ -3,6 +3,18 @@ type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
 type OddsBookmaker = { key?: string; markets?: OddsMarket[] };
 type OddsEvent = { home_team?: string; away_team?: string; bookmakers?: OddsBookmaker[] };
 
+interface OddsMeta {
+  source: 'odds-api';
+  cache: 'hit' | 'miss';
+  fallbackUsed: boolean;
+  generatedAt: string;
+}
+
+interface OddsResponse {
+  items: OddsEvent[];
+  meta: OddsMeta;
+}
+
 const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/odds';
 const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
 const MARKETS = ['h2h', 'spreads', 'totals'];
@@ -13,6 +25,13 @@ type OddsCache = {
   dayKey: string | null;
   callsToday: number;
 };
+
+function responseFrom(items: OddsEvent[], meta: OddsMeta, status = 200): Response {
+  return new Response(JSON.stringify({ items, meta } satisfies OddsResponse), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 const oddsCache: OddsCache = {
   data: null,
@@ -72,8 +91,11 @@ export async function GET(): Promise<Response> {
       }
     }
 
-    return new Response(JSON.stringify(oddsCache.data ?? []), {
-      headers: { 'Content-Type': 'application/json' },
+    return responseFrom(oddsCache.data ?? [], {
+      source: 'odds-api',
+      cache: stale || !oddsCache.data ? 'miss' : 'hit',
+      fallbackUsed: false,
+      generatedAt: new Date(oddsCache.lastFetch || Date.now()).toISOString(),
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'internal error';
