@@ -111,6 +111,25 @@ export default function CFBScheduleApp(): React.ReactElement {
     setRoster(parseOwnersCsv(text));
   }, []);
 
+  const clearScheduleDerivedState = useCallback(() => {
+    setGames([]);
+    setWeeks([]);
+    setByes({});
+    setConferences(['ALL']);
+    setSelectedWeek(null);
+    setSelectedConference('ALL');
+    setTeamFilter('');
+    setOddsByKey({});
+    setScoresByKey({});
+    setIssues([]);
+    setDiag([]);
+    setLastRefreshAt('');
+  }, []);
+
+  const clearOwnersDerivedState = useCallback(() => {
+    setRoster([]);
+  }, []);
+
   /* ===== CSV name reconciliation using aliasMap first ===== */
 
   const reconcileNames = useCallback(
@@ -142,7 +161,10 @@ export default function CFBScheduleApp(): React.ReactElement {
         onConflict: (msg) => setIssues((p) => [...p, msg]),
       });
       const { draftGames, byeMap, conferences: parsedConferences } = parsed;
-      if (!draftGames.length) return;
+      if (!draftGames.length) {
+        clearScheduleDerivedState();
+        return;
+      }
 
       // Reconcile canonical names using aliasMap + catalog fallback
       const csvTeams = Array.from(
@@ -175,27 +197,8 @@ export default function CFBScheduleApp(): React.ReactElement {
       setConferences(parsedConferences);
       if (selectedWeek == null && finalGames.length) setSelectedWeek(finalGames[0]!.week);
     },
-    [reconcileNames, selectedWeek, setIssues]
+    [clearScheduleDerivedState, reconcileNames, selectedWeek, setIssues]
   );
-
-  const clearScheduleDerivedState = useCallback(() => {
-    setGames([]);
-    setWeeks([]);
-    setByes({});
-    setConferences(['ALL']);
-    setSelectedWeek(null);
-    setSelectedConference('ALL');
-    setTeamFilter('');
-    setOddsByKey({});
-    setScoresByKey({});
-    setIssues([]);
-    setDiag([]);
-    setLastRefreshAt('');
-  }, []);
-
-  const clearOwnersDerivedState = useCallback(() => {
-    setRoster([]);
-  }, []);
 
   const clearCachedSchedule = useCallback(() => {
     window.localStorage.removeItem('cfb_schedule_csv');
