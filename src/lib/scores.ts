@@ -21,6 +21,7 @@ type GameLike = {
 };
 
 type WireFlat = {
+  week?: number | null;
   status: string;
   home: string;
   away: string;
@@ -30,16 +31,28 @@ type WireFlat = {
 };
 type WireSide = { team?: string; score?: number | null } | null | undefined;
 type WireObj = {
+  week?: number | null;
   status: string;
   time: string | null;
   home: WireSide;
   away: WireSide;
 };
 
-function extractRow(sg: WireFlat | WireObj) {
+type ScoreRow = {
+  week: number | null;
+  homeName: string;
+  awayName: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  status: string;
+  time: string | null;
+};
+
+function extractRow(sg: WireFlat | WireObj): ScoreRow {
   if (typeof (sg as WireFlat).home === 'string') {
     const flat = sg as WireFlat;
     return {
+      week: typeof flat.week === 'number' ? flat.week : null,
       homeName: flat.home || '',
       awayName: flat.away || '',
       homeScore: flat.homeScore ?? null,
@@ -52,6 +65,7 @@ function extractRow(sg: WireFlat | WireObj) {
   const h = obj.home ?? null;
   const a = obj.away ?? null;
   return {
+    week: typeof obj.week === 'number' ? obj.week : null,
     homeName: (h?.team ?? '') as string,
     awayName: (a?.team ?? '') as string,
     homeScore: (typeof h?.score === 'number' ? h?.score : (h?.score ?? null)) as number | null,
@@ -59,6 +73,56 @@ function extractRow(sg: WireFlat | WireObj) {
     status: obj.status || '',
     time: obj.time ?? null,
   };
+}
+
+function groupRowsByWeek(rows: ScoreRow[]): Map<number, ScoreRow[]> {
+  const out = new Map<number, ScoreRow[]>();
+  for (const row of rows) {
+    if (typeof row.week !== 'number') continue;
+    const bucket = out.get(row.week) ?? [];
+    bucket.push(row);
+    out.set(row.week, bucket);
+  }
+  return out;
+}
+
+async function fetchScoreRows(params: {
+  season: number;
+  weeks: number[];
+  issues: string[];
+}): Promise<ScoreRow[]> {
+  const { season, weeks, issues } = params;
+
+  const seasonRes = await fetch(`/api/scores?year=${season}`, { cache: 'no-store' });
+  if (seasonRes.ok) {
+    const seasonRaw = (await seasonRes.json()) as Array<WireFlat | WireObj>;
+    return seasonRaw.map(extractRow);
+  }
+
+  const seasonErr = await seasonRes.text().catch(() => '');
+  const seasonFallbackIssue = `Scores season ${season}: ${seasonRes.status} ${seasonErr}`;
+
+  const rows: ScoreRow[] = [];
+  for (const w of weeks) {
+    const weekRes = await fetch(`/api/scores?week=${w}&year=${season}`, { cache: 'no-store' });
+    if (!weekRes.ok) {
+      const weekErr = await weekRes.text().catch(() => '');
+      issues.push(`Scores week ${w}: ${weekRes.status} ${weekErr}`);
+      continue;
+    }
+
+    const raw = (await weekRes.json()) as Array<WireFlat | WireObj>;
+    for (const row of raw) {
+      const parsed = extractRow(row);
+      rows.push({ ...parsed, week: parsed.week ?? w });
+    }
+  }
+
+  if (rows.length === 0) {
+    issues.push(seasonFallbackIssue);
+  }
+
+  return rows;
 }
 
 export async function fetchScoresByGame(params: {
@@ -87,16 +151,35 @@ export async function fetchScoresByGame(params: {
   }
 
   const fbsFilterActive = fbsNorm.size > 0;
+
+  const normalizedNameCache = new Map<string, string>();
+  const normalizeName = (name: string): string => {
+    const cached = normalizedNameCache.get(name);
+    if (cached) return cached;
+    const normalized = normWithAliases(name, aliasMap);
+    normalizedNameCache.set(name, normalized);
+    return normalized;
+  };
+
+  const variantsCache = new Map<string, string[]>();
+  const variantsForName = (name: string): string[] => {
+    const cached = variantsCache.get(name);
+    if (cached) return cached;
+    const computed = variants(name, aliasMap);
+    variantsCache.set(name, computed);
+    return computed;
+  };
+
   const isFBSName = (name: string) => {
     if (!fbsFilterActive) return true;
-    const vs = variants(name, aliasMap);
+    const vs = variantsForName(name);
     return vs.some((v) => fbsNorm.has(v));
   };
 
-  const weeksSet = new Set<number>(games.map((g) => g.week));
+  const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
   const pairKey = (a: string, b: string) => {
-    const x = normWithAliases(a, aliasMap);
-    const y = normWithAliases(b, aliasMap);
+    const x = normalizeName(a);
+    const y = normalizeName(b);
     return [x, y].sort().join('__');
   };
 
@@ -119,23 +202,18 @@ export async function fetchScoresByGame(params: {
     }
   }
 
+  const rows = await fetchScoreRows({ season, weeks: loadedWeeks, issues });
+  const rowsByWeek = groupRowsByWeek(rows);
+
   const nextScores: Record<string, ScorePack> = {};
   let weekMismatchCount = 0;
   let hardMissCount = 0;
   const maxIssuesPerKind = 10;
 
-  for (const w of weeksSet) {
-    const r = await fetch(`/api/scores?week=${w}`, { cache: 'no-store' });
-    if (!r.ok) {
-      const t = await r.text().catch(() => '');
-      issues.push(`Scores week ${w}: ${r.status} ${t}`);
-      continue;
-    }
-
-    const raw = (await r.json()) as Array<WireFlat | WireObj>;
-
-    for (const row of raw) {
-      const { homeName, awayName, homeScore, awayScore, status, time } = extractRow(row);
+  for (const w of loadedWeeks) {
+    const weeklyRows = rowsByWeek.get(w) ?? [];
+    for (const row of weeklyRows) {
+      const { homeName, awayName, homeScore, awayScore, status, time } = row;
 
       const rowInvolvesFbs = fbsFilterActive ? isFBSName(homeName) || isFBSName(awayName) : true;
       if (fbsFilterActive && !rowInvolvesFbs) {
