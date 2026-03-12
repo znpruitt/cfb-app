@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 120;
 
 type SeasonType = 'regular' | 'postseason';
 
 interface ScorePack {
+  week: number | null;
   status: string;
   home: { team: string; score: number | null };
   away: { team: string; score: number | null };
@@ -110,6 +112,7 @@ function toScorePackFromCfbd(g: CfbdGameLoose): ScorePack | null {
   const awayScore = firstNum([g.away_points ?? null, g.awayPoints ?? null, g.away_score ?? null]);
 
   return {
+    week: typeof g.week === 'number' ? g.week : null,
     status: toStatus(g.status, g.completed ?? null),
     time: g.start_date ?? null,
     home: { team: homeTeam, score: homeScore },
@@ -117,7 +120,7 @@ function toScorePackFromCfbd(g: CfbdGameLoose): ScorePack | null {
   };
 }
 
-function toScorePackFromEspn(ev: EspnEvent): ScorePack | null {
+function toScorePackFromEspn(ev: EspnEvent, week: number | null): ScorePack | null {
   const comp = ev.competitions?.[0];
   if (!comp) return null;
   const t = comp.status?.type;
@@ -142,6 +145,7 @@ function toScorePackFromEspn(ev: EspnEvent): ScorePack | null {
   const a = Number.parseInt(awayRef.score ?? '', 10);
 
   return {
+    week,
     status,
     time: t?.shortDetail ?? null,
     home: { team: homeRef.team.displayName, score: Number.isFinite(h) ? h : null },
@@ -167,6 +171,19 @@ const CACHE_TTL_MS = 60 * 1000;
 
 function responseFrom(items: ScorePack[], meta: ScoresMeta, status = 200) {
   return NextResponse.json<ScoresResponse>({ items, meta }, { status });
+type CacheWeek = number | 'all';
+type CacheKey = `${number}-${CacheWeek}-${SeasonType}`;
+const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[] }> = {};
+const CACHE_TTL_MS = 60 * 1000;
+
+function badRequest(field: string, value: string | null, error: string) {
+  return NextResponse.json({ error, field, value }, { status: 400 });
+}
+
+function parseNonNegativeInt(raw: string | null): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return parsed >= 0 ? parsed : null;
 }
 
 export async function GET(req: Request) {
@@ -175,14 +192,48 @@ export async function GET(req: Request) {
   const yearParam = u.searchParams.get('year');
   const seasonParam = u.searchParams.get('seasonType');
 
-  if (!weekParam || !/^\d+$/.test(weekParam)) {
-    return NextResponse.json({ error: 'week required (integer)' }, { status: 400 });
+  let week: number | null = null;
+  if (weekParam !== null) {
+    const parsedWeek = parseNonNegativeInt(weekParam);
+    if (parsedWeek === null) {
+      return badRequest('week', weekParam, 'week must be a non-negative integer when provided');
+    }
+    week = parsedWeek;
   }
-  const week = Number.parseInt(weekParam, 10);
+
+  const currentYear = new Date().getUTCFullYear();
+  const minYear = 2000;
+  const maxYear = currentYear + 1;
+  let year = seasonYearForToday();
+  if (yearParam !== null) {
+    const parsedYear = parseNonNegativeInt(yearParam);
+    if (parsedYear === null || parsedYear < minYear || parsedYear > maxYear) {
+      return badRequest(
+        'year',
+        yearParam,
+        `year must be an integer between ${minYear} and ${maxYear}`
+      );
+    }
+    year = parsedYear;
+  }
+
+  let seasonType: SeasonType = 'regular';
+  if (seasonParam !== null) {
+    if (seasonParam === 'regular' || seasonParam === 'postseason') {
+      seasonType = seasonParam;
+    } else {
+      return badRequest('seasonType', seasonParam, 'seasonType must be "regular" or "postseason"');
+    }
+  }
+
+  if (weekParam && !/^\d+$/.test(weekParam)) {
+    return NextResponse.json({ error: 'week must be an integer when provided' }, { status: 400 });
+  }
+  const week = weekParam ? Number.parseInt(weekParam, 10) : null;
   const year = yearParam ? Number.parseInt(yearParam, 10) : seasonYearForToday();
   const seasonType: SeasonType = seasonParam === 'postseason' ? 'postseason' : 'regular';
 
-  const cacheKey: CacheKey = `${year}-${week}-${seasonType}`;
+  const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   const now = Date.now();
   const hit = SCORES_CACHE[cacheKey];
   if (hit && now - hit.at < CACHE_TTL_MS) {
@@ -195,22 +246,28 @@ export async function GET(req: Request) {
   }
 
   // 1) CFBD (preferred)
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  const cfbdApiKeyMissing = cfbdApiKey.length === 0;
+
   try {
+    if (cfbdApiKey) {
+      // https://api.collegefootballdata.com/games?year=2025&week=1&seasonType=regular&division=fbs
     const key = process.env.CFBD_API_KEY ?? '';
     if (key) {
-      // https://api.collegefootballdata.com/games?year=2025&week=1&seasonType=regular&division=fbs
+      // https://api.collegefootballdata.com/games?year=2025&seasonType=regular&division=fbs
       const cfbdUrl = new URL('https://api.collegefootballdata.com/games');
       cfbdUrl.searchParams.set('year', String(year));
-      cfbdUrl.searchParams.set('week', String(week));
+      if (week != null) cfbdUrl.searchParams.set('week', String(week));
       cfbdUrl.searchParams.set('seasonType', seasonType);
       cfbdUrl.searchParams.set('division', 'fbs');
 
       const raw = await fetchJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
-        headers: { Authorization: `Bearer ${key}` },
+        headers: { Authorization: `Bearer ${cfbdApiKey}` },
         cache: 'no-store',
+        headers: { Authorization: `Bearer ${key}` },
+        next: { revalidate },
       });
 
-      // Map robustly & drop nameless rows
       const items: ScorePack[] = [];
       for (const g of raw) {
         const pack = toScorePackFromCfbd(g);
@@ -233,19 +290,25 @@ export async function GET(req: Request) {
 
   // 2) ESPN fallback
   try {
-    // seasontype: ESPN uses 2=regular, 3=postseason
     const espnSeason = seasonType === 'regular' ? '2' : '3';
     const espnUrl = new URL(
       'https://site.web.api.espn.com/apis/v2/sports/football/college-football/scoreboard'
     );
+    if (week == null) {
+      return NextResponse.json(
+        { error: 'season-wide fallback unavailable without CFBD API key' },
+        { status: 502 }
+      );
+    }
+
     espnUrl.searchParams.set('week', String(week));
     espnUrl.searchParams.set('year', String(year));
     espnUrl.searchParams.set('seasontype', espnSeason);
 
-    const board = await fetchJson<EspnScoreboard>(espnUrl.toString(), { cache: 'no-store' });
+    const board = await fetchJson<EspnScoreboard>(espnUrl.toString(), { next: { revalidate } });
     const items: ScorePack[] = [];
     for (const ev of board.events ?? []) {
-      const pack = toScorePackFromEspn(ev);
+      const pack = toScorePackFromEspn(ev, week);
       if (pack) items.push(pack);
     }
 
@@ -258,6 +321,18 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const msg = (err as Error).message || 'unknown error';
-    return NextResponse.json({ error: 'all sources failed', detail: msg }, { status: 502 });
+    return NextResponse.json(
+      {
+        error: 'all sources failed',
+        detail: msg,
+        metadata: cfbdApiKeyMissing
+          ? {
+              cfbdApiKeyMissing: true,
+              seasonWideEspnFallbackPossible: false,
+            }
+          : undefined,
+      },
+      { status: 502 }
+    );
   }
 }
