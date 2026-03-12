@@ -28,6 +28,9 @@ type OddsCache = {
   callsToday: number;
 };
 
+// Primary cache strategy: keep odds in process memory for up to 24h to protect
+// the daily upstream quota guard. `force-cache` is secondary protection so
+// Next can also reuse upstream responses when available.
 function responseFrom(items: OddsEvent[], meta: OddsMeta, status = 200): Response {
   return new Response(JSON.stringify({ items, meta } satisfies OddsResponse), {
     status,
@@ -192,6 +195,7 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');
 
+        const r = await fetch(url.toString(), { cache: 'force-cache' });
         const r = await fetch(url.toString(), { next: { revalidate } });
         if (!r.ok) {
           return new Response(JSON.stringify({ error: 'upstream error', status: r.status }), {
