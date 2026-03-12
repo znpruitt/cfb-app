@@ -49,13 +49,21 @@ export async function GET(): Promise<Response> {
           );
         }
       } else {
+        const oddsApiKey = process.env.ODDS_API_KEY?.trim();
+        if (!oddsApiKey) {
+          return new Response(JSON.stringify({ error: 'ODDS_API_KEY missing' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
         const url = new URL(ODDS_API);
         url.searchParams.set('regions', 'us');
         url.searchParams.set('oddsFormat', 'american');
         url.searchParams.set('dateFormat', 'iso');
         url.searchParams.set('bookmakers', BOOKMAKERS.join(','));
         url.searchParams.set('markets', MARKETS.join(','));
-        url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');
+        url.searchParams.set('apiKey', oddsApiKey);
 
         const r = await fetch(url.toString(), { cache: 'no-store' });
         if (!r.ok) {
