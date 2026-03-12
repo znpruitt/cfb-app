@@ -152,18 +152,51 @@ type CacheKey = `${number}-${number}-${SeasonType}`;
 const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[] }> = {};
 const CACHE_TTL_MS = 60 * 1000;
 
+function badRequest(field: string, value: string | null, error: string) {
+  return NextResponse.json({ error, field, value }, { status: 400 });
+}
+
+function parseNonNegativeInt(raw: string | null): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return parsed >= 0 ? parsed : null;
+}
+
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const weekParam = u.searchParams.get('week');
   const yearParam = u.searchParams.get('year');
   const seasonParam = u.searchParams.get('seasonType');
 
-  if (!weekParam || !/^\d+$/.test(weekParam)) {
-    return NextResponse.json({ error: 'week required (integer)' }, { status: 400 });
+  const week = parseNonNegativeInt(weekParam);
+  if (week === null) {
+    return badRequest('week', weekParam, 'week must be a non-negative integer');
   }
-  const week = Number.parseInt(weekParam, 10);
-  const year = yearParam ? Number.parseInt(yearParam, 10) : seasonYearForToday();
-  const seasonType: SeasonType = seasonParam === 'postseason' ? 'postseason' : 'regular';
+
+  const currentYear = new Date().getUTCFullYear();
+  const minYear = 2000;
+  const maxYear = currentYear + 1;
+  let year = seasonYearForToday();
+  if (yearParam !== null) {
+    const parsedYear = parseNonNegativeInt(yearParam);
+    if (parsedYear === null || parsedYear < minYear || parsedYear > maxYear) {
+      return badRequest(
+        'year',
+        yearParam,
+        `year must be an integer between ${minYear} and ${maxYear}`
+      );
+    }
+    year = parsedYear;
+  }
+
+  let seasonType: SeasonType = 'regular';
+  if (seasonParam !== null) {
+    if (seasonParam === 'regular' || seasonParam === 'postseason') {
+      seasonType = seasonParam;
+    } else {
+      return badRequest('seasonType', seasonParam, 'seasonType must be "regular" or "postseason"');
+    }
+  }
 
   const cacheKey: CacheKey = `${year}-${week}-${seasonType}`;
   const now = Date.now();

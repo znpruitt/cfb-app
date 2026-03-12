@@ -6,6 +6,7 @@ type OddsEvent = { home_team?: string; away_team?: string; bookmakers?: OddsBook
 const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/odds';
 const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
 const MARKETS = ['h2h', 'spreads', 'totals'];
+const REGIONS = ['us'];
 
 type OddsCache = {
   data: OddsEvent[] | null;
@@ -26,8 +27,97 @@ function dayKeyUTC(): string {
   return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
 }
 
-export async function GET(): Promise<Response> {
+type QueryValidationResult =
+  | {
+      ok: true;
+      bookmakers: string[];
+      markets: string[];
+      regions: string[];
+    }
+  | {
+      ok: false;
+      field: 'bookmakers' | 'markets' | 'regions';
+      value: string | null;
+      error: string;
+    };
+
+function parseCsvList(raw: string | null): string[] | null {
+  if (!raw) return null;
+  const values = raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : null;
+}
+
+function validateOptionalCsvParam(
+  field: 'bookmakers' | 'markets' | 'regions',
+  raw: string | null,
+  allowed: readonly string[]
+): QueryValidationResult | null {
+  if (raw === null) return null;
+  const values = parseCsvList(raw);
+  if (!values) {
+    return {
+      ok: false,
+      field,
+      value: raw,
+      error: `${field} must be a comma-separated list`,
+    };
+  }
+  const invalid = values.find((v) => !allowed.includes(v));
+  if (invalid) {
+    return {
+      ok: false,
+      field,
+      value: raw,
+      error: `${field} contains unsupported value "${invalid}"`,
+    };
+  }
+
+  return {
+    ok: true,
+    bookmakers: field === 'bookmakers' ? values : BOOKMAKERS,
+    markets: field === 'markets' ? values : MARKETS,
+    regions: field === 'regions' ? values : REGIONS,
+  };
+}
+
+function validateQuery(url: URL): QueryValidationResult {
+  let bookmakers = BOOKMAKERS;
+  let markets = MARKETS;
+  let regions = REGIONS;
+
+  const validators: Array<QueryValidationResult | null> = [
+    validateOptionalCsvParam('bookmakers', url.searchParams.get('bookmakers'), BOOKMAKERS),
+    validateOptionalCsvParam('markets', url.searchParams.get('markets'), MARKETS),
+    validateOptionalCsvParam('regions', url.searchParams.get('regions'), REGIONS),
+  ];
+
+  for (const result of validators) {
+    if (!result) continue;
+    if (!result.ok) return result;
+    bookmakers = result.bookmakers;
+    markets = result.markets;
+    regions = result.regions;
+  }
+
+  return { ok: true, bookmakers, markets, regions };
+}
+
+export async function GET(req: Request): Promise<Response> {
   try {
+    const query = validateQuery(new URL(req.url));
+    if (!query.ok) {
+      return new Response(
+        JSON.stringify({ error: query.error, field: query.field, value: query.value }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
     const dayKey = dayKeyUTC();
     if (oddsCache.dayKey !== dayKey) {
       oddsCache.dayKey = dayKey;
@@ -50,11 +140,11 @@ export async function GET(): Promise<Response> {
         }
       } else {
         const url = new URL(ODDS_API);
-        url.searchParams.set('regions', 'us');
+        url.searchParams.set('regions', query.regions.join(','));
         url.searchParams.set('oddsFormat', 'american');
         url.searchParams.set('dateFormat', 'iso');
-        url.searchParams.set('bookmakers', BOOKMAKERS.join(','));
-        url.searchParams.set('markets', MARKETS.join(','));
+        url.searchParams.set('bookmakers', query.bookmakers.join(','));
+        url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');
 
         const r = await fetch(url.toString(), { cache: 'no-store' });
