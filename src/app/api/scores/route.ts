@@ -149,6 +149,10 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 /* -------- cache -------- */
 
 type CacheKey = `${number}-${number}-${SeasonType}`;
+// Primary cache strategy: serve hot responses from in-memory TTL first.
+// We also use `fetch(..., { cache: 'force-cache' })` as a secondary guard so
+// upstream responses can still be reused across requests/processes when Next's
+// fetch cache is available.
 const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[] }> = {};
 const CACHE_TTL_MS = 60 * 1000;
 
@@ -185,7 +189,7 @@ export async function GET(req: Request) {
 
       const raw = await fetchJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
         headers: { Authorization: `Bearer ${key}` },
-        cache: 'no-store',
+        cache: 'force-cache',
       });
 
       // Map robustly & drop nameless rows
@@ -215,7 +219,7 @@ export async function GET(req: Request) {
     espnUrl.searchParams.set('year', String(year));
     espnUrl.searchParams.set('seasontype', espnSeason);
 
-    const board = await fetchJson<EspnScoreboard>(espnUrl.toString(), { cache: 'no-store' });
+    const board = await fetchJson<EspnScoreboard>(espnUrl.toString(), { cache: 'force-cache' });
     const items: ScorePack[] = [];
     for (const ev of board.events ?? []) {
       const pack = toScorePackFromEspn(ev);
