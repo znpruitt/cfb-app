@@ -22,7 +22,7 @@ type AliasMap = Record<string, string>;
 
 function levelOf(t: TeamItem): string {
   // Prefer explicit level, then subdivision, then "Other"
-  return t.level ?? t.subdivision ?? 'Other' ?? 'Other';
+  return t.level ?? t.subdivision ?? 'Other';
 }
 
 function normKey(s: string): string {
