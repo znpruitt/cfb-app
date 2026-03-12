@@ -408,3 +408,100 @@ Code changes should optimize for:
 - incremental improvement
 
 Prefer understandable code over clever solutions.
+
+---
+
+# File size and component complexity limits
+
+To preserve maintainability and readability, avoid creating large monolithic files.
+
+Guidelines:
+
+- React components should ideally remain under ~400 lines.
+- Library modules should ideally remain under ~500 lines.
+- If a file approaches ~600 lines, consider extracting logic into:
+  - smaller components
+  - helper modules in src/lib
+  - focused utility files
+
+Large files are harder to reason about and harder for AI agents to safely modify.
+
+---
+
+# Preferred extraction strategy
+
+When a file becomes too large or contains mixed responsibilities, refactor by extracting:
+
+UI sections → components  
+Examples:
+- filter controls
+- panels
+- detail views
+- modal editors
+
+Place these in:
+
+src/components/
+
+---
+
+Reusable logic → library helpers  
+Examples:
+- parsing logic
+- data transformations
+- matching logic
+- reconciliation helpers
+- reusable state helpers
+
+Place these in:
+
+src/lib/
+
+---
+
+Display helpers → UI helper modules  
+Examples:
+- status helpers
+- CSS class helpers
+- rendering helpers
+
+Place these in files like:
+
+src/lib/gameUi.ts
+
+---
+
+# Orchestrator rule
+
+CFBScheduleApp.tsx should remain the application orchestrator.
+
+Responsibilities of the orchestrator:
+
+- hold top-level state
+- coordinate parsing
+- trigger refresh flows
+- coordinate alias updates
+- wire together UI components
+
+Avoid placing heavy parsing, reconciliation, or transformation logic directly inside the orchestrator.
+
+Those should live in src/lib.
+
+---
+
+# Refactor preference
+
+When making improvements:
+
+Prefer:
+- extracting logic
+- improving readability
+- reducing duplication
+- smaller focused modules
+
+Avoid:
+- large rewrites
+- moving many responsibilities into a single file
+- mixing UI and domain logic
+
+Incremental improvements are preferred over sweeping redesigns.
