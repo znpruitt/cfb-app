@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+
 export const dynamic = 'force-dynamic';
 
 type SeasonType = 'regular' | 'postseason';
@@ -137,15 +139,6 @@ function toScorePackFromEspn(ev: EspnEvent): ScorePack | null {
   };
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`upstream ${res.status}: ${body || res.statusText}`);
-  }
-  return (await res.json()) as T;
-}
-
 /* -------- cache -------- */
 
 type CacheKey = `${number}-${number}-${SeasonType}`;
@@ -183,7 +176,8 @@ export async function GET(req: Request) {
       cfbdUrl.searchParams.set('seasonType', seasonType);
       cfbdUrl.searchParams.set('division', 'fbs');
 
-      const raw = await fetchJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
+      const raw = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
+        timeoutMs: 12_000,
         headers: { Authorization: `Bearer ${key}` },
         cache: 'no-store',
       });
@@ -215,7 +209,10 @@ export async function GET(req: Request) {
     espnUrl.searchParams.set('year', String(year));
     espnUrl.searchParams.set('seasontype', espnSeason);
 
-    const board = await fetchJson<EspnScoreboard>(espnUrl.toString(), { cache: 'no-store' });
+    const board = await fetchUpstreamJson<EspnScoreboard>(espnUrl.toString(), {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+    });
     const items: ScorePack[] = [];
     for (const ev of board.events ?? []) {
       const pack = toScorePackFromEspn(ev);
@@ -225,7 +222,14 @@ export async function GET(req: Request) {
     SCORES_CACHE[cacheKey] = { at: now, items };
     return NextResponse.json(items, { status: 200 });
   } catch (err) {
-    const msg = (err as Error).message || 'unknown error';
+    if (err instanceof UpstreamFetchError) {
+      return NextResponse.json(
+        { error: 'all sources failed', detail: err.details },
+        { status: err.details.status ?? 502 }
+      );
+    }
+
+    const msg = err instanceof Error ? err.message : 'unknown error';
     return NextResponse.json({ error: 'all sources failed', detail: msg }, { status: 502 });
   }
 }

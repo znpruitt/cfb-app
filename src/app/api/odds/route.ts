@@ -1,3 +1,5 @@
+import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+
 type OddsOutcome = { name?: string; price?: number; point?: number };
 type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
 type OddsBookmaker = { key?: string; markets?: OddsMarket[] };
@@ -57,15 +59,11 @@ export async function GET(): Promise<Response> {
         url.searchParams.set('markets', MARKETS.join(','));
         url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');
 
-        const r = await fetch(url.toString(), { cache: 'no-store' });
-        if (!r.ok) {
-          return new Response(JSON.stringify({ error: 'upstream error', status: r.status }), {
-            status: r.status,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
+        const data = await fetchUpstreamJson<OddsEvent[]>(url.toString(), {
+          cache: 'no-store',
+          timeoutMs: 12_000,
+        });
 
-        const data = (await r.json()) as OddsEvent[];
         oddsCache.data = Array.isArray(data) ? data : [];
         oddsCache.lastFetch = Date.now();
         oddsCache.callsToday += 1;
@@ -76,6 +74,13 @@ export async function GET(): Promise<Response> {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
+    if (e instanceof UpstreamFetchError) {
+      return new Response(JSON.stringify({ error: 'upstream error', detail: e.details }), {
+        status: e.details.status ?? 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const msg = e instanceof Error ? e.message : 'internal error';
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
