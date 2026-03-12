@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 120;
 
@@ -169,6 +171,7 @@ function toScorePackFromEspn(event: EspnEvent, week: number | null): ScorePack |
   };
 }
 
+/* -------- cache -------- */
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
@@ -265,6 +268,9 @@ export async function GET(req: Request) {
       cfbdUrl.searchParams.set('seasonType', seasonType);
       cfbdUrl.searchParams.set('division', 'fbs');
 
+      const raw = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
+        timeoutMs: 12_000,
+        headers: { Authorization: `Bearer ${key}` },
       const rawGames = await fetchJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
         headers: { Authorization: `Bearer ${cfbdApiKey}` },
         cache: 'no-store',
@@ -306,6 +312,10 @@ export async function GET(req: Request) {
     espnUrl.searchParams.set('year', String(year));
     espnUrl.searchParams.set('seasontype', espnSeason);
 
+    const board = await fetchUpstreamJson<EspnScoreboard>(espnUrl.toString(), {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+    });
     const scoreboard = await fetchJson<EspnScoreboard>(espnUrl.toString(), { cache: 'no-store' });
     const items: ScorePack[] = [];
     for (const event of scoreboard.events ?? []) {
@@ -313,6 +323,18 @@ export async function GET(req: Request) {
       if (pack) items.push(pack);
     }
 
+    SCORES_CACHE[cacheKey] = { at: now, items };
+    return NextResponse.json(items, { status: 200 });
+  } catch (err) {
+    if (err instanceof UpstreamFetchError) {
+      return NextResponse.json(
+        { error: 'all sources failed', detail: err.details },
+        { status: err.details.status ?? 502 }
+      );
+    }
+
+    const msg = err instanceof Error ? err.message : 'unknown error';
+    return NextResponse.json({ error: 'all sources failed', detail: msg }, { status: 502 });
     SCORES_CACHE[cacheKey] = { at: now, items, source: 'espn' };
     return responseFrom(items, {
       source: 'espn',

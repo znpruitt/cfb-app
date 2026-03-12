@@ -1,3 +1,4 @@
+import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 export const revalidate = 120;
 
 type OddsOutcome = { name?: string; price?: number; point?: number };
@@ -195,6 +196,13 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');
 
+        const data = await fetchUpstreamJson<OddsEvent[]>(url.toString(), {
+          cache: 'no-store',
+          timeoutMs: 12_000,
+        });
+
+        oddsCache.data = Array.isArray(data) ? data : [];
+        oddsCache.lastFetch = Date.now();
         const r = await fetch(url.toString(), { cache: 'force-cache' });
         const r = await fetch(url.toString(), { next: { revalidate } });
         if (!r.ok) {
@@ -223,6 +231,13 @@ export async function GET(req: Request): Promise<Response> {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
+    if (e instanceof UpstreamFetchError) {
+      return new Response(JSON.stringify({ error: 'upstream error', detail: e.details }), {
+        status: e.details.status ?? 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const msg = e instanceof Error ? e.message : 'internal error';
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
