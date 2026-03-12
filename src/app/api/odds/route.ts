@@ -1,3 +1,5 @@
+export const revalidate = 120;
+
 type OddsOutcome = { name?: string; price?: number; point?: number };
 type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
 type OddsBookmaker = { key?: string; markets?: OddsMarket[] };
@@ -57,7 +59,7 @@ export async function GET(): Promise<Response> {
         url.searchParams.set('markets', MARKETS.join(','));
         url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');
 
-        const r = await fetch(url.toString(), { cache: 'no-store' });
+        const r = await fetch(url.toString(), { next: { revalidate } });
         if (!r.ok) {
           return new Response(JSON.stringify({ error: 'upstream error', status: r.status }), {
             status: r.status,

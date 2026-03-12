@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 120;
 
 type SeasonType = 'regular' | 'postseason';
 
 interface ScorePack {
+  week: number | null;
   status: string;
   home: { team: string; score: number | null };
   away: { team: string; score: number | null };
@@ -98,6 +100,7 @@ function toScorePackFromCfbd(g: CfbdGameLoose): ScorePack | null {
   const awayScore = firstNum([g.away_points ?? null, g.awayPoints ?? null, g.away_score ?? null]);
 
   return {
+    week: typeof g.week === 'number' ? g.week : null,
     status: toStatus(g.status, g.completed ?? null),
     time: g.start_date ?? null,
     home: { team: homeTeam, score: homeScore },
@@ -105,7 +108,7 @@ function toScorePackFromCfbd(g: CfbdGameLoose): ScorePack | null {
   };
 }
 
-function toScorePackFromEspn(ev: EspnEvent): ScorePack | null {
+function toScorePackFromEspn(ev: EspnEvent, week: number | null): ScorePack | null {
   const comp = ev.competitions?.[0];
   if (!comp) return null;
   const t = comp.status?.type;
@@ -130,6 +133,7 @@ function toScorePackFromEspn(ev: EspnEvent): ScorePack | null {
   const a = Number.parseInt(awayRef.score ?? '', 10);
 
   return {
+    week,
     status,
     time: t?.shortDetail ?? null,
     home: { team: homeRef.team.displayName, score: Number.isFinite(h) ? h : null },
@@ -148,7 +152,8 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 /* -------- cache -------- */
 
-type CacheKey = `${number}-${number}-${SeasonType}`;
+type CacheWeek = number | 'all';
+type CacheKey = `${number}-${CacheWeek}-${SeasonType}`;
 const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[] }> = {};
 const CACHE_TTL_MS = 60 * 1000;
 
@@ -158,14 +163,14 @@ export async function GET(req: Request) {
   const yearParam = u.searchParams.get('year');
   const seasonParam = u.searchParams.get('seasonType');
 
-  if (!weekParam || !/^\d+$/.test(weekParam)) {
-    return NextResponse.json({ error: 'week required (integer)' }, { status: 400 });
+  if (weekParam && !/^\d+$/.test(weekParam)) {
+    return NextResponse.json({ error: 'week must be an integer when provided' }, { status: 400 });
   }
-  const week = Number.parseInt(weekParam, 10);
+  const week = weekParam ? Number.parseInt(weekParam, 10) : null;
   const year = yearParam ? Number.parseInt(yearParam, 10) : seasonYearForToday();
   const seasonType: SeasonType = seasonParam === 'postseason' ? 'postseason' : 'regular';
 
-  const cacheKey: CacheKey = `${year}-${week}-${seasonType}`;
+  const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   const now = Date.now();
   const hit = SCORES_CACHE[cacheKey];
   if (hit && now - hit.at < CACHE_TTL_MS) {
@@ -176,16 +181,16 @@ export async function GET(req: Request) {
   try {
     const key = process.env.CFBD_API_KEY ?? '';
     if (key) {
-      // https://api.collegefootballdata.com/games?year=2025&week=1&seasonType=regular&division=fbs
+      // https://api.collegefootballdata.com/games?year=2025&seasonType=regular&division=fbs
       const cfbdUrl = new URL('https://api.collegefootballdata.com/games');
       cfbdUrl.searchParams.set('year', String(year));
-      cfbdUrl.searchParams.set('week', String(week));
+      if (week != null) cfbdUrl.searchParams.set('week', String(week));
       cfbdUrl.searchParams.set('seasonType', seasonType);
       cfbdUrl.searchParams.set('division', 'fbs');
 
       const raw = await fetchJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
         headers: { Authorization: `Bearer ${key}` },
-        cache: 'no-store',
+        next: { revalidate },
       });
 
       // Map robustly & drop nameless rows
@@ -211,14 +216,21 @@ export async function GET(req: Request) {
     const espnUrl = new URL(
       'https://site.web.api.espn.com/apis/v2/sports/football/college-football/scoreboard'
     );
+    if (week == null) {
+      return NextResponse.json(
+        { error: 'season-wide fallback unavailable without CFBD API key' },
+        { status: 502 }
+      );
+    }
+
     espnUrl.searchParams.set('week', String(week));
     espnUrl.searchParams.set('year', String(year));
     espnUrl.searchParams.set('seasontype', espnSeason);
 
-    const board = await fetchJson<EspnScoreboard>(espnUrl.toString(), { cache: 'no-store' });
+    const board = await fetchJson<EspnScoreboard>(espnUrl.toString(), { next: { revalidate } });
     const items: ScorePack[] = [];
     for (const ev of board.events ?? []) {
-      const pack = toScorePackFromEspn(ev);
+      const pack = toScorePackFromEspn(ev, week);
       if (pack) items.push(pack);
     }
 
