@@ -152,10 +152,21 @@ export async function GET(req: Request): Promise<Response> {
           );
         }
       } else {
+        const oddsApiKey = process.env.ODDS_API_KEY?.trim();
+        if (!oddsApiKey) {
+          return new Response(JSON.stringify({ error: 'ODDS_API_KEY missing' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
         const url = new URL(ODDS_API);
         url.searchParams.set('regions', query.regions.join(','));
         url.searchParams.set('oddsFormat', 'american');
         url.searchParams.set('dateFormat', 'iso');
+        url.searchParams.set('bookmakers', BOOKMAKERS.join(','));
+        url.searchParams.set('markets', MARKETS.join(','));
+        url.searchParams.set('apiKey', oddsApiKey);
         url.searchParams.set('bookmakers', query.bookmakers.join(','));
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');

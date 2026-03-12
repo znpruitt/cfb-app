@@ -222,7 +222,12 @@ export async function GET(req: Request) {
   }
 
   // 1) CFBD (preferred)
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  const cfbdApiKeyMissing = cfbdApiKey.length === 0;
+
   try {
+    if (cfbdApiKey) {
+      // https://api.collegefootballdata.com/games?year=2025&week=1&seasonType=regular&division=fbs
     const key = process.env.CFBD_API_KEY ?? '';
     if (key) {
       // https://api.collegefootballdata.com/games?year=2025&seasonType=regular&division=fbs
@@ -233,6 +238,8 @@ export async function GET(req: Request) {
       cfbdUrl.searchParams.set('division', 'fbs');
 
       const raw = await fetchJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
+        headers: { Authorization: `Bearer ${cfbdApiKey}` },
+        cache: 'no-store',
         headers: { Authorization: `Bearer ${key}` },
         next: { revalidate },
       });
@@ -280,6 +287,18 @@ export async function GET(req: Request) {
     return NextResponse.json(items, { status: 200 });
   } catch (err) {
     const msg = (err as Error).message || 'unknown error';
-    return NextResponse.json({ error: 'all sources failed', detail: msg }, { status: 502 });
+    return NextResponse.json(
+      {
+        error: 'all sources failed',
+        detail: msg,
+        metadata: cfbdApiKeyMissing
+          ? {
+              cfbdApiKeyMissing: true,
+              seasonWideEspnFallbackPossible: false,
+            }
+          : undefined,
+      },
+      { status: 502 }
+    );
   }
 }
