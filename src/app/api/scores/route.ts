@@ -171,22 +171,9 @@ function toScorePackFromEspn(event: EspnEvent, week: number | null): ScorePack |
   };
 }
 
-/* -------- cache -------- */
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`upstream ${response.status}: ${body || response.statusText}`);
-  }
-  return (await response.json()) as T;
-}
-
 type CacheWeek = number | 'all';
 type CacheKey = `${number}-${CacheWeek}-${SeasonType}`;
 
-// Primary cache strategy: serve hot responses from in-memory TTL first.
-// Provider fetches remain `no-store` so repeated refreshes can retrieve live
-// score updates instead of pinning stale provider responses in Next's data cache.
 const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[]; source: 'cfbd' | 'espn' }> =
   {};
 const CACHE_TTL_MS = 60 * 1000;
@@ -268,12 +255,10 @@ export async function GET(req: Request) {
       cfbdUrl.searchParams.set('seasonType', seasonType);
       cfbdUrl.searchParams.set('division', 'fbs');
 
-      const raw = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
-        timeoutMs: 12_000,
-        headers: { Authorization: `Bearer ${key}` },
-      const rawGames = await fetchJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
-        headers: { Authorization: `Bearer ${cfbdApiKey}` },
+      const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
         cache: 'no-store',
+        timeoutMs: 12_000,
+        headers: { Authorization: `Bearer ${cfbdApiKey}` },
       });
 
       const items: ScorePack[] = [];
@@ -312,29 +297,17 @@ export async function GET(req: Request) {
     espnUrl.searchParams.set('year', String(year));
     espnUrl.searchParams.set('seasontype', espnSeason);
 
-    const board = await fetchUpstreamJson<EspnScoreboard>(espnUrl.toString(), {
+    const scoreboard = await fetchUpstreamJson<EspnScoreboard>(espnUrl.toString(), {
       cache: 'no-store',
       timeoutMs: 12_000,
     });
-    const scoreboard = await fetchJson<EspnScoreboard>(espnUrl.toString(), { cache: 'no-store' });
+
     const items: ScorePack[] = [];
     for (const event of scoreboard.events ?? []) {
       const pack = toScorePackFromEspn(event, week);
       if (pack) items.push(pack);
     }
 
-    SCORES_CACHE[cacheKey] = { at: now, items };
-    return NextResponse.json(items, { status: 200 });
-  } catch (err) {
-    if (err instanceof UpstreamFetchError) {
-      return NextResponse.json(
-        { error: 'all sources failed', detail: err.details },
-        { status: err.details.status ?? 502 }
-      );
-    }
-
-    const msg = err instanceof Error ? err.message : 'unknown error';
-    return NextResponse.json({ error: 'all sources failed', detail: msg }, { status: 502 });
     SCORES_CACHE[cacheKey] = { at: now, items, source: 'espn' };
     return responseFrom(items, {
       source: 'espn',
@@ -343,7 +316,23 @@ export async function GET(req: Request) {
       generatedAt: new Date(now).toISOString(),
     });
   } catch (error) {
-    const detail = (error as Error).message || 'unknown error';
+    if (error instanceof UpstreamFetchError) {
+      return NextResponse.json(
+        {
+          error: 'all sources failed',
+          detail: error.details,
+          metadata: cfbdApiKeyMissing
+            ? {
+                cfbdApiKeyMissing: true,
+                seasonWideEspnFallbackPossible: false,
+              }
+            : undefined,
+        },
+        { status: error.details.status ?? 502 }
+      );
+    }
+
+    const detail = error instanceof Error ? error.message : 'unknown error';
     return NextResponse.json(
       {
         error: 'all sources failed',

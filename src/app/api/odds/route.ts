@@ -1,4 +1,5 @@
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+
 export const revalidate = 120;
 
 type OddsOutcome = { name?: string; price?: number; point?: number };
@@ -29,9 +30,6 @@ type OddsCache = {
   callsToday: number;
 };
 
-// Primary cache strategy: keep odds in process memory for up to 24h to protect
-// the daily upstream quota guard. `force-cache` is secondary protection so
-// Next can also reuse upstream responses when available.
 function responseFrom(items: OddsEvent[], meta: OddsMeta, status = 200): Response {
   return new Response(JSON.stringify({ items, meta } satisfies OddsResponse), {
     status,
@@ -159,24 +157,23 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     const maxPerDay = 16;
-    const stale = Date.now() - oddsCache.lastFetch > 24 * 60 * 60 * 1000;
-    let fetchedFromUpstream = false;
     const cacheKey = createCacheKey(query);
     const cachedEntry = oddsCache.entries[cacheKey];
     const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 24 * 60 * 60 * 1000;
+    let fetchedFromUpstream = false;
 
     if (!cachedEntry || stale) {
-      if (oddsCache.callsToday >= maxPerDay) {
-        if (!cachedEntry) {
-          return new Response(
-            JSON.stringify({ error: 'Daily odds limit reached and no cache available' }),
-            {
-              status: 429,
-              headers: { 'Content-Type': 'application/json' },
-            }
-          );
-        }
-      } else {
+      if (oddsCache.callsToday >= maxPerDay && !cachedEntry) {
+        return new Response(
+          JSON.stringify({ error: 'Daily odds limit reached and no cache available' }),
+          {
+            status: 429,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      if (oddsCache.callsToday < maxPerDay) {
         const oddsApiKey = process.env.ODDS_API_KEY?.trim();
         if (!oddsApiKey) {
           return new Response(JSON.stringify({ error: 'ODDS_API_KEY missing' }), {
@@ -189,32 +186,17 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('regions', query.regions.join(','));
         url.searchParams.set('oddsFormat', 'american');
         url.searchParams.set('dateFormat', 'iso');
-        url.searchParams.set('bookmakers', BOOKMAKERS.join(','));
-        url.searchParams.set('markets', MARKETS.join(','));
-        url.searchParams.set('apiKey', oddsApiKey);
         url.searchParams.set('bookmakers', query.bookmakers.join(','));
         url.searchParams.set('markets', query.markets.join(','));
-        url.searchParams.set('apiKey', process.env.ODDS_API_KEY || '');
+        url.searchParams.set('apiKey', oddsApiKey);
 
-        const data = await fetchUpstreamJson<OddsEvent[]>(url.toString(), {
+        const upstreamData = await fetchUpstreamJson<OddsEvent[]>(url.toString(), {
           cache: 'no-store',
           timeoutMs: 12_000,
         });
 
-        oddsCache.data = Array.isArray(data) ? data : [];
-        oddsCache.lastFetch = Date.now();
-        const r = await fetch(url.toString(), { cache: 'force-cache' });
-        const r = await fetch(url.toString(), { next: { revalidate } });
-        if (!r.ok) {
-          return new Response(JSON.stringify({ error: 'upstream error', status: r.status }), {
-            status: r.status,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        const data = (await r.json()) as OddsEvent[];
         oddsCache.entries[cacheKey] = {
-          data: Array.isArray(data) ? data : [],
+          data: Array.isArray(upstreamData) ? upstreamData : [],
           lastFetch: Date.now(),
         };
         oddsCache.callsToday += 1;
@@ -222,13 +204,14 @@ export async function GET(req: Request): Promise<Response> {
       }
     }
 
-    return responseFrom(oddsCache.data ?? [], {
+    const responseEntry = oddsCache.entries[cacheKey] ?? cachedEntry;
+    const lastFetchAt = responseEntry?.lastFetch ?? Date.now();
+
+    return responseFrom(responseEntry?.data ?? [], {
       source: 'odds-api',
       cache: fetchedFromUpstream ? 'miss' : 'hit',
       fallbackUsed: false,
-      generatedAt: new Date(oddsCache.lastFetch || Date.now()).toISOString(),
-    return new Response(JSON.stringify(oddsCache.entries[cacheKey]?.data ?? []), {
-      headers: { 'Content-Type': 'application/json' },
+      generatedAt: new Date(lastFetchAt).toISOString(),
     });
   } catch (e) {
     if (e instanceof UpstreamFetchError) {
