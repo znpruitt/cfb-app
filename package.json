@@ -6,8 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
-    "lint:fix": "eslint \"**/*.{js,jsx,ts,tsx}\" --fix",
+    "lint": "eslint src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:fix": "eslint src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "fetch:teams": "tsx scripts/fetch-cfbd-teams.ts --year 2025"
