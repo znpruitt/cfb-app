@@ -55,6 +55,7 @@ export async function GET(): Promise<Response> {
 
     const maxPerDay = 16;
     const stale = Date.now() - oddsCache.lastFetch > 24 * 60 * 60 * 1000;
+    let fetchedFromUpstream = false;
 
     if (!oddsCache.data || stale) {
       if (oddsCache.callsToday >= maxPerDay) {
@@ -88,12 +89,13 @@ export async function GET(): Promise<Response> {
         oddsCache.data = Array.isArray(data) ? data : [];
         oddsCache.lastFetch = Date.now();
         oddsCache.callsToday += 1;
+        fetchedFromUpstream = true;
       }
     }
 
     return responseFrom(oddsCache.data ?? [], {
       source: 'odds-api',
-      cache: stale || !oddsCache.data ? 'miss' : 'hit',
+      cache: fetchedFromUpstream ? 'miss' : 'hit',
       fallbackUsed: false,
       generatedAt: new Date(oddsCache.lastFetch || Date.now()).toISOString(),
     });
