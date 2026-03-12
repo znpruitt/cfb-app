@@ -18,19 +18,21 @@
         "name": "next"
       }
     ],
-    "baseUrl": ".", // <-- required for paths below
     "paths": {
-      "components/*": ["src/components/*"],
-      "styles/*": ["src/styles/*"],
-      "lib/*": ["src/lib/*"],
-      "hooks/*": ["src/hooks/*"],
-      "types/*": ["src/types/*"],
-      "@/*": ["src/*"]
+      "components/*": ["./src/components/*"],
+      "styles/*": ["./src/styles/*"],
+      "lib/*": ["./src/lib/*"],
+      "hooks/*": ["./src/hooks/*"],
+      "types/*": ["./src/types/*"],
+      "@/*": ["./src/*"]
     },
     "forceConsistentCasingInFileNames": true
-    // Optional, nice to have:
-    // "verbatimModuleSyntax": true
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }
