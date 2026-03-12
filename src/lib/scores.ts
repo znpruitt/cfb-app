@@ -100,7 +100,7 @@ async function fetchScoreRows(params: {
   }
 
   const seasonErr = await seasonRes.text().catch(() => '');
-  issues.push(`Scores season ${season}: ${seasonRes.status} ${seasonErr}`);
+  const seasonFallbackIssue = `Scores season ${season}: ${seasonRes.status} ${seasonErr}`;
 
   const rows: ScoreRow[] = [];
   for (const w of weeks) {
@@ -116,6 +116,10 @@ async function fetchScoreRows(params: {
       const parsed = extractRow(row);
       rows.push({ ...parsed, week: parsed.week ?? w });
     }
+  }
+
+  if (rows.length === 0) {
+    issues.push(seasonFallbackIssue);
   }
 
   return rows;
