@@ -9,18 +9,27 @@ const MARKETS = ['h2h', 'spreads', 'totals'];
 const REGIONS = ['us'];
 
 type OddsCache = {
-  data: OddsEvent[] | null;
-  lastFetch: number;
+  entries: Record<string, { data: OddsEvent[]; lastFetch: number }>;
   dayKey: string | null;
   callsToday: number;
 };
 
 const oddsCache: OddsCache = {
-  data: null,
-  lastFetch: 0,
+  entries: {},
   dayKey: null,
   callsToday: 0,
 };
+
+function createCacheKey(query: {
+  bookmakers: string[];
+  markets: string[];
+  regions: string[];
+}): string {
+  const bookmakers = [...query.bookmakers].sort().join(',');
+  const markets = [...query.markets].sort().join(',');
+  const regions = [...query.regions].sort().join(',');
+  return `bookmakers=${bookmakers}|markets=${markets}|regions=${regions}`;
+}
 
 function dayKeyUTC(): string {
   const d = new Date();
@@ -125,11 +134,13 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     const maxPerDay = 16;
-    const stale = Date.now() - oddsCache.lastFetch > 24 * 60 * 60 * 1000;
+    const cacheKey = createCacheKey(query);
+    const cachedEntry = oddsCache.entries[cacheKey];
+    const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 24 * 60 * 60 * 1000;
 
-    if (!oddsCache.data || stale) {
+    if (!cachedEntry || stale) {
       if (oddsCache.callsToday >= maxPerDay) {
-        if (!oddsCache.data) {
+        if (!cachedEntry) {
           return new Response(
             JSON.stringify({ error: 'Daily odds limit reached and no cache available' }),
             {
@@ -156,13 +167,15 @@ export async function GET(req: Request): Promise<Response> {
         }
 
         const data = (await r.json()) as OddsEvent[];
-        oddsCache.data = Array.isArray(data) ? data : [];
-        oddsCache.lastFetch = Date.now();
+        oddsCache.entries[cacheKey] = {
+          data: Array.isArray(data) ? data : [],
+          lastFetch: Date.now(),
+        };
         oddsCache.callsToday += 1;
       }
     }
 
-    return new Response(JSON.stringify(oddsCache.data ?? []), {
+    return new Response(JSON.stringify(oddsCache.entries[cacheKey]?.data ?? []), {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
