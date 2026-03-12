@@ -207,6 +207,13 @@ export async function GET(req: Request) {
     }
   }
 
+  if (weekParam && !/^\d+$/.test(weekParam)) {
+    return NextResponse.json({ error: 'week must be an integer when provided' }, { status: 400 });
+  }
+  const week = weekParam ? Number.parseInt(weekParam, 10) : null;
+  const year = yearParam ? Number.parseInt(yearParam, 10) : seasonYearForToday();
+  const seasonType: SeasonType = seasonParam === 'postseason' ? 'postseason' : 'regular';
+
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   const now = Date.now();
   const hit = SCORES_CACHE[cacheKey];
@@ -218,6 +225,7 @@ export async function GET(req: Request) {
   try {
     const key = process.env.CFBD_API_KEY ?? '';
     if (key) {
+      // https://api.collegefootballdata.com/games?year=2025&seasonType=regular&division=fbs
       const cfbdUrl = new URL('https://api.collegefootballdata.com/games');
       cfbdUrl.searchParams.set('year', String(year));
       if (week != null) cfbdUrl.searchParams.set('week', String(week));
