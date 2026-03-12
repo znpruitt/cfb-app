@@ -38,6 +38,9 @@ type WireObj = {
   away: WireSide;
 };
 
+type ScoresApiPayload = Array<WireFlat | WireObj> | { items?: Array<WireFlat | WireObj> };
+
+function extractRow(sg: WireFlat | WireObj) {
 type ScoreRow = {
   week: number | null;
   homeName: string;
@@ -210,6 +213,19 @@ export async function fetchScoresByGame(params: {
   let hardMissCount = 0;
   const maxIssuesPerKind = 10;
 
+  for (const w of weeksSet) {
+    const r = await fetch(`/api/scores?week=${w}`, { cache: 'no-store' });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      issues.push(`Scores week ${w}: ${r.status} ${t}`);
+      continue;
+    }
+
+    const payload = (await r.json()) as ScoresApiPayload;
+    const raw = Array.isArray(payload) ? payload : (payload.items ?? []);
+
+    for (const row of raw) {
+      const { homeName, awayName, homeScore, awayScore, status, time } = extractRow(row);
   for (const w of loadedWeeks) {
     const weeklyRows = rowsByWeek.get(w) ?? [];
     for (const row of weeklyRows) {

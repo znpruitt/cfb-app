@@ -323,7 +323,8 @@ export default function CFBScheduleApp(): React.ReactElement {
       try {
         const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
         if (oddsRes.ok) {
-          const oddsEvents = (await oddsRes.json()) as OddsEvent[];
+          const oddsPayload = (await oddsRes.json()) as OddsEvent[] | { items?: OddsEvent[] };
+          const oddsEvents = Array.isArray(oddsPayload) ? oddsPayload : (oddsPayload.items ?? []);
           const next = buildOddsByGame(games, oddsEvents, aliasMap);
           setOddsByKey(next);
         } else {

@@ -5,6 +5,18 @@ type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
 type OddsBookmaker = { key?: string; markets?: OddsMarket[] };
 type OddsEvent = { home_team?: string; away_team?: string; bookmakers?: OddsBookmaker[] };
 
+interface OddsMeta {
+  source: 'odds-api';
+  cache: 'hit' | 'miss';
+  fallbackUsed: boolean;
+  generatedAt: string;
+}
+
+interface OddsResponse {
+  items: OddsEvent[];
+  meta: OddsMeta;
+}
+
 const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/odds';
 const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
 const MARKETS = ['h2h', 'spreads', 'totals'];
@@ -15,6 +27,13 @@ type OddsCache = {
   dayKey: string | null;
   callsToday: number;
 };
+
+function responseFrom(items: OddsEvent[], meta: OddsMeta, status = 200): Response {
+  return new Response(JSON.stringify({ items, meta } satisfies OddsResponse), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 const oddsCache: OddsCache = {
   entries: {},
@@ -136,6 +155,8 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     const maxPerDay = 16;
+    const stale = Date.now() - oddsCache.lastFetch > 24 * 60 * 60 * 1000;
+    let fetchedFromUpstream = false;
     const cacheKey = createCacheKey(query);
     const cachedEntry = oddsCache.entries[cacheKey];
     const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 24 * 60 * 60 * 1000;
@@ -185,9 +206,15 @@ export async function GET(req: Request): Promise<Response> {
           lastFetch: Date.now(),
         };
         oddsCache.callsToday += 1;
+        fetchedFromUpstream = true;
       }
     }
 
+    return responseFrom(oddsCache.data ?? [], {
+      source: 'odds-api',
+      cache: fetchedFromUpstream ? 'miss' : 'hit',
+      fallbackUsed: false,
+      generatedAt: new Date(oddsCache.lastFetch || Date.now()).toISOString(),
     return new Response(JSON.stringify(oddsCache.entries[cacheKey]?.data ?? []), {
       headers: { 'Content-Type': 'application/json' },
     });
