@@ -1,11 +1,26 @@
 import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+import { buildCfbdGamesUrl } from '@/lib/cfbd';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 120;
 
+const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
+const CACHE_TTL_MS = 60 * 1000;
+const MAX_CACHE_ENTRIES = 250;
+
 type SeasonType = 'regular' | 'postseason';
+type CfbdFallbackReason =
+  | 'none'
+  | 'api-key-missing'
+  | 'cfbd-empty'
+  | 'cfbd-timeout'
+  | 'cfbd-aborted'
+  | 'cfbd-network'
+  | 'cfbd-http'
+  | 'cfbd-parse'
+  | 'cfbd-unknown-error';
 
 interface ScorePack {
   week: number | null;
@@ -20,6 +35,7 @@ interface ScoresMeta {
   cache: 'hit' | 'miss';
   fallbackUsed: boolean;
   generatedAt: string;
+  cfbdFallbackReason: CfbdFallbackReason;
 }
 
 interface ScoresResponse {
@@ -174,9 +190,44 @@ function toScorePackFromEspn(event: EspnEvent, week: number | null): ScorePack |
 type CacheWeek = number | 'all';
 type CacheKey = `${number}-${CacheWeek}-${SeasonType}`;
 
-const SCORES_CACHE: Record<CacheKey, { at: number; items: ScorePack[]; source: 'cfbd' | 'espn' }> =
-  {};
-const CACHE_TTL_MS = 60 * 1000;
+type CacheEntry = {
+  at: number;
+  items: ScorePack[];
+  source: 'cfbd' | 'espn';
+  cfbdFallbackReason: CfbdFallbackReason;
+};
+
+const SCORES_CACHE: Record<CacheKey, CacheEntry> = {};
+
+function pruneCache(cache: Record<CacheKey, CacheEntry>, label: string) {
+  const entries = Object.entries(cache) as Array<[CacheKey, CacheEntry]>;
+  if (entries.length <= MAX_CACHE_ENTRIES) return;
+
+  const toDelete = entries
+    .sort((a, b) => a[1].at - b[1].at)
+    .slice(0, entries.length - MAX_CACHE_ENTRIES)
+    .map(([key]) => key);
+
+  for (const key of toDelete) {
+    delete cache[key];
+  }
+
+  if (IS_DEBUG) {
+    console.log('cfbd cache evicted', {
+      route: label,
+      cacheSize: entries.length,
+      maxEntries: MAX_CACHE_ENTRIES,
+      evicted: toDelete.length,
+    });
+  }
+}
+
+function mapCfbdErrorToReason(error: unknown): CfbdFallbackReason {
+  if (error instanceof UpstreamFetchError) {
+    return `cfbd-${error.details.kind}` as CfbdFallbackReason;
+  }
+  return 'cfbd-unknown-error';
+}
 
 function responseFrom(items: ScorePack[], meta: ScoresMeta, status = 200) {
   return NextResponse.json<ScoresResponse>({ items, meta }, { status });
@@ -192,11 +243,41 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return parsed >= 0 ? parsed : null;
 }
 
+function logDebug(params: {
+  requestId: string | null;
+  event: string;
+  endpoint?: string;
+  year: number;
+  week: number | null;
+  seasonType: SeasonType;
+  cacheKey: string;
+  itemCount?: number;
+  detail?: unknown;
+}) {
+  if (!IS_DEBUG) return;
+  const { requestId, event, endpoint, year, week, seasonType, cacheKey, itemCount, detail } =
+    params;
+
+  console.log('cfbd route debug', {
+    route: 'scores',
+    requestId,
+    event,
+    endpoint: endpoint ?? null,
+    year,
+    week,
+    seasonType,
+    cacheKey,
+    itemCount: itemCount ?? null,
+    detail: detail ?? null,
+  });
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const weekParam = url.searchParams.get('week');
   const yearParam = url.searchParams.get('year');
   const seasonParam = url.searchParams.get('seasonType');
+  const requestId = req.headers.get('x-request-id');
 
   let week: number | null = null;
   if (weekParam !== null) {
@@ -241,19 +322,18 @@ export async function GET(req: Request) {
       cache: 'hit',
       fallbackUsed: hit.source === 'espn',
       generatedAt: new Date(hit.at).toISOString(),
+      cfbdFallbackReason: hit.cfbdFallbackReason,
     });
   }
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   const cfbdApiKeyMissing = cfbdApiKey.length === 0;
+  let cfbdFallbackReason: CfbdFallbackReason = cfbdApiKeyMissing ? 'api-key-missing' : 'none';
 
   try {
     if (cfbdApiKey) {
-      const cfbdUrl = new URL('https://api.collegefootballdata.com/games');
-      cfbdUrl.searchParams.set('year', String(year));
-      if (week != null) cfbdUrl.searchParams.set('week', String(week));
-      cfbdUrl.searchParams.set('seasonType', seasonType);
-      cfbdUrl.searchParams.set('division', 'fbs');
+      const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
+      const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
 
       const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
         cache: 'no-store',
@@ -267,24 +347,79 @@ export async function GET(req: Request) {
         if (pack) items.push(pack);
       }
 
+      if (items.length === 0) {
+        cfbdFallbackReason = 'cfbd-empty';
+        logDebug({
+          requestId,
+          event: 'upstream_empty',
+          endpoint,
+          year,
+          week,
+          seasonType,
+          cacheKey,
+          itemCount: items.length,
+        });
+      }
+
       if (items.length > 0) {
-        SCORES_CACHE[cacheKey] = { at: now, items, source: 'cfbd' };
+        SCORES_CACHE[cacheKey] = {
+          at: now,
+          items,
+          source: 'cfbd',
+          cfbdFallbackReason: 'none',
+        };
+        pruneCache(SCORES_CACHE, 'scores');
+
         return responseFrom(items, {
           source: 'cfbd',
           cache: 'miss',
           fallbackUsed: false,
           generatedAt: new Date(now).toISOString(),
+          cfbdFallbackReason: 'none',
         });
       }
     }
-  } catch {
+  } catch (error) {
+    cfbdFallbackReason = mapCfbdErrorToReason(error);
+
+    if (error instanceof UpstreamFetchError) {
+      logDebug({
+        requestId,
+        event: 'upstream_failed',
+        endpoint: error.details.url,
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        detail: {
+          kind: error.details.kind,
+          status: error.details.status ?? null,
+          message: error.details.message,
+        },
+      });
+    } else {
+      logDebug({
+        requestId,
+        event: 'upstream_failed',
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        detail: error instanceof Error ? error.message : 'unknown error',
+      });
+    }
     // swallow CFBD failure and try ESPN fallback
   }
 
   try {
     if (week == null) {
       return NextResponse.json(
-        { error: 'season-wide fallback unavailable without CFBD API key' },
+        {
+          error: 'season-wide fallback unavailable without CFBD API key',
+          metadata: {
+            cfbdFallbackReason,
+          },
+        },
         { status: 502 }
       );
     }
@@ -308,12 +443,20 @@ export async function GET(req: Request) {
       if (pack) items.push(pack);
     }
 
-    SCORES_CACHE[cacheKey] = { at: now, items, source: 'espn' };
+    SCORES_CACHE[cacheKey] = {
+      at: now,
+      items,
+      source: 'espn',
+      cfbdFallbackReason,
+    };
+    pruneCache(SCORES_CACHE, 'scores');
+
     return responseFrom(items, {
       source: 'espn',
       cache: 'miss',
       fallbackUsed: true,
       generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason,
     });
   } catch (error) {
     if (error instanceof UpstreamFetchError) {
@@ -321,12 +464,15 @@ export async function GET(req: Request) {
         {
           error: 'all sources failed',
           detail: error.details,
-          metadata: cfbdApiKeyMissing
-            ? {
-                cfbdApiKeyMissing: true,
-                seasonWideEspnFallbackPossible: false,
-              }
-            : undefined,
+          metadata: {
+            ...(cfbdApiKeyMissing
+              ? {
+                  cfbdApiKeyMissing: true,
+                  seasonWideEspnFallbackPossible: false,
+                }
+              : {}),
+            cfbdFallbackReason,
+          },
         },
         { status: error.details.status ?? 502 }
       );
@@ -337,12 +483,15 @@ export async function GET(req: Request) {
       {
         error: 'all sources failed',
         detail,
-        metadata: cfbdApiKeyMissing
-          ? {
-              cfbdApiKeyMissing: true,
-              seasonWideEspnFallbackPossible: false,
-            }
-          : undefined,
+        metadata: {
+          ...(cfbdApiKeyMissing
+            ? {
+                cfbdApiKeyMissing: true,
+                seasonWideEspnFallbackPossible: false,
+              }
+            : {}),
+          cfbdFallbackReason,
+        },
       },
       { status: 502 }
     );

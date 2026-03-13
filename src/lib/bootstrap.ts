@@ -1,5 +1,12 @@
 import { loadServerAliases, saveServerAliases } from './aliasesApi';
+import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from './storageKeys';
 import type { AliasMap } from './teamNames';
+
+function readSeasonScopedValue(key: string, legacyKey: string): string | null {
+  const scoped = window.localStorage.getItem(key);
+  if (scoped != null) return scoped;
+  return window.localStorage.getItem(legacyKey);
+}
 
 export async function bootstrapAliasesAndCaches(params: {
   season: number;
@@ -11,6 +18,7 @@ export async function bootstrapAliasesAndCaches(params: {
   ownersCsvText: string | null;
 }> {
   const { season, seedAliases } = params;
+  const storageKeys = seasonStorageKeys(season);
 
   let aliasMap: AliasMap = {};
   let aliasLoadIssue: string | undefined;
@@ -21,10 +29,10 @@ export async function bootstrapAliasesAndCaches(params: {
       serverMap = await saveServerAliases(seedAliases, [], season);
     }
     aliasMap = serverMap;
-    window.localStorage.setItem('cfb_name_map', JSON.stringify(serverMap));
+    window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(serverMap));
   } catch (err) {
     aliasLoadIssue = `Aliases load failed: ${(err as Error).message}`;
-    const cached = window.localStorage.getItem('cfb_name_map');
+    const cached = readSeasonScopedValue(storageKeys.aliasMap, LEGACY_STORAGE_KEYS.aliasMap);
     if (cached) {
       try {
         aliasMap = JSON.parse(cached) as AliasMap;
@@ -36,8 +44,11 @@ export async function bootstrapAliasesAndCaches(params: {
     }
   }
 
-  const scheduleCsvText = window.localStorage.getItem('cfb_schedule_csv');
-  const ownersCsvText = window.localStorage.getItem('cfb_owners_csv');
+  const scheduleCsvText = readSeasonScopedValue(
+    storageKeys.scheduleCsv,
+    LEGACY_STORAGE_KEYS.scheduleCsv
+  );
+  const ownersCsvText = readSeasonScopedValue(storageKeys.ownersCsv, LEGACY_STORAGE_KEYS.ownersCsv);
 
   return { aliasMap, aliasLoadIssue, scheduleCsvText, ownersCsvText };
 }
