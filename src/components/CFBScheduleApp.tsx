@@ -17,7 +17,7 @@ import { saveServerAliases } from '../lib/aliasesApi';
 import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { reconcileNamesWithCatalog } from '../lib/reconcileNames';
-import { rebuildGamesFromIdentity } from '../lib/rebuildGames';
+import { rebuildGamesFromAliasMap, rebuildGamesFromIdentity } from '../lib/rebuildGames';
 import { pillClass } from '../lib/gameUi';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
@@ -348,10 +348,22 @@ export default function CFBScheduleApp(): React.ReactElement {
     if (!games.length) return;
 
     const teams = await fetchTeamsCatalog(SEASON).catch(() => []);
-    if (!teams.length) return;
+    if (teams.length) {
+      const rebuilt = rebuildGamesFromIdentity({ games, teams, aliasMap });
+      setGames(rebuilt);
+      return;
+    }
 
-    const rebuilt = rebuildGamesFromIdentity({ games, teams, aliasMap });
+    // Keep CSV-legacy alias edits functional even if teams catalog is temporarily unavailable.
+    const aliasResolvedByCsvName = Object.fromEntries(
+      Array.from(new Set(games.flatMap((g) => [g.csvHome, g.csvAway]))).map((raw) => {
+        const key = stripDiacritics(raw).toLowerCase().trim();
+        return [raw, aliasMap[key] ?? raw];
+      })
+    );
+    const rebuilt = rebuildGamesFromAliasMap(games, aliasResolvedByCsvName);
     setGames(rebuilt);
+    setIssues((prev) => [...prev, 'Teams catalog unavailable: rebuilt game keys from aliases only.']);
   }, [games, aliasMap]);
 
   const rebuildKeysAndRefresh = useCallback(async () => {
