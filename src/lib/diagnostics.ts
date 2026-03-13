@@ -3,7 +3,8 @@ export type IssueClassification =
   | 'owner-unassigned'
   | 'invalid-schedule-row'
   | 'missing-score-match'
-  | 'missing-odds-match';
+  | 'missing-odds-match'
+  | 'postseason-placeholder-pending';
 
 export type DiagEntry =
   | {

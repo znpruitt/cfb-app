@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { fetchScoresByGame } from '@/lib/scores';
-import type { AppGame } from '@/lib/schedule';
+import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,24 +16,19 @@ export async function GET(req: Request) {
     fetch(`${origin}/api/aliases?year=${year}`, { cache: 'no-store' }),
   ]);
 
-  const scheduleJson = (await scheduleRes.json().catch(() => ({ items: [] }))) as { items?: Array<Record<string, unknown>> };
+  const scheduleJson = (await scheduleRes.json().catch(() => ({ items: [] }))) as { items?: ScheduleWireItem[] };
   const teamsJson = (await teamsRes.json().catch(() => ({ items: [] }))) as { items?: Array<Record<string, unknown>> };
   const aliasesJson = (await aliasesRes.json().catch(() => ({ map: {} }))) as { map?: Record<string, string> };
 
-  const games: AppGame[] = (scheduleJson.items ?? []).slice(0, 50).map((item) => ({
-    key: `${item.week}-${item.homeTeam}-${item.awayTeam}`,
-    week: Number(item.week ?? 0),
-    csvAway: String(item.awayTeam ?? ''),
-    csvHome: String(item.homeTeam ?? ''),
-    neutral: Boolean(item.neutralSite),
-    canAway: String(item.awayTeam ?? ''),
-    canHome: String(item.homeTeam ?? ''),
-    awayConf: String(item.awayConference ?? ''),
-    homeConf: String(item.homeConference ?? ''),
-  }));
+  const built = buildScheduleFromApi({
+    scheduleItems: scheduleJson.items ?? [],
+    teams: (teamsJson.items ?? []) as never[],
+    aliasMap: aliasesJson.map ?? {},
+    season: year,
+  });
 
   const scores = await fetchScoresByGame({
-    games,
+    games: built.games.slice(0, 80),
     aliasMap: aliasesJson.map ?? {},
     season: year,
     teams: (teamsJson.items ?? []) as never[],

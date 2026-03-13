@@ -49,6 +49,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [editDraft, setEditDraft] = useState<Array<{ key: string; value: string }>>([]);
 
   const [diag, setDiag] = useState<DiagEntry[]>([]);
+  const [manualPostseasonOverrides, setManualPostseasonOverrides] = useState<Record<string, Partial<AppGame>>>({});
   const [aliasStaging, setAliasStaging] = useState<AliasStaging>({ upserts: {}, deletes: [] });
   const [aliasToast, setAliasToast] = useState<string | null>(null);
 
@@ -141,10 +142,28 @@ export default function CFBScheduleApp(): React.ReactElement {
           : `${g.week}-${canHome}-${canAway}-H`;
         return {
           key,
+          eventId: key,
           week: g.week,
+          date: null,
+          stage: 'regular',
+          status: 'scheduled',
+          stageOrder: 1,
+          slotOrder: 0,
+          eventKey: key,
+          label: null,
+          conference: null,
+          bowlName: null,
+          playoffRound: null,
+          providerGameId: null,
+          neutral: g.neutral,
+          venue: null,
+          isPlaceholder: false,
+          participants: {
+            home: { kind: 'team', teamId: canHome.toLowerCase(), displayName: g.csvHome, canonicalName: canHome, rawName: g.csvHome },
+            away: { kind: 'team', teamId: canAway.toLowerCase(), displayName: g.csvAway, canonicalName: canAway, rawName: g.csvAway },
+          },
           csvAway: g.csvAway,
           csvHome: g.csvHome,
-          neutral: g.neutral,
           canAway,
           canHome,
           awayConf: g.awayConf,
@@ -163,7 +182,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   );
 
   // API-first schedule loader. CFBD now defines the game universe for normal operation.
-  const loadScheduleFromApi = useCallback(async (overrideAliasMap?: AliasMap): Promise<boolean> => {
+  const loadScheduleFromApi = useCallback(async (overrideAliasMap?: AliasMap, overrideManualOverrides?: Record<string, Partial<AppGame>>): Promise<boolean> => {
     try {
       const [scheduleItems, teams] = await Promise.all([
         fetchSeasonSchedule(SEASON),
@@ -173,10 +192,15 @@ export default function CFBScheduleApp(): React.ReactElement {
         scheduleItems,
         teams,
         aliasMap: overrideAliasMap ?? aliasMap,
+        season: SEASON,
+        manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
       });
 
       if (built.issues.length) {
         setIssues((prev) => [...prev, ...built.issues]);
+      }
+      if (IS_DEBUG && built.hydrationDiagnostics.length) {
+        setIssues((prev) => [...prev, ...built.hydrationDiagnostics.slice(0, 8).map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`)]);
       }
 
       if (!built.games.length) {
@@ -195,7 +219,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       setIssues((prev) => [...prev, `CFBD schedule load failed: ${(error as Error).message}`]);
       return false;
     }
-  }, [aliasMap, clearScheduleDerivedState, selectedWeek]);
+  }, [aliasMap, clearScheduleDerivedState, selectedWeek, manualPostseasonOverrides]);
 
   const clearCachedSchedule = useCallback(() => {
     window.localStorage.removeItem('cfb_schedule_csv');
@@ -232,7 +256,16 @@ export default function CFBScheduleApp(): React.ReactElement {
       setHasCachedSchedule(Boolean(scheduleCsvText));
       setHasCachedOwners(Boolean(ownersCsvText));
 
-      const apiLoaded = await loadScheduleFromApi(bootAliasMap);
+      let loadedOverrides: Record<string, Partial<AppGame>> = {};
+      try {
+        const rawOverrides = window.localStorage.getItem('cfb_postseason_overrides');
+        if (rawOverrides) loadedOverrides = JSON.parse(rawOverrides) as Record<string, Partial<AppGame>>;
+      } catch {
+        loadedOverrides = {};
+      }
+      setManualPostseasonOverrides(loadedOverrides);
+
+      const apiLoaded = await loadScheduleFromApi(bootAliasMap, loadedOverrides);
 
       if (!apiLoaded && scheduleCsvText) {
         setScheduleLoadedFromCache(true);
@@ -451,6 +484,36 @@ export default function CFBScheduleApp(): React.ReactElement {
     }
   }, [editDraft, aliasMap, persistAliasChanges, scheduleSource, loadScheduleFromApi, rebuildGamesWithCurrentAliases]);
 
+
+  const savePostseasonOverride = useCallback((eventId: string, patch: Partial<AppGame>) => {
+    const applyOverride = (base: AppGame, override: Partial<AppGame>): AppGame => ({
+      ...base,
+      ...override,
+      participants: {
+        home: override.participants?.home ?? base.participants.home,
+        away: override.participants?.away ?? base.participants.away,
+      },
+      sources: { ...base.sources, ...(override.sources ?? {}) },
+    });
+
+    let nextOverrides: Record<string, Partial<AppGame>> | null = null;
+    setManualPostseasonOverrides((prev) => {
+      const next = { ...prev, [eventId]: { ...(prev[eventId] ?? {}), ...patch } };
+      window.localStorage.setItem('cfb_postseason_overrides', JSON.stringify(next));
+      nextOverrides = next;
+
+      const override = next[eventId];
+      if (override) {
+        setGames((prevGames) => prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g)));
+      }
+
+      return next;
+    });
+
+    if (scheduleSource === 'api' && nextOverrides) {
+      void loadScheduleFromApi(undefined, nextOverrides);
+    }
+  }, [loadScheduleFromApi, scheduleSource]);
   return (
     <div className="p-6 space-y-6 text-gray-900 bg-white dark:text-zinc-100 dark:bg-zinc-950">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -550,6 +613,7 @@ export default function CFBScheduleApp(): React.ReactElement {
               scoresByKey={scoresByKey}
               rosterByTeam={rosterByTeam}
               isDebug={IS_DEBUG}
+              onSavePostseasonOverride={savePostseasonOverride}
             />
           )}
         </>

@@ -3,18 +3,10 @@ import React from 'react';
 import type { CombinedOdds } from '../lib/odds';
 import { chipClass, gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
 import type { ScorePack } from '../lib/scores';
+import type { AppGame } from '../lib/schedule';
 
-type Game = {
-  key: string;
-  week: number;
-  csvAway: string;
-  csvHome: string;
-  neutral: boolean;
-  canAway: string;
-  canHome: string;
-  awayConf: string;
-  homeConf: string;
-};
+type Game = AppGame;
+
 
 type GameWeekPanelProps = {
   games: Game[];
@@ -23,6 +15,7 @@ type GameWeekPanelProps = {
   scoresByKey: Record<string, ScorePack>;
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
+  onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
 };
 
 export default function GameWeekPanel({
@@ -32,22 +25,15 @@ export default function GameWeekPanel({
   scoresByKey,
   rosterByTeam,
   isDebug,
+  onSavePostseasonOverride,
 }: GameWeekPanelProps): React.ReactElement {
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-emerald-600 bg-emerald-50 text-gray-900 dark:border-zinc-700 dark:border-l-emerald-400 dark:bg-emerald-900/25 dark:text-zinc-100">
-          Final
-        </span>
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-amber-600 bg-amber-50 text-gray-900 dark:border-zinc-700 dark:border-l-amber-400 dark:bg-amber-900/25 dark:text-zinc-100">
-          In Progress
-        </span>
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-blue-600 bg-blue-50 text-gray-900 dark:border-zinc-700 dark:border-l-blue-400 dark:bg-blue-900/25 dark:text-zinc-100">
-          Scheduled
-        </span>
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-red-600 bg-red-50 text-gray-900 dark:border-zinc-700 dark:border-l-red-400 dark:bg-red-900/25 dark:text-zinc-100">
-          Missing scores &amp; odds
-        </span>
+        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-emerald-600 bg-emerald-50 text-gray-900 dark:border-zinc-700 dark:border-l-emerald-400 dark:bg-emerald-900/25 dark:text-zinc-100">Final</span>
+        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-amber-600 bg-amber-50 text-gray-900 dark:border-zinc-700 dark:border-l-amber-400 dark:bg-amber-900/25 dark:text-zinc-100">In Progress</span>
+        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-blue-600 bg-blue-50 text-gray-900 dark:border-zinc-700 dark:border-l-blue-400 dark:bg-blue-900/25 dark:text-zinc-100">Scheduled</span>
+        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-violet-600 bg-violet-50 text-gray-900 dark:border-zinc-700 dark:border-l-violet-400 dark:bg-violet-900/25 dark:text-zinc-100">Postseason Placeholder</span>
       </div>
 
       <div className="grid gap-2">
@@ -57,51 +43,32 @@ export default function GameWeekPanel({
           const state = gameStateFromScore(score);
           const hasAnyInfo = Boolean(score || odds);
           const frameClasses = statusClasses(state, hasAnyInfo);
+          const isPlaceholder = g.status === 'placeholder' || g.isPlaceholder || g.participants?.home?.kind !== 'team' || g.participants?.away?.kind !== 'team';
 
           const chips: string[] = [];
+          if (isPlaceholder) chips.push('Placeholder');
           if (!score && !odds) chips.push('No scores/odds');
           if (score) {
-            chips.push(
-              state === 'final'
-                ? 'Final'
-                : state === 'inprogress'
-                  ? 'In Progress'
-                  : state === 'scheduled'
-                    ? 'Scheduled'
-                    : '—'
-            );
+            chips.push(state === 'final' ? 'Final' : state === 'inprogress' ? 'In Progress' : state === 'scheduled' ? 'Scheduled' : '—');
           }
-          if (!odds) chips.push('No odds');
+          if (!odds && !isPlaceholder) chips.push('No odds');
+
+          const matchupLine = g.neutral ? `${g.csvAway} vs ${g.csvHome}` : `${g.csvAway} @ ${g.csvHome}`;
 
           return (
             <details key={g.key} className={frameClasses}>
               <summary className="cursor-pointer px-3 py-2 flex items-center justify-between">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">
-                    {g.neutral ? (
-                      <>
-                        {g.csvAway} vs {g.csvHome}
-                      </>
-                    ) : (
-                      <>
-                        {g.csvAway} @ {g.csvHome}
-                      </>
-                    )}
-                  </span>
+                  {g.label && <span className="font-semibold text-sm text-violet-700 dark:text-violet-300">{g.label}</span>}
+                  <span className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}>{matchupLine}</span>
                   {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
                   {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
-                  {rosterByTeam.get(g.csvHome) && (
-                    <span className={pillClass()}>Home: {rosterByTeam.get(g.csvHome)}</span>
-                  )}
-                  {rosterByTeam.get(g.csvAway) && (
-                    <span className={pillClass()}>Away: {rosterByTeam.get(g.csvAway)}</span>
-                  )}
+                  {rosterByTeam.get(g.csvHome) && <span className={pillClass()}>Home: {rosterByTeam.get(g.csvHome)}</span>}
+                  {rosterByTeam.get(g.csvAway) && <span className={pillClass()}>Away: {rosterByTeam.get(g.csvAway)}</span>}
                 </div>
                 <div className="flex items-center gap-2">
                   {chips.map((c) => (
-                    <span key={c} className={chipClass()}>
-                      {c}
-                    </span>
+                    <span key={c} className={chipClass()}>{c}</span>
                   ))}
                 </div>
               </summary>
@@ -109,69 +76,38 @@ export default function GameWeekPanel({
               <div className="grid md:grid-cols-3 gap-3 p-3">
                 <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                   <div className="font-medium mb-2">Matchup</div>
-                  <div>
-                    <strong>Home</strong>: {g.csvHome}{' '}
-                    {g.homeConf && <span className={pillClass() + ' ml-1'}>{g.homeConf}</span>}
-                  </div>
-                  <div>
-                    <strong>Away</strong>: {g.csvAway}{' '}
-                    {g.awayConf && <span className={pillClass() + ' ml-1'}>{g.awayConf}</span>}
-                  </div>
-                  <div>
-                    <strong>Week</strong>: {g.week}
-                  </div>
+                  <div><strong>Home</strong>: {g.csvHome}</div>
+                  <div><strong>Away</strong>: {g.csvAway}</div>
+                  <div><strong>Week</strong>: {g.week}</div>
+                  {g.venue && <div><strong>Venue</strong>: {g.venue}</div>}
+                  {isPlaceholder && onSavePostseasonOverride && (
+                    <button
+                      className="mt-2 px-2 py-1 rounded border text-xs"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        const nextLabel = window.prompt('Override event label', g.label ?? '') ?? '';
+                        if (!nextLabel.trim()) return;
+                        onSavePostseasonOverride(g.eventId, { label: nextLabel.trim() });
+                      }}
+                    >
+                      Save label override
+                    </button>
+                  )}
                   {isDebug && (
                     <div className="text-xs text-gray-600 dark:text-zinc-400 mt-2">
-                      Canonical (for data): {g.canAway} @ {g.canHome}
+                      Canonical: {g.canAway} @ {g.canHome}
                     </div>
                   )}
                 </div>
 
                 <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                   <div className="font-medium mb-1">Vegas Odds</div>
-                  {odds?.source && (
-                    <div className="text-xs text-gray-600 dark:text-zinc-400 mb-1">
-                      Source: {odds.source}
-                    </div>
-                  )}
-                  {odds ? (
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div>Favorite</div>
-                      <div className="text-right">{odds.favorite ?? '—'}</div>
-                      <div>Spread</div>
-                      <div className="text-right">{odds.spread ?? '—'}</div>
-                      <div>Total</div>
-                      <div className="text-right">{odds.total ?? '—'}</div>
-                      <div>ML Home</div>
-                      <div className="text-right">{odds.mlHome ?? '—'}</div>
-                      <div>ML Away</div>
-                      <div className="text-right">{odds.mlAway ?? '—'}</div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-600 dark:text-zinc-400">No odds loaded.</div>
-                  )}
+                  {odds ? <div className="text-sm">Favorite: {odds.favorite ?? '—'} / Spread: {odds.spread ?? '—'} / Total: {odds.total ?? '—'}</div> : <div className="text-sm text-gray-600 dark:text-zinc-400">{isPlaceholder ? 'Pending matchup' : 'No odds'}</div>}
                 </div>
 
                 <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                  <div className="font-medium mb-2">Live / Final</div>
-                  {score ? (
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <div>
-                          {score.away.team} <strong>{score.away.score ?? ''}</strong>
-                        </div>
-                        <div>
-                          {score.home.team} <strong>{score.home.score ?? ''}</strong>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs uppercase tracking-wide">{score.status}</div>
-                        {score.time && <div className="text-xs">{score.time}</div>}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-600 dark:text-zinc-400">No score loaded.</div>
-                  )}
+                  <div className="font-medium mb-1">Score</div>
+                  {score ? <div className="text-sm">{score.away.team} {score.away.score ?? '—'} at {score.home.team} {score.home.score ?? '—'} ({score.status})</div> : <div className="text-sm text-gray-600 dark:text-zinc-400">{isPlaceholder ? 'Pending matchup' : 'No score'}</div>}
                 </div>
               </div>
             </details>
@@ -179,18 +115,10 @@ export default function GameWeekPanel({
         })}
       </div>
 
-      {byes.length > 0 && (
-        <div className="rounded border border-gray-300 bg-white mt-4 dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="p-3 font-medium">Teams on BYE ({byes.length})</div>
-          <div className="p-3 flex flex-wrap gap-2">
-            {byes.map((t) => (
-              <span key={t} className={pillClass()}>
-                {t}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="font-medium mb-2">Byes</div>
+        <div className="text-sm">{byes.length ? byes.join(', ') : '—'}</div>
+      </div>
     </>
   );
 }

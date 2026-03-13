@@ -23,11 +23,13 @@ export async function GET(req: Request) {
     scheduleItems: scheduleJson.items ?? [],
     teams: (teamsJson.items ?? []) as never[],
     aliasMap: aliasesJson.map ?? {},
+    season: year,
   });
 
   return NextResponse.json({
     count: built.games.length,
     issues: built.issues,
+    hydrationDiagnostics: built.hydrationDiagnostics,
     sample: built.games.slice(0, 25),
   });
 }
