@@ -12,7 +12,8 @@ import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { buildOddsByGame, type CombinedOdds, type OddsEvent } from '../lib/odds';
 import { fetchScoresByGame, type ScorePack } from '../lib/scores';
 import { parseScheduleCsv } from '../lib/parseScheduleCsv';
-import { SEED_ALIASES, type AliasMap, stripDiacritics } from '../lib/teamNames';
+import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
+import { normalizeAliasLookup } from '../lib/teamNormalization';
 import { saveServerAliases } from '../lib/aliasesApi';
 import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
@@ -173,6 +174,10 @@ export default function CFBScheduleApp(): React.ReactElement {
         teams,
         aliasMap: overrideAliasMap ?? aliasMap,
       });
+
+      if (built.issues.length) {
+        setIssues((prev) => [...prev, ...built.issues]);
+      }
 
       if (!built.games.length) {
         clearScheduleDerivedState();
@@ -362,7 +367,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     // Keep CSV-legacy alias edits functional even if teams catalog is temporarily unavailable.
     const aliasResolvedByCsvName = Object.fromEntries(
       Array.from(new Set(games.flatMap((g) => [g.csvHome, g.csvAway]))).map((raw) => {
-        const key = stripDiacritics(raw).toLowerCase().trim();
+        const key = normalizeAliasLookup(raw);
         return [raw, aliasMap[key] ?? raw];
       })
     );
@@ -422,7 +427,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const saveDraft = useCallback(async () => {
     const cleaned: AliasMap = {};
     for (const row of editDraft) {
-      const k = stripDiacritics(row.key).toLowerCase().trim();
+      const k = normalizeAliasLookup(row.key);
       const v = row.value.trim();
       if (!k || !v) continue;
       cleaned[k] = v;

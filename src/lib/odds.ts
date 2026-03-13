@@ -47,7 +47,11 @@ export function buildOddsByGame(params: {
   const { games, oddsEvents, aliasMap, teams } = params;
   const next: Record<string, CombinedOdds> = {};
 
-  const resolver = createTeamIdentityResolver({ aliasMap, teams });
+  const observedNames = Array.from(new Set([
+    ...games.flatMap((g) => [g.canHome, g.canAway]),
+    ...oddsEvents.flatMap((ev) => [ev.home_team ?? '', ev.away_team ?? '']),
+  ].filter(Boolean)));
+  const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
   const preparedEvents: PreparedOddsEvent[] = [];
   const pairIndex = new Map<string, PreparedOddsEvent[]>();
 

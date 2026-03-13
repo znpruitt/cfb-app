@@ -1,3 +1,5 @@
+import { normalizeAliasLookup, normalizeTeamName, stripDiacritics } from './teamNormalization';
+
 export type AliasMap = Record<string, string>;
 
 export const SEED_ALIASES: AliasMap = {
@@ -23,28 +25,19 @@ export const SEED_ALIASES: AliasMap = {
   unlv: 'nevada-las vegas',
 };
 
-export function stripDiacritics(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
+export { normalizeTeamName, stripDiacritics };
 
 export function applyAliases(baseLower: string, aliases: AliasMap): string {
   return aliases[baseLower] ?? baseLower;
 }
 
 export function normWithAliases(s: string, aliases: AliasMap): string {
-  let t = stripDiacritics(s).toLowerCase().trim();
-  t = applyAliases(t, aliases);
-  t = t.replace(/\b(university|univ|the|of|and|&)\b/g, ' ');
-  t = t.replace(/[^a-z0-9]+/g, '');
-  return t;
+  const lookup = normalizeAliasLookup(s);
+  return normalizeTeamName(applyAliases(lookup, aliases));
 }
 
 export function variants(raw: string, aliases: AliasMap): string[] {
   const base = normWithAliases(raw, aliases);
   if (!base) return [];
-  const out = new Set<string>([base]);
-  const tokens = base.split(/[^a-z0-9]+/).filter(Boolean);
-  if (tokens.length >= 2) out.add(tokens[0] + tokens[1]);
-  if (tokens.length >= 1) out.add(tokens[0]);
-  return Array.from(out);
+  return Array.from(new Set([base]));
 }
