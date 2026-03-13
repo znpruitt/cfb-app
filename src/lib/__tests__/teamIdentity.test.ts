@@ -343,6 +343,54 @@ test('true invalid rows are still rejected', () => {
   );
 });
 
+
+test('regular season API games remain when postseason templates are present', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', level: 'FBS' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'reg-1',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Boston College',
+        awayTeam: 'Fordham',
+        homeConference: 'ACC',
+        awayConference: 'Patriot',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+      {
+        id: 'post-1',
+        week: 15,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'SEC Championship Game',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.stage === 'regular' && g.csvHome === 'Boston College'),
+    true
+  );
+  assert.equal(
+    built.games.some((g) => g.eventId === '2025-sec-championship'),
+    true
+  );
+  assert.equal(built.weeks.includes(1), true);
+  assert.equal(built.conferences.includes('ACC'), true);
+});
+
 test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},

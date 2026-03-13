@@ -5,6 +5,8 @@ import { buildPostseasonTemplate, type TemplateEvent } from './postseason-templa
 import { classifyScheduleRow } from './postseason-classify';
 import { hydrateEvents, type HydrationDiagnostic } from './postseason-hydrate';
 
+const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
+
 export type ParticipantSlot =
   | {
       kind: 'team';
@@ -274,6 +276,50 @@ function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame
   };
 }
 
+function mergeRealGameWithPlaceholder(
+  existing: AppGame,
+  template: AppGame,
+  override?: Partial<AppGame>
+): AppGame {
+  const merged: AppGame = {
+    ...template,
+    ...existing,
+    participants: {
+      home: existing.participants.home ?? template.participants.home,
+      away: existing.participants.away ?? template.participants.away,
+    },
+    sources: { ...template.sources, ...existing.sources },
+  };
+
+  return override ? applyManualOverride(merged, override) : merged;
+}
+
+function mergeRegularSeasonAndPostseason(
+  regularGames: AppGame[],
+  postseasonTemplates: AppGame[],
+  overrides?: Record<string, Partial<AppGame>>
+): AppGame[] {
+  const byKey = new Map<string, AppGame>();
+
+  for (const game of regularGames) {
+    const override = overrides?.[game.eventId];
+    byKey.set(game.eventId, override ? applyManualOverride(game, override) : game);
+  }
+
+  for (const template of postseasonTemplates) {
+    const existing = byKey.get(template.eventId);
+    const override = overrides?.[template.eventId];
+    if (!existing) {
+      byKey.set(template.eventId, override ? applyManualOverride(template, override) : template);
+      continue;
+    }
+
+    byKey.set(template.eventId, mergeRealGameWithPlaceholder(existing, template, override));
+  }
+
+  return Array.from(byKey.values());
+}
+
 export function buildScheduleFromApi(params: {
   scheduleItems: ScheduleWireItem[];
   teams: TeamCatalogItem[];
@@ -299,8 +345,8 @@ export function buildScheduleFromApi(params: {
   });
 
   const seedEvents = buildPostseasonTemplate(season).map(buildTemplateGame);
-  const rawGames: AppGame[] = [];
-  const conferenceSet = new Set<string>();
+  const apiRegularGames: AppGame[] = [];
+  const apiPostseasonGames: AppGame[] = [];
 
   for (const item of scheduleItems) {
     const classified = classifyScheduleRow(item, season);
@@ -344,7 +390,7 @@ export function buildScheduleFromApi(params: {
 
       const hasKnownTeams = homeParticipant.kind === 'team' || awayParticipant.kind === 'team';
 
-      rawGames.push({
+      apiPostseasonGames.push({
         key: id,
         eventId: id,
         week: item.week,
@@ -402,10 +448,8 @@ export function buildScheduleFromApi(params: {
 
     const homeConf = item.homeConference ?? '';
     const awayConf = item.awayConference ?? '';
-    if (homeConf) conferenceSet.add(homeConf);
-    if (awayConf) conferenceSet.add(awayConf);
 
-    rawGames.push({
+    apiRegularGames.push({
       key,
       eventId: key,
       week: item.week,
@@ -449,20 +493,41 @@ export function buildScheduleFromApi(params: {
     });
   }
 
-  const { games: hydratedGames, diagnostics } = hydrateEvents({
+  const { games: hydratedPostseasonGames, diagnostics } = hydrateEvents({
     baseEvents: seedEvents,
-    providerEvents: rawGames,
+    providerEvents: apiPostseasonGames,
   });
 
-  const deduped = new Map<string, AppGame>();
-  for (const game of hydratedGames) {
-    const override = params.manualOverrides?.[game.eventId];
-    deduped.set(game.eventId, override ? applyManualOverride(game, override) : game);
+  const mergedGames = mergeRegularSeasonAndPostseason(
+    apiRegularGames,
+    hydratedPostseasonGames,
+    params.manualOverrides
+  );
+
+  const conferenceSet = new Set<string>();
+  for (const game of mergedGames) {
+    if (game.awayConf) conferenceSet.add(game.awayConf);
+    if (game.homeConf) conferenceSet.add(game.homeConf);
   }
 
-  const games = sortGames(Array.from(deduped.values()));
-  const weeks = Array.from(new Set(games.map((g) => g.week))).sort((a, b) => a - b);
+  const games = sortGames(mergedGames);
+  const weeks = Array.from(
+    new Set(games.map((g) => g.week).filter((week) => Number.isFinite(week)))
+  ).sort((a, b) => a - b);
   const byes = buildByes(games);
+
+  if (IS_DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log('apiGames', apiRegularGames.length + apiPostseasonGames.length);
+    // eslint-disable-next-line no-console
+    console.log('postseasonTemplates', seedEvents.length);
+    // eslint-disable-next-line no-console
+    console.log('combinedGames', games.length);
+    // eslint-disable-next-line no-console
+    console.log('combinedWeeks', weeks);
+    // eslint-disable-next-line no-console
+    console.log('conferenceCount', conferenceSet.size);
+  }
 
   return {
     games,
