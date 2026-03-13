@@ -58,7 +58,7 @@ export default function TeamsDebugPanel(): React.ReactElement {
       try {
         const serverLevel = SERVER_LEVELS.has(level) ? level : 'ALL';
         const resp = await fetch(
-          `/api/teams?year=${year}&level=${encodeURIComponent(serverLevel)}`,
+          `/api/teams?level=${encodeURIComponent(serverLevel)}`,
           { cache: 'no-store' }
         );
         if (!resp.ok) {
