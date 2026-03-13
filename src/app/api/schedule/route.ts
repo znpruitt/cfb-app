@@ -315,7 +315,20 @@ export async function GET(req: Request) {
     }
   }
 
-  if (successes.length === 0) {
+  if (successes.length === 0 || failedSeasonTypes.length > 0) {
+    if (successes.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'partial upstream error',
+          detail: {
+            message: 'one or more required CFBD season type requests failed',
+            failedSeasonTypes,
+          },
+        },
+        { status: 502 }
+      );
+    }
+
     if (firstError instanceof UpstreamFetchError) {
       return NextResponse.json(
         { error: 'upstream error', detail: firstError.details },
