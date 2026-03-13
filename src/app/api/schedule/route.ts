@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
+import { hasRequiredSeasonTypeFailure } from '@/lib/scheduleSeasonFetch';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 120;
@@ -315,7 +316,12 @@ export async function GET(req: Request) {
     }
   }
 
-  if (successes.length === 0 || failedSeasonTypes.length > 0) {
+  const requiredSeasonTypeFailure = hasRequiredSeasonTypeFailure(
+    requestedSeasonType,
+    failedSeasonTypes
+  );
+
+  if (successes.length === 0 || requiredSeasonTypeFailure) {
     if (successes.length > 0) {
       return NextResponse.json(
         {
@@ -362,7 +368,7 @@ export async function GET(req: Request) {
       seasonType: requestedSeasonType,
       cacheKey,
       count: items.length,
-      partialFailure: failedSeasonTypes.length > 0,
+      partialFailure: requiredSeasonTypeFailure,
       failedSeasonTypes,
       requests: successes.map((payload) => ({
         seasonType: payload.seasonType,
@@ -388,8 +394,8 @@ export async function GET(req: Request) {
       cache: 'miss',
       fallbackUsed: false,
       generatedAt: new Date(now).toISOString(),
-      partialFailure: failedSeasonTypes.length > 0,
-      ...(failedSeasonTypes.length > 0 ? { failedSeasonTypes } : {}),
+      partialFailure: requiredSeasonTypeFailure,
+      ...(requiredSeasonTypeFailure ? { failedSeasonTypes } : {}),
     },
   });
 }
