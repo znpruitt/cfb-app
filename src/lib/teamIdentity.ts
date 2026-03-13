@@ -1,4 +1,5 @@
 import type { AliasMap } from './teamNames';
+import { isLikelyInvalidTeamLabel, normalizeAliasLookup, normalizeTeamName } from './teamNormalization';
 
 export type TeamCatalogItem = {
   school: string;
@@ -8,8 +9,20 @@ export type TeamCatalogItem = {
   alts?: string[];
 };
 
-export type ResolutionSource = 'alias' | 'catalog_exact' | 'catalog_variant' | 'raw';
-export type ResolutionStatus = 'resolved' | 'unresolved' | 'ambiguous';
+export type TeamSubdivision = 'FBS' | 'FCS' | 'OTHER';
+
+export type TeamIdentity = {
+  id: string;
+  displayName: string;
+  subdivision: TeamSubdivision;
+  conference?: string | null;
+  isOwnable: boolean;
+  owner?: string | null;
+  aliases?: string[];
+};
+
+export type ResolutionSource = 'invalid_label' | 'canonical' | 'alias' | 'unresolved';
+export type ResolutionStatus = 'resolved' | 'unresolved';
 
 export type TeamResolution = {
   rawInput: string;
@@ -20,6 +33,8 @@ export type TeamResolution = {
   status: ResolutionStatus;
   notes?: string;
   candidates?: string[];
+  subdivision?: TeamSubdivision;
+  isOwnable?: boolean;
 };
 
 export type TeamIdentityResolver = {
@@ -28,123 +43,177 @@ export type TeamIdentityResolver = {
   buildGameKey: (params: { week: number; home: string; away: string; neutral: boolean }) => string;
   variantsForName: (raw: string) => string[];
   isFbsName: (raw: string) => boolean;
+  isLikelyInvalidTeamLabel: (raw: string) => boolean;
+  getRegistry: () => Map<string, TeamIdentity>;
 };
 
-const STOP_WORDS = /\b(university|univ|college|the|of|and|&)\b/g;
-
-export function stripDiacritics(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function toSubdivision(level?: string | null): TeamSubdivision {
+  const raw = (level ?? '').trim().toUpperCase();
+  if (raw.includes('FBS')) return 'FBS';
+  if (raw.includes('FCS')) return 'FCS';
+  return 'OTHER';
 }
 
-export function normalizeTeamName(raw: string): string {
-  const withoutDiacritics = stripDiacritics(raw).toLowerCase().trim();
-  const noStopWords = withoutDiacritics.replace(STOP_WORDS, ' ');
-  return noStopWords.replace(/[^a-z0-9]+/g, '');
-}
-
-function normalizeAliasKey(raw: string): string {
-  return stripDiacritics(raw).toLowerCase().trim();
-}
-
-function normalizeLevel(level?: string | null): string {
-  return (level ?? '').toString().trim().toUpperCase();
-}
-
-function dedupeStrings(values: string[]): string[] {
-  const out = new Set<string>();
-  for (const value of values) {
-    if (!value) continue;
-    out.add(value);
+function inferSubdivisionFromConference(conference?: string | null): TeamSubdivision {
+  const text = (conference ?? '').toLowerCase();
+  if (!text) return 'OTHER';
+  if (text.includes('sec') || text.includes('big ten') || text.includes('acc') || text.includes('big 12')) {
+    return 'FBS';
   }
-  return Array.from(out);
+  if (text.includes('fcs') || text.includes('ivy') || text.includes('patriot') || text.includes('swac')) {
+    return 'FCS';
+  }
+  return 'OTHER';
+}
+
+
+const REGISTRY_CACHE = new Map<string, Map<string, TeamIdentity>>();
+
+function buildCanonicalRegistry(params: {
+  teams: TeamCatalogItem[];
+  aliasMap: AliasMap;
+  observedNames?: string[];
+  ownersByTeamId?: Map<string, string>;
+}): Map<string, TeamIdentity> {
+  const registry = new Map<string, TeamIdentity>();
+  const { teams, aliasMap, observedNames = [], ownersByTeamId } = params;
+
+  for (const team of teams) {
+    const displayName = team.school?.trim();
+    if (!displayName) continue;
+    const id = normalizeTeamName(displayName);
+    if (!id) continue;
+
+    const subdivision = toSubdivision(team.level) || inferSubdivisionFromConference(team.conference);
+    const owner = ownersByTeamId?.get(id) ?? null;
+    registry.set(id, {
+      id,
+      displayName,
+      subdivision,
+      conference: team.conference ?? null,
+      isOwnable: subdivision === 'FBS',
+      owner,
+      aliases: Array.isArray(team.alts) ? [...team.alts] : [],
+    });
+
+    for (const alias of team.alts ?? []) {
+      const aliasId = normalizeTeamName(alias);
+      if (!aliasId) continue;
+      if (!registry.has(aliasId)) {
+        registry.set(aliasId, {
+          id: aliasId,
+          displayName,
+          subdivision,
+          conference: team.conference ?? null,
+          isOwnable: subdivision === 'FBS',
+          owner,
+          aliases: [displayName],
+        });
+      }
+    }
+  }
+
+  for (const [alias, target] of Object.entries(aliasMap)) {
+    const aliasId = normalizeTeamName(alias);
+    const canonicalId = normalizeTeamName(target);
+    if (!canonicalId) continue;
+
+    const canonical =
+      registry.get(canonicalId) ??
+      ({
+        id: canonicalId,
+        displayName: target,
+        subdivision: 'OTHER' as TeamSubdivision,
+        conference: null,
+        isOwnable: false,
+        owner: ownersByTeamId?.get(canonicalId) ?? null,
+        aliases: [],
+      } satisfies TeamIdentity);
+
+    if (!registry.has(canonicalId)) registry.set(canonicalId, canonical);
+    if (aliasId && !registry.has(aliasId)) {
+      registry.set(aliasId, { ...canonical, id: aliasId, aliases: [...(canonical.aliases ?? []), alias] });
+    }
+  }
+
+  for (const name of observedNames) {
+    const id = normalizeTeamName(name);
+    if (!id || registry.has(id)) continue;
+    const subdivision = inferSubdivisionFromConference(null);
+    registry.set(id, {
+      id,
+      displayName: name,
+      subdivision,
+      conference: null,
+      isOwnable: false,
+      owner: ownersByTeamId?.get(id) ?? null,
+      aliases: [],
+    });
+  }
+
+  return registry;
 }
 
 export function createTeamIdentityResolver(params: {
   aliasMap: AliasMap;
   teams: TeamCatalogItem[];
+  observedNames?: string[];
+  ownersByTeamId?: Map<string, string>;
 }): TeamIdentityResolver {
-  const { aliasMap, teams } = params;
+  const { aliasMap, teams, observedNames, ownersByTeamId } = params;
+  const cacheKey = JSON.stringify({
+    teams: teams.map((t) => [t.school, t.level, t.conference, t.alts?.join('|') ?? '']),
+    aliases: Object.entries(aliasMap).sort((a, b) => a[0].localeCompare(b[0])),
+    observedNames: [...(observedNames ?? [])].sort((a, b) => a.localeCompare(b)),
+  });
 
-  const canonicalByVariant = new Map<string, Set<string>>();
-  const fbsIdentityKeys = new Set<string>();
-
-  const addVariant = (variant: string, canonical: string) => {
-    if (!variant) return;
-    const existing = canonicalByVariant.get(variant) ?? new Set<string>();
-    existing.add(canonical);
-    canonicalByVariant.set(variant, existing);
-  };
-
-  for (const team of teams) {
-    const canonical = team.school?.trim();
-    if (!canonical) continue;
-
-    const variants = [
-      canonical,
-      ...(Array.isArray(team.alts) ? team.alts : []),
-      team.mascot ? `${canonical} ${team.mascot}` : '',
-    ].filter(Boolean);
-
-    for (const value of variants) {
-      const normalized = normalizeTeamName(value);
-      addVariant(normalized, canonical);
-      const aliased = aliasMap[normalizeAliasKey(value)] ?? value;
-      addVariant(normalizeTeamName(aliased), canonical);
-    }
-
-    if (normalizeLevel(team.level) === 'FBS') {
-      fbsIdentityKeys.add(normalizeTeamName(canonical));
-    }
-  }
+  const registry = REGISTRY_CACHE.get(cacheKey) ?? buildCanonicalRegistry({ teams, aliasMap, observedNames, ownersByTeamId });
+  REGISTRY_CACHE.set(cacheKey, registry);
 
   const resolveName = (rawInput: string): TeamResolution => {
     const raw = rawInput.trim();
-    const aliasLookupKey = normalizeAliasKey(raw);
-    const aliasTarget = aliasMap[aliasLookupKey];
-    const baseForMatch = aliasTarget ?? raw;
-    const normalizedInput = normalizeTeamName(baseForMatch);
-
-    const candidates = Array.from(canonicalByVariant.get(normalizedInput) ?? []);
-    if (candidates.length === 1) {
-      const canonicalName = candidates[0]!;
+    if (isLikelyInvalidTeamLabel(raw)) {
       return {
         rawInput,
-        normalizedInput,
-        canonicalName,
-        identityKey: normalizeTeamName(canonicalName),
-        resolutionSource: aliasTarget ? 'alias' : 'catalog_exact',
-        status: 'resolved',
-      };
-    }
-
-    if (candidates.length > 1) {
-      return {
-        rawInput,
-        normalizedInput,
+        normalizedInput: '',
         canonicalName: null,
         identityKey: null,
-        resolutionSource: aliasTarget ? 'alias' : 'catalog_variant',
-        status: 'ambiguous',
-        notes: 'Multiple catalog teams match this normalized label',
-        candidates,
+        resolutionSource: 'invalid_label',
+        status: 'unresolved',
+        notes: 'invalid-schedule-row',
       };
     }
 
-    const startsWithCandidates = Array.from(canonicalByVariant.entries())
-      .filter(([variant]) => variant.startsWith(normalizedInput) || normalizedInput.startsWith(variant))
-      .flatMap(([, names]) => Array.from(names));
-
-    const nearCandidates = dedupeStrings(startsWithCandidates);
-    if (nearCandidates.length === 1) {
-      const canonicalName = nearCandidates[0]!;
+    const normalizedInput = normalizeTeamName(raw);
+    const direct = registry.get(normalizedInput);
+    if (direct) {
       return {
         rawInput,
         normalizedInput,
-        canonicalName,
-        identityKey: normalizeTeamName(canonicalName),
-        resolutionSource: aliasTarget ? 'alias' : 'catalog_variant',
+        canonicalName: direct.displayName,
+        identityKey: normalizeTeamName(direct.displayName),
+        resolutionSource: 'canonical',
         status: 'resolved',
+        subdivision: direct.subdivision,
+        isOwnable: direct.isOwnable,
       };
+    }
+
+    const aliasTarget = aliasMap[normalizeAliasLookup(raw)];
+    if (aliasTarget) {
+      const aliasCanonical = registry.get(normalizeTeamName(aliasTarget));
+      if (aliasCanonical) {
+        return {
+          rawInput,
+          normalizedInput,
+          canonicalName: aliasCanonical.displayName,
+          identityKey: normalizeTeamName(aliasCanonical.displayName),
+          resolutionSource: 'alias',
+          status: 'resolved',
+          subdivision: aliasCanonical.subdivision,
+          isOwnable: aliasCanonical.isOwnable,
+        };
+      }
     }
 
     return {
@@ -152,55 +221,37 @@ export function createTeamIdentityResolver(params: {
       normalizedInput,
       canonicalName: null,
       identityKey: null,
-      resolutionSource: aliasTarget ? 'alias' : 'raw',
-      status: nearCandidates.length > 1 ? 'ambiguous' : 'unresolved',
-      notes: nearCandidates.length > 1 ? 'Multiple close catalog candidates found' : undefined,
-      candidates: nearCandidates.length > 0 ? nearCandidates : undefined,
+      resolutionSource: 'unresolved',
+      status: 'unresolved',
+      notes: 'identity-unresolved',
     };
   };
 
-  const variantsForName = (raw: string): string[] => {
-    const resolved = resolveName(raw);
-    const values = [
-      resolved.identityKey ?? '',
-      resolved.normalizedInput,
-      normalizeTeamName(raw),
-      ...((resolved.candidates ?? []).map((candidate) => normalizeTeamName(candidate))),
-    ];
-    return dedupeStrings(values);
-  };
-
   const buildPairKey = (a: string, b: string): string => {
-    const ra = resolveName(a);
-    const rb = resolveName(b);
-    const left = ra.identityKey ?? ra.normalizedInput;
-    const right = rb.identityKey ?? rb.normalizedInput;
-    return [left, right].sort((x, y) => x.localeCompare(y)).join('__');
-  };
-
-  const buildGameKey = (params: { week: number; home: string; away: string; neutral: boolean }): string => {
-    const { week, home, away, neutral } = params;
-    const homeRes = resolveName(home);
-    const awayRes = resolveName(away);
-    const homeKey = homeRes.identityKey ?? homeRes.normalizedInput;
-    const awayKey = awayRes.identityKey ?? awayRes.normalizedInput;
-    if (neutral) {
-      return `${week}-${[homeKey, awayKey].sort((x, y) => x.localeCompare(y)).join('-')}-N`;
-    }
-    return `${week}-${homeKey}-${awayKey}-H`;
-  };
-
-  const isFbsName = (raw: string): boolean => {
-    const result = resolveName(raw);
-    if (!result.identityKey) return false;
-    return fbsIdentityKeys.has(result.identityKey);
+    const left = resolveName(a);
+    const right = resolveName(b);
+    const l = left.identityKey ?? left.normalizedInput;
+    const r = right.identityKey ?? right.normalizedInput;
+    return [l, r].sort((x, y) => x.localeCompare(y)).join('__');
   };
 
   return {
     resolveName,
     buildPairKey,
-    buildGameKey,
-    variantsForName,
-    isFbsName,
+    buildGameKey: ({ week, home, away, neutral }) => {
+      const homeKey = resolveName(home).identityKey ?? normalizeTeamName(home);
+      const awayKey = resolveName(away).identityKey ?? normalizeTeamName(away);
+      return neutral
+        ? `${week}-${[homeKey, awayKey].sort((x, y) => x.localeCompare(y)).join('-')}-N`
+        : `${week}-${homeKey}-${awayKey}-H`;
+    },
+    variantsForName: (raw) => {
+      const resolved = resolveName(raw);
+      const base = resolved.identityKey ?? resolved.normalizedInput;
+      return base ? [base] : [];
+    },
+    isFbsName: (raw) => resolveName(raw).subdivision === 'FBS',
+    isLikelyInvalidTeamLabel,
+    getRegistry: () => registry,
   };
 }

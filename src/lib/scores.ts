@@ -148,7 +148,8 @@ export async function fetchScoresByGame(params: {
   const diag: ScoresDiagEntry[] = [];
 
   const teams = providedTeams ?? (await fetchTeamsCatalog().catch(() => []));
-  const resolver = createTeamIdentityResolver({ aliasMap, teams });
+  const observedNames = Array.from(new Set(games.flatMap((g) => [g.csvHome, g.csvAway, g.canHome, g.canAway])));
+  const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
   const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
   const globalIndex = new Map<string, Array<{ week: number; game: GameLike }>>();
@@ -190,9 +191,10 @@ export async function fetchScoresByGame(params: {
           const homeRes = resolver.resolveName(row.homeName);
           const awayRes = resolver.resolveName(row.awayName);
 
-          issues.push(`Scores miss (week ${week}): "${row.homeName}" vs "${row.awayName}"`);
+          issues.push(`missing-score-match: week ${week} ${row.homeName} vs ${row.awayName}`);
           diag.push({
             kind: 'scores_miss',
+            issueClassification: 'missing-score-match',
             week,
             providerHome: row.homeName,
             providerAway: row.awayName,
@@ -213,6 +215,7 @@ export async function fetchScoresByGame(params: {
           if (homeRes.status !== 'resolved') {
             diag.push({
               kind: 'identity_resolution',
+              issueClassification: 'identity-unresolved',
               flow: 'scores',
               rawInput: homeRes.rawInput,
               normalizedInput: homeRes.normalizedInput,
@@ -225,6 +228,7 @@ export async function fetchScoresByGame(params: {
           if (awayRes.status !== 'resolved') {
             diag.push({
               kind: 'identity_resolution',
+              issueClassification: 'identity-unresolved',
               flow: 'scores',
               rawInput: awayRes.rawInput,
               normalizedInput: awayRes.normalizedInput,
@@ -266,9 +270,7 @@ export async function fetchScoresByGame(params: {
           week: candidateWeek,
         }));
 
-        issues.push(
-          `Scores week ${week}: provider reported "${row.homeName}" vs "${row.awayName}". Ignoring due to week mismatch.`
-        );
+        issues.push(`missing-score-match: week ${week} ${row.homeName} vs ${row.awayName} (week mismatch)`);
 
         diag.push({
           kind: 'week_mismatch',

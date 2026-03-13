@@ -31,7 +31,8 @@ export function rebuildGamesFromIdentity<T extends RebuildableGame>(params: {
   aliasMap: AliasMap;
 }): T[] {
   const { games, teams, aliasMap } = params;
-  const resolver = createTeamIdentityResolver({ teams, aliasMap });
+  const observedNames = Array.from(new Set(games.flatMap((g) => [g.csvHome, g.csvAway, g.canHome, g.canAway])));
+  const resolver = createTeamIdentityResolver({ teams, aliasMap, observedNames });
 
   return games.map((g) => {
     const home = resolver.resolveName(g.csvHome);

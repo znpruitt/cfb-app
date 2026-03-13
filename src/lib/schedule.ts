@@ -1,5 +1,6 @@
 import type { AliasMap } from './teamNames';
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
+import { isLikelyInvalidTeamLabel } from './teamNormalization';
 
 export type ScheduleWireItem = {
   id: string;
@@ -31,6 +32,7 @@ export type BuiltSchedule = {
   weeks: number[];
   byes: Record<number, string[]>;
   conferences: string[];
+  issues: string[];
 };
 
 export async function fetchSeasonSchedule(season: number): Promise<ScheduleWireItem[]> {
@@ -44,14 +46,19 @@ export async function fetchSeasonSchedule(season: number): Promise<ScheduleWireI
   return Array.isArray(payload.items) ? payload.items : [];
 }
 
-// API-first schedule builder: CFBD defines the game universe; local aliases/catalog normalize identity.
 export function buildScheduleFromApi(params: {
   scheduleItems: ScheduleWireItem[];
   teams: TeamCatalogItem[];
   aliasMap: AliasMap;
+  observedNames?: string[];
 }): BuiltSchedule {
   const { scheduleItems, teams, aliasMap } = params;
-  const resolver = createTeamIdentityResolver({ teams, aliasMap });
+  const issues: string[] = [];
+  const providerNames = Array.from(
+    new Set(scheduleItems.flatMap((item) => [item.homeTeam, item.awayTeam]).filter((name) => !isLikelyInvalidTeamLabel(name)))
+  );
+
+  const resolver = createTeamIdentityResolver({ teams, aliasMap, observedNames: [...providerNames, ...(params.observedNames ?? [])] });
 
   const games: AppGame[] = [];
   const allTeamNames = new Set<string>();
@@ -59,14 +66,25 @@ export function buildScheduleFromApi(params: {
   const conferenceSet = new Set<string>();
 
   for (const item of scheduleItems) {
-    allTeamNames.add(item.homeTeam);
-    allTeamNames.add(item.awayTeam);
+    if (isLikelyInvalidTeamLabel(item.homeTeam) || isLikelyInvalidTeamLabel(item.awayTeam)) {
+      issues.push(`invalid-schedule-row: ${item.homeTeam} vs ${item.awayTeam}`);
+      continue;
+    }
 
     const homeResolved = resolver.resolveName(item.homeTeam);
     const awayResolved = resolver.resolveName(item.awayTeam);
+    if (homeResolved.status !== 'resolved' || awayResolved.status !== 'resolved') {
+      issues.push(`identity-unresolved: ${item.homeTeam} vs ${item.awayTeam}`);
+      continue;
+    }
+
+    const keepGame = homeResolved.subdivision === 'FBS' || awayResolved.subdivision === 'FBS';
+    if (!keepGame) continue;
 
     const canHome = homeResolved.canonicalName ?? item.homeTeam;
     const canAway = awayResolved.canonicalName ?? item.awayTeam;
+    allTeamNames.add(canHome);
+    allTeamNames.add(canAway);
 
     const key = resolver.buildGameKey({
       week: item.week,
@@ -99,14 +117,12 @@ export function buildScheduleFromApi(params: {
   }
 
   const weeks = Array.from(new Set(games.map((g) => g.week))).sort((a, b) => a - b);
-  const allCanonicalTeams = Array.from(allTeamNames).map((name) => resolver.resolveName(name).canonicalName ?? name);
+  const allCanonicalTeams = Array.from(allTeamNames);
 
   const byes: Record<number, string[]> = {};
   for (const week of weeks) {
     const participants = weekParticipants.get(week) ?? new Set<string>();
-    byes[week] = allCanonicalTeams
-      .filter((team) => !participants.has(team))
-      .sort((a, b) => a.localeCompare(b));
+    byes[week] = allCanonicalTeams.filter((team) => !participants.has(team)).sort((a, b) => a.localeCompare(b));
   }
 
   return {
@@ -114,5 +130,6 @@ export function buildScheduleFromApi(params: {
     weeks,
     byes,
     conferences: ['ALL', ...Array.from(conferenceSet).sort((a, b) => a.localeCompare(b))],
+    issues,
   };
 }

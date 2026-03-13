@@ -1,9 +1,17 @@
+export type IssueClassification =
+  | 'identity-unresolved'
+  | 'owner-unassigned'
+  | 'invalid-schedule-row'
+  | 'missing-score-match'
+  | 'missing-odds-match';
+
 export type DiagEntry =
   | {
       kind: 'scores_miss';
       week: number;
       providerHome: string;
       providerAway: string;
+      issueClassification?: IssueClassification;
       candidates?: Array<{ csvHome: string; csvAway: string; week: number }>;
       homeIdentity?: {
         normalizedInput: string;
@@ -31,6 +39,7 @@ export type DiagEntry =
       rawInput: string;
       normalizedInput: string;
       resolutionSource: string;
+      issueClassification?: IssueClassification;
       status: 'resolved' | 'unresolved' | 'ambiguous';
       notes?: string;
       candidates?: string[];
