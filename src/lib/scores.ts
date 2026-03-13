@@ -147,7 +147,7 @@ export async function fetchScoresByGame(params: {
   const issues: string[] = [];
   const diag: ScoresDiagEntry[] = [];
 
-  const teams = providedTeams ?? (await fetchTeamsCatalog(season).catch(() => []));
+  const teams = providedTeams ?? (await fetchTeamsCatalog().catch(() => []));
   const resolver = createTeamIdentityResolver({ aliasMap, teams });
 
   const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);

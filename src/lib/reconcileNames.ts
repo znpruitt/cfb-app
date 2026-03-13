@@ -11,11 +11,11 @@ export async function reconcileNamesWithCatalog(params: {
   persistLearnedAliases?: (upserts: AliasMap) => Promise<void>;
   onIdentityDiag?: (entry: DiagEntry) => void;
 }): Promise<Record<string, string>> {
-  const { csvTeams, aliasMap, season, onTeamsCatalogError, persistLearnedAliases, onIdentityDiag } = params;
+  const { csvTeams, aliasMap, onTeamsCatalogError, persistLearnedAliases, onIdentityDiag } = params;
 
   const out: Record<string, string> = {};
   try {
-    const teams = await fetchTeamsCatalog(season);
+    const teams = await fetchTeamsCatalog();
     const resolver = createTeamIdentityResolver({ aliasMap, teams });
 
     const upserts: AliasMap = {};

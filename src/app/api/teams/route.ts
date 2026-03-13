@@ -26,27 +26,20 @@ type TeamsCatalog = {
 
 type NormalizedLevel = 'FBS' | 'FCS' | 'D2' | 'D3' | 'NAIA' | 'OTHER';
 
-/** Which file(s) to try for a given year. */
-function candidateFiles(year: number | null): string[] {
-  const dataDir = path.join(process.cwd(), 'data');
-  const out: string[] = [];
-  if (year !== null) out.push(path.join(dataDir, `teams-${year}.json`));
-  out.push(path.join(dataDir, 'teams-latest.json'));
-  return out;
+/** Canonical local teams catalog path. */
+function catalogFile(): string {
+  return path.join(process.cwd(), 'src', 'data', 'teams.json');
 }
 
-/** Load the first existing catalog file from candidates. */
-async function loadCatalog(year: number | null): Promise<TeamsCatalog | null> {
-  for (const file of candidateFiles(year)) {
-    try {
-      const raw = await fs.readFile(file, 'utf8');
-      const parsed = JSON.parse(raw) as TeamsCatalog;
-      if (parsed && Array.isArray(parsed.items)) return parsed;
-    } catch {
-      // try next
-    }
+/** Load the teams catalog from the canonical file. */
+async function loadCatalog(): Promise<TeamsCatalog | null> {
+  try {
+    const raw = await fs.readFile(catalogFile(), 'utf8');
+    const parsed = JSON.parse(raw) as TeamsCatalog;
+    return parsed && Array.isArray(parsed.items) ? parsed : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /** Normalize a team record's level/subdivision into one of our enums. */
@@ -87,22 +80,17 @@ function parseLevelParam(q: string | null): NormalizedLevel | 'ALL' {
   return 'ALL';
 }
 
-/** GET /api/teams?year=2025&level=FBS|FCS|D2|D3|NAIA|OTHER|ALL */
+/** GET /api/teams?level=FBS|FCS|D2|D3|NAIA|OTHER|ALL */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(req.url);
-    const yearParam = searchParams.get('year');
     const levelParam = parseLevelParam(searchParams.get('level'));
 
-    const year = yearParam ? Number.parseInt(yearParam, 10) : null;
-    const wantYear = Number.isFinite(year as number) ? (year as number) : null;
-
-    const catalog = await loadCatalog(wantYear);
+    const catalog = await loadCatalog();
     if (!catalog) {
       return NextResponse.json(
         {
-          error:
-            'No teams catalog found. Add data/teams-<year>.json or data/teams-latest.json (via your fetch script) and restart.',
+          error: 'No teams catalog found. Add src/data/teams.json and restart.',
         },
         { status: 404 }
       );

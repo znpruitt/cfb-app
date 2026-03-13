@@ -201,18 +201,12 @@ async function main(): Promise<void> {
   const outDir = path.join(root, 'src', 'data');
   fs.mkdirSync(outDir, { recursive: true });
 
-  const outFile = path.join(outDir, `teams-${yearArg}.json`);
-  const latestFile = path.join(outDir, 'teams-latest.json');
+  const outFile = path.join(outDir, 'teams.json');
 
   const payload = { year: yearArg, items };
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2), 'utf8');
-  fs.writeFileSync(latestFile, JSON.stringify(payload, null, 2), 'utf8');
 
-  console.log(
-    `✓ Saved ${items.length} teams with aliases to:\n` +
-      `  - ${path.relative(root, outFile)}\n` +
-      `  - ${path.relative(root, latestFile)}`
-  );
+  console.log(`✓ Saved ${items.length} teams with aliases to:\n  - ${path.relative(root, outFile)}`);
 }
 
 main().catch((err) => {

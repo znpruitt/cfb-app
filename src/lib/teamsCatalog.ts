@@ -1,7 +1,8 @@
 import type { TeamCatalogItem } from './teamIdentity';
 
-export async function fetchTeamsCatalog(season: number): Promise<TeamCatalogItem[]> {
-  const response = await fetch(`/api/teams?year=${season}`, { cache: 'no-store' });
+export async function fetchTeamsCatalog(): Promise<TeamCatalogItem[]> {
+  // Team catalog is a single canonical file (src/data/teams.json) served by /api/teams.
+  const response = await fetch('/api/teams', { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`teams catalog ${response.status}`);
   }

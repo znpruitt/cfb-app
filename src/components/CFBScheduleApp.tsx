@@ -164,7 +164,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     try {
       const [scheduleItems, teams] = await Promise.all([
         fetchSeasonSchedule(SEASON),
-        fetchTeamsCatalog(SEASON),
+        fetchTeamsCatalog(),
       ]);
       const built = buildScheduleFromApi({
         scheduleItems,
@@ -298,7 +298,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
     setLoadingLive(true);
     try {
-      const teams = await fetchTeamsCatalog(SEASON).catch(() => []);
+      const teams = await fetchTeamsCatalog().catch(() => []);
 
       try {
         const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
@@ -347,7 +347,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const rebuildGamesWithCurrentAliases = useCallback(async () => {
     if (!games.length) return;
 
-    const teams = await fetchTeamsCatalog(SEASON).catch(() => []);
+    const teams = await fetchTeamsCatalog().catch(() => []);
     if (teams.length) {
       const rebuilt = rebuildGamesFromIdentity({ games, teams, aliasMap });
       setGames(rebuilt);

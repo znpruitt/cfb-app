@@ -4,402 +4,172 @@
 
 This repository contains a Next.js college football office pool web app.
 
-The app is currently CSV-first:
+The app is now **API-first** for game loading and live enrichment:
 
-- A Schedule CSV defines the season schedule.
-- An Owners CSV maps teams to pool participants.
-- The app enriches loaded games with live odds and scores fetched from internal API routes.
-- Team name reconciliation is handled through normalization, alias maps, and provider matching logic.
+- **CFBD** is the source of truth for schedule and scores.
+- **The Odds API** is the source of truth for betting odds.
+- Local app data supports:
+  - owners upload + cache
+  - alias persistence + repair
+  - diagnostics/manual intervention tooling
+  - minimal static team reference metadata
 
-The system functions primarily as a data reconciliation tool that overlays live sports data on a user-provided schedule.
-
-Changes should favor low-risk, behavior-preserving refactors unless a task explicitly requests architectural or product changes.
-
----
-
-# Product flow
-
-The typical runtime flow is:
-
-1. Load alias map from server or fallback data.
-2. Restore cached CSV data from localStorage if available.
-3. Parse the Schedule CSV into internal Game objects.
-4. Parse the Owners CSV into roster ownership mappings.
-5. Reconcile CSV team names into canonical team identities.
-6. Fetch odds and scores from API routes.
-7. Match provider data back onto games.
-8. Surface diagnostics for mismatches.
-9. Allow alias repair through UI tools.
-10. Persist alias changes and rebuild game keys when necessary.
-
-This workflow is intentional and should not be changed without explicit instruction.
+Changes should favor low-risk, behavior-preserving refactors unless explicitly asked otherwise.
 
 ---
 
-# Architecture overview
+## Runtime flow (current)
 
-## Main orchestrator
+Typical runtime flow:
 
-src/components/CFBScheduleApp.tsx
+1. Load aliases from server, with local fallback.
+2. Restore local cached user artifacts (owners CSV, legacy schedule CSV fallback).
+3. Fetch season schedule from CFBD-backed API route.
+4. Load local teams catalog reference data.
+5. Build normalized game identities and diagnostics.
+6. Fetch odds via The Odds API adapter route.
+7. Fetch scores via CFBD-backed scores route.
+8. Surface diagnostics and allow alias repair workflows.
+
+Notes:
+- API-first schedule loading is the normal path.
+- Legacy schedule CSV handling may exist as fallback/migration support and should not become primary again without explicit instruction.
+
+---
+
+## Architecture overview
+
+### Main orchestrator
+
+`src/components/CFBScheduleApp.tsx`
 
 Responsibilities:
 
-- Own top-level application state
-- Coordinate CSV parsing
-- Coordinate alias reconciliation
-- Trigger odds and scores refresh
-- Manage caching and bootstrap behavior
-- Wire together UI components
-
-This file should remain an orchestration layer, not a location for heavy logic.
-
----
-
-# UI components
-
-The UI is split into focused components:
-
-src/components/
-
-- AliasEditorPanel.tsx  
-- IssuesPanel.tsx  
-- UploadPanel.tsx  
-- WeekControls.tsx  
-- GameWeekPanel.tsx  
-- TeamsDebugPanel.tsx  
-
-These components should primarily contain:
-
-- UI rendering
-- simple display helpers
-- event handlers passed from the parent component
-
-Business logic should not accumulate here.
-
----
-
-# Library helpers
-
-Reusable logic lives in:
-
-src/lib/
-
-- teamNames.ts  
-- csv.ts  
-- parseOwnersCsv.ts  
-- parseScheduleCsv.ts  
-- odds.ts  
-- scores.ts  
-- aliasStaging.ts  
-- rebuildGames.ts  
-- aliasesApi.ts  
-- gameUi.ts  
-- diagnostics.ts  
-
-These files contain:
-
-- parsing
-- matching
-- alias logic
-- data transformations
-- UI status helpers
-- diagnostics types
-
-New reusable logic should be placed here when possible.
-
----
-
-# API routes
-
-The application exposes internal endpoints:
-
-src/app/api/
-
-- aliases/
-- teams/
-- scores/
-- odds/
-
-These routes act as provider adapters and should:
-
-- normalize external API data
-- provide stable internal data structures
-- avoid leaking provider-specific quirks to the UI
-
----
-
-# Static data
-
-Reference data lives in:
-
-src/data/
-
-- alias-overrides.json
-- teams-2025.json
-- teams-latest.json
-
-These files contain:
-
-- known alias overrides
-- team metadata
-- reference catalogs used for reconciliation
-
-They should remain stable and deterministic.
-
----
-
-# Core business rules
-
-## 1. CSV-first architecture
-
-The application is intentionally CSV-first.
-
-This means:
-
-- The schedule CSV defines the game universe.
-- Owners CSV defines pool participants.
-- API calls enrich the schedule rather than replacing it.
-
-Do not silently migrate the app to API-first schedule loading.
-
----
-
-## 2. Alias persistence
-
-Alias handling is central to the system.
-
-Alias behavior must preserve:
-
-- server alias map loading
-- local alias cache fallback
-- alias staging before persistence
-- alias editing UI
-- rebuild of game keys when aliases change
-
-Alias workflows should remain stable unless explicitly redesigned.
-
----
-
-## 3. Local caching
-
-The app caches important data in localStorage:
-
-- schedule CSV
-- owners CSV
-- alias map
-
-This allows the app to restore state on reload.
-
-Do not remove or alter caching behavior without clear instruction.
-
----
-
-## 4. Diagnostics system
-
-Diagnostics are used to expose reconciliation issues.
-
-Current diagnostics include:
-
-- score misses
-- week mismatches
-- general issues
-- alias staging suggestions
-
-Diagnostics are important debugging tools and should not be removed.
-
----
-
-## 5. FBS filtering behavior
-
-The score matching logic intentionally filters out irrelevant FCS vs FCS noise when possible.
-
-Provider score rows that do not involve FBS teams may be ignored during matching.
-
-This behavior is intentional and should be preserved.
-
----
-
-# Schedule CSV format
-
-The schedule CSV is a matrix schedule format.
-
-Expected columns:
-
-Conference, Team, Week 0..Week N
-
-Cell semantics:
-
-@ Opponent   → Away game  
-vs Opponent  → Neutral site  
-Opponent     → Home game  
-BYE          → Bye week  
-
-The parser:
-
-- reads team rows
-- detects week columns
-- interprets cell contents
-- merges duplicate observations
-- detects conflicts
-- builds internal Game objects
-
-This logic lives in parseScheduleCsv.
-
----
-
-# Team identity reconciliation
-
-Team identity resolution can involve:
-
-- raw CSV names
-- canonical school names
-- alias map lookups
-- normalized string variants
-- team catalog alternate names
-- mascot variants
-- provider labels
-
-Matching logic must remain tolerant and conservative to avoid data mismatches.
-
-Do not aggressively tighten matching rules without careful review.
-
----
-
-# Schedule parsing guardrail
-
-Schedule parsing must never leave stale UI state.
-
-If parseScheduleCsv returns zero valid games, the application must clear all schedule-derived state before returning.
-
-This includes resetting:
-
-- games
-- weeks
-- byes
-- conferences
-- selectedWeek
-- scoresByKey
-- oddsByKey
-
-Leaving these populated would cause stale schedule data from previously loaded CSV files to remain visible.
-
-This bug was previously caught during PR review and fixed.  
-Future changes must preserve this behavior.
-
----
-
-# Component design rule
-
-CFBScheduleApp.tsx is the application orchestrator.
-
-It should primarily:
-
-- coordinate state
-- coordinate parsing
-- coordinate refresh flows
+- hold top-level state
+- coordinate bootstrap and refresh flows
+- call schedule/scores/odds/team-catalog APIs
+- coordinate alias and diagnostics workflows
 - wire UI components together
 
-Heavy logic should live in src/lib.
+Keep this file as an orchestrator. Do not move heavy parsing/matching logic into it.
 
-The component should not grow back into a large monolithic file unless explicitly necessary.
+### UI components
+
+`src/components/` should contain focused rendering + UI handlers:
+
+- `AliasEditorPanel.tsx`
+- `IssuesPanel.tsx`
+- `UploadPanel.tsx`
+- `WeekControls.tsx`
+- `GameWeekPanel.tsx`
+- `TeamsDebugPanel.tsx`
+
+### Reusable logic
+
+Put shared/non-trivial logic in `src/lib/` (parsing, matching, transforms, diagnostics helpers, API client helpers).
+
+### API routes
+
+`src/app/api/` routes act as provider adapters:
+
+- `schedule/` (CFBD-backed)
+- `scores/` (CFBD-backed)
+- `odds/` (The Odds API-backed)
+- `teams/` (local teams catalog)
+- `aliases/` (alias persistence)
+
+Routes should normalize provider quirks and return stable app-facing structures.
 
 ---
 
-# Refactor philosophy
+## Static data
 
-Favor small, low-risk refactors.
+Static reference data lives in `src/data/`.
 
-Good refactors include:
+Canonical files:
 
-- extracting UI sections into components
-- moving helpers to src/lib
-- removing duplicated helper logic
-- improving clarity and comments
-- improving state visibility
+- `src/data/teams.json` ← canonical team catalog source
+- `src/data/alias-overrides.json` ← optional alias-derivation overrides for catalog generation script
 
-Avoid:
-
-- large rewrites
-- speculative architectural changes
-- silently altering product behavior
-- removing diagnostics
-- converting CSV-first architecture to API-first
-
-Readable code is preferred over clever abstractions.
+Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there is a concrete, approved runtime behavior requirement.
 
 ---
 
-# Validation and testing
+## Core rules
+
+1. **API-first schedule + scores**
+   - CFBD-backed routes define schedule and score truth.
+   - Do not silently reintroduce CSV-first schedule architecture.
+
+2. **Odds provider boundary**
+   - Odds data should flow through internal odds route adapters, not raw provider shapes in UI state.
+
+3. **Alias persistence stability**
+   - Preserve server alias loading, local fallback behavior, alias editing, and rebuild flows.
+
+4. **Diagnostics are required**
+   - Do not remove diagnostic surfaces that aid reconciliation debugging.
+
+5. **Local caching remains intentional**
+   - Preserve practical local cache behavior for owners/aliases and migration fallback artifacts unless explicitly asked to change it.
+
+---
+
+## File size / complexity guardrails
+
+To prevent monolith regressions:
+
+- React components: aim for < ~400 lines
+- Library modules: aim for < ~500 lines
+- If approaching ~600 lines, extract:
+  - UI sections to `src/components/`
+  - shared logic to `src/lib/`
+
+Favor clarity and maintainability over clever abstractions.
+
+---
+
+## Validation and testing expectations
 
 Preferred checks:
 
-npm run lint  
-npx tsc --noEmit
+- `npm run lint`
+- `npx tsc --noEmit`
 
-Known current issue:
+Known pre-existing issue:
 
-A pre-existing TypeScript error exists in:
+- A TypeScript issue exists in `src/components/TeamsDebugPanel.tsx`.
+- Do not report it as a regression unless that file is modified.
 
-src/components/TeamsDebugPanel.tsx
+When practical, verify key runtime flows still behave:
 
-Do not report this error as a regression unless that file is modified.
-
----
-
-# Runtime verification
-
-When practical, ensure these flows still work:
-
-- schedule CSV upload
-- owners CSV upload
-- cached CSV restoration
+- API schedule load
 - odds refresh
 - scores refresh
-- alias editor
-- diagnostics panel
+- owners upload/caching
+- alias editor + diagnostics panel
 - week filtering
 
-If browser automation is unavailable or crashes, report it clearly.
-
 ---
 
-# Git workflow
+## Reporting expectations for Codex tasks
 
-Preferred workflow:
-
-- implement changes on a branch
-- create a pull request
-- allow review before merge
-
-If the runtime cannot push to GitHub:
-
-- state this clearly
-- provide a patch or diff artifact
-
-Avoid leaving untracked changes inside isolated environments.
-
----
-
-# Reporting expectations
-
-When completing work, report:
+When completing work, report clearly:
 
 1. What changed
 2. Which files changed
 3. Whether behavior changed
-4. Risks or follow-up suggestions
-5. Lint/type-check results
+4. Risks / follow-up suggestions
+5. Lint and type-check results
 6. Any known unrelated failures
 
 Be explicit and accurate.
 
 ---
 
-# Guiding principle
+## Guiding principle
 
-This project is maintained by an engineer using AI assistance to build and maintain a hobby application.
-
-Code changes should optimize for:
+Optimize for:
 
 - clarity
 - maintainability
@@ -407,101 +177,4 @@ Code changes should optimize for:
 - low surprise
 - incremental improvement
 
-Prefer understandable code over clever solutions.
-
----
-
-# File size and component complexity limits
-
-To preserve maintainability and readability, avoid creating large monolithic files.
-
-Guidelines:
-
-- React components should ideally remain under ~400 lines.
-- Library modules should ideally remain under ~500 lines.
-- If a file approaches ~600 lines, consider extracting logic into:
-  - smaller components
-  - helper modules in src/lib
-  - focused utility files
-
-Large files are harder to reason about and harder for AI agents to safely modify.
-
----
-
-# Preferred extraction strategy
-
-When a file becomes too large or contains mixed responsibilities, refactor by extracting:
-
-UI sections → components  
-Examples:
-- filter controls
-- panels
-- detail views
-- modal editors
-
-Place these in:
-
-src/components/
-
----
-
-Reusable logic → library helpers  
-Examples:
-- parsing logic
-- data transformations
-- matching logic
-- reconciliation helpers
-- reusable state helpers
-
-Place these in:
-
-src/lib/
-
----
-
-Display helpers → UI helper modules  
-Examples:
-- status helpers
-- CSS class helpers
-- rendering helpers
-
-Place these in files like:
-
-src/lib/gameUi.ts
-
----
-
-# Orchestrator rule
-
-CFBScheduleApp.tsx should remain the application orchestrator.
-
-Responsibilities of the orchestrator:
-
-- hold top-level state
-- coordinate parsing
-- trigger refresh flows
-- coordinate alias updates
-- wire together UI components
-
-Avoid placing heavy parsing, reconciliation, or transformation logic directly inside the orchestrator.
-
-Those should live in src/lib.
-
----
-
-# Refactor preference
-
-When making improvements:
-
-Prefer:
-- extracting logic
-- improving readability
-- reducing duplication
-- smaller focused modules
-
-Avoid:
-- large rewrites
-- moving many responsibilities into a single file
-- mixing UI and domain logic
-
-Incremental improvements are preferred over sweeping redesigns.
+Prefer understandable code over large rewrites.
