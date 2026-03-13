@@ -22,9 +22,10 @@ import { rebuildGamesFromAliasMap, rebuildGamesFromIdentity } from '../lib/rebui
 import { pillClass } from '../lib/gameUi';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
+import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
-const SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
+const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
 
 function summarizeGames(label: string, games: AppGame[]): void {
   const weeks = Array.from(
@@ -53,6 +54,9 @@ function summarizeGames(label: string, games: AppGame[]): void {
 
 export default function CFBScheduleApp(): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
+
+  const [selectedSeason] = useState<number>(DEFAULT_SEASON);
+  const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason), [selectedSeason]);
 
   const [games, setGames] = useState<AppGame[]>([]);
   const [weeks, setWeeks] = useState<number[]>([]);
@@ -87,18 +91,21 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [hasCachedOwners, setHasCachedOwners] = useState<boolean>(false);
   const [scheduleSource, setScheduleSource] = useState<'api' | 'csv-legacy' | 'none'>('none');
 
-  const applySavedAliasMap = useCallback((saved: AliasMap) => {
-    setAliasMap(saved);
-    window.localStorage.setItem('cfb_name_map', JSON.stringify(saved));
-  }, []);
+  const applySavedAliasMap = useCallback(
+    (saved: AliasMap) => {
+      setAliasMap(saved);
+      window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(saved));
+    },
+    [storageKeys.aliasMap]
+  );
 
   const persistAliasChanges = useCallback(
     async (upserts: AliasMap, deletes: string[] = []): Promise<AliasMap> => {
-      const saved = await saveServerAliases(upserts, deletes, SEASON);
+      const saved = await saveServerAliases(upserts, deletes, selectedSeason);
       applySavedAliasMap(saved);
       return saved;
     },
-    [applySavedAliasMap]
+    [applySavedAliasMap, selectedSeason]
   );
 
   const tryParseOwnersCSV = useCallback((text: string) => {
@@ -130,7 +137,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       return reconcileNamesWithCatalog({
         csvTeams,
         aliasMap,
-        season: SEASON,
+        season: selectedSeason,
         onTeamsCatalogError: (message) => {
           setIssues((p) => [...p, `Teams catalog fetch failed: ${message}`]);
         },
@@ -144,7 +151,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         },
       });
     },
-    [aliasMap, persistAliasChanges]
+    [aliasMap, persistAliasChanges, selectedSeason]
   );
 
   const tryParseScheduleCSV = useCallback(
@@ -230,7 +237,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     ): Promise<boolean> => {
       try {
         const [scheduleItems, teams] = await Promise.all([
-          fetchSeasonSchedule(SEASON),
+          fetchSeasonSchedule(selectedSeason),
           fetchTeamsCatalog(),
         ]);
         if (IS_DEBUG) {
@@ -262,7 +269,7 @@ export default function CFBScheduleApp(): React.ReactElement {
           scheduleItems,
           teams,
           aliasMap: overrideAliasMap ?? aliasMap,
-          season: SEASON,
+          season: selectedSeason,
           manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
         });
 
@@ -300,24 +307,24 @@ export default function CFBScheduleApp(): React.ReactElement {
         return false;
       }
     },
-    [aliasMap, clearScheduleDerivedState, selectedWeek, manualPostseasonOverrides]
+    [aliasMap, clearScheduleDerivedState, manualPostseasonOverrides, selectedSeason, selectedWeek]
   );
 
   const clearCachedSchedule = useCallback(() => {
-    window.localStorage.removeItem('cfb_schedule_csv');
+    window.localStorage.removeItem(storageKeys.scheduleCsv);
     setHasCachedSchedule(false);
     setScheduleLoadedFromCache(false);
     if (scheduleSource === 'csv-legacy') {
       clearScheduleDerivedState();
     }
-  }, [clearScheduleDerivedState, scheduleSource]);
+  }, [clearScheduleDerivedState, scheduleSource, storageKeys.scheduleCsv]);
 
   const clearCachedOwners = useCallback(() => {
-    window.localStorage.removeItem('cfb_owners_csv');
+    window.localStorage.removeItem(storageKeys.ownersCsv);
     setHasCachedOwners(false);
     setOwnersLoadedFromCache(false);
     clearOwnersDerivedState();
-  }, [clearOwnersDerivedState]);
+  }, [clearOwnersDerivedState, storageKeys.ownersCsv]);
 
   const showAliasToast = useCallback((message: string, timeoutMs: number = 1200) => {
     setAliasToast(message);
@@ -334,7 +341,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         aliasLoadIssue,
         scheduleCsvText,
         ownersCsvText,
-      } = await bootstrapAliasesAndCaches({ season: SEASON, seedAliases: SEED_ALIASES });
+      } = await bootstrapAliasesAndCaches({ season: selectedSeason, seedAliases: SEED_ALIASES });
 
       setAliasMap(bootAliasMap);
       if (aliasLoadIssue) setIssues((p) => [...p, aliasLoadIssue]);
@@ -344,7 +351,9 @@ export default function CFBScheduleApp(): React.ReactElement {
 
       let loadedOverrides: Record<string, Partial<AppGame>> = {};
       try {
-        const rawOverrides = window.localStorage.getItem('cfb_postseason_overrides');
+        const rawOverrides =
+          window.localStorage.getItem(storageKeys.postseasonOverrides) ??
+          window.localStorage.getItem(LEGACY_STORAGE_KEYS.postseasonOverrides);
         if (rawOverrides)
           loadedOverrides = JSON.parse(rawOverrides) as Record<string, Partial<AppGame>>;
       } catch {
@@ -364,19 +373,25 @@ export default function CFBScheduleApp(): React.ReactElement {
         tryParseOwnersCSV(ownersCsvText);
       }
     })();
-  }, [loadScheduleFromApi, tryParseOwnersCSV, tryParseScheduleCSV]);
+  }, [
+    loadScheduleFromApi,
+    selectedSeason,
+    storageKeys.postseasonOverrides,
+    tryParseOwnersCSV,
+    tryParseScheduleCSV,
+  ]);
 
   const onScheduleFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
       const text = await file.text();
-      window.localStorage.setItem('cfb_schedule_csv', text);
+      window.localStorage.setItem(storageKeys.scheduleCsv, text);
       setHasCachedSchedule(true);
       setScheduleLoadedFromCache(false);
       await tryParseScheduleCSV(text);
     },
-    [tryParseScheduleCSV]
+    [storageKeys.scheduleCsv, tryParseScheduleCSV]
   );
 
   const onOwnersFile = useCallback(
@@ -384,12 +399,12 @@ export default function CFBScheduleApp(): React.ReactElement {
       const file = e.target.files?.[0];
       if (!file) return;
       const text = await file.text();
-      window.localStorage.setItem('cfb_owners_csv', text);
+      window.localStorage.setItem(storageKeys.ownersCsv, text);
       setHasCachedOwners(true);
       setOwnersLoadedFromCache(false);
       tryParseOwnersCSV(text);
     },
-    [tryParseOwnersCSV]
+    [storageKeys.ownersCsv, tryParseOwnersCSV]
   );
 
   const rosterByTeam = useMemo(() => {
@@ -466,7 +481,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         } = await fetchScoresByGame({
           games,
           aliasMap,
-          season: SEASON,
+          season: selectedSeason,
           teams,
         });
 
@@ -481,7 +496,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     } finally {
       setLoadingLive(false);
     }
-  }, [games, aliasMap]);
+  }, [games, aliasMap, selectedSeason]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
@@ -514,7 +529,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       ...prev,
       'Teams catalog unavailable: rebuilt game keys from aliases only.',
     ]);
-  }, [games, aliasMap]);
+  }, [games, aliasMap, selectedSeason]);
 
   const rebuildKeysAndRefresh = useCallback(async () => {
     await rebuildGamesWithCurrentAliases();
@@ -620,7 +635,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       let nextOverrides: Record<string, Partial<AppGame>> | null = null;
       setManualPostseasonOverrides((prev) => {
         const next = { ...prev, [eventId]: { ...(prev[eventId] ?? {}), ...patch } };
-        window.localStorage.setItem('cfb_postseason_overrides', JSON.stringify(next));
+        window.localStorage.setItem(storageKeys.postseasonOverrides, JSON.stringify(next));
         nextOverrides = next;
 
         const override = next[eventId];
@@ -637,7 +652,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         void loadScheduleFromApi(undefined, nextOverrides);
       }
     },
-    [loadScheduleFromApi, scheduleSource]
+    [loadScheduleFromApi, scheduleSource, storageKeys.postseasonOverrides]
   );
   return (
     <div className="p-6 space-y-6 text-gray-900 bg-white dark:text-zinc-100 dark:bg-zinc-950">
@@ -691,7 +706,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
       <AliasEditorPanel
         open={editOpen}
-        season={SEASON}
+        season={selectedSeason}
         draft={editDraft}
         onClose={() => setEditOpen(false)}
         onAddRow={addDraftRow}
