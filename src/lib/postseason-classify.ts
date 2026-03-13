@@ -64,7 +64,12 @@ function playoffRoundFromText(text: string): 'quarterfinal' | 'semifinal' | 'nat
 function playoffSlotNumber(text: string): number {
   const m = text.match(/\b([1-4])\b/);
   if (m?.[1]) return Number(m[1]);
-  return 1;
+  return NaN;
+}
+
+function fallbackPlayoffSlotKey(row: ScheduleWireItem): string {
+  const key = slugify(row.id || `${row.startDate ?? ''}-${row.homeTeam}-${row.awayTeam}`);
+  return key || 'unslotted';
 }
 
 function looksEmptyRow(row: ScheduleWireItem): boolean {
@@ -104,11 +109,29 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
   if (/(college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(text)) {
     const round = playoffRoundFromText(text);
     const slot = playoffSlotNumber(text);
-    const roundKey = round === 'national_championship' ? 'national-championship' : `cfp-${round}-${slot}`;
+    const hasExplicitSlot = Number.isFinite(slot);
+    const roundKey =
+      round === 'national_championship'
+        ? 'national-championship'
+        : hasExplicitSlot
+          ? `cfp-${round}-${slot}`
+          : `cfp-${round}-${fallbackPlayoffSlotKey(row)}`;
     const label =
       round === 'national_championship'
         ? 'National Championship'
-        : `CFP ${round[0]?.toUpperCase()}${round.slice(1)} ${slot}`;
+        : hasExplicitSlot
+          ? `CFP ${round[0]?.toUpperCase()}${round.slice(1)} ${slot}`
+          : `CFP ${round[0]?.toUpperCase()}${round.slice(1)}`;
+    const slotOrder =
+      round === 'quarterfinal'
+        ? hasExplicitSlot
+          ? 20 + slot
+          : 29
+        : round === 'semifinal'
+          ? hasExplicitSlot
+            ? 30 + slot
+            : 39
+          : 41;
 
     return {
       kind: 'postseason_placeholder',
@@ -117,7 +140,7 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
       playoffRound: round,
       eventId: `${season}-${roundKey}`,
       eventKey: roundKey,
-      slotOrder: round === 'quarterfinal' ? 20 + slot : round === 'semifinal' ? 30 + slot : 41,
+      slotOrder,
       homeDisplay: row.homeTeam.includes('TBD') ? row.homeTeam : 'Team TBD',
       awayDisplay: row.awayTeam.includes('TBD') ? row.awayTeam : 'Team TBD',
     };

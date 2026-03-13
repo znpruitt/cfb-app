@@ -141,7 +141,12 @@ export function hydrateEvents(params: {
     }
 
     const candidates = Array.from(byId.values())
-      .filter((candidate) => candidate.stage !== 'regular' && incoming.stage !== 'regular')
+      .filter(
+        (candidate) =>
+          candidate.stage !== 'regular' &&
+          incoming.stage !== 'regular' &&
+          (candidate.isPlaceholder || !isTeam(candidate.participants.home) || !isTeam(candidate.participants.away))
+      )
       .map((candidate) => ({ candidate, score: scoreCandidate(candidate, incoming) }))
       .sort((a, b) => b.score.score - a.score.score);
 

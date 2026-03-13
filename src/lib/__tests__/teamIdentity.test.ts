@@ -101,6 +101,96 @@ test('playoff row becomes postseason placeholder', () => {
   }
 });
 
+test('playoff rows without numeric slot generate stable distinct ids', () => {
+  const first = classifyScheduleRow(
+    {
+      id: '2025-cfp-semi-a',
+      week: 18,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'College Football Playoff Semifinal',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+    },
+    2025
+  );
+  const second = classifyScheduleRow(
+    {
+      id: '2025-cfp-semi-b',
+      week: 18,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'College Football Playoff Semifinal',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+    },
+    2025
+  );
+
+  assert.equal(first.kind, 'postseason_placeholder');
+  assert.equal(second.kind, 'postseason_placeholder');
+  if (first.kind === 'postseason_placeholder' && second.kind === 'postseason_placeholder') {
+    assert.notEqual(first.eventId, second.eventId);
+    assert.equal(first.eventId, '2025-cfp-semifinal-2025-cfp-semi-a');
+    assert.equal(second.eventId, '2025-cfp-semifinal-2025-cfp-semi-b');
+  }
+});
+
+test('build schedule keeps both semifinal games when slot numbers are absent', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS' },
+      { school: 'Alabama', level: 'FBS' },
+      { school: 'Michigan', level: 'FBS' },
+      { school: 'Washington', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'semi-a',
+        week: 18,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Alabama',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        label: 'College Football Playoff Semifinal',
+        seasonType: 'postseason',
+      },
+      {
+        id: 'semi-b',
+        week: 18,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Michigan',
+        awayTeam: 'Washington',
+        homeConference: 'Big Ten',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+        label: 'College Football Playoff Semifinal',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  const semifinals = built.games.filter((g) => g.playoffRound === 'semifinal' && !g.isPlaceholder);
+  assert.equal(semifinals.length, 2);
+  assert.notEqual(semifinals[0]?.eventId, semifinals[1]?.eventId);
+});
+
 test('placeholder rows bypass team identity resolution', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
