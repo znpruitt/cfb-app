@@ -18,6 +18,9 @@ type CfbdScheduleGame = {
   home_conference?: string | null;
   away_conference?: string | null;
   status?: string | null;
+  venue?: string | null;
+  notes?: string | null;
+  name?: string | null;
 };
 
 type ScheduleItem = {
@@ -31,6 +34,10 @@ type ScheduleItem = {
   homeConference: string;
   awayConference: string;
   status: string;
+  venue?: string | null;
+  label?: string | null;
+  notes?: string | null;
+  seasonType?: SeasonType;
 };
 
 interface ScheduleMeta {
@@ -59,7 +66,7 @@ function seasonYearForToday(now = new Date()): number {
   return month >= 7 ? year : year - 1;
 }
 
-function toScheduleItem(game: CfbdScheduleGame): ScheduleItem | null {
+function toScheduleItem(game: CfbdScheduleGame, seasonType: SeasonType): ScheduleItem | null {
   const week = typeof game.week === 'number' ? game.week : null;
   const homeTeam = (game.home_team ?? '').trim();
   const awayTeam = (game.away_team ?? '').trim();
@@ -76,7 +83,34 @@ function toScheduleItem(game: CfbdScheduleGame): ScheduleItem | null {
     homeConference: (game.home_conference ?? '').trim(),
     awayConference: (game.away_conference ?? '').trim(),
     status: (game.status ?? 'scheduled').trim() || 'scheduled',
+    venue: (game.venue ?? '').trim() || null,
+    label: (game.name ?? '').trim() || null,
+    notes: (game.notes ?? '').trim() || null,
+    seasonType,
   };
+}
+
+async function fetchSeasonType(year: number, week: number | null, seasonType: SeasonType, key: string): Promise<ScheduleItem[]> {
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  if (!cfbdApiKey) {
+    throw new Error('CFBD_API_KEY missing');
+  }
+
+  const cfbdUrl = new URL('https://api.collegefootballdata.com/games');
+  cfbdUrl.searchParams.set('year', String(year));
+  cfbdUrl.searchParams.set('division', 'fbs');
+  cfbdUrl.searchParams.set('seasonType', seasonType);
+  if (week != null) cfbdUrl.searchParams.set('week', String(week));
+
+  const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
+    cache: 'no-store',
+    timeoutMs: 12_000,
+    headers: { Authorization: `Bearer ${cfbdApiKey}` },
+  });
+
+  const items = upstream.map((game) => toScheduleItem(game, seasonType)).filter((v): v is ScheduleItem => Boolean(v));
+  CACHE[key] = { at: Date.now(), items };
+  return items;
 }
 
 export async function GET(req: Request) {
@@ -91,9 +125,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'week must be a non-negative integer', field: 'week' }, { status: 400 });
   }
 
-  const seasonType: SeasonType = seasonTypeParam === 'postseason' ? 'postseason' : 'regular';
-  const cacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
+  const requestedSeasonType: SeasonType | 'all' = seasonTypeParam === 'postseason' ? 'postseason' : seasonTypeParam === 'regular' ? 'regular' : 'all';
 
+  const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
   const hit = CACHE[cacheKey];
   const now = Date.now();
   if (hit && now - hit.at < CACHE_TTL_MS) {
@@ -103,25 +137,14 @@ export async function GET(req: Request) {
     });
   }
 
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    return NextResponse.json({ error: 'CFBD_API_KEY missing' }, { status: 503 });
-  }
-
   try {
-    const cfbdUrl = new URL('https://api.collegefootballdata.com/games');
-    cfbdUrl.searchParams.set('year', String(year));
-    cfbdUrl.searchParams.set('division', 'fbs');
-    cfbdUrl.searchParams.set('seasonType', seasonType);
-    if (week != null) cfbdUrl.searchParams.set('week', String(week));
+    const seasonTypes: SeasonType[] = requestedSeasonType === 'all' ? ['regular', 'postseason'] : [requestedSeasonType];
 
-    const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
-      cache: 'no-store',
-      timeoutMs: 12_000,
-      headers: { Authorization: `Bearer ${cfbdApiKey}` },
-    });
+    const payloads = await Promise.all(
+      seasonTypes.map((type) => fetchSeasonType(year, week, type, `${year}-${week ?? 'all'}-${type}`))
+    );
 
-    const items = upstream.map(toScheduleItem).filter((v): v is ScheduleItem => Boolean(v));
+    const items = payloads.flat().sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
     CACHE[cacheKey] = { at: now, items };
 
     return NextResponse.json<ScheduleResponse>({
