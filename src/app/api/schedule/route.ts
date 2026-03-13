@@ -59,7 +59,12 @@ interface ScheduleResponse {
   meta: ScheduleMeta;
 }
 
-type CacheEntry = { at: number; items: ScheduleItem[] };
+type CacheEntry = {
+  at: number;
+  items: ScheduleItem[];
+  partialFailure: boolean;
+  failedSeasonTypes: SeasonType[];
+};
 const CACHE: Record<string, CacheEntry> = {};
 
 function parseNonNegativeInt(raw: string | null): number | null {
@@ -188,7 +193,7 @@ async function fetchSeasonType(params: {
     });
   }
 
-  CACHE[cacheKey] = { at: Date.now(), items };
+  CACHE[cacheKey] = { at: Date.now(), items, partialFailure: false, failedSeasonTypes: [] };
   pruneCache(CACHE, 'schedule');
 
   return { items, requestUrl };
@@ -247,7 +252,8 @@ export async function GET(req: Request) {
         cache: 'hit',
         fallbackUsed: false,
         generatedAt: new Date(hit.at).toISOString(),
-        partialFailure: false,
+        partialFailure: hit.partialFailure,
+        ...(hit.failedSeasonTypes.length > 0 ? { failedSeasonTypes: hit.failedSeasonTypes } : {}),
       },
     });
   }
@@ -326,7 +332,12 @@ export async function GET(req: Request) {
   const items = successes
     .flatMap((payload) => payload.items)
     .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
-  CACHE[cacheKey] = { at: now, items };
+  CACHE[cacheKey] = {
+    at: now,
+    items,
+    partialFailure: failedSeasonTypes.length > 0,
+    failedSeasonTypes,
+  };
   pruneCache(CACHE, 'schedule');
 
   if (IS_DEBUG) {

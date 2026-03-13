@@ -312,6 +312,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   const clearCachedSchedule = useCallback(() => {
     window.localStorage.removeItem(storageKeys.scheduleCsv);
+    window.localStorage.removeItem(LEGACY_STORAGE_KEYS.scheduleCsv);
     setHasCachedSchedule(false);
     setScheduleLoadedFromCache(false);
     if (scheduleSource === 'csv-legacy') {
@@ -321,6 +322,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   const clearCachedOwners = useCallback(() => {
     window.localStorage.removeItem(storageKeys.ownersCsv);
+    window.localStorage.removeItem(LEGACY_STORAGE_KEYS.ownersCsv);
     setHasCachedOwners(false);
     setOwnersLoadedFromCache(false);
     clearOwnersDerivedState();
