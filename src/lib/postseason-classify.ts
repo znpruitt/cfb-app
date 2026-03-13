@@ -19,7 +19,6 @@ type RowClassification =
     }
   | { kind: 'invalid_row'; reason: string };
 
-
 const BOWL_SLOT_ORDER: Record<string, number> = {
   'rose-bowl': 10,
   'sugar-bowl': 11,
@@ -54,7 +53,9 @@ function normalizedText(row: ScheduleWireItem): string {
     .toLowerCase();
 }
 
-function playoffRoundFromText(text: string): 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' {
+function playoffRoundFromText(
+  text: string
+): 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' {
   if (/quarterfinal/i.test(text)) return 'quarterfinal';
   if (/semifinal/i.test(text)) return 'semifinal';
   if (/national championship/i.test(text)) return 'national_championship';
@@ -78,7 +79,9 @@ function looksEmptyRow(row: ScheduleWireItem): boolean {
 
 function isPostseasonContext(row: ScheduleWireItem, text: string): boolean {
   if ((row.seasonType ?? '').toLowerCase() === 'postseason') return true;
-  return /(championship game|\bbowl\b|college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(text);
+  return /(championship game|\bbowl\b|college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(
+    text
+  );
 }
 
 export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowClassification {
@@ -106,7 +109,9 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
     };
   }
 
-  if (/(college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(text)) {
+  if (
+    /(college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(text)
+  ) {
     const round = playoffRoundFromText(text);
     const slot = playoffSlotNumber(text);
     const hasExplicitSlot = Number.isFinite(slot);
@@ -163,7 +168,10 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
     };
   }
 
-  return { kind: 'invalid_row', reason: `postseason row could not be classified: ${row.homeTeam} vs ${row.awayTeam}` };
+  return {
+    kind: 'invalid_row',
+    reason: `postseason row could not be classified: ${row.homeTeam} vs ${row.awayTeam}`,
+  };
 }
 
 export type { RowClassification };

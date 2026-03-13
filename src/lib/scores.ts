@@ -165,7 +165,9 @@ export async function fetchScoresByGame(params: {
   const globalIndex = new Map<string, Array<{ week: number; game: GameLike }>>();
 
   for (const g of games) {
-    const hasTeamParticipants = (g.participants?.home?.kind ?? 'team') === 'team' && (g.participants?.away?.kind ?? 'team') === 'team';
+    const hasTeamParticipants =
+      (g.participants?.home?.kind ?? 'team') === 'team' &&
+      (g.participants?.away?.kind ?? 'team') === 'team';
     if (!hasTeamParticipants || !g.canHome || !g.canAway) continue;
     const involvesFbs = resolver.isFbsName(g.canHome) || resolver.isFbsName(g.canAway);
     if (teams.length > 0 && !involvesFbs) continue;

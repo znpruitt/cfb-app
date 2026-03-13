@@ -138,7 +138,9 @@ function sortGames(games: AppGame[]): AppGame[] {
 
 function buildByes(games: AppGame[]): Record<number, string[]> {
   const byes: Record<number, string[]> = {};
-  const allCanonicalTeams = Array.from(new Set(games.flatMap((g) => [g.canHome, g.canAway]).filter(Boolean)));
+  const allCanonicalTeams = Array.from(
+    new Set(games.flatMap((g) => [g.canHome, g.canAway]).filter(Boolean))
+  );
   const weeks = Array.from(new Set(games.map((g) => g.week))).sort((a, b) => a - b);
 
   for (const week of weeks) {
@@ -193,7 +195,12 @@ function buildPlaceholderParticipant(params: {
     }
   }
 
-  return { kind: 'placeholder', slotId, displayName: defaultDisplay, source: 'postseason-classifier' };
+  return {
+    kind: 'placeholder',
+    slotId,
+    displayName: defaultDisplay,
+    source: 'postseason-classifier',
+  };
 }
 
 function buildTemplateGame(event: TemplateEvent): AppGame {
@@ -362,8 +369,10 @@ export function buildScheduleFromApi(params: {
           venue: 'cfbd',
         },
         participants: { home: homeParticipant, away: awayParticipant },
-        csvAway: awayParticipant.kind === 'team' ? awayParticipant.rawName : awayParticipant.displayName,
-        csvHome: homeParticipant.kind === 'team' ? homeParticipant.rawName : homeParticipant.displayName,
+        csvAway:
+          awayParticipant.kind === 'team' ? awayParticipant.rawName : awayParticipant.displayName,
+        csvHome:
+          homeParticipant.kind === 'team' ? homeParticipant.rawName : homeParticipant.displayName,
         canAway: awayParticipant.kind === 'team' ? awayParticipant.canonicalName : '',
         canHome: homeParticipant.kind === 'team' ? homeParticipant.canonicalName : '',
         awayConf: item.awayConference ?? '',

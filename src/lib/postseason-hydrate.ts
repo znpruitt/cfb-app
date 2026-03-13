@@ -96,7 +96,10 @@ function scoreCandidate(base: AppGame, incoming: AppGame): { score: number; reas
     score += 5;
     reasons.push('label');
   }
-  if (normalized(base.conference) && normalized(base.conference) === normalized(incoming.conference)) {
+  if (
+    normalized(base.conference) &&
+    normalized(base.conference) === normalized(incoming.conference)
+  ) {
     score += 4;
     reasons.push('conference');
   }
@@ -104,7 +107,10 @@ function scoreCandidate(base: AppGame, incoming: AppGame): { score: number; reas
     score += 4;
     reasons.push('bowl');
   }
-  if (normalized(base.playoffRound) && normalized(base.playoffRound) === normalized(incoming.playoffRound)) {
+  if (
+    normalized(base.playoffRound) &&
+    normalized(base.playoffRound) === normalized(incoming.playoffRound)
+  ) {
     score += 4;
     reasons.push('playoffRound');
   }
@@ -117,10 +123,10 @@ function scoreCandidate(base: AppGame, incoming: AppGame): { score: number; reas
   return { score, reason: reasons.join('+') || 'none' };
 }
 
-export function hydrateEvents(params: {
-  baseEvents: AppGame[];
-  providerEvents: AppGame[];
-}): { games: AppGame[]; diagnostics: HydrationDiagnostic[] } {
+export function hydrateEvents(params: { baseEvents: AppGame[]; providerEvents: AppGame[] }): {
+  games: AppGame[];
+  diagnostics: HydrationDiagnostic[];
+} {
   const { baseEvents, providerEvents } = params;
   const byId = new Map<string, AppGame>(baseEvents.map((g) => [g.eventId, g]));
   const diagnostics: HydrationDiagnostic[] = [];
@@ -145,7 +151,9 @@ export function hydrateEvents(params: {
         (candidate) =>
           candidate.stage !== 'regular' &&
           incoming.stage !== 'regular' &&
-          (candidate.isPlaceholder || !isTeam(candidate.participants.home) || !isTeam(candidate.participants.away))
+          (candidate.isPlaceholder ||
+            !isTeam(candidate.participants.home) ||
+            !isTeam(candidate.participants.away))
       )
       .map((candidate) => ({ candidate, score: scoreCandidate(candidate, incoming) }))
       .sort((a, b) => b.score.score - a.score.score);

@@ -80,7 +80,9 @@ export function buildOddsByGame(params: {
   }
 
   for (const g of games) {
-    const hasTeamParticipants = (g.participants?.home?.kind ?? 'team') === 'team' && (g.participants?.away?.kind ?? 'team') === 'team';
+    const hasTeamParticipants =
+      (g.participants?.home?.kind ?? 'team') === 'team' &&
+      (g.participants?.away?.kind ?? 'team') === 'team';
     if (!hasTeamParticipants || !g.canHome || !g.canAway) continue;
     const gamePairKey = resolver.buildPairKey(g.canHome, g.canAway);
     let match = pairIndex.get(gamePairKey)?.[0];

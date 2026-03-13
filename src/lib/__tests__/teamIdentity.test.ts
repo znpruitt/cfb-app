@@ -213,8 +213,14 @@ test('placeholder rows bypass team identity resolution', () => {
     ],
   });
 
-  assert.equal(built.issues.some((x) => x.includes('identity-unresolved')), false);
-  assert.equal(built.games.some((g) => g.eventId === '2025-acc-championship'), true);
+  assert.equal(
+    built.issues.some((x) => x.includes('identity-unresolved')),
+    false
+  );
+  assert.equal(
+    built.games.some((g) => g.eventId === '2025-acc-championship'),
+    true
+  );
 });
 
 test('placeholder hydrates into real matchup and keeps slot id', () => {
@@ -331,7 +337,10 @@ test('true invalid rows are still rejected', () => {
     ],
   });
 
-  assert.equal(built.games.some((g) => g.providerGameId === '2025-bad'), false);
+  assert.equal(
+    built.games.some((g) => g.providerGameId === '2025-bad'),
+    false
+  );
 });
 
 test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {

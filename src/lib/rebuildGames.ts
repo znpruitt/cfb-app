@@ -21,15 +21,20 @@ export function rebuildGamesFromAliasMap<T extends RebuildableGame>(
   mapObj: Record<string, string>
 ): T[] {
   return games.map((g) => {
-    if (g.participants && (g.participants.home.kind !== 'team' || g.participants.away.kind !== 'team')) {
+    if (
+      g.participants &&
+      (g.participants.home.kind !== 'team' || g.participants.away.kind !== 'team')
+    ) {
       return { ...g, key: g.eventId ?? g.key };
     }
 
     const canAway = mapObj[g.csvAway] ?? g.csvAway;
     const canHome = mapObj[g.csvHome] ?? g.csvHome;
-    const key = g.eventId ?? (g.neutral
-      ? `${g.week}-${[canHome, canAway].sort((a, b) => a.localeCompare(b)).join('-')}-N`
-      : `${g.week}-${canHome}-${canAway}-H`);
+    const key =
+      g.eventId ??
+      (g.neutral
+        ? `${g.week}-${[canHome, canAway].sort((a, b) => a.localeCompare(b)).join('-')}-N`
+        : `${g.week}-${canHome}-${canAway}-H`);
     return { ...g, canAway, canHome, key };
   });
 }
@@ -46,7 +51,10 @@ export function rebuildGamesFromIdentity<T extends RebuildableGame>(params: {
   const resolver = createTeamIdentityResolver({ teams, aliasMap, observedNames });
 
   return games.map((g) => {
-    if (g.participants && (g.participants.home.kind !== 'team' || g.participants.away.kind !== 'team')) {
+    if (
+      g.participants &&
+      (g.participants.home.kind !== 'team' || g.participants.away.kind !== 'team')
+    ) {
       return { ...g, key: g.eventId ?? g.key };
     }
 
@@ -55,12 +63,14 @@ export function rebuildGamesFromIdentity<T extends RebuildableGame>(params: {
 
     const canHome = home.canonicalName ?? g.csvHome;
     const canAway = away.canonicalName ?? g.csvAway;
-    const key = g.eventId ?? resolver.buildGameKey({
-      week: g.week,
-      home: canHome,
-      away: canAway,
-      neutral: g.neutral,
-    });
+    const key =
+      g.eventId ??
+      resolver.buildGameKey({
+        week: g.week,
+        home: canHome,
+        away: canAway,
+        neutral: g.neutral,
+      });
 
     return { ...g, canAway, canHome, key };
   });

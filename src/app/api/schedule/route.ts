@@ -90,7 +90,12 @@ function toScheduleItem(game: CfbdScheduleGame, seasonType: SeasonType): Schedul
   };
 }
 
-async function fetchSeasonType(year: number, week: number | null, seasonType: SeasonType, key: string): Promise<ScheduleItem[]> {
+async function fetchSeasonType(
+  year: number,
+  week: number | null,
+  seasonType: SeasonType,
+  key: string
+): Promise<ScheduleItem[]> {
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
     throw new Error('CFBD_API_KEY missing');
@@ -108,7 +113,9 @@ async function fetchSeasonType(year: number, week: number | null, seasonType: Se
     headers: { Authorization: `Bearer ${cfbdApiKey}` },
   });
 
-  const items = upstream.map((game) => toScheduleItem(game, seasonType)).filter((v): v is ScheduleItem => Boolean(v));
+  const items = upstream
+    .map((game) => toScheduleItem(game, seasonType))
+    .filter((v): v is ScheduleItem => Boolean(v));
   CACHE[key] = { at: Date.now(), items };
   return items;
 }
@@ -128,7 +135,12 @@ export async function GET(req: Request) {
     );
   }
 
-  const requestedSeasonType: SeasonType | 'all' = seasonTypeParam === 'postseason' ? 'postseason' : seasonTypeParam === 'regular' ? 'regular' : 'all';
+  const requestedSeasonType: SeasonType | 'all' =
+    seasonTypeParam === 'postseason'
+      ? 'postseason'
+      : seasonTypeParam === 'regular'
+        ? 'regular'
+        : 'all';
 
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
   const hit = CACHE[cacheKey];
@@ -146,13 +158,18 @@ export async function GET(req: Request) {
   }
 
   try {
-    const seasonTypes: SeasonType[] = requestedSeasonType === 'all' ? ['regular', 'postseason'] : [requestedSeasonType];
+    const seasonTypes: SeasonType[] =
+      requestedSeasonType === 'all' ? ['regular', 'postseason'] : [requestedSeasonType];
 
     const payloads = await Promise.all(
-      seasonTypes.map((type) => fetchSeasonType(year, week, type, `${year}-${week ?? 'all'}-${type}`))
+      seasonTypes.map((type) =>
+        fetchSeasonType(year, week, type, `${year}-${week ?? 'all'}-${type}`)
+      )
     );
 
-    const items = payloads.flat().sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
+    const items = payloads
+      .flat()
+      .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
     CACHE[cacheKey] = { at: now, items };
 
     return NextResponse.json<ScheduleResponse>({
