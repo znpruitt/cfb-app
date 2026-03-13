@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import AliasEditorPanel from './AliasEditorPanel';
 import IssuesPanel from './IssuesPanel';
@@ -26,6 +26,8 @@ const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
 
 export default function CFBScheduleApp(): React.ReactElement {
+  const hasBootstrappedRef = useRef<boolean>(false);
+
   const [games, setGames] = useState<AppGame[]>([]);
   const [weeks, setWeeks] = useState<number[]>([]);
   const [byes, setByes] = useState<Record<number, string[]>>({});
@@ -212,6 +214,9 @@ export default function CFBScheduleApp(): React.ReactElement {
   }, []);
 
   useEffect(() => {
+    if (hasBootstrappedRef.current) return;
+    hasBootstrappedRef.current = true;
+
     (async () => {
       const { aliasMap: bootAliasMap, aliasLoadIssue, scheduleCsvText, ownersCsvText } =
         await bootstrapAliasesAndCaches({ season: SEASON, seedAliases: SEED_ALIASES });
