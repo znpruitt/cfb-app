@@ -21,7 +21,11 @@ export async function reconcileNamesWithCatalog(params: {
     const upserts: AliasMap = {};
     for (const raw of csvTeams) {
       const resolved = resolver.resolveName(raw);
-      const canonical = resolved.canonicalName ?? raw;
+      const aliasKey = stripDiacritics(raw).toLowerCase().trim();
+      const existingAliasTarget = aliasMap[aliasKey];
+
+      // Preserve operator-curated aliases even when catalog resolution is ambiguous/unresolved.
+      const canonical = resolved.canonicalName ?? existingAliasTarget ?? raw;
       out[raw] = canonical;
 
       if (resolved.status !== 'resolved') {
@@ -37,8 +41,7 @@ export async function reconcileNamesWithCatalog(params: {
         });
       }
 
-      const aliasKey = stripDiacritics(raw).toLowerCase().trim();
-      if (resolved.status === 'resolved' && canonical !== raw && !aliasMap[aliasKey]) {
+      if (resolved.status === 'resolved' && canonical !== raw && !existingAliasTarget) {
         upserts[aliasKey] = canonical;
       }
     }
@@ -48,7 +51,10 @@ export async function reconcileNamesWithCatalog(params: {
     }
   } catch (err) {
     onTeamsCatalogError?.((err as Error).message);
-    for (const raw of csvTeams) out[raw] = raw;
+    for (const raw of csvTeams) {
+      const aliasKey = stripDiacritics(raw).toLowerCase().trim();
+      out[raw] = aliasMap[aliasKey] ?? raw;
+    }
   }
 
   return out;
