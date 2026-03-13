@@ -1,33 +1,57 @@
 // eslint.config.mjs
-import { defineConfig, globalIgnores } from 'eslint/config';
-import nextVitals from 'eslint-config-next/core-web-vitals.js';
-import nextTs from 'eslint-config-next/typescript.js';
+import js from '@eslint/js';
+import globals from 'globals';
+import nextPlugin from '@next/eslint-plugin-next';
+import tseslint from 'typescript-eslint';
 import prettierPlugin from 'eslint-plugin-prettier';
 import unusedImports from 'eslint-plugin-unused-imports';
 
-export default defineConfig([
-  nextVitals,
-  nextTs,
+const projectFiles = ['**/*.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'];
 
-  globalIgnores([
-    'node_modules/**',
-    '.next/**',
-    'out/**',
-    'build/**',
-    'coverage/**',
-    'dist/**',
-    '.vercel/**',
-    'next-env.d.ts',
-    '*.tsbuildinfo',
-    'data/*.json',
-  ]),
+export default [
+  {
+    ignores: [
+      'node_modules/**',
+      '.next/**',
+      'out/**',
+      'build/**',
+      'coverage/**',
+      'dist/**',
+      '.vercel/**',
+      'next-env.d.ts',
+      '*.tsbuildinfo',
+      'data/*.json',
+    ],
+  },
 
   {
+    ...js.configs.recommended,
+    files: projectFiles,
+    languageOptions: {
+      ...js.configs.recommended.languageOptions,
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
+  },
+
+  ...tseslint.configs.recommended.map((config) => ({
+    ...config,
+    files: projectFiles,
+  })),
+
+  {
+    files: projectFiles,
     plugins: {
+      '@next/next': nextPlugin,
       prettier: prettierPlugin,
       'unused-imports': unusedImports,
     },
     rules: {
+      ...nextPlugin.configs.recommended.rules,
+      ...nextPlugin.configs['core-web-vitals'].rules,
+
       'prettier/prettier': 'warn',
 
       'unused-imports/no-unused-imports': 'warn',
@@ -37,10 +61,11 @@ export default defineConfig([
           args: 'after-used',
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
         },
       ],
 
       '@typescript-eslint/no-explicit-any': 'off',
     },
   },
-]);
+];

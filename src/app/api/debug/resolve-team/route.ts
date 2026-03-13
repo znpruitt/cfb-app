@@ -16,8 +16,12 @@ export async function GET(req: Request) {
     fetch(`${origin}/api/aliases?year=${year}`, { cache: 'no-store' }),
   ]);
 
-  const teamsJson = (await teamsRes.json().catch(() => ({ items: [] }))) as { items?: Array<Record<string, unknown>> };
-  const aliasesJson = (await aliasesRes.json().catch(() => ({ map: {} }))) as { map?: Record<string, string> };
+  const teamsJson = (await teamsRes.json().catch(() => ({ items: [] }))) as {
+    items?: Array<Record<string, unknown>>;
+  };
+  const aliasesJson = (await aliasesRes.json().catch(() => ({ map: {} }))) as {
+    map?: Record<string, string>;
+  };
 
   const resolver = createTeamIdentityResolver({
     teams: (teamsJson.items ?? []) as never[],
@@ -37,6 +41,7 @@ export async function GET(req: Request) {
     subdivision: canonical?.subdivision ?? null,
     isOwnable: canonical?.isOwnable ?? false,
     owner: canonical?.owner ?? null,
-    issueClassification: result.status === 'resolved' ? null : result.notes ?? 'identity-unresolved',
+    issueClassification:
+      result.status === 'resolved' ? null : (result.notes ?? 'identity-unresolved'),
   });
 }

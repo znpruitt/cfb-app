@@ -122,7 +122,10 @@ export async function GET(req: Request) {
   const year = parseNonNegativeInt(yearParam) ?? seasonYearForToday();
   const week = weekParam == null ? null : parseNonNegativeInt(weekParam);
   if (weekParam != null && week === null) {
-    return NextResponse.json({ error: 'week must be a non-negative integer', field: 'week' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'week must be a non-negative integer', field: 'week' },
+      { status: 400 }
+    );
   }
 
   const requestedSeasonType: SeasonType | 'all' = seasonTypeParam === 'postseason' ? 'postseason' : seasonTypeParam === 'regular' ? 'regular' : 'all';
@@ -133,7 +136,12 @@ export async function GET(req: Request) {
   if (hit && now - hit.at < CACHE_TTL_MS) {
     return NextResponse.json<ScheduleResponse>({
       items: hit.items,
-      meta: { source: 'cfbd', cache: 'hit', fallbackUsed: false, generatedAt: new Date(hit.at).toISOString() },
+      meta: {
+        source: 'cfbd',
+        cache: 'hit',
+        fallbackUsed: false,
+        generatedAt: new Date(hit.at).toISOString(),
+      },
     });
   }
 
@@ -149,11 +157,19 @@ export async function GET(req: Request) {
 
     return NextResponse.json<ScheduleResponse>({
       items,
-      meta: { source: 'cfbd', cache: 'miss', fallbackUsed: false, generatedAt: new Date(now).toISOString() },
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        fallbackUsed: false,
+        generatedAt: new Date(now).toISOString(),
+      },
     });
   } catch (error) {
     if (error instanceof UpstreamFetchError) {
-      return NextResponse.json({ error: 'upstream error', detail: error.details }, { status: error.details.status ?? 502 });
+      return NextResponse.json(
+        { error: 'upstream error', detail: error.details },
+        { status: error.details.status ?? 502 }
+      );
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'unknown error' },

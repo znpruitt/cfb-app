@@ -49,10 +49,14 @@ export function buildOddsByGame(params: {
   const { games, oddsEvents, aliasMap, teams } = params;
   const next: Record<string, CombinedOdds> = {};
 
-  const observedNames = Array.from(new Set([
-    ...games.flatMap((g) => [g.canHome, g.canAway]),
-    ...oddsEvents.flatMap((ev) => [ev.home_team ?? '', ev.away_team ?? '']),
-  ].filter(Boolean)));
+  const observedNames = Array.from(
+    new Set(
+      [
+        ...games.flatMap((g) => [g.canHome, g.canAway]),
+        ...oddsEvents.flatMap((ev) => [ev.home_team ?? '', ev.away_team ?? '']),
+      ].filter(Boolean)
+    )
+  );
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
   const preparedEvents: PreparedOddsEvent[] = [];
   const pairIndex = new Map<string, PreparedOddsEvent[]>();
@@ -124,14 +128,20 @@ export function buildOddsByGame(params: {
     if (h2h?.outcomes) {
       for (const o of h2h.outcomes) {
         const side = o.name || '';
-        if (teamMatches(side, match.homeTeam)) mlHome = typeof o.price === 'number' ? o.price : null;
-        if (teamMatches(side, match.awayTeam)) mlAway = typeof o.price === 'number' ? o.price : null;
+        if (teamMatches(side, match.homeTeam))
+          mlHome = typeof o.price === 'number' ? o.price : null;
+        if (teamMatches(side, match.awayTeam))
+          mlAway = typeof o.price === 'number' ? o.price : null;
       }
     }
 
     if (spreads?.outcomes) {
-      const homeOutcome = spreads.outcomes.find((outcome) => teamMatches(outcome.name || '', match.homeTeam));
-      const awayOutcome = spreads.outcomes.find((outcome) => teamMatches(outcome.name || '', match.awayTeam));
+      const homeOutcome = spreads.outcomes.find((outcome) =>
+        teamMatches(outcome.name || '', match.homeTeam)
+      );
+      const awayOutcome = spreads.outcomes.find((outcome) =>
+        teamMatches(outcome.name || '', match.awayTeam)
+      );
 
       const homePoint = typeof homeOutcome?.point === 'number' ? homeOutcome.point : null;
       const awayPoint = typeof awayOutcome?.point === 'number' ? awayOutcome.point : null;

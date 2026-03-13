@@ -74,12 +74,14 @@ export default function IssuesPanel({
                         <div>—</div>
                         {d.homeIdentity ? (
                           <div className="mt-1">
-                            Home norm: <code>{d.homeIdentity.normalizedInput}</code> ({d.homeIdentity.status})
+                            Home norm: <code>{d.homeIdentity.normalizedInput}</code> (
+                            {d.homeIdentity.status})
                           </div>
                         ) : null}
                         {d.awayIdentity ? (
                           <div>
-                            Away norm: <code>{d.awayIdentity.normalizedInput}</code> ({d.awayIdentity.status})
+                            Away norm: <code>{d.awayIdentity.normalizedInput}</code> (
+                            {d.awayIdentity.status})
                           </div>
                         ) : null}
                       </td>
@@ -110,12 +112,18 @@ export default function IssuesPanel({
                     <tr key={`d-${i}`} className="border-t dark:border-zinc-700">
                       <td className="p-2">Identity ({d.flow})</td>
                       <td className="p-2">—</td>
-                      <td className="p-2" colSpan={2}>{d.rawInput}</td>
+                      <td className="p-2" colSpan={2}>
+                        {d.rawInput}
+                      </td>
                       <td className="p-2">
-                        <div>normalized: <code>{d.normalizedInput}</code></div>
+                        <div>
+                          normalized: <code>{d.normalizedInput}</code>
+                        </div>
                         <div>source: {d.resolutionSource}</div>
                         <div>status: {d.status}</div>
-                        {d.candidates?.length ? <div>candidates: {d.candidates.join(', ')}</div> : null}
+                        {d.candidates?.length ? (
+                          <div>candidates: {d.candidates.join(', ')}</div>
+                        ) : null}
                       </td>
                       <td className="p-2">Manual alias may be needed.</td>
                     </tr>

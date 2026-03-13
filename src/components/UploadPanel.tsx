@@ -34,7 +34,8 @@ export default function UploadPanel({
   return (
     <section className="rounded border border-gray-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
       <div className="text-xs text-gray-600 dark:text-zinc-400">
-        Schedule source: <strong className="text-gray-900 dark:text-zinc-100">{scheduleSource}</strong>
+        Schedule source:{' '}
+        <strong className="text-gray-900 dark:text-zinc-100">{scheduleSource}</strong>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -58,7 +59,8 @@ export default function UploadPanel({
             className="text-sm file:mr-2 file:rounded file:border file:px-2 file:py-1 file:bg-white file:border-gray-300 dark:file:bg-zinc-800 dark:file:border-zinc-700"
           />
           <div className="text-xs text-gray-600 dark:text-zinc-400 mt-1">
-            Used only when API schedule loading fails. Format: <code>Conference, Team, Week 0..Week 16</code>.
+            Used only when API schedule loading fails. Format:{' '}
+            <code>Conference, Team, Week 0..Week 16</code>.
           </div>
         </div>
         <div>

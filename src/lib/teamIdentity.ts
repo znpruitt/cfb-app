@@ -1,5 +1,9 @@
 import type { AliasMap } from './teamNames';
-import { isLikelyInvalidTeamLabel, normalizeAliasLookup, normalizeTeamName } from './teamNormalization';
+import {
+  isLikelyInvalidTeamLabel,
+  normalizeAliasLookup,
+  normalizeTeamName,
+} from './teamNormalization';
 
 export type TeamCatalogItem = {
   school: string;
@@ -57,15 +61,24 @@ function toSubdivision(level?: string | null): TeamSubdivision {
 function inferSubdivisionFromConference(conference?: string | null): TeamSubdivision {
   const text = (conference ?? '').toLowerCase();
   if (!text) return 'OTHER';
-  if (text.includes('sec') || text.includes('big ten') || text.includes('acc') || text.includes('big 12')) {
+  if (
+    text.includes('sec') ||
+    text.includes('big ten') ||
+    text.includes('acc') ||
+    text.includes('big 12')
+  ) {
     return 'FBS';
   }
-  if (text.includes('fcs') || text.includes('ivy') || text.includes('patriot') || text.includes('swac')) {
+  if (
+    text.includes('fcs') ||
+    text.includes('ivy') ||
+    text.includes('patriot') ||
+    text.includes('swac')
+  ) {
     return 'FCS';
   }
   return 'OTHER';
 }
-
 
 const REGISTRY_CACHE = new Map<string, Map<string, TeamIdentity>>();
 
@@ -86,7 +99,9 @@ function buildCanonicalRegistry(params: {
 
     const subdivisionFromLevel = toSubdivision(team.level);
     const subdivision =
-      subdivisionFromLevel === 'OTHER' ? inferSubdivisionFromConference(team.conference) : subdivisionFromLevel;
+      subdivisionFromLevel === 'OTHER'
+        ? inferSubdivisionFromConference(team.conference)
+        : subdivisionFromLevel;
     const owner = ownersByTeamId?.get(id) ?? null;
     registry.set(id, {
       id,
@@ -134,7 +149,11 @@ function buildCanonicalRegistry(params: {
 
     if (!registry.has(canonicalId)) registry.set(canonicalId, canonical);
     if (aliasId && !registry.has(aliasId)) {
-      registry.set(aliasId, { ...canonical, id: aliasId, aliases: [...(canonical.aliases ?? []), alias] });
+      registry.set(aliasId, {
+        ...canonical,
+        id: aliasId,
+        aliases: [...(canonical.aliases ?? []), alias],
+      });
     }
   }
 
@@ -169,7 +188,9 @@ export function createTeamIdentityResolver(params: {
     observedNames: [...(observedNames ?? [])].sort((a, b) => a.localeCompare(b)),
   });
 
-  const registry = REGISTRY_CACHE.get(cacheKey) ?? buildCanonicalRegistry({ teams, aliasMap, observedNames, ownersByTeamId });
+  const registry =
+    REGISTRY_CACHE.get(cacheKey) ??
+    buildCanonicalRegistry({ teams, aliasMap, observedNames, ownersByTeamId });
   REGISTRY_CACHE.set(cacheKey, registry);
 
   const resolveName = (rawInput: string): TeamResolution => {

@@ -11,7 +11,10 @@ export type ScorePack = {
   time: string | null;
 };
 
-export type ScoresDiagEntry = Extract<DiagEntry, { kind: 'scores_miss' | 'week_mismatch' | 'identity_resolution' }>;
+export type ScoresDiagEntry = Extract<
+  DiagEntry,
+  { kind: 'scores_miss' | 'week_mismatch' | 'identity_resolution' }
+>;
 
 type GameLike = {
   key: string;
@@ -82,7 +85,11 @@ function parseScorePayload(payload: unknown): Array<WireFlat | WireObj> {
   if (Array.isArray(payload)) {
     return payload as Array<WireFlat | WireObj>;
   }
-  if (payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)) {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    Array.isArray((payload as { items?: unknown }).items)
+  ) {
     return (payload as { items: Array<WireFlat | WireObj> }).items;
   }
   return [];
@@ -149,7 +156,9 @@ export async function fetchScoresByGame(params: {
   const diag: ScoresDiagEntry[] = [];
 
   const teams = providedTeams ?? (await fetchTeamsCatalog().catch(() => []));
-  const observedNames = Array.from(new Set(games.flatMap((g) => [g.csvHome, g.csvAway, g.canHome, g.canAway])));
+  const observedNames = Array.from(
+    new Set(games.flatMap((g) => [g.csvHome, g.csvAway, g.canHome, g.canAway]))
+  );
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
   const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
@@ -183,7 +192,8 @@ export async function fetchScoresByGame(params: {
   for (const week of loadedWeeks) {
     const weeklyRows = rowsByWeek.get(week) ?? [];
     for (const row of weeklyRows) {
-      const rowInvolvesFbs = teams.length === 0 || resolver.isFbsName(row.homeName) || resolver.isFbsName(row.awayName);
+      const rowInvolvesFbs =
+        teams.length === 0 || resolver.isFbsName(row.homeName) || resolver.isFbsName(row.awayName);
       if (teams.length > 0 && !rowInvolvesFbs) continue;
 
       const matchKey = resolver.buildPairKey(row.homeName, row.awayName);
@@ -258,7 +268,9 @@ export async function fetchScoresByGame(params: {
         continue;
       }
 
-      const otherWeeks = Array.from(new Set(matchesAllWeeks.map((entry) => entry.week))).sort((a, b) => a - b);
+      const otherWeeks = Array.from(new Set(matchesAllWeeks.map((entry) => entry.week))).sort(
+        (a, b) => a - b
+      );
       const isFinal = (row.status || '').toLowerCase().includes('final');
       const isPrevWeekCarryover = otherWeeks.includes(week - 1);
       if (isFinal && isPrevWeekCarryover) continue;
@@ -273,7 +285,9 @@ export async function fetchScoresByGame(params: {
           week: candidateWeek,
         }));
 
-        issues.push(`missing-score-match: week ${week} ${row.homeName} vs ${row.awayName} (week mismatch)`);
+        issues.push(
+          `missing-score-match: week ${week} ${row.homeName} vs ${row.awayName} (week mismatch)`
+        );
 
         diag.push({
           kind: 'week_mismatch',

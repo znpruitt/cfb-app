@@ -206,7 +206,9 @@ async function main(): Promise<void> {
   const payload = { year: yearArg, items };
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2), 'utf8');
 
-  console.log(`✓ Saved ${items.length} teams with aliases to:\n  - ${path.relative(root, outFile)}`);
+  console.log(
+    `✓ Saved ${items.length} teams with aliases to:\n  - ${path.relative(root, outFile)}`
+  );
 }
 
 main().catch((err) => {

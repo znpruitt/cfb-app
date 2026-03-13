@@ -57,10 +57,9 @@ export default function TeamsDebugPanel(): React.ReactElement {
       setIssues([]);
       try {
         const serverLevel = SERVER_LEVELS.has(level) ? level : 'ALL';
-        const resp = await fetch(
-          `/api/teams?level=${encodeURIComponent(serverLevel)}`,
-          { cache: 'no-store' }
-        );
+        const resp = await fetch(`/api/teams?level=${encodeURIComponent(serverLevel)}`, {
+          cache: 'no-store',
+        });
         if (!resp.ok) {
           const t = await resp.text().catch(() => '');
           setIssues((p) => [...p, `Teams error ${resp.status}: ${t}`]);
