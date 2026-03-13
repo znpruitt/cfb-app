@@ -26,6 +26,31 @@ import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
 
+function summarizeGames(label: string, games: AppGame[]): void {
+  const weeks = Array.from(
+    new Set(games.map((g) => g.week).filter((w) => Number.isFinite(w)))
+  ).sort((a, b) => a - b);
+  const regular = games.filter((g) => g.stage === 'regular' && !g.isPlaceholder).length;
+  const placeholder = games.filter((g) => g.isPlaceholder).length;
+  const postseasonReal = games.filter((g) => g.stage !== 'regular' && !g.isPlaceholder).length;
+
+  console.log(label, {
+    count: games.length,
+    weeks,
+    regular,
+    placeholder,
+    postseasonReal,
+    sample: games.slice(0, 10).map((g) => ({
+      key: g.key,
+      week: g.week,
+      away: g.csvAway ?? g.canAway,
+      home: g.csvHome ?? g.canHome,
+      isPostseasonPlaceholder: !!g.isPlaceholder,
+      postseason: g.stage !== 'regular',
+    })),
+  });
+}
+
 export default function CFBScheduleApp(): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
 
@@ -208,6 +233,31 @@ export default function CFBScheduleApp(): React.ReactElement {
           fetchSeasonSchedule(SEASON),
           fetchTeamsCatalog(),
         ]);
+        if (IS_DEBUG) {
+          const seasonWeeks = Array.from(
+            new Set(scheduleItems.map((item) => item.week).filter((w) => Number.isFinite(w)))
+          ).sort((a, b) => a - b);
+          const regularCount = scheduleItems.filter(
+            (item) => item.seasonType !== 'postseason'
+          ).length;
+          const postseasonCount = scheduleItems.filter(
+            (item) => item.seasonType === 'postseason'
+          ).length;
+
+          console.log('raw API response', {
+            count: scheduleItems.length,
+            weeks: seasonWeeks,
+            regular: regularCount,
+            postseason: postseasonCount,
+            sample: scheduleItems.slice(0, 10).map((item) => ({
+              id: item.id,
+              week: item.week,
+              home: item.homeTeam,
+              away: item.awayTeam,
+              seasonType: item.seasonType ?? 'unknown',
+            })),
+          });
+        }
         const built = buildScheduleFromApi({
           scheduleItems,
           teams,
@@ -349,7 +399,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   }, [roster]);
 
   function filteredWeekGames(w: number): AppGame[] {
-    return games
+    const next = games
       .filter((g) => g.week === w)
       .filter((g) => {
         const confOk =
@@ -370,6 +420,12 @@ export default function CFBScheduleApp(): React.ReactElement {
         );
         return bMarquee - aMarquee || a.csvHome.localeCompare(b.csvHome);
       });
+
+    if (IS_DEBUG) {
+      summarizeGames(`displayGames: week ${w}`, next);
+    }
+
+    return next;
   }
 
   const refreshLive = useCallback(async () => {
