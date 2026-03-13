@@ -220,12 +220,17 @@ export default function CFBScheduleApp(): React.ReactElement {
           setIssues((prev) => [...prev, ...built.issues]);
         }
         if (IS_DEBUG && built.hydrationDiagnostics.length) {
-          setIssues((prev) => [
-            ...prev,
-            ...built.hydrationDiagnostics
-              .slice(0, 8)
-              .map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`),
-          ]);
+          const actionableDiagnostics = built.hydrationDiagnostics.filter(
+            (d) => d.action !== 'template-preserved'
+          );
+          if (actionableDiagnostics.length) {
+            setIssues((prev) => [
+              ...prev,
+              ...actionableDiagnostics
+                .slice(0, 8)
+                .map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`),
+            ]);
+          }
         }
 
         if (!built.games.length) {
