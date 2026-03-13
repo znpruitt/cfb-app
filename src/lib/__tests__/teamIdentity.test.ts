@@ -343,7 +343,6 @@ test('true invalid rows are still rejected', () => {
   );
 });
 
-
 test('regular season API games remain when postseason templates are present', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
@@ -427,5 +426,299 @@ test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
   assert.equal(
     built.games.some((g) => g.csvAway === 'Fordham' && g.csvHome === 'Boston College'),
     true
+  );
+});
+
+test('full schedule survives load with regular weeks plus postseason weeks', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS' },
+      { school: 'Alabama', level: 'FBS' },
+      { school: 'Michigan', level: 'FBS' },
+      { school: 'Ohio State', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'reg-1',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Alabama',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+      {
+        id: 'reg-2',
+        week: 2,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Michigan',
+        awayTeam: 'Ohio State',
+        homeConference: 'Big Ten',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+      {
+        id: 'post-15',
+        week: 15,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'SEC Championship Game',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+      {
+        id: 'post-17',
+        week: 17,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Rose Bowl',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+      {
+        id: 'post-18',
+        week: 18,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'CFP Semifinal 1',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+      {
+        id: 'post-19',
+        week: 19,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'National Championship',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.stage === 'regular' && g.week === 1),
+    true
+  );
+  assert.equal(
+    built.games.some((g) => g.stage === 'regular' && g.week === 2),
+    true
+  );
+  assert.deepEqual(
+    built.weeks.filter((w) => [1, 2, 15, 17, 18, 19].includes(w)),
+    [1, 2, 15, 17, 18, 19]
+  );
+});
+
+test('week derivation includes early and late weeks from all games', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS' },
+      { school: 'Alabama', level: 'FBS' },
+      { school: 'Michigan', level: 'FBS' },
+      { school: 'Ohio State', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'w1',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Alabama',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+      },
+      {
+        id: 'w2',
+        week: 2,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Michigan',
+        awayTeam: 'Ohio State',
+        homeConference: 'Big Ten',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+      },
+      {
+        id: 'w3',
+        week: 3,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Michigan',
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+      },
+      {
+        id: 'w15',
+        week: 15,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'SEC Championship Game',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+      {
+        id: 'w17',
+        week: 17,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Rose Bowl',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    built.weeks.filter((w) => [1, 2, 3, 15, 17].includes(w)),
+    [1, 2, 3, 15, 17]
+  );
+});
+
+test('hydration keeps regular season games while hydrating placeholders', () => {
+  const regularGames = Array.from({ length: 100 }, (_, idx) => ({
+    id: `reg-${idx + 1}`,
+    week: (idx % 10) + 1,
+    startDate: null,
+    neutralSite: false,
+    conferenceGame: true,
+    homeTeam: `${idx % 2 ? 'Texas' : 'Alabama'} ${idx + 1}`,
+    awayTeam: `${idx % 2 ? 'Michigan' : 'Ohio State'} ${idx + 1}`,
+    homeConference: idx % 2 ? 'SEC' : 'Big Ten',
+    awayConference: idx % 2 ? 'Big Ten' : 'SEC',
+    status: 'scheduled',
+    seasonType: 'regular' as const,
+  }));
+
+  const postseasonGames = Array.from({ length: 20 }, (_, idx) => ({
+    id: `post-${idx + 1}`,
+    week: 15 + (idx % 5),
+    startDate: null,
+    neutralSite: true,
+    conferenceGame: false,
+    homeTeam: `Placeholder Bowl ${idx + 1}`,
+    awayTeam: 'TBD',
+    homeConference: '',
+    awayConference: '',
+    status: 'scheduled',
+    label: `Placeholder Bowl ${idx + 1}`,
+    seasonType: 'postseason' as const,
+  }));
+
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS' },
+      { school: 'Alabama', level: 'FBS' },
+      { school: 'Michigan', level: 'FBS' },
+      { school: 'Ohio State', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [...regularGames, ...postseasonGames],
+  });
+
+  const regularCount = built.games.filter((g) => g.stage === 'regular').length;
+  assert.equal(regularCount >= 100, true);
+});
+
+test('normalization keeps week 0 regular-season rows', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS' },
+      { school: 'Alabama', level: 'FBS' },
+      { school: 'Michigan', level: 'FBS' },
+      { school: 'Ohio State', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'w0',
+        week: 0,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Alabama',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+      },
+      {
+        id: 'w1',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Michigan',
+        awayTeam: 'Ohio State',
+        homeConference: 'Big Ten',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+      },
+      {
+        id: 'w2',
+        week: 2,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Michigan',
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.stage === 'regular' && g.week === 0),
+    true
+  );
+  assert.deepEqual(
+    built.weeks.filter((w) => [0, 1, 2].includes(w)),
+    [0, 1, 2]
   );
 });

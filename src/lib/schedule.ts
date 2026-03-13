@@ -98,6 +98,31 @@ export type BuiltSchedule = {
   hydrationDiagnostics: HydrationDiagnostic[];
 };
 
+function summarizeGames(label: string, games: AppGame[]): void {
+  const weeks = Array.from(
+    new Set(games.map((g) => g.week).filter((week) => Number.isFinite(week)))
+  ).sort((a, b) => a - b);
+  const regular = games.filter((g) => g.stage === 'regular' && !g.isPlaceholder).length;
+  const placeholder = games.filter((g) => g.isPlaceholder).length;
+  const postseasonReal = games.filter((g) => g.stage !== 'regular' && !g.isPlaceholder).length;
+
+  console.log(label, {
+    count: games.length,
+    weeks,
+    regular,
+    placeholder,
+    postseasonReal,
+    sample: games.slice(0, 10).map((g) => ({
+      key: g.key,
+      week: g.week,
+      away: g.csvAway ?? g.awayConf ?? g.canAway,
+      home: g.csvHome ?? g.homeConf ?? g.canHome,
+      isPostseasonPlaceholder: Boolean(g.isPlaceholder && g.stage !== 'regular'),
+      postseason: g.stage !== 'regular',
+    })),
+  });
+}
+
 export async function fetchSeasonSchedule(season: number): Promise<ScheduleWireItem[]> {
   const response = await fetch(`/api/schedule?year=${season}`, { cache: 'no-store' });
   if (!response.ok) {
@@ -431,11 +456,7 @@ export function buildScheduleFromApi(params: {
     const awayResolved = resolver.resolveName(item.awayTeam);
     if (homeResolved.status !== 'resolved' || awayResolved.status !== 'resolved') {
       issues.push(`identity-unresolved: ${item.homeTeam} vs ${item.awayTeam}`);
-      continue;
     }
-
-    const keepGame = homeResolved.subdivision === 'FBS' || awayResolved.subdivision === 'FBS';
-    if (!keepGame) continue;
 
     const canHome = homeResolved.canonicalName ?? item.homeTeam;
     const canAway = awayResolved.canonicalName ?? item.awayTeam;
@@ -504,6 +525,12 @@ export function buildScheduleFromApi(params: {
     params.manualOverrides
   );
 
+  if (IS_DEBUG) {
+    summarizeGames('raw normalized apiGames', [...apiRegularGames, ...apiPostseasonGames]);
+    summarizeGames('postseasonTemplates', seedEvents);
+    summarizeGames('combinedGames', mergedGames);
+  }
+
   const conferenceSet = new Set<string>();
   for (const game of mergedGames) {
     if (game.awayConf) conferenceSet.add(game.awayConf);
@@ -517,15 +544,24 @@ export function buildScheduleFromApi(params: {
   const byes = buildByes(games);
 
   if (IS_DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log('apiGames', apiRegularGames.length + apiPostseasonGames.length);
-    // eslint-disable-next-line no-console
-    console.log('postseasonTemplates', seedEvents.length);
-    // eslint-disable-next-line no-console
-    console.log('combinedGames', games.length);
-    // eslint-disable-next-line no-console
+    const regularSeasonGames = games.filter((g) => g.stage === 'regular' && !g.isPlaceholder);
+    const numericWeeks = games.map((g) => g.week).filter((week) => Number.isFinite(week));
+
+    if (regularSeasonGames.length === 0) {
+      console.error('BUG: no regular-season games survived load pipeline', {
+        combinedCount: games.length,
+        weeks: Array.from(new Set(games.map((g) => g.week))).sort((a, b) => a - b),
+      });
+    }
+
+    console.log('week range', {
+      min: numericWeeks.length ? Math.min(...numericWeeks) : null,
+      max: numericWeeks.length ? Math.max(...numericWeeks) : null,
+    });
+    summarizeGames('displayGames', games);
+
     console.log('combinedWeeks', weeks);
-    // eslint-disable-next-line no-console
+
     console.log('conferenceCount', conferenceSet.size);
   }
 
