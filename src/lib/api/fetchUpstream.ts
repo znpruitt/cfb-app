@@ -24,6 +24,22 @@ export interface FetchUpstreamJsonOptions extends Omit<RequestInit, 'signal'> {
   signal?: AbortSignal;
 }
 
+const IS_UPSTREAM_DEBUG =
+  process.env.NEXT_PUBLIC_DEBUG === '1' ||
+  process.env.DEBUG_CFBD === '1' ||
+  process.env.DEBUG_UPSTREAM === '1';
+
+function toHeaderObject(headers?: HeadersInit): Record<string, string> {
+  if (!headers) return {};
+
+  const out: Record<string, string> = {};
+  const source = new Headers(headers);
+  for (const [key, value] of source.entries()) {
+    out[key] = key.toLowerCase() === 'authorization' ? 'Bearer ***' : value;
+  }
+  return out;
+}
+
 function combineSignals(timeoutSignal: AbortSignal, requestSignal?: AbortSignal): AbortSignal {
   if (!requestSignal) {
     return timeoutSignal;
@@ -64,7 +80,29 @@ export async function fetchUpstreamJson<T>(
 
   try {
     const signal = combineSignals(timeoutController.signal, requestSignal);
+    if (IS_UPSTREAM_DEBUG) {
+      console.log('upstream request', {
+        url,
+        method: init.method ?? 'GET',
+        headers: toHeaderObject(init.headers),
+        timeoutMs,
+      });
+    }
+
     const res = await fetch(url, { ...init, signal });
+
+    if (IS_UPSTREAM_DEBUG) {
+      const responseHeaders: Record<string, string> = {};
+      for (const [key, value] of res.headers.entries()) {
+        responseHeaders[key] = value;
+      }
+      console.log('upstream response', {
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        headers: responseHeaders,
+      });
+    }
 
     if (!res.ok) {
       const responseBody = await res.text().catch(() => '');
