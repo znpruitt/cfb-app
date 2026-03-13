@@ -163,22 +163,55 @@ function sortGames(games: AppGame[]): AppGame[] {
   });
 }
 
-function buildByes(games: AppGame[]): Record<number, string[]> {
+function isFbsTeam(
+  canonicalTeamName: string,
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>
+): boolean {
+  const team = teamMetadataByCanonicalName.get(canonicalTeamName);
+  if (!team) return false;
+
+  const level = (team.level ?? team.subdivision ?? '').trim().toUpperCase();
+  return level.includes('FBS');
+}
+
+function isTrackedGame(
+  game: AppGame,
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>
+): boolean {
+  const homeIsFbs =
+    game.participants.home.kind === 'team' && isFbsTeam(game.canHome, teamMetadataByCanonicalName);
+  const awayIsFbs =
+    game.participants.away.kind === 'team' && isFbsTeam(game.canAway, teamMetadataByCanonicalName);
+  return homeIsFbs || awayIsFbs;
+}
+
+function buildByes(
+  games: AppGame[],
+  trackedFbsTeams: string[],
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>
+): Record<number, string[]> {
   const byes: Record<number, string[]> = {};
-  const allCanonicalTeams = Array.from(
-    new Set(games.flatMap((g) => [g.canHome, g.canAway]).filter(Boolean))
-  );
   const weeks = Array.from(new Set(games.map((g) => g.week))).sort((a, b) => a - b);
 
   for (const week of weeks) {
-    const participants = new Set<string>();
+    const teamsPlayingThisWeek = new Set<string>();
     for (const game of games) {
       if (game.week !== week) continue;
-      if (game.participants.home.kind === 'team') participants.add(game.canHome);
-      if (game.participants.away.kind === 'team') participants.add(game.canAway);
+      if (
+        game.participants.home.kind === 'team' &&
+        isFbsTeam(game.canHome, teamMetadataByCanonicalName)
+      ) {
+        teamsPlayingThisWeek.add(game.canHome);
+      }
+      if (
+        game.participants.away.kind === 'team' &&
+        isFbsTeam(game.canAway, teamMetadataByCanonicalName)
+      ) {
+        teamsPlayingThisWeek.add(game.canAway);
+      }
     }
-    byes[week] = allCanonicalTeams
-      .filter((team) => !participants.has(team))
+    byes[week] = trackedFbsTeams
+      .filter((team) => !teamsPlayingThisWeek.has(team))
       .sort((a, b) => a.localeCompare(b));
   }
 
@@ -537,11 +570,28 @@ export function buildScheduleFromApi(params: {
     if (game.homeConf) conferenceSet.add(game.homeConf);
   }
 
-  const games = sortGames(mergedGames);
+  const canonicalTeamMetadataByName = new Map<string, TeamCatalogItem>();
+  for (const team of teams) {
+    const canonicalName = resolver.resolveName(team.school).canonicalName ?? team.school;
+    canonicalTeamMetadataByName.set(canonicalName, team);
+  }
+
+  const trackedGames = mergedGames.filter((game) =>
+    isTrackedGame(game, canonicalTeamMetadataByName)
+  );
+  const trackedFbsTeams = Array.from(
+    new Set(
+      teams
+        .map((team) => resolver.resolveName(team.school).canonicalName ?? team.school)
+        .filter((name) => isFbsTeam(name, canonicalTeamMetadataByName))
+    )
+  );
+
+  const games = sortGames(trackedGames);
   const weeks = Array.from(
     new Set(games.map((g) => g.week).filter((week) => Number.isFinite(week)))
   ).sort((a, b) => a - b);
-  const byes = buildByes(games);
+  const byes = buildByes(games, trackedFbsTeams, canonicalTeamMetadataByName);
 
   if (IS_DEBUG) {
     const regularSeasonGames = games.filter((g) => g.stage === 'regular' && !g.isPlaceholder);

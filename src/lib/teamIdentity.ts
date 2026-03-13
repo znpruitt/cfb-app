@@ -9,11 +9,12 @@ export type TeamCatalogItem = {
   school: string;
   mascot?: string | null;
   level?: string | null;
+  subdivision?: string | null;
   conference?: string | null;
   alts?: string[];
 };
 
-export type TeamSubdivision = 'FBS' | 'FCS' | 'OTHER';
+export type TeamSubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
 
 export type TeamIdentity = {
   id: string;
@@ -53,6 +54,7 @@ export type TeamIdentityResolver = {
 
 function toSubdivision(level?: string | null): TeamSubdivision {
   const raw = (level ?? '').trim().toUpperCase();
+  if (!raw) return 'UNKNOWN';
   if (raw.includes('FBS')) return 'FBS';
   if (raw.includes('FCS')) return 'FCS';
   return 'OTHER';
@@ -97,9 +99,9 @@ function buildCanonicalRegistry(params: {
     const id = normalizeTeamName(displayName);
     if (!id) continue;
 
-    const subdivisionFromLevel = toSubdivision(team.level);
+    const subdivisionFromLevel = toSubdivision(team.level ?? team.subdivision);
     const subdivision =
-      subdivisionFromLevel === 'OTHER'
+      subdivisionFromLevel === 'OTHER' || subdivisionFromLevel === 'UNKNOWN'
         ? inferSubdivisionFromConference(team.conference)
         : subdivisionFromLevel;
     const owner = ownersByTeamId?.get(id) ?? null;

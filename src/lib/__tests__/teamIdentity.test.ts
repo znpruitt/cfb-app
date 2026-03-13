@@ -393,7 +393,11 @@ test('regular season API games remain when postseason templates are present', ()
 test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
-    teams: [{ school: 'Boston College', level: 'FBS' }],
+    teams: [
+      { school: 'Boston College', level: 'FBS' },
+      { school: 'Fordham', level: 'FCS' },
+      { school: 'Colgate', level: 'FCS' },
+    ],
     season: 2025,
     scheduleItems: [
       {
@@ -427,6 +431,11 @@ test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
     built.games.some((g) => g.csvAway === 'Fordham' && g.csvHome === 'Boston College'),
     true
   );
+  assert.equal(
+    built.games.some((g) => g.csvHome === 'Fordham' && g.csvAway === 'Colgate'),
+    false
+  );
+  assert.equal((built.byes[1] ?? []).includes('Fordham'), false);
 });
 
 test('full schedule survives load with regular weeks plus postseason weeks', () => {
