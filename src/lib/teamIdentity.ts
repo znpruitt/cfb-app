@@ -84,7 +84,9 @@ function buildCanonicalRegistry(params: {
     const id = normalizeTeamName(displayName);
     if (!id) continue;
 
-    const subdivision = toSubdivision(team.level) || inferSubdivisionFromConference(team.conference);
+    const subdivisionFromLevel = toSubdivision(team.level);
+    const subdivision =
+      subdivisionFromLevel === 'OTHER' ? inferSubdivisionFromConference(team.conference) : subdivisionFromLevel;
     const owner = ownersByTeamId?.get(id) ?? null;
     registry.set(id, {
       id,

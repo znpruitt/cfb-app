@@ -25,6 +25,19 @@ test('canonical resolution includes observed FCS opponents', () => {
   assert.equal(result.identityKey, 'fordham');
 });
 
+
+test('conference fallback classifies team as FBS when level is missing', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', conference: 'ACC' }],
+  });
+
+  const result = resolver.resolveName('Boston College');
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.subdivision, 'FBS');
+  assert.equal(result.isOwnable, true);
+});
+
 test('alias resolution works when needed', () => {
   const resolver = createTeamIdentityResolver({
     aliasMap: { 'louisiana monroe': 'UL Monroe' },
