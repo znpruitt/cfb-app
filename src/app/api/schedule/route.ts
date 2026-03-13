@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
+import {
+  mapCfbdScheduleGame,
+  type CfbdScheduleGame,
+  type ScheduleDropReason,
+  type ScheduleItem,
+  type SeasonType,
+} from '@/lib/schedule/cfbdSchedule';
 import { hasRequiredSeasonTypeFailure } from '@/lib/scheduleSeasonFetch';
 
 export const dynamic = 'force-dynamic';
@@ -10,41 +17,6 @@ export const revalidate = 120;
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
 const CACHE_TTL_MS = 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
-
-type SeasonType = 'regular' | 'postseason';
-
-type CfbdScheduleGame = {
-  id?: number;
-  week?: number;
-  start_date?: string | null;
-  neutral_site?: boolean;
-  conference_game?: boolean;
-  home_team?: string;
-  away_team?: string;
-  home_conference?: string | null;
-  away_conference?: string | null;
-  status?: string | null;
-  venue?: string | null;
-  notes?: string | null;
-  name?: string | null;
-};
-
-type ScheduleItem = {
-  id: string;
-  week: number;
-  startDate: string | null;
-  neutralSite: boolean;
-  conferenceGame: boolean;
-  homeTeam: string;
-  awayTeam: string;
-  homeConference: string;
-  awayConference: string;
-  status: string;
-  venue?: string | null;
-  label?: string | null;
-  notes?: string | null;
-  seasonType?: SeasonType;
-};
 
 interface ScheduleMeta {
   source: 'cfbd';
@@ -131,30 +103,6 @@ function logDebug(params: {
   });
 }
 
-function toScheduleItem(game: CfbdScheduleGame, seasonType: SeasonType): ScheduleItem | null {
-  const week = typeof game.week === 'number' ? game.week : null;
-  const homeTeam = (game.home_team ?? '').trim();
-  const awayTeam = (game.away_team ?? '').trim();
-  if (week === null || !homeTeam || !awayTeam) return null;
-
-  return {
-    id: String(game.id ?? `${week}-${homeTeam}-${awayTeam}`),
-    week,
-    startDate: game.start_date ?? null,
-    neutralSite: Boolean(game.neutral_site),
-    conferenceGame: Boolean(game.conference_game),
-    homeTeam,
-    awayTeam,
-    homeConference: (game.home_conference ?? '').trim(),
-    awayConference: (game.away_conference ?? '').trim(),
-    status: (game.status ?? 'scheduled').trim() || 'scheduled',
-    venue: (game.venue ?? '').trim() || null,
-    label: (game.name ?? '').trim() || null,
-    notes: (game.notes ?? '').trim() || null,
-    seasonType,
-  };
-}
-
 async function fetchSeasonType(params: {
   year: number;
   week: number | null;
@@ -170,16 +118,64 @@ async function fetchSeasonType(params: {
 
   const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
   const requestUrl = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
+  const authHeader = `Bearer ${cfbdApiKey}`;
+  if (IS_DEBUG) {
+    console.log('schedule request debug', {
+      route: 'schedule',
+      requestId,
+      year,
+      week,
+      seasonType,
+      cacheKey,
+      url: requestUrl,
+      headers: {
+        authorization: `Bearer ***${cfbdApiKey.slice(-4)}`,
+      },
+    });
+  }
 
   const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
     cache: 'no-store',
     timeoutMs: 12_000,
-    headers: { Authorization: `Bearer ${cfbdApiKey}` },
+    headers: { Authorization: authHeader },
   });
 
-  const items = upstream
-    .map((game) => toScheduleItem(game, seasonType))
-    .filter((v): v is ScheduleItem => Boolean(v));
+  const mapped: ScheduleItem[] = [];
+  const dropped: Record<ScheduleDropReason, number> = {
+    invalid_payload: 0,
+    missing_week: 0,
+    missing_home_team: 0,
+    missing_away_team: 0,
+  };
+
+  for (const game of upstream) {
+    const result = mapCfbdScheduleGame(game, seasonType);
+    if (result.ok) {
+      mapped.push(result.item);
+      continue;
+    }
+    dropped[result.reason] += 1;
+  }
+
+  const items = mapped;
+
+  if (IS_DEBUG) {
+    console.log('schedule debug', {
+      route: 'schedule',
+      requestId,
+      year,
+      week,
+      seasonType,
+      cacheKey,
+      url: requestUrl,
+      rawCount: upstream.length,
+      mappedCount: items.length,
+      droppedCount: upstream.length - items.length,
+      dropped,
+      sampleRaw: upstream.slice(0, 3),
+      sampleMapped: items.slice(0, 3),
+    });
+  }
 
   if (items.length === 0) {
     logDebug({
