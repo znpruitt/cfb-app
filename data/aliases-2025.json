@@ -7,7 +7,7 @@
   "uh": "houston",
   "ucf": "UCF",
   "ul monroe": "louisiana monroe",
-  "umass": "massachusetts",
+  "umass": "Massachusetts",
   "byu": "BYU",
   "smu": "SMU",
   "sjsu": "san jose state",
@@ -16,7 +16,7 @@
   "colorado st": "colorado state",
   "wash st": "washington state",
   "southeastern la": "se louisiana",
-  "louisiana monroe": "Louisiana Monroe",
+  "louisiana monroe": "UL Monroe",
   "albany": "ualbany",
   "boston college": "Boston College",
   "michigan state": "Michigan State",
@@ -154,6 +154,6 @@
   "boise state": "Boise State",
   "delaware state": "Delaware",
   "liberty": "Liberty",
-  "southern": "SMU",
+  "southern": "Southern Miss",
   "appalachian state": "App State"
 }

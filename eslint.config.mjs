@@ -1,13 +1,13 @@
 // eslint.config.mjs
 import { defineConfig, globalIgnores } from 'eslint/config';
-import nextVitals from 'eslint-config-next/core-web-vitals';
-import nextTs from 'eslint-config-next/typescript';
+import nextVitals from 'eslint-config-next/core-web-vitals.js';
+import nextTs from 'eslint-config-next/typescript.js';
 import prettierPlugin from 'eslint-plugin-prettier';
 import unusedImports from 'eslint-plugin-unused-imports';
 
 export default defineConfig([
-  ...nextVitals,
-  ...nextTs,
+  nextVitals,
+  nextTs,
 
   globalIgnores([
     'node_modules/**',
