@@ -118,6 +118,28 @@ test('playoff row becomes postseason placeholder', () => {
   }
 });
 
+test('regular-season rows are not routed into postseason classification', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: 'reg-d3-1',
+      week: 2,
+      startDate: null,
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'North Central College',
+      awayTeam: 'Wisconsin-River Falls',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'regular',
+      label: 'NCAA Division III regular season',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'regular_game');
+});
+
 test('playoff rows without numeric slot generate stable distinct ids', () => {
   const first = classifyScheduleRow(
     {
@@ -405,6 +427,42 @@ test('regular season API games remain when postseason templates are present', ()
   );
   assert.equal(built.weeks.includes(1), true);
   assert.equal(built.conferences.includes('ACC'), true);
+});
+
+test('unsupported lower-division regular-season rows are filtered before identity diagnostics', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', level: 'FBS' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'd3-regular',
+        week: 2,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Trinity (CT)',
+        awayTeam: 'Colby College',
+        homeConference: 'NESCAC',
+        awayConference: 'NESCAC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.providerGameId === 'd3-regular'),
+    false
+  );
+  assert.equal(
+    built.issues.some((issue) => issue.includes('identity-unresolved')),
+    false
+  );
+  assert.equal(
+    built.issues.some((issue) => issue.includes('invalid-schedule-row')),
+    false
+  );
 });
 
 test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {

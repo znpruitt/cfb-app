@@ -193,6 +193,22 @@ function isTrackedGame(
   return homeIsFbs || awayIsFbs;
 }
 
+function isSupportedRegularSeasonRow(
+  item: ScheduleWireItem,
+  resolver: ReturnType<typeof createTeamIdentityResolver>
+): boolean {
+  const homeResolved = resolver.resolveName(item.homeTeam);
+  const awayResolved = resolver.resolveName(item.awayTeam);
+
+  if (homeResolved.status !== 'resolved' || awayResolved.status !== 'resolved') {
+    return false;
+  }
+
+  const homeIsFbs = homeResolved.subdivision === 'FBS';
+  const awayIsFbs = awayResolved.subdivision === 'FBS';
+  return homeIsFbs || awayIsFbs;
+}
+
 function buildByes(
   games: AppGame[],
   trackedFbsTeams: string[],
@@ -494,11 +510,12 @@ export function buildScheduleFromApi(params: {
       continue;
     }
 
+    if (!isSupportedRegularSeasonRow(item, resolver)) {
+      continue;
+    }
+
     const homeResolved = resolver.resolveName(item.homeTeam);
     const awayResolved = resolver.resolveName(item.awayTeam);
-    if (homeResolved.status !== 'resolved' || awayResolved.status !== 'resolved') {
-      issues.push(`identity-unresolved: ${item.homeTeam} vs ${item.awayTeam}`);
-    }
 
     const canHome = homeResolved.canonicalName ?? item.homeTeam;
     const canAway = awayResolved.canonicalName ?? item.awayTeam;
