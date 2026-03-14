@@ -1,4 +1,5 @@
 import type { DiagEntry } from './diagnostics';
+import { buildSchedulePairIndex } from './gameAttachment';
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
 import type { AliasMap } from './teamNames';
 import { fetchTeamsCatalog } from './teamsCatalog';
@@ -162,26 +163,15 @@ export async function fetchScoresByGame(params: {
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
   const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
-  const globalIndex = new Map<string, Array<{ week: number; game: GameLike }>>();
-
-  for (const g of games) {
-    const hasTeamParticipants =
-      (g.participants?.home?.kind ?? 'team') === 'team' &&
-      (g.participants?.away?.kind ?? 'team') === 'team';
-    if (!hasTeamParticipants || !g.canHome || !g.canAway) continue;
-    const involvesFbs = resolver.isFbsName(g.canHome) || resolver.isFbsName(g.canAway);
-    if (teams.length > 0 && !involvesFbs) continue;
-
-    const keys = new Set<string>();
-    keys.add(resolver.buildPairKey(g.canHome, g.canAway));
-    keys.add(resolver.buildPairKey(g.csvHome, g.csvAway));
-
-    for (const key of keys) {
-      const entries = globalIndex.get(key) ?? [];
-      entries.push({ week: g.week, game: g });
-      globalIndex.set(key, entries);
-    }
-  }
+  // Attachment to schedule-derived games is centralized through the shared pair index helper.
+  const globalIndex = buildSchedulePairIndex({
+    games,
+    resolver,
+    includeGame: (g) => {
+      const involvesFbs = resolver.isFbsName(g.canHome) || resolver.isFbsName(g.canAway);
+      return teams.length === 0 || involvesFbs;
+    },
+  });
 
   const rows = await fetchScoreRows({ season, weeks: loadedWeeks, issues });
   const rowsByWeek = groupRowsByWeek(rows);

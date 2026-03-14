@@ -30,6 +30,8 @@ interface ScorePack {
   time: string | null;
 }
 
+// App-facing contract: provider-specific score payloads are normalized into ScorePack items.
+
 interface ScoresMeta {
   source: 'cfbd' | 'espn';
   cache: 'hit' | 'miss';

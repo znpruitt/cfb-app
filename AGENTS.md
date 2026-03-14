@@ -68,6 +68,9 @@ Keep this file as an orchestrator. Do not move heavy parsing/matching logic into
 
 Put shared/non-trivial logic in `src/lib/` (parsing, matching, transforms, diagnostics helpers, API client helpers).
 
+Schedule-derived game attachment for live scores and odds should be implemented in shared lib helpers,
+not duplicated in route handlers or UI components.
+
 ### API routes
 
 `src/app/api/` routes act as provider adapters:
@@ -79,6 +82,7 @@ Put shared/non-trivial logic in `src/lib/` (parsing, matching, transforms, diagn
 - `aliases/` (alias persistence)
 
 Routes should normalize provider quirks and return stable app-facing structures.
+Team canonicalization and schedule-game attachment belong in shared identity/attachment helpers in `src/lib/`.
 
 ---
 
