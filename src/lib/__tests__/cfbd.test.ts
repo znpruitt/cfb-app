@@ -49,6 +49,5 @@ test('season-scoped storage keys differ across years', () => {
   const keys2025 = seasonStorageKeys(2025);
   const keys2026 = seasonStorageKeys(2026);
 
-  assert.notEqual(keys2025.scheduleCsv, keys2026.scheduleCsv);
   assert.notEqual(keys2025.postseasonOverrides, keys2026.postseasonOverrides);
 });

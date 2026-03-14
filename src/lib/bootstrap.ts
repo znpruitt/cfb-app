@@ -14,7 +14,6 @@ export async function bootstrapAliasesAndCaches(params: {
 }): Promise<{
   aliasMap: AliasMap;
   aliasLoadIssue?: string;
-  scheduleCsvText: string | null;
   ownersCsvText: string | null;
 }> {
   const { season, seedAliases } = params;
@@ -44,11 +43,7 @@ export async function bootstrapAliasesAndCaches(params: {
     }
   }
 
-  const scheduleCsvText = readSeasonScopedValue(
-    storageKeys.scheduleCsv,
-    LEGACY_STORAGE_KEYS.scheduleCsv
-  );
   const ownersCsvText = readSeasonScopedValue(storageKeys.ownersCsv, LEGACY_STORAGE_KEYS.ownersCsv);
 
-  return { aliasMap, aliasLoadIssue, scheduleCsvText, ownersCsvText };
+  return { aliasMap, aliasLoadIssue, ownersCsvText };
 }
