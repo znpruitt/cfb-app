@@ -15,6 +15,7 @@ type GameWeekPanelProps = {
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
+  hideByes?: boolean;
 };
 
 export default function GameWeekPanel({
@@ -25,6 +26,7 @@ export default function GameWeekPanel({
   rosterByTeam,
   isDebug,
   onSavePostseasonOverride,
+  hideByes = false,
 }: GameWeekPanelProps): React.ReactElement {
   return (
     <>
@@ -185,10 +187,12 @@ export default function GameWeekPanel({
         })}
       </div>
 
-      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-        <div className="font-medium mb-2">Byes</div>
-        <div className="text-sm">{byes.length ? byes.join(', ') : '—'}</div>
-      </div>
+      {!hideByes && (
+        <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="font-medium mb-2">Byes</div>
+          <div className="text-sm">{byes.length ? byes.join(', ') : '—'}</div>
+        </div>
+      )}
     </>
   );
 }

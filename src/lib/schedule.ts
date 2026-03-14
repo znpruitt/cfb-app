@@ -31,6 +31,11 @@ export type ParticipantSlot =
 
 export type GameStage = 'regular' | 'conference_championship' | 'bowl' | 'playoff';
 export type GameStatus = 'scheduled' | 'placeholder' | 'matchup_set' | 'in_progress' | 'final';
+export type PostseasonRole =
+  | 'conference_championship'
+  | 'bowl'
+  | 'playoff'
+  | 'national_championship';
 
 export type ScheduleFieldSources = {
   event?: string;
@@ -72,6 +77,7 @@ export type AppGame = {
   conference: string | null;
   bowlName: string | null;
   playoffRound: string | null;
+  postseasonRole: PostseasonRole | null;
   providerGameId: string | null;
   neutral: boolean;
   venue: string | null;
@@ -324,6 +330,14 @@ function buildTemplateGame(event: TemplateEvent): AppGame {
     bowlName: event.bowlName,
     playoffRound: event.playoffRound,
     providerGameId: null,
+    postseasonRole:
+      event.stage === 'conference_championship'
+        ? 'conference_championship'
+        : event.playoffRound === 'national_championship'
+          ? 'national_championship'
+          : event.stage === 'playoff'
+            ? 'playoff'
+            : 'bowl',
     neutral: true,
     venue: event.venue,
     isPlaceholder: true,
@@ -512,6 +526,13 @@ export function buildScheduleFromApi(params: {
         conference: conf,
         bowlName: classified.bowlName ?? null,
         playoffRound: classified.playoffRound ?? null,
+        postseasonRole:
+          classified.postseasonRole ??
+          (classified.stage === 'conference_championship'
+            ? 'conference_championship'
+            : classified.stage === 'playoff'
+              ? 'playoff'
+              : 'bowl'),
         providerGameId: item.id,
         neutral: item.neutralSite,
         venue: item.venue ?? null,
@@ -571,6 +592,7 @@ export function buildScheduleFromApi(params: {
       conference: null,
       bowlName: null,
       playoffRound: null,
+      postseasonRole: null,
       providerGameId: item.id,
       neutral: item.neutralSite,
       venue: item.venue ?? null,
