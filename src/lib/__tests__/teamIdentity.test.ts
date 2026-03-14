@@ -1200,3 +1200,81 @@ test('normalization keeps week 0 regular-season rows', () => {
     [0, 1, 2]
   );
 });
+
+test('bowl placeholder identity uses notes when label is not bowl-specific', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: '2025-bowl-notes',
+      week: 17,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'TBD',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: 'ESPN Primetime',
+      notes: 'Vrbo Fiesta Bowl',
+      venue: 'State Farm Stadium',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'postseason_placeholder');
+  if (classified.kind === 'postseason_placeholder') {
+    assert.equal(classified.eventId, '2025-fiesta-bowl');
+    assert.equal(classified.bowlName, 'Fiesta Bowl');
+  }
+});
+
+test('postseason hydration matches bowl placeholders by bowl name when ids differ', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Boise State', level: 'FBS' },
+      { school: 'Washington', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'provider-fiesta-1',
+        week: 17,
+        startDate: '2025-12-30T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Washington',
+        awayTeam: 'Boise State',
+        homeConference: 'Big Ten',
+        awayConference: 'Mountain West',
+        status: 'scheduled',
+        label: 'Vrbo Fiesta Bowl',
+        seasonType: 'postseason',
+        venue: 'State Farm Stadium',
+      },
+    ],
+  });
+
+  const fiesta = built.games.find((g) => g.eventId === '2025-fiesta-bowl');
+  assert.ok(fiesta);
+  assert.equal(fiesta?.participants.home.kind, 'team');
+  assert.equal(fiesta?.participants.away.kind, 'team');
+  assert.equal(
+    built.hydrationDiagnostics.some(
+      (d) =>
+        d.eventId === '2025-fiesta-bowl' &&
+        (d.reason.includes('matched-by-postseason-identity:bowlName') ||
+          d.reason.includes('matched-by-event-id') ||
+          d.reason.includes('bowl-slot-created-from-provider-identity'))
+    ),
+    true
+  );
+  assert.equal(
+    built.hydrationDiagnostics.some(
+      (d) =>
+        d.reason.includes('no-placeholder-match') && d.reason.includes('Boise State @ Washington')
+    ),
+    false
+  );
+});
