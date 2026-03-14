@@ -163,22 +163,64 @@ function sortGames(games: AppGame[]): AppGame[] {
   });
 }
 
-function buildByes(games: AppGame[]): Record<number, string[]> {
+function isFbsTeam(
+  canonicalTeamName: string,
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>,
+  resolver: ReturnType<typeof createTeamIdentityResolver>
+): boolean {
+  const resolved = resolver.resolveName(canonicalTeamName);
+  if (resolved.status === 'resolved' && resolved.isOwnable) return true;
+
+  const team = teamMetadataByCanonicalName.get(canonicalTeamName);
+  if (!team) return false;
+
+  const level = (team.level ?? team.subdivision ?? '').trim().toUpperCase();
+  return level.includes('FBS');
+}
+
+function isTrackedGame(
+  game: AppGame,
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>,
+  resolver: ReturnType<typeof createTeamIdentityResolver>
+): boolean {
+  const homeIsTeam = game.participants.home.kind === 'team';
+  const awayIsTeam = game.participants.away.kind === 'team';
+
+  if (!homeIsTeam && !awayIsTeam) return true;
+
+  const homeIsFbs = homeIsTeam && isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver);
+  const awayIsFbs = awayIsTeam && isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver);
+  return homeIsFbs || awayIsFbs;
+}
+
+function buildByes(
+  games: AppGame[],
+  trackedFbsTeams: string[],
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>,
+  resolver: ReturnType<typeof createTeamIdentityResolver>
+): Record<number, string[]> {
   const byes: Record<number, string[]> = {};
-  const allCanonicalTeams = Array.from(
-    new Set(games.flatMap((g) => [g.canHome, g.canAway]).filter(Boolean))
-  );
   const weeks = Array.from(new Set(games.map((g) => g.week))).sort((a, b) => a - b);
 
   for (const week of weeks) {
-    const participants = new Set<string>();
+    const teamsPlayingThisWeek = new Set<string>();
     for (const game of games) {
       if (game.week !== week) continue;
-      if (game.participants.home.kind === 'team') participants.add(game.canHome);
-      if (game.participants.away.kind === 'team') participants.add(game.canAway);
+      if (
+        game.participants.home.kind === 'team' &&
+        isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver)
+      ) {
+        teamsPlayingThisWeek.add(game.canHome);
+      }
+      if (
+        game.participants.away.kind === 'team' &&
+        isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver)
+      ) {
+        teamsPlayingThisWeek.add(game.canAway);
+      }
     }
-    byes[week] = allCanonicalTeams
-      .filter((team) => !participants.has(team))
+    byes[week] = trackedFbsTeams
+      .filter((team) => !teamsPlayingThisWeek.has(team))
       .sort((a, b) => a.localeCompare(b));
   }
 
@@ -531,17 +573,35 @@ export function buildScheduleFromApi(params: {
     summarizeGames('combinedGames', mergedGames);
   }
 
+  const canonicalTeamMetadataByName = new Map<string, TeamCatalogItem>();
+  for (const team of teams) {
+    const canonicalName = resolver.resolveName(team.school).canonicalName ?? team.school;
+    canonicalTeamMetadataByName.set(canonicalName, team);
+  }
+
+  const trackedGames = mergedGames.filter((game) =>
+    isTrackedGame(game, canonicalTeamMetadataByName, resolver)
+  );
+
   const conferenceSet = new Set<string>();
-  for (const game of mergedGames) {
+  for (const game of trackedGames) {
     if (game.awayConf) conferenceSet.add(game.awayConf);
     if (game.homeConf) conferenceSet.add(game.homeConf);
   }
 
-  const games = sortGames(mergedGames);
+  const trackedFbsTeams = Array.from(
+    new Set(
+      teams
+        .map((team) => resolver.resolveName(team.school).canonicalName ?? team.school)
+        .filter((name) => isFbsTeam(name, canonicalTeamMetadataByName, resolver))
+    )
+  );
+
+  const games = sortGames(trackedGames);
   const weeks = Array.from(
     new Set(games.map((g) => g.week).filter((week) => Number.isFinite(week)))
   ).sort((a, b) => a - b);
-  const byes = buildByes(games);
+  const byes = buildByes(games, trackedFbsTeams, canonicalTeamMetadataByName, resolver);
 
   if (IS_DEBUG) {
     const regularSeasonGames = games.filter((g) => g.stage === 'regular' && !g.isPlaceholder);

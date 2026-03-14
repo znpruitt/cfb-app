@@ -9,11 +9,12 @@ export type TeamCatalogItem = {
   school: string;
   mascot?: string | null;
   level?: string | null;
+  subdivision?: string | null;
   conference?: string | null;
   alts?: string[];
 };
 
-export type TeamSubdivision = 'FBS' | 'FCS' | 'OTHER';
+export type TeamSubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
 
 export type TeamIdentity = {
   id: string;
@@ -53,6 +54,7 @@ export type TeamIdentityResolver = {
 
 function toSubdivision(level?: string | null): TeamSubdivision {
   const raw = (level ?? '').trim().toUpperCase();
+  if (!raw) return 'UNKNOWN';
   if (raw.includes('FBS')) return 'FBS';
   if (raw.includes('FCS')) return 'FCS';
   return 'OTHER';
@@ -61,22 +63,49 @@ function toSubdivision(level?: string | null): TeamSubdivision {
 function inferSubdivisionFromConference(conference?: string | null): TeamSubdivision {
   const text = (conference ?? '').toLowerCase();
   if (!text) return 'OTHER';
-  if (
+
+  const isFbsConference =
     text.includes('sec') ||
     text.includes('big ten') ||
     text.includes('acc') ||
-    text.includes('big 12')
-  ) {
+    text.includes('big 12') ||
+    text.includes('pac-12') ||
+    text.includes('pac 12') ||
+    text.includes('american athletic') ||
+    text.includes('american') ||
+    text.includes('mountain west') ||
+    text.includes('mid-american') ||
+    text.includes('mid american') ||
+    text.includes('mac') ||
+    text.includes('sun belt') ||
+    text.includes('conference usa') ||
+    text.includes('c-usa') ||
+    text.includes('cusa') ||
+    text.includes('independent');
+
+  if (isFbsConference) {
     return 'FBS';
   }
-  if (
+
+  const isFcsConference =
     text.includes('fcs') ||
     text.includes('ivy') ||
     text.includes('patriot') ||
-    text.includes('swac')
-  ) {
+    text.includes('swac') ||
+    text.includes('big sky') ||
+    text.includes('missouri valley') ||
+    text.includes('southern') ||
+    text.includes('southland') ||
+    text.includes('meac') ||
+    text.includes('caa') ||
+    text.includes('uac') ||
+    text.includes('nec') ||
+    text.includes('pioneer');
+
+  if (isFcsConference) {
     return 'FCS';
   }
+
   return 'OTHER';
 }
 
@@ -97,9 +126,9 @@ function buildCanonicalRegistry(params: {
     const id = normalizeTeamName(displayName);
     if (!id) continue;
 
-    const subdivisionFromLevel = toSubdivision(team.level);
+    const subdivisionFromLevel = toSubdivision(team.level ?? team.subdivision);
     const subdivision =
-      subdivisionFromLevel === 'OTHER'
+      subdivisionFromLevel === 'OTHER' || subdivisionFromLevel === 'UNKNOWN'
         ? inferSubdivisionFromConference(team.conference)
         : subdivisionFromLevel;
     const owner = ownersByTeamId?.get(id) ?? null;
@@ -183,7 +212,13 @@ export function createTeamIdentityResolver(params: {
 }): TeamIdentityResolver {
   const { aliasMap, teams, observedNames, ownersByTeamId } = params;
   const cacheKey = JSON.stringify({
-    teams: teams.map((t) => [t.school, t.level, t.conference, t.alts?.join('|') ?? '']),
+    teams: teams.map((t) => [
+      t.school,
+      t.level,
+      t.subdivision,
+      t.conference,
+      t.alts?.join('|') ?? '',
+    ]),
     aliases: Object.entries(aliasMap).sort((a, b) => a[0].localeCompare(b[0])),
     observedNames: [...(observedNames ?? [])].sort((a, b) => a.localeCompare(b)),
   });
