@@ -1,10 +1,17 @@
+import { buildSchedulePairIndex } from './gameAttachment';
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
 import type { AliasMap } from './teamNames';
 
 export type OddsOutcome = { name?: string; price?: number; point?: number };
 export type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
 export type OddsBookmaker = { key?: string; title?: string; markets?: OddsMarket[] };
-export type OddsEvent = { home_team?: string; away_team?: string; bookmakers?: OddsBookmaker[] };
+export type OddsEvent = {
+  homeTeam?: string;
+  awayTeam?: string;
+  home_team?: string;
+  away_team?: string;
+  bookmakers?: OddsBookmaker[];
+};
 
 export type CombinedOdds = {
   favorite: string | null;
@@ -17,8 +24,11 @@ export type CombinedOdds = {
 
 type GameLike = {
   key: string;
+  week: number;
   canHome: string;
   canAway: string;
+  csvHome: string;
+  csvAway: string;
   status?: string;
   participants?: { home?: { kind?: string }; away?: { kind?: string } };
 };
@@ -40,6 +50,14 @@ function pickPreferredBook(ev: OddsEvent): OddsBookmaker | undefined {
   return books[0];
 }
 
+function eventHomeTeam(ev: OddsEvent): string {
+  return ev.homeTeam ?? ev.home_team ?? '';
+}
+
+function eventAwayTeam(ev: OddsEvent): string {
+  return ev.awayTeam ?? ev.away_team ?? '';
+}
+
 export function buildOddsByGame(params: {
   games: GameLike[];
   oddsEvents: OddsEvent[];
@@ -53,7 +71,7 @@ export function buildOddsByGame(params: {
     new Set(
       [
         ...games.flatMap((g) => [g.canHome, g.canAway]),
-        ...oddsEvents.flatMap((ev) => [ev.home_team ?? '', ev.away_team ?? '']),
+        ...oddsEvents.flatMap((ev) => [eventHomeTeam(ev), eventAwayTeam(ev)]),
       ].filter(Boolean)
     )
   );
@@ -62,8 +80,8 @@ export function buildOddsByGame(params: {
   const pairIndex = new Map<string, PreparedOddsEvent[]>();
 
   for (const ev of oddsEvents) {
-    const homeTeam = ev.home_team || '';
-    const awayTeam = ev.away_team || '';
+    const homeTeam = eventHomeTeam(ev);
+    const awayTeam = eventAwayTeam(ev);
     const key = resolver.buildPairKey(homeTeam, awayTeam);
 
     const prepared: PreparedOddsEvent = {
@@ -79,11 +97,10 @@ export function buildOddsByGame(params: {
     pairIndex.set(key, bucket);
   }
 
+  const schedulePairIndex = buildSchedulePairIndex({ games, resolver });
+
   for (const g of games) {
-    const hasTeamParticipants =
-      (g.participants?.home?.kind ?? 'team') === 'team' &&
-      (g.participants?.away?.kind ?? 'team') === 'team';
-    if (!hasTeamParticipants || !g.canHome || !g.canAway) continue;
+    if (!schedulePairIndex.get(resolver.buildPairKey(g.canHome, g.canAway))?.length) continue;
     const gamePairKey = resolver.buildPairKey(g.canHome, g.canAway);
     let match = pairIndex.get(gamePairKey)?.[0];
 

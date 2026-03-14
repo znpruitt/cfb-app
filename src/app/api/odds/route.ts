@@ -2,10 +2,19 @@ import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 
 export const revalidate = 120;
 
+type UpstreamOddsOutcome = { name?: string; price?: number; point?: number };
+type UpstreamOddsMarket = { key?: string; outcomes?: UpstreamOddsOutcome[] };
+type UpstreamOddsBookmaker = { key?: string; title?: string; markets?: UpstreamOddsMarket[] };
+type UpstreamOddsEvent = {
+  home_team?: string;
+  away_team?: string;
+  bookmakers?: UpstreamOddsBookmaker[];
+};
+
 type OddsOutcome = { name?: string; price?: number; point?: number };
 type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
-type OddsBookmaker = { key?: string; markets?: OddsMarket[] };
-type OddsEvent = { home_team?: string; away_team?: string; bookmakers?: OddsBookmaker[] };
+type OddsBookmaker = { key?: string; title?: string; markets?: OddsMarket[] };
+type OddsEvent = { homeTeam: string; awayTeam: string; bookmakers: OddsBookmaker[] };
 
 interface OddsMeta {
   source: 'odds-api';
@@ -35,6 +44,27 @@ function responseFrom(items: OddsEvent[], meta: OddsMeta, status = 200): Respons
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function normalizeUpstreamOddsEvent(event: UpstreamOddsEvent): OddsEvent | null {
+  const homeTeam = event.home_team?.trim() ?? '';
+  const awayTeam = event.away_team?.trim() ?? '';
+  if (!homeTeam || !awayTeam) return null;
+
+  const bookmakers: OddsBookmaker[] = (event.bookmakers ?? []).map((book) => ({
+    key: book.key,
+    title: book.title,
+    markets: (book.markets ?? []).map((market) => ({
+      key: market.key,
+      outcomes: (market.outcomes ?? []).map((outcome) => ({
+        name: outcome.name,
+        price: outcome.price,
+        point: outcome.point,
+      })),
+    })),
+  }));
+
+  return { homeTeam, awayTeam, bookmakers };
 }
 
 const oddsCache: OddsCache = {
@@ -190,13 +220,18 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', oddsApiKey);
 
-        const upstreamData = await fetchUpstreamJson<OddsEvent[]>(url.toString(), {
+        const upstreamData = await fetchUpstreamJson<UpstreamOddsEvent[]>(url.toString(), {
           cache: 'no-store',
           timeoutMs: 12_000,
         });
 
         oddsCache.entries[cacheKey] = {
-          data: Array.isArray(upstreamData) ? upstreamData : [],
+          // API route boundary: provider quirks are normalized here for app consumption.
+          data: Array.isArray(upstreamData)
+            ? upstreamData
+                .map(normalizeUpstreamOddsEvent)
+                .filter((event): event is OddsEvent => Boolean(event))
+            : [],
           lastFetch: Date.now(),
         };
         oddsCache.callsToday += 1;
