@@ -155,6 +155,55 @@ test('regular-season rows are not routed into postseason classification', () => 
   assert.equal(classified.kind, 'regular_game');
 });
 
+test('postseason feed rows without postseason markers stay regular-season rows', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: 'reg-in-post-feed',
+      week: 2,
+      startDate: null,
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Boise State',
+      awayTeam: 'Washington',
+      homeConference: 'Mountain West',
+      awayConference: 'Big Ten',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: 'NCAA Football Bowl Subdivision',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'regular_game');
+});
+
+test('postseason rows can be detected from venue markers', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: 'post-venue-only',
+      week: 17,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'TBD',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: '',
+      notes: '',
+      venue: 'Rose Bowl',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'postseason_placeholder');
+  if (classified.kind === 'postseason_placeholder') {
+    assert.equal(classified.stage, 'bowl');
+  }
+});
+
 test('playoff rows without numeric slot generate stable distinct ids', () => {
   const first = classifyScheduleRow(
     {
@@ -515,6 +564,70 @@ test('regular-season rows with alias-repair style unresolved opponent labels are
     true
   );
   assert.equal((built.byes[4] ?? []).includes('Boston College'), false);
+});
+
+test('unsupported postseason rows emit out-of-scope diagnostics', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Texas', level: 'FBS', conference: 'SEC' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'unknown-post-row',
+        week: 17,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Team X Championship Game',
+        awayTeam: 'Team Y',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.issues.some((issue) => issue.startsWith('out-of-scope-postseason-row:')),
+    true
+  );
+});
+
+test('postseason hydration does not emit placeholder diagnostics for ordinary games', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Boise State', level: 'FBS', conference: 'Mountain West' },
+      { school: 'Washington', level: 'FBS', conference: 'Big Ten' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'ordinary-post-feed-row',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Washington',
+        awayTeam: 'Boise State',
+        homeConference: 'Big Ten',
+        awayConference: 'Mountain West',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        label: 'NCAA Football Bowl Subdivision',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.providerGameId === 'ordinary-post-feed-row' && g.stage === 'regular'),
+    true
+  );
+  assert.equal(
+    built.hydrationDiagnostics.some((d) => d.reason.includes('no-placeholder-match')),
+    false
+  );
 });
 
 test('unsupported lower-division regular-season rows are filtered before identity diagnostics', () => {
