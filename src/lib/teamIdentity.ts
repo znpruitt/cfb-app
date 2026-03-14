@@ -64,29 +64,6 @@ function inferSubdivisionFromConference(conference?: string | null): TeamSubdivi
   const text = (conference ?? '').toLowerCase();
   if (!text) return 'OTHER';
 
-  const isFbsConference =
-    text.includes('sec') ||
-    text.includes('big ten') ||
-    text.includes('acc') ||
-    text.includes('big 12') ||
-    text.includes('pac-12') ||
-    text.includes('pac 12') ||
-    text.includes('american athletic') ||
-    text.includes('american') ||
-    text.includes('mountain west') ||
-    text.includes('mid-american') ||
-    text.includes('mid american') ||
-    text.includes('mac') ||
-    text.includes('sun belt') ||
-    text.includes('conference usa') ||
-    text.includes('c-usa') ||
-    text.includes('cusa') ||
-    text.includes('independent');
-
-  if (isFbsConference) {
-    return 'FBS';
-  }
-
   const isFcsConference =
     text.includes('fcs') ||
     text.includes('ivy') ||
@@ -104,6 +81,29 @@ function inferSubdivisionFromConference(conference?: string | null): TeamSubdivi
 
   if (isFcsConference) {
     return 'FCS';
+  }
+
+  const isFbsConference =
+    text.includes('sec') ||
+    text.includes('big ten') ||
+    text.includes('acc') ||
+    text.includes('big 12') ||
+    text.includes('pac-12') ||
+    text.includes('pac 12') ||
+    text.includes('american athletic') ||
+    text.includes('american') ||
+    text.includes('mountain west') ||
+    text.includes('mid-american') ||
+    text.includes('mid american') ||
+    text.includes('mac') ||
+    text.includes('sun belt') ||
+    text.includes('conference usa') ||
+    text.includes('c-usa') ||
+    text.includes('cusa') ||
+    (text.includes('independent') && !text.includes('fcs'));
+
+  if (isFbsConference) {
+    return 'FBS';
   }
 
   return 'OTHER';

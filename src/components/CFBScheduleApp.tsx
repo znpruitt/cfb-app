@@ -6,6 +6,7 @@ import AliasEditorPanel from './AliasEditorPanel';
 import IssuesPanel from './IssuesPanel';
 import UploadPanel from './UploadPanel';
 import GameWeekPanel from './GameWeekPanel';
+import PostseasonPanel from './PostseasonPanel';
 import WeekControls from './WeekControls';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
@@ -209,11 +210,19 @@ export default function CFBScheduleApp(): React.ReactElement {
         }
 
         setGames(built.games);
-        setWeeks(built.weeks);
+        const regularWeeks = Array.from(
+          new Set(
+            built.games
+              .filter((game) => game.stage === 'regular')
+              .map((game) => game.week)
+              .filter((w) => Number.isFinite(w))
+          )
+        ).sort((a, b) => a - b);
+        setWeeks(regularWeeks);
         setByes(built.byes);
         setConferences(built.conferences);
         setScheduleLoaded(true);
-        if (selectedWeek == null && built.games.length) setSelectedWeek(built.games[0]!.week);
+        if (selectedWeek == null && regularWeeks.length) setSelectedWeek(regularWeeks[0] ?? null);
         return true;
       } catch (error) {
         const scheduleFailure = `CFBD schedule load failed: ${(error as Error).message}`;
@@ -297,7 +306,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   function filteredWeekGames(w: number): AppGame[] {
     const next = games
-      .filter((g) => g.week === w)
+      .filter((g) => g.stage === 'regular' && g.week === w)
       .filter((g) => {
         const confOk =
           selectedConference === 'ALL' ||
@@ -324,6 +333,19 @@ export default function CFBScheduleApp(): React.ReactElement {
 
     return next;
   }
+
+  const postseasonGames = useMemo(() => {
+    const tf = teamFilter.toLowerCase();
+    return games
+      .filter((g) => g.stage !== 'regular')
+      .filter((g) =>
+        !tf
+          ? true
+          : g.csvHome.toLowerCase().includes(tf) ||
+            g.csvAway.toLowerCase().includes(tf) ||
+            (g.label ?? '').toLowerCase().includes(tf)
+      );
+  }, [games, teamFilter]);
 
   const refreshLive = useCallback(async () => {
     setIssues([]);
@@ -580,6 +602,17 @@ export default function CFBScheduleApp(): React.ReactElement {
             />
           )}
         </>
+      )}
+
+      {postseasonGames.length > 0 && (
+        <PostseasonPanel
+          games={postseasonGames}
+          oddsByKey={oddsByKey}
+          scoresByKey={scoresByKey}
+          rosterByTeam={rosterByTeam}
+          isDebug={IS_DEBUG}
+          onSavePostseasonOverride={savePostseasonOverride}
+        />
       )}
     </div>
   );

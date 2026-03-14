@@ -58,6 +58,32 @@ test('resolver cache key includes subdivision changes', () => {
   });
   assert.equal(second.isFbsName('Boise State'), false);
 });
+test('conference championship row without "game" keyword still maps to conference slot', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: '2025-1b',
+      week: 15,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: true,
+      homeTeam: 'Indiana',
+      awayTeam: 'Ohio State',
+      homeConference: 'Big Ten',
+      awayConference: 'Big Ten',
+      status: 'scheduled',
+      label: 'Big Ten Championship Presented by Dr Pepper',
+      seasonType: 'postseason',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'postseason_placeholder');
+  if (classified.kind === 'postseason_placeholder') {
+    assert.equal(classified.stage, 'conference_championship');
+    assert.equal(classified.eventId, '2025-big-ten-championship');
+  }
+});
+
 test('conference championship row becomes postseason placeholder', () => {
   const classified = classifyScheduleRow(
     {
@@ -105,6 +131,33 @@ test('bowl row becomes postseason placeholder', () => {
   if (classified.kind === 'postseason_placeholder') {
     assert.equal(classified.stage, 'bowl');
     assert.equal(classified.eventId, '2025-rose-bowl');
+    assert.equal(classified.postseasonRole, 'bowl');
+  }
+});
+
+test('playoff-hosting bowl is classified by seasonal role', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: '2025-2b',
+      week: 17,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Rose Bowl',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      notes: 'College Football Playoff Quarterfinal',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'postseason_placeholder');
+  if (classified.kind === 'postseason_placeholder') {
+    assert.equal(classified.stage, 'playoff');
+    assert.equal(classified.postseasonRole, 'playoff');
   }
 });
 
@@ -130,6 +183,7 @@ test('playoff row becomes postseason placeholder', () => {
   if (classified.kind === 'postseason_placeholder') {
     assert.equal(classified.stage, 'playoff');
     assert.equal(classified.eventId, '2025-cfp-semifinal-1');
+    assert.equal(classified.postseasonRole, 'playoff');
   }
 });
 
@@ -323,6 +377,45 @@ test('placeholder rows bypass team identity resolution', () => {
   assert.equal(
     built.games.some((g) => g.eventId === '2025-acc-championship'),
     true
+  );
+});
+
+test('conference championship matchup hydrates seeded slot instead of creating duplicate row', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Indiana', level: 'FBS' },
+      { school: 'Ohio State', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: '2025-b1g',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Indiana',
+        awayTeam: 'Ohio State',
+        homeConference: 'Big Ten',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+        label: 'Big Ten Championship Presented by Dr Pepper',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  const b1gGames = built.games.filter((g) => g.eventId === '2025-big-ten-championship');
+  assert.equal(b1gGames.length, 1);
+  const game = b1gGames[0];
+  assert.equal(game?.participants.home.kind, 'team');
+  assert.equal(game?.participants.away.kind, 'team');
+  assert.equal(
+    built.games.some(
+      (g) => g.stage === 'regular' && g.csvHome === 'Indiana' && g.csvAway === 'Ohio State'
+    ),
+    false
   );
 });
 
@@ -837,6 +930,44 @@ test('tracked filtering falls back to resolver ownable metadata when team level 
   assert.equal(
     built.games.some((g) => g.stage === 'regular' && g.csvAway === 'Fordham'),
     true
+  );
+});
+
+test('fcs independent teams are not inferred as FBS in tracked games', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Illinois State', level: 'OTHER', conference: 'Missouri Valley' },
+      { school: 'North Dakota State', level: 'OTHER', conference: 'FCS Independent' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'fcs-1',
+        week: 15,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'North Dakota State',
+        awayTeam: 'Illinois State',
+        homeConference: 'FCS Independent',
+        awayConference: 'Missouri Valley',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        label: 'FCS Semifinal',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some(
+      (g) =>
+        g.csvHome === 'North Dakota State' ||
+        g.csvAway === 'North Dakota State' ||
+        g.csvHome === 'Illinois State' ||
+        g.csvAway === 'Illinois State'
+    ),
+    false
   );
 });
 

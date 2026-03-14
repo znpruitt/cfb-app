@@ -64,6 +64,16 @@ function mergeGame(base: AppGame, incoming: AppGame): { merged: AppGame; fieldsU
     fieldsUpdated.push('label');
   }
 
+  if (incoming.postseasonRole && incoming.postseasonRole !== merged.postseasonRole) {
+    merged = { ...merged, postseasonRole: incoming.postseasonRole };
+    fieldsUpdated.push('postseasonRole');
+  }
+
+  if (incoming.playoffRound && incoming.playoffRound !== merged.playoffRound) {
+    merged = { ...merged, playoffRound: incoming.playoffRound };
+    fieldsUpdated.push('playoffRound');
+  }
+
   const bothTeamsKnown = isTeam(merged.participants.home) && isTeam(merged.participants.away);
   const nextStatus = bothTeamsKnown ? 'matchup_set' : merged.status;
   if (nextStatus !== merged.status) {
