@@ -193,6 +193,42 @@ function isTrackedGame(
   return homeIsFbs || awayIsFbs;
 }
 
+function resolveRegularSeasonRow(params: {
+  item: ScheduleWireItem;
+  resolver: ReturnType<typeof createTeamIdentityResolver>;
+}): {
+  include: boolean;
+  emitIdentityIssue: boolean;
+  homeResolved: ReturnType<ReturnType<typeof createTeamIdentityResolver>['resolveName']>;
+  awayResolved: ReturnType<ReturnType<typeof createTeamIdentityResolver>['resolveName']>;
+} {
+  const { item, resolver } = params;
+  const homeResolved = resolver.resolveName(item.homeTeam);
+  const awayResolved = resolver.resolveName(item.awayTeam);
+  const homeKnown = homeResolved.status === 'resolved';
+  const awayKnown = awayResolved.status === 'resolved';
+
+  const homeIsFbs = homeKnown && homeResolved.subdivision === 'FBS';
+  const awayIsFbs = awayKnown && awayResolved.subdivision === 'FBS';
+
+  if (homeKnown && awayKnown) {
+    return {
+      include: homeIsFbs || awayIsFbs,
+      emitIdentityIssue: false,
+      homeResolved,
+      awayResolved,
+    };
+  }
+
+  const hasKnownFbsTeam = homeIsFbs || awayIsFbs;
+  return {
+    include: hasKnownFbsTeam,
+    emitIdentityIssue: hasKnownFbsTeam,
+    homeResolved,
+    awayResolved,
+  };
+}
+
 function buildByes(
   games: AppGame[],
   trackedFbsTeams: string[],
@@ -494,9 +530,13 @@ export function buildScheduleFromApi(params: {
       continue;
     }
 
-    const homeResolved = resolver.resolveName(item.homeTeam);
-    const awayResolved = resolver.resolveName(item.awayTeam);
-    if (homeResolved.status !== 'resolved' || awayResolved.status !== 'resolved') {
+    const rowResolution = resolveRegularSeasonRow({ item, resolver });
+    if (!rowResolution.include) {
+      continue;
+    }
+
+    const { homeResolved, awayResolved } = rowResolution;
+    if (rowResolution.emitIdentityIssue) {
       issues.push(`identity-unresolved: ${item.homeTeam} vs ${item.awayTeam}`);
     }
 

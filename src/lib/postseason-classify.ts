@@ -78,7 +78,9 @@ function looksEmptyRow(row: ScheduleWireItem): boolean {
 }
 
 function isPostseasonContext(row: ScheduleWireItem, text: string): boolean {
-  if ((row.seasonType ?? '').toLowerCase() === 'postseason') return true;
+  const seasonType = (row.seasonType ?? '').toLowerCase();
+  if (seasonType === 'postseason') return true;
+  if (seasonType === 'regular') return false;
   return /(championship game|\bbowl\b|college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(
     text
   );

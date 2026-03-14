@@ -26,6 +26,21 @@ test('canonical resolution includes observed FCS opponents', () => {
   assert.equal(result.identityKey, 'fordham');
 });
 
+test('resolver distinguishes unknown-team unresolved from invalid-label unresolved', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', level: 'FBS' }],
+  });
+
+  const unknown = resolver.resolveName('Nortern Illinois');
+  assert.equal(unknown.status, 'unresolved');
+  assert.equal(unknown.resolutionSource, 'unresolved');
+
+  const invalid = resolver.resolveName('Kickoff Classic 8pm ET');
+  assert.equal(invalid.status, 'unresolved');
+  assert.equal(invalid.resolutionSource, 'invalid_label');
+});
+
 test('resolver cache key includes subdivision changes', () => {
   const first = createTeamIdentityResolver({
     aliasMap: {},
@@ -116,6 +131,28 @@ test('playoff row becomes postseason placeholder', () => {
     assert.equal(classified.stage, 'playoff');
     assert.equal(classified.eventId, '2025-cfp-semifinal-1');
   }
+});
+
+test('regular-season rows are not routed into postseason classification', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: 'reg-d3-1',
+      week: 2,
+      startDate: null,
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'North Central College',
+      awayTeam: 'Wisconsin-River Falls',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'regular',
+      label: 'NCAA Division III regular season',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'regular_game');
 });
 
 test('playoff rows without numeric slot generate stable distinct ids', () => {
@@ -405,6 +442,115 @@ test('regular season API games remain when postseason templates are present', ()
   );
   assert.equal(built.weeks.includes(1), true);
   assert.equal(built.conferences.includes('ACC'), true);
+});
+
+test('regular-season rows with one known FBS team and one unresolved side are retained', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', level: 'FBS', conference: 'ACC' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'fbs-unresolved',
+        week: 3,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Boston College',
+        awayTeam: 'Team TBD',
+        homeConference: 'ACC',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some(
+      (g) => g.providerGameId === 'fbs-unresolved' && g.csvHome === 'Boston College'
+    ),
+    true
+  );
+  assert.equal(
+    built.issues.some((issue) => issue.includes('identity-unresolved: Boston College vs Team TBD')),
+    true
+  );
+  assert.equal((built.byes[3] ?? []).includes('Boston College'), false);
+});
+
+test('regular-season rows with alias-repair style unresolved opponent labels are retained', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', level: 'FBS', conference: 'ACC' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'fbs-unresolved-alias-like',
+        week: 4,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Boston College',
+        awayTeam: 'Kickoff Classic 8pm ET',
+        homeConference: 'ACC',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some(
+      (g) =>
+        g.providerGameId === 'fbs-unresolved-alias-like' && g.csvAway === 'Kickoff Classic 8pm ET'
+    ),
+    true
+  );
+  assert.equal(
+    built.issues.some((issue) =>
+      issue.includes('identity-unresolved: Boston College vs Kickoff Classic 8pm ET')
+    ),
+    true
+  );
+  assert.equal((built.byes[4] ?? []).includes('Boston College'), false);
+});
+
+test('unsupported lower-division regular-season rows are filtered before identity diagnostics', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', level: 'FBS' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'd3-regular',
+        week: 2,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Trinity (CT)',
+        awayTeam: 'Colby College',
+        homeConference: 'NESCAC',
+        awayConference: 'NESCAC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.providerGameId === 'd3-regular'),
+    false
+  );
+  assert.equal(
+    built.issues.some((issue) => issue.includes('identity-unresolved')),
+    false
+  );
+  assert.equal(
+    built.issues.some((issue) => issue.includes('invalid-schedule-row')),
+    false
+  );
 });
 
 test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
