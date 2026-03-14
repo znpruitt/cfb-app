@@ -147,6 +147,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       overrideManualOverrides?: Record<string, Partial<AppGame>>
     ): Promise<boolean> => {
       try {
+        setDiag([]);
         const [scheduleItems, teams] = await Promise.all([
           fetchSeasonSchedule(selectedSeason),
           fetchTeamsCatalog(),
