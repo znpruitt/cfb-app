@@ -72,9 +72,14 @@ export default function GameWeekPanel({
           }
           if (!odds && !isPlaceholder) chips.push('No odds');
 
-          const matchupLine = g.neutral
+          const isPostseasonNeutralDisplay = g.stage !== 'regular' && g.neutral;
+          const matchupLine = isPostseasonNeutralDisplay
             ? `${g.csvAway} vs ${g.csvHome}`
-            : `${g.csvAway} @ ${g.csvHome}`;
+            : g.neutral
+              ? `${g.csvAway} vs ${g.csvHome}`
+              : `${g.csvAway} @ ${g.csvHome}`;
+          const matchupRoleLabel = isPostseasonNeutralDisplay ? 'Team A' : 'Away';
+          const matchupHostLabel = isPostseasonNeutralDisplay ? 'Team B' : 'Home';
 
           return (
             <details key={g.key} className={frameClasses}>
@@ -85,6 +90,7 @@ export default function GameWeekPanel({
                       {g.label}
                     </span>
                   )}
+                  {isPostseasonNeutralDisplay && <span className={pillClass()}>Neutral Site</span>}
                   <span
                     className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
                   >
@@ -112,10 +118,10 @@ export default function GameWeekPanel({
                 <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                   <div className="font-medium mb-2">Matchup</div>
                   <div>
-                    <strong>Home</strong>: {g.csvHome}
+                    <strong>{matchupHostLabel}</strong>: {g.csvHome}
                   </div>
                   <div>
-                    <strong>Away</strong>: {g.csvAway}
+                    <strong>{matchupRoleLabel}</strong>: {g.csvAway}
                   </div>
                   <div>
                     <strong>Week</strong>: {g.week}

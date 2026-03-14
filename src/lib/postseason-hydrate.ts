@@ -79,6 +79,36 @@ function mergeGame(base: AppGame, incoming: AppGame): { merged: AppGame; fieldsU
   return { merged, fieldsUpdated };
 }
 
+function scoreSupportSignals(
+  base: AppGame,
+  incoming: AppGame
+): { score: number; reasons: string[] } {
+  let score = 0;
+  const reasons: string[] = [];
+
+  if (base.week === incoming.week) {
+    score += 4;
+    reasons.push('week');
+  }
+
+  if (base.neutral === incoming.neutral) {
+    score += 2;
+    reasons.push('neutral');
+  }
+
+  if (normalized(base.venue) && normalized(base.venue) === normalized(incoming.venue)) {
+    score += 2;
+    reasons.push('venue');
+  }
+
+  if (base.date && incoming.date && base.date.slice(0, 10) === incoming.date.slice(0, 10)) {
+    score += 2;
+    reasons.push('kickoffDate');
+  }
+
+  return { score, reasons };
+}
+
 function scoreCandidate(base: AppGame, incoming: AppGame): { score: number; reason: string } {
   let score = 0;
   const reasons: string[] = [];
@@ -104,7 +134,7 @@ function scoreCandidate(base: AppGame, incoming: AppGame): { score: number; reas
     reasons.push('conference');
   }
   if (normalized(base.bowlName) && normalized(base.bowlName) === normalized(incoming.bowlName)) {
-    score += 4;
+    score += 6;
     reasons.push('bowl');
   }
   if (
@@ -120,7 +150,39 @@ function scoreCandidate(base: AppGame, incoming: AppGame): { score: number; reas
     reasons.push('slotOrder');
   }
 
+  const supportSignals = scoreSupportSignals(base, incoming);
+  score += supportSignals.score;
+  reasons.push(...supportSignals.reasons);
+
   return { score, reason: reasons.join('+') || 'none' };
+}
+
+function choosePrimaryPostseasonCandidate(
+  candidates: AppGame[],
+  incoming: AppGame
+): AppGame | null {
+  const incomingBowl = normalized(incoming.bowlName);
+  if (incoming.stage === 'bowl' && incomingBowl) {
+    const bowlMatch = candidates.filter(
+      (candidate) => candidate.stage === 'bowl' && normalized(candidate.bowlName) === incomingBowl
+    );
+    if (bowlMatch.length === 1) return bowlMatch[0] ?? null;
+
+    const seasonAligned = bowlMatch.filter((candidate) => candidate.week === incoming.week);
+    if (seasonAligned.length === 1) return seasonAligned[0] ?? null;
+
+    const bySupport = seasonAligned.length ? seasonAligned : bowlMatch;
+    return (
+      bySupport
+        .map((candidate) => ({
+          candidate,
+          support: scoreSupportSignals(candidate, incoming).score,
+        }))
+        .sort((a, b) => b.support - a.support)[0]?.candidate ?? null
+    );
+  }
+
+  return null;
 }
 
 export function hydrateEvents(params: { baseEvents: AppGame[]; providerEvents: AppGame[] }): {
@@ -146,20 +208,49 @@ export function hydrateEvents(params: { baseEvents: AppGame[]; providerEvents: A
       continue;
     }
 
-    const candidates = Array.from(byId.values())
-      .filter(
-        (candidate) =>
-          candidate.stage !== 'regular' &&
-          incoming.stage !== 'regular' &&
-          (candidate.isPlaceholder ||
-            !isTeam(candidate.participants.home) ||
-            !isTeam(candidate.participants.away))
-      )
+    const candidates = Array.from(byId.values()).filter(
+      (candidate) =>
+        candidate.stage !== 'regular' &&
+        incoming.stage !== 'regular' &&
+        (candidate.isPlaceholder ||
+          !isTeam(candidate.participants.home) ||
+          !isTeam(candidate.participants.away))
+    );
+
+    const primaryCandidate = choosePrimaryPostseasonCandidate(candidates, incoming);
+    if (primaryCandidate) {
+      const { merged, fieldsUpdated } = mergeGame(primaryCandidate, incoming);
+      byId.set(primaryCandidate.eventId, merged);
+      diagnostics.push({
+        eventId: primaryCandidate.eventId,
+        action: 'hydrated',
+        reason: `matched-by-postseason-identity:bowlName (${participantSummary(incoming)})`,
+        fieldsUpdated,
+        confidence: 'high',
+      });
+      continue;
+    }
+
+    const metadataCandidates = candidates.filter((candidate) => {
+      if (incoming.stage !== 'bowl') return true;
+
+      // Bowl fallback matching must not hydrate into non-bowl placeholders
+      // (e.g. CFP/conference slots) when support metadata happens to align.
+      if (candidate.stage !== 'bowl') return false;
+
+      const incomingBowl = normalized(incoming.bowlName);
+      if (!incomingBowl) return true;
+
+      const candidateBowl = normalized(candidate.bowlName);
+      return Boolean(candidateBowl) && candidateBowl === incomingBowl;
+    });
+
+    const scoredCandidates = metadataCandidates
       .map((candidate) => ({ candidate, score: scoreCandidate(candidate, incoming) }))
       .sort((a, b) => b.score.score - a.score.score);
 
-    const best = candidates[0];
-    if (best && best.score.score >= 10) {
+    const best = scoredCandidates[0];
+    if (best && best.score.score >= 11) {
       const { merged, fieldsUpdated } = mergeGame(best.candidate, incoming);
       byId.set(best.candidate.eventId, merged);
       diagnostics.push({
@@ -167,18 +258,22 @@ export function hydrateEvents(params: { baseEvents: AppGame[]; providerEvents: A
         action: 'hydrated',
         reason: `matched-by-metadata:${best.score.reason} (${participantSummary(incoming)})`,
         fieldsUpdated,
-        confidence: best.score.score >= 12 ? 'high' : 'medium',
+        confidence: best.score.score >= 14 ? 'high' : 'medium',
       });
       continue;
     }
 
     byId.set(incoming.eventId, incoming);
+    const isExpectedBowlInsert =
+      incoming.stage === 'bowl' && Boolean(normalized(incoming.bowlName));
     diagnostics.push({
       eventId: incoming.eventId,
       action: 'inserted',
-      reason: `no-placeholder-match (${participantSummary(incoming)})`,
+      reason: isExpectedBowlInsert
+        ? `bowl-slot-created-from-provider-identity (${participantSummary(incoming)})`
+        : `no-placeholder-match (${participantSummary(incoming)})`,
       fieldsUpdated: ['event'],
-      confidence: 'low',
+      confidence: isExpectedBowlInsert ? 'medium' : 'low',
     });
   }
 

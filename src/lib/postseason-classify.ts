@@ -66,6 +66,68 @@ function hasBowlMarker(text: string): boolean {
   return /\bbowl\b/i.test(text) && !/\bbowl subdivision\b/i.test(text);
 }
 
+function extractBowlName(row: ScheduleWireItem): string | null {
+  const candidates = [row.label, row.notes, row.venue, row.homeTeam, row.awayTeam]
+    .map((value) => (value ?? '').trim())
+    .filter(Boolean);
+
+  for (const source of candidates) {
+    if (!hasBowlMarker(source)) continue;
+    const match = source.match(/([A-Za-z0-9 .&'/-]*\bBowl\b)/i);
+    if (match?.[1]) {
+      return match[1].replace(/\s+/g, ' ').trim();
+    }
+    return source.replace(/\s+/g, ' ').trim();
+  }
+
+  return null;
+}
+
+function canonicalBowlName(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  const lower = normalized.toLowerCase();
+
+  const knownBowls = [
+    'Rose Bowl',
+    'Sugar Bowl',
+    'Orange Bowl',
+    'Cotton Bowl',
+    'Fiesta Bowl',
+    'Peach Bowl',
+    'Alamo Bowl',
+    'Citrus Bowl',
+    'Holiday Bowl',
+    'Sun Bowl',
+    'Gator Bowl',
+    'ReliaQuest Bowl',
+    'Texas Bowl',
+    'Music City Bowl',
+    'Las Vegas Bowl',
+    'Pinstripe Bowl',
+    'Fenway Bowl',
+    'Frisco Bowl',
+    'Boca Raton Bowl',
+    'Bahamas Bowl',
+    'Armed Forces Bowl',
+    'Independence Bowl',
+    'Myrtle Beach Bowl',
+    'New Mexico Bowl',
+    'LendingTree Bowl',
+    'Camellia Bowl',
+    'Gasparilla Bowl',
+    'Military Bowl',
+    'First Responder Bowl',
+    'LA Bowl',
+    'Potato Bowl',
+  ];
+
+  const direct = knownBowls.find((name) => lower.includes(name.toLowerCase()));
+  if (direct) return direct;
+
+  const withoutPrefix = normalized.replace(/^[^A-Za-z0-9]*(the\s+)?/i, '');
+  return withoutPrefix;
+}
+
 function playoffRoundFromText(
   text: string
 ): 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' {
@@ -175,8 +237,9 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
   }
 
   if (hasBowlMarker(text)) {
-    const source = row.label?.trim() || row.homeTeam.trim() || row.awayTeam.trim();
-    const bowlName = (source.match(/([A-Za-z0-9 .'-]+Bowl)/i)?.[1] ?? source).trim();
+    const rawBowlName =
+      extractBowlName(row) ?? row.label?.trim() ?? row.homeTeam.trim() ?? row.awayTeam.trim();
+    const bowlName = canonicalBowlName(rawBowlName);
     const bowlSlug = slugify(bowlName);
     return {
       kind: 'postseason_placeholder',
