@@ -1278,3 +1278,76 @@ test('postseason hydration matches bowl placeholders by bowl name when ids diffe
     false
   );
 });
+
+test('bowl metadata fallback never hydrates into playoff placeholders', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Penn State', level: 'FBS' },
+      { school: 'Utah', level: 'FBS' },
+      { school: 'Texas', level: 'FBS' },
+      { school: 'Oregon', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'cfp-quarterfinal-slot',
+        week: 17,
+        startDate: '2025-12-30T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Oregon',
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+        label: 'College Football Playoff Quarterfinal',
+        seasonType: 'postseason',
+        venue: 'State Farm Stadium',
+      },
+      {
+        id: 'pop-tarts-provider-row',
+        week: 17,
+        startDate: '2025-12-30T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Penn State',
+        awayTeam: 'Utah',
+        homeConference: 'Big Ten',
+        awayConference: 'Big 12',
+        status: 'scheduled',
+        label: 'Pop-Tarts Bowl',
+        seasonType: 'postseason',
+        venue: 'State Farm Stadium',
+      },
+    ],
+  });
+
+  const popTarts = built.games.find((g) => g.bowlName === 'Pop-Tarts Bowl');
+  const quarterfinal = built.games.find((g) => g.playoffRound === 'quarterfinal');
+  assert.ok(popTarts);
+  assert.ok(quarterfinal);
+  assert.equal(popTarts?.participants.home.kind, 'team');
+  assert.equal(popTarts?.participants.away.kind, 'team');
+  assert.equal(quarterfinal?.participants.home.kind, 'team');
+  assert.equal(quarterfinal?.participants.away.kind, 'team');
+  assert.equal(quarterfinal?.csvHome, 'Texas');
+  assert.equal(quarterfinal?.csvAway, 'Oregon');
+
+  assert.equal(
+    built.hydrationDiagnostics.some(
+      (d) => d.reason.includes('matched-by-metadata') && d.reason.includes('Utah @ Penn State')
+    ),
+    false
+  );
+  assert.equal(
+    built.hydrationDiagnostics.some(
+      (d) =>
+        (d.reason.includes('bowl-slot-created-from-provider-identity') ||
+          d.reason.includes('matched-by-event-id') ||
+          d.reason.includes('matched-by-postseason-identity:bowlName')) &&
+        d.reason.includes('Utah @ Penn State')
+    ),
+    true
+  );
+});

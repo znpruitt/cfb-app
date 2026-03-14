@@ -233,10 +233,16 @@ export function hydrateEvents(params: { baseEvents: AppGame[]; providerEvents: A
 
     const metadataCandidates = candidates.filter((candidate) => {
       if (incoming.stage !== 'bowl') return true;
+
+      // Bowl fallback matching must not hydrate into non-bowl placeholders
+      // (e.g. CFP/conference slots) when support metadata happens to align.
+      if (candidate.stage !== 'bowl') return false;
+
       const incomingBowl = normalized(incoming.bowlName);
       if (!incomingBowl) return true;
+
       const candidateBowl = normalized(candidate.bowlName);
-      return !candidateBowl || candidateBowl === incomingBowl;
+      return Boolean(candidateBowl) && candidateBowl === incomingBowl;
     });
 
     const scoredCandidates = metadataCandidates
