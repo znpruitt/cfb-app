@@ -438,6 +438,47 @@ test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
   assert.equal((built.byes[1] ?? []).includes('Fordham'), false);
 });
 
+test('conference list excludes conferences that only appear in dropped FCS-vs-FCS games', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Boston College', level: 'FBS', conference: 'ACC' },
+      { school: 'Clemson', level: 'FBS', conference: 'ACC' },
+      { school: 'Fordham', level: 'FCS', conference: 'Patriot' },
+      { school: 'Colgate', level: 'FCS', conference: 'Patriot' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: '1',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Boston College',
+        awayTeam: 'Clemson',
+        homeConference: 'ACC',
+        awayConference: 'ACC',
+        status: 'scheduled',
+      },
+      {
+        id: '2',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Fordham',
+        awayTeam: 'Colgate',
+        homeConference: 'Patriot',
+        awayConference: 'Patriot',
+        status: 'scheduled',
+      },
+    ],
+  });
+
+  assert.equal(built.conferences.includes('ACC'), true);
+  assert.equal(built.conferences.includes('Patriot'), false);
+});
 test('tracked filtering falls back to resolver ownable metadata when team level is OTHER', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},

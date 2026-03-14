@@ -574,12 +574,6 @@ export function buildScheduleFromApi(params: {
     summarizeGames('combinedGames', mergedGames);
   }
 
-  const conferenceSet = new Set<string>();
-  for (const game of mergedGames) {
-    if (game.awayConf) conferenceSet.add(game.awayConf);
-    if (game.homeConf) conferenceSet.add(game.homeConf);
-  }
-
   const canonicalTeamMetadataByName = new Map<string, TeamCatalogItem>();
   for (const team of teams) {
     const canonicalName = resolver.resolveName(team.school).canonicalName ?? team.school;
@@ -589,6 +583,13 @@ export function buildScheduleFromApi(params: {
   const trackedGames = mergedGames.filter((game) =>
     isTrackedGame(game, canonicalTeamMetadataByName, resolver)
   );
+
+  const conferenceSet = new Set<string>();
+  for (const game of trackedGames) {
+    if (game.awayConf) conferenceSet.add(game.awayConf);
+    if (game.homeConf) conferenceSet.add(game.homeConf);
+  }
+
   const trackedFbsTeams = Array.from(
     new Set(
       teams
