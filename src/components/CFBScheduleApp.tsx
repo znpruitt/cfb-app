@@ -24,6 +24,10 @@ import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
 
+function dedupeIssues(nextIssues: string[]): string[] {
+  return Array.from(new Set(nextIssues));
+}
+
 function summarizeGames(label: string, games: AppGame[]): void {
   const weeks = Array.from(
     new Set(games.map((g) => g.week).filter((w) => Number.isFinite(w)))
@@ -133,6 +137,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       overrideManualOverrides?: Record<string, Partial<AppGame>>
     ): Promise<boolean> => {
       try {
+        setDiag([]);
         const [scheduleItems, teams] = await Promise.all([
           fetchSeasonSchedule(selectedSeason),
           fetchTeamsCatalog(),
@@ -170,22 +175,25 @@ export default function CFBScheduleApp(): React.ReactElement {
           manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
         });
 
+        const nextIssues: string[] = [];
+
         if (built.issues.length) {
-          setIssues((prev) => [...prev, ...built.issues]);
+          nextIssues.push(...built.issues);
         }
         if (IS_DEBUG && built.hydrationDiagnostics.length) {
           const actionableDiagnostics = built.hydrationDiagnostics.filter(
             (d) => d.action !== 'template-preserved'
           );
           if (actionableDiagnostics.length) {
-            setIssues((prev) => [
-              ...prev,
+            nextIssues.push(
               ...actionableDiagnostics
                 .slice(0, 8)
-                .map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`),
-            ]);
+                .map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`)
+            );
           }
         }
+
+        setIssues(dedupeIssues(nextIssues));
 
         if (!built.games.length) {
           clearScheduleDerivedState();
@@ -200,7 +208,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         if (selectedWeek == null && built.games.length) setSelectedWeek(built.games[0]!.week);
         return true;
       } catch (error) {
-        setIssues((prev) => [...prev, `CFBD schedule load failed: ${(error as Error).message}`]);
+        setIssues([`CFBD schedule load failed: ${(error as Error).message}`]);
         return false;
       }
     },
