@@ -78,6 +78,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [selectedConference, setSelectedConference] = useState<string>('ALL');
   const [teamFilter, setTeamFilter] = useState<string>('');
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
+  const [selectedTab, setSelectedTab] = useState<number | 'postseason' | null>(null);
 
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
@@ -127,6 +128,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     setByes({});
     setConferences(['ALL']);
     setSelectedWeek(null);
+    setSelectedTab(null);
     setSelectedConference('ALL');
     setTeamFilter('');
     setOddsByKey({});
@@ -222,7 +224,11 @@ export default function CFBScheduleApp(): React.ReactElement {
         setByes(built.byes);
         setConferences(built.conferences);
         setScheduleLoaded(true);
-        if (selectedWeek == null && regularWeeks.length) setSelectedWeek(regularWeeks[0] ?? null);
+        if (selectedWeek == null && regularWeeks.length) {
+          const firstWeek = regularWeeks[0] ?? null;
+          setSelectedWeek(firstWeek);
+          setSelectedTab(firstWeek);
+        }
         return true;
       } catch (error) {
         const scheduleFailure = `CFBD schedule load failed: ${(error as Error).message}`;
@@ -298,6 +304,12 @@ export default function CFBScheduleApp(): React.ReactElement {
     [storageKeys.ownersCsv, tryParseOwnersCSV]
   );
 
+  useEffect(() => {
+    if (selectedTab == null && selectedWeek != null) {
+      setSelectedTab(selectedWeek);
+    }
+  }, [selectedTab, selectedWeek]);
+
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of roster) m.set(r.team, r.owner);
@@ -338,14 +350,19 @@ export default function CFBScheduleApp(): React.ReactElement {
     const tf = teamFilter.toLowerCase();
     return games
       .filter((g) => g.stage !== 'regular')
-      .filter((g) =>
-        !tf
-          ? true
-          : g.csvHome.toLowerCase().includes(tf) ||
-            g.csvAway.toLowerCase().includes(tf) ||
-            (g.label ?? '').toLowerCase().includes(tf)
-      );
-  }, [games, teamFilter]);
+      .filter((g) => {
+        const confOk =
+          selectedConference === 'ALL' ||
+          g.homeConf === selectedConference ||
+          g.awayConf === selectedConference;
+        const teamOk =
+          !tf ||
+          g.csvHome.toLowerCase().includes(tf) ||
+          g.csvAway.toLowerCase().includes(tf) ||
+          (g.label ?? '').toLowerCase().includes(tf);
+        return confOk && teamOk;
+      });
+  }, [games, selectedConference, teamFilter]);
 
   const refreshLive = useCallback(async () => {
     setIssues([]);
@@ -577,20 +594,25 @@ export default function CFBScheduleApp(): React.ReactElement {
         onClearCachedOwners={clearCachedOwners}
       />
 
-      {weeks.length > 0 && (
+      {(weeks.length > 0 || postseasonGames.length > 0) && (
         <>
           <WeekControls
             weeks={weeks}
-            selectedWeek={selectedWeek}
+            selectedTab={selectedTab}
+            hasPostseason={postseasonGames.length > 0}
             selectedConference={selectedConference}
             conferences={conferences}
             teamFilter={teamFilter}
-            onSelectWeek={setSelectedWeek}
+            onSelectWeek={(week) => {
+              setSelectedWeek(week);
+              setSelectedTab(week);
+            }}
+            onSelectPostseason={() => setSelectedTab('postseason')}
             onSelectedConferenceChange={setSelectedConference}
             onTeamFilterChange={setTeamFilter}
           />
 
-          {selectedWeek != null && (
+          {selectedTab !== 'postseason' && selectedWeek != null && (
             <GameWeekPanel
               games={filteredWeekGames(selectedWeek)}
               byes={byes[selectedWeek] ?? []}
@@ -601,18 +623,18 @@ export default function CFBScheduleApp(): React.ReactElement {
               onSavePostseasonOverride={savePostseasonOverride}
             />
           )}
-        </>
-      )}
 
-      {postseasonGames.length > 0 && (
-        <PostseasonPanel
-          games={postseasonGames}
-          oddsByKey={oddsByKey}
-          scoresByKey={scoresByKey}
-          rosterByTeam={rosterByTeam}
-          isDebug={IS_DEBUG}
-          onSavePostseasonOverride={savePostseasonOverride}
-        />
+          {selectedTab === 'postseason' && postseasonGames.length > 0 && (
+            <PostseasonPanel
+              games={postseasonGames}
+              oddsByKey={oddsByKey}
+              scoresByKey={scoresByKey}
+              rosterByTeam={rosterByTeam}
+              isDebug={IS_DEBUG}
+              onSavePostseasonOverride={savePostseasonOverride}
+            />
+          )}
+        </>
       )}
     </div>
   );
