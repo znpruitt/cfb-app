@@ -455,6 +455,57 @@ test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
   assert.equal((built.byes[1] ?? []).includes('Fordham'), false);
 });
 
+test('postseason tracking drops non-FBS team matchups but keeps FBS postseason games', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Montana State', level: 'FCS', conference: 'Big Sky' },
+      { school: 'South Dakota State', level: 'FCS', conference: 'Missouri Valley' },
+      { school: 'Texas', level: 'FBS', conference: 'SEC' },
+      { school: 'Alabama', level: 'FBS', conference: 'SEC' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'fcs-post-1',
+        week: 16,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Montana State',
+        awayTeam: 'South Dakota State',
+        homeConference: 'Big Sky',
+        awayConference: 'Missouri Valley',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        label: 'Celebration Bowl',
+      },
+      {
+        id: 'fbs-post-1',
+        week: 17,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Alabama',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        label: 'Frisco Bowl',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.providerGameId === 'fcs-post-1'),
+    false
+  );
+  assert.equal(
+    built.games.some((g) => g.providerGameId === 'fbs-post-1'),
+    true
+  );
+});
 test('conference list excludes conferences that only appear in dropped FCS-vs-FCS games', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},

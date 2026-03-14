@@ -183,14 +183,13 @@ function isTrackedGame(
   teamMetadataByCanonicalName: Map<string, TeamCatalogItem>,
   resolver: ReturnType<typeof createTeamIdentityResolver>
 ): boolean {
-  if (game.stage !== 'regular') return true;
+  const homeIsTeam = game.participants.home.kind === 'team';
+  const awayIsTeam = game.participants.away.kind === 'team';
 
-  const homeIsFbs =
-    game.participants.home.kind === 'team' &&
-    isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver);
-  const awayIsFbs =
-    game.participants.away.kind === 'team' &&
-    isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver);
+  if (!homeIsTeam && !awayIsTeam) return true;
+
+  const homeIsFbs = homeIsTeam && isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver);
+  const awayIsFbs = awayIsTeam && isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver);
   return homeIsFbs || awayIsFbs;
 }
 
