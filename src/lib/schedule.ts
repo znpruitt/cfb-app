@@ -459,6 +459,7 @@ export function buildScheduleFromApi(params: {
     }
 
     if (classified.kind === 'out_of_scope_postseason') {
+      issues.push(`out-of-scope-postseason-row: ${classified.reason}`);
       continue;
     }
 

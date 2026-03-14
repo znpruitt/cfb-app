@@ -32,6 +32,7 @@ function isScheduleIssue(issue: string): boolean {
   return (
     issue.startsWith('invalid-schedule-row:') ||
     issue.startsWith('identity-unresolved:') ||
+    issue.startsWith('out-of-scope-postseason-row:') ||
     issue.startsWith('hydrate:') ||
     issue.startsWith('CFBD schedule load failed:')
   );

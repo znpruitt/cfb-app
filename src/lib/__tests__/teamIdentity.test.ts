@@ -177,6 +177,33 @@ test('postseason feed rows without postseason markers stay regular-season rows',
   assert.equal(classified.kind, 'regular_game');
 });
 
+test('postseason rows can be detected from venue markers', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: 'post-venue-only',
+      week: 17,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'TBD',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: '',
+      notes: '',
+      venue: 'Rose Bowl',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'postseason_placeholder');
+  if (classified.kind === 'postseason_placeholder') {
+    assert.equal(classified.stage, 'bowl');
+  }
+});
+
 test('playoff rows without numeric slot generate stable distinct ids', () => {
   const first = classifyScheduleRow(
     {
@@ -537,6 +564,34 @@ test('regular-season rows with alias-repair style unresolved opponent labels are
     true
   );
   assert.equal((built.byes[4] ?? []).includes('Boston College'), false);
+});
+
+test('unsupported postseason rows emit out-of-scope diagnostics', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Texas', level: 'FBS', conference: 'SEC' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'unknown-post-row',
+        week: 17,
+        startDate: null,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Team X Championship Game',
+        awayTeam: 'Team Y',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.issues.some((issue) => issue.startsWith('out-of-scope-postseason-row:')),
+    true
+  );
 });
 
 test('postseason hydration does not emit placeholder diagnostics for ordinary games', () => {

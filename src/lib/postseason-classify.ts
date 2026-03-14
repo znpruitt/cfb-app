@@ -96,11 +96,15 @@ function isPostseasonContext(row: ScheduleWireItem, text: string): boolean {
     /(championship game|college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(
       markerText
     ) || hasBowlMarker(markerText);
+  const hasPostseasonMarkersWithVenue =
+    /(championship game|college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(
+      text
+    ) || hasBowlMarker(text);
 
   const seasonType = (row.seasonType ?? '').toLowerCase();
-  if (seasonType === 'postseason') return hasPostseasonMarkers;
+  if (seasonType === 'postseason') return hasPostseasonMarkers || hasPostseasonMarkersWithVenue;
   if (seasonType === 'regular') return false;
-  return hasPostseasonMarkers || hasBowlMarker(text);
+  return hasPostseasonMarkersWithVenue;
 }
 
 export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowClassification {
