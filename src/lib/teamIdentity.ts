@@ -212,7 +212,13 @@ export function createTeamIdentityResolver(params: {
 }): TeamIdentityResolver {
   const { aliasMap, teams, observedNames, ownersByTeamId } = params;
   const cacheKey = JSON.stringify({
-    teams: teams.map((t) => [t.school, t.level, t.conference, t.alts?.join('|') ?? '']),
+    teams: teams.map((t) => [
+      t.school,
+      t.level,
+      t.subdivision,
+      t.conference,
+      t.alts?.join('|') ?? '',
+    ]),
     aliases: Object.entries(aliasMap).sort((a, b) => a[0].localeCompare(b[0])),
     observedNames: [...(observedNames ?? [])].sort((a, b) => a.localeCompare(b)),
   });

@@ -26,6 +26,23 @@ test('canonical resolution includes observed FCS opponents', () => {
   assert.equal(result.identityKey, 'fordham');
 });
 
+test('resolver cache key includes subdivision changes', () => {
+  const first = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [
+      { school: 'Boise State', level: null, subdivision: 'OTHER', conference: 'Mountain West' },
+    ],
+  });
+  assert.equal(first.isFbsName('Boise State'), true);
+
+  const second = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [
+      { school: 'Boise State', level: null, subdivision: 'FCS', conference: 'Mountain West' },
+    ],
+  });
+  assert.equal(second.isFbsName('Boise State'), false);
+});
 test('conference championship row becomes postseason placeholder', () => {
   const classified = classifyScheduleRow(
     {
