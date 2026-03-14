@@ -2,6 +2,7 @@ import type { ScheduleWireItem, GameStage } from './schedule';
 
 type RowClassification =
   | { kind: 'regular_game' }
+  | { kind: 'out_of_scope_postseason'; reason: string }
   | {
       kind: 'postseason_placeholder';
       stage: Exclude<GameStage, 'regular'>;
@@ -53,6 +54,18 @@ function normalizedText(row: ScheduleWireItem): string {
     .toLowerCase();
 }
 
+function postseasonMarkerText(row: ScheduleWireItem): string {
+  return [row.homeTeam, row.awayTeam, row.label ?? '', row.notes ?? '']
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function hasBowlMarker(text: string): boolean {
+  return /\bbowl\b/i.test(text) && !/\bbowl subdivision\b/i.test(text);
+}
+
 function playoffRoundFromText(
   text: string
 ): 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' {
@@ -78,12 +91,16 @@ function looksEmptyRow(row: ScheduleWireItem): boolean {
 }
 
 function isPostseasonContext(row: ScheduleWireItem, text: string): boolean {
+  const markerText = postseasonMarkerText(row);
+  const hasPostseasonMarkers =
+    /(championship game|college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(
+      markerText
+    ) || hasBowlMarker(markerText);
+
   const seasonType = (row.seasonType ?? '').toLowerCase();
-  if (seasonType === 'postseason') return true;
+  if (seasonType === 'postseason') return hasPostseasonMarkers;
   if (seasonType === 'regular') return false;
-  return /(championship game|\bbowl\b|college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(
-    text
-  );
+  return hasPostseasonMarkers || hasBowlMarker(text);
 }
 
 export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowClassification {
@@ -153,7 +170,7 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
     };
   }
 
-  if (/\bbowl\b/i.test(text)) {
+  if (hasBowlMarker(text)) {
     const source = row.label?.trim() || row.homeTeam.trim() || row.awayTeam.trim();
     const bowlName = (source.match(/([A-Za-z0-9 .'-]+Bowl)/i)?.[1] ?? source).trim();
     const bowlSlug = slugify(bowlName);
@@ -171,8 +188,8 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
   }
 
   return {
-    kind: 'invalid_row',
-    reason: `postseason row could not be classified: ${row.homeTeam} vs ${row.awayTeam}`,
+    kind: 'out_of_scope_postseason',
+    reason: `unsupported postseason row: ${row.homeTeam} vs ${row.awayTeam}`,
   };
 }
 

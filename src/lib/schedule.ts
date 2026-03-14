@@ -458,6 +458,10 @@ export function buildScheduleFromApi(params: {
       continue;
     }
 
+    if (classified.kind === 'out_of_scope_postseason') {
+      continue;
+    }
+
     if (classified.kind === 'postseason_placeholder') {
       const id = classified.eventId;
       const conf = classified.conference ?? null;

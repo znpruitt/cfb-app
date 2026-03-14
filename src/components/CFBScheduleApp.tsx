@@ -24,6 +24,19 @@ import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
 
+function dedupeIssues(items: string[]): string[] {
+  return Array.from(new Set(items));
+}
+
+function isScheduleIssue(issue: string): boolean {
+  return (
+    issue.startsWith('invalid-schedule-row:') ||
+    issue.startsWith('identity-unresolved:') ||
+    issue.startsWith('hydrate:') ||
+    issue.startsWith('CFBD schedule load failed:')
+  );
+}
+
 function summarizeGames(label: string, games: AppGame[]): void {
   const weeks = Array.from(
     new Set(games.map((g) => g.week).filter((w) => Number.isFinite(w)))
@@ -170,22 +183,23 @@ export default function CFBScheduleApp(): React.ReactElement {
           manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
         });
 
-        if (built.issues.length) {
-          setIssues((prev) => [...prev, ...built.issues]);
-        }
+        const nextScheduleIssues = [...built.issues];
         if (IS_DEBUG && built.hydrationDiagnostics.length) {
           const actionableDiagnostics = built.hydrationDiagnostics.filter(
             (d) => d.action !== 'template-preserved'
           );
           if (actionableDiagnostics.length) {
-            setIssues((prev) => [
-              ...prev,
+            nextScheduleIssues.push(
               ...actionableDiagnostics
                 .slice(0, 8)
-                .map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`),
-            ]);
+                .map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`)
+            );
           }
         }
+
+        setIssues((prev) =>
+          dedupeIssues([...prev.filter((issue) => !isScheduleIssue(issue)), ...nextScheduleIssues])
+        );
 
         if (!built.games.length) {
           clearScheduleDerivedState();
@@ -200,7 +214,10 @@ export default function CFBScheduleApp(): React.ReactElement {
         if (selectedWeek == null && built.games.length) setSelectedWeek(built.games[0]!.week);
         return true;
       } catch (error) {
-        setIssues((prev) => [...prev, `CFBD schedule load failed: ${(error as Error).message}`]);
+        const scheduleFailure = `CFBD schedule load failed: ${(error as Error).message}`;
+        setIssues((prev) =>
+          dedupeIssues([...prev.filter((issue) => !isScheduleIssue(issue)), scheduleFailure])
+        );
         return false;
       }
     },
