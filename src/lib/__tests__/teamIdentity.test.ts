@@ -429,6 +429,41 @@ test('regular season API games remain when postseason templates are present', ()
   assert.equal(built.conferences.includes('ACC'), true);
 });
 
+test('regular-season rows with one known FBS team and one unresolved side are retained', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Boston College', level: 'FBS', conference: 'ACC' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'fbs-unresolved',
+        week: 3,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Boston College',
+        awayTeam: 'Team TBD',
+        homeConference: 'ACC',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some(
+      (g) => g.providerGameId === 'fbs-unresolved' && g.csvHome === 'Boston College'
+    ),
+    true
+  );
+  assert.equal(
+    built.issues.some((issue) => issue.includes('identity-unresolved: Boston College vs Team TBD')),
+    true
+  );
+  assert.equal((built.byes[3] ?? []).includes('Boston College'), false);
+});
+
 test('unsupported lower-division regular-season rows are filtered before identity diagnostics', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
