@@ -63,22 +63,49 @@ function toSubdivision(level?: string | null): TeamSubdivision {
 function inferSubdivisionFromConference(conference?: string | null): TeamSubdivision {
   const text = (conference ?? '').toLowerCase();
   if (!text) return 'OTHER';
-  if (
+
+  const isFbsConference =
     text.includes('sec') ||
     text.includes('big ten') ||
     text.includes('acc') ||
-    text.includes('big 12')
-  ) {
+    text.includes('big 12') ||
+    text.includes('pac-12') ||
+    text.includes('pac 12') ||
+    text.includes('american athletic') ||
+    text.includes('american') ||
+    text.includes('mountain west') ||
+    text.includes('mid-american') ||
+    text.includes('mid american') ||
+    text.includes('mac') ||
+    text.includes('sun belt') ||
+    text.includes('conference usa') ||
+    text.includes('c-usa') ||
+    text.includes('cusa') ||
+    text.includes('independent');
+
+  if (isFbsConference) {
     return 'FBS';
   }
-  if (
+
+  const isFcsConference =
     text.includes('fcs') ||
     text.includes('ivy') ||
     text.includes('patriot') ||
-    text.includes('swac')
-  ) {
+    text.includes('swac') ||
+    text.includes('big sky') ||
+    text.includes('missouri valley') ||
+    text.includes('southern') ||
+    text.includes('southland') ||
+    text.includes('meac') ||
+    text.includes('caa') ||
+    text.includes('uac') ||
+    text.includes('nec') ||
+    text.includes('pioneer');
+
+  if (isFcsConference) {
     return 'FCS';
   }
+
   return 'OTHER';
 }
 

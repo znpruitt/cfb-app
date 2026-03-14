@@ -472,6 +472,44 @@ test('tracked filtering falls back to resolver ownable metadata when team level 
   );
 });
 
+test('tracked filtering keeps G5 regular-season games when catalog levels are OTHER', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Boise State', level: 'OTHER', subdivision: 'OTHER', conference: 'Mountain West' },
+      {
+        school: 'San Diego State',
+        level: 'OTHER',
+        subdivision: 'OTHER',
+        conference: 'Mountain West',
+      },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: '1',
+        week: 1,
+        startDate: null,
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Boise State',
+        awayTeam: 'San Diego State',
+        homeConference: 'Mountain West',
+        awayConference: 'Mountain West',
+        status: 'scheduled',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.stage === 'regular' && g.csvHome === 'Boise State'),
+    true
+  );
+  assert.equal(
+    built.games.some((g) => g.stage === 'regular' && g.csvAway === 'San Diego State'),
+    true
+  );
+});
 test('postseason placeholders stay in tracked schedule before matchup hydration', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
