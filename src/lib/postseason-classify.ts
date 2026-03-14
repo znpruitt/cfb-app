@@ -210,23 +210,38 @@ function classifyConferenceChampionship(
   text: string
 ): (typeof CONFERENCE_CHAMPIONSHIPS)[number] | null {
   const hasChampionship = hasChampionshipMarker(text);
+  if (!hasChampionship || hasPlayoffMarker(text)) return null;
+
   const seasonType = (row.seasonType ?? '').toLowerCase();
-
-  const explicitConference =
-    conferenceMatchByAlias(text, row.homeConference) ??
-    conferenceMatchByAlias(text, row.awayConference) ??
-    conferenceMatchByAlias(text, row.label) ??
-    conferenceMatchByAlias(text, row.notes);
-
-  if (hasChampionship && explicitConference) return explicitConference;
-
   const conferencesAgree =
     row.homeConference &&
     row.awayConference &&
     normalizeConferenceName(row.homeConference) === normalizeConferenceName(row.awayConference);
 
-  if (seasonType === 'postseason' && row.conferenceGame && conferencesAgree && explicitConference) {
-    return explicitConference;
+  const explicitConferenceInText =
+    conferenceMatchByAlias(text, row.label) ??
+    conferenceMatchByAlias(text, row.notes) ??
+    conferenceMatchByAlias(text, row.homeTeam) ??
+    conferenceMatchByAlias(text, row.awayTeam);
+
+  if (explicitConferenceInText) return explicitConferenceInText;
+
+  const explicitConferenceFromMatchedTeams = conferencesAgree
+    ? (conferenceMatchByAlias(text, row.homeConference) ??
+      conferenceMatchByAlias(text, row.awayConference))
+    : undefined;
+
+  if (explicitConferenceFromMatchedTeams && (row.conferenceGame || conferencesAgree)) {
+    return explicitConferenceFromMatchedTeams;
+  }
+
+  if (
+    seasonType === 'postseason' &&
+    row.conferenceGame &&
+    conferencesAgree &&
+    explicitConferenceFromMatchedTeams
+  ) {
+    return explicitConferenceFromMatchedTeams;
   }
 
   return null;

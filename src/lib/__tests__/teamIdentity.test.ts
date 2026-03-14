@@ -419,6 +419,33 @@ test('conference championship matchup hydrates seeded slot instead of creating d
   );
 });
 
+test('national championship is not misclassified as conference championship', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: '2025-title',
+      week: 19,
+      startDate: '2026-01-20T01:00:00.000Z',
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'SEC Champion',
+      awayTeam: 'Big Ten Champion',
+      homeConference: 'SEC',
+      awayConference: 'Big Ten',
+      status: 'scheduled',
+      label: 'College Football Playoff National Championship',
+      seasonType: 'postseason',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'postseason_placeholder');
+  if (classified.kind === 'postseason_placeholder') {
+    assert.equal(classified.stage, 'playoff');
+    assert.equal(classified.postseasonRole, 'national_championship');
+    assert.equal(classified.eventId, '2025-national-championship');
+  }
+});
+
 test('placeholder hydrates into real matchup and keeps slot id', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
