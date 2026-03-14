@@ -42,8 +42,8 @@ export default function IssuesPanel({
 
       {issues.length > 0 && (
         <ul className="list-disc pl-5 space-y-1">
-          {issues.map((e) => (
-            <li key={e}>{e}</li>
+          {issues.map((e, index) => (
+            <li key={`issue-${index}-${e}`}>{e}</li>
           ))}
         </ul>
       )}
