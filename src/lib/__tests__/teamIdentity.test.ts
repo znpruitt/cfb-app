@@ -1668,6 +1668,67 @@ test('conference championship rematch remains distinct from earlier regular-seas
   assert.ok(rematches.some((g) => g.stage === 'conference_championship' && g.week === 15));
 });
 
+test('conference championship row is not dropped when a postseason placeholder reuses its event key', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Georgia', level: 'FBS', conference: 'SEC' },
+      { school: 'Alabama', level: 'FBS', conference: 'SEC' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'sec-ccg-real',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Georgia',
+        awayTeam: 'Alabama',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+        eventKey: 'sec-championship',
+      },
+      {
+        id: 'sec-ccg-placeholder',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'SEC Team TBD',
+        awayTeam: 'SEC Team TBD',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        label: 'SEC Championship Placeholder',
+        eventKey: 'sec-championship',
+      },
+    ],
+  });
+
+  const secChampionshipGames = built.games.filter((g) => g.eventId === '2025-sec-championship');
+  assert.equal(secChampionshipGames.length, 2);
+  assert.notEqual(secChampionshipGames[0]?.key, secChampionshipGames[1]?.key);
+  assert.equal(new Set(secChampionshipGames.map((g) => g.key)).size, 2);
+
+  const renderedWeekGame = secChampionshipGames.find((g) => g.providerGameId === 'sec-ccg-real');
+  assert.ok(renderedWeekGame);
+  assert.equal(renderedWeekGame?.stage, 'conference_championship');
+  assert.equal(renderedWeekGame?.week, 15);
+
+  const placeholder = secChampionshipGames.find((g) => g.providerGameId === 'sec-ccg-placeholder');
+  assert.ok(placeholder);
+  assert.equal(placeholder?.stage, 'bowl');
+});
+
 test('conference list excludes conferences that only appear in dropped FCS-vs-FCS games', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
