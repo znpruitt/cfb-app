@@ -199,9 +199,12 @@ function isTrackedGame(
   resolver: ReturnType<typeof createTeamIdentityResolver>
 ): boolean {
   if (game.stage !== 'regular' && game.stage !== 'conference_championship') {
-    // Postseason rows from the normalized API are authoritative for the postseason tab.
-    // Keep them even when current participants are unresolved or non-FBS.
-    return true;
+    // Only normalized provider postseason rows are authoritative regardless of participant
+    // resolution. Fallback-classified postseason rows still flow through FBS participation
+    // checks to avoid reintroducing out-of-scope lower-division matchups.
+    if (game.sources?.event === 'cfbd-normalized') {
+      return true;
+    }
   }
 
   const homeIsTeam = game.participants.home.kind === 'team';
