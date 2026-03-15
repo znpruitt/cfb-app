@@ -74,14 +74,15 @@ export default function GameWeekPanel({
           }
           if (!odds && !isPlaceholder) chips.push('No odds');
 
-          const isPostseasonNeutralDisplay = g.stage !== 'regular' && g.neutral;
-          const matchupLine = isPostseasonNeutralDisplay
+          const useNeutralSemantics =
+            g.neutralDisplay === 'vs' || (g.stage !== 'regular' && g.neutral);
+          const matchupLine = useNeutralSemantics
             ? `${g.csvAway} vs ${g.csvHome}`
             : g.neutral
               ? `${g.csvAway} vs ${g.csvHome}`
               : `${g.csvAway} @ ${g.csvHome}`;
-          const matchupRoleLabel = isPostseasonNeutralDisplay ? 'Team A' : 'Away';
-          const matchupHostLabel = isPostseasonNeutralDisplay ? 'Team B' : 'Home';
+          const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
+          const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
 
           return (
             <details key={g.key} className={frameClasses}>
@@ -92,7 +93,7 @@ export default function GameWeekPanel({
                       {g.label}
                     </span>
                   )}
-                  {isPostseasonNeutralDisplay && <span className={pillClass()}>Neutral Site</span>}
+                  {useNeutralSemantics && <span className={pillClass()}>Neutral Site</span>}
                   <span
                     className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
                   >

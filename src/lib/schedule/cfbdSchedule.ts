@@ -1,4 +1,14 @@
+import {
+  matchConferenceChampionshipSlotByConference,
+  matchConferenceChampionshipSlotByText,
+} from '../conferenceChampionships';
+
 export type SeasonType = 'regular' | 'postseason';
+
+type GamePhase = 'regular' | 'conference_championship' | 'postseason';
+type PostseasonSubtype = 'bowl' | 'playoff';
+type PlayoffRound = 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff';
+type NeutralSiteDisplay = 'vs' | 'home_away';
 
 export type CfbdScheduleGame = {
   id?: number | string;
@@ -38,6 +48,15 @@ export type ScheduleItem = {
   label?: string | null;
   notes?: string | null;
   seasonType?: SeasonType;
+  gamePhase?: GamePhase;
+  regularSubtype?: 'standard' | 'conference_championship';
+  postseasonSubtype?: PostseasonSubtype | null;
+  playoffRound?: PlayoffRound | null;
+  bowlName?: string | null;
+  conferenceChampionshipConference?: string | null;
+  eventKey?: string | null;
+  slotOrder?: number | null;
+  neutralSiteDisplay?: NeutralSiteDisplay;
 };
 
 export type ScheduleDropReason =
@@ -64,6 +83,159 @@ function normalizeWeek(value: unknown): number | null {
   return null;
 }
 
+function normalizedText(game: CfbdScheduleGame): string {
+  return [
+    game.name,
+    game.notes,
+    game.venue,
+    game.home_team,
+    game.away_team,
+    game.homeTeam,
+    game.awayTeam,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function hasBowlMarker(text: string): boolean {
+  return /\bbowl\b/i.test(text) && !/\bbowl subdivision\b/i.test(text);
+}
+
+function hasPlayoffMarker(text: string): boolean {
+  return /(college football playoff|\bcfp\b|quarterfinal|semifinal|national championship)/i.test(
+    text
+  );
+}
+
+function hasChampionshipMarker(text: string): boolean {
+  return /\bchampionship\b/i.test(text);
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function extractBowlName(game: CfbdScheduleGame): string | null {
+  const candidates = [game.name, game.notes, game.venue, game.home_team, game.away_team]
+    .map((value) => normalizeString(value))
+    .filter(Boolean);
+
+  for (const source of candidates) {
+    if (!hasBowlMarker(source)) continue;
+
+    const atTheMatch = source.match(/(?:at|in)\s+(?:the\s+)?([A-Za-z0-9 .&'/-]*\bBowl\b)/i);
+    if (atTheMatch?.[1]) return atTheMatch[1].replace(/\s+/g, ' ').trim();
+
+    const match = source.match(/([A-Za-z0-9.&'/-]+(?:\s+[A-Za-z0-9.&'/-]+)*\s+Bowl)\b/i);
+    if (match?.[1]) return match[1].replace(/\s+/g, ' ').trim();
+
+    return source;
+  }
+
+  return null;
+}
+
+function playoffRoundFromText(text: string): PlayoffRound {
+  if (/quarterfinal/i.test(text)) return 'quarterfinal';
+  if (/semifinal/i.test(text)) return 'semifinal';
+  if (/national championship/i.test(text)) return 'national_championship';
+  return 'playoff';
+}
+
+function playoffEventKey(round: PlayoffRound, bowlName: string | null): string {
+  if (round === 'national_championship') return 'national-championship';
+  if (bowlName) return `cfp-${round}-${slugify(bowlName)}`;
+  return `cfp-${round}`;
+}
+
+function deriveEventMetadata(params: {
+  game: CfbdScheduleGame;
+  seasonType: SeasonType;
+  neutralSite: boolean;
+  homeConference: string;
+  awayConference: string;
+}): Pick<
+  ScheduleItem,
+  | 'gamePhase'
+  | 'regularSubtype'
+  | 'postseasonSubtype'
+  | 'playoffRound'
+  | 'bowlName'
+  | 'conferenceChampionshipConference'
+  | 'eventKey'
+  | 'slotOrder'
+  | 'neutralSiteDisplay'
+> {
+  const { game, seasonType, neutralSite, homeConference, awayConference } = params;
+  const text = normalizedText(game);
+  const bowlName = extractBowlName(game);
+  const playoff = hasPlayoffMarker(text);
+  const championship = hasChampionshipMarker(text);
+  const conferenceFromText =
+    matchConferenceChampionshipSlotByText(game.name) ??
+    matchConferenceChampionshipSlotByText(game.notes);
+  const conferenceFromTeams = (() => {
+    const home = matchConferenceChampionshipSlotByConference(homeConference);
+    const away = matchConferenceChampionshipSlotByConference(awayConference);
+    if (home && away) return home.slug === away.slug ? home : null;
+    return home ?? away;
+  })();
+  const conferenceSlot = conferenceFromText ?? conferenceFromTeams;
+
+  const isConferenceChampionship = championship && !playoff && Boolean(conferenceSlot);
+
+  if (isConferenceChampionship) {
+    return {
+      gamePhase: 'conference_championship',
+      regularSubtype: 'conference_championship',
+      conferenceChampionshipConference: conferenceSlot?.title ?? null,
+      eventKey: conferenceSlot ? `${conferenceSlot.slug}-championship` : 'conference-championship',
+      slotOrder: 1,
+      neutralSiteDisplay: neutralSite ? 'vs' : 'home_away',
+    };
+  }
+
+  if (seasonType === 'postseason') {
+    const round = playoff ? playoffRoundFromText(text) : null;
+    const postseasonSubtype: PostseasonSubtype = playoff ? 'playoff' : 'bowl';
+    const eventKey = playoff
+      ? playoffEventKey(round ?? 'playoff', bowlName)
+      : bowlName
+        ? slugify(bowlName)
+        : `postseason-${slugify(text || 'game')}`;
+
+    return {
+      gamePhase: 'postseason',
+      regularSubtype: 'standard',
+      postseasonSubtype,
+      playoffRound: round,
+      bowlName,
+      conferenceChampionshipConference: null,
+      eventKey,
+      slotOrder: null,
+      neutralSiteDisplay: neutralSite ? 'vs' : 'home_away',
+    };
+  }
+
+  return {
+    gamePhase: 'regular',
+    regularSubtype: 'standard',
+    postseasonSubtype: null,
+    playoffRound: null,
+    bowlName: null,
+    conferenceChampionshipConference: null,
+    eventKey: null,
+    slotOrder: null,
+    neutralSiteDisplay: neutralSite ? 'vs' : 'home_away',
+  };
+}
+
 export function mapCfbdScheduleGame(
   game: CfbdScheduleGame,
   seasonType: SeasonType
@@ -87,23 +259,35 @@ export function mapCfbdScheduleGame(
     return { ok: false, reason: 'missing_away_team', raw: game };
   }
 
+  const neutralSite = Boolean(game.neutral_site ?? game.neutralSite);
+  const homeConference = normalizeString(game.home_conference ?? game.homeConference);
+  const awayConference = normalizeString(game.away_conference ?? game.awayConference);
+  const eventMetadata = deriveEventMetadata({
+    game,
+    seasonType,
+    neutralSite,
+    homeConference,
+    awayConference,
+  });
+
   return {
     ok: true,
     item: {
       id: String(game.id ?? `${week}-${homeTeam}-${awayTeam}`),
       week,
       startDate: game.start_date ?? game.startDate ?? null,
-      neutralSite: Boolean(game.neutral_site ?? game.neutralSite),
+      neutralSite,
       conferenceGame: Boolean(game.conference_game ?? game.conferenceGame),
       homeTeam,
       awayTeam,
-      homeConference: normalizeString(game.home_conference ?? game.homeConference),
-      awayConference: normalizeString(game.away_conference ?? game.awayConference),
+      homeConference,
+      awayConference,
       status: normalizeString(game.status) || 'scheduled',
       venue: normalizeString(game.venue) || null,
       label: normalizeString(game.name) || null,
       notes: normalizeString(game.notes) || null,
       seasonType,
+      ...eventMetadata,
     },
   };
 }

@@ -23,6 +23,148 @@ test('mapCfbdScheduleGame maps valid snake_case payload', () => {
     assert.equal(result.item.awayTeam, 'Rice');
     assert.equal(result.item.startDate, '2025-08-30T16:00:00.000Z');
     assert.equal(result.item.seasonType, 'regular');
+    assert.equal(result.item.gamePhase, 'regular');
+  }
+});
+
+test('mapCfbdScheduleGame maps CFP quarterfinal at Orange Bowl', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 401,
+      week: 17,
+      home_team: 'TBD',
+      away_team: 'TBD',
+      neutral_site: true,
+      notes: 'College Football Playoff Quarterfinal at the Capital One Orange Bowl',
+      name: 'CFP Quarterfinal',
+      venue: 'Hard Rock Stadium',
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.postseasonSubtype, 'playoff');
+    assert.equal(result.item.playoffRound, 'quarterfinal');
+    assert.equal(result.item.bowlName, 'Capital One Orange Bowl');
+    assert.equal(result.item.eventKey, 'cfp-quarterfinal-capital-one-orange-bowl');
+    assert.equal(result.item.neutralSiteDisplay, 'vs');
+  }
+});
+
+test('mapCfbdScheduleGame maps CFP quarterfinal at Rose Bowl', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 402,
+      week: 17,
+      home_team: 'TBD',
+      away_team: 'TBD',
+      neutral_site: true,
+      notes: 'College Football Playoff Quarterfinal at the Rose Bowl Presented by Prudential',
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.postseasonSubtype, 'playoff');
+    assert.equal(result.item.playoffRound, 'quarterfinal');
+    assert.equal(result.item.bowlName, 'Rose Bowl');
+  }
+});
+
+test('mapCfbdScheduleGame maps CFP quarterfinal at Sugar Bowl', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 403,
+      week: 17,
+      home_team: 'TBD',
+      away_team: 'TBD',
+      neutral_site: true,
+      notes: 'College Football Playoff Quarterfinal at the Allstate Sugar Bowl',
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.postseasonSubtype, 'playoff');
+    assert.equal(result.item.playoffRound, 'quarterfinal');
+    assert.equal(result.item.bowlName, 'Allstate Sugar Bowl');
+  }
+});
+
+test('mapCfbdScheduleGame maps ordinary bowl game', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 500,
+      week: 17,
+      home_team: 'Team A',
+      away_team: 'Team B',
+      notes: 'Vrbo Fiesta Bowl',
+      neutral_site: true,
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.postseasonSubtype, 'bowl');
+    assert.equal(result.item.bowlName, 'Vrbo Fiesta Bowl');
+    assert.equal(result.item.playoffRound, null);
+  }
+});
+
+test('mapCfbdScheduleGame recognizes conference championship as regular-season subtype', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 650,
+      week: 15,
+      home_team: 'Georgia',
+      away_team: 'Texas',
+      notes: 'SEC Championship',
+      home_conference: 'SEC',
+      away_conference: 'Southeastern Conference',
+      neutral_site: true,
+    },
+    'regular'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.gamePhase, 'conference_championship');
+    assert.equal(result.item.regularSubtype, 'conference_championship');
+    assert.equal(result.item.conferenceChampionshipConference, 'SEC');
+    assert.equal(result.item.eventKey, 'sec-championship');
+    assert.equal(result.item.neutralSiteDisplay, 'vs');
+  }
+});
+
+
+test('mapCfbdScheduleGame keeps conference championship classification for postseason-tagged rows', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 651,
+      week: 15,
+      home_team: 'Georgia',
+      away_team: 'Texas',
+      notes: 'SEC Championship',
+      home_conference: 'SEC',
+      away_conference: 'Southeastern Conference',
+      conference_game: true,
+      neutral_site: true,
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.gamePhase, 'conference_championship');
+    assert.equal(result.item.regularSubtype, 'conference_championship');
+    assert.equal(result.item.postseasonSubtype, undefined);
+    assert.equal(result.item.conferenceChampionshipConference, 'SEC');
+    assert.equal(result.item.eventKey, 'sec-championship');
+    assert.equal(result.item.neutralSiteDisplay, 'vs');
   }
 });
 
