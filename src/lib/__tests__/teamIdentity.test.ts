@@ -1346,6 +1346,45 @@ test('conference championship rows remain regular-season week context and out of
   assert.equal(ccg?.week, 15);
   assert.equal(ccg?.postseasonRole, 'conference_championship');
 });
+
+test('unresolved normalized conference championship rows are retained as placeholders', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [{ school: 'Texas', level: 'FBS', conference: 'SEC' }],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'sec-ccg-unresolved',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'TBD',
+        awayTeam: 'TBD',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+        eventKey: 'sec-championship',
+        slotOrder: 1,
+        neutralSiteDisplay: 'vs',
+        label: 'SEC Championship Game',
+      },
+    ],
+  });
+
+  const ccg = built.games.find((g) => g.providerGameId === 'sec-ccg-unresolved');
+  assert.ok(ccg);
+  assert.equal(ccg?.stage, 'conference_championship');
+  assert.equal(ccg?.isPlaceholder, true);
+  assert.equal(ccg?.status, 'placeholder');
+  assert.equal(ccg?.participants.home.kind, 'placeholder');
+  assert.equal(ccg?.participants.away.kind, 'placeholder');
+});
+
 test('conference list excludes conferences that only appear in dropped FCS-vs-FCS games', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},

@@ -423,16 +423,21 @@ export function buildScheduleFromApi(params: {
       item.gamePhase === 'conference_championship' ||
       item.regularSubtype === 'conference_championship';
     if (hasConferenceChampionshipMetadata) {
-      const rowResolution = resolveRegularSeasonRow({ item, resolver });
-      if (!rowResolution.include) {
-        continue;
-      }
-
-      const { homeResolved, awayResolved } = rowResolution;
-      const canHome = homeResolved.canonicalName ?? item.homeTeam;
-      const canAway = awayResolved.canonicalName ?? item.awayTeam;
-      const eventKey = item.eventKey?.trim() || `${item.week}-${canAway}-${canHome}`;
+      const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
       const eventId = `${season}-${eventKey}`;
+      const homeParticipant = buildPlaceholderParticipant({
+        resolver,
+        raw: item.homeTeam,
+        slotId: `${eventId}-home`,
+        defaultDisplay: toPlaceholderDisplay(item.conferenceChampionshipConference),
+      });
+      const awayParticipant = buildPlaceholderParticipant({
+        resolver,
+        raw: item.awayTeam,
+        slotId: `${eventId}-away`,
+        defaultDisplay: toPlaceholderDisplay(item.conferenceChampionshipConference),
+      });
+      const hasKnownTeams = homeParticipant.kind === 'team' || awayParticipant.kind === 'team';
 
       apiRegularGames.push({
         key: eventId,
@@ -440,7 +445,7 @@ export function buildScheduleFromApi(params: {
         week: item.week,
         date: item.startDate,
         stage: 'conference_championship',
-        status: mapStatus(item.status, false),
+        status: mapStatus(item.status, !hasKnownTeams),
         stageOrder: stageOrder('conference_championship'),
         slotOrder: item.slotOrder ?? 1,
         eventKey,
@@ -454,33 +459,20 @@ export function buildScheduleFromApi(params: {
         neutralDisplay:
           item.neutralSiteDisplay === 'vs' ? 'vs' : item.neutralSite ? 'vs' : 'home_away',
         venue: item.venue ?? null,
-        isPlaceholder: false,
+        isPlaceholder: !hasKnownTeams,
         sources: {
           event: 'cfbd-normalized',
-          participants: 'cfbd+resolver',
+          participants: hasKnownTeams ? 'cfbd+resolver' : 'cfbd-normalized',
           kickoff: 'cfbd',
           venue: 'cfbd',
         },
-        participants: {
-          home: {
-            kind: 'team',
-            teamId: homeResolved.identityKey ?? canHome,
-            displayName: canHome,
-            canonicalName: canHome,
-            rawName: item.homeTeam,
-          },
-          away: {
-            kind: 'team',
-            teamId: awayResolved.identityKey ?? canAway,
-            displayName: canAway,
-            canonicalName: canAway,
-            rawName: item.awayTeam,
-          },
-        },
-        csvAway: item.awayTeam,
-        csvHome: item.homeTeam,
-        canAway,
-        canHome,
+        participants: { home: homeParticipant, away: awayParticipant },
+        csvAway:
+          awayParticipant.kind === 'team' ? awayParticipant.rawName : awayParticipant.displayName,
+        csvHome:
+          homeParticipant.kind === 'team' ? homeParticipant.rawName : homeParticipant.displayName,
+        canAway: awayParticipant.kind === 'team' ? awayParticipant.canonicalName : '',
+        canHome: homeParticipant.kind === 'team' ? homeParticipant.canonicalName : '',
         awayConf: item.awayConference ?? '',
         homeConf: item.homeConference ?? '',
       });
