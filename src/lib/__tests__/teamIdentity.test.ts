@@ -1716,6 +1716,8 @@ test('conference championship row is not dropped when a postseason placeholder r
 
   const secChampionshipGames = built.games.filter((g) => g.eventId === '2025-sec-championship');
   assert.equal(secChampionshipGames.length, 2);
+  assert.notEqual(secChampionshipGames[0]?.key, secChampionshipGames[1]?.key);
+  assert.equal(new Set(secChampionshipGames.map((g) => g.key)).size, 2);
 
   const renderedWeekGame = secChampionshipGames.find((g) => g.providerGameId === 'sec-ccg-real');
   assert.ok(renderedWeekGame);

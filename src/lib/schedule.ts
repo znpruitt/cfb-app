@@ -451,7 +451,32 @@ function buildAuthoritativeGameCollection(
     }
   }
 
-  return Array.from(byMergeKey.values());
+  const gamesWithUniqueKeys: AppGame[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const [mergeKey, game] of byMergeKey.entries()) {
+    const baseKey = game.key || game.eventId || mergeKey;
+    if (!seenKeys.has(baseKey)) {
+      seenKeys.add(baseKey);
+      gamesWithUniqueKeys.push(game);
+      continue;
+    }
+
+    const disambiguator = [game.stage, `w${game.week}`, game.providerGameId ?? game.date ?? 'na']
+      .join('::')
+      .replace(/\s+/g, '-');
+    let nextKey = `${baseKey}::${disambiguator}`;
+    let counter = 2;
+    while (seenKeys.has(nextKey)) {
+      nextKey = `${baseKey}::${disambiguator}::${counter}`;
+      counter += 1;
+    }
+
+    seenKeys.add(nextKey);
+    gamesWithUniqueKeys.push({ ...game, key: nextKey });
+  }
+
+  return gamesWithUniqueKeys;
 }
 
 export function buildScheduleFromApi(params: {
