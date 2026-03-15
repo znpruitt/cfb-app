@@ -88,7 +88,7 @@ test('conference placeholders are excluded from postseason tab while week-based 
   assert.ok(armyNavy, 'expected late regular-season special case to remain week-based');
 
   const postseasonTabGames = built.games.filter(isTruePostseasonGame);
-  assert.ok(postseasonTabGames.some((game) => game.bowlName === 'Orange Bowl'));
+  assert.ok(postseasonTabGames.some((game) => (game.label ?? '').includes('CFP Semifinal')));
   assert.equal(
     postseasonTabGames.some((game) => game.stage === 'conference_championship'),
     false,
@@ -99,4 +99,36 @@ test('conference placeholders are excluded from postseason tab while week-based 
     false,
     'late regular-season games should not be moved into postseason tab content'
   );
+});
+
+
+test('playoff slot placeholders with one synthetic slot side remain tracked in postseason', () => {
+  const built = buildScheduleFromApi({
+    season: 2025,
+    aliasMap: {},
+    teams: [
+      { school: 'Notre Dame', level: 'FBS', conference: 'Independent' },
+      { school: 'Penn State', level: 'FBS', conference: 'Big Ten' },
+    ],
+    scheduleItems: [
+      {
+        id: 'post-cfp-slot-1',
+        week: 17,
+        startDate: '2025-12-31T01:00:00Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'CFP Semifinal 1',
+        awayTeam: 'TBD',
+        homeConference: null,
+        awayConference: null,
+        status: 'scheduled',
+        label: 'College Football Playoff Semifinal',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  const postseasonTabGames = built.games.filter(isTruePostseasonGame);
+  assert.equal(postseasonTabGames.length, 1, 'expected CFP placeholder row to remain visible');
+  assert.ok((postseasonTabGames[0]?.label ?? '').includes('Semifinal'));
 });
