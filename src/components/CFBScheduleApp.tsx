@@ -11,7 +11,7 @@ import WeekControls from './WeekControls';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { buildOddsByGame, type CombinedOdds, type OddsEvent } from '../lib/odds';
-import { isTruePostseasonGame } from '../lib/postseason-display';
+import { isTruePostseasonGame, isWeekContextGame } from '../lib/postseason-display';
 import { fetchScoresByGame, type ScorePack } from '../lib/scores';
 import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
@@ -216,7 +216,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         const regularWeeks = Array.from(
           new Set(
             built.games
-              .filter((game) => game.stage === 'regular')
+              .filter((game) => isWeekContextGame(game))
               .map((game) => game.week)
               .filter((w) => Number.isFinite(w))
           )
@@ -319,7 +319,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   function filteredWeekGames(w: number): AppGame[] {
     const next = games
-      .filter((g) => g.stage === 'regular' && g.week === w)
+      .filter((g) => isWeekContextGame(g) && g.week === w)
       .filter((g) => {
         const confOk =
           selectedConference === 'ALL' ||

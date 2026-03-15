@@ -1,7 +1,11 @@
 import type { AppGame } from './schedule';
 
+export function isWeekContextGame(game: Pick<AppGame, 'stage' | 'postseasonRole'>): boolean {
+  return game.stage === 'regular' || game.stage === 'conference_championship';
+}
+
 export function isTruePostseasonGame(game: Pick<AppGame, 'stage' | 'postseasonRole'>): boolean {
-  if (game.stage === 'regular' || game.stage === 'conference_championship') {
+  if (isWeekContextGame(game)) {
     return false;
   }
 
