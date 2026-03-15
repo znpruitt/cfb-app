@@ -40,6 +40,22 @@ function isScheduleIssue(issue: string): boolean {
   );
 }
 
+function isTransientScheduleIssue(issue: string): boolean {
+  return issue.startsWith('out-of-scope-postseason-row:');
+}
+
+function isLiveIssue(issue: string): boolean {
+  return (
+    issue.startsWith('No games loaded. CFBD schedule load may have failed.') ||
+    issue.startsWith('Odds error ') ||
+    issue.startsWith('Odds fetch failed:') ||
+    issue.startsWith('Scores fetch failed:') ||
+    issue.startsWith('Scores season ') ||
+    issue.startsWith('Scores week ') ||
+    issue.startsWith('missing-score-match:')
+  );
+}
+
 function summarizeGames(label: string, games: AppGame[]): void {
   const weeks = Array.from(
     new Set(games.map((g) => g.week).filter((w) => Number.isFinite(w)))
@@ -189,7 +205,7 @@ export default function CFBScheduleApp(): React.ReactElement {
           manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
         });
 
-        const nextScheduleIssues = [...built.issues];
+        const nextScheduleIssues = built.issues.filter((issue) => !isTransientScheduleIssue(issue));
         if (IS_DEBUG && built.hydrationDiagnostics.length) {
           const actionableDiagnostics = built.hydrationDiagnostics.filter(
             (d) => d.action !== 'template-preserved'
@@ -366,7 +382,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const hasPostseasonGames = useMemo(() => games.some(isTruePostseasonGame), [games]);
 
   const refreshLive = useCallback(async () => {
-    setIssues([]);
+    setIssues((prev) => prev.filter((issue) => !isLiveIssue(issue)));
     setDiag([]);
     if (!games.length) {
       setIssues((p) => [...p, 'No games loaded. CFBD schedule load may have failed.']);
