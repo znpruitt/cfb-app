@@ -140,6 +140,34 @@ test('mapCfbdScheduleGame recognizes conference championship as regular-season s
   }
 });
 
+
+test('mapCfbdScheduleGame keeps conference championship classification for postseason-tagged rows', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 651,
+      week: 15,
+      home_team: 'Georgia',
+      away_team: 'Texas',
+      notes: 'SEC Championship',
+      home_conference: 'SEC',
+      away_conference: 'Southeastern Conference',
+      conference_game: true,
+      neutral_site: true,
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.gamePhase, 'conference_championship');
+    assert.equal(result.item.regularSubtype, 'conference_championship');
+    assert.equal(result.item.postseasonSubtype, undefined);
+    assert.equal(result.item.conferenceChampionshipConference, 'SEC');
+    assert.equal(result.item.eventKey, 'sec-championship');
+    assert.equal(result.item.neutralSiteDisplay, 'vs');
+  }
+});
+
 test('mapCfbdScheduleGame maps valid camelCase payload', () => {
   const result = mapCfbdScheduleGame(
     {

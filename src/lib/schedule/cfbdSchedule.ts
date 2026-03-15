@@ -188,10 +188,9 @@ function deriveEventMetadata(params: {
   })();
   const conferenceSlot = conferenceFromText ?? conferenceFromTeams;
 
-  const isConferenceChampionshipRegular =
-    seasonType === 'regular' && championship && !playoff && Boolean(conferenceSlot);
+  const isConferenceChampionship = championship && !playoff && Boolean(conferenceSlot);
 
-  if (isConferenceChampionshipRegular) {
+  if (isConferenceChampionship) {
     return {
       gamePhase: 'conference_championship',
       regularSubtype: 'conference_championship',
