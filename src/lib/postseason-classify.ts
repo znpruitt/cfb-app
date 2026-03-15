@@ -337,6 +337,10 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
     };
   }
 
+  if ((row.seasonType ?? '').toLowerCase() === 'postseason' && row.conferenceGame) {
+    return { kind: 'regular_game' };
+  }
+
   return {
     kind: 'out_of_scope_postseason',
     reason: `unsupported postseason row: ${row.homeTeam} vs ${row.awayTeam}`,

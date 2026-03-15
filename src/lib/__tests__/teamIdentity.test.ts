@@ -209,6 +209,29 @@ test('regular-season rows are not routed into postseason classification', () => 
   assert.equal(classified.kind, 'regular_game');
 });
 
+test('postseason conference-game rows with unknown conference remain regular games', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: 'post-unknown-conf-title',
+      week: 16,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: true,
+      homeTeam: 'Alpha University',
+      awayTeam: 'Beta State',
+      homeConference: 'Pacific Championship League',
+      awayConference: 'Pacific Championship League',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: '',
+      notes: '',
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'regular_game');
+});
+
 test('postseason feed rows without postseason markers stay regular-season rows', () => {
   const classified = classifyScheduleRow(
     {
