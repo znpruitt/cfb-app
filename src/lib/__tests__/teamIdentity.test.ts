@@ -928,7 +928,7 @@ test('unsupported postseason rows emit out-of-scope diagnostics', () => {
   );
 });
 
-test('postseason hydration does not emit placeholder diagnostics for ordinary games', () => {
+test('postseason normalization does not emit placeholder diagnostics for ordinary games', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
     teams: [
@@ -958,10 +958,7 @@ test('postseason hydration does not emit placeholder diagnostics for ordinary ga
     built.games.some((g) => g.providerGameId === 'ordinary-post-feed-row' && g.stage === 'regular'),
     true
   );
-  assert.equal(
-    built.hydrationDiagnostics.some((d) => d.reason.includes('no-placeholder-match')),
-    false
-  );
+  assert.deepEqual(built.hydrationDiagnostics, []);
 });
 
 test('unsupported lower-division regular-season rows are filtered before identity diagnostics', () => {
@@ -1048,7 +1045,7 @@ test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
   assert.equal((built.byes[1] ?? []).includes('Fordham'), false);
 });
 
-test('postseason tracking drops non-FBS team matchups but keeps FBS postseason games', () => {
+test('postseason tracking keeps provider-postseason rows even when participants are non-FBS', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
     teams: [
@@ -1071,7 +1068,13 @@ test('postseason tracking drops non-FBS team matchups but keeps FBS postseason g
         awayConference: 'Missouri Valley',
         status: 'scheduled',
         seasonType: 'postseason',
-        label: 'Celebration Bowl',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: 'Celebration Bowl',
+        eventKey: 'cricket-celebration-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        label: 'Cricket Celebration Bowl',
       },
       {
         id: 'fbs-post-1',
@@ -1085,19 +1088,263 @@ test('postseason tracking drops non-FBS team matchups but keeps FBS postseason g
         awayConference: 'SEC',
         status: 'scheduled',
         seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: 'Frisco Bowl',
+        eventKey: 'frisco-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
         label: 'Frisco Bowl',
       },
     ],
   });
 
+  const celebration = built.games.find((g) => g.providerGameId === 'fcs-post-1');
+  const frisco = built.games.find((g) => g.providerGameId === 'fbs-post-1');
+
+  assert.ok(celebration);
+  assert.equal(celebration?.stage, 'bowl');
+  assert.equal(celebration?.neutralDisplay, 'vs');
+  assert.equal(celebration?.slotOrder, 80);
+
+  assert.ok(frisco);
+  assert.equal(frisco?.stage, 'bowl');
+});
+
+test('normalized postseason bowls with provider identities are retained for postseason rendering', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Georgia', level: 'FBS', conference: 'SEC' },
+      { school: 'Miami', level: 'FBS', conference: 'ACC' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'gasparilla-1',
+        week: 16,
+        startDate: '2025-12-20T00:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'TBD',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: 'Union Home Mortgage Gasparilla Bowl',
+        eventKey: 'union-home-mortgage-gasparilla-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        venue: 'Raymond James Stadium',
+        notes: 'Tampa, FL',
+        label: 'Union Home Mortgage Gasparilla Bowl',
+      },
+      {
+        id: 'myrtle-1',
+        week: 16,
+        startDate: '2025-12-21T00:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'TBD',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: 'Myrtle Beach Bowl',
+        eventKey: 'myrtle-beach-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        label: 'Myrtle Beach Bowl',
+      },
+      {
+        id: 'la-bowl-1',
+        week: 16,
+        startDate: '2025-12-22T00:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'TBD',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: 'Bucked Up LA Bowl',
+        eventKey: 'bucked-up-la-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        label: 'Bucked Up LA Bowl',
+      },
+      {
+        id: 'cure-1',
+        week: 16,
+        startDate: '2025-12-23T00:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'TBD',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: 'StaffDNA Cure Bowl',
+        eventKey: 'staffdna-cure-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        label: 'StaffDNA Cure Bowl',
+      },
+      {
+        id: 'ventures-1',
+        week: 16,
+        startDate: '2025-12-24T00:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'TBD',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: '68 Ventures Bowl',
+        eventKey: '68-ventures-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        label: '68 Ventures Bowl',
+      },
+      {
+        id: 'celebration-1',
+        week: 16,
+        startDate: '2025-12-25T00:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'TBD',
+        awayTeam: 'TBD',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        bowlName: 'Cricket Celebration Bowl',
+        eventKey: 'cricket-celebration-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        label: 'Cricket Celebration Bowl',
+      },
+    ],
+  });
+
+  const expectedEventKeys = [
+    'union-home-mortgage-gasparilla-bowl',
+    'myrtle-beach-bowl',
+    'bucked-up-la-bowl',
+    'staffdna-cure-bowl',
+    '68-ventures-bowl',
+    'cricket-celebration-bowl',
+  ];
+
+  for (const key of expectedEventKeys) {
+    const game = built.games.find((g) => g.eventKey === key);
+    assert.ok(game, `missing ${key}`);
+    assert.equal(game?.stage, 'bowl');
+    assert.equal(game?.neutralDisplay, 'vs');
+    assert.equal(game?.slotOrder, 80);
+  }
+});
+
+test('playoff-hosting bowls from normalized API rows render once without synthetic CFP slot duplicates', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS', conference: 'SEC' },
+      { school: 'Oregon', level: 'FBS', conference: 'Big Ten' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'rose-qf-provider',
+        week: 17,
+        startDate: '2025-12-31T22:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Oregon',
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        status: 'scheduled',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'playoff',
+        playoffRound: 'quarterfinal',
+        bowlName: 'Rose Bowl',
+        eventKey: 'cfp-quarterfinal-rose-bowl',
+        slotOrder: null,
+        neutralSiteDisplay: 'vs',
+        label: 'Rose Bowl — CFP Quarterfinal',
+      },
+    ],
+  });
+
+  const roseQuarterfinalGames = built.games.filter(
+    (g) => g.eventKey === 'cfp-quarterfinal-rose-bowl'
+  );
+  assert.equal(roseQuarterfinalGames.length, 1);
+  assert.equal(roseQuarterfinalGames[0]?.providerGameId, 'rose-qf-provider');
   assert.equal(
-    built.games.some((g) => g.providerGameId === 'fcs-post-1'),
+    built.games.some((g) => g.eventId === '2025-cfp-quarterfinal-1'),
     false
   );
-  assert.equal(
-    built.games.some((g) => g.providerGameId === 'fbs-post-1'),
-    true
-  );
+  assert.equal(roseQuarterfinalGames[0]?.slotOrder, 80);
+});
+
+test('conference championship rows remain regular-season week context and out of postseason view', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS', conference: 'SEC' },
+      { school: 'Georgia', level: 'FBS', conference: 'SEC' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'sec-ccg-provider',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+        eventKey: 'sec-championship',
+        slotOrder: 1,
+        neutralSiteDisplay: 'vs',
+        label: 'SEC Championship Game',
+      },
+    ],
+  });
+
+  const ccg = built.games.find((g) => g.providerGameId === 'sec-ccg-provider');
+  assert.ok(ccg);
+  assert.equal(ccg?.stage, 'conference_championship');
+  assert.equal(ccg?.week, 15);
+  assert.equal(ccg?.postseasonRole, 'conference_championship');
 });
 test('conference list excludes conferences that only appear in dropped FCS-vs-FCS games', () => {
   const built = buildScheduleFromApi({
@@ -1601,7 +1848,7 @@ test('bowl placeholder identity uses notes when label is not bowl-specific', () 
   }
 });
 
-test('postseason hydration matches bowl placeholders by bowl name when ids differ', () => {
+test('postseason bowls render directly from normalized rows when ids differ from legacy placeholders', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
     teams: [
@@ -1628,30 +1875,14 @@ test('postseason hydration matches bowl placeholders by bowl name when ids diffe
     ],
   });
 
-  const fiesta = built.games.find((g) => g.eventId === '2025-fiesta-bowl');
+  const fiesta = built.games.find((g) => g.providerGameId === 'provider-fiesta-1');
   assert.ok(fiesta);
   assert.equal(fiesta?.participants.home.kind, 'team');
   assert.equal(fiesta?.participants.away.kind, 'team');
-  assert.equal(
-    built.hydrationDiagnostics.some(
-      (d) =>
-        d.eventId === '2025-fiesta-bowl' &&
-        (d.reason.includes('matched-by-postseason-identity:bowlName') ||
-          d.reason.includes('matched-by-event-id') ||
-          d.reason.includes('bowl-slot-created-from-provider-identity'))
-    ),
-    true
-  );
-  assert.equal(
-    built.hydrationDiagnostics.some(
-      (d) =>
-        d.reason.includes('no-placeholder-match') && d.reason.includes('Boise State @ Washington')
-    ),
-    false
-  );
+  assert.deepEqual(built.hydrationDiagnostics, []);
 });
 
-test('bowl metadata fallback never hydrates into playoff placeholders', () => {
+test('postseason rows do not require placeholder hydration to avoid playoff/bowl collisions', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
     teams: [
@@ -1706,20 +1937,5 @@ test('bowl metadata fallback never hydrates into playoff placeholders', () => {
   assert.equal(quarterfinal?.csvHome, 'Texas');
   assert.equal(quarterfinal?.csvAway, 'Oregon');
 
-  assert.equal(
-    built.hydrationDiagnostics.some(
-      (d) => d.reason.includes('matched-by-metadata') && d.reason.includes('Utah @ Penn State')
-    ),
-    false
-  );
-  assert.equal(
-    built.hydrationDiagnostics.some(
-      (d) =>
-        (d.reason.includes('bowl-slot-created-from-provider-identity') ||
-          d.reason.includes('matched-by-event-id') ||
-          d.reason.includes('matched-by-postseason-identity:bowlName')) &&
-        d.reason.includes('Utah @ Penn State')
-    ),
-    true
-  );
+  assert.deepEqual(built.hydrationDiagnostics, []);
 });
