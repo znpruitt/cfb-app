@@ -752,7 +752,6 @@ test('normalized conference championship metadata drives representative week ren
   assert.equal(built.weeks.includes(15), true);
 });
 
-
 test('conference championship fallback event ids stay unique without normalized key/conference', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
@@ -800,8 +799,16 @@ test('conference championship fallback event ids stay unique without normalized 
   const championshipGames = built.games.filter((g) => g.stage === 'conference_championship');
   assert.equal(championshipGames.length, 2);
   assert.notEqual(championshipGames[0]?.eventId, championshipGames[1]?.eventId);
-  assert.ok(championshipGames.some((g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-a'));
-  assert.ok(championshipGames.some((g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-b'));
+  assert.ok(
+    championshipGames.some(
+      (g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-a'
+    )
+  );
+  assert.ok(
+    championshipGames.some(
+      (g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-b'
+    )
+  );
 });
 
 test('merged participants keep csv and canonical fields aligned for shared event ids', () => {
@@ -1272,7 +1279,7 @@ test('game filtering keeps FBS-vs-FCS and drops FCS-vs-FCS', () => {
   assert.equal((built.byes[1] ?? []).includes('Fordham'), false);
 });
 
-test('postseason tracking keeps provider-postseason rows even when participants are non-FBS', () => {
+test('postseason tracking excludes out-of-scope FCS-only provider postseason rows while retaining FBS bowls', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},
     teams: [
@@ -1329,10 +1336,7 @@ test('postseason tracking keeps provider-postseason rows even when participants 
   const celebration = built.games.find((g) => g.providerGameId === 'fcs-post-1');
   const frisco = built.games.find((g) => g.providerGameId === 'fbs-post-1');
 
-  assert.ok(celebration);
-  assert.equal(celebration?.stage, 'bowl');
-  assert.equal(celebration?.neutralDisplay, 'vs');
-  assert.equal(celebration?.slotOrder, 80);
+  assert.equal(celebration, undefined);
 
   assert.ok(frisco);
   assert.equal(frisco?.stage, 'bowl');
@@ -1610,6 +1614,58 @@ test('unresolved normalized conference championship rows are retained as placeho
   assert.equal(ccg?.status, 'placeholder');
   assert.equal(ccg?.participants.home.kind, 'placeholder');
   assert.equal(ccg?.participants.away.kind, 'placeholder');
+});
+
+test('conference championship rematch remains distinct from earlier regular-season matchup', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Alabama', level: 'FBS', conference: 'SEC' },
+      { school: 'Georgia', level: 'FBS', conference: 'SEC' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'sec-reg',
+        week: 6,
+        startDate: '2025-10-11T20:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+      {
+        id: 'sec-ccg',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+        eventKey: 'sec-championship',
+      },
+    ],
+  });
+
+  const rematches = built.games.filter(
+    (g) =>
+      (g.canHome === 'Alabama' && g.canAway === 'Georgia') ||
+      (g.canHome === 'Georgia' && g.canAway === 'Alabama')
+  );
+  assert.equal(rematches.length, 2);
+  assert.ok(rematches.some((g) => g.stage === 'regular' && g.week === 6));
+  assert.ok(rematches.some((g) => g.stage === 'conference_championship' && g.week === 15));
 });
 
 test('conference list excludes conferences that only appear in dropped FCS-vs-FCS games', () => {
@@ -1897,8 +1953,8 @@ test('full schedule survives load with regular weeks plus postseason weeks', () 
     true
   );
   assert.deepEqual(
-    built.weeks.filter((w) => [1, 2, 15, 17, 18, 19].includes(w)),
-    [1, 2, 15, 17, 18, 19]
+    built.weeks.filter((w) => [1, 2, 15, 17, 19].includes(w)),
+    [1, 2, 15, 17, 19]
   );
 });
 

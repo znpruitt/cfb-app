@@ -198,13 +198,26 @@ function isTrackedGame(
   teamMetadataByCanonicalName: Map<string, TeamCatalogItem>,
   resolver: ReturnType<typeof createTeamIdentityResolver>
 ): boolean {
+  const isConferenceChampionshipLikePostseason =
+    game.stage !== 'conference_championship' &&
+    (game.postseasonRole === 'conference_championship' ||
+      /conference[-\s]?championship/i.test([game.label ?? '', game.eventKey].join(' ')));
+
   if (game.stage !== 'regular' && game.stage !== 'conference_championship') {
-    // Only normalized provider postseason rows are authoritative regardless of participant
-    // resolution. Fallback-classified postseason rows still flow through FBS participation
-    // checks to avoid reintroducing out-of-scope lower-division matchups.
-    if (game.sources?.event === 'cfbd-normalized') {
+    if (isConferenceChampionshipLikePostseason) {
+      return false;
+    }
+
+    const homeIsTeam = game.participants.home.kind === 'team';
+    const awayIsTeam = game.participants.away.kind === 'team';
+
+    if (!homeIsTeam && !awayIsTeam) {
       return true;
     }
+
+    const homeIsFbs = homeIsTeam && isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver);
+    const awayIsFbs = awayIsTeam && isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver);
+    return homeIsFbs || awayIsFbs;
   }
 
   const homeIsTeam = game.participants.home.kind === 'team';
@@ -386,8 +399,15 @@ function buildAuthoritativeGameCollection(
       continue;
     }
 
-    const preferred =
-      existing.isPlaceholder && !game.isPlaceholder
+    const keepExistingConferenceChampionship =
+      existing.stage === 'conference_championship' &&
+      game.stage !== 'conference_championship' &&
+      (game.postseasonRole === 'conference_championship' ||
+        /conference[-\s]?championship/i.test([game.label ?? '', game.eventKey].join(' ')));
+
+    const preferred = keepExistingConferenceChampionship
+      ? existing
+      : existing.isPlaceholder && !game.isPlaceholder
         ? game
         : !existing.isPlaceholder && game.isPlaceholder
           ? existing

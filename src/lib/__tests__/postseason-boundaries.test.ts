@@ -88,7 +88,7 @@ test('conference placeholders are excluded from postseason tab while week-based 
   assert.ok(armyNavy, 'expected late regular-season special case to remain week-based');
 
   const postseasonTabGames = built.games.filter(isTruePostseasonGame);
-  assert.ok(postseasonTabGames.some((game) => game.bowlName === 'Orange Bowl'));
+  assert.ok(postseasonTabGames.some((game) => (game.label ?? '').includes('CFP Semifinal')));
   assert.equal(
     postseasonTabGames.some((game) => game.stage === 'conference_championship'),
     false,
