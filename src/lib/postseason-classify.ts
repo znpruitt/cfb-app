@@ -1,3 +1,8 @@
+import {
+  CONFERENCE_CHAMPIONSHIP_SLOTS,
+  matchConferenceChampionshipSlotByConference,
+  matchConferenceChampionshipSlotByText,
+} from './conferenceChampionships';
 import type { ScheduleWireItem, GameStage } from './schedule';
 
 type RowClassification =
@@ -27,18 +32,6 @@ const BOWL_SLOT_ORDER: Record<string, number> = {
   'orange-bowl': 12,
   'cotton-bowl': 13,
 };
-
-const CONFERENCE_CHAMPIONSHIPS = [
-  { conference: 'ACC', slug: 'acc', aliases: ['acc'] },
-  { conference: 'SEC', slug: 'sec', aliases: ['sec'] },
-  { conference: 'Big Ten', slug: 'big-ten', aliases: ['big ten', 'b1g'] },
-  { conference: 'Big 12', slug: 'big-12', aliases: ['big 12'] },
-  { conference: 'AAC', slug: 'aac', aliases: ['aac', 'american athletic', 'american'] },
-  { conference: 'C-USA', slug: 'c-usa', aliases: ['c-usa', 'conference usa', 'cusa'] },
-  { conference: 'MAC', slug: 'mac', aliases: ['mac', 'mid-american', 'mid american'] },
-  { conference: 'MWC', slug: 'mwc', aliases: ['mwc', 'mountain west'] },
-  { conference: 'Sun Belt', slug: 'sun-belt', aliases: ['sun belt'] },
-] as const;
 
 function slugify(value: string): string {
   return value
@@ -177,71 +170,49 @@ function isPostseasonContext(row: ScheduleWireItem, text: string): boolean {
     hasChampionshipMarker(text) || hasPlayoffMarker(text) || hasBowlMarker(text);
 
   const seasonType = (row.seasonType ?? '').toLowerCase();
-  if (seasonType === 'postseason') return hasPostseasonMarkers || hasPostseasonMarkersWithVenue;
+  if (seasonType === 'postseason') {
+    if (hasPostseasonMarkers || hasPostseasonMarkersWithVenue) return true;
+    return Boolean(row.conferenceGame);
+  }
   if (seasonType === 'regular') return false;
   return hasPostseasonMarkersWithVenue;
-}
-
-function normalizeConferenceName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function conferenceMatchByAlias(
-  text: string,
-  conferenceValue: string | null | undefined
-): (typeof CONFERENCE_CHAMPIONSHIPS)[number] | undefined {
-  const normalizedConference = normalizeConferenceName(conferenceValue ?? '');
-  return CONFERENCE_CHAMPIONSHIPS.find((entry) =>
-    entry.aliases.some((alias) => {
-      const normalizedAlias = normalizeConferenceName(alias);
-      return (
-        (normalizedConference && normalizedConference === normalizedAlias) ||
-        text.includes(normalizedAlias)
-      );
-    })
-  );
 }
 
 function classifyConferenceChampionship(
   row: ScheduleWireItem,
   text: string
-): (typeof CONFERENCE_CHAMPIONSHIPS)[number] | null {
+): (typeof CONFERENCE_CHAMPIONSHIP_SLOTS)[number] | null {
   const hasChampionship = hasChampionshipMarker(text);
-  if (!hasChampionship || hasPlayoffMarker(text)) return null;
+  if (hasPlayoffMarker(text)) return null;
 
   const seasonType = (row.seasonType ?? '').toLowerCase();
-  const conferencesAgree =
-    row.homeConference &&
-    row.awayConference &&
-    normalizeConferenceName(row.homeConference) === normalizeConferenceName(row.awayConference);
-
   const explicitConferenceInText =
-    conferenceMatchByAlias(text, row.label) ??
-    conferenceMatchByAlias(text, row.notes) ??
-    conferenceMatchByAlias(text, row.homeTeam) ??
-    conferenceMatchByAlias(text, row.awayTeam);
+    matchConferenceChampionshipSlotByText(row.label) ??
+    matchConferenceChampionshipSlotByText(row.notes) ??
+    matchConferenceChampionshipSlotByText(row.homeTeam) ??
+    matchConferenceChampionshipSlotByText(row.awayTeam);
 
-  if (explicitConferenceInText) return explicitConferenceInText;
+  if (explicitConferenceInText && hasChampionship) return explicitConferenceInText;
 
-  const explicitConferenceFromMatchedTeams = conferencesAgree
-    ? (conferenceMatchByAlias(text, row.homeConference) ??
-      conferenceMatchByAlias(text, row.awayConference))
-    : undefined;
-
-  if (explicitConferenceFromMatchedTeams && (row.conferenceGame || conferencesAgree)) {
-    return explicitConferenceFromMatchedTeams;
-  }
+  const homeConferenceSlot = matchConferenceChampionshipSlotByConference(row.homeConference);
+  const awayConferenceSlot = matchConferenceChampionshipSlotByConference(row.awayConference);
+  const conferenceSlotFromTeams =
+    homeConferenceSlot && awayConferenceSlot
+      ? homeConferenceSlot.slug === awayConferenceSlot.slug
+        ? homeConferenceSlot
+        : null
+      : (homeConferenceSlot ?? awayConferenceSlot);
 
   if (
-    seasonType === 'postseason' &&
-    row.conferenceGame &&
-    conferencesAgree &&
-    explicitConferenceFromMatchedTeams
+    conferenceSlotFromTeams &&
+    hasChampionship &&
+    (row.conferenceGame || Boolean(homeConferenceSlot && awayConferenceSlot))
   ) {
-    return explicitConferenceFromMatchedTeams;
+    return conferenceSlotFromTeams;
+  }
+
+  if (seasonType === 'postseason' && row.conferenceGame && conferenceSlotFromTeams) {
+    return conferenceSlotFromTeams;
   }
 
   return null;
@@ -255,17 +226,17 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
 
   const conf = classifyConferenceChampionship(row, text);
   if (conf) {
-    const label = `${conf.conference} Championship Game`;
+    const label = `${conf.title} Championship Game`;
     return {
       kind: 'postseason_placeholder',
       stage: 'conference_championship',
       label,
-      conference: conf.conference,
+      conference: conf.title,
       eventId: `${season}-${conf.slug}-championship`,
       eventKey: `${conf.slug}-championship`,
-      slotOrder: CONFERENCE_CHAMPIONSHIPS.findIndex((x) => x.slug === conf.slug) + 1,
-      homeDisplay: `${conf.conference} Team TBD`,
-      awayDisplay: `${conf.conference} Team TBD`,
+      slotOrder: CONFERENCE_CHAMPIONSHIP_SLOTS.findIndex((x) => x.slug === conf.slug) + 1,
+      homeDisplay: `${conf.title} Team TBD`,
+      awayDisplay: `${conf.title} Team TBD`,
       postseasonRole: 'conference_championship',
     };
   }
@@ -328,6 +299,10 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
       awayDisplay: row.awayTeam.includes('TBD') ? row.awayTeam : 'Team TBD',
       postseasonRole: inferBowlPostseasonRole(text),
     };
+  }
+
+  if ((row.seasonType ?? '').toLowerCase() === 'postseason' && row.conferenceGame) {
+    return { kind: 'regular_game' };
   }
 
   return {
