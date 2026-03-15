@@ -44,9 +44,8 @@ export default function PostseasonPanel({
   rosterByTeam,
   isDebug,
   onSavePostseasonOverride,
-}: PostseasonPanelProps): React.ReactElement | null {
+}: PostseasonPanelProps): React.ReactElement {
   const postseason = games.filter((g) => g.stage !== 'regular');
-  if (!postseason.length) return null;
 
   const grouped = new Map<GroupKey, AppGame[]>();
   GROUP_ORDER.forEach((key) => grouped.set(key, []));
@@ -65,14 +64,20 @@ export default function PostseasonPanel({
     }
   }
 
+  const visibleGroups = GROUP_ORDER.map((key) => {
+    const groupGames = [...(grouped.get(key) ?? [])].sort(kickoffSort);
+    return { key, groupGames };
+  }).filter((group) => group.groupGames.length > 0);
+
   return (
     <section className="space-y-4">
       <h2 className="text-xl font-semibold">Postseason</h2>
-      {GROUP_ORDER.map((key) => {
-        const groupGames = [...(grouped.get(key) ?? [])].sort(kickoffSort);
-        if (!groupGames.length) return null;
-
-        return (
+      {visibleGroups.length === 0 ? (
+        <p className="text-sm text-gray-600 dark:text-zinc-400">
+          No postseason games match the current filters.
+        </p>
+      ) : (
+        visibleGroups.map(({ key, groupGames }) => (
           <div key={key} className="space-y-2">
             <h3 className="text-lg font-medium">{GROUP_LABEL[key]}</h3>
             <GameWeekPanel
@@ -86,8 +91,8 @@ export default function PostseasonPanel({
               onSavePostseasonOverride={onSavePostseasonOverride}
             />
           </div>
-        );
-      })}
+        ))
+      )}
     </section>
   );
 }
