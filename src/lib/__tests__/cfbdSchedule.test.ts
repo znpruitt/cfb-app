@@ -115,6 +115,31 @@ test('mapCfbdScheduleGame maps ordinary bowl game', () => {
   }
 });
 
+
+test('mapCfbdScheduleGame uses playoff inference when normalized postseason subtype is missing', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 701,
+      week: 18,
+      home_team: 'TBD',
+      away_team: 'TBD',
+      game_phase: 'postseason',
+      postseason_subtype: null,
+      notes: 'College Football Playoff Semifinal at the Cotton Bowl',
+      neutral_site: true,
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.gamePhase, 'postseason');
+    assert.equal(result.item.postseasonSubtype, 'playoff');
+    assert.equal(result.item.playoffRound, 'semifinal');
+    assert.equal(result.item.eventKey, 'cfp-semifinal-cotton-bowl');
+  }
+});
+
 test('mapCfbdScheduleGame recognizes conference championship as regular-season subtype', () => {
   const result = mapCfbdScheduleGame(
     {
@@ -140,31 +165,57 @@ test('mapCfbdScheduleGame recognizes conference championship as regular-season s
   }
 });
 
-
-test('mapCfbdScheduleGame keeps conference championship classification for postseason-tagged rows', () => {
+test('mapCfbdScheduleGame trusts normalized conference championship subtype metadata', () => {
   const result = mapCfbdScheduleGame(
     {
       id: 651,
       week: 15,
       home_team: 'Georgia',
       away_team: 'Texas',
-      notes: 'SEC Championship',
+      game_phase: 'conference_championship',
+      regular_subtype: 'conference_championship',
+      conference_championship_conference: 'SEC',
+      event_key: 'sec-championship',
+      neutral_site_display: 'vs',
       home_conference: 'SEC',
       away_conference: 'Southeastern Conference',
-      conference_game: true,
       neutral_site: true,
     },
-    'postseason'
+    'regular'
   );
 
   assert.equal(result.ok, true);
   if (result.ok) {
     assert.equal(result.item.gamePhase, 'conference_championship');
     assert.equal(result.item.regularSubtype, 'conference_championship');
-    assert.equal(result.item.postseasonSubtype, undefined);
+    assert.equal(result.item.postseasonSubtype, null);
     assert.equal(result.item.conferenceChampionshipConference, 'SEC');
     assert.equal(result.item.eventKey, 'sec-championship');
     assert.equal(result.item.neutralSiteDisplay, 'vs');
+  }
+});
+
+test('mapCfbdScheduleGame keeps fallback notes parsing when normalized subtype metadata is absent', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 652,
+      week: 15,
+      home_team: 'Georgia',
+      away_team: 'Texas',
+      notes: 'SEC Championship',
+      home_conference: 'SEC',
+      away_conference: 'Southeastern Conference',
+      neutral_site: true,
+    },
+    'regular'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.gamePhase, 'conference_championship');
+    assert.equal(result.item.regularSubtype, 'conference_championship');
+    assert.equal(result.item.conferenceChampionshipConference, 'SEC');
+    assert.equal(result.item.eventKey, 'sec-championship');
   }
 });
 

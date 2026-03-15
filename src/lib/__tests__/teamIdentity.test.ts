@@ -243,13 +243,18 @@ test('conference identity normalization handles common provider variants', () =>
       week: 15,
       startDate: null,
       neutralSite: true,
+      neutralSiteDisplay: 'vs' as const,
       conferenceGame: true,
       homeTeam: 'Team A',
       awayTeam: 'Team B',
       homeConference: entry.homeConference,
       awayConference: entry.awayConference,
       status: 'scheduled',
-      seasonType: 'postseason' as const,
+      seasonType: 'regular' as const,
+      gamePhase: 'conference_championship' as const,
+      regularSubtype: 'conference_championship' as const,
+      conferenceChampionshipConference: entry.homeConference,
+      eventKey: entry.expectedEventId.replace('2025-', ''),
     })),
   });
 
@@ -475,7 +480,11 @@ test('conference championship matchup without championship label still hydrates 
         homeConference: 'SEC',
         awayConference: 'SEC',
         status: 'scheduled',
-        seasonType: 'postseason',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+        eventKey: 'sec-championship',
       },
     ],
   });
@@ -575,7 +584,11 @@ test('representative conference championship matchups hydrate canonical conferen
       homeConference: entry.conference,
       awayConference: entry.conference,
       status: 'scheduled',
-      seasonType: 'postseason' as const,
+      seasonType: 'regular' as const,
+      gamePhase: 'conference_championship' as const,
+      regularSubtype: 'conference_championship' as const,
+      conferenceChampionshipConference: entry.conference,
+      eventKey: entry.expectedEventId.replace('2025-', ''),
     })),
   });
 
@@ -631,6 +644,164 @@ test('conference championship matchup hydrates seeded slot instead of creating d
     ),
     false
   );
+});
+
+test('normalized conference championship metadata drives representative week rendering', () => {
+  const entries = [
+    {
+      id: 'sec-ccg',
+      conference: 'SEC',
+      eventKey: 'sec-championship',
+      home: 'Georgia',
+      away: 'Texas',
+    },
+    {
+      id: 'acc-ccg',
+      conference: 'ACC',
+      eventKey: 'acc-championship',
+      home: 'Clemson',
+      away: 'Miami (FL)',
+    },
+    {
+      id: 'b1g-ccg',
+      conference: 'Big Ten',
+      eventKey: 'big-ten-championship',
+      home: 'Ohio State',
+      away: 'Oregon',
+    },
+    {
+      id: 'b12-ccg',
+      conference: 'Big 12',
+      eventKey: 'big-12-championship',
+      home: 'BYU',
+      away: 'Kansas State',
+    },
+    {
+      id: 'aac-ccg',
+      conference: 'AAC',
+      eventKey: 'aac-championship',
+      home: 'Tulane',
+      away: 'Memphis',
+    },
+    {
+      id: 'mac-ccg',
+      conference: 'MAC',
+      eventKey: 'mac-championship',
+      home: 'Toledo',
+      away: 'Ohio',
+    },
+    {
+      id: 'mwc-ccg',
+      conference: 'MWC',
+      eventKey: 'mwc-championship',
+      home: 'Boise State',
+      away: 'UNLV',
+    },
+    {
+      id: 'sun-ccg',
+      conference: 'Sun Belt',
+      eventKey: 'sun-belt-championship',
+      home: 'Troy',
+      away: 'James Madison',
+    },
+    {
+      id: 'cusa-ccg',
+      conference: 'C-USA',
+      eventKey: 'c-usa-championship',
+      home: 'Liberty',
+      away: 'WKU',
+    },
+  ] as const;
+
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: entries.flatMap((entry) => [
+      { school: entry.home, level: 'FBS' as const },
+      { school: entry.away, level: 'FBS' as const },
+    ]),
+    season: 2025,
+    scheduleItems: entries.map((entry) => ({
+      id: entry.id,
+      week: 15,
+      startDate: '2025-12-07T01:00:00.000Z',
+      neutralSite: true,
+      neutralSiteDisplay: 'vs' as const,
+      conferenceGame: true,
+      homeTeam: entry.home,
+      awayTeam: entry.away,
+      homeConference: entry.conference,
+      awayConference: entry.conference,
+      status: 'scheduled',
+      seasonType: 'regular' as const,
+      gamePhase: 'conference_championship' as const,
+      regularSubtype: 'conference_championship' as const,
+      conferenceChampionshipConference: entry.conference,
+      eventKey: entry.eventKey,
+    })),
+  });
+
+  for (const entry of entries) {
+    const game = built.games.find((g) => g.eventId === `2025-${entry.eventKey}`);
+    assert.ok(game, `missing normalized championship game for ${entry.conference}`);
+    assert.equal(game?.stage, 'conference_championship');
+    assert.equal(game?.week, 15);
+    assert.equal(game?.participants.home.kind, 'team');
+    assert.equal(game?.participants.away.kind, 'team');
+  }
+
+  assert.equal(built.weeks.includes(15), true);
+});
+
+
+test('conference championship fallback event ids stay unique without normalized key/conference', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Team A', level: 'FBS', conference: 'Alpha' },
+      { school: 'Team B', level: 'FBS', conference: 'Alpha' },
+      { school: 'Team C', level: 'FBS', conference: 'Beta' },
+      { school: 'Team D', level: 'FBS', conference: 'Beta' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'ccg-a',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Team A',
+        awayTeam: 'Team B',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+      },
+      {
+        id: 'ccg-b',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Team C',
+        awayTeam: 'Team D',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+      },
+    ],
+  });
+
+  const championshipGames = built.games.filter((g) => g.stage === 'conference_championship');
+  assert.equal(championshipGames.length, 2);
+  assert.notEqual(championshipGames[0]?.eventId, championshipGames[1]?.eventId);
+  assert.ok(championshipGames.some((g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-a'));
+  assert.ok(championshipGames.some((g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-b'));
 });
 
 test('merged participants keep csv and canonical fields aligned for shared event ids', () => {
@@ -1696,6 +1867,10 @@ test('full schedule survives load with regular weeks plus postseason weeks', () 
         awayConference: '',
         status: 'scheduled',
         seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'playoff',
+        playoffRound: 'semifinal',
+        eventKey: 'cfp-semifinal-1',
       },
       {
         id: 'post-19',
