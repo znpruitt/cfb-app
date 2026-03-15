@@ -61,6 +61,15 @@ export type ScheduleWireItem = {
   label?: string | null;
   notes?: string | null;
   seasonType?: 'regular' | 'postseason' | string | null;
+  gamePhase?: 'regular' | 'conference_championship' | 'postseason' | string | null;
+  regularSubtype?: 'standard' | 'conference_championship' | string | null;
+  postseasonSubtype?: 'bowl' | 'playoff' | string | null;
+  playoffRound?: 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' | string | null;
+  bowlName?: string | null;
+  conferenceChampionshipConference?: string | null;
+  eventKey?: string | null;
+  slotOrder?: number | null;
+  neutralSiteDisplay?: 'vs' | 'home_away' | string | null;
 };
 
 export type AppGame = {
@@ -80,6 +89,7 @@ export type AppGame = {
   postseasonRole: PostseasonRole | null;
   providerGameId: string | null;
   neutral: boolean;
+  neutralDisplay: 'vs' | 'home_away';
   venue: string | null;
   isPlaceholder: boolean;
   sources?: ScheduleFieldSources;
@@ -339,6 +349,7 @@ function buildTemplateGame(event: TemplateEvent): AppGame {
             ? 'playoff'
             : 'bowl',
     neutral: true,
+    neutralDisplay: 'vs',
     venue: event.venue,
     isPlaceholder: true,
     sources: { event: 'postseason-template', participants: 'postseason-template' },
@@ -466,6 +477,136 @@ export function buildScheduleFromApi(params: {
   const apiPostseasonGames: AppGame[] = [];
 
   for (const item of scheduleItems) {
+    const hasConferenceChampionshipMetadata =
+      item.gamePhase === 'conference_championship' ||
+      item.regularSubtype === 'conference_championship';
+    if (hasConferenceChampionshipMetadata) {
+      const rowResolution = resolveRegularSeasonRow({ item, resolver });
+      if (!rowResolution.include) {
+        continue;
+      }
+
+      const { homeResolved, awayResolved } = rowResolution;
+      const canHome = homeResolved.canonicalName ?? item.homeTeam;
+      const canAway = awayResolved.canonicalName ?? item.awayTeam;
+      const eventKey = item.eventKey?.trim() || `${item.week}-${canAway}-${canHome}`;
+      const eventId = `${season}-${eventKey}`;
+
+      apiRegularGames.push({
+        key: eventId,
+        eventId,
+        week: item.week,
+        date: item.startDate,
+        stage: 'conference_championship',
+        status: mapStatus(item.status, false),
+        stageOrder: stageOrder('conference_championship'),
+        slotOrder: item.slotOrder ?? 1,
+        eventKey,
+        label: item.label ?? `${item.conferenceChampionshipConference ?? ''} Championship`.trim(),
+        conference: item.conferenceChampionshipConference ?? null,
+        bowlName: null,
+        playoffRound: null,
+        postseasonRole: 'conference_championship',
+        providerGameId: item.id,
+        neutral: item.neutralSite,
+        neutralDisplay:
+          item.neutralSiteDisplay === 'vs' ? 'vs' : item.neutralSite ? 'vs' : 'home_away',
+        venue: item.venue ?? null,
+        isPlaceholder: false,
+        sources: {
+          event: 'cfbd-normalized',
+          participants: 'cfbd+resolver',
+          kickoff: 'cfbd',
+          venue: 'cfbd',
+        },
+        participants: {
+          home: {
+            kind: 'team',
+            teamId: homeResolved.identityKey ?? canHome,
+            displayName: canHome,
+            canonicalName: canHome,
+            rawName: item.homeTeam,
+          },
+          away: {
+            kind: 'team',
+            teamId: awayResolved.identityKey ?? canAway,
+            displayName: canAway,
+            canonicalName: canAway,
+            rawName: item.awayTeam,
+          },
+        },
+        csvAway: item.awayTeam,
+        csvHome: item.homeTeam,
+        canAway,
+        canHome,
+        awayConf: item.awayConference ?? '',
+        homeConf: item.homeConference ?? '',
+      });
+      continue;
+    }
+    if (item.gamePhase === 'postseason') {
+      const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
+      const eventId = `${season}-${eventKey}`;
+      const stage: GameStage = item.postseasonSubtype === 'playoff' ? 'playoff' : 'bowl';
+      const conf = item.conferenceChampionshipConference ?? null;
+      const homeParticipant = buildPlaceholderParticipant({
+        resolver,
+        raw: item.homeTeam,
+        slotId: `${eventId}-home`,
+        defaultDisplay: 'Team TBD',
+      });
+      const awayParticipant = buildPlaceholderParticipant({
+        resolver,
+        raw: item.awayTeam,
+        slotId: `${eventId}-away`,
+        defaultDisplay: 'Team TBD',
+      });
+      const hasKnownTeams = homeParticipant.kind === 'team' || awayParticipant.kind === 'team';
+
+      apiPostseasonGames.push({
+        key: eventId,
+        eventId,
+        week: item.week,
+        date: item.startDate,
+        stage,
+        status: hasKnownTeams ? 'matchup_set' : 'placeholder',
+        stageOrder: stageOrder(stage),
+        slotOrder: item.slotOrder ?? 80,
+        eventKey,
+        label: item.label ?? item.bowlName ?? null,
+        conference: conf,
+        bowlName: item.bowlName ?? null,
+        playoffRound: item.playoffRound ?? null,
+        postseasonRole:
+          stage === 'playoff'
+            ? item.playoffRound === 'national_championship'
+              ? 'national_championship'
+              : 'playoff'
+            : 'bowl',
+        providerGameId: item.id,
+        neutral: item.neutralSite,
+        neutralDisplay: item.neutralSiteDisplay === 'home_away' ? 'home_away' : 'vs',
+        venue: item.venue ?? null,
+        isPlaceholder: !hasKnownTeams,
+        sources: {
+          event: 'cfbd-normalized',
+          participants: hasKnownTeams ? 'cfbd+resolver' : 'cfbd-normalized',
+          kickoff: 'cfbd',
+          venue: 'cfbd',
+        },
+        participants: { home: homeParticipant, away: awayParticipant },
+        csvAway:
+          awayParticipant.kind === 'team' ? awayParticipant.rawName : awayParticipant.displayName,
+        csvHome:
+          homeParticipant.kind === 'team' ? homeParticipant.rawName : homeParticipant.displayName,
+        canAway: awayParticipant.kind === 'team' ? awayParticipant.canonicalName : '',
+        canHome: homeParticipant.kind === 'team' ? homeParticipant.canonicalName : '',
+        awayConf: item.awayConference ?? '',
+        homeConf: item.homeConference ?? '',
+      });
+      continue;
+    }
+
     const classified = classifyScheduleRow(item, season);
     if (classified.kind === 'invalid_row') {
       issues.push(`invalid-schedule-row: ${classified.reason}`);
@@ -535,6 +676,7 @@ export function buildScheduleFromApi(params: {
               : 'bowl'),
         providerGameId: item.id,
         neutral: item.neutralSite,
+        neutralDisplay: item.neutralSiteDisplay === 'home_away' ? 'home_away' : 'vs',
         venue: item.venue ?? null,
         isPlaceholder: !hasKnownTeams,
         sources: {
@@ -595,6 +737,8 @@ export function buildScheduleFromApi(params: {
       postseasonRole: null,
       providerGameId: item.id,
       neutral: item.neutralSite,
+      neutralDisplay:
+        item.neutralSiteDisplay === 'vs' ? 'vs' : item.neutralSite ? 'vs' : 'home_away',
       venue: item.venue ?? null,
       isPlaceholder: false,
       sources: { event: 'cfbd', participants: 'cfbd+resolver', kickoff: 'cfbd', venue: 'cfbd' },

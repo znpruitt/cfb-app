@@ -26,6 +26,46 @@ type RowClassification =
     }
   | { kind: 'invalid_row'; reason: string };
 
+function classifyFromNormalizedMetadata(
+  row: ScheduleWireItem,
+  season: number
+): RowClassification | null {
+  if (
+    row.gamePhase === 'conference_championship' ||
+    row.regularSubtype === 'conference_championship'
+  ) {
+    return { kind: 'regular_game' };
+  }
+
+  if (row.gamePhase !== 'postseason') return null;
+
+  const eventKey = (row.eventKey ?? '').trim();
+  const stableEventKey = eventKey || slugify(`${row.id}-${row.week}`);
+  const eventId = `${season}-${stableEventKey}`;
+  const stage: Exclude<GameStage, 'regular'> =
+    row.postseasonSubtype === 'playoff' ? 'playoff' : 'bowl';
+
+  return {
+    kind: 'postseason_placeholder',
+    stage,
+    label: row.label?.trim() || row.bowlName?.trim() || 'Postseason',
+    conference: row.conferenceChampionshipConference ?? null,
+    bowlName: row.bowlName ?? null,
+    playoffRound: row.playoffRound ?? null,
+    postseasonRole:
+      stage === 'playoff'
+        ? row.playoffRound === 'national_championship'
+          ? 'national_championship'
+          : 'playoff'
+        : 'bowl',
+    eventId,
+    eventKey: stableEventKey,
+    slotOrder: row.slotOrder ?? (stage === 'playoff' ? 20 : 80),
+    homeDisplay: /tbd/i.test(row.homeTeam) ? row.homeTeam : 'Team TBD',
+    awayDisplay: /tbd/i.test(row.awayTeam) ? row.awayTeam : 'Team TBD',
+  };
+}
+
 const BOWL_SLOT_ORDER: Record<string, number> = {
   'rose-bowl': 10,
   'sugar-bowl': 11,
@@ -171,8 +211,7 @@ function isPostseasonContext(row: ScheduleWireItem, text: string): boolean {
 
   const seasonType = (row.seasonType ?? '').toLowerCase();
   if (seasonType === 'postseason') {
-    if (hasPostseasonMarkers || hasPostseasonMarkersWithVenue) return true;
-    return Boolean(row.conferenceGame);
+    return hasPostseasonMarkers || hasPostseasonMarkersWithVenue;
   }
   if (seasonType === 'regular') return false;
   return hasPostseasonMarkersWithVenue;
@@ -220,6 +259,9 @@ function classifyConferenceChampionship(
 
 export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowClassification {
   if (looksEmptyRow(row)) return { kind: 'invalid_row', reason: 'empty participant names' };
+
+  const byMetadata = classifyFromNormalizedMetadata(row, season);
+  if (byMetadata) return byMetadata;
 
   const text = normalizedText(row);
   if (!isPostseasonContext(row, text)) return { kind: 'regular_game' };

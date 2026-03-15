@@ -42,6 +42,8 @@ test('schedule route returns mapped items from CFBD upstream', async () => {
               awayTeam: 'Ohio State',
               id: 2,
               startDate: '2025-12-20T00:00:00Z',
+              neutralSite: true,
+              notes: 'Vrbo Fiesta Bowl',
             },
           ];
 
@@ -59,6 +61,8 @@ test('schedule route returns mapped items from CFBD upstream', async () => {
   assert.equal(json.items.length, 2);
   assert.equal(json.items[0].homeTeam, 'Texas');
   assert.equal(json.items[1].homeTeam, 'Georgia');
+  assert.equal(json.items[1].gamePhase, 'postseason');
+  assert.equal(json.items[1].postseasonSubtype, 'bowl');
   assert.equal(json.meta.source, 'cfbd');
 });
 
