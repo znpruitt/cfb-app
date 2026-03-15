@@ -319,7 +319,11 @@ function isTrackedGame(
     : 'UNKNOWN';
 
   if ((homeIsTeam && !awayIsTeam) || (!homeIsTeam && awayIsTeam)) {
-    return isRecognizedPlaceholderShell && (homeSubdivision === 'FBS' || awaySubdivision === 'FBS');
+    const placeholderParticipant = homeIsTeam ? game.participants.away : game.participants.home;
+    return (
+      isRecognizedPlaceholderParticipant(placeholderParticipant) &&
+      (homeSubdivision === 'FBS' || awaySubdivision === 'FBS')
+    );
   }
 
   return homeSubdivision === 'FBS' || awaySubdivision === 'FBS';

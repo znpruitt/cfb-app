@@ -179,6 +179,24 @@ test('filters eligibility consistently: keeps valid FBS content while excluding 
       eventKey: 'orange-bowl',
     },
     {
+      id: 'post-bowl-mixed-placeholder',
+      week: 18,
+      startDate: '2026-01-02T01:00:00Z',
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Boise State',
+      awayTeam: 'Team TBD',
+      homeConference: 'Mountain West',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      label: 'Fiesta Bowl',
+      bowlName: 'Fiesta Bowl',
+      eventKey: 'fiesta-bowl',
+    },
+    {
       id: 'post-conf-placeholder',
       week: 15,
       startDate: '2025-12-06T23:00:00Z',
@@ -248,6 +266,15 @@ test('filters eligibility consistently: keeps valid FBS content while excluding 
   assert.ok(
     games.some((g) => g.isPlaceholder && g.stage === 'bowl' && /orange bowl/i.test(g.label ?? '')),
     'bowl placeholders should be kept'
+  );
+  assert.ok(
+    games.some(
+      (g) =>
+        g.stage === 'bowl' &&
+        g.canHome === 'Boise State' &&
+        g.participants.away.kind === 'placeholder'
+    ),
+    'mixed postseason games with one resolved FBS team and one recognized placeholder should be kept'
   );
   assert.ok(
     games.some((g) => g.isPlaceholder && g.stage === 'conference_championship' && g.week === 15),
