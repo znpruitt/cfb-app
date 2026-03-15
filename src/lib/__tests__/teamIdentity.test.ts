@@ -633,6 +633,62 @@ test('conference championship matchup hydrates seeded slot instead of creating d
   );
 });
 
+test('merged participants keep csv and canonical fields aligned for shared event ids', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Texas', level: 'FBS', conference: 'SEC' },
+      { school: 'Georgia', level: 'FBS', conference: 'SEC' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'sec-ccg-home-known',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'TBD',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+        eventKey: 'sec-championship',
+      },
+      {
+        id: 'sec-ccg-away-known',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'TBD',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+        eventKey: 'sec-championship',
+      },
+    ],
+  });
+
+  const ccg = built.games.find((g) => g.eventId === '2025-sec-championship');
+  assert.ok(ccg);
+  assert.equal(ccg?.participants.home.kind, 'team');
+  assert.equal(ccg?.participants.away.kind, 'team');
+  assert.equal(ccg?.csvHome, 'Texas');
+  assert.equal(ccg?.csvAway, 'Georgia');
+  assert.equal(ccg?.canHome, 'Texas');
+  assert.equal(ccg?.canAway, 'Georgia');
+});
+
 test('national championship is not misclassified as conference championship', () => {
   const classified = classifyScheduleRow(
     {

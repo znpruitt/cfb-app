@@ -344,6 +344,15 @@ function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame
   };
 }
 
+function participantCsvValue(participant: ParticipantSlot): string {
+  if (participant.kind === 'team') return participant.rawName;
+  return participant.displayName;
+}
+
+function participantCanonicalValue(participant: ParticipantSlot): string {
+  return participant.kind === 'team' ? participant.canonicalName : '';
+}
+
 function buildAuthoritativeGameCollection(
   regularGames: AppGame[],
   postseasonGames: AppGame[],
@@ -365,19 +374,25 @@ function buildAuthoritativeGameCollection(
           ? existing
           : game;
 
+    const mergedParticipants = {
+      home:
+        existing.participants.home.kind === 'team'
+          ? existing.participants.home
+          : preferred.participants.home,
+      away:
+        existing.participants.away.kind === 'team'
+          ? existing.participants.away
+          : preferred.participants.away,
+    };
+
     byEventId.set(game.eventId, {
       ...existing,
       ...preferred,
-      participants: {
-        home:
-          existing.participants.home.kind === 'team'
-            ? existing.participants.home
-            : preferred.participants.home,
-        away:
-          existing.participants.away.kind === 'team'
-            ? existing.participants.away
-            : preferred.participants.away,
-      },
+      participants: mergedParticipants,
+      csvHome: participantCsvValue(mergedParticipants.home),
+      csvAway: participantCsvValue(mergedParticipants.away),
+      canHome: participantCanonicalValue(mergedParticipants.home),
+      canAway: participantCanonicalValue(mergedParticipants.away),
       sources: { ...existing.sources, ...preferred.sources },
     });
   }
