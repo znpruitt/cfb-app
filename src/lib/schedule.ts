@@ -291,6 +291,20 @@ function toPlaceholderDisplay(conference?: string | null): string {
   return conference ? `${conference} Team TBD` : 'Team TBD';
 }
 
+function buildConferenceChampionshipEventKey(item: ScheduleWireItem): string {
+  const normalizedEventKey = item.eventKey?.trim();
+  if (normalizedEventKey) return normalizedEventKey;
+
+  const normalizedConference = (item.conferenceChampionshipConference ?? '').trim().toLowerCase();
+  if (normalizedConference) {
+    const confSlug = normalizedConference.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (confSlug) return `${confSlug}-championship`;
+  }
+
+  const dateKey = (item.startDate ?? '').slice(0, 10).replace(/[^0-9-]/g, '');
+  return ['conference-championship', `week-${item.week}`, dateKey || `id-${item.id}`].join('-');
+}
+
 function buildPlaceholderParticipant(params: {
   resolver: ReturnType<typeof createTeamIdentityResolver>;
   raw: string;
@@ -435,10 +449,11 @@ export function buildScheduleFromApi(params: {
 
   for (const item of scheduleItems) {
     const hasConferenceChampionshipMetadata =
-      item.gamePhase === 'conference_championship' ||
-      item.regularSubtype === 'conference_championship';
+      item.seasonType !== 'postseason' &&
+      (item.gamePhase === 'conference_championship' ||
+        item.regularSubtype === 'conference_championship');
     if (hasConferenceChampionshipMetadata) {
-      const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
+      const eventKey = buildConferenceChampionshipEventKey(item);
       const eventId = `${season}-${eventKey}`;
       const homeParticipant = buildPlaceholderParticipant({
         resolver,

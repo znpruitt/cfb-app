@@ -31,6 +31,26 @@ export type CfbdScheduleGame = {
   venue?: string | null;
   notes?: string | null;
   name?: string | null;
+  season_type?: SeasonType | string | null;
+  seasonType?: SeasonType | string | null;
+  game_phase?: GamePhase | string | null;
+  gamePhase?: GamePhase | string | null;
+  regular_subtype?: 'standard' | 'conference_championship' | string | null;
+  regularSubtype?: 'standard' | 'conference_championship' | string | null;
+  postseason_subtype?: PostseasonSubtype | string | null;
+  postseasonSubtype?: PostseasonSubtype | string | null;
+  playoff_round?: PlayoffRound | string | null;
+  playoffRound?: PlayoffRound | string | null;
+  bowl_name?: string | null;
+  bowlName?: string | null;
+  conference_championship_conference?: string | null;
+  conferenceChampionshipConference?: string | null;
+  event_key?: string | null;
+  eventKey?: string | null;
+  slot_order?: number | string | null;
+  slotOrder?: number | null;
+  neutral_site_display?: NeutralSiteDisplay | string | null;
+  neutralSiteDisplay?: NeutralSiteDisplay | string | null;
 };
 
 export type ScheduleItem = {
@@ -173,6 +193,105 @@ function deriveEventMetadata(params: {
   | 'neutralSiteDisplay'
 > {
   const { game, seasonType, neutralSite, homeConference, awayConference } = params;
+
+  const normalizedGamePhase = normalizeString(game.game_phase ?? game.gamePhase).toLowerCase();
+  const normalizedRegularSubtype = normalizeString(
+    game.regular_subtype ?? game.regularSubtype
+  ).toLowerCase();
+  const normalizedPostseasonSubtype = normalizeString(
+    game.postseason_subtype ?? game.postseasonSubtype
+  ).toLowerCase();
+  const normalizedPlayoffRound = normalizeString(
+    game.playoff_round ?? game.playoffRound
+  ).toLowerCase();
+  const normalizedEventKey = normalizeString(game.event_key ?? game.eventKey);
+  const normalizedConference = normalizeString(
+    game.conference_championship_conference ?? game.conferenceChampionshipConference
+  );
+  const normalizedBowlName = normalizeString(game.bowl_name ?? game.bowlName);
+  const slotOrderRaw = game.slot_order ?? game.slotOrder;
+  const normalizedSlotOrder =
+    typeof slotOrderRaw === 'number'
+      ? slotOrderRaw
+      : typeof slotOrderRaw === 'string' && /^\d+$/.test(slotOrderRaw)
+        ? Number.parseInt(slotOrderRaw, 10)
+        : null;
+  const normalizedNeutralDisplay = normalizeString(
+    game.neutral_site_display ?? game.neutralSiteDisplay
+  ).toLowerCase();
+
+  const hasExplicitConferenceChampionship =
+    seasonType === 'regular' &&
+    (normalizedGamePhase === 'conference_championship' ||
+      normalizedRegularSubtype === 'conference_championship');
+
+  if (hasExplicitConferenceChampionship) {
+    const conferenceSlot =
+      matchConferenceChampionshipSlotByConference(normalizedConference) ??
+      matchConferenceChampionshipSlotByConference(homeConference) ??
+      matchConferenceChampionshipSlotByConference(awayConference);
+    const conference = normalizedConference || conferenceSlot?.title || null;
+    const eventKey =
+      normalizedEventKey ||
+      (conferenceSlot ? `${conferenceSlot.slug}-championship` : 'conference-championship');
+
+    return {
+      gamePhase: 'conference_championship',
+      regularSubtype: 'conference_championship',
+      postseasonSubtype: null,
+      playoffRound: null,
+      bowlName: null,
+      conferenceChampionshipConference: conference,
+      eventKey,
+      slotOrder: normalizedSlotOrder ?? 1,
+      neutralSiteDisplay:
+        normalizedNeutralDisplay === 'home_away'
+          ? 'home_away'
+          : normalizedNeutralDisplay === 'vs'
+            ? 'vs'
+            : neutralSite
+              ? 'vs'
+              : 'home_away',
+    };
+  }
+
+  if (normalizedGamePhase === 'postseason') {
+    const postseasonSubtype: PostseasonSubtype =
+      normalizedPostseasonSubtype === 'playoff' ? 'playoff' : 'bowl';
+    const round: PlayoffRound | null =
+      normalizedPlayoffRound === 'quarterfinal' ||
+      normalizedPlayoffRound === 'semifinal' ||
+      normalizedPlayoffRound === 'national_championship' ||
+      normalizedPlayoffRound === 'playoff'
+        ? (normalizedPlayoffRound as PlayoffRound)
+        : null;
+
+    return {
+      gamePhase: 'postseason',
+      regularSubtype: 'standard',
+      postseasonSubtype,
+      playoffRound: round,
+      bowlName: normalizedBowlName || null,
+      conferenceChampionshipConference: null,
+      eventKey:
+        normalizedEventKey ||
+        (postseasonSubtype === 'playoff'
+          ? playoffEventKey(round ?? 'playoff', normalizedBowlName || null)
+          : normalizedBowlName
+            ? slugify(normalizedBowlName)
+            : null),
+      slotOrder: normalizedSlotOrder,
+      neutralSiteDisplay:
+        normalizedNeutralDisplay === 'home_away'
+          ? 'home_away'
+          : normalizedNeutralDisplay === 'vs'
+            ? 'vs'
+            : neutralSite
+              ? 'vs'
+              : 'home_away',
+    };
+  }
+
   const text = normalizedText(game);
   const bowlName = extractBowlName(game);
   const playoff = hasPlayoffMarker(text);
