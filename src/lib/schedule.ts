@@ -215,6 +215,10 @@ function isTrackedGame(
       return true;
     }
 
+    if ((homeIsTeam && !awayIsTeam) || (!homeIsTeam && awayIsTeam)) {
+      return true;
+    }
+
     const homeIsFbs = homeIsTeam && isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver);
     const awayIsFbs = awayIsTeam && isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver);
     return homeIsFbs || awayIsFbs;
