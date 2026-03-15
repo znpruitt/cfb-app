@@ -11,6 +11,7 @@ import WeekControls from './WeekControls';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { buildOddsByGame, type CombinedOdds, type OddsEvent } from '../lib/odds';
+import { isTruePostseasonGame } from '../lib/postseason-display';
 import { fetchScoresByGame, type ScorePack } from '../lib/scores';
 import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
@@ -348,23 +349,21 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   const postseasonGames = useMemo(() => {
     const tf = teamFilter.toLowerCase();
-    return games
-      .filter((g) => g.stage !== 'regular')
-      .filter((g) => {
-        const confOk =
-          selectedConference === 'ALL' ||
-          g.homeConf === selectedConference ||
-          g.awayConf === selectedConference;
-        const teamOk =
-          !tf ||
-          g.csvHome.toLowerCase().includes(tf) ||
-          g.csvAway.toLowerCase().includes(tf) ||
-          (g.label ?? '').toLowerCase().includes(tf);
-        return confOk && teamOk;
-      });
+    return games.filter(isTruePostseasonGame).filter((g) => {
+      const confOk =
+        selectedConference === 'ALL' ||
+        g.homeConf === selectedConference ||
+        g.awayConf === selectedConference;
+      const teamOk =
+        !tf ||
+        g.csvHome.toLowerCase().includes(tf) ||
+        g.csvAway.toLowerCase().includes(tf) ||
+        (g.label ?? '').toLowerCase().includes(tf);
+      return confOk && teamOk;
+    });
   }, [games, selectedConference, teamFilter]);
 
-  const hasPostseasonGames = useMemo(() => games.some((g) => g.stage !== 'regular'), [games]);
+  const hasPostseasonGames = useMemo(() => games.some(isTruePostseasonGame), [games]);
 
   const refreshLive = useCallback(async () => {
     setIssues([]);
