@@ -1,3 +1,4 @@
+import { CONFERENCE_CHAMPIONSHIP_SLOTS } from './conferenceChampionships';
 import type { GameStage } from './schedule';
 
 export type TemplateEvent = {
@@ -18,18 +19,6 @@ export type TemplateEvent = {
   awayDerivedFrom?: string;
 };
 
-const CONFERENCE_CHAMPIONSHIPS = [
-  { slug: 'acc', title: 'ACC' },
-  { slug: 'sec', title: 'SEC' },
-  { slug: 'big-ten', title: 'Big Ten' },
-  { slug: 'big-12', title: 'Big 12' },
-  { slug: 'aac', title: 'AAC' },
-  { slug: 'c-usa', title: 'C-USA' },
-  { slug: 'mac', title: 'MAC' },
-  { slug: 'mwc', title: 'MWC' },
-  { slug: 'sun-belt', title: 'Sun Belt' },
-] as const;
-
 const BOWL_TEMPLATES = [
   { slug: 'rose-bowl', label: 'Rose Bowl', week: 17, slotOrder: 10 },
   { slug: 'sugar-bowl', label: 'Sugar Bowl', week: 17, slotOrder: 11 },
@@ -40,7 +29,7 @@ const BOWL_TEMPLATES = [
 export function buildPostseasonTemplate(season: number): TemplateEvent[] {
   const out: TemplateEvent[] = [];
 
-  CONFERENCE_CHAMPIONSHIPS.forEach((conf, idx) => {
+  CONFERENCE_CHAMPIONSHIP_SLOTS.forEach((conf, idx) => {
     out.push({
       id: `${season}-${conf.slug}-championship`,
       eventKey: `${conf.slug}-championship`,
