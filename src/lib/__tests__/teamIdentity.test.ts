@@ -380,6 +380,145 @@ test('placeholder rows bypass team identity resolution', () => {
   );
 });
 
+test('conference championship matchup without championship label still hydrates seeded slot', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Georgia', level: 'FBS' },
+      { school: 'Alabama', level: 'FBS' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: '2025-sec-final',
+        week: 15,
+        startDate: '2025-12-08T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Georgia',
+        awayTeam: 'Alabama',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'postseason',
+      },
+    ],
+  });
+
+  const secGames = built.games.filter((g) => g.eventId === '2025-sec-championship');
+  assert.equal(secGames.length, 1);
+  assert.equal(secGames[0]?.participants.home.kind, 'team');
+  assert.equal(secGames[0]?.participants.away.kind, 'team');
+  assert.equal(
+    built.games.some((g) => g.eventId === '2025-sec-final'),
+    false
+  );
+});
+
+test('representative conference championship matchups hydrate canonical conference slots', () => {
+  const entries = [
+    {
+      id: 'sec-real',
+      conference: 'SEC',
+      home: 'Georgia',
+      away: 'Alabama',
+      expectedEventId: '2025-sec-championship',
+    },
+    {
+      id: 'mwc-real',
+      conference: 'Mountain West',
+      home: 'Boise State',
+      away: 'UNLV',
+      expectedEventId: '2025-mwc-championship',
+    },
+    {
+      id: 'b1g-real',
+      conference: 'Big Ten',
+      home: 'Indiana',
+      away: 'Ohio State',
+      expectedEventId: '2025-big-ten-championship',
+    },
+    {
+      id: 'b12-real',
+      conference: 'Big 12',
+      home: 'BYU',
+      away: 'Texas Tech',
+      expectedEventId: '2025-big-12-championship',
+    },
+    {
+      id: 'aac-real',
+      conference: 'American Athletic',
+      home: 'Tulane',
+      away: 'North Texas',
+      expectedEventId: '2025-aac-championship',
+    },
+    {
+      id: 'acc-real',
+      conference: 'ACC',
+      home: 'Duke',
+      away: 'Virginia',
+      expectedEventId: '2025-acc-championship',
+    },
+    {
+      id: 'mac-real',
+      conference: 'Mid-American',
+      home: 'Western Michigan',
+      away: 'Miami (OH)',
+      expectedEventId: '2025-mac-championship',
+    },
+    {
+      id: 'cusa-real',
+      conference: 'Conference USA',
+      home: 'Jacksonville State',
+      away: 'Kennesaw State',
+      expectedEventId: '2025-c-usa-championship',
+    },
+    {
+      id: 'sun-real',
+      conference: 'Sun Belt',
+      home: 'James Madison',
+      away: 'Troy',
+      expectedEventId: '2025-sun-belt-championship',
+    },
+  ] as const;
+
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: entries.flatMap((entry) => [
+      { school: entry.home, level: 'FBS' as const },
+      { school: entry.away, level: 'FBS' as const },
+    ]),
+    season: 2025,
+    scheduleItems: entries.map((entry) => ({
+      id: entry.id,
+      week: 15,
+      startDate: '2025-12-07T01:00:00.000Z',
+      neutralSite: true,
+      conferenceGame: true,
+      homeTeam: entry.home,
+      awayTeam: entry.away,
+      homeConference: entry.conference,
+      awayConference: entry.conference,
+      status: 'scheduled',
+      seasonType: 'postseason' as const,
+    })),
+  });
+
+  for (const entry of entries) {
+    const slot = built.games.find((game) => game.eventId === entry.expectedEventId);
+    assert.ok(slot, `missing slot for ${entry.expectedEventId}`);
+    assert.equal(slot?.participants.home.kind, 'team');
+    assert.equal(slot?.participants.away.kind, 'team');
+    assert.equal(slot?.participants.home.displayName, entry.home);
+    assert.equal(slot?.participants.away.displayName, entry.away);
+    assert.equal(
+      built.games.some((game) => game.eventId === entry.id),
+      false,
+      `duplicate standalone row still present for ${entry.id}`
+    );
+  }
+});
+
 test('conference championship matchup hydrates seeded slot instead of creating duplicate row', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},

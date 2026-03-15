@@ -177,7 +177,10 @@ function isPostseasonContext(row: ScheduleWireItem, text: string): boolean {
     hasChampionshipMarker(text) || hasPlayoffMarker(text) || hasBowlMarker(text);
 
   const seasonType = (row.seasonType ?? '').toLowerCase();
-  if (seasonType === 'postseason') return hasPostseasonMarkers || hasPostseasonMarkersWithVenue;
+  if (seasonType === 'postseason') {
+    if (hasPostseasonMarkers || hasPostseasonMarkersWithVenue) return true;
+    return Boolean(row.conferenceGame);
+  }
   if (seasonType === 'regular') return false;
   return hasPostseasonMarkersWithVenue;
 }
@@ -210,7 +213,7 @@ function classifyConferenceChampionship(
   text: string
 ): (typeof CONFERENCE_CHAMPIONSHIPS)[number] | null {
   const hasChampionship = hasChampionshipMarker(text);
-  if (!hasChampionship || hasPlayoffMarker(text)) return null;
+  if (hasPlayoffMarker(text)) return null;
 
   const seasonType = (row.seasonType ?? '').toLowerCase();
   const conferencesAgree =
@@ -224,14 +227,18 @@ function classifyConferenceChampionship(
     conferenceMatchByAlias(text, row.homeTeam) ??
     conferenceMatchByAlias(text, row.awayTeam);
 
-  if (explicitConferenceInText) return explicitConferenceInText;
+  if (explicitConferenceInText && hasChampionship) return explicitConferenceInText;
 
   const explicitConferenceFromMatchedTeams = conferencesAgree
     ? (conferenceMatchByAlias(text, row.homeConference) ??
       conferenceMatchByAlias(text, row.awayConference))
     : undefined;
 
-  if (explicitConferenceFromMatchedTeams && (row.conferenceGame || conferencesAgree)) {
+  if (
+    explicitConferenceFromMatchedTeams &&
+    hasChampionship &&
+    (row.conferenceGame || conferencesAgree)
+  ) {
     return explicitConferenceFromMatchedTeams;
   }
 
