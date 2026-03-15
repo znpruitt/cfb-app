@@ -4,6 +4,10 @@ import {
   normalizeAliasLookup,
   normalizeTeamName,
 } from './teamNormalization';
+import {
+  inferSubdivisionFromConference as inferConferenceSubdivision,
+  type ConferenceSubdivision,
+} from './conferenceSubdivision';
 
 export type TeamCatalogItem = {
   school: string;
@@ -14,7 +18,7 @@ export type TeamCatalogItem = {
   alts?: string[];
 };
 
-export type TeamSubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
+export type TeamSubdivision = ConferenceSubdivision;
 
 export type TeamIdentity = {
   id: string;
@@ -60,55 +64,6 @@ function toSubdivision(level?: string | null): TeamSubdivision {
   return 'OTHER';
 }
 
-function inferSubdivisionFromConference(conference?: string | null): TeamSubdivision {
-  const text = (conference ?? '').toLowerCase();
-  if (!text) return 'OTHER';
-
-  const isFcsConference =
-    text.includes('fcs') ||
-    text.includes('ivy') ||
-    text.includes('patriot') ||
-    text.includes('swac') ||
-    text.includes('big sky') ||
-    text.includes('missouri valley') ||
-    text.includes('southern') ||
-    text.includes('southland') ||
-    text.includes('meac') ||
-    text.includes('caa') ||
-    text.includes('uac') ||
-    text.includes('nec') ||
-    text.includes('pioneer');
-
-  if (isFcsConference) {
-    return 'FCS';
-  }
-
-  const isFbsConference =
-    text.includes('sec') ||
-    text.includes('big ten') ||
-    text.includes('acc') ||
-    text.includes('big 12') ||
-    text.includes('pac-12') ||
-    text.includes('pac 12') ||
-    text.includes('american athletic') ||
-    text.includes('american') ||
-    text.includes('mountain west') ||
-    text.includes('mid-american') ||
-    text.includes('mid american') ||
-    text.includes('mac') ||
-    text.includes('sun belt') ||
-    text.includes('conference usa') ||
-    text.includes('c-usa') ||
-    text.includes('cusa') ||
-    (text.includes('independent') && !text.includes('fcs'));
-
-  if (isFbsConference) {
-    return 'FBS';
-  }
-
-  return 'OTHER';
-}
-
 const REGISTRY_CACHE = new Map<string, Map<string, TeamIdentity>>();
 
 function buildCanonicalRegistry(params: {
@@ -129,7 +84,7 @@ function buildCanonicalRegistry(params: {
     const subdivisionFromLevel = toSubdivision(team.level ?? team.subdivision);
     const subdivision =
       subdivisionFromLevel === 'OTHER' || subdivisionFromLevel === 'UNKNOWN'
-        ? inferSubdivisionFromConference(team.conference)
+        ? inferConferenceSubdivision(team.conference)
         : subdivisionFromLevel;
     const owner = ownersByTeamId?.get(id) ?? null;
     registry.set(id, {
@@ -189,7 +144,7 @@ function buildCanonicalRegistry(params: {
   for (const name of observedNames) {
     const id = normalizeTeamName(name);
     if (!id || registry.has(id)) continue;
-    const subdivision = inferSubdivisionFromConference(null);
+    const subdivision = inferConferenceSubdivision(null);
     registry.set(id, {
       id,
       displayName: name,

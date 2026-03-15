@@ -2,6 +2,7 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity
 import type { AliasMap } from './teamNames';
 import { isLikelyInvalidTeamLabel } from './teamNormalization';
 import { classifyScheduleRow } from './postseason-classify';
+import { inferSubdivisionFromConference } from './conferenceSubdivision';
 import type { HydrationDiagnostic } from './postseason-hydrate';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
@@ -195,50 +196,6 @@ function isFbsTeam(
 
 type EligibilitySubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
 
-function inferSubdivisionFromConference(conference: string): EligibilitySubdivision {
-  const text = conference.trim().toLowerCase();
-  if (!text) return 'UNKNOWN';
-
-  const isFcsConference =
-    text.includes('fcs') ||
-    text.includes('ivy') ||
-    text.includes('patriot') ||
-    text.includes('swac') ||
-    text.includes('big sky') ||
-    text.includes('missouri valley') ||
-    text.includes('mvfc') ||
-    text.includes('southern') ||
-    text.includes('southland') ||
-    text.includes('meac') ||
-    text.includes('caa') ||
-    text.includes('uac') ||
-    text.includes('nec') ||
-    text.includes('pioneer');
-  if (isFcsConference) return 'FCS';
-
-  const isFbsConference =
-    text.includes('sec') ||
-    text.includes('big ten') ||
-    text.includes('acc') ||
-    text.includes('big 12') ||
-    text.includes('pac-12') ||
-    text.includes('pac 12') ||
-    text.includes('american athletic') ||
-    text.includes('american') ||
-    text.includes('mountain west') ||
-    text.includes('mid-american') ||
-    text.includes('mid american') ||
-    text.includes('mac') ||
-    text.includes('sun belt') ||
-    text.includes('conference usa') ||
-    text.includes('c-usa') ||
-    text.includes('cusa') ||
-    (text.includes('independent') && !text.includes('fcs'));
-  if (isFbsConference) return 'FBS';
-
-  return 'OTHER';
-}
-
 function classifyTeamSubdivision(params: {
   canonicalTeamName: string;
   conference: string;
@@ -246,12 +203,19 @@ function classifyTeamSubdivision(params: {
   resolver: ReturnType<typeof createTeamIdentityResolver>;
 }): EligibilitySubdivision {
   const { canonicalTeamName, conference, teamMetadataByCanonicalName, resolver } = params;
+  const conferenceSubdivision = inferSubdivisionFromConference(conference);
+
+  // Conference metadata is the most durable signal against alias drift for lower-division teams.
+  // If CFBD marks a participant as an FCS conference member, fail closed and keep it non-FBS.
+  if (conferenceSubdivision === 'FCS') {
+    return 'FCS';
+  }
 
   const resolved = resolver.resolveName(canonicalTeamName);
   if (resolved.status === 'resolved') {
     if (resolved.subdivision === 'FBS') return 'FBS';
     if (resolved.subdivision === 'FCS') return 'FCS';
-    if (resolved.subdivision === 'OTHER') return inferSubdivisionFromConference(conference);
+    if (resolved.subdivision === 'OTHER') return conferenceSubdivision;
   }
 
   const team = teamMetadataByCanonicalName.get(canonicalTeamName);
@@ -261,7 +225,15 @@ function classifyTeamSubdivision(params: {
     if (level.includes('FCS')) return 'FCS';
   }
 
-  return inferSubdivisionFromConference(conference);
+  return conferenceSubdivision;
+}
+
+function isOfficePoolEligibleTeamMatchup(params: {
+  homeSubdivision: EligibilitySubdivision;
+  awaySubdivision: EligibilitySubdivision;
+}): boolean {
+  const { homeSubdivision, awaySubdivision } = params;
+  return homeSubdivision === 'FBS' || awaySubdivision === 'FBS';
 }
 
 function isTrackedGame(
@@ -326,7 +298,7 @@ function isTrackedGame(
     );
   }
 
-  return homeSubdivision === 'FBS' || awaySubdivision === 'FBS';
+  return isOfficePoolEligibleTeamMatchup({ homeSubdivision, awaySubdivision });
 }
 
 function resolveRegularSeasonRow(params: {
@@ -358,7 +330,7 @@ function resolveRegularSeasonRow(params: {
     resolver,
   });
 
-  const include = homeSubdivision === 'FBS' || awaySubdivision === 'FBS';
+  const include = isOfficePoolEligibleTeamMatchup({ homeSubdivision, awaySubdivision });
   return {
     include,
     emitIdentityIssue: include && (!homeKnown || !awayKnown),
