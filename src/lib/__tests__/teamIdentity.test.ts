@@ -752,6 +752,58 @@ test('normalized conference championship metadata drives representative week ren
   assert.equal(built.weeks.includes(15), true);
 });
 
+
+test('conference championship fallback event ids stay unique without normalized key/conference', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      { school: 'Team A', level: 'FBS', conference: 'Alpha' },
+      { school: 'Team B', level: 'FBS', conference: 'Alpha' },
+      { school: 'Team C', level: 'FBS', conference: 'Beta' },
+      { school: 'Team D', level: 'FBS', conference: 'Beta' },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'ccg-a',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Team A',
+        awayTeam: 'Team B',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+      },
+      {
+        id: 'ccg-b',
+        week: 15,
+        startDate: '2025-12-07T01:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Team C',
+        awayTeam: 'Team D',
+        homeConference: '',
+        awayConference: '',
+        status: 'scheduled',
+        seasonType: 'regular',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+      },
+    ],
+  });
+
+  const championshipGames = built.games.filter((g) => g.stage === 'conference_championship');
+  assert.equal(championshipGames.length, 2);
+  assert.notEqual(championshipGames[0]?.eventId, championshipGames[1]?.eventId);
+  assert.ok(championshipGames.some((g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-a'));
+  assert.ok(championshipGames.some((g) => g.eventId === '2025-conference-championship-week-15-2025-12-07-id-ccg-b'));
+});
+
 test('merged participants keep csv and canonical fields aligned for shared event ids', () => {
   const built = buildScheduleFromApi({
     aliasMap: {},

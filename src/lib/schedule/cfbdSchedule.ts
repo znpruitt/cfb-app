@@ -256,29 +256,35 @@ function deriveEventMetadata(params: {
   }
 
   if (normalizedGamePhase === 'postseason') {
-    const postseasonSubtype: PostseasonSubtype =
-      normalizedPostseasonSubtype === 'playoff' ? 'playoff' : 'bowl';
+    const text = normalizedText(game);
+    const bowlName = normalizedBowlName || extractBowlName(game);
+    const playoffFromText = hasPlayoffMarker(text);
+    const roundFromText = playoffFromText ? playoffRoundFromText(text) : null;
     const round: PlayoffRound | null =
       normalizedPlayoffRound === 'quarterfinal' ||
       normalizedPlayoffRound === 'semifinal' ||
       normalizedPlayoffRound === 'national_championship' ||
       normalizedPlayoffRound === 'playoff'
         ? (normalizedPlayoffRound as PlayoffRound)
-        : null;
+        : roundFromText;
+    const postseasonSubtype: PostseasonSubtype =
+      normalizedPostseasonSubtype === 'playoff' || (normalizedPostseasonSubtype !== 'bowl' && playoffFromText)
+        ? 'playoff'
+        : 'bowl';
 
     return {
       gamePhase: 'postseason',
       regularSubtype: 'standard',
       postseasonSubtype,
       playoffRound: round,
-      bowlName: normalizedBowlName || null,
+      bowlName,
       conferenceChampionshipConference: null,
       eventKey:
         normalizedEventKey ||
         (postseasonSubtype === 'playoff'
-          ? playoffEventKey(round ?? 'playoff', normalizedBowlName || null)
-          : normalizedBowlName
-            ? slugify(normalizedBowlName)
+          ? playoffEventKey(round ?? 'playoff', bowlName)
+          : bowlName
+            ? slugify(bowlName)
             : null),
       slotOrder: normalizedSlotOrder,
       neutralSiteDisplay:

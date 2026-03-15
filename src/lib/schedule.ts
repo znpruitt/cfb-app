@@ -302,7 +302,12 @@ function buildConferenceChampionshipEventKey(item: ScheduleWireItem): string {
   }
 
   const dateKey = (item.startDate ?? '').slice(0, 10).replace(/[^0-9-]/g, '');
-  return ['conference-championship', `week-${item.week}`, dateKey || `id-${item.id}`].join('-');
+  return [
+    'conference-championship',
+    `week-${item.week}`,
+    dateKey || 'date-unknown',
+    `id-${item.id}`,
+  ].join('-');
 }
 
 function buildPlaceholderParticipant(params: {

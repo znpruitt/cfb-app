@@ -115,6 +115,31 @@ test('mapCfbdScheduleGame maps ordinary bowl game', () => {
   }
 });
 
+
+test('mapCfbdScheduleGame uses playoff inference when normalized postseason subtype is missing', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 701,
+      week: 18,
+      home_team: 'TBD',
+      away_team: 'TBD',
+      game_phase: 'postseason',
+      postseason_subtype: null,
+      notes: 'College Football Playoff Semifinal at the Cotton Bowl',
+      neutral_site: true,
+    },
+    'postseason'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.gamePhase, 'postseason');
+    assert.equal(result.item.postseasonSubtype, 'playoff');
+    assert.equal(result.item.playoffRound, 'semifinal');
+    assert.equal(result.item.eventKey, 'cfp-semifinal-cotton-bowl');
+  }
+});
+
 test('mapCfbdScheduleGame recognizes conference championship as regular-season subtype', () => {
   const result = mapCfbdScheduleGame(
     {
