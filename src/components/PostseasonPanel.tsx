@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
+import { isTruePostseasonGame } from '../lib/postseason-display';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
 import GameWeekPanel from './GameWeekPanel';
@@ -14,17 +15,11 @@ type PostseasonPanelProps = {
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
 };
 
-const GROUP_ORDER = [
-  'conference_championship',
-  'bowl',
-  'playoff',
-  'national_championship',
-] as const;
+const GROUP_ORDER = ['bowl', 'playoff', 'national_championship'] as const;
 
 type GroupKey = (typeof GROUP_ORDER)[number];
 
 const GROUP_LABEL: Record<GroupKey, string> = {
-  conference_championship: 'Conference Championships',
   bowl: 'Bowls',
   playoff: 'Playoff',
   national_championship: 'National Championship',
@@ -45,20 +40,15 @@ export default function PostseasonPanel({
   isDebug,
   onSavePostseasonOverride,
 }: PostseasonPanelProps): React.ReactElement {
-  const postseason = games.filter((g) => g.stage !== 'regular');
+  const postseason = games.filter(isTruePostseasonGame);
 
   const grouped = new Map<GroupKey, AppGame[]>();
   GROUP_ORDER.forEach((key) => grouped.set(key, []));
 
   for (const game of postseason) {
-    const role: GroupKey =
-      game.postseasonRole ??
-      (game.stage === 'conference_championship'
-        ? 'conference_championship'
-        : game.stage === 'playoff'
-          ? 'playoff'
-          : 'bowl');
-    const bucket = grouped.get(role);
+    const inferredRole = game.postseasonRole ?? (game.stage === 'playoff' ? 'playoff' : 'bowl');
+    if (inferredRole === 'conference_championship') continue;
+    const bucket = grouped.get(inferredRole);
     if (bucket) {
       bucket.push(game);
     }
