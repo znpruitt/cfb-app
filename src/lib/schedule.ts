@@ -394,12 +394,16 @@ function buildAuthoritativeGameCollection(
   postseasonGames: AppGame[],
   overrides?: Record<string, Partial<AppGame>>
 ): AppGame[] {
-  const byEventId = new Map<string, AppGame>();
+  const byMergeKey = new Map<string, AppGame>();
+
+  const toMergeKey = (game: AppGame): string =>
+    [game.eventId, game.stage, String(game.week), game.date ?? 'unknown'].join('::');
 
   for (const game of [...regularGames, ...postseasonGames]) {
-    const existing = byEventId.get(game.eventId);
+    const mergeKey = toMergeKey(game);
+    const existing = byMergeKey.get(mergeKey);
     if (!existing) {
-      byEventId.set(game.eventId, game);
+      byMergeKey.set(mergeKey, game);
       continue;
     }
 
@@ -428,7 +432,7 @@ function buildAuthoritativeGameCollection(
           : preferred.participants.away,
     };
 
-    byEventId.set(game.eventId, {
+    byMergeKey.set(mergeKey, {
       ...existing,
       ...preferred,
       participants: mergedParticipants,
@@ -441,12 +445,13 @@ function buildAuthoritativeGameCollection(
   }
 
   for (const [eventId, override] of Object.entries(overrides ?? {})) {
-    const current = byEventId.get(eventId);
-    if (!current) continue;
-    byEventId.set(eventId, applyManualOverride(current, override));
+    for (const [mergeKey, current] of byMergeKey.entries()) {
+      if (current.eventId !== eventId) continue;
+      byMergeKey.set(mergeKey, applyManualOverride(current, override));
+    }
   }
 
-  return Array.from(byEventId.values());
+  return Array.from(byMergeKey.values());
 }
 
 export function buildScheduleFromApi(params: {
