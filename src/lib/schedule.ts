@@ -193,11 +193,96 @@ function isFbsTeam(
   return level.includes('FBS');
 }
 
+type EligibilitySubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
+
+function inferSubdivisionFromConference(conference: string): EligibilitySubdivision {
+  const text = conference.trim().toLowerCase();
+  if (!text) return 'UNKNOWN';
+
+  const isFcsConference =
+    text.includes('fcs') ||
+    text.includes('ivy') ||
+    text.includes('patriot') ||
+    text.includes('swac') ||
+    text.includes('big sky') ||
+    text.includes('missouri valley') ||
+    text.includes('mvfc') ||
+    text.includes('southern') ||
+    text.includes('southland') ||
+    text.includes('meac') ||
+    text.includes('caa') ||
+    text.includes('uac') ||
+    text.includes('nec') ||
+    text.includes('pioneer');
+  if (isFcsConference) return 'FCS';
+
+  const isFbsConference =
+    text.includes('sec') ||
+    text.includes('big ten') ||
+    text.includes('acc') ||
+    text.includes('big 12') ||
+    text.includes('pac-12') ||
+    text.includes('pac 12') ||
+    text.includes('american athletic') ||
+    text.includes('american') ||
+    text.includes('mountain west') ||
+    text.includes('mid-american') ||
+    text.includes('mid american') ||
+    text.includes('mac') ||
+    text.includes('sun belt') ||
+    text.includes('conference usa') ||
+    text.includes('c-usa') ||
+    text.includes('cusa') ||
+    (text.includes('independent') && !text.includes('fcs'));
+  if (isFbsConference) return 'FBS';
+
+  return 'OTHER';
+}
+
+function classifyTeamSubdivision(params: {
+  canonicalTeamName: string;
+  conference: string;
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>;
+  resolver: ReturnType<typeof createTeamIdentityResolver>;
+}): EligibilitySubdivision {
+  const { canonicalTeamName, conference, teamMetadataByCanonicalName, resolver } = params;
+
+  const resolved = resolver.resolveName(canonicalTeamName);
+  if (resolved.status === 'resolved') {
+    if (resolved.subdivision === 'FBS') return 'FBS';
+    if (resolved.subdivision === 'FCS') return 'FCS';
+    if (resolved.subdivision === 'OTHER') return inferSubdivisionFromConference(conference);
+  }
+
+  const team = teamMetadataByCanonicalName.get(canonicalTeamName);
+  if (team) {
+    const level = (team.level ?? team.subdivision ?? '').trim().toUpperCase();
+    if (level.includes('FBS')) return 'FBS';
+    if (level.includes('FCS')) return 'FCS';
+  }
+
+  return inferSubdivisionFromConference(conference);
+}
+
 function isTrackedGame(
   game: AppGame,
   teamMetadataByCanonicalName: Map<string, TeamCatalogItem>,
   resolver: ReturnType<typeof createTeamIdentityResolver>
 ): boolean {
+  const isRecognizedPlaceholderParticipant = (participant: ParticipantSlot): boolean => {
+    if (participant.kind === 'derived') return true;
+    if (participant.kind === 'placeholder') {
+      return participant.source === 'postseason-classifier';
+    }
+    return false;
+  };
+
+  const isRecognizedPlaceholderShell =
+    game.isPlaceholder &&
+    game.stage !== 'regular' &&
+    isRecognizedPlaceholderParticipant(game.participants.home) &&
+    isRecognizedPlaceholderParticipant(game.participants.away);
+
   const isConferenceChampionshipLikePostseason =
     game.stage !== 'conference_championship' &&
     (game.postseasonRole === 'conference_championship' ||
@@ -207,64 +292,76 @@ function isTrackedGame(
     if (isConferenceChampionshipLikePostseason) {
       return false;
     }
-
-    const homeIsTeam = game.participants.home.kind === 'team';
-    const awayIsTeam = game.participants.away.kind === 'team';
-
-    if (!homeIsTeam && !awayIsTeam) {
-      return true;
-    }
-
-    if ((homeIsTeam && !awayIsTeam) || (!homeIsTeam && awayIsTeam)) {
-      return true;
-    }
-
-    const homeIsFbs = homeIsTeam && isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver);
-    const awayIsFbs = awayIsTeam && isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver);
-    return homeIsFbs || awayIsFbs;
   }
 
   const homeIsTeam = game.participants.home.kind === 'team';
   const awayIsTeam = game.participants.away.kind === 'team';
 
-  if (!homeIsTeam && !awayIsTeam) return true;
+  if (!homeIsTeam && !awayIsTeam) {
+    return isRecognizedPlaceholderShell;
+  }
 
-  const homeIsFbs = homeIsTeam && isFbsTeam(game.canHome, teamMetadataByCanonicalName, resolver);
-  const awayIsFbs = awayIsTeam && isFbsTeam(game.canAway, teamMetadataByCanonicalName, resolver);
-  return homeIsFbs || awayIsFbs;
+  const homeSubdivision = homeIsTeam
+    ? classifyTeamSubdivision({
+        canonicalTeamName: game.canHome,
+        conference: game.homeConf,
+        teamMetadataByCanonicalName,
+        resolver,
+      })
+    : 'UNKNOWN';
+  const awaySubdivision = awayIsTeam
+    ? classifyTeamSubdivision({
+        canonicalTeamName: game.canAway,
+        conference: game.awayConf,
+        teamMetadataByCanonicalName,
+        resolver,
+      })
+    : 'UNKNOWN';
+
+  if ((homeIsTeam && !awayIsTeam) || (!homeIsTeam && awayIsTeam)) {
+    const placeholderParticipant = homeIsTeam ? game.participants.away : game.participants.home;
+    return (
+      isRecognizedPlaceholderParticipant(placeholderParticipant) &&
+      (homeSubdivision === 'FBS' || awaySubdivision === 'FBS')
+    );
+  }
+
+  return homeSubdivision === 'FBS' || awaySubdivision === 'FBS';
 }
 
 function resolveRegularSeasonRow(params: {
   item: ScheduleWireItem;
   resolver: ReturnType<typeof createTeamIdentityResolver>;
+  teamMetadataByCanonicalName: Map<string, TeamCatalogItem>;
 }): {
   include: boolean;
   emitIdentityIssue: boolean;
   homeResolved: ReturnType<ReturnType<typeof createTeamIdentityResolver>['resolveName']>;
   awayResolved: ReturnType<ReturnType<typeof createTeamIdentityResolver>['resolveName']>;
 } {
-  const { item, resolver } = params;
+  const { item, resolver, teamMetadataByCanonicalName } = params;
   const homeResolved = resolver.resolveName(item.homeTeam);
   const awayResolved = resolver.resolveName(item.awayTeam);
   const homeKnown = homeResolved.status === 'resolved';
   const awayKnown = awayResolved.status === 'resolved';
 
-  const homeIsFbs = homeKnown && homeResolved.subdivision === 'FBS';
-  const awayIsFbs = awayKnown && awayResolved.subdivision === 'FBS';
+  const homeSubdivision = classifyTeamSubdivision({
+    canonicalTeamName: homeResolved.canonicalName ?? item.homeTeam,
+    conference: item.homeConference ?? '',
+    teamMetadataByCanonicalName,
+    resolver,
+  });
+  const awaySubdivision = classifyTeamSubdivision({
+    canonicalTeamName: awayResolved.canonicalName ?? item.awayTeam,
+    conference: item.awayConference ?? '',
+    teamMetadataByCanonicalName,
+    resolver,
+  });
 
-  if (homeKnown && awayKnown) {
-    return {
-      include: homeIsFbs || awayIsFbs,
-      emitIdentityIssue: false,
-      homeResolved,
-      awayResolved,
-    };
-  }
-
-  const hasKnownFbsTeam = homeIsFbs || awayIsFbs;
+  const include = homeSubdivision === 'FBS' || awaySubdivision === 'FBS';
   return {
-    include: hasKnownFbsTeam,
-    emitIdentityIssue: hasKnownFbsTeam,
+    include,
+    emitIdentityIssue: include && (!homeKnown || !awayKnown),
     homeResolved,
     awayResolved,
   };
@@ -346,6 +443,20 @@ function buildPlaceholderParticipant(params: {
     };
   }
 
+  const isSyntheticPostseasonSlotLabel =
+    /(college football playoff|\bcfp\b|quarterfinal|semifinal|championship|\bbowl\b)/i.test(
+      trimmed
+    ) && /\b\d+\b/.test(trimmed);
+
+  if (isSyntheticPostseasonSlotLabel) {
+    return {
+      kind: 'placeholder',
+      slotId,
+      displayName: defaultDisplay,
+      source: 'postseason-classifier',
+    };
+  }
+
   if (trimmed && !/\btbd\b/i.test(trimmed) && !isLikelyInvalidTeamLabel(trimmed)) {
     const resolved = resolver.resolveName(trimmed);
     if (resolved.status === 'resolved') {
@@ -364,7 +475,10 @@ function buildPlaceholderParticipant(params: {
     kind: 'placeholder',
     slotId,
     displayName: defaultDisplay,
-    source: 'postseason-classifier',
+    source:
+      trimmed.length === 0 || /\btbd\b/i.test(trimmed) || isLikelyInvalidTeamLabel(trimmed)
+        ? 'postseason-classifier'
+        : 'unresolved-team',
   };
 }
 
@@ -502,6 +616,12 @@ export function buildScheduleFromApi(params: {
     aliasMap,
     observedNames: [...providerNames, ...(params.observedNames ?? [])],
   });
+
+  const canonicalTeamMetadataByName = new Map<string, TeamCatalogItem>();
+  for (const team of teams) {
+    const canonicalName = resolver.resolveName(team.school).canonicalName ?? team.school;
+    canonicalTeamMetadataByName.set(canonicalName, team);
+  }
 
   const apiRegularGames: AppGame[] = [];
   const apiPostseasonGames: AppGame[] = [];
@@ -721,7 +841,11 @@ export function buildScheduleFromApi(params: {
       continue;
     }
 
-    const rowResolution = resolveRegularSeasonRow({ item, resolver });
+    const rowResolution = resolveRegularSeasonRow({
+      item,
+      resolver,
+      teamMetadataByCanonicalName: canonicalTeamMetadataByName,
+    });
     if (!rowResolution.include) {
       continue;
     }
@@ -799,12 +923,6 @@ export function buildScheduleFromApi(params: {
   if (IS_DEBUG) {
     summarizeGames('raw normalized apiGames', [...apiRegularGames, ...apiPostseasonGames]);
     summarizeGames('combinedGames', mergedGames);
-  }
-
-  const canonicalTeamMetadataByName = new Map<string, TeamCatalogItem>();
-  for (const team of teams) {
-    const canonicalName = resolver.resolveName(team.school).canonicalName ?? team.school;
-    canonicalTeamMetadataByName.set(canonicalName, team);
   }
 
   const trackedGames = mergedGames.filter((game) =>

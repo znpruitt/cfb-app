@@ -101,7 +101,6 @@ test('conference placeholders are excluded from postseason tab while week-based 
   );
 });
 
-
 test('playoff slot placeholders with one synthetic slot side remain tracked in postseason', () => {
   const built = buildScheduleFromApi({
     season: 2025,
@@ -119,8 +118,8 @@ test('playoff slot placeholders with one synthetic slot side remain tracked in p
         conferenceGame: false,
         homeTeam: 'CFP Semifinal 1',
         awayTeam: 'TBD',
-        homeConference: null,
-        awayConference: null,
+        homeConference: '',
+        awayConference: '',
         status: 'scheduled',
         label: 'College Football Playoff Semifinal',
         seasonType: 'postseason',
