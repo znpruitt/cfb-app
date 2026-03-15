@@ -364,6 +364,8 @@ export default function CFBScheduleApp(): React.ReactElement {
       });
   }, [games, selectedConference, teamFilter]);
 
+  const hasPostseasonGames = useMemo(() => games.some((g) => g.stage !== 'regular'), [games]);
+
   const refreshLive = useCallback(async () => {
     setIssues([]);
     setDiag([]);
@@ -594,12 +596,12 @@ export default function CFBScheduleApp(): React.ReactElement {
         onClearCachedOwners={clearCachedOwners}
       />
 
-      {(weeks.length > 0 || postseasonGames.length > 0) && (
+      {(weeks.length > 0 || hasPostseasonGames) && (
         <>
           <WeekControls
             weeks={weeks}
             selectedTab={selectedTab}
-            hasPostseason={postseasonGames.length > 0}
+            hasPostseason={hasPostseasonGames}
             selectedConference={selectedConference}
             conferences={conferences}
             teamFilter={teamFilter}
@@ -624,7 +626,7 @@ export default function CFBScheduleApp(): React.ReactElement {
             />
           )}
 
-          {selectedTab === 'postseason' && postseasonGames.length > 0 && (
+          {selectedTab === 'postseason' && hasPostseasonGames && (
             <PostseasonPanel
               games={postseasonGames}
               oddsByKey={oddsByKey}
