@@ -1,9 +1,8 @@
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
 import type { AliasMap } from './teamNames';
 import { isLikelyInvalidTeamLabel } from './teamNormalization';
-import { buildPostseasonTemplate, type TemplateEvent } from './postseason-template';
 import { classifyScheduleRow } from './postseason-classify';
-import { hydrateEvents, type HydrationDiagnostic } from './postseason-hydrate';
+import type { HydrationDiagnostic } from './postseason-hydrate';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 
@@ -199,6 +198,15 @@ function isTrackedGame(
   teamMetadataByCanonicalName: Map<string, TeamCatalogItem>,
   resolver: ReturnType<typeof createTeamIdentityResolver>
 ): boolean {
+  if (game.stage !== 'regular' && game.stage !== 'conference_championship') {
+    // Only normalized provider postseason rows are authoritative regardless of participant
+    // resolution. Fallback-classified postseason rows still flow through FBS participation
+    // checks to avoid reintroducing out-of-scope lower-division matchups.
+    if (game.sources?.event === 'cfbd-normalized') {
+      return true;
+    }
+  }
+
   const homeIsTeam = game.participants.home.kind === 'team';
   const awayIsTeam = game.participants.away.kind === 'team';
 
@@ -324,74 +332,6 @@ function buildPlaceholderParticipant(params: {
   };
 }
 
-function buildTemplateGame(event: TemplateEvent): AppGame {
-  return {
-    key: event.id,
-    eventId: event.id,
-    week: event.week,
-    date: event.date,
-    stage: event.stage,
-    status: 'placeholder',
-    stageOrder: stageOrder(event.stage),
-    slotOrder: event.slotOrder,
-    eventKey: event.eventKey,
-    label: event.label,
-    conference: event.conference,
-    bowlName: event.bowlName,
-    playoffRound: event.playoffRound,
-    providerGameId: null,
-    postseasonRole:
-      event.stage === 'conference_championship'
-        ? 'conference_championship'
-        : event.playoffRound === 'national_championship'
-          ? 'national_championship'
-          : event.stage === 'playoff'
-            ? 'playoff'
-            : 'bowl',
-    neutral: true,
-    neutralDisplay: 'vs',
-    venue: event.venue,
-    isPlaceholder: true,
-    sources: { event: 'postseason-template', participants: 'postseason-template' },
-    participants: {
-      home: event.homeDerivedFrom
-        ? {
-            kind: 'derived',
-            slotId: `${event.id}-home`,
-            displayName: event.homeDisplay,
-            sourceEventId: event.homeDerivedFrom,
-            derivation: 'winner',
-          }
-        : {
-            kind: 'placeholder',
-            slotId: `${event.id}-home`,
-            displayName: event.homeDisplay || toPlaceholderDisplay(event.conference),
-            source: 'postseason-template',
-          },
-      away: event.awayDerivedFrom
-        ? {
-            kind: 'derived',
-            slotId: `${event.id}-away`,
-            displayName: event.awayDisplay,
-            sourceEventId: event.awayDerivedFrom,
-            derivation: 'winner',
-          }
-        : {
-            kind: 'placeholder',
-            slotId: `${event.id}-away`,
-            displayName: event.awayDisplay || toPlaceholderDisplay(event.conference),
-            source: 'postseason-template',
-          },
-    },
-    csvAway: event.awayDisplay,
-    csvHome: event.homeDisplay,
-    canAway: '',
-    canHome: '',
-    awayConf: '',
-    homeConf: '',
-  };
-}
-
 function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame {
   return {
     ...base,
@@ -404,48 +344,66 @@ function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame
   };
 }
 
-function mergeRealGameWithPlaceholder(
-  existing: AppGame,
-  template: AppGame,
-  override?: Partial<AppGame>
-): AppGame {
-  const merged: AppGame = {
-    ...template,
-    ...existing,
-    participants: {
-      home: existing.participants.home ?? template.participants.home,
-      away: existing.participants.away ?? template.participants.away,
-    },
-    sources: { ...template.sources, ...existing.sources },
-  };
-
-  return override ? applyManualOverride(merged, override) : merged;
+function participantCsvValue(participant: ParticipantSlot): string {
+  if (participant.kind === 'team') return participant.rawName;
+  return participant.displayName;
 }
 
-function mergeRegularSeasonAndPostseason(
+function participantCanonicalValue(participant: ParticipantSlot): string {
+  return participant.kind === 'team' ? participant.canonicalName : '';
+}
+
+function buildAuthoritativeGameCollection(
   regularGames: AppGame[],
-  postseasonTemplates: AppGame[],
+  postseasonGames: AppGame[],
   overrides?: Record<string, Partial<AppGame>>
 ): AppGame[] {
-  const byKey = new Map<string, AppGame>();
+  const byEventId = new Map<string, AppGame>();
 
-  for (const game of regularGames) {
-    const override = overrides?.[game.eventId];
-    byKey.set(game.eventId, override ? applyManualOverride(game, override) : game);
-  }
-
-  for (const template of postseasonTemplates) {
-    const existing = byKey.get(template.eventId);
-    const override = overrides?.[template.eventId];
+  for (const game of [...regularGames, ...postseasonGames]) {
+    const existing = byEventId.get(game.eventId);
     if (!existing) {
-      byKey.set(template.eventId, override ? applyManualOverride(template, override) : template);
+      byEventId.set(game.eventId, game);
       continue;
     }
 
-    byKey.set(template.eventId, mergeRealGameWithPlaceholder(existing, template, override));
+    const preferred =
+      existing.isPlaceholder && !game.isPlaceholder
+        ? game
+        : !existing.isPlaceholder && game.isPlaceholder
+          ? existing
+          : game;
+
+    const mergedParticipants = {
+      home:
+        existing.participants.home.kind === 'team'
+          ? existing.participants.home
+          : preferred.participants.home,
+      away:
+        existing.participants.away.kind === 'team'
+          ? existing.participants.away
+          : preferred.participants.away,
+    };
+
+    byEventId.set(game.eventId, {
+      ...existing,
+      ...preferred,
+      participants: mergedParticipants,
+      csvHome: participantCsvValue(mergedParticipants.home),
+      csvAway: participantCsvValue(mergedParticipants.away),
+      canHome: participantCanonicalValue(mergedParticipants.home),
+      canAway: participantCanonicalValue(mergedParticipants.away),
+      sources: { ...existing.sources, ...preferred.sources },
+    });
   }
 
-  return Array.from(byKey.values());
+  for (const [eventId, override] of Object.entries(overrides ?? {})) {
+    const current = byEventId.get(eventId);
+    if (!current) continue;
+    byEventId.set(eventId, applyManualOverride(current, override));
+  }
+
+  return Array.from(byEventId.values());
 }
 
 export function buildScheduleFromApi(params: {
@@ -472,7 +430,6 @@ export function buildScheduleFromApi(params: {
     observedNames: [...providerNames, ...(params.observedNames ?? [])],
   });
 
-  const seedEvents = buildPostseasonTemplate(season).map(buildTemplateGame);
   const apiRegularGames: AppGame[] = [];
   const apiPostseasonGames: AppGame[] = [];
 
@@ -481,16 +438,21 @@ export function buildScheduleFromApi(params: {
       item.gamePhase === 'conference_championship' ||
       item.regularSubtype === 'conference_championship';
     if (hasConferenceChampionshipMetadata) {
-      const rowResolution = resolveRegularSeasonRow({ item, resolver });
-      if (!rowResolution.include) {
-        continue;
-      }
-
-      const { homeResolved, awayResolved } = rowResolution;
-      const canHome = homeResolved.canonicalName ?? item.homeTeam;
-      const canAway = awayResolved.canonicalName ?? item.awayTeam;
-      const eventKey = item.eventKey?.trim() || `${item.week}-${canAway}-${canHome}`;
+      const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
       const eventId = `${season}-${eventKey}`;
+      const homeParticipant = buildPlaceholderParticipant({
+        resolver,
+        raw: item.homeTeam,
+        slotId: `${eventId}-home`,
+        defaultDisplay: toPlaceholderDisplay(item.conferenceChampionshipConference),
+      });
+      const awayParticipant = buildPlaceholderParticipant({
+        resolver,
+        raw: item.awayTeam,
+        slotId: `${eventId}-away`,
+        defaultDisplay: toPlaceholderDisplay(item.conferenceChampionshipConference),
+      });
+      const hasKnownTeams = homeParticipant.kind === 'team' || awayParticipant.kind === 'team';
 
       apiRegularGames.push({
         key: eventId,
@@ -498,7 +460,7 @@ export function buildScheduleFromApi(params: {
         week: item.week,
         date: item.startDate,
         stage: 'conference_championship',
-        status: mapStatus(item.status, false),
+        status: mapStatus(item.status, !hasKnownTeams),
         stageOrder: stageOrder('conference_championship'),
         slotOrder: item.slotOrder ?? 1,
         eventKey,
@@ -512,33 +474,20 @@ export function buildScheduleFromApi(params: {
         neutralDisplay:
           item.neutralSiteDisplay === 'vs' ? 'vs' : item.neutralSite ? 'vs' : 'home_away',
         venue: item.venue ?? null,
-        isPlaceholder: false,
+        isPlaceholder: !hasKnownTeams,
         sources: {
           event: 'cfbd-normalized',
-          participants: 'cfbd+resolver',
+          participants: hasKnownTeams ? 'cfbd+resolver' : 'cfbd-normalized',
           kickoff: 'cfbd',
           venue: 'cfbd',
         },
-        participants: {
-          home: {
-            kind: 'team',
-            teamId: homeResolved.identityKey ?? canHome,
-            displayName: canHome,
-            canonicalName: canHome,
-            rawName: item.homeTeam,
-          },
-          away: {
-            kind: 'team',
-            teamId: awayResolved.identityKey ?? canAway,
-            displayName: canAway,
-            canonicalName: canAway,
-            rawName: item.awayTeam,
-          },
-        },
-        csvAway: item.awayTeam,
-        csvHome: item.homeTeam,
-        canAway,
-        canHome,
+        participants: { home: homeParticipant, away: awayParticipant },
+        csvAway:
+          awayParticipant.kind === 'team' ? awayParticipant.rawName : awayParticipant.displayName,
+        csvHome:
+          homeParticipant.kind === 'team' ? homeParticipant.rawName : homeParticipant.displayName,
+        canAway: awayParticipant.kind === 'team' ? awayParticipant.canonicalName : '',
+        canHome: homeParticipant.kind === 'team' ? homeParticipant.canonicalName : '',
         awayConf: item.awayConference ?? '',
         homeConf: item.homeConference ?? '',
       });
@@ -767,20 +716,14 @@ export function buildScheduleFromApi(params: {
     });
   }
 
-  const { games: hydratedPostseasonGames, diagnostics } = hydrateEvents({
-    baseEvents: seedEvents,
-    providerEvents: apiPostseasonGames,
-  });
-
-  const mergedGames = mergeRegularSeasonAndPostseason(
+  const mergedGames = buildAuthoritativeGameCollection(
     apiRegularGames,
-    hydratedPostseasonGames,
+    apiPostseasonGames,
     params.manualOverrides
   );
 
   if (IS_DEBUG) {
     summarizeGames('raw normalized apiGames', [...apiRegularGames, ...apiPostseasonGames]);
-    summarizeGames('postseasonTemplates', seedEvents);
     summarizeGames('combinedGames', mergedGames);
   }
 
@@ -842,6 +785,6 @@ export function buildScheduleFromApi(params: {
     byes,
     conferences: ['ALL', ...Array.from(conferenceSet).sort((a, b) => a.localeCompare(b))],
     issues,
-    hydrationDiagnostics: diagnostics,
+    hydrationDiagnostics: [] as HydrationDiagnostic[],
   };
 }
