@@ -103,7 +103,7 @@ export const CURRENT_FOOTBALL_CONFERENCES: CurrentFootballConferencePolicy[] = [
     nickname: 'Independents',
     abbreviation: 'Ind',
     classification: 'fbs',
-    aliases: ['fbsindependents', 'independents', 'independent', 'ind'],
+    aliases: ['fbsindependent', 'fbsindependents', 'independents', 'independent', 'ind'],
   },
   {
     key: 'bigsky',
@@ -133,7 +133,7 @@ export const CURRENT_FOOTBALL_CONFERENCES: CurrentFootballConferencePolicy[] = [
     nickname: 'Independents',
     abbreviation: 'INDAA',
     classification: 'fcs',
-    aliases: ['fcsindependents', 'indaa'],
+    aliases: ['fcsindependent', 'fcsindependents', 'indaa'],
   },
   {
     key: 'ivy',

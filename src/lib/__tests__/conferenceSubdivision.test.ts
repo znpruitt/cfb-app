@@ -35,6 +35,34 @@ test('present-day policy resolves required FBS aliases', () => {
   }
 });
 
+test('present-day policy resolves singular and plural independent aliases correctly', () => {
+  const fbsSingular = classifyConferenceForSubdivision('FBS Independent');
+  assert.equal(fbsSingular.source, 'present_day_policy');
+  assert.equal(fbsSingular.subdivision, 'FBS');
+
+  const fbsPlural = classifyConferenceForSubdivision('FBS Independents');
+  assert.equal(fbsPlural.source, 'present_day_policy');
+  assert.equal(fbsPlural.subdivision, 'FBS');
+
+  const fcsSingular = classifyConferenceForSubdivision('FCS Independent');
+  assert.equal(fcsSingular.source, 'present_day_policy');
+  assert.equal(fcsSingular.subdivision, 'FCS');
+
+  const fcsPlural = classifyConferenceForSubdivision('FCS Independents');
+  assert.equal(fcsPlural.source, 'present_day_policy');
+  assert.equal(fcsPlural.subdivision, 'FCS');
+});
+
+test('generic independent aliases remain non-colliding and resolve to FBS policy', () => {
+  const independent = classifyConferenceForSubdivision('Independent');
+  assert.equal(independent.source, 'present_day_policy');
+  assert.equal(independent.subdivision, 'FBS');
+
+  const independents = classifyConferenceForSubdivision('Independents');
+  assert.equal(independents.source, 'present_day_policy');
+  assert.equal(independents.subdivision, 'FBS');
+});
+
 test('resolvePresentDayConferencePolicy returns expected metadata', () => {
   const match = resolvePresentDayConferencePolicy('The American');
   assert.ok(match);
