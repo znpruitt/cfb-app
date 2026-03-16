@@ -33,6 +33,7 @@ import {
   type ScheduleFetchMeta,
 } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
+import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
@@ -200,9 +201,10 @@ export default function CFBScheduleApp(): React.ReactElement {
 
       try {
         setDiag([]);
-        const [schedulePayload, teams] = await Promise.all([
+        const [schedulePayload, teams, conferenceRecords] = await Promise.all([
           fetchSeasonSchedule(selectedSeason, { bypassCache: options?.bypassCache }),
           fetchTeamsCatalog(),
+          fetchConferencesCatalog({ bypassCache: options?.bypassCache }),
         ]);
         const scheduleItems = schedulePayload.items;
         setScheduleMeta(schedulePayload.meta ?? {});
@@ -238,6 +240,7 @@ export default function CFBScheduleApp(): React.ReactElement {
           aliasMap: overrideAliasMap ?? aliasMap,
           season: selectedSeason,
           manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
+          conferenceRecords,
         });
 
         const nextScheduleIssues = built.issues.filter((issue) => !isTransientScheduleIssue(issue));

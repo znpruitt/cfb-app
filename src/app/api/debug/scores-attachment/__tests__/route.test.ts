@@ -57,6 +57,22 @@ test('debug scores attachment route returns summary and diagnostics from shared 
       });
     }
 
+    if (req.pathname === '/api/conferences') {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              name: 'American Athletic Conference',
+              shortName: 'American Athletic',
+              abbreviation: 'AAC',
+              classification: 'fbs',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
     if (req.pathname === '/api/scores') {
       return new Response(
         JSON.stringify({

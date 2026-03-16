@@ -2,7 +2,13 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity
 import type { AliasMap } from './teamNames';
 import { isLikelyInvalidTeamLabel } from './teamNormalization';
 import { classifyScheduleRow } from './postseason-classify';
-import { inferSubdivisionFromConference } from './conferenceSubdivision';
+import {
+  classifyConferenceForSubdivision,
+  resetConferenceClassificationRecords,
+  setConferenceClassificationRecords,
+  type CfbdConferenceRecord,
+} from './conferenceSubdivision';
+import { recordUnresolvedConference } from './conferenceDiagnostics';
 import type { HydrationDiagnostic } from './postseason-hydrate';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
@@ -219,14 +225,46 @@ function isFbsTeam(
 
 type EligibilitySubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
 
-function classifyTeamSubdivision(params: {
+export type ScheduleEligibilityReason =
+  | 'include_fbs_vs_fbs'
+  | 'include_fbs_vs_fcs'
+  | 'exclude_both_non_fbs'
+  | 'exclude_unresolved_both_non_fbs'
+  | 'include_unknown_fallback';
+
+export type RegularSeasonEligibilityDecision = {
+  include: boolean;
+  reason: ScheduleEligibilityReason;
+};
+
+export function classifyTeamSubdivision(params: {
   canonicalTeamName: string;
   conference: string;
   teamMetadataByCanonicalName: Map<string, TeamCatalogItem>;
   resolver: ReturnType<typeof createTeamIdentityResolver>;
+  diagnosticsContext?: string;
+  diagnosticsGameId?: string;
 }): EligibilitySubdivision {
-  const { canonicalTeamName, conference, teamMetadataByCanonicalName, resolver } = params;
-  const conferenceSubdivision = inferSubdivisionFromConference(conference);
+  const {
+    canonicalTeamName,
+    conference,
+    teamMetadataByCanonicalName,
+    resolver,
+    diagnosticsContext,
+    diagnosticsGameId,
+  } = params;
+  const conferenceMatch = classifyConferenceForSubdivision(conference);
+  const conferenceSubdivision = conferenceMatch.subdivision;
+
+  if (conferenceMatch.source === 'unresolved' && conferenceMatch.normalizedConference) {
+    recordUnresolvedConference({
+      rawConference: conferenceMatch.rawConference,
+      normalizedKey: conferenceMatch.normalizedConference,
+      context: diagnosticsContext ?? 'schedule',
+      teamName: canonicalTeamName,
+      gameId: diagnosticsGameId,
+    });
+  }
 
   // Conference metadata is the most durable signal against alias drift for lower-division teams.
   // If CFBD marks a participant as an FCS conference member, fail closed and keep it non-FBS.
@@ -257,6 +295,35 @@ function isOfficePoolEligibleTeamMatchup(params: {
 }): boolean {
   const { homeSubdivision, awaySubdivision } = params;
   return homeSubdivision === 'FBS' || awaySubdivision === 'FBS';
+}
+
+export function getRegularSeasonEligibilityDecision(params: {
+  homeSubdivision: EligibilitySubdivision;
+  awaySubdivision: EligibilitySubdivision;
+  homeResolved: boolean;
+  awayResolved: boolean;
+}): RegularSeasonEligibilityDecision {
+  const { homeSubdivision, awaySubdivision, homeResolved, awayResolved } = params;
+  const include = isOfficePoolEligibleTeamMatchup({ homeSubdivision, awaySubdivision });
+
+  if (include) {
+    if (homeSubdivision === 'FBS' && awaySubdivision === 'FBS') {
+      return { include: true, reason: 'include_fbs_vs_fbs' };
+    }
+    if (
+      (homeSubdivision === 'FBS' && awaySubdivision !== 'FBS') ||
+      (awaySubdivision === 'FBS' && homeSubdivision !== 'FBS')
+    ) {
+      return { include: true, reason: 'include_fbs_vs_fcs' };
+    }
+    return { include: true, reason: 'include_unknown_fallback' };
+  }
+
+  if (!homeResolved && !awayResolved) {
+    return { include: false, reason: 'exclude_unresolved_both_non_fbs' };
+  }
+
+  return { include: false, reason: 'exclude_both_non_fbs' };
 }
 
 function isTrackedGame(
@@ -302,6 +369,8 @@ function isTrackedGame(
         conference: game.homeConf,
         teamMetadataByCanonicalName,
         resolver,
+        diagnosticsContext: 'schedule:tracked',
+        diagnosticsGameId: game.eventId,
       })
     : 'UNKNOWN';
   const awaySubdivision = awayIsTeam
@@ -310,6 +379,8 @@ function isTrackedGame(
         conference: game.awayConf,
         teamMetadataByCanonicalName,
         resolver,
+        diagnosticsContext: 'schedule:tracked',
+        diagnosticsGameId: game.eventId,
       })
     : 'UNKNOWN';
 
@@ -330,6 +401,7 @@ function resolveRegularSeasonRow(params: {
   teamMetadataByCanonicalName: Map<string, TeamCatalogItem>;
 }): {
   include: boolean;
+  reason: ScheduleEligibilityReason;
   emitIdentityIssue: boolean;
   homeResolved: ReturnType<ReturnType<typeof createTeamIdentityResolver>['resolveName']>;
   awayResolved: ReturnType<ReturnType<typeof createTeamIdentityResolver>['resolveName']>;
@@ -345,18 +417,28 @@ function resolveRegularSeasonRow(params: {
     conference: item.homeConference ?? '',
     teamMetadataByCanonicalName,
     resolver,
+    diagnosticsContext: 'schedule:regular',
+    diagnosticsGameId: String(item.id ?? ''),
   });
   const awaySubdivision = classifyTeamSubdivision({
     canonicalTeamName: awayResolved.canonicalName ?? item.awayTeam,
     conference: item.awayConference ?? '',
     teamMetadataByCanonicalName,
     resolver,
+    diagnosticsContext: 'schedule:regular',
+    diagnosticsGameId: String(item.id ?? ''),
   });
 
-  const include = isOfficePoolEligibleTeamMatchup({ homeSubdivision, awaySubdivision });
+  const eligibility = getRegularSeasonEligibilityDecision({
+    homeSubdivision,
+    awaySubdivision,
+    homeResolved: homeKnown,
+    awayResolved: awayKnown,
+  });
   return {
-    include,
-    emitIdentityIssue: include && (!homeKnown || !awayKnown),
+    include: eligibility.include,
+    reason: eligibility.reason,
+    emitIdentityIssue: eligibility.include && (!homeKnown || !awayKnown),
     homeResolved,
     awayResolved,
   };
@@ -595,8 +677,15 @@ export function buildScheduleFromApi(params: {
   observedNames?: string[];
   season: number;
   manualOverrides?: Record<string, Partial<AppGame>>;
+  conferenceRecords?: CfbdConferenceRecord[];
 }): BuiltSchedule {
   const { scheduleItems, teams, aliasMap, season } = params;
+
+  if (params.conferenceRecords) {
+    setConferenceClassificationRecords(params.conferenceRecords);
+  } else {
+    resetConferenceClassificationRecords();
+  }
   const issues: string[] = [];
   const providerNames = Array.from(
     new Set(
