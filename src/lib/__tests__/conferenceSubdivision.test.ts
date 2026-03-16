@@ -17,7 +17,7 @@ test('normalizeConferenceKey normalizes punctuation and spacing', () => {
 });
 
 test('present-day policy resolves required FCS aliases', () => {
-  for (const label of ['SWAC', 'Ivy', 'Southern', 'Southland', 'WAC', 'SoCon']) {
+  for (const label of ['SWAC', 'Ivy', 'Southern', 'Southland', 'UAC', 'SoCon']) {
     const match = classifyConferenceForSubdivision(label);
     assert.equal(match.source, 'present_day_policy');
     assert.equal(match.subdivision, 'FCS');
@@ -41,6 +41,43 @@ test('resolvePresentDayConferencePolicy returns expected metadata', () => {
   assert.equal(match?.source, 'present_day_policy');
   assert.equal(match?.policy.name, 'American Athletic Conference');
   assert.equal(match?.policy.classification, 'fbs');
+});
+
+test('raw WAC without additional context does not resolve via present-day policy', () => {
+  resetConferenceClassificationRecords();
+  const policyMatch = resolvePresentDayConferencePolicy('WAC');
+  assert.equal(policyMatch, null);
+
+  const unresolved = classifyConferenceForSubdivision('WAC');
+  assert.equal(unresolved.source, 'unresolved');
+  assert.equal(unresolved.subdivision, 'OTHER');
+});
+
+test('raw WAC with conflicting CFBD candidates is classified as ambiguous and fail-closed', () => {
+  setConferenceClassificationRecords([
+    {
+      id: 200,
+      name: 'Western Athletic Conference',
+      shortName: 'WAC',
+      abbreviation: 'WAC',
+      classification: 'fbs',
+    },
+    {
+      id: 201,
+      name: 'Western Athletic Conference',
+      shortName: 'WAC',
+      abbreviation: 'WAC',
+      classification: 'fcs',
+    },
+  ]);
+
+  const match = classifyConferenceForSubdivision('WAC');
+  assert.equal(match.source, 'ambiguous');
+  assert.equal(match.subdivision, 'OTHER');
+  assert.equal(match.ambiguous, true);
+  assert.equal(match.candidates.length, 2);
+
+  resetConferenceClassificationRecords();
 });
 
 test('cfbd lookup is used only when unambiguous and no policy alias exists', () => {

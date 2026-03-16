@@ -213,15 +213,6 @@ export const CURRENT_FOOTBALL_CONFERENCES: CurrentFootballConferencePolicy[] = [
     classification: 'fcs',
     aliases: ['southwesternathleticconference', 'southwestern', 'swac'],
   },
-
-  {
-    key: 'wac',
-    name: 'Western Athletic Conference',
-    nickname: 'WAC',
-    abbreviation: 'WAC',
-    classification: 'fcs',
-    aliases: ['westernathleticconference', 'westernathletic', 'wac'],
-  },
   {
     key: 'uac',
     name: 'United Athletic Conference',

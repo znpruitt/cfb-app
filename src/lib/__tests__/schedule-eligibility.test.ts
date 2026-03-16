@@ -939,3 +939,85 @@ test('present-day policy diagnostics capture policy-based conference classificat
   assert.equal(sec?.policyConference, 'Southeastern Conference');
   assert.equal(sec?.policyClassification, 'FBS');
 });
+
+test('raw WAC without policy context fails closed and does not leak into FBS schedule', () => {
+  resetUnresolvedConferenceDiagnostics();
+
+  const built = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-wac-vs-wac',
+        week: 8,
+        startDate: '2025-10-18T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Unknown Team A',
+        awayTeam: 'Unknown Team B',
+        homeConference: 'WAC',
+        awayConference: 'WAC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+    conferenceRecords: [
+      {
+        id: 300,
+        name: 'Western Athletic Conference',
+        shortName: 'WAC',
+        abbreviation: 'WAC',
+        classification: 'fbs',
+      },
+      {
+        id: 301,
+        name: 'Western Athletic Conference',
+        shortName: 'WAC',
+        abbreviation: 'WAC',
+        classification: 'fcs',
+      },
+    ],
+  });
+
+  assert.equal(
+    built.games.some((g) => g.eventId.includes('reg-wac-vs-wac')),
+    false,
+    'ambiguous WAC should fail closed and remain out of canonical FBS schedule'
+  );
+
+  const ambiguous = getAmbiguousConferenceDiagnostics();
+  const wac = ambiguous.find((entry) => entry.normalizedKey === 'wac');
+  assert.ok(wac, 'WAC should be tracked under ambiguous diagnostics');
+  assert.equal((wac?.candidateRecords ?? []).length >= 2, true);
+});
+
+test('UAC resolves through present-day policy to FCS classification', () => {
+  resetUnresolvedConferenceDiagnostics();
+
+  buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-uac-policy',
+        week: 8,
+        startDate: '2025-10-18T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Unknown Team C',
+        awayTeam: 'Unknown Team D',
+        homeConference: 'UAC',
+        awayConference: 'UAC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+  });
+
+  const policy = getPresentDayPolicyConferenceDiagnostics();
+  const uac = policy.find((entry) => entry.normalizedKey === 'uac');
+  assert.ok(uac, 'UAC should be tracked as a present-day policy conference');
+  assert.equal(uac?.policyClassification, 'FCS');
+});
