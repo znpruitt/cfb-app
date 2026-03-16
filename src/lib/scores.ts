@@ -176,6 +176,30 @@ async function fetchScoreRows(params: {
   return rows;
 }
 
+function seasonTypeFromStage(stage?: GameLike['stage']): 'regular' | 'postseason' {
+  return stage === 'regular' || stage == null ? 'regular' : 'postseason';
+}
+
+function filterRowsToScheduleScope(
+  rows: NormalizedScoreRow[],
+  games: GameLike[]
+): NormalizedScoreRow[] {
+  const allowedWeeks = new Set(games.map((game) => game.week));
+  const allowedSeasonTypes = new Set(games.map((game) => seasonTypeFromStage(game.stage)));
+
+  return rows.filter((row) => {
+    if (row.week != null && allowedWeeks.size > 0 && !allowedWeeks.has(row.week)) {
+      return false;
+    }
+
+    if (row.seasonType && allowedSeasonTypes.size > 0 && !allowedSeasonTypes.has(row.seasonType)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 export async function fetchScoresByGame(params: {
   games: GameLike[];
   aliasMap: AliasMap;
@@ -228,24 +252,28 @@ export async function fetchScoresByGame(params: {
     away: { team: row.awayName, score: row.awayScore },
   }));
 
+  const scopedRows = filterRowsToScheduleScope(normalizedRows, games);
+
   const attached = attachScoresToSchedule({
-    rows: normalizedRows,
+    rows: scopedRows,
     scheduleIndex,
     resolver,
     debugTrace,
     source: 'cfbd_scores',
   });
 
-  for (const diagnostic of attached.diagnostics.slice(0, 50)) {
-    diag.push({
-      kind: 'ignored_score_row',
-      week: diagnostic.provider.week,
-      providerHome: diagnostic.provider.homeTeamRaw ?? '',
-      providerAway: diagnostic.provider.awayTeamRaw ?? '',
-      reason: diagnostic.reason,
-      diagnostic,
-      debugOnly: true,
-    });
+  if (debugTrace) {
+    for (const diagnostic of attached.diagnostics.slice(0, 50)) {
+      diag.push({
+        kind: 'ignored_score_row',
+        week: diagnostic.provider.week,
+        providerHome: diagnostic.provider.homeTeamRaw ?? '',
+        providerAway: diagnostic.provider.awayTeamRaw ?? '',
+        reason: diagnostic.reason,
+        diagnostic,
+        debugOnly: true,
+      });
+    }
   }
 
   if (attached.diagnostics.length > 0 && process.env.NEXT_PUBLIC_DEBUG === '1') {
@@ -258,7 +286,7 @@ export async function fetchScoresByGame(params: {
     diag,
     debugSnapshot: debugTrace
       ? {
-          providerRowCount: normalizedRows.length,
+          providerRowCount: scopedRows.length,
           attachedCount: attached.attachedCount,
           diagnosticsCount: attached.diagnostics.length,
         }
