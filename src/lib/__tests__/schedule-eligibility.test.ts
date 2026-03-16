@@ -423,6 +423,50 @@ test('legitimate American Athletic conference values resolve to FBS with CFBD co
   );
 });
 
+test('conference classification index does not leak across builds when records are omitted', () => {
+  const scheduleItems: ScheduleWireItem[] = [
+    {
+      id: 'reg-aac-leak-check',
+      week: 6,
+      startDate: '2025-10-04T20:00:00Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Unknown Team Alpha',
+      awayTeam: 'Unknown Team Beta',
+      homeConference: 'AAC',
+      awayConference: 'AAC',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+  ];
+
+  const withRecords = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems,
+    aliasMap: {},
+    conferenceRecords,
+  });
+
+  assert.equal(
+    withRecords.games.length,
+    1,
+    'AAC lookup from provided records should classify as FBS'
+  );
+
+  const withoutRecords = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems,
+    aliasMap: {},
+  });
+
+  assert.equal(
+    withoutRecords.games.length,
+    0,
+    'when conference records are omitted, prior in-memory conference index must not be reused'
+  );
+});
 test('unresolved conference diagnostics capture label and context', () => {
   resetUnresolvedConferenceDiagnostics();
 

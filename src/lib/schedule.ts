@@ -4,6 +4,7 @@ import { isLikelyInvalidTeamLabel } from './teamNormalization';
 import { classifyScheduleRow } from './postseason-classify';
 import {
   classifyConferenceForSubdivision,
+  resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
   type CfbdConferenceRecord,
 } from './conferenceSubdivision';
@@ -680,8 +681,10 @@ export function buildScheduleFromApi(params: {
 }): BuiltSchedule {
   const { scheduleItems, teams, aliasMap, season } = params;
 
-  if (params.conferenceRecords && params.conferenceRecords.length > 0) {
+  if (params.conferenceRecords) {
     setConferenceClassificationRecords(params.conferenceRecords);
+  } else {
+    resetConferenceClassificationRecords();
   }
   const issues: string[] = [];
   const providerNames = Array.from(
