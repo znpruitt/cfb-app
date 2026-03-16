@@ -1,6 +1,10 @@
 import { UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
-import { captureOddsUsageSnapshot, getLatestKnownOddsUsage } from '@/lib/server/oddsUsageStore';
+import {
+  captureOddsUsageSnapshot,
+  getLatestKnownOddsUsage,
+  setLatestKnownOddsUsage,
+} from '@/lib/server/oddsUsageStore';
 import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
@@ -40,6 +44,34 @@ const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/
 const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
 const MARKETS = ['h2h', 'spreads', 'totals'];
 const REGIONS = ['us'];
+
+async function fetchOddsUpstream(url: string, timeoutMs = 12_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new UpstreamFetchError({
+        kind: 'timeout',
+        message: `Upstream request timed out after ${timeoutMs}ms`,
+        url,
+      });
+    }
+
+    throw new UpstreamFetchError({
+      kind: 'network',
+      message: error instanceof Error ? error.message : 'Unknown network error',
+      url,
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
 
 type OddsCache = {
   entries: Record<
@@ -219,8 +251,35 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', oddsApiKey);
 
-        const upstreamRes = await fetch(url.toString(), { cache: 'no-store' });
+        const upstreamRes = await fetchOddsUpstream(url.toString());
         if (!upstreamRes.ok) {
+          const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
+            sportKey: 'americanfootball_ncaaf',
+            markets: query.markets,
+            regions: query.regions,
+            endpointType: 'odds',
+            cacheStatus: 'miss',
+          });
+
+          if (
+            (upstreamRes.status === 402 || upstreamRes.status === 429) &&
+            (!usage || usage.remaining > 0)
+          ) {
+            await setLatestKnownOddsUsage({
+              used: usage?.limit ?? 500,
+              remaining: 0,
+              lastCost: usage?.lastCost ?? 0,
+              limit: usage?.limit ?? 500,
+              capturedAt: new Date().toISOString(),
+              source: 'odds-response-headers',
+              sportKey: 'americanfootball_ncaaf',
+              markets: query.markets,
+              regions: query.regions,
+              endpointType: 'odds',
+              cacheStatus: 'miss',
+            });
+          }
+
           const responseBody = await upstreamRes.text().catch(() => '');
           throw new UpstreamFetchError({
             kind: 'http',
