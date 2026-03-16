@@ -100,6 +100,12 @@ export default function AdminUsagePanel({
                 Last Updated: {new Date(oddsUsage.capturedAt).toLocaleString()}
               </p>
               <p className="text-xs text-gray-600 dark:text-zinc-400">Source: {oddsUsage.source}</p>
+              {oddsUsage.source === 'quota-error-fallback' && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Note: this snapshot is a conservative fallback generated from a quota error
+                  response when authoritative usage headers were unavailable.
+                </p>
+              )}
               <p className="text-xs text-gray-600 dark:text-zinc-400">
                 Context: sport={oddsUsage.sportKey ?? 'n/a'}, markets=
                 {(oddsUsage.markets ?? []).join(',') || 'n/a'}, regions=

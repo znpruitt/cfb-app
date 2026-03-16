@@ -44,7 +44,8 @@ function toSnapshot(value: unknown): OddsUsageSnapshot | null {
 
   const capturedAt = typeof value.capturedAt === 'string' ? value.capturedAt : '';
   const source = value.source;
-  if (!capturedAt || source !== 'odds-response-headers') return null;
+  if (!capturedAt || (source !== 'odds-response-headers' && source !== 'quota-error-fallback'))
+    return null;
 
   return {
     used,

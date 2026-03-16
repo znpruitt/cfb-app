@@ -271,7 +271,7 @@ export async function GET(req: Request): Promise<Response> {
               lastCost: usage?.lastCost ?? 0,
               limit: usage?.limit ?? 500,
               capturedAt: new Date().toISOString(),
-              source: 'odds-response-headers',
+              source: 'quota-error-fallback',
               sportKey: 'americanfootball_ncaaf',
               markets: query.markets,
               regions: query.regions,

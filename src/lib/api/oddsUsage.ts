@@ -4,7 +4,7 @@ export type OddsUsageSnapshot = {
   lastCost: number;
   limit: number;
   capturedAt: string;
-  source: 'odds-response-headers';
+  source: 'odds-response-headers' | 'quota-error-fallback';
   sportKey?: string;
   markets?: string[];
   regions?: string[];
