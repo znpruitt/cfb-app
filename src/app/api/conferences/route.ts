@@ -8,7 +8,6 @@ import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
   recordRouteRequest,
-  recordUpstreamCall,
 } from '@/lib/server/apiUsageBudget';
 
 export const dynamic = 'force-dynamic';
@@ -64,7 +63,6 @@ export async function GET(req: Request) {
     });
   }
 
-  recordUpstreamCall('cfbd');
   try {
     const items = await fetchUpstreamJson<CfbdConferenceRecord[]>(
       buildCfbdConferencesUrl().toString(),

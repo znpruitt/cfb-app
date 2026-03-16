@@ -3,7 +3,6 @@ import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
   recordRouteRequest,
-  recordUpstreamCall,
 } from '@/lib/server/apiUsageBudget';
 
 export const revalidate = 120;
@@ -228,7 +227,6 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', oddsApiKey);
 
-        recordUpstreamCall('odds-api');
         const upstreamData = await fetchUpstreamJson<UpstreamOddsEvent[]>(url.toString(), {
           cache: 'no-store',
           timeoutMs: 12_000,

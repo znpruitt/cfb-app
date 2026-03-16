@@ -14,7 +14,6 @@ import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
   recordRouteRequest,
-  recordUpstreamCall,
 } from '@/lib/server/apiUsageBudget';
 
 export const dynamic = 'force-dynamic';
@@ -146,7 +145,6 @@ async function fetchSeasonType(params: {
     });
   }
 
-  recordUpstreamCall('cfbd');
   const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
     cache: 'no-store',
     timeoutMs: 12_000,
