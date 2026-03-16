@@ -8,7 +8,11 @@ import {
   setConferenceClassificationRecords,
   type CfbdConferenceRecord,
 } from './conferenceSubdivision';
-import { recordUnresolvedConference } from './conferenceDiagnostics';
+import {
+  recordAmbiguousConference,
+  recordPresentDayPolicyConference,
+  recordUnresolvedConference,
+} from './conferenceDiagnostics';
 import type { HydrationDiagnostic } from './postseason-hydrate';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
@@ -256,6 +260,18 @@ export function classifyTeamSubdivision(params: {
   const conferenceMatch = classifyConferenceForSubdivision(conference);
   const conferenceSubdivision = conferenceMatch.subdivision;
 
+  if (conferenceMatch.source === 'present_day_policy' && conferenceMatch.normalizedConference) {
+    recordPresentDayPolicyConference({
+      rawConference: conferenceMatch.rawConference,
+      normalizedKey: conferenceMatch.normalizedConference,
+      context: diagnosticsContext ?? 'schedule',
+      teamName: canonicalTeamName,
+      gameId: diagnosticsGameId,
+      policyConference: conferenceMatch.matchedPolicyConference ?? conferenceMatch.rawConference,
+      policyClassification: conferenceMatch.subdivision === 'FBS' ? 'FBS' : 'FCS',
+    });
+  }
+
   if (conferenceMatch.source === 'unresolved' && conferenceMatch.normalizedConference) {
     recordUnresolvedConference({
       rawConference: conferenceMatch.rawConference,
@@ -263,6 +279,23 @@ export function classifyTeamSubdivision(params: {
       context: diagnosticsContext ?? 'schedule',
       teamName: canonicalTeamName,
       gameId: diagnosticsGameId,
+    });
+  }
+
+  if (conferenceMatch.source === 'ambiguous' && conferenceMatch.normalizedConference) {
+    recordAmbiguousConference({
+      rawConference: conferenceMatch.rawConference,
+      normalizedKey: conferenceMatch.normalizedConference,
+      context: diagnosticsContext ?? 'schedule',
+      teamName: canonicalTeamName,
+      gameId: diagnosticsGameId,
+      candidateRecords: conferenceMatch.candidates.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        shortName: candidate.shortName,
+        abbreviation: candidate.abbreviation,
+        classification: candidate.classification,
+      })),
     });
   }
 

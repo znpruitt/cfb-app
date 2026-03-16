@@ -5,6 +5,8 @@ import { isTruePostseasonGame } from '../postseason-display';
 import { buildScheduleFromApi, type ScheduleWireItem } from '../schedule';
 import { fetchScoresByGame } from '../scores';
 import {
+  getAmbiguousConferenceDiagnostics,
+  getPresentDayPolicyConferenceDiagnostics,
   getUnresolvedConferenceDiagnostics,
   resetUnresolvedConferenceDiagnostics,
 } from '../conferenceDiagnostics';
@@ -25,6 +27,10 @@ const teams: TeamCatalogItem[] = [
   { school: 'UT Permian Basin', level: 'D2', conference: 'Lone Star' },
   { school: 'Harding', level: 'D2', conference: 'Great American' },
   { school: 'American', level: 'FBS', conference: 'Patriot' },
+  { school: 'Jackson State', level: 'FCS', conference: 'SWAC' },
+  { school: 'Florida A&M', level: 'FCS', conference: 'SWAC' },
+  { school: 'Miami', level: 'FBS', conference: 'ACC' },
+  { school: 'App State', level: 'FBS', conference: 'Sun Belt' },
 ];
 
 const conferenceRecords: CfbdConferenceRecord[] = [
@@ -45,6 +51,34 @@ const conferenceRecords: CfbdConferenceRecord[] = [
     shortName: 'Great American',
     abbreviation: 'GAC',
     classification: 'ii',
+  },
+  {
+    id: 700,
+    name: 'Southwestern Athletic Conference',
+    shortName: 'SWAC',
+    abbreviation: 'SWAC',
+    classification: 'fcs',
+  },
+  {
+    id: 701,
+    name: 'Southwestern Athletic Conference (Historical)',
+    shortName: 'SWAC',
+    abbreviation: 'SWAC',
+    classification: 'fbs',
+  },
+  {
+    id: 801,
+    name: 'Atlantic Coast Conference',
+    shortName: 'ACC',
+    abbreviation: 'ACC',
+    classification: 'fbs',
+  },
+  {
+    id: 802,
+    name: 'Sun Belt Conference',
+    shortName: 'Sun Belt',
+    abbreviation: 'SBC',
+    classification: 'fbs',
   },
 ];
 function build(scheduleItems: ScheduleWireItem[]) {
@@ -426,17 +460,26 @@ test('legitimate American Athletic conference values resolve to FBS with CFBD co
 test('conference classification index does not leak across builds when records are omitted', () => {
   const scheduleItems: ScheduleWireItem[] = [
     {
-      id: 'reg-aac-leak-check',
+      id: 'reg-index-leak-check',
       week: 6,
       startDate: '2025-10-04T20:00:00Z',
       neutralSite: false,
       conferenceGame: false,
       homeTeam: 'Unknown Team Alpha',
       awayTeam: 'Unknown Team Beta',
-      homeConference: 'AAC',
-      awayConference: 'AAC',
+      homeConference: 'Test League',
+      awayConference: 'Test League',
       status: 'scheduled',
       seasonType: 'regular',
+    },
+  ];
+
+  const localConferenceRecords: CfbdConferenceRecord[] = [
+    {
+      name: 'Test League',
+      shortName: 'Test League',
+      abbreviation: 'TL',
+      classification: 'fbs',
     },
   ];
 
@@ -445,14 +488,10 @@ test('conference classification index does not leak across builds when records a
     teams,
     scheduleItems,
     aliasMap: {},
-    conferenceRecords,
+    conferenceRecords: localConferenceRecords,
   });
 
-  assert.equal(
-    withRecords.games.length,
-    1,
-    'AAC lookup from provided records should classify as FBS'
-  );
+  assert.equal(withRecords.games.length, 1);
 
   const withoutRecords = buildScheduleFromApi({
     season: 2025,
@@ -764,4 +803,139 @@ test('ignored score rows stay out of user-facing diagnostics when debugTrace is 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('current SWAC-vs-SWAC regular season game is excluded from FBS canonical schedule', () => {
+  const built = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-swac-vs-swac',
+        week: 6,
+        startDate: '2025-10-04T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Jackson State',
+        awayTeam: 'Florida A&M',
+        homeConference: 'SWAC',
+        awayConference: 'SWAC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+    conferenceRecords,
+  });
+
+  assert.equal(
+    built.games.some((g) => g.csvHome === 'Jackson State' && g.csvAway === 'Florida A&M'),
+    false,
+    'SWAC-vs-SWAC should remain excluded from FBS schedule even when catalog contains historical FBS duplicate'
+  );
+});
+
+test('valid modern FBS conferences continue to classify as eligible', () => {
+  const built = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-acc-vs-sunbelt',
+        week: 5,
+        startDate: '2025-09-27T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Miami',
+        awayTeam: 'App State',
+        homeConference: 'ACC',
+        awayConference: 'Sun Belt',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+    conferenceRecords,
+  });
+
+  assert.equal(built.games.length, 1);
+});
+
+test('ambiguous conference diagnostics capture unresolved duplicate labels without override', () => {
+  resetUnresolvedConferenceDiagnostics();
+
+  buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-ambiguous-iag',
+        week: 7,
+        startDate: '2025-10-11T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Unknown University',
+        awayTeam: 'Mystery Tech',
+        homeConference: 'IAG',
+        awayConference: 'IAG',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+    conferenceRecords: [
+      {
+        id: 900,
+        name: 'Independent Athletic Group',
+        shortName: 'IAG',
+        abbreviation: 'IAG',
+        classification: 'fbs',
+      },
+      {
+        id: 901,
+        name: 'Independent Athletic Group (Historical)',
+        shortName: 'IAG',
+        abbreviation: 'IAG',
+        classification: 'fcs',
+      },
+    ],
+  });
+
+  const ambiguous = getAmbiguousConferenceDiagnostics();
+  const target = ambiguous.find((entry) => entry.normalizedKey === 'iag');
+  assert.ok(target, 'ambiguous conference should be present in diagnostics');
+  assert.ok((target?.contexts ?? []).includes('schedule:regular'));
+  assert.ok((target?.sampleGames ?? []).includes('reg-ambiguous-iag'));
+  assert.equal((target?.candidateRecords ?? []).length >= 2, true);
+});
+
+test('present-day policy diagnostics capture policy-based conference classification', () => {
+  resetUnresolvedConferenceDiagnostics();
+
+  buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-policy-sec',
+        week: 3,
+        startDate: '2025-09-14T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+  });
+
+  const policy = getPresentDayPolicyConferenceDiagnostics();
+  const sec = policy.find((entry) => entry.normalizedKey === 'sec');
+  assert.ok(sec);
+  assert.equal(sec?.policyConference, 'Southeastern Conference');
+  assert.equal(sec?.policyClassification, 'FBS');
 });

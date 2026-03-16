@@ -1,79 +1,76 @@
+import {
+  CURRENT_FOOTBALL_CONFERENCES,
+  type CurrentFootballConferencePolicy,
+} from '@/data/currentFootballConferences';
+
 export type ConferenceSubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
 
 export type CfbdConferenceClassification = 'fbs' | 'fcs' | 'ii' | 'iii' | string;
 
 export type CfbdConferenceRecord = {
+  id?: number | null;
   name?: string | null;
   shortName?: string | null;
   abbreviation?: string | null;
   classification?: CfbdConferenceClassification | null;
 };
 
-export type NormalizedConferenceRecord = {
+export type ConferenceCandidateRecord = {
+  id: number | null;
   name: string | null;
   shortName: string | null;
   abbreviation: string | null;
   classification: ConferenceSubdivision;
 };
 
+type ConferenceResolutionSource =
+  | 'present_day_policy'
+  | 'cfbd_conference_lookup'
+  | 'ambiguous'
+  | 'unresolved';
+
 export type ConferenceClassificationMatch = {
   rawConference: string;
   normalizedConference: string;
-  matchedRecord: NormalizedConferenceRecord | null;
+  matchedAlias: string | null;
+  matchedPolicyConference: string | null;
+  candidates: ConferenceCandidateRecord[];
+  ambiguous: boolean;
+  overrideApplied: boolean;
+  matchedRecord: ConferenceCandidateRecord | null;
   subdivision: ConferenceSubdivision;
-  source: 'cfbd_conference_lookup' | 'fallback_exact' | 'unresolved';
+  source: ConferenceResolutionSource;
 };
 
-const LEGACY_EXACT_FBS_KEYS = [
-  'sec',
-  'bigten',
-  'acc',
-  'big12',
-  'pac12',
-  'american',
-  'americanathletic',
-  'americanathleticconference',
-  'mountainwest',
-  'midamerican',
-  'mac',
-  'sunbelt',
-  'conferenceusa',
-  'cusa',
-  'fbsindependent',
-  'independent',
-] as const;
+const FBS_POLICY_ALIASES = new Set(
+  CURRENT_FOOTBALL_CONFERENCES.filter((entry) => entry.classification === 'fbs').flatMap(
+    (entry) => entry.aliases
+  )
+);
+const FCS_POLICY_ALIASES = new Set(
+  CURRENT_FOOTBALL_CONFERENCES.filter((entry) => entry.classification === 'fcs').flatMap(
+    (entry) => entry.aliases
+  )
+);
 
-const LEGACY_EXACT_FCS_KEYS = [
-  'fcs',
-  'ivy',
-  'patriot',
-  'swac',
-  'bigsky',
-  'missourivalley',
-  'mvfc',
-  'southern',
-  'southland',
-  'meac',
-  'caa',
-  'uac',
-  'nec',
-  'pioneer',
-  'fcsindependent',
-] as const;
+export const FBS_CONFERENCE_HINTS = FBS_POLICY_ALIASES;
+export const FCS_CONFERENCE_HINTS = FCS_POLICY_ALIASES;
 
-export const FBS_CONFERENCE_HINTS = new Set<string>(LEGACY_EXACT_FBS_KEYS);
-export const FCS_CONFERENCE_HINTS = new Set<string>(LEGACY_EXACT_FCS_KEYS);
+const POLICY_INDEX = new Map<string, CurrentFootballConferencePolicy>();
+for (const policy of CURRENT_FOOTBALL_CONFERENCES) {
+  for (const alias of policy.aliases) {
+    POLICY_INDEX.set(alias, policy);
+  }
+}
 
-const LEGACY_EXACT_FBS_SET = new Set<string>(LEGACY_EXACT_FBS_KEYS);
-const LEGACY_EXACT_FCS_SET = new Set<string>(LEGACY_EXACT_FCS_KEYS);
+let CONFERENCE_INDEX = new Map<string, ConferenceCandidateRecord[]>();
 
-let CONFERENCE_INDEX = new Map<string, NormalizedConferenceRecord>();
-
-function normalizeConferenceToken(value: string | null | undefined): string {
+export function normalizeConferenceKey(value: string | null | undefined): string {
   return (value ?? '')
-    .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '')
+    .trim();
 }
 
 function toSubdivision(classification?: string | null): ConferenceSubdivision {
@@ -84,11 +81,30 @@ function toSubdivision(classification?: string | null): ConferenceSubdivision {
   return 'OTHER';
 }
 
+export function resolvePresentDayConferencePolicy(rawConference: string | null | undefined): {
+  normalizedKey: string;
+  policy: CurrentFootballConferencePolicy;
+  source: 'present_day_policy';
+} | null {
+  const normalizedKey = normalizeConferenceKey(rawConference);
+  if (!normalizedKey) return null;
+
+  const policy = POLICY_INDEX.get(normalizedKey);
+  if (!policy) return null;
+
+  return {
+    normalizedKey,
+    policy,
+    source: 'present_day_policy',
+  };
+}
+
 export function setConferenceClassificationRecords(records: CfbdConferenceRecord[]): void {
-  const next = new Map<string, NormalizedConferenceRecord>();
+  const next = new Map<string, ConferenceCandidateRecord[]>();
 
   for (const record of records) {
-    const normalized: NormalizedConferenceRecord = {
+    const normalized: ConferenceCandidateRecord = {
+      id: typeof record.id === 'number' ? record.id : null,
       name: typeof record.name === 'string' ? record.name.trim() : null,
       shortName: typeof record.shortName === 'string' ? record.shortName.trim() : null,
       abbreviation: typeof record.abbreviation === 'string' ? record.abbreviation.trim() : null,
@@ -96,13 +112,34 @@ export function setConferenceClassificationRecords(records: CfbdConferenceRecord
     };
 
     const keys = [
-      normalizeConferenceToken(normalized.name),
-      normalizeConferenceToken(normalized.shortName),
-      normalizeConferenceToken(normalized.abbreviation),
+      normalizeConferenceKey(normalized.name),
+      normalizeConferenceKey(normalized.shortName),
+      normalizeConferenceKey(normalized.abbreviation),
     ].filter(Boolean);
 
     for (const key of keys) {
-      if (!next.has(key)) next.set(key, normalized);
+      const current = next.get(key) ?? [];
+      const signature = [
+        normalized.id ?? '',
+        normalized.name ?? '',
+        normalized.shortName ?? '',
+        normalized.abbreviation ?? '',
+        normalized.classification,
+      ].join('|');
+
+      const exists = current.some(
+        (entry) =>
+          [
+            entry.id ?? '',
+            entry.name ?? '',
+            entry.shortName ?? '',
+            entry.abbreviation ?? '',
+            entry.classification,
+          ].join('|') === signature
+      );
+
+      if (!exists) current.push(normalized);
+      next.set(key, current);
     }
   }
 
@@ -110,36 +147,40 @@ export function setConferenceClassificationRecords(records: CfbdConferenceRecord
 }
 
 export function resetConferenceClassificationRecords(): void {
-  CONFERENCE_INDEX = new Map<string, NormalizedConferenceRecord>();
+  CONFERENCE_INDEX = new Map<string, ConferenceCandidateRecord[]>();
 }
 
-function fallbackSubdivision(normalizedConference: string): ConferenceClassificationMatch {
-  if (LEGACY_EXACT_FCS_SET.has(normalizedConference)) {
+function fromPolicyMatch(
+  rawConference: string,
+  normalizedConference: string
+): ConferenceClassificationMatch {
+  const policyMatch = resolvePresentDayConferencePolicy(rawConference);
+  if (!policyMatch) {
     return {
-      rawConference: normalizedConference,
+      rawConference,
       normalizedConference,
+      matchedAlias: null,
+      matchedPolicyConference: null,
+      candidates: [],
+      ambiguous: false,
+      overrideApplied: false,
       matchedRecord: null,
-      subdivision: 'FCS',
-      source: 'fallback_exact',
-    };
-  }
-
-  if (LEGACY_EXACT_FBS_SET.has(normalizedConference)) {
-    return {
-      rawConference: normalizedConference,
-      normalizedConference,
-      matchedRecord: null,
-      subdivision: 'FBS',
-      source: 'fallback_exact',
+      subdivision: 'OTHER',
+      source: 'unresolved',
     };
   }
 
   return {
-    rawConference: normalizedConference,
+    rawConference,
     normalizedConference,
+    matchedAlias: policyMatch.normalizedKey,
+    matchedPolicyConference: policyMatch.policy.name,
+    candidates: [],
+    ambiguous: false,
+    overrideApplied: true,
     matchedRecord: null,
-    subdivision: 'OTHER',
-    source: 'unresolved',
+    subdivision: policyMatch.policy.classification === 'fbs' ? 'FBS' : 'FCS',
+    source: 'present_day_policy',
   };
 }
 
@@ -147,33 +188,89 @@ export function classifyConferenceForSubdivision(
   conference: string | null | undefined
 ): ConferenceClassificationMatch {
   const rawConference = (conference ?? '').trim();
-  const normalizedConference = normalizeConferenceToken(rawConference);
+  const normalizedConference = normalizeConferenceKey(rawConference);
   if (!normalizedConference) {
     return {
       rawConference,
       normalizedConference,
+      matchedAlias: null,
+      matchedPolicyConference: null,
+      candidates: [],
+      ambiguous: false,
+      overrideApplied: false,
       matchedRecord: null,
       subdivision: 'UNKNOWN',
       source: 'unresolved',
     };
   }
 
-  const matchedRecord = CONFERENCE_INDEX.get(normalizedConference) ?? null;
-  if (matchedRecord) {
+  const policyMatch = resolvePresentDayConferencePolicy(rawConference);
+  if (policyMatch) {
     return {
       rawConference,
       normalizedConference,
+      matchedAlias: policyMatch.normalizedKey,
+      matchedPolicyConference: policyMatch.policy.name,
+      candidates: [],
+      ambiguous: false,
+      overrideApplied: true,
+      matchedRecord: null,
+      subdivision: policyMatch.policy.classification === 'fbs' ? 'FBS' : 'FCS',
+      source: 'present_day_policy',
+    };
+  }
+
+  const candidates = CONFERENCE_INDEX.get(normalizedConference) ?? [];
+  if (candidates.length === 1) {
+    const matchedRecord = candidates[0];
+    return {
+      rawConference,
+      normalizedConference,
+      matchedAlias: null,
+      matchedPolicyConference: null,
+      candidates,
+      ambiguous: false,
+      overrideApplied: false,
       matchedRecord,
       subdivision: matchedRecord.classification,
       source: 'cfbd_conference_lookup',
     };
   }
 
-  const fallback = fallbackSubdivision(normalizedConference);
-  return {
-    ...fallback,
-    rawConference,
-  };
+  if (candidates.length > 1) {
+    const hasClassificationConflict =
+      new Set(candidates.map((candidate) => candidate.classification)).size > 1;
+
+    if (hasClassificationConflict) {
+      return {
+        rawConference,
+        normalizedConference,
+        matchedAlias: null,
+        matchedPolicyConference: null,
+        candidates,
+        ambiguous: true,
+        overrideApplied: false,
+        matchedRecord: null,
+        subdivision: 'OTHER',
+        source: 'ambiguous',
+      };
+    }
+
+    return {
+      rawConference,
+      normalizedConference,
+      matchedAlias: null,
+      matchedPolicyConference: null,
+      candidates,
+      ambiguous: false,
+      overrideApplied: false,
+      matchedRecord: candidates[0],
+      subdivision: candidates[0].classification,
+      source: 'cfbd_conference_lookup',
+    };
+  }
+
+  return fromPolicyMatch(rawConference, normalizedConference);
 }
 
 export function inferSubdivisionFromConference(

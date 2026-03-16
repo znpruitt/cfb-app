@@ -20,6 +20,16 @@ function parseYear(raw: string | null): number {
   return Number.isFinite(parsed) ? parsed : new Date().getFullYear();
 }
 
+function mapClassificationSource(params: {
+  matchSource: ReturnType<typeof classifyConferenceForSubdivision>['source'];
+}): 'present_day_policy' | 'cfbd_conference_lookup' | 'ambiguous' | 'unresolved' {
+  const { matchSource } = params;
+  if (matchSource === 'present_day_policy') return 'present_day_policy';
+  if (matchSource === 'cfbd_conference_lookup') return 'cfbd_conference_lookup';
+  if (matchSource === 'ambiguous') return 'ambiguous';
+  return 'unresolved';
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const year = parseYear(url.searchParams.get('year'));
@@ -61,7 +71,6 @@ export async function GET(req: Request) {
   const teams = (teamsJson.items ?? []) as TeamCatalogItem[];
   const aliasMap = aliasesJson.map ?? {};
   const conferenceRecords = conferencesJson.items ?? [];
-  const conferenceDataSource = conferencesJson.meta?.source ?? 'unresolved';
 
   setConferenceClassificationRecords(conferenceRecords);
 
@@ -143,27 +152,39 @@ export async function GET(req: Request) {
       conference: {
         home: {
           rawConference: item.homeConference ?? '',
-          matchSource: homeConferenceMatch.source,
+          normalizedConferenceKey: homeConferenceMatch.normalizedConference,
+          classificationSource: mapClassificationSource({
+            matchSource: homeConferenceMatch.source,
+          }),
+          matchedAlias: homeConferenceMatch.matchedAlias,
+          matchedPolicyConference: homeConferenceMatch.matchedPolicyConference,
+          overrideApplied: homeConferenceMatch.overrideApplied,
+          ambiguous: homeConferenceMatch.ambiguous,
+          candidateRecords: homeConferenceMatch.candidates,
+          selectedConferenceRecord: homeConferenceMatch.matchedRecord,
+          selectedClassification: homeConferenceMatch.subdivision,
           matchedName: homeConferenceMatch.matchedRecord?.name ?? null,
           matchedAbbreviation: homeConferenceMatch.matchedRecord?.abbreviation ?? null,
           matchedClassification: homeConferenceMatch.matchedRecord?.classification ?? null,
           inferredSubdivision: homeConferenceMatch.subdivision,
-          classificationSource:
-            homeConferenceMatch.source === 'cfbd_conference_lookup'
-              ? conferenceDataSource
-              : 'unresolved',
         },
         away: {
           rawConference: item.awayConference ?? '',
-          matchSource: awayConferenceMatch.source,
+          normalizedConferenceKey: awayConferenceMatch.normalizedConference,
+          classificationSource: mapClassificationSource({
+            matchSource: awayConferenceMatch.source,
+          }),
+          matchedAlias: awayConferenceMatch.matchedAlias,
+          matchedPolicyConference: awayConferenceMatch.matchedPolicyConference,
+          overrideApplied: awayConferenceMatch.overrideApplied,
+          ambiguous: awayConferenceMatch.ambiguous,
+          candidateRecords: awayConferenceMatch.candidates,
+          selectedConferenceRecord: awayConferenceMatch.matchedRecord,
+          selectedClassification: awayConferenceMatch.subdivision,
           matchedName: awayConferenceMatch.matchedRecord?.name ?? null,
           matchedAbbreviation: awayConferenceMatch.matchedRecord?.abbreviation ?? null,
           matchedClassification: awayConferenceMatch.matchedRecord?.classification ?? null,
           inferredSubdivision: awayConferenceMatch.subdivision,
-          classificationSource:
-            awayConferenceMatch.source === 'cfbd_conference_lookup'
-              ? conferenceDataSource
-              : 'unresolved',
         },
       },
       classification: {
@@ -196,7 +217,6 @@ export async function GET(req: Request) {
     regularRowsAnalyzed: analyzed.length,
     canonicalTrackedCount: built.games.length,
     conferenceRecordsCount: conferenceRecords.length,
-    conferenceDataSource,
     analyzed,
   });
 }
