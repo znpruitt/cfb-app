@@ -1,4 +1,6 @@
-import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+import { UpstreamFetchError } from '@/lib/api/fetchUpstream';
+import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
+import { captureOddsUsageSnapshot, getLatestKnownOddsUsage } from '@/lib/server/oddsUsageStore';
 import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
@@ -26,6 +28,7 @@ interface OddsMeta {
   cache: 'hit' | 'miss';
   fallbackUsed: boolean;
   generatedAt: string;
+  usage: OddsUsageSnapshot | null;
 }
 
 interface OddsResponse {
@@ -39,9 +42,11 @@ const MARKETS = ['h2h', 'spreads', 'totals'];
 const REGIONS = ['us'];
 
 type OddsCache = {
-  entries: Record<string, { data: OddsEvent[]; lastFetch: number }>;
+  entries: Record<
+    string,
+    { data: OddsEvent[]; lastFetch: number; usage: OddsUsageSnapshot | null }
+  >;
   dayKey: string | null;
-  callsToday: number;
 };
 
 function responseFrom(items: OddsEvent[], meta: OddsMeta, status = 200): Response {
@@ -75,7 +80,6 @@ function normalizeUpstreamOddsEvent(event: UpstreamOddsEvent): OddsEvent | null 
 const oddsCache: OddsCache = {
   entries: {},
   dayKey: null,
-  callsToday: 0,
 };
 
 function createCacheKey(query: {
@@ -189,10 +193,8 @@ export async function GET(req: Request): Promise<Response> {
     const dayKey = dayKeyUTC();
     if (oddsCache.dayKey !== dayKey) {
       oddsCache.dayKey = dayKey;
-      oddsCache.callsToday = 0;
     }
 
-    const maxPerDay = 16;
     const cacheKey = createCacheKey(query);
     const cachedEntry = oddsCache.entries[cacheKey];
     const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 30 * 60 * 1000;
@@ -200,17 +202,7 @@ export async function GET(req: Request): Promise<Response> {
 
     if (!cachedEntry || stale) {
       recordRouteCacheMiss('odds');
-      if (oddsCache.callsToday >= maxPerDay && !cachedEntry) {
-        return new Response(
-          JSON.stringify({ error: 'Daily odds limit reached and no cache available' }),
-          {
-            status: 429,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-
-      if (oddsCache.callsToday < maxPerDay) {
+      {
         const oddsApiKey = process.env.ODDS_API_KEY?.trim();
         if (!oddsApiKey) {
           return new Response(JSON.stringify({ error: 'ODDS_API_KEY missing' }), {
@@ -227,9 +219,26 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', oddsApiKey);
 
-        const upstreamData = await fetchUpstreamJson<UpstreamOddsEvent[]>(url.toString(), {
-          cache: 'no-store',
-          timeoutMs: 12_000,
+        const upstreamRes = await fetch(url.toString(), { cache: 'no-store' });
+        if (!upstreamRes.ok) {
+          const responseBody = await upstreamRes.text().catch(() => '');
+          throw new UpstreamFetchError({
+            kind: 'http',
+            message: `Upstream request failed with status ${upstreamRes.status}${upstreamRes.statusText ? ` (${upstreamRes.statusText})` : ''}`,
+            status: upstreamRes.status,
+            statusText: upstreamRes.statusText,
+            url: url.toString(),
+            responseBody,
+          });
+        }
+
+        const upstreamData = (await upstreamRes.json()) as UpstreamOddsEvent[];
+        const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
+          sportKey: 'americanfootball_ncaaf',
+          markets: query.markets,
+          regions: query.regions,
+          endpointType: 'odds',
+          cacheStatus: 'miss',
         });
 
         oddsCache.entries[cacheKey] = {
@@ -240,8 +249,8 @@ export async function GET(req: Request): Promise<Response> {
                 .filter((event): event is OddsEvent => Boolean(event))
             : [],
           lastFetch: Date.now(),
+          usage,
         };
-        oddsCache.callsToday += 1;
         fetchedFromUpstream = true;
       }
     }
@@ -258,6 +267,7 @@ export async function GET(req: Request): Promise<Response> {
       cache: fetchedFromUpstream ? 'miss' : 'hit',
       fallbackUsed: false,
       generatedAt: new Date(lastFetchAt).toISOString(),
+      usage: responseEntry?.usage ?? (await getLatestKnownOddsUsage()),
     });
   } catch (e) {
     if (e instanceof UpstreamFetchError) {
