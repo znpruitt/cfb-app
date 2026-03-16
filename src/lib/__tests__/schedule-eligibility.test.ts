@@ -4,6 +4,11 @@ import assert from 'node:assert/strict';
 import { isTruePostseasonGame } from '../postseason-display';
 import { buildScheduleFromApi, type ScheduleWireItem } from '../schedule';
 import { fetchScoresByGame } from '../scores';
+import {
+  getUnresolvedConferenceDiagnostics,
+  resetUnresolvedConferenceDiagnostics,
+} from '../conferenceDiagnostics';
+import type { CfbdConferenceRecord } from '../conferenceSubdivision';
 import type { TeamCatalogItem } from '../teamIdentity';
 
 const teams: TeamCatalogItem[] = [
@@ -17,8 +22,31 @@ const teams: TeamCatalogItem[] = [
   { school: 'Illinois State', level: 'FCS', conference: 'Missouri Valley' },
   { school: 'Montana State', level: 'FCS', conference: 'Big Sky' },
   { school: 'South Dakota State', level: 'FCS', conference: 'Missouri Valley' },
+  { school: 'UT Permian Basin', level: 'D2', conference: 'Lone Star' },
+  { school: 'Harding', level: 'D2', conference: 'Great American' },
+  { school: 'American', level: 'FBS', conference: 'Patriot' },
 ];
 
+const conferenceRecords: CfbdConferenceRecord[] = [
+  {
+    name: 'American Athletic Conference',
+    shortName: 'American Athletic',
+    abbreviation: 'AAC',
+    classification: 'fbs',
+  },
+  {
+    name: 'Patriot League',
+    shortName: 'Patriot',
+    abbreviation: 'PAT',
+    classification: 'fcs',
+  },
+  {
+    name: 'Great American Conference',
+    shortName: 'Great American',
+    abbreviation: 'GAC',
+    classification: 'ii',
+  },
+];
 function build(scheduleItems: ScheduleWireItem[]) {
   return buildScheduleFromApi({
     season: 2025,
@@ -312,6 +340,149 @@ test('filters eligibility consistently: keeps valid FBS content while excluding 
   );
 });
 
+test('D2-vs-D2 games are excluded even when one team name is American', () => {
+  const built = build([
+    {
+      id: 'reg-utpb-harding',
+      week: 15,
+      startDate: '2025-12-06T20:00:00Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'UT Permian Basin',
+      awayTeam: 'Harding',
+      homeConference: 'Lone Star',
+      awayConference: 'Great American',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+  ]);
+
+  assert.equal(
+    built.games.some((g) => g.csvHome === 'UT Permian Basin' && g.csvAway === 'Harding'),
+    false,
+    'non-FBS regular-season matchups must be excluded from canonical schedule'
+  );
+});
+
+test('similar-name FCS conference marker does not get upgraded to FBS via conference substring', () => {
+  const built = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-similar-name-leak',
+        week: 5,
+        startDate: '2025-10-01T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Harding',
+        awayTeam: 'American',
+        homeConference: 'Great American',
+        awayConference: 'Patriot',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+  });
+
+  assert.equal(
+    built.games.length,
+    0,
+    'Great American should not be treated as FBS American Athletic conference marker'
+  );
+});
+
+test('legitimate American Athletic conference values resolve to FBS with CFBD conference records', () => {
+  const built = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-aac-vs-fcs',
+        week: 2,
+        startDate: '2025-09-06T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Navy',
+        awayTeam: 'UC Davis',
+        homeConference: 'AAC',
+        awayConference: 'Patriot',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+    conferenceRecords,
+  });
+
+  assert.equal(
+    built.games.length,
+    1,
+    'AAC should map to FBS via structured conference record match'
+  );
+});
+
+test('unresolved conference diagnostics capture label and context', () => {
+  resetUnresolvedConferenceDiagnostics();
+
+  buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-unresolved-conf-diag',
+        week: 9,
+        startDate: '2025-10-25T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Unknown University',
+        awayTeam: 'Mystery Tech',
+        homeConference: 'Totally New League',
+        awayConference: 'Totally New League',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+    conferenceRecords,
+  });
+
+  const diagnostics = getUnresolvedConferenceDiagnostics();
+  const target = diagnostics.find((d) => d.normalizedKey === 'totallynewleague');
+  assert.ok(target, 'unresolved conference should be present in diagnostics');
+  assert.ok((target?.contexts ?? []).includes('schedule:regular'));
+  assert.ok((target?.sampleGames ?? []).includes('reg-unresolved-conf-diag'));
+});
+test('unresolved conference values follow explicit fallback behavior', () => {
+  const built = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-unknown-conference-fallback',
+        week: 7,
+        startDate: '2025-10-11T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Unknown University',
+        awayTeam: 'Mystery Tech',
+        homeConference: 'Completely Unknown League',
+        awayConference: 'Another Unknown League',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {},
+    conferenceRecords,
+  });
+
+  assert.equal(
+    built.games.length,
+    0,
+    'unresolved conferences should not force non-FBS rows into canonical schedule'
+  );
+});
 test('conference-marked FCS teams stay excluded even when aliases resolve to FBS programs', () => {
   const built = buildScheduleFromApi({
     season: 2025,

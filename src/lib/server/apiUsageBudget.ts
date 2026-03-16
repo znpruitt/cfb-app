@@ -1,4 +1,4 @@
-export type UsageRouteName = 'schedule' | 'scores' | 'odds';
+export type UsageRouteName = 'schedule' | 'scores' | 'odds' | 'conferences';
 export type UpstreamProviderName = 'cfbd' | 'odds-api';
 
 type UsageCounterMap = Record<string, number>;
@@ -55,7 +55,7 @@ function readCounter(counter: UsageCounterMap, key: string): number {
 }
 
 export function getApiUsageSnapshot(): ApiUsageSnapshot {
-  const routes: UsageRouteName[] = ['schedule', 'scores', 'odds'];
+  const routes: UsageRouteName[] = ['schedule', 'scores', 'odds', 'conferences'];
   const providers: UpstreamProviderName[] = ['cfbd', 'odds-api'];
 
   const routeRequests = Object.fromEntries(

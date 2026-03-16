@@ -17,3 +17,7 @@ export function buildCfbdGamesUrl(params: {
   }
   return url;
 }
+
+export function buildCfbdConferencesUrl(): URL {
+  return new URL('https://api.collegefootballdata.com/conferences');
+}

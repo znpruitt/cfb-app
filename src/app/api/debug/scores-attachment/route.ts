@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
+import type { CfbdConferenceRecord } from '@/lib/conferenceSubdivision';
 import { summarizeAttachmentReasons } from '@/lib/scoreAttachmentDiagnostics';
 import type { ScoreAttachmentDebugResponse } from '@/lib/scoreAttachmentDebug';
 import { fetchScoresByGame } from '@/lib/scores';
@@ -16,10 +17,11 @@ export async function GET(req: Request) {
   const week = weekParam && /^\d+$/.test(weekParam) ? Number.parseInt(weekParam, 10) : null;
   const origin = `${url.protocol}//${url.host}`;
 
-  const [scheduleRes, teamsRes, aliasesRes] = await Promise.all([
+  const [scheduleRes, teamsRes, aliasesRes, conferencesRes] = await Promise.all([
     fetch(`${origin}/api/schedule?year=${year}`, { cache: 'no-store' }),
     fetch(`${origin}/api/teams`, { cache: 'no-store' }),
     fetch(`${origin}/api/aliases?year=${year}`, { cache: 'no-store' }),
+    fetch(`${origin}/api/conferences`, { cache: 'no-store' }),
   ]);
 
   const scheduleJson = (await scheduleRes.json().catch(() => ({ items: [] }))) as {
@@ -31,12 +33,16 @@ export async function GET(req: Request) {
   const aliasesJson = (await aliasesRes.json().catch(() => ({ map: {} }))) as {
     map?: Record<string, string>;
   };
+  const conferencesJson = (await conferencesRes.json().catch(() => ({ items: [] }))) as {
+    items?: CfbdConferenceRecord[];
+  };
 
   const built = buildScheduleFromApi({
     scheduleItems: scheduleJson.items ?? [],
     teams: (teamsJson.items ?? []) as never[],
     aliasMap: aliasesJson.map ?? {},
     season: year,
+    conferenceRecords: conferencesJson.items ?? [],
   });
 
   const scopedGames = built.games.filter((game) => {
