@@ -29,6 +29,9 @@ type CfbdFallbackReason =
   | 'cfbd-unknown-error';
 
 interface ScorePack {
+  id?: string | null;
+  seasonType?: SeasonType | null;
+  startDate?: string | null;
   week: number | null;
   status: string;
   home: { team: string; score: number | null };
@@ -52,10 +55,13 @@ interface ScoresResponse {
 }
 
 type CfbdGameLoose = {
+  id?: number | string;
   season?: number;
-  week?: number;
+  week?: number | string;
   season_type?: string;
+  seasonType?: string;
   start_date?: string | null;
+  startDate?: string | null;
 
   home_team?: string;
   away_team?: string;
@@ -146,7 +152,20 @@ function toScorePackFromCfbd(game: CfbdGameLoose): ScorePack | null {
   ]);
 
   return {
-    week: typeof game.week === 'number' ? game.week : null,
+    id: game.id != null && String(game.id).trim().length > 0 ? String(game.id).trim() : null,
+    seasonType:
+      game.season_type === 'postseason' || game.seasonType === 'postseason'
+        ? 'postseason'
+        : game.season_type === 'regular' || game.seasonType === 'regular'
+          ? 'regular'
+          : null,
+    startDate: game.start_date ?? game.startDate ?? null,
+    week:
+      typeof game.week === 'number'
+        ? game.week
+        : /^\d+$/.test(String(game.week ?? ''))
+          ? Number.parseInt(String(game.week), 10)
+          : null,
     status: toStatus(game.status, game.completed ?? null),
     time: game.start_date ?? null,
     home: { team: homeTeam, score: homeScore },
@@ -154,7 +173,11 @@ function toScorePackFromCfbd(game: CfbdGameLoose): ScorePack | null {
   };
 }
 
-function toScorePackFromEspn(event: EspnEvent, week: number | null): ScorePack | null {
+function toScorePackFromEspn(
+  event: EspnEvent & { id?: string },
+  week: number | null,
+  seasonType: SeasonType
+): ScorePack | null {
   const competition = event.competitions?.[0];
   if (!competition) return null;
 
@@ -181,6 +204,9 @@ function toScorePackFromEspn(event: EspnEvent, week: number | null): ScorePack |
   const awayScore = Number.parseInt(awayRef.score ?? '', 10);
 
   return {
+    id: event.id ?? null,
+    seasonType,
+    startDate: null,
     week,
     status,
     time: statusType?.shortDetail ?? null,
@@ -452,7 +478,7 @@ export async function GET(req: Request) {
 
     const items: ScorePack[] = [];
     for (const event of scoreboard.events ?? []) {
-      const pack = toScorePackFromEspn(event, week);
+      const pack = toScorePackFromEspn(event, week, seasonType);
       if (pack) items.push(pack);
     }
 

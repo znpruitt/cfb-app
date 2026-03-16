@@ -107,6 +107,19 @@ export default function IssuesPanel({
                   );
                 }
 
+                if (d.kind === 'ignored_score_row') {
+                  return (
+                    <tr key={`d-${i}`} className="border-t dark:border-zinc-700">
+                      <td className="p-2">Ignored score row (debug)</td>
+                      <td className="p-2">{d.week ?? '—'}</td>
+                      <td className="p-2">{d.providerHome}</td>
+                      <td className="p-2">{d.providerAway}</td>
+                      <td className="p-2">reason: {d.reason}</td>
+                      <td className="p-2">No action required unless alias repair is needed.</td>
+                    </tr>
+                  );
+                }
+
                 if (d.kind === 'identity_resolution') {
                   return (
                     <tr key={`d-${i}`} className="border-t dark:border-zinc-700">

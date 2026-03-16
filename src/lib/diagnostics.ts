@@ -1,3 +1,8 @@
+import type {
+  ScoreAttachmentDiagnostic,
+  ScoreAttachmentFailureReason,
+} from './scoreAttachmentDiagnostics';
+
 export type IssueClassification =
   | 'identity-unresolved'
   | 'owner-unassigned'
@@ -33,6 +38,15 @@ export type DiagEntry =
       providerHome: string;
       providerAway: string;
       candidates: Array<{ csvHome: string; csvAway: string; week: number }>;
+    }
+  | {
+      kind: 'ignored_score_row';
+      week: number | null;
+      providerHome: string;
+      providerAway: string;
+      reason: ScoreAttachmentFailureReason;
+      diagnostic: ScoreAttachmentDiagnostic;
+      debugOnly: true;
     }
   | {
       kind: 'identity_resolution';

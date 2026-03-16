@@ -9,6 +9,7 @@ import GameWeekPanel from './GameWeekPanel';
 import PostseasonPanel from './PostseasonPanel';
 import WeekControls from './WeekControls';
 import AdminUsagePanel from './AdminUsagePanel';
+import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { buildOddsByGame, type CombinedOdds, type OddsEvent } from '../lib/odds';
@@ -706,6 +707,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       </p>
 
       <AdminUsagePanel />
+      <ScoreAttachmentDebugPanel season={selectedSeason} onStageAlias={stageAliasWithToast} />
 
       <IssuesPanel
         issues={issues}
