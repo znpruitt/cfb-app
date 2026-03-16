@@ -115,7 +115,6 @@ test('mapCfbdScheduleGame maps ordinary bowl game', () => {
   }
 });
 
-
 test('mapCfbdScheduleGame uses playoff inference when normalized postseason subtype is missing', () => {
   const result = mapCfbdScheduleGame(
     {

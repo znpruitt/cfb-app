@@ -72,6 +72,17 @@ export type ScheduleWireItem = {
   neutralSiteDisplay?: 'vs' | 'home_away' | string | null;
 };
 
+export type ScheduleFetchMeta = {
+  source?: string;
+  cache?: 'hit' | 'miss';
+  generatedAt?: string;
+};
+
+type ScheduleResponseWire = {
+  items?: ScheduleWireItem[];
+  meta?: ScheduleFetchMeta;
+};
+
 export type AppGame = {
   key: string;
   eventId: string;
@@ -139,15 +150,27 @@ function summarizeGames(label: string, games: AppGame[]): void {
   });
 }
 
-export async function fetchSeasonSchedule(season: number): Promise<ScheduleWireItem[]> {
-  const response = await fetch(`/api/schedule?year=${season}`, { cache: 'no-store' });
+export async function fetchSeasonSchedule(
+  season: number,
+  options?: { bypassCache?: boolean }
+): Promise<{
+  items: ScheduleWireItem[];
+  meta: ScheduleFetchMeta;
+}> {
+  const searchParams = new URLSearchParams({ year: String(season) });
+  if (options?.bypassCache) searchParams.set('bypassCache', '1');
+
+  const response = await fetch(`/api/schedule?${searchParams.toString()}`, { cache: 'no-store' });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     throw new Error(`schedule ${response.status} ${detail}`);
   }
 
-  const payload = (await response.json()) as { items?: ScheduleWireItem[] };
-  return Array.isArray(payload.items) ? payload.items : [];
+  const payload = (await response.json()) as ScheduleResponseWire;
+  return {
+    items: Array.isArray(payload.items) ? payload.items : [],
+    meta: payload.meta ?? {},
+  };
 }
 
 function stageOrder(stage: GameStage): number {

@@ -110,3 +110,39 @@ test('schedule route returns 502 for seasonType=all when one request fails', asy
   assert.equal(json.error, 'partial upstream error');
   assert.deepEqual(json.detail.failedSeasonTypes, ['postseason']);
 });
+
+test('schedule route bypassCache=1 forces an upstream refetch', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  let fetchCount = 0;
+  setMockFetch(async () => {
+    fetchCount += 1;
+    return new Response(
+      JSON.stringify([
+        { week: 1, home_team: `Home ${fetchCount}`, away_team: 'Away', id: fetchCount },
+      ]),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }
+    );
+  });
+
+  const first = await GET(
+    new Request('http://localhost/api/schedule?year=2026&seasonType=regular')
+  );
+  const firstJson = await first.json();
+
+  const second = await GET(
+    new Request('http://localhost/api/schedule?year=2026&seasonType=regular&bypassCache=1')
+  );
+  const secondJson = await second.json();
+
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(fetchCount, 2);
+  assert.equal(firstJson.meta.cache, 'miss');
+  assert.equal(secondJson.meta.cache, 'miss');
+  assert.equal(firstJson.items[0].homeTeam, 'Home 1');
+  assert.equal(secondJson.items[0].homeTeam, 'Home 2');
+});

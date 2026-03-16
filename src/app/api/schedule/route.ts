@@ -10,12 +10,18 @@ import {
   type SeasonType,
 } from '@/lib/schedule/cfbdSchedule';
 import { hasRequiredSeasonTypeFailure } from '@/lib/scheduleSeasonFetch';
+import {
+  recordRouteCacheHit,
+  recordRouteCacheMiss,
+  recordRouteRequest,
+  recordUpstreamCall,
+} from '@/lib/server/apiUsageBudget';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 120;
+export const revalidate = 3600;
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
-const CACHE_TTL_MS = 60 * 1000;
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
 
 interface ScheduleMeta {
@@ -43,6 +49,12 @@ const CACHE: Record<string, CacheEntry> = {};
 function parseNonNegativeInt(raw: string | null): number | null {
   if (!raw || !/^\d+$/.test(raw)) return null;
   return Number.parseInt(raw, 10);
+}
+
+function parseBooleanQueryParam(raw: string | null): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
 function seasonYearForToday(now = new Date()): number {
@@ -134,6 +146,7 @@ async function fetchSeasonType(params: {
     });
   }
 
+  recordUpstreamCall('cfbd');
   const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
     cache: 'no-store',
     timeoutMs: 12_000,
@@ -197,10 +210,12 @@ async function fetchSeasonType(params: {
 }
 
 export async function GET(req: Request) {
+  recordRouteRequest('schedule');
   const url = new URL(req.url);
   const yearParam = url.searchParams.get('year');
   const weekParam = url.searchParams.get('week');
   const seasonTypeParam = url.searchParams.get('seasonType');
+  const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
   const requestId = req.headers.get('x-request-id');
 
   const currentYear = new Date().getUTCFullYear();
@@ -241,7 +256,8 @@ export async function GET(req: Request) {
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
   const hit = CACHE[cacheKey];
   const now = Date.now();
-  if (hit && now - hit.at < CACHE_TTL_MS) {
+  if (!bypassCache && hit && now - hit.at < CACHE_TTL_MS) {
+    recordRouteCacheHit('schedule');
     return NextResponse.json<ScheduleResponse>({
       items: hit.items,
       meta: {
@@ -254,6 +270,8 @@ export async function GET(req: Request) {
       },
     });
   }
+
+  recordRouteCacheMiss('schedule');
 
   const seasonTypes: SeasonType[] =
     requestedSeasonType === 'all' ? ['regular', 'postseason'] : [requestedSeasonType];

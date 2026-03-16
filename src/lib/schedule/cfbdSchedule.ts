@@ -268,7 +268,8 @@ function deriveEventMetadata(params: {
         ? (normalizedPlayoffRound as PlayoffRound)
         : roundFromText;
     const postseasonSubtype: PostseasonSubtype =
-      normalizedPostseasonSubtype === 'playoff' || (normalizedPostseasonSubtype !== 'bowl' && playoffFromText)
+      normalizedPostseasonSubtype === 'playoff' ||
+      (normalizedPostseasonSubtype !== 'bowl' && playoffFromText)
         ? 'playoff'
         : 'bowl';
 
