@@ -1,5 +1,14 @@
 import type { DiagEntry } from './diagnostics';
-import { buildSchedulePairIndex } from './gameAttachment';
+import {
+  attachScoresToSchedule,
+  buildScheduleIndex,
+  type NormalizedScoreRow,
+  type ScheduleGameForIndex,
+} from './scoreAttachment';
+import {
+  summarizeAttachmentReasons,
+  type ScoreAttachmentDiagnostic,
+} from './scoreAttachmentDiagnostics';
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
 import type { AliasMap } from './teamNames';
 import { fetchTeamsCatalog } from './teamsCatalog';
@@ -14,12 +23,15 @@ export type ScorePack = {
 
 export type ScoresDiagEntry = Extract<
   DiagEntry,
-  { kind: 'scores_miss' | 'week_mismatch' | 'identity_resolution' }
+  { kind: 'scores_miss' | 'week_mismatch' | 'identity_resolution' | 'ignored_score_row' }
 >;
 
 type GameLike = {
   key: string;
   week: number;
+  date?: string | null;
+  stage?: 'regular' | 'conference_championship' | 'bowl' | 'playoff';
+  providerGameId?: string | null;
   canHome: string;
   canAway: string;
   csvHome: string;
@@ -28,6 +40,9 @@ type GameLike = {
 };
 
 type WireFlat = {
+  id?: string | number | null;
+  seasonType?: 'regular' | 'postseason' | null;
+  startDate?: string | null;
   week?: number | null;
   status: string;
   home: string;
@@ -38,6 +53,9 @@ type WireFlat = {
 };
 type WireSide = { team?: string; score?: number | null } | null | undefined;
 type WireObj = {
+  id?: string | number | null;
+  seasonType?: 'regular' | 'postseason' | null;
+  startDate?: string | null;
   week?: number | null;
   status: string;
   time: string | null;
@@ -46,6 +64,9 @@ type WireObj = {
 };
 
 type ScoreRow = {
+  providerEventId: string | null;
+  seasonType: 'regular' | 'postseason' | null;
+  date: string | null;
   week: number | null;
   homeName: string;
   awayName: string;
@@ -59,6 +80,11 @@ function extractRow(sg: WireFlat | WireObj): ScoreRow {
   if (typeof (sg as WireFlat).home === 'string') {
     const flat = sg as WireFlat;
     return {
+      providerEventId:
+        flat.id != null && String(flat.id).trim().length > 0 ? String(flat.id).trim() : null,
+      seasonType:
+        flat.seasonType === 'regular' || flat.seasonType === 'postseason' ? flat.seasonType : null,
+      date: flat.startDate ?? null,
       week: typeof flat.week === 'number' ? flat.week : null,
       homeName: flat.home || '',
       awayName: flat.away || '',
@@ -72,6 +98,11 @@ function extractRow(sg: WireFlat | WireObj): ScoreRow {
   const h = obj.home ?? null;
   const a = obj.away ?? null;
   return {
+    providerEventId:
+      obj.id != null && String(obj.id).trim().length > 0 ? String(obj.id).trim() : null,
+    seasonType:
+      obj.seasonType === 'regular' || obj.seasonType === 'postseason' ? obj.seasonType : null,
+    date: obj.startDate ?? null,
     week: typeof obj.week === 'number' ? obj.week : null,
     homeName: (h?.team ?? '') as string,
     awayName: (a?.team ?? '') as string,
@@ -80,6 +111,11 @@ function extractRow(sg: WireFlat | WireObj): ScoreRow {
     status: obj.status || '',
     time: obj.time ?? null,
   };
+}
+
+function buildApiUrl(path: string, apiBaseUrl?: string): string {
+  if (!apiBaseUrl) return path;
+  return `${apiBaseUrl}${path}`;
 }
 
 function parseScorePayload(payload: unknown): Array<WireFlat | WireObj> {
@@ -96,25 +132,17 @@ function parseScorePayload(payload: unknown): Array<WireFlat | WireObj> {
   return [];
 }
 
-function groupRowsByWeek(rows: ScoreRow[]): Map<number, ScoreRow[]> {
-  const out = new Map<number, ScoreRow[]>();
-  for (const row of rows) {
-    if (typeof row.week !== 'number') continue;
-    const bucket = out.get(row.week) ?? [];
-    bucket.push(row);
-    out.set(row.week, bucket);
-  }
-  return out;
-}
-
 async function fetchScoreRows(params: {
   season: number;
   weeks: number[];
   issues: string[];
+  apiBaseUrl?: string;
 }): Promise<ScoreRow[]> {
-  const { season, weeks, issues } = params;
+  const { season, weeks, issues, apiBaseUrl } = params;
 
-  const seasonRes = await fetch(`/api/scores?year=${season}`, { cache: 'no-store' });
+  const seasonRes = await fetch(buildApiUrl(`/api/scores?year=${season}`, apiBaseUrl), {
+    cache: 'no-store',
+  });
   if (seasonRes.ok) {
     const seasonRaw = parseScorePayload(await seasonRes.json());
     return seasonRaw.map(extractRow);
@@ -125,7 +153,9 @@ async function fetchScoreRows(params: {
 
   const rows: ScoreRow[] = [];
   for (const w of weeks) {
-    const weekRes = await fetch(`/api/scores?week=${w}&year=${season}`, { cache: 'no-store' });
+    const weekRes = await fetch(buildApiUrl(`/api/scores?week=${w}&year=${season}`, apiBaseUrl), {
+      cache: 'no-store',
+    });
     if (!weekRes.ok) {
       const weekErr = await weekRes.text().catch(() => '');
       issues.push(`Scores week ${w}: ${weekRes.status} ${weekErr}`);
@@ -146,13 +176,45 @@ async function fetchScoreRows(params: {
   return rows;
 }
 
+function seasonTypeFromStage(stage?: GameLike['stage']): 'regular' | 'postseason' {
+  return stage === 'regular' || stage == null ? 'regular' : 'postseason';
+}
+
+function filterRowsToScheduleScope(
+  rows: NormalizedScoreRow[],
+  games: GameLike[]
+): NormalizedScoreRow[] {
+  const allowedWeeks = new Set(games.map((game) => game.week));
+  const allowedSeasonTypes = new Set(games.map((game) => seasonTypeFromStage(game.stage)));
+
+  return rows.filter((row) => {
+    if (row.week != null && allowedWeeks.size > 0 && !allowedWeeks.has(row.week)) {
+      return false;
+    }
+
+    if (row.seasonType && allowedSeasonTypes.size > 0 && !allowedSeasonTypes.has(row.seasonType)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 export async function fetchScoresByGame(params: {
   games: GameLike[];
   aliasMap: AliasMap;
   season: number;
   teams?: TeamCatalogItem[];
-}): Promise<{ scoresByKey: Record<string, ScorePack>; issues: string[]; diag: ScoresDiagEntry[] }> {
-  const { games, aliasMap, season, teams: providedTeams } = params;
+  debugTrace?: boolean;
+  apiBaseUrl?: string;
+}): Promise<{
+  scoresByKey: Record<string, ScorePack>;
+  issues: string[];
+  diag: ScoresDiagEntry[];
+  debugSnapshot?: { providerRowCount: number; attachedCount: number; diagnosticsCount: number };
+  debugDiagnostics?: ScoreAttachmentDiagnostic[];
+}> {
+  const { games, aliasMap, season, teams: providedTeams, debugTrace = false, apiBaseUrl } = params;
   const issues: string[] = [];
   const diag: ScoresDiagEntry[] = [];
 
@@ -163,135 +225,72 @@ export async function fetchScoresByGame(params: {
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
   const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
-  // Attachment to schedule-derived games is centralized through the shared pair index helper.
-  const globalIndex = buildSchedulePairIndex({
-    games,
-    resolver,
-    includeGame: (g) => {
-      const involvesFbs = resolver.isFbsName(g.canHome) || resolver.isFbsName(g.canAway);
-      return teams.length === 0 || involvesFbs;
+  const scheduleIndexGames: ScheduleGameForIndex[] = games.map((game) => ({
+    key: game.key,
+    week: game.week,
+    date: game.date ?? null,
+    stage: game.stage ?? 'regular',
+    providerGameId: game.providerGameId ?? null,
+    canHome: game.canHome,
+    canAway: game.canAway,
+    participants: {
+      home: { kind: game.participants?.home?.kind ?? 'team' },
+      away: { kind: game.participants?.away?.kind ?? 'team' },
     },
+  }));
+  const scheduleIndex = buildScheduleIndex(scheduleIndexGames, resolver);
+
+  const rows = await fetchScoreRows({ season, weeks: loadedWeeks, issues, apiBaseUrl });
+  const normalizedRows: NormalizedScoreRow[] = rows.map((row) => ({
+    week: row.week,
+    seasonType: row.seasonType,
+    providerEventId: row.providerEventId,
+    status: row.status,
+    time: row.time,
+    date: row.date,
+    home: { team: row.homeName, score: row.homeScore },
+    away: { team: row.awayName, score: row.awayScore },
+  }));
+
+  const scopedRows = filterRowsToScheduleScope(normalizedRows, games);
+
+  const attached = attachScoresToSchedule({
+    rows: scopedRows,
+    scheduleIndex,
+    resolver,
+    debugTrace,
+    source: 'cfbd_scores',
   });
 
-  const rows = await fetchScoreRows({ season, weeks: loadedWeeks, issues });
-  const rowsByWeek = groupRowsByWeek(rows);
-
-  const nextScores: Record<string, ScorePack> = {};
-  let weekMismatchCount = 0;
-  let hardMissCount = 0;
-  const maxIssuesPerKind = 10;
-
-  for (const week of loadedWeeks) {
-    const weeklyRows = rowsByWeek.get(week) ?? [];
-    for (const row of weeklyRows) {
-      const rowInvolvesFbs =
-        teams.length === 0 || resolver.isFbsName(row.homeName) || resolver.isFbsName(row.awayName);
-      if (teams.length > 0 && !rowInvolvesFbs) continue;
-
-      const matchKey = resolver.buildPairKey(row.homeName, row.awayName);
-      const matchesAllWeeks = globalIndex.get(matchKey) ?? [];
-
-      if (matchesAllWeeks.length === 0) {
-        if (hardMissCount < maxIssuesPerKind) {
-          const homeRes = resolver.resolveName(row.homeName);
-          const awayRes = resolver.resolveName(row.awayName);
-
-          issues.push(`missing-score-match: week ${week} ${row.homeName} vs ${row.awayName}`);
-          diag.push({
-            kind: 'scores_miss',
-            issueClassification: 'missing-score-match',
-            week,
-            providerHome: row.homeName,
-            providerAway: row.awayName,
-            homeIdentity: {
-              normalizedInput: homeRes.normalizedInput,
-              resolutionSource: homeRes.resolutionSource,
-              status: homeRes.status,
-              candidates: homeRes.candidates,
-            },
-            awayIdentity: {
-              normalizedInput: awayRes.normalizedInput,
-              resolutionSource: awayRes.resolutionSource,
-              status: awayRes.status,
-              candidates: awayRes.candidates,
-            },
-          });
-
-          if (homeRes.status !== 'resolved') {
-            diag.push({
-              kind: 'identity_resolution',
-              issueClassification: 'identity-unresolved',
-              flow: 'scores',
-              rawInput: homeRes.rawInput,
-              normalizedInput: homeRes.normalizedInput,
-              resolutionSource: homeRes.resolutionSource,
-              status: homeRes.status,
-              notes: homeRes.notes,
-              candidates: homeRes.candidates,
-            });
-          }
-          if (awayRes.status !== 'resolved') {
-            diag.push({
-              kind: 'identity_resolution',
-              issueClassification: 'identity-unresolved',
-              flow: 'scores',
-              rawInput: awayRes.rawInput,
-              normalizedInput: awayRes.normalizedInput,
-              resolutionSource: awayRes.resolutionSource,
-              status: awayRes.status,
-              notes: awayRes.notes,
-              candidates: awayRes.candidates,
-            });
-          }
-        }
-
-        hardMissCount++;
-        continue;
-      }
-
-      const sameWeek = matchesAllWeeks.find((candidate) => candidate.week === week);
-      if (sameWeek) {
-        nextScores[sameWeek.game.key] = {
-          status: row.status,
-          time: row.time,
-          home: { team: row.homeName, score: row.homeScore },
-          away: { team: row.awayName, score: row.awayScore },
-        };
-        continue;
-      }
-
-      const otherWeeks = Array.from(new Set(matchesAllWeeks.map((entry) => entry.week))).sort(
-        (a, b) => a - b
-      );
-      const isFinal = (row.status || '').toLowerCase().includes('final');
-      const isPrevWeekCarryover = otherWeeks.includes(week - 1);
-      if (isFinal && isPrevWeekCarryover) continue;
-
-      const alreadyCaptured = matchesAllWeeks.some(({ game }) => Boolean(nextScores[game.key]));
-      if (alreadyCaptured) continue;
-
-      if (weekMismatchCount < maxIssuesPerKind) {
-        const candidates = matchesAllWeeks.map(({ week: candidateWeek, game }) => ({
-          csvHome: game.csvHome,
-          csvAway: game.csvAway,
-          week: candidateWeek,
-        }));
-
-        issues.push(
-          `missing-score-match: week ${week} ${row.homeName} vs ${row.awayName} (week mismatch)`
-        );
-
-        diag.push({
-          kind: 'week_mismatch',
-          week,
-          providerHome: row.homeName,
-          providerAway: row.awayName,
-          candidates,
-        });
-      }
-      weekMismatchCount++;
+  if (debugTrace) {
+    for (const diagnostic of attached.diagnostics.slice(0, 50)) {
+      diag.push({
+        kind: 'ignored_score_row',
+        week: diagnostic.provider.week,
+        providerHome: diagnostic.provider.homeTeamRaw ?? '',
+        providerAway: diagnostic.provider.awayTeamRaw ?? '',
+        reason: diagnostic.reason,
+        diagnostic,
+        debugOnly: true,
+      });
     }
   }
 
-  return { scoresByKey: nextScores, issues, diag };
+  if (attached.diagnostics.length > 0 && process.env.NEXT_PUBLIC_DEBUG === '1') {
+    console.log('scores ignored provider rows', summarizeAttachmentReasons(attached.diagnostics));
+  }
+
+  return {
+    scoresByKey: attached.scoresByKey,
+    issues,
+    diag,
+    debugSnapshot: debugTrace
+      ? {
+          providerRowCount: scopedRows.length,
+          attachedCount: attached.attachedCount,
+          diagnosticsCount: attached.diagnostics.length,
+        }
+      : undefined,
+    debugDiagnostics: debugTrace ? attached.diagnostics : undefined,
+  };
 }

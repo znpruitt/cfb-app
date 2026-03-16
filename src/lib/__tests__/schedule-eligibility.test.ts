@@ -432,3 +432,121 @@ test('excluded games cannot be reintroduced by score matching/backfill', async (
     globalThis.fetch = originalFetch;
   }
 });
+
+test('scores are filtered to schedule scope before attachment diagnostics', async () => {
+  const built = build([
+    {
+      id: 'reg-army-navy-w1',
+      week: 1,
+      startDate: '2025-09-01T20:00:00Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Army',
+      awayTeam: 'Navy',
+      homeConference: 'Independent',
+      awayConference: 'American',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+  ]);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        items: [
+          {
+            week: 1,
+            seasonType: 'regular',
+            status: 'final',
+            time: null,
+            home: 'Army',
+            away: 'Navy',
+            homeScore: 17,
+            awayScore: 14,
+          },
+          {
+            week: 2,
+            seasonType: 'regular',
+            status: 'final',
+            time: null,
+            home: 'Boise State',
+            away: 'Washington State',
+            homeScore: 31,
+            awayScore: 28,
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games: built.games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+      debugTrace: true,
+    });
+
+    assert.equal(result.debugSnapshot?.providerRowCount, 1);
+    assert.equal(result.debugSnapshot?.attachedCount, 1);
+    assert.equal(result.debugSnapshot?.diagnosticsCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('ignored score rows stay out of user-facing diagnostics when debugTrace is off', async () => {
+  const built = build([
+    {
+      id: 'reg-army-navy-w1',
+      week: 1,
+      startDate: '2025-09-01T20:00:00Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Army',
+      awayTeam: 'Navy',
+      homeConference: 'Independent',
+      awayConference: 'American',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+  ]);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        items: [
+          {
+            week: 1,
+            seasonType: 'regular',
+            status: 'final',
+            time: null,
+            home: 'Unknown U',
+            away: 'Unknown V',
+            homeScore: 17,
+            awayScore: 14,
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games: built.games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+      debugTrace: false,
+    });
+
+    assert.equal(result.diag.length, 0);
+    assert.equal(result.debugDiagnostics, undefined);
+    assert.equal(result.debugSnapshot, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
