@@ -35,6 +35,8 @@ import {
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
+import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
+import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
@@ -120,6 +122,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [lastScheduleRefreshAt, setLastScheduleRefreshAt] = useState<string>('');
   const [scheduleMeta, setScheduleMeta] = useState<ScheduleFetchMeta>({});
   const [oddsCacheState, setOddsCacheState] = useState<'hit' | 'miss' | 'unknown'>('unknown');
+  const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
 
   const [aliasMap, setAliasMap] = useState<AliasMap>({});
   const [editOpen, setEditOpen] = useState<boolean>(false);
@@ -181,6 +184,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     setLastScheduleRefreshAt('');
     setScheduleMeta({});
     setOddsCacheState('unknown');
+    setOddsUsage(null);
     setScheduleLoaded(false);
   }, []);
 
@@ -466,28 +470,54 @@ export default function CFBScheduleApp(): React.ReactElement {
         const shouldFetchOdds = options?.includeOdds ?? refreshPlan.odds.fetchOnStartup;
 
         if (shouldFetchOdds) {
-          try {
-            const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
-            if (oddsRes.ok) {
-              const oddsPayload = (await oddsRes.json()) as
-                | OddsEvent[]
-                | { items?: OddsEvent[]; meta?: { cache?: 'hit' | 'miss' } };
-              const oddsEvents = Array.isArray(oddsPayload)
-                ? oddsPayload
-                : (oddsPayload.items ?? []);
-              const cacheState = Array.isArray(oddsPayload)
-                ? 'unknown'
-                : (oddsPayload.meta?.cache ?? 'unknown');
-              setOddsCacheState(cacheState);
-              const next = buildOddsByGame({ games, oddsEvents, aliasMap, teams });
-              setOddsByKey(next);
-              setLastOddsRefreshAt(new Date().toLocaleString());
-            } else {
-              const t = await oddsRes.text().catch(() => '');
-              setIssues((p) => [...p, `Odds error ${oddsRes.status}: ${t}`]);
+          const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
+          if (!manual && quota.disableAutoRefresh) {
+            setIssues((p) => [
+              ...p,
+              `Odds auto-refresh skipped: low remaining quota (${oddsUsage?.remaining ?? 'unknown'}).`,
+            ]);
+          } else {
+            if (manual && quota.manualWarningOnly) {
+              setIssues((p) => [
+                ...p,
+                `Odds refresh warning: remaining quota critically low (${oddsUsage?.remaining ?? 'unknown'}).`,
+              ]);
             }
-          } catch (err) {
-            setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
+            try {
+              const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
+              if (oddsRes.ok) {
+                const oddsPayload = (await oddsRes.json()) as
+                  | OddsEvent[]
+                  | {
+                      items?: OddsEvent[];
+                      meta?: {
+                        cache?: 'hit' | 'miss';
+                        usage?: OddsUsageSnapshot | null;
+                      };
+                    };
+                const oddsEvents = Array.isArray(oddsPayload)
+                  ? oddsPayload
+                  : (oddsPayload.items ?? []);
+                const cacheState = Array.isArray(oddsPayload)
+                  ? 'unknown'
+                  : (oddsPayload.meta?.cache ?? 'unknown');
+                setOddsCacheState(cacheState);
+                setOddsUsage(Array.isArray(oddsPayload) ? null : (oddsPayload.meta?.usage ?? null));
+                const next = buildOddsByGame({ games, oddsEvents, aliasMap, teams });
+                setOddsByKey(next);
+                setLastOddsRefreshAt(new Date().toLocaleString());
+              } else {
+                const t = await oddsRes.text().catch(() => '');
+                setIssues((p) => [
+                  ...p,
+                  oddsRes.status === 402 || oddsRes.status === 429
+                    ? `Odds quota error ${oddsRes.status}: ${t}`
+                    : `Odds error ${oddsRes.status}: ${t}`,
+                ]);
+              }
+            } catch (err) {
+              setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
+            }
           }
         }
 
@@ -518,8 +548,18 @@ export default function CFBScheduleApp(): React.ReactElement {
         setLoadingLive(false);
       }
     },
-    [aliasMap, games, refreshPlan.odds.fetchOnStartup, selectedSeason]
+    [aliasMap, games, oddsUsage, refreshPlan.odds.fetchOnStartup, selectedSeason]
   );
+
+  useEffect(() => {
+    void fetchLatestOddsUsageSnapshot()
+      .then((snapshot) => {
+        setOddsUsage(snapshot);
+      })
+      .catch(() => {
+        // non-fatal diagnostics fetch
+      });
+  }, []);
 
   useEffect(() => {
     if (!scheduleLoaded || hasAutoBootstrappedLiveRef.current) return;

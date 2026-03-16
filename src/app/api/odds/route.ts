@@ -1,4 +1,10 @@
-import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+import { UpstreamFetchError } from '@/lib/api/fetchUpstream';
+import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
+import {
+  captureOddsUsageSnapshot,
+  getLatestKnownOddsUsage,
+  setLatestKnownOddsUsage,
+} from '@/lib/server/oddsUsageStore';
 import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
@@ -26,6 +32,7 @@ interface OddsMeta {
   cache: 'hit' | 'miss';
   fallbackUsed: boolean;
   generatedAt: string;
+  usage: OddsUsageSnapshot | null;
 }
 
 interface OddsResponse {
@@ -38,10 +45,40 @@ const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'po
 const MARKETS = ['h2h', 'spreads', 'totals'];
 const REGIONS = ['us'];
 
+async function fetchOddsUpstream(url: string, timeoutMs = 12_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new UpstreamFetchError({
+        kind: 'timeout',
+        message: `Upstream request timed out after ${timeoutMs}ms`,
+        url,
+      });
+    }
+
+    throw new UpstreamFetchError({
+      kind: 'network',
+      message: error instanceof Error ? error.message : 'Unknown network error',
+      url,
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
 type OddsCache = {
-  entries: Record<string, { data: OddsEvent[]; lastFetch: number }>;
+  entries: Record<
+    string,
+    { data: OddsEvent[]; lastFetch: number; usage: OddsUsageSnapshot | null }
+  >;
   dayKey: string | null;
-  callsToday: number;
 };
 
 function responseFrom(items: OddsEvent[], meta: OddsMeta, status = 200): Response {
@@ -75,7 +112,6 @@ function normalizeUpstreamOddsEvent(event: UpstreamOddsEvent): OddsEvent | null 
 const oddsCache: OddsCache = {
   entries: {},
   dayKey: null,
-  callsToday: 0,
 };
 
 function createCacheKey(query: {
@@ -189,10 +225,8 @@ export async function GET(req: Request): Promise<Response> {
     const dayKey = dayKeyUTC();
     if (oddsCache.dayKey !== dayKey) {
       oddsCache.dayKey = dayKey;
-      oddsCache.callsToday = 0;
     }
 
-    const maxPerDay = 16;
     const cacheKey = createCacheKey(query);
     const cachedEntry = oddsCache.entries[cacheKey];
     const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 30 * 60 * 1000;
@@ -200,17 +234,7 @@ export async function GET(req: Request): Promise<Response> {
 
     if (!cachedEntry || stale) {
       recordRouteCacheMiss('odds');
-      if (oddsCache.callsToday >= maxPerDay && !cachedEntry) {
-        return new Response(
-          JSON.stringify({ error: 'Daily odds limit reached and no cache available' }),
-          {
-            status: 429,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-
-      if (oddsCache.callsToday < maxPerDay) {
+      {
         const oddsApiKey = process.env.ODDS_API_KEY?.trim();
         if (!oddsApiKey) {
           return new Response(JSON.stringify({ error: 'ODDS_API_KEY missing' }), {
@@ -227,9 +251,53 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', oddsApiKey);
 
-        const upstreamData = await fetchUpstreamJson<UpstreamOddsEvent[]>(url.toString(), {
-          cache: 'no-store',
-          timeoutMs: 12_000,
+        const upstreamRes = await fetchOddsUpstream(url.toString());
+        if (!upstreamRes.ok) {
+          const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
+            sportKey: 'americanfootball_ncaaf',
+            markets: query.markets,
+            regions: query.regions,
+            endpointType: 'odds',
+            cacheStatus: 'miss',
+          });
+
+          if (
+            (upstreamRes.status === 402 || upstreamRes.status === 429) &&
+            (!usage || usage.remaining > 0)
+          ) {
+            await setLatestKnownOddsUsage({
+              used: usage?.limit ?? 500,
+              remaining: 0,
+              lastCost: usage?.lastCost ?? 0,
+              limit: usage?.limit ?? 500,
+              capturedAt: new Date().toISOString(),
+              source: 'quota-error-fallback',
+              sportKey: 'americanfootball_ncaaf',
+              markets: query.markets,
+              regions: query.regions,
+              endpointType: 'odds',
+              cacheStatus: 'miss',
+            });
+          }
+
+          const responseBody = await upstreamRes.text().catch(() => '');
+          throw new UpstreamFetchError({
+            kind: 'http',
+            message: `Upstream request failed with status ${upstreamRes.status}${upstreamRes.statusText ? ` (${upstreamRes.statusText})` : ''}`,
+            status: upstreamRes.status,
+            statusText: upstreamRes.statusText,
+            url: url.toString(),
+            responseBody,
+          });
+        }
+
+        const upstreamData = (await upstreamRes.json()) as UpstreamOddsEvent[];
+        const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
+          sportKey: 'americanfootball_ncaaf',
+          markets: query.markets,
+          regions: query.regions,
+          endpointType: 'odds',
+          cacheStatus: 'miss',
         });
 
         oddsCache.entries[cacheKey] = {
@@ -240,8 +308,8 @@ export async function GET(req: Request): Promise<Response> {
                 .filter((event): event is OddsEvent => Boolean(event))
             : [],
           lastFetch: Date.now(),
+          usage,
         };
-        oddsCache.callsToday += 1;
         fetchedFromUpstream = true;
       }
     }
@@ -258,6 +326,7 @@ export async function GET(req: Request): Promise<Response> {
       cache: fetchedFromUpstream ? 'miss' : 'hit',
       fallbackUsed: false,
       generatedAt: new Date(lastFetchAt).toISOString(),
+      usage: responseEntry?.usage ?? (await getLatestKnownOddsUsage()),
     });
   } catch (e) {
     if (e instanceof UpstreamFetchError) {
