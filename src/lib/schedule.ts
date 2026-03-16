@@ -150,11 +150,17 @@ function summarizeGames(label: string, games: AppGame[]): void {
   });
 }
 
-export async function fetchSeasonSchedule(season: number): Promise<{
+export async function fetchSeasonSchedule(
+  season: number,
+  options?: { bypassCache?: boolean }
+): Promise<{
   items: ScheduleWireItem[];
   meta: ScheduleFetchMeta;
 }> {
-  const response = await fetch(`/api/schedule?year=${season}`, { cache: 'no-store' });
+  const searchParams = new URLSearchParams({ year: String(season) });
+  if (options?.bypassCache) searchParams.set('bypassCache', '1');
+
+  const response = await fetch(`/api/schedule?${searchParams.toString()}`, { cache: 'no-store' });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     throw new Error(`schedule ${response.status} ${detail}`);

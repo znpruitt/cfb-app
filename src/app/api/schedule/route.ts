@@ -51,6 +51,12 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return Number.parseInt(raw, 10);
 }
 
+function parseBooleanQueryParam(raw: string | null): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
 function seasonYearForToday(now = new Date()): number {
   const month = now.getUTCMonth();
   const year = now.getUTCFullYear();
@@ -209,6 +215,7 @@ export async function GET(req: Request) {
   const yearParam = url.searchParams.get('year');
   const weekParam = url.searchParams.get('week');
   const seasonTypeParam = url.searchParams.get('seasonType');
+  const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
   const requestId = req.headers.get('x-request-id');
 
   const currentYear = new Date().getUTCFullYear();
@@ -249,7 +256,7 @@ export async function GET(req: Request) {
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
   const hit = CACHE[cacheKey];
   const now = Date.now();
-  if (hit && now - hit.at < CACHE_TTL_MS) {
+  if (!bypassCache && hit && now - hit.at < CACHE_TTL_MS) {
     recordRouteCacheHit('schedule');
     return NextResponse.json<ScheduleResponse>({
       items: hit.items,

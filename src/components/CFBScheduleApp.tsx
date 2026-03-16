@@ -190,7 +190,8 @@ export default function CFBScheduleApp(): React.ReactElement {
   const loadScheduleFromApi = useCallback(
     async (
       overrideAliasMap?: AliasMap,
-      overrideManualOverrides?: Record<string, Partial<AppGame>>
+      overrideManualOverrides?: Record<string, Partial<AppGame>>,
+      options?: { bypassCache?: boolean }
     ): Promise<boolean> => {
       if (scheduleRefreshInFlightRef.current) return false;
       scheduleRefreshInFlightRef.current = true;
@@ -199,7 +200,7 @@ export default function CFBScheduleApp(): React.ReactElement {
       try {
         setDiag([]);
         const [schedulePayload, teams] = await Promise.all([
-          fetchSeasonSchedule(selectedSeason),
+          fetchSeasonSchedule(selectedSeason, { bypassCache: options?.bypassCache }),
           fetchTeamsCatalog(),
         ]);
         const scheduleItems = schedulePayload.items;
@@ -680,7 +681,7 @@ export default function CFBScheduleApp(): React.ReactElement {
           </button>
           <button
             className="px-3 py-2 rounded border border-gray-200 bg-gray-50 text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-            onClick={() => void loadScheduleFromApi()}
+            onClick={() => void loadScheduleFromApi(undefined, undefined, { bypassCache: true })}
             disabled={loadingSchedule}
             title="Force a schedule rebuild from CFBD"
           >
