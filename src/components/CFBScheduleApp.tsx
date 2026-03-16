@@ -8,18 +8,29 @@ import UploadPanel from './UploadPanel';
 import GameWeekPanel from './GameWeekPanel';
 import PostseasonPanel from './PostseasonPanel';
 import WeekControls from './WeekControls';
+import AdminUsagePanel from './AdminUsagePanel';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { buildOddsByGame, type CombinedOdds, type OddsEvent } from '../lib/odds';
 import { isTruePostseasonGame, isWeekContextGame } from '../lib/postseason-display';
 import { fetchScoresByGame, type ScorePack } from '../lib/scores';
+import {
+  getRefreshPlan,
+  LIVE_MANUAL_COOLDOWN_MS,
+  SCORES_AUTO_REFRESH_MS,
+} from '../lib/refreshPolicy';
 import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
 import { saveServerAliases } from '../lib/aliasesApi';
 import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { pillClass } from '../lib/gameUi';
-import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
+import {
+  buildScheduleFromApi,
+  fetchSeasonSchedule,
+  type AppGame,
+  type ScheduleFetchMeta,
+} from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 
@@ -100,8 +111,13 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
   const [loadingLive, setLoadingLive] = useState<boolean>(false);
+  const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
   const [issues, setIssues] = useState<string[]>([]);
-  const [lastRefreshAt, setLastRefreshAt] = useState<string>('');
+  const [lastScoresRefreshAt, setLastScoresRefreshAt] = useState<string>('');
+  const [lastOddsRefreshAt, setLastOddsRefreshAt] = useState<string>('');
+  const [lastScheduleRefreshAt, setLastScheduleRefreshAt] = useState<string>('');
+  const [scheduleMeta, setScheduleMeta] = useState<ScheduleFetchMeta>({});
+  const [oddsCacheState, setOddsCacheState] = useState<'hit' | 'miss' | 'unknown'>('unknown');
 
   const [aliasMap, setAliasMap] = useState<AliasMap>({});
   const [editOpen, setEditOpen] = useState<boolean>(false);
@@ -117,6 +133,12 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [ownersLoadedFromCache, setOwnersLoadedFromCache] = useState<boolean>(false);
   const [hasCachedOwners, setHasCachedOwners] = useState<boolean>(false);
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
+
+  const liveRefreshInFlightRef = useRef<boolean>(false);
+  const scheduleRefreshInFlightRef = useRef<boolean>(false);
+  const lastManualLiveRefreshMsRef = useRef<number>(0);
+  const lastAutoScoresRefreshMsRef = useRef<number>(0);
+  const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
 
   const applySavedAliasMap = useCallback(
     (saved: AliasMap) => {
@@ -152,7 +174,11 @@ export default function CFBScheduleApp(): React.ReactElement {
     setScoresByKey({});
     setIssues([]);
     setDiag([]);
-    setLastRefreshAt('');
+    setLastScoresRefreshAt('');
+    setLastOddsRefreshAt('');
+    setLastScheduleRefreshAt('');
+    setScheduleMeta({});
+    setOddsCacheState('unknown');
     setScheduleLoaded(false);
   }, []);
 
@@ -166,12 +192,19 @@ export default function CFBScheduleApp(): React.ReactElement {
       overrideAliasMap?: AliasMap,
       overrideManualOverrides?: Record<string, Partial<AppGame>>
     ): Promise<boolean> => {
+      if (scheduleRefreshInFlightRef.current) return false;
+      scheduleRefreshInFlightRef.current = true;
+      setLoadingSchedule(true);
+
       try {
         setDiag([]);
-        const [scheduleItems, teams] = await Promise.all([
+        const [schedulePayload, teams] = await Promise.all([
           fetchSeasonSchedule(selectedSeason),
           fetchTeamsCatalog(),
         ]);
+        const scheduleItems = schedulePayload.items;
+        setScheduleMeta(schedulePayload.meta ?? {});
+        setLastScheduleRefreshAt(new Date().toLocaleString());
         if (IS_DEBUG) {
           const seasonWeeks = Array.from(
             new Set(scheduleItems.map((item) => item.week).filter((w) => Number.isFinite(w)))
@@ -253,6 +286,9 @@ export default function CFBScheduleApp(): React.ReactElement {
           dedupeIssues([...prev.filter((issue) => !isScheduleIssue(issue)), scheduleFailure])
         );
         return false;
+      } finally {
+        scheduleRefreshInFlightRef.current = false;
+        setLoadingSchedule(false);
       }
     },
     [aliasMap, clearScheduleDerivedState, manualPostseasonOverrides, selectedSeason, selectedWeek]
@@ -333,15 +369,16 @@ export default function CFBScheduleApp(): React.ReactElement {
     return m;
   }, [roster]);
 
-  function filteredWeekGames(w: number): AppGame[] {
+  const filteredWeekGames = useMemo(() => {
+    if (selectedWeek == null) return [] as AppGame[];
+    const tf = teamFilter.toLowerCase();
     const next = games
-      .filter((g) => isWeekContextGame(g) && g.week === w)
+      .filter((g) => isWeekContextGame(g) && g.week === selectedWeek)
       .filter((g) => {
         const confOk =
           selectedConference === 'ALL' ||
           g.homeConf === selectedConference ||
           g.awayConf === selectedConference;
-        const tf = teamFilter.toLowerCase();
         const teamOk =
           !tf || g.csvHome.toLowerCase().includes(tf) || g.csvAway.toLowerCase().includes(tf);
         return confOk && teamOk;
@@ -357,11 +394,11 @@ export default function CFBScheduleApp(): React.ReactElement {
       });
 
     if (IS_DEBUG) {
-      summarizeGames(`displayGames: week ${w}`, next);
+      summarizeGames(`displayGames: week ${selectedWeek}`, next);
     }
 
     return next;
-  }
+  }, [games, rosterByTeam, selectedConference, selectedWeek, teamFilter]);
 
   const postseasonGames = useMemo(() => {
     const tf = teamFilter.toLowerCase();
@@ -381,57 +418,130 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   const hasPostseasonGames = useMemo(() => games.some(isTruePostseasonGame), [games]);
 
-  const refreshLive = useCallback(async () => {
-    setIssues((prev) => prev.filter((issue) => !isLiveIssue(issue)));
-    setDiag([]);
-    if (!games.length) {
-      setIssues((p) => [...p, 'No games loaded. CFBD schedule load may have failed.']);
-      return;
-    }
+  const visibleGames = useMemo(() => {
+    if (selectedTab === 'postseason') return postseasonGames;
+    return filteredWeekGames;
+  }, [filteredWeekGames, postseasonGames, selectedTab]);
 
-    setLoadingLive(true);
-    try {
-      const teams = await fetchTeamsCatalog().catch(() => []);
+  const refreshPlan = useMemo(
+    () =>
+      getRefreshPlan({
+        season: selectedSeason,
+        visibleGames,
+        scoresByKey,
+      }),
+    [scoresByKey, selectedSeason, visibleGames]
+  );
+
+  const refreshLiveData = useCallback(
+    async (options?: { manual?: boolean; includeOdds?: boolean }): Promise<void> => {
+      const manual = options?.manual ?? false;
+      if (liveRefreshInFlightRef.current) return;
+
+      const nowMs = Date.now();
+      if (manual && nowMs - lastManualLiveRefreshMsRef.current < LIVE_MANUAL_COOLDOWN_MS) {
+        return;
+      }
+
+      setIssues((prev) => prev.filter((issue) => !isLiveIssue(issue)));
+      setDiag([]);
+      if (!games.length) {
+        setIssues((p) => [...p, 'No games loaded. CFBD schedule load may have failed.']);
+        return;
+      }
+
+      liveRefreshInFlightRef.current = true;
+      setLoadingLive(true);
+      if (manual) {
+        lastManualLiveRefreshMsRef.current = nowMs;
+      }
 
       try {
-        const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
-        if (oddsRes.ok) {
-          const oddsPayload = (await oddsRes.json()) as OddsEvent[] | { items?: OddsEvent[] };
-          const oddsEvents = Array.isArray(oddsPayload) ? oddsPayload : (oddsPayload.items ?? []);
-          const next = buildOddsByGame({ games, oddsEvents, aliasMap, teams });
-          setOddsByKey(next);
-        } else {
-          const t = await oddsRes.text().catch(() => '');
-          setIssues((p) => [...p, `Odds error ${oddsRes.status}: ${t}`]);
+        const teams = await fetchTeamsCatalog().catch(() => []);
+        const shouldFetchOdds = options?.includeOdds ?? refreshPlan.odds.fetchOnStartup;
+
+        if (shouldFetchOdds) {
+          try {
+            const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
+            if (oddsRes.ok) {
+              const oddsPayload = (await oddsRes.json()) as
+                | OddsEvent[]
+                | { items?: OddsEvent[]; meta?: { cache?: 'hit' | 'miss' } };
+              const oddsEvents = Array.isArray(oddsPayload)
+                ? oddsPayload
+                : (oddsPayload.items ?? []);
+              const cacheState = Array.isArray(oddsPayload)
+                ? 'unknown'
+                : (oddsPayload.meta?.cache ?? 'unknown');
+              setOddsCacheState(cacheState);
+              const next = buildOddsByGame({ games, oddsEvents, aliasMap, teams });
+              setOddsByKey(next);
+              setLastOddsRefreshAt(new Date().toLocaleString());
+            } else {
+              const t = await oddsRes.text().catch(() => '');
+              setIssues((p) => [...p, `Odds error ${oddsRes.status}: ${t}`]);
+            }
+          } catch (err) {
+            setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
+          }
         }
-      } catch (err) {
-        setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
+
+        try {
+          const {
+            scoresByKey: nextScores,
+            issues: scoreIssues,
+            diag: scoreDiag,
+          } = await fetchScoresByGame({
+            games,
+            aliasMap,
+            season: selectedSeason,
+            teams,
+          });
+
+          if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
+          if (scoreDiag.length) setDiag((p) => [...p, ...scoreDiag]);
+          setScoresByKey((prev) => ({ ...prev, ...nextScores }));
+          setLastScoresRefreshAt(new Date().toLocaleString());
+          if (!manual) {
+            lastAutoScoresRefreshMsRef.current = Date.now();
+          }
+        } catch (err) {
+          setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
+        }
+      } finally {
+        liveRefreshInFlightRef.current = false;
+        setLoadingLive(false);
       }
+    },
+    [aliasMap, games, refreshPlan.odds.fetchOnStartup, selectedSeason]
+  );
 
-      try {
-        const {
-          scoresByKey: nextScores,
-          issues: scoreIssues,
-          diag: scoreDiag,
-        } = await fetchScoresByGame({
-          games,
-          aliasMap,
-          season: selectedSeason,
-          teams,
-        });
+  useEffect(() => {
+    if (!scheduleLoaded || hasAutoBootstrappedLiveRef.current) return;
+    hasAutoBootstrappedLiveRef.current = true;
+    void refreshLiveData({ manual: false, includeOdds: refreshPlan.odds.fetchOnStartup });
+  }, [refreshLiveData, refreshPlan.odds.fetchOnStartup, scheduleLoaded]);
 
-        if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
-        if (scoreDiag.length) setDiag((p) => [...p, ...scoreDiag]);
-        setScoresByKey((prev) => ({ ...prev, ...nextScores }));
-      } catch (err) {
-        setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
-      }
+  useEffect(() => {
+    if (!scheduleLoaded || !refreshPlan.scores.allowAutoOnFocus) return;
 
-      setLastRefreshAt(new Date().toLocaleString());
-    } finally {
-      setLoadingLive(false);
-    }
-  }, [games, aliasMap, selectedSeason]);
+    const tryRefresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastAutoScoresRefreshMsRef.current < SCORES_AUTO_REFRESH_MS) return;
+      void refreshLiveData({ manual: false, includeOdds: false });
+    };
+
+    const onFocus = () => {
+      tryRefresh();
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [refreshLiveData, refreshPlan.scores.allowAutoOnFocus, scheduleLoaded]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
@@ -551,11 +661,15 @@ export default function CFBScheduleApp(): React.ReactElement {
             className={`px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 ${
               loadingLive ? 'opacity-60' : ''
             }`}
-            onClick={() => void refreshLive()}
+            onClick={() => void refreshLiveData({ manual: true })}
             disabled={loadingLive || games.length === 0}
-            title={games.length === 0 ? 'Schedule load failed' : 'Refresh odds & scores'}
+            title={
+              games.length === 0
+                ? 'Schedule load failed'
+                : 'Refresh scores and context-relevant odds'
+            }
           >
-            {loadingLive ? 'Refreshing…' : 'Refresh odds & scores'}
+            {loadingLive ? 'Refreshing…' : 'Refresh data'}
           </button>
           <button
             className="px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
@@ -565,17 +679,32 @@ export default function CFBScheduleApp(): React.ReactElement {
             Edit Aliases
           </button>
           <button
-            className="px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+            className="px-3 py-2 rounded border border-gray-200 bg-gray-50 text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
             onClick={() => void loadScheduleFromApi()}
-            title="Reload schedule from CFBD"
+            disabled={loadingSchedule}
+            title="Force a schedule rebuild from CFBD"
           >
-            Reload schedule
+            {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
           </button>
-          {lastRefreshAt && (
-            <span className="text-xs text-gray-600 dark:text-zinc-400">Last: {lastRefreshAt}</span>
-          )}
+          <span className="text-xs text-gray-600 dark:text-zinc-400">
+            Schedule: {lastScheduleRefreshAt || 'not loaded'} ({scheduleMeta.cache ?? 'unknown'}{' '}
+            cache)
+          </span>
+          <span className="text-xs text-gray-600 dark:text-zinc-400">
+            Scores: {lastScoresRefreshAt || 'not refreshed'}
+          </span>
+          <span className="text-xs text-gray-600 dark:text-zinc-400">
+            Odds: {lastOddsRefreshAt || 'manual / policy-gated'} ({oddsCacheState} cache)
+          </span>
         </div>
       </header>
+
+      <p className="text-xs text-gray-600 dark:text-zinc-400">
+        Conservative refresh policy: schedule rebuilds are manual, scores may auto-refresh on focus
+        for active views, and odds remain policy-gated to protect monthly API quotas.
+      </p>
+
+      <AdminUsagePanel />
 
       <IssuesPanel
         issues={issues}
@@ -631,7 +760,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
           {selectedTab !== 'postseason' && selectedWeek != null && (
             <GameWeekPanel
-              games={filteredWeekGames(selectedWeek)}
+              games={filteredWeekGames}
               byes={byes[selectedWeek] ?? []}
               oddsByKey={oddsByKey}
               scoresByKey={scoresByKey}

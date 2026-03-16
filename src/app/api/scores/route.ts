@@ -2,12 +2,18 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
+import {
+  recordRouteCacheHit,
+  recordRouteCacheMiss,
+  recordRouteRequest,
+  recordUpstreamCall,
+} from '@/lib/server/apiUsageBudget';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 120;
+export const revalidate = 300;
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
-const CACHE_TTL_MS = 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
 
 type SeasonType = 'regular' | 'postseason';
@@ -275,6 +281,7 @@ function logDebug(params: {
 }
 
 export async function GET(req: Request) {
+  recordRouteRequest('scores');
   const url = new URL(req.url);
   const weekParam = url.searchParams.get('week');
   const yearParam = url.searchParams.get('year');
@@ -319,6 +326,7 @@ export async function GET(req: Request) {
   const now = Date.now();
   const hit = SCORES_CACHE[cacheKey];
   if (hit && now - hit.at < CACHE_TTL_MS) {
+    recordRouteCacheHit('scores');
     return responseFrom(hit.items, {
       source: hit.source,
       cache: 'hit',
@@ -327,6 +335,8 @@ export async function GET(req: Request) {
       cfbdFallbackReason: hit.cfbdFallbackReason,
     });
   }
+
+  recordRouteCacheMiss('scores');
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   const cfbdApiKeyMissing = cfbdApiKey.length === 0;
@@ -337,6 +347,7 @@ export async function GET(req: Request) {
       const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
       const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
 
+      recordUpstreamCall('cfbd');
       const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
         cache: 'no-store',
         timeoutMs: 12_000,

@@ -10,12 +10,18 @@ import {
   type SeasonType,
 } from '@/lib/schedule/cfbdSchedule';
 import { hasRequiredSeasonTypeFailure } from '@/lib/scheduleSeasonFetch';
+import {
+  recordRouteCacheHit,
+  recordRouteCacheMiss,
+  recordRouteRequest,
+  recordUpstreamCall,
+} from '@/lib/server/apiUsageBudget';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 120;
+export const revalidate = 3600;
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
-const CACHE_TTL_MS = 60 * 1000;
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
 
 interface ScheduleMeta {
@@ -134,6 +140,7 @@ async function fetchSeasonType(params: {
     });
   }
 
+  recordUpstreamCall('cfbd');
   const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
     cache: 'no-store',
     timeoutMs: 12_000,
@@ -197,6 +204,7 @@ async function fetchSeasonType(params: {
 }
 
 export async function GET(req: Request) {
+  recordRouteRequest('schedule');
   const url = new URL(req.url);
   const yearParam = url.searchParams.get('year');
   const weekParam = url.searchParams.get('week');
@@ -242,6 +250,7 @@ export async function GET(req: Request) {
   const hit = CACHE[cacheKey];
   const now = Date.now();
   if (hit && now - hit.at < CACHE_TTL_MS) {
+    recordRouteCacheHit('schedule');
     return NextResponse.json<ScheduleResponse>({
       items: hit.items,
       meta: {
@@ -254,6 +263,8 @@ export async function GET(req: Request) {
       },
     });
   }
+
+  recordRouteCacheMiss('schedule');
 
   const seasonTypes: SeasonType[] =
     requestedSeasonType === 'all' ? ['regular', 'postseason'] : [requestedSeasonType];

@@ -1,4 +1,10 @@
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
+import {
+  recordRouteCacheHit,
+  recordRouteCacheMiss,
+  recordRouteRequest,
+  recordUpstreamCall,
+} from '@/lib/server/apiUsageBudget';
 
 export const revalidate = 120;
 
@@ -168,6 +174,7 @@ function validateQuery(url: URL): QueryValidationResult {
 }
 
 export async function GET(req: Request): Promise<Response> {
+  recordRouteRequest('odds');
   try {
     const query = validateQuery(new URL(req.url));
     if (!query.ok) {
@@ -189,10 +196,11 @@ export async function GET(req: Request): Promise<Response> {
     const maxPerDay = 16;
     const cacheKey = createCacheKey(query);
     const cachedEntry = oddsCache.entries[cacheKey];
-    const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 24 * 60 * 60 * 1000;
+    const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 30 * 60 * 1000;
     let fetchedFromUpstream = false;
 
     if (!cachedEntry || stale) {
+      recordRouteCacheMiss('odds');
       if (oddsCache.callsToday >= maxPerDay && !cachedEntry) {
         return new Response(
           JSON.stringify({ error: 'Daily odds limit reached and no cache available' }),
@@ -220,6 +228,7 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', oddsApiKey);
 
+        recordUpstreamCall('odds-api');
         const upstreamData = await fetchUpstreamJson<UpstreamOddsEvent[]>(url.toString(), {
           cache: 'no-store',
           timeoutMs: 12_000,
@@ -237,6 +246,10 @@ export async function GET(req: Request): Promise<Response> {
         oddsCache.callsToday += 1;
         fetchedFromUpstream = true;
       }
+    }
+
+    if (cachedEntry && !stale) {
+      recordRouteCacheHit('odds');
     }
 
     const responseEntry = oddsCache.entries[cacheKey] ?? cachedEntry;
