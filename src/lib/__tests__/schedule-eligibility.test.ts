@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { isTruePostseasonGame } from '../postseason-display';
 import { buildScheduleFromApi, type ScheduleWireItem } from '../schedule';
+import { fetchScoresByGame } from '../scores';
 import type { TeamCatalogItem } from '../teamIdentity';
 
 const teams: TeamCatalogItem[] = [
@@ -309,4 +310,125 @@ test('filters eligibility consistently: keeps valid FBS content while excluding 
     postseasonTabGames.some((g) => /semifinal/i.test(g.label ?? '')),
     'postseason view should keep legitimate CFP entries'
   );
+});
+
+test('conference-marked FCS teams stay excluded even when aliases resolve to FBS programs', () => {
+  const built = buildScheduleFromApi({
+    season: 2025,
+    teams,
+    scheduleItems: [
+      {
+        id: 'reg-fcs-fcs-alias-leak',
+        week: 16,
+        startDate: '2025-12-13T20:00:00Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'UC Davis',
+        awayTeam: 'Illinois State',
+        homeConference: 'Big Sky',
+        awayConference: 'MVFC',
+        status: 'final',
+        seasonType: 'regular',
+      },
+    ],
+    aliasMap: {
+      'uc davis': 'Navy',
+      'illinois state': 'Army',
+    },
+  });
+
+  assert.equal(
+    built.games.length,
+    0,
+    'FCS-vs-FCS row should fail closed regardless of alias map drift'
+  );
+});
+
+test('excluded games cannot be reintroduced by score matching/backfill', async () => {
+  const built = build([
+    {
+      id: 'reg-army-navy',
+      week: 16,
+      startDate: '2025-12-13T20:00:00Z',
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Army',
+      awayTeam: 'Navy',
+      homeConference: 'Independent',
+      awayConference: 'American',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+    {
+      id: 'reg-fcs-fcs',
+      week: 16,
+      startDate: '2025-12-13T22:00:00Z',
+      neutralSite: false,
+      conferenceGame: true,
+      homeTeam: 'UC Davis',
+      awayTeam: 'Illinois State',
+      homeConference: 'Big Sky',
+      awayConference: 'MVFC',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+  ]);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        items: [
+          {
+            week: 16,
+            status: 'final',
+            time: null,
+            home: 'UC Davis',
+            away: 'Illinois State',
+            homeScore: 31,
+            awayScore: 42,
+          },
+          {
+            week: 16,
+            status: 'final',
+            time: null,
+            home: 'Army',
+            away: 'Navy',
+            homeScore: 24,
+            awayScore: 17,
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games: built.games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+    });
+
+    assert.ok(
+      Object.keys(result.scoresByKey).some((key) => key.includes('army') && key.includes('navy')),
+      'eligible Army-Navy game should still receive score enrichment'
+    );
+
+    assert.equal(
+      Object.values(result.scoresByKey).some(
+        (pack) => pack.home.team === 'UC Davis' || pack.away.team === 'Illinois State'
+      ),
+      false,
+      'excluded FCS-vs-FCS game must not be resurrected by scores feed'
+    );
+
+    assert.equal(
+      result.issues.some((issue) => issue.includes('UC Davis') && issue.includes('Illinois State')),
+      false,
+      'scores flow should ignore clearly non-FBS rows and never materialize them'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
