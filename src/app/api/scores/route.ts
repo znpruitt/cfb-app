@@ -6,7 +6,6 @@ import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
   recordRouteRequest,
-  recordUpstreamCall,
 } from '@/lib/server/apiUsageBudget';
 
 export const dynamic = 'force-dynamic';
@@ -373,7 +372,6 @@ export async function GET(req: Request) {
       const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
       const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
 
-      recordUpstreamCall('cfbd');
       const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
         cache: 'no-store',
         timeoutMs: 12_000,
