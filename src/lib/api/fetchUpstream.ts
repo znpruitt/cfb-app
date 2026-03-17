@@ -53,7 +53,8 @@ const IS_UPSTREAM_DEBUG =
   process.env.DEBUG_UPSTREAM === '1';
 
 const DEFAULT_RETRY_HTTP_STATUSES = [408, 425, 429, 500, 502, 503, 504];
-const paceByKey = new Map<string, number>();
+const paceNextAllowedAtByKey = new Map<string, number>();
+const paceTailByKey = new Map<string, Promise<void>>();
 
 function toHeaderObject(headers?: HeadersInit): Record<string, string> {
   if (!headers) return {};
@@ -155,13 +156,27 @@ async function applyPacing(
 ): Promise<void> {
   if (!policy || policy.minIntervalMs <= 0) return;
 
-  const now = Date.now();
-  const last = paceByKey.get(policy.key) ?? 0;
-  const waitMs = Math.max(0, last + policy.minIntervalMs - now);
-  if (waitMs > 0) {
-    await sleep(waitMs, signal);
-  }
-  paceByKey.set(policy.key, Date.now());
+  const previous = paceTailByKey.get(policy.key) ?? Promise.resolve();
+
+  const run = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const nextAllowedAt = paceNextAllowedAtByKey.get(policy.key) ?? 0;
+      const waitMs = Math.max(0, nextAllowedAt - Date.now());
+      if (waitMs > 0) {
+        await sleep(waitMs, signal);
+      }
+
+      paceNextAllowedAtByKey.set(policy.key, Date.now() + policy.minIntervalMs);
+    });
+
+  const settled = run.then(
+    () => undefined,
+    () => undefined
+  );
+  paceTailByKey.set(policy.key, settled);
+
+  await run;
 }
 
 function toUpstreamFetchError(params: {
