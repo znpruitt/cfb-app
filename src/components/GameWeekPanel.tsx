@@ -20,6 +20,10 @@ function formatKickoff(date: string | null): string {
   });
 }
 
+function isFcsConference(conference: string | null | undefined): boolean {
+  return /\bfcs\b/i.test(conference ?? '');
+}
+
 type GameWeekPanelProps = {
   games: Game[];
   byes: string[];
@@ -96,20 +100,24 @@ export default function GameWeekPanel({
               : `${g.csvAway} @ ${g.csvHome}`;
           const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
           const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
-          const homeOwner = rosterByTeam.get(g.csvHome);
-          const awayOwner = rosterByTeam.get(g.csvAway);
-          const ownerMatchupLabel =
-            awayOwner || homeOwner
-              ? `${awayOwner ?? 'Open spot'} vs ${homeOwner ?? 'Open spot'}`
-              : 'No drafted owners in this matchup';
+          const homeIsLeagueTeam =
+            g.participants.home.kind === 'team' && !isFcsConference(g.homeConf);
+          const awayIsLeagueTeam =
+            g.participants.away.kind === 'team' && !isFcsConference(g.awayConf);
+          const homeOwner = homeIsLeagueTeam ? rosterByTeam.get(g.csvHome) : undefined;
+          const awayOwner = awayIsLeagueTeam ? rosterByTeam.get(g.csvAway) : undefined;
+          const showOwnerMatchup =
+            homeIsLeagueTeam && awayIsLeagueTeam && Boolean(homeOwner) && Boolean(awayOwner);
 
           return (
             <details key={g.key} className={frameClasses}>
               <summary className="cursor-pointer px-3 py-2 flex items-center justify-between">
                 <div className="flex flex-col gap-1">
-                  <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                    Owner Matchup: {ownerMatchupLabel}
-                  </div>
+                  {showOwnerMatchup && (
+                    <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                      Owner Matchup: {awayOwner} vs {homeOwner}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     {g.label && (
                       <span className="font-semibold text-sm text-violet-700 dark:text-violet-300">
