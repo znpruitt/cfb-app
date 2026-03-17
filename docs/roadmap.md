@@ -15,7 +15,9 @@ These principles help avoid feature creep and keep the project manageable for a 
 
 Current Development Focus
 
-The project is presently in Phase 1 – Architecture Stabilization. Recent work has focused on API-first schedule/scores ingestion, shared attachment boundaries, and maintainability decomposition of oversized modules. The next immediate tasks are to continue shrinking the largest remaining files (especially the main app orchestrator and score attachment helpers) while preserving behavior and architecture. This section should be updated as the project moves through the phases.
+Phase 1 architecture stabilization is now considered complete after close-out audit. The app is operating with API-first schedule/scores ingestion, canonical identity resolution, schedule-derived game attachment boundaries for odds/scores, and shared upstream retry/backoff/pacing protections.
+
+Current focus should shift to Phase 2 user-facing features. Remaining Phase 1 maintainability work (mainly additional decomposition of `src/components/CFBScheduleApp.tsx` and `src/lib/scoreAttachment.ts`) is tracked as **optional technical debt**, not a release blocker.
 
 Development Workflow
 
@@ -176,6 +178,8 @@ A basic alias editing UI exists for the commissioner to manage mappings.
 Diagnostics surface all mismatches and errors; the system runs without manual intervention during data matching.
 
 Once these criteria are met, the foundation is stable enough to move to user‑facing features.
+
+Status note (close-out): these criteria are now met in the current repository state. Any additional decomposition of large-but-stable files should be treated as optional follow-up maintainability work.
 
 Phase 2 – Core League Features (Usability)
 

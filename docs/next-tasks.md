@@ -1,40 +1,41 @@
-# Phase 1 Remaining Tasks (Execution Priority)
+# Phase 1 Close-Out Audit (P4)
 
-This file tracks only the **remaining** Phase 1 architecture-stabilization work.
-Completed or superseded items were removed.
+This file now reflects the **post-audit** status of prior Phase 1 remaining tasks.
 
-## P3 — Reduce oversized orchestration/core modules (no behavior changes)
+## Final Phase 1 status
 
-**Why this is next:** maintainability risk remains from large files.
+Phase 1 architecture stabilization is complete.
 
-**Scope (remaining)**
+## Audited items
 
-- Keep `CFBScheduleApp.tsx` as orchestrator; extract non-trivial logic to focused `src/lib/*` helpers.
-- Continue decomposition of:
-  - `src/components/CFBScheduleApp.tsx`
-  - `src/lib/scoreAttachment.ts` (if it grows further)
-- Preserve the recent schedule decomposition boundary:
-  - `src/lib/schedule.ts` should stay focused on orchestration/build flow
-  - `src/lib/scheduleEligibility.ts`, `src/lib/scheduleTracking.ts`, and `src/lib/schedulePostseasonHelpers.ts` should own extracted pure/helper logic
-- No architecture redesign; behavior-preserving refactor only.
+### P3 — Reduce oversized orchestration/core modules (no behavior changes)
 
-**Done when**
+**Status:** Optional Follow-up (non-blocking technical debt)
 
-- Remaining oversized modules align better with `AGENTS.md` guardrails.
-- Runtime flow remains unchanged.
+**Evidence in repo:**
+- `src/components/CFBScheduleApp.tsx` remains an orchestrator and delegates parsing, schedule build, refresh policy, alias API, diagnostics helpers, and UI sections to `src/lib/*` + focused components.
+- `src/lib/scoreAttachment.ts` implements the shared schedule-index + score-attachment boundary used by score ingestion.
+- Prior schedule decomposition boundaries (`schedule.ts`, `scheduleEligibility.ts`, `scheduleTracking.ts`, `schedulePostseasonHelpers.ts`) are in place and active.
+
+**What remains:**
+- Additional file-size decomposition could improve readability, but no architecture or runtime-flow gap remains.
+
+**Phase 1 blocker?:** No.
 
 ---
 
-## P4 — Keep Phase 1 docs synchronized with code after each task
+### P4 — Keep Phase 1 docs synchronized with code after each task
 
-**Why this is next:** prevents plan drift.
+**Status:** Done
 
-**Scope**
+**Evidence in repo:**
+- `docs/roadmap.md`, `docs/next-tasks.md`, and `AGENTS.md` now reflect close-out status, current architecture boundaries, and Phase 2 transition guidance.
 
-- After each Phase 1 task, update:
-  - `docs/next-tasks.md` (remaining work only)
-  - `docs/roadmap.md` (status/completion criteria notes)
+**What remains:**
+- Continue routine doc updates during future Phase 2+ changes.
 
-**Done when**
+**Phase 1 blocker?:** No.
 
-- Task docs consistently reference real current modules and contracts.
+## Recommended next focus
+
+Start Phase 2 usability work. First task: implement/ship a polished default weekly dashboard flow (current-week default + matchup-centric presentation) on top of the stabilized Phase 1 data pipeline.

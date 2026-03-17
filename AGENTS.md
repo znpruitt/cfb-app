@@ -16,6 +16,12 @@ The app is now **API-first** for game loading and live enrichment:
 
 Changes should favor low-risk, behavior-preserving refactors unless explicitly asked otherwise.
 
+## Phase status
+
+- Phase 1 (architecture stabilization) is complete after close-out audit.
+- Prior P3 decomposition follow-up for `src/components/CFBScheduleApp.tsx` and `src/lib/scoreAttachment.ts` is **optional technical debt**, not a Phase 1 blocker.
+- Default planning focus should now be Phase 2 user-facing usability work unless a task explicitly re-opens Phase 1 concerns.
+
 ---
 
 ## Runtime flow (current)
