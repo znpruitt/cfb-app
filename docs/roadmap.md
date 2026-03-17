@@ -15,7 +15,7 @@ These principles help avoid feature creep and keep the project manageable for a 
 
 Current Development Focus
 
-The project is presently in Phase 1 – Architecture Stabilization. Recent work has focused on ingesting schedules via the CFBD API, modularising the main application component and improving alias resolution. The next immediate tasks are to finalise the canonical identity layer, simplify the data model and remove the legacy CSV workflow. This section should be updated as the project moves through the phases.
+The project is presently in Phase 1 – Architecture Stabilization. Recent work has focused on API-first schedule/scores ingestion, shared attachment boundaries, and maintainability decomposition of oversized modules. The next immediate tasks are to continue shrinking the largest remaining files (especially the main app orchestrator and score attachment helpers) while preserving behavior and architecture. This section should be updated as the project moves through the phases.
 
 Development Workflow
 

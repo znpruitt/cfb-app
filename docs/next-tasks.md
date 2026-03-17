@@ -7,18 +7,20 @@ Completed or superseded items were removed.
 
 **Why this is next:** maintainability risk remains from large files.
 
-**Scope**
+**Scope (remaining)**
 
 - Keep `CFBScheduleApp.tsx` as orchestrator; extract non-trivial logic to focused `src/lib/*` helpers.
-- Prioritize decomposition of:
+- Continue decomposition of:
   - `src/components/CFBScheduleApp.tsx`
-  - `src/lib/schedule.ts`
   - `src/lib/scoreAttachment.ts` (if it grows further)
+- Preserve the recent schedule decomposition boundary:
+  - `src/lib/schedule.ts` should stay focused on orchestration/build flow
+  - `src/lib/scheduleEligibility.ts`, `src/lib/scheduleTracking.ts`, and `src/lib/schedulePostseasonHelpers.ts` should own extracted pure/helper logic
 - No architecture redesign; behavior-preserving refactor only.
 
 **Done when**
 
-- Module sizes and responsibilities align better with `AGENTS.md` guardrails.
+- Remaining oversized modules align better with `AGENTS.md` guardrails.
 - Runtime flow remains unchanged.
 
 ---
