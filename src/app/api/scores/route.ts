@@ -7,6 +7,21 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
+import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
+import {
+  seasonYearForToday,
+  toScorePackFromCfbd,
+  toScorePackFromEspn,
+} from '@/lib/scores/normalizers';
+import type {
+  CfbdFallbackReason,
+  CfbdGameLoose,
+  EspnScoreboard,
+  ScorePack,
+  ScoresMeta,
+  ScoresResponse,
+  SeasonType,
+} from '@/lib/scores/types';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 300;
@@ -38,245 +53,7 @@ const ESPN_PACING_POLICY = {
   minIntervalMs: 100,
 } as const;
 
-type SeasonType = 'regular' | 'postseason';
-type CfbdFallbackReason =
-  | 'none'
-  | 'api-key-missing'
-  | 'cfbd-empty'
-  | 'cfbd-timeout'
-  | 'cfbd-aborted'
-  | 'cfbd-network'
-  | 'cfbd-http'
-  | 'cfbd-parse'
-  | 'cfbd-unknown-error';
-
-interface ScorePack {
-  id?: string | null;
-  seasonType?: SeasonType | null;
-  startDate?: string | null;
-  week: number | null;
-  status: string;
-  home: { team: string; score: number | null };
-  away: { team: string; score: number | null };
-  time: string | null;
-}
-
-// App-facing contract: provider-specific score payloads are normalized into ScorePack items.
-
-interface ScoresMeta {
-  source: 'cfbd' | 'espn';
-  cache: 'hit' | 'miss';
-  fallbackUsed: boolean;
-  generatedAt: string;
-  cfbdFallbackReason: CfbdFallbackReason;
-}
-
-interface ScoresResponse {
-  items: ScorePack[];
-  meta: ScoresMeta;
-}
-
-type CfbdGameLoose = {
-  id?: number | string;
-  season?: number;
-  week?: number | string;
-  season_type?: string;
-  seasonType?: string;
-  start_date?: string | null;
-  startDate?: string | null;
-
-  home_team?: string;
-  away_team?: string;
-  home_points?: number | null;
-  away_points?: number | null;
-  status?: string | null;
-
-  homeTeam?: string;
-  awayTeam?: string;
-  home?: string;
-  away?: string;
-  home_name?: string;
-  away_name?: string;
-
-  homePoints?: number | null;
-  awayPoints?: number | null;
-  home_score?: number | null;
-  away_score?: number | null;
-
-  completed?: boolean | null;
-};
-
-interface EspnTeamRef {
-  team: { displayName: string };
-  score?: string;
-  homeAway?: 'home' | 'away';
-}
-
-interface EspnCompetition {
-  status: { type: { name: string; description: string; shortDetail?: string } };
-  competitors: EspnTeamRef[];
-}
-
-interface EspnEvent {
-  competitions: EspnCompetition[];
-}
-
-interface EspnScoreboard {
-  events: EspnEvent[];
-}
-
-function seasonYearForToday(now = new Date()): number {
-  const month = now.getUTCMonth();
-  const year = now.getUTCFullYear();
-  return month >= 7 ? year : year - 1;
-}
-
-function firstStr(fields: Array<string | undefined | null>): string | undefined {
-  for (const field of fields) {
-    const value = typeof field === 'string' ? field.trim() : undefined;
-    if (value) return value;
-  }
-  return undefined;
-}
-
-function firstNum(fields: Array<number | undefined | null>): number | null {
-  for (const field of fields) {
-    if (typeof field === 'number' && Number.isFinite(field)) return field;
-  }
-  return null;
-}
-
-function toStatus(status?: string | null, completed?: boolean | null): string {
-  const normalized = (status ?? '').toLowerCase();
-  if (normalized.includes('final')) return 'final';
-  if (normalized.includes('progress') || normalized.includes('half') || normalized.includes('q')) {
-    return 'in progress';
-  }
-  if (completed) return 'final';
-  if (normalized.includes('sched')) return 'scheduled';
-  return normalized ? status! : 'scheduled';
-}
-
-function toScorePackFromCfbd(game: CfbdGameLoose): ScorePack | null {
-  const homeTeam = firstStr([game.home_team, game.homeTeam, game.home, game.home_name]);
-  const awayTeam = firstStr([game.away_team, game.awayTeam, game.away, game.away_name]);
-  if (!homeTeam || !awayTeam) return null;
-
-  const homeScore = firstNum([
-    game.home_points ?? null,
-    game.homePoints ?? null,
-    game.home_score ?? null,
-  ]);
-  const awayScore = firstNum([
-    game.away_points ?? null,
-    game.awayPoints ?? null,
-    game.away_score ?? null,
-  ]);
-
-  return {
-    id: game.id != null && String(game.id).trim().length > 0 ? String(game.id).trim() : null,
-    seasonType:
-      game.season_type === 'postseason' || game.seasonType === 'postseason'
-        ? 'postseason'
-        : game.season_type === 'regular' || game.seasonType === 'regular'
-          ? 'regular'
-          : null,
-    startDate: game.start_date ?? game.startDate ?? null,
-    week:
-      typeof game.week === 'number'
-        ? game.week
-        : /^\d+$/.test(String(game.week ?? ''))
-          ? Number.parseInt(String(game.week), 10)
-          : null,
-    status: toStatus(game.status, game.completed ?? null),
-    time: game.start_date ?? null,
-    home: { team: homeTeam, score: homeScore },
-    away: { team: awayTeam, score: awayScore },
-  };
-}
-
-function toScorePackFromEspn(
-  event: EspnEvent & { id?: string },
-  week: number | null,
-  seasonType: SeasonType
-): ScorePack | null {
-  const competition = event.competitions?.[0];
-  if (!competition) return null;
-
-  const statusType = competition.status?.type;
-  const name = (statusType?.name ?? '').toLowerCase();
-  const description = (statusType?.description ?? '').toLowerCase();
-
-  let status = 'scheduled';
-  if (name.includes('final') || description.includes('final')) status = 'final';
-  else if (
-    name.includes('progress') ||
-    description.includes('progress') ||
-    description.includes('half') ||
-    description.includes('q')
-  ) {
-    status = 'in progress';
-  }
-
-  const homeRef = competition.competitors.find((competitor) => competitor.homeAway === 'home');
-  const awayRef = competition.competitors.find((competitor) => competitor.homeAway === 'away');
-  if (!homeRef || !awayRef) return null;
-
-  const homeScore = Number.parseInt(homeRef.score ?? '', 10);
-  const awayScore = Number.parseInt(awayRef.score ?? '', 10);
-
-  return {
-    id: event.id ?? null,
-    seasonType,
-    startDate: null,
-    week,
-    status,
-    time: statusType?.shortDetail ?? null,
-    home: {
-      team: homeRef.team.displayName,
-      score: Number.isFinite(homeScore) ? homeScore : null,
-    },
-    away: {
-      team: awayRef.team.displayName,
-      score: Number.isFinite(awayScore) ? awayScore : null,
-    },
-  };
-}
-
-type CacheWeek = number | 'all';
-type CacheKey = `${number}-${CacheWeek}-${SeasonType}`;
-
-type CacheEntry = {
-  at: number;
-  items: ScorePack[];
-  source: 'cfbd' | 'espn';
-  cfbdFallbackReason: CfbdFallbackReason;
-};
-
 const SCORES_CACHE: Record<CacheKey, CacheEntry> = {};
-
-function pruneCache(cache: Record<CacheKey, CacheEntry>, label: string) {
-  const entries = Object.entries(cache) as Array<[CacheKey, CacheEntry]>;
-  if (entries.length <= MAX_CACHE_ENTRIES) return;
-
-  const toDelete = entries
-    .sort((a, b) => a[1].at - b[1].at)
-    .slice(0, entries.length - MAX_CACHE_ENTRIES)
-    .map(([key]) => key);
-
-  for (const key of toDelete) {
-    delete cache[key];
-  }
-
-  if (IS_DEBUG) {
-    console.log('cfbd cache evicted', {
-      route: label,
-      cacheSize: entries.length,
-      maxEntries: MAX_CACHE_ENTRIES,
-      evicted: toDelete.length,
-    });
-  }
-}
 
 function mapCfbdErrorToReason(error: unknown): CfbdFallbackReason {
   if (error instanceof UpstreamFetchError) {
@@ -430,7 +207,16 @@ export async function GET(req: Request) {
           source: 'cfbd',
           cfbdFallbackReason: 'none',
         };
-        pruneCache(SCORES_CACHE, 'scores');
+        pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
+          if (IS_DEBUG) {
+            console.log('cfbd cache evicted', {
+              route: 'scores',
+              cacheSize,
+              maxEntries: MAX_CACHE_ENTRIES,
+              evicted,
+            });
+          }
+        });
 
         return responseFrom(items, {
           source: 'cfbd',
@@ -513,7 +299,16 @@ export async function GET(req: Request) {
       source: 'espn',
       cfbdFallbackReason,
     };
-    pruneCache(SCORES_CACHE, 'scores');
+    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
+      if (IS_DEBUG) {
+        console.log('cfbd cache evicted', {
+          route: 'scores',
+          cacheSize,
+          maxEntries: MAX_CACHE_ENTRIES,
+          evicted,
+        });
+      }
+    });
 
     return responseFrom(items, {
       source: 'espn',
