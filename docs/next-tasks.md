@@ -1,41 +1,41 @@
-# Phase 1 Close-Out Audit (P4)
+# Next Tasks (Active Queue)
 
-This file now reflects the **post-audit** status of prior Phase 1 remaining tasks.
+## Purpose / How to use this document
 
-## Final Phase 1 status
+- This file is the **active execution queue** for the current phase.
+- Keep tasks small and scoped to a **single implementation PR** where practical.
+- Treat this file as **forward-looking only**.
+- Move/summarize completed work in `docs/completed-work.md`.
+- Keep long-term or not-yet-active ideas in `docs/roadmap.md`.
 
-Phase 1 architecture stabilization is complete.
+## Current phase
 
-## Audited items
+- **Phase 1 (architecture stabilization):** Complete.
+- **Active phase:** **Phase 2 — user-facing usability improvements**.
 
-### P3 — Reduce oversized orchestration/core modules (no behavior changes)
+## Phase 2 execution queue (ordered, PR-sized)
 
-**Status:** Optional Follow-up (non-blocking technical debt)
+1. **Weekly dashboard default flow**
+   - Default to the current in-season week (with sensible fallback when offseason).
+   - Keep week switching explicit and predictable.
 
-**Evidence in repo:**
-- `src/components/CFBScheduleApp.tsx` remains an orchestrator and delegates parsing, schedule build, refresh policy, alias API, diagnostics helpers, and UI sections to `src/lib/*` + focused components.
-- `src/lib/scoreAttachment.ts` implements the shared schedule-index + score-attachment boundary used by score ingestion.
-- Prior schedule decomposition boundaries (`schedule.ts`, `scheduleEligibility.ts`, `scheduleTracking.ts`, `schedulePostseasonHelpers.ts`) are in place and active.
+2. **Matchup-centric game cards**
+   - Present owner-vs-owner context as the primary card framing.
+   - Keep odds/scores visible without exposing raw provider shapes.
 
-**What remains:**
-- Additional file-size decomposition could improve readability, but no architecture or runtime-flow gap remains.
+3. **Responsive polish pass**
+   - Improve layout behavior for mobile and tablet breakpoints.
+   - Ensure controls and game cards remain readable and scannable.
 
-**Phase 1 blocker?:** No.
+4. **Standings baseline**
+   - Add/update a simple standings view (wins/losses; optional point differential if low risk).
+   - Use existing API-first schedule/scores pipeline as source data.
 
----
+5. **Feedback capture path**
+   - Add a lightweight in-app mechanism for league members to report data issues.
+   - Keep diagnostics and commissioner repair workflows intact.
 
-### P4 — Keep Phase 1 docs synchronized with code after each task
+## Out of scope for this queue
 
-**Status:** Done
-
-**Evidence in repo:**
-- `docs/roadmap.md`, `docs/next-tasks.md`, and `AGENTS.md` now reflect close-out status, current architecture boundaries, and Phase 2 transition guidance.
-
-**What remains:**
-- Continue routine doc updates during future Phase 2+ changes.
-
-**Phase 1 blocker?:** No.
-
-## Recommended next focus
-
-Start Phase 2 usability work. First task: implement/ship a polished default weekly dashboard flow (current-week default + matchup-centric presentation) on top of the stabilized Phase 1 data pipeline.
+- Phase 3 historical analytics and long-term ideas stay in `docs/roadmap.md` until promoted.
+- Optional technical debt (extra decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts`) is non-blocking unless explicitly scheduled.
