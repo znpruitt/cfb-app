@@ -1,4 +1,4 @@
-import { buildSchedulePairIndex } from './gameAttachment';
+import { attachOddsEventsToSchedule } from './oddsAttachment';
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
 import type { AliasMap } from './teamNames';
 
@@ -34,7 +34,6 @@ type GameLike = {
 };
 
 type PreparedOddsEvent = {
-  pairKey: string;
   homeTeam: string;
   awayTeam: string;
   book: OddsBookmaker | undefined;
@@ -58,6 +57,16 @@ function eventAwayTeam(ev: OddsEvent): string {
   return ev.awayTeam ?? ev.away_team ?? '';
 }
 
+function teamMatches(
+  resolver: ReturnType<typeof createTeamIdentityResolver>,
+  left: string,
+  right: string
+): boolean {
+  const l = resolver.resolveName(left);
+  const r = resolver.resolveName(right);
+  return (l.identityKey ?? l.normalizedInput) === (r.identityKey ?? r.normalizedInput);
+}
+
 export function buildOddsByGame(params: {
   games: GameLike[];
   oddsEvents: OddsEvent[];
@@ -76,61 +85,28 @@ export function buildOddsByGame(params: {
     )
   );
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
-  const preparedEvents: PreparedOddsEvent[] = [];
-  const pairIndex = new Map<string, PreparedOddsEvent[]>();
 
-  for (const ev of oddsEvents) {
-    const homeTeam = eventHomeTeam(ev);
-    const awayTeam = eventAwayTeam(ev);
-    const key = resolver.buildPairKey(homeTeam, awayTeam);
+  const preparedEvents: PreparedOddsEvent[] = oddsEvents.map((event) => ({
+    homeTeam: eventHomeTeam(event),
+    awayTeam: eventAwayTeam(event),
+    book: pickPreferredBook(event),
+  }));
 
-    const prepared: PreparedOddsEvent = {
-      pairKey: key,
-      homeTeam,
-      awayTeam,
-      book: pickPreferredBook(ev),
-    };
+  // Shared-lib attachment boundary: odds events are attached to schedule-derived games here.
+  const attached = attachOddsEventsToSchedule({
+    games,
+    events: preparedEvents,
+    resolver,
+  });
 
-    preparedEvents.push(prepared);
-    const bucket = pairIndex.get(key) ?? [];
-    bucket.push(prepared);
-    pairIndex.set(key, bucket);
-  }
+  const gameByKey = new Map(games.map((game) => [game.key, game]));
 
-  const schedulePairIndex = buildSchedulePairIndex({ games, resolver });
+  for (const match of attached) {
+    const game = gameByKey.get(match.gameKey);
+    if (!game) continue;
 
-  for (const g of games) {
-    if (!schedulePairIndex.get(resolver.buildPairKey(g.canHome, g.canAway))?.length) continue;
-    const gamePairKey = resolver.buildPairKey(g.canHome, g.canAway);
-    let match = pairIndex.get(gamePairKey)?.[0];
-
-    if (!match) {
-      const homeVariants = resolver.variantsForName(g.canHome);
-      const awayVariants = resolver.variantsForName(g.canAway);
-
-      match = preparedEvents.find((event) => {
-        const eventHome = resolver.variantsForName(event.homeTeam);
-        const eventAway = resolver.variantsForName(event.awayTeam);
-        const direct =
-          homeVariants.some((v) => eventHome.includes(v)) &&
-          awayVariants.some((v) => eventAway.includes(v));
-        const swapped =
-          homeVariants.some((v) => eventAway.includes(v)) &&
-          awayVariants.some((v) => eventHome.includes(v));
-        return direct || swapped;
-      });
-    }
-
-    if (!match) continue;
-
-    const teamMatches = (left: string, right: string): boolean => {
-      const l = resolver.resolveName(left);
-      const r = resolver.resolveName(right);
-      return (l.identityKey ?? l.normalizedInput) === (r.identityKey ?? r.normalizedInput);
-    };
-
-    const sourceTitle = match.book?.title || match.book?.key || null;
-    const markets = match.book?.markets ?? [];
+    const sourceTitle = match.event.book?.title || match.event.book?.key || null;
+    const markets = match.event.book?.markets ?? [];
     const getMarket = (key: string): OddsMarket | undefined =>
       markets.find((m) => (m.key || '').toLowerCase() === key);
 
@@ -147,19 +123,21 @@ export function buildOddsByGame(params: {
     if (h2h?.outcomes) {
       for (const o of h2h.outcomes) {
         const side = o.name || '';
-        if (teamMatches(side, match.homeTeam))
+        if (teamMatches(resolver, side, match.event.homeTeam)) {
           mlHome = typeof o.price === 'number' ? o.price : null;
-        if (teamMatches(side, match.awayTeam))
+        }
+        if (teamMatches(resolver, side, match.event.awayTeam)) {
           mlAway = typeof o.price === 'number' ? o.price : null;
+        }
       }
     }
 
     if (spreads?.outcomes) {
       const homeOutcome = spreads.outcomes.find((outcome) =>
-        teamMatches(outcome.name || '', match.homeTeam)
+        teamMatches(resolver, outcome.name || '', match.event.homeTeam)
       );
       const awayOutcome = spreads.outcomes.find((outcome) =>
-        teamMatches(outcome.name || '', match.awayTeam)
+        teamMatches(resolver, outcome.name || '', match.event.awayTeam)
       );
 
       const homePoint = typeof homeOutcome?.point === 'number' ? homeOutcome.point : null;
@@ -168,7 +146,7 @@ export function buildOddsByGame(params: {
         const homeAbs = Math.abs(homePoint);
         const awayAbs = Math.abs(awayPoint);
         spread = homeAbs <= awayAbs ? homePoint : awayPoint;
-        favorite = homeAbs < awayAbs ? match.homeTeam || null : match.awayTeam || null;
+        favorite = homeAbs < awayAbs ? match.event.homeTeam || null : match.event.awayTeam || null;
       }
     }
 
@@ -177,7 +155,7 @@ export function buildOddsByGame(params: {
       if (typeof over?.point === 'number') total = over.point;
     }
 
-    next[g.key] = { favorite, spread, total, mlHome, mlAway, source: sourceTitle };
+    next[game.key] = { favorite, spread, total, mlHome, mlAway, source: sourceTitle };
   }
 
   return next;
