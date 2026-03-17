@@ -1,6 +1,17 @@
 import { loadServerAliases, saveServerAliases } from './aliasesApi';
-import { seasonStorageKeys } from './storageKeys';
+import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from './storageKeys';
 import type { AliasMap } from './teamNames';
+
+function readOwnersCsvWithMigration(storageKey: string): string | null {
+  const scoped = window.localStorage.getItem(storageKey);
+  if (scoped != null) return scoped;
+
+  const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEYS.ownersCsv);
+  if (legacy != null) {
+    window.localStorage.setItem(storageKey, legacy);
+  }
+  return legacy;
+}
 
 export async function bootstrapAliasesAndCaches(params: {
   season: number;
@@ -37,7 +48,7 @@ export async function bootstrapAliasesAndCaches(params: {
     }
   }
 
-  const ownersCsvText = window.localStorage.getItem(storageKeys.ownersCsv);
+  const ownersCsvText = readOwnersCsvWithMigration(storageKeys.ownersCsv);
 
   return { aliasMap, aliasLoadIssue, ownersCsvText };
 }
