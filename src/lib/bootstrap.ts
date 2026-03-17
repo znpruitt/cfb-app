@@ -1,12 +1,6 @@
 import { loadServerAliases, saveServerAliases } from './aliasesApi';
-import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from './storageKeys';
+import { seasonStorageKeys } from './storageKeys';
 import type { AliasMap } from './teamNames';
-
-function readSeasonScopedValue(key: string, legacyKey: string): string | null {
-  const scoped = window.localStorage.getItem(key);
-  if (scoped != null) return scoped;
-  return window.localStorage.getItem(legacyKey);
-}
 
 export async function bootstrapAliasesAndCaches(params: {
   season: number;
@@ -31,7 +25,7 @@ export async function bootstrapAliasesAndCaches(params: {
     window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(serverMap));
   } catch (err) {
     aliasLoadIssue = `Aliases load failed: ${(err as Error).message}`;
-    const cached = readSeasonScopedValue(storageKeys.aliasMap, LEGACY_STORAGE_KEYS.aliasMap);
+    const cached = window.localStorage.getItem(storageKeys.aliasMap);
     if (cached) {
       try {
         aliasMap = JSON.parse(cached) as AliasMap;
@@ -43,7 +37,7 @@ export async function bootstrapAliasesAndCaches(params: {
     }
   }
 
-  const ownersCsvText = readSeasonScopedValue(storageKeys.ownersCsv, LEGACY_STORAGE_KEYS.ownersCsv);
+  const ownersCsvText = window.localStorage.getItem(storageKeys.ownersCsv);
 
   return { aliasMap, aliasLoadIssue, ownersCsvText };
 }

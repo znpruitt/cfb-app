@@ -34,7 +34,7 @@ import {
 } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
-import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
+import { seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
 
@@ -305,7 +305,6 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   const clearCachedOwners = useCallback(() => {
     window.localStorage.removeItem(storageKeys.ownersCsv);
-    window.localStorage.removeItem(LEGACY_STORAGE_KEYS.ownersCsv);
     setHasCachedOwners(false);
     setOwnersLoadedFromCache(false);
     clearOwnersDerivedState();
@@ -334,9 +333,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
       let loadedOverrides: Record<string, Partial<AppGame>> = {};
       try {
-        const rawOverrides =
-          window.localStorage.getItem(storageKeys.postseasonOverrides) ??
-          window.localStorage.getItem(LEGACY_STORAGE_KEYS.postseasonOverrides);
+        const rawOverrides = window.localStorage.getItem(storageKeys.postseasonOverrides);
         if (rawOverrides)
           loadedOverrides = JSON.parse(rawOverrides) as Record<string, Partial<AppGame>>;
       } catch {

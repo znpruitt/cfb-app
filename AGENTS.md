@@ -23,7 +23,7 @@ Changes should favor low-risk, behavior-preserving refactors unless explicitly a
 Typical runtime flow:
 
 1. Load aliases from server, with local fallback.
-2. Restore local cached user artifacts (owners CSV, legacy schedule CSV fallback).
+2. Restore local cached user artifacts (owners CSV).
 3. Fetch season schedule from CFBD-backed API route.
 4. Load local teams catalog reference data.
 5. Build normalized game identities and diagnostics.
@@ -32,8 +32,7 @@ Typical runtime flow:
 8. Surface diagnostics and allow alias repair workflows.
 
 Notes:
-- API-first schedule loading is the normal path.
-- Legacy schedule CSV handling may exist as fallback/migration support and should not become primary again without explicit instruction.
+- API-first schedule loading is the only supported schedule path.
 
 ---
 
@@ -115,7 +114,7 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
    - Do not remove diagnostic surfaces that aid reconciliation debugging.
 
 5. **Local caching remains intentional**
-   - Preserve practical local cache behavior for owners/aliases and migration fallback artifacts unless explicitly asked to change it.
+   - Preserve practical season-scoped local cache behavior for owners/aliases unless explicitly asked to change it.
 
 ---
 
