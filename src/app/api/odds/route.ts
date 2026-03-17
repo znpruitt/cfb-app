@@ -1,4 +1,4 @@
-import { UpstreamFetchError } from '@/lib/api/fetchUpstream';
+import { fetchUpstreamResponse, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
 import {
   captureOddsUsageSnapshot,
@@ -45,33 +45,17 @@ const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'po
 const MARKETS = ['h2h', 'spreads', 'totals'];
 const REGIONS = ['us'];
 
-async function fetchOddsUpstream(url: string, timeoutMs = 12_000): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(url, {
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new UpstreamFetchError({
-        kind: 'timeout',
-        message: `Upstream request timed out after ${timeoutMs}ms`,
-        url,
-      });
-    }
-
-    throw new UpstreamFetchError({
-      kind: 'network',
-      message: error instanceof Error ? error.message : 'Unknown network error',
-      url,
-    });
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-}
+const ODDS_RETRY_POLICY = {
+  maxAttempts: 3,
+  baseDelayMs: 300,
+  maxDelayMs: 2_500,
+  jitterRatio: 0.2,
+  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
+} as const;
+const ODDS_PACING_POLICY = {
+  key: 'odds-api',
+  minIntervalMs: 200,
+} as const;
 
 type OddsCache = {
   entries: Record<
@@ -251,7 +235,13 @@ export async function GET(req: Request): Promise<Response> {
         url.searchParams.set('markets', query.markets.join(','));
         url.searchParams.set('apiKey', oddsApiKey);
 
-        const upstreamRes = await fetchOddsUpstream(url.toString());
+        const upstreamRes = await fetchUpstreamResponse(url.toString(), {
+          cache: 'no-store',
+          timeoutMs: 12_000,
+          retry: ODDS_RETRY_POLICY,
+          pacing: ODDS_PACING_POLICY,
+          throwOnHttpError: false,
+        });
         if (!upstreamRes.ok) {
           const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
             sportKey: 'americanfootball_ncaaf',

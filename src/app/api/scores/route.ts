@@ -15,6 +15,29 @@ const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
 
+const CFBD_RETRY_POLICY = {
+  maxAttempts: 3,
+  baseDelayMs: 250,
+  maxDelayMs: 2_000,
+  jitterRatio: 0.2,
+  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
+} as const;
+const CFBD_PACING_POLICY = {
+  key: 'cfbd',
+  minIntervalMs: 150,
+} as const;
+const ESPN_RETRY_POLICY = {
+  maxAttempts: 2,
+  baseDelayMs: 200,
+  maxDelayMs: 1_000,
+  jitterRatio: 0.2,
+  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
+} as const;
+const ESPN_PACING_POLICY = {
+  key: 'espn',
+  minIntervalMs: 100,
+} as const;
+
 type SeasonType = 'regular' | 'postseason';
 type CfbdFallbackReason =
   | 'none'
@@ -376,6 +399,8 @@ export async function GET(req: Request) {
         cache: 'no-store',
         timeoutMs: 12_000,
         headers: { Authorization: `Bearer ${cfbdApiKey}` },
+        retry: CFBD_RETRY_POLICY,
+        pacing: CFBD_PACING_POLICY,
       });
 
       const items: ScorePack[] = [];
@@ -472,6 +497,8 @@ export async function GET(req: Request) {
     const scoreboard = await fetchUpstreamJson<EspnScoreboard>(espnUrl.toString(), {
       cache: 'no-store',
       timeoutMs: 12_000,
+      retry: ESPN_RETRY_POLICY,
+      pacing: ESPN_PACING_POLICY,
     });
 
     const items: ScorePack[] = [];
