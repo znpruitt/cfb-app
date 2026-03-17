@@ -7,6 +7,19 @@ import type { AppGame } from '../lib/schedule';
 
 type Game = AppGame;
 
+function formatKickoff(date: string | null): string {
+  if (!date) return 'TBD';
+  const kickoff = new Date(date);
+  if (Number.isNaN(kickoff.getTime())) return 'TBD';
+  return kickoff.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 type GameWeekPanelProps = {
   games: Game[];
   byes: string[];
@@ -83,30 +96,38 @@ export default function GameWeekPanel({
               : `${g.csvAway} @ ${g.csvHome}`;
           const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
           const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
+          const homeOwner = rosterByTeam.get(g.csvHome);
+          const awayOwner = rosterByTeam.get(g.csvAway);
+          const ownerMatchupLabel =
+            awayOwner || homeOwner
+              ? `${awayOwner ?? 'Open spot'} vs ${homeOwner ?? 'Open spot'}`
+              : 'No drafted owners in this matchup';
 
           return (
             <details key={g.key} className={frameClasses}>
               <summary className="cursor-pointer px-3 py-2 flex items-center justify-between">
-                <div className="flex flex-wrap items-center gap-2">
-                  {g.label && (
-                    <span className="font-semibold text-sm text-violet-700 dark:text-violet-300">
-                      {g.label}
+                <div className="flex flex-col gap-1">
+                  <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                    Owner Matchup: {ownerMatchupLabel}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {g.label && (
+                      <span className="font-semibold text-sm text-violet-700 dark:text-violet-300">
+                        {g.label}
+                      </span>
+                    )}
+                    {useNeutralSemantics && <span className={pillClass()}>Neutral Site</span>}
+                    <span
+                      className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
+                    >
+                      {matchupLine}
                     </span>
-                  )}
-                  {useNeutralSemantics && <span className={pillClass()}>Neutral Site</span>}
-                  <span
-                    className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
-                  >
-                    {matchupLine}
-                  </span>
-                  {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
-                  {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
-                  {rosterByTeam.get(g.csvHome) && (
-                    <span className={pillClass()}>Home: {rosterByTeam.get(g.csvHome)}</span>
-                  )}
-                  {rosterByTeam.get(g.csvAway) && (
-                    <span className={pillClass()}>Away: {rosterByTeam.get(g.csvAway)}</span>
-                  )}
+                    <span className={pillClass()}>Kickoff: {formatKickoff(g.date)}</span>
+                    {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
+                    {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
+                    {homeOwner && <span className={pillClass()}>Home owner: {homeOwner}</span>}
+                    {awayOwner && <span className={pillClass()}>Away owner: {awayOwner}</span>}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {chips.map((c) => (

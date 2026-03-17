@@ -37,6 +37,7 @@ import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
+import { chooseDefaultWeek } from '../lib/weekSelection';
 import {
   dedupeIssues,
   isLiveIssue,
@@ -236,9 +237,9 @@ export default function CFBScheduleApp(): React.ReactElement {
         setConferences(built.conferences);
         setScheduleLoaded(true);
         if (selectedWeek == null && regularWeeks.length) {
-          const firstWeek = regularWeeks[0] ?? null;
-          setSelectedWeek(firstWeek);
-          setSelectedTab(firstWeek);
+          const nextDefaultWeek = chooseDefaultWeek({ games: built.games, regularWeeks });
+          setSelectedWeek(nextDefaultWeek);
+          setSelectedTab(nextDefaultWeek);
         }
         return true;
       } catch (error) {
@@ -761,15 +762,21 @@ export default function CFBScheduleApp(): React.ReactElement {
           />
 
           {selectedTab !== 'postseason' && selectedWeek != null && (
-            <GameWeekPanel
-              games={filteredWeekGames}
-              byes={byes[selectedWeek] ?? []}
-              oddsByKey={oddsByKey}
-              scoresByKey={scoresByKey}
-              rosterByTeam={rosterByTeam}
-              isDebug={IS_DEBUG}
-              onSavePostseasonOverride={savePostseasonOverride}
-            />
+            <section className="space-y-3">
+              <div className="rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                <span className="font-semibold">Week {selectedWeek}</span> ·{' '}
+                {filteredWeekGames.length} matchup{filteredWeekGames.length === 1 ? '' : 's'} shown
+              </div>
+              <GameWeekPanel
+                games={filteredWeekGames}
+                byes={byes[selectedWeek] ?? []}
+                oddsByKey={oddsByKey}
+                scoresByKey={scoresByKey}
+                rosterByTeam={rosterByTeam}
+                isDebug={IS_DEBUG}
+                onSavePostseasonOverride={savePostseasonOverride}
+              />
+            </section>
           )}
 
           {selectedTab === 'postseason' && hasPostseasonGames && (
