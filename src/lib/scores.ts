@@ -132,45 +132,69 @@ function parseScorePayload(payload: unknown): Array<WireFlat | WireObj> {
   return [];
 }
 
+// Invariant: internal score fetches must always propagate explicit season type scope
+// derived from canonical schedule games. Relying on /api/scores default seasonType=regular
+// can silently exclude postseason rows from the attachment pipeline.
 async function fetchScoreRows(params: {
   season: number;
   weeks: number[];
+  seasonTypes: Array<'regular' | 'postseason'>;
   issues: string[];
   apiBaseUrl?: string;
 }): Promise<ScoreRow[]> {
-  const { season, weeks, issues, apiBaseUrl } = params;
-
-  const seasonRes = await fetch(buildApiUrl(`/api/scores?year=${season}`, apiBaseUrl), {
-    cache: 'no-store',
-  });
-  if (seasonRes.ok) {
-    const seasonRaw = parseScorePayload(await seasonRes.json());
-    return seasonRaw.map(extractRow);
-  }
-
-  const seasonErr = await seasonRes.text().catch(() => '');
-  const seasonFallbackIssue = `Scores season ${season}: ${seasonRes.status} ${seasonErr}`;
+  const { season, weeks, seasonTypes, issues, apiBaseUrl } = params;
 
   const rows: ScoreRow[] = [];
-  for (const w of weeks) {
-    const weekRes = await fetch(buildApiUrl(`/api/scores?week=${w}&year=${season}`, apiBaseUrl), {
-      cache: 'no-store',
-    });
-    if (!weekRes.ok) {
-      const weekErr = await weekRes.text().catch(() => '');
-      issues.push(`Scores week ${w}: ${weekRes.status} ${weekErr}`);
+
+  for (const seasonType of seasonTypes) {
+    let seasonTypeRowCount = 0;
+    const seasonRes = await fetch(
+      buildApiUrl(`/api/scores?year=${season}&seasonType=${seasonType}`, apiBaseUrl),
+      {
+        cache: 'no-store',
+      }
+    );
+    if (seasonRes.ok) {
+      const seasonRaw = parseScorePayload(await seasonRes.json());
+      const parsedSeasonRows = seasonRaw
+        .map(extractRow)
+        .map((row) => ({ ...row, seasonType: row.seasonType ?? seasonType }));
+      seasonTypeRowCount += parsedSeasonRows.length;
+      rows.push(...parsedSeasonRows);
       continue;
     }
 
-    const raw = parseScorePayload(await weekRes.json());
-    for (const row of raw) {
-      const parsed = extractRow(row);
-      rows.push({ ...parsed, week: parsed.week ?? w });
-    }
-  }
+    const seasonErr = await seasonRes.text().catch(() => '');
+    const seasonFallbackIssue = `Scores season ${season} (${seasonType}): ${seasonRes.status} ${seasonErr}`;
 
-  if (rows.length === 0) {
-    issues.push(seasonFallbackIssue);
+    for (const w of weeks) {
+      const weekRes = await fetch(
+        buildApiUrl(`/api/scores?week=${w}&year=${season}&seasonType=${seasonType}`, apiBaseUrl),
+        {
+          cache: 'no-store',
+        }
+      );
+      if (!weekRes.ok) {
+        const weekErr = await weekRes.text().catch(() => '');
+        issues.push(`Scores week ${w} (${seasonType}): ${weekRes.status} ${weekErr}`);
+        continue;
+      }
+
+      const raw = parseScorePayload(await weekRes.json());
+      for (const row of raw) {
+        const parsed = extractRow(row);
+        rows.push({
+          ...parsed,
+          seasonType: parsed.seasonType ?? seasonType,
+          week: parsed.week ?? w,
+        });
+        seasonTypeRowCount += 1;
+      }
+    }
+
+    if (seasonTypeRowCount === 0) {
+      issues.push(seasonFallbackIssue);
+    }
   }
 
   return rows;
@@ -216,6 +240,10 @@ export async function fetchScoresByGame(params: {
 }> {
   const { games, aliasMap, season, teams: providedTeams, debugTrace = false, apiBaseUrl } = params;
   const issues: string[] = [];
+
+  if (games.length === 0) {
+    return { scoresByKey: {}, issues, diag: [] };
+  }
   const diag: ScoresDiagEntry[] = [];
 
   const teams = providedTeams ?? (await fetchTeamsCatalog().catch(() => []));
@@ -225,6 +253,7 @@ export async function fetchScoresByGame(params: {
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
   const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
+  const loadedSeasonTypes = Array.from(new Set(games.map((g) => seasonTypeFromStage(g.stage))));
   const scheduleIndexGames: ScheduleGameForIndex[] = games.map((game) => ({
     key: game.key,
     week: game.week,
@@ -240,7 +269,13 @@ export async function fetchScoresByGame(params: {
   }));
   const scheduleIndex = buildScheduleIndex(scheduleIndexGames, resolver);
 
-  const rows = await fetchScoreRows({ season, weeks: loadedWeeks, issues, apiBaseUrl });
+  const rows = await fetchScoreRows({
+    season,
+    weeks: loadedWeeks,
+    seasonTypes: loadedSeasonTypes,
+    issues,
+    apiBaseUrl,
+  });
   const normalizedRows: NormalizedScoreRow[] = rows.map((row) => ({
     week: row.week,
     seasonType: row.seasonType,

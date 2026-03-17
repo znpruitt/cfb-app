@@ -266,6 +266,8 @@ export function matchScoreRowToSchedule(
     };
   }
 
+  // Attachment precedence: provider event id is the strongest key and should win whenever
+  // present and unique, because it survives neutral-site/home-away representation differences.
   if (row.providerEventId) {
     const idMatches = scheduleIndex.byProviderGameId.get(row.providerEventId) ?? [];
     const matchedById = chooseSingle(idMatches);
@@ -312,6 +314,8 @@ export function matchScoreRowToSchedule(
     }
   }
 
+  // Fallbacks remain schedule-derived (week/season/pair/date) to support postseason,
+  // conference championships, bowls, CFP rounds, and placeholder slots after hydration.
   if (row.week != null) {
     const seasonTypes: SeasonPhase[] = row.seasonType
       ? [row.seasonType]
