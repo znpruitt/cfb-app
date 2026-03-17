@@ -94,13 +94,27 @@ function normalizeString(value: unknown): string {
 }
 
 function normalizeWeek(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
     return value;
   }
-  if (typeof value === 'string' && /^\d+$/.test(value)) {
-    return Number.parseInt(value, 10);
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      return null;
+    }
+    return Number.parseInt(trimmed, 10);
   }
   return null;
+}
+
+export function deriveScheduleWeeks(items: Array<Pick<ScheduleItem, 'week'>>): number[] {
+  return Array.from(
+    new Set(
+      items
+        .map((item) => item.week)
+        .filter((week): week is number => Number.isInteger(week) && week >= 0)
+    )
+  ).sort((a, b) => a - b);
 }
 
 function normalizedText(game: CfbdScheduleGame): string {

@@ -13,7 +13,7 @@ import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { buildOddsByGame, type CombinedOdds, type OddsEvent } from '../lib/odds';
-import { isTruePostseasonGame, isWeekContextGame } from '../lib/postseason-display';
+import { isTruePostseasonGame } from '../lib/postseason-display';
 import { fetchScoresByGame, type ScorePack } from '../lib/scores';
 import {
   getRefreshPlan,
@@ -37,7 +37,7 @@ import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
-import { chooseDefaultWeek } from '../lib/weekSelection';
+import { chooseDefaultWeek, deriveRegularWeeks, filterGamesForWeek } from '../lib/weekSelection';
 import {
   dedupeIssues,
   isLiveIssue,
@@ -224,14 +224,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         }
 
         setGames(built.games);
-        const regularWeeks = Array.from(
-          new Set(
-            built.games
-              .filter((game) => isWeekContextGame(game))
-              .map((game) => game.week)
-              .filter((w) => Number.isFinite(w))
-          )
-        ).sort((a, b) => a - b);
+        const regularWeeks = deriveRegularWeeks(built.games);
         setWeeks(regularWeeks);
         setByes(built.byes);
         setConferences(built.conferences);
@@ -338,8 +331,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
     const tf = teamFilter.toLowerCase();
-    const next = games
-      .filter((g) => isWeekContextGame(g) && g.week === selectedWeek)
+    const next = filterGamesForWeek(games, selectedWeek)
       .filter((g) => {
         const confOk =
           selectedConference === 'ALL' ||

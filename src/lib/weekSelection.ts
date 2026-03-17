@@ -1,6 +1,22 @@
 import type { AppGame } from './schedule';
 import { isWeekContextGame } from './postseason-display';
 
+export function deriveRegularWeeks(games: AppGame[]): number[] {
+  return Array.from(
+    new Set(
+      games
+        .filter((game) => isWeekContextGame(game))
+        .map((game) => game.week)
+        .filter((week): week is number => Number.isInteger(week) && week >= 0)
+    )
+  ).sort((a, b) => a - b);
+}
+
+export function filterGamesForWeek(games: AppGame[], selectedWeek: number | null): AppGame[] {
+  if (selectedWeek == null) return [];
+  return games.filter((game) => isWeekContextGame(game) && game.week === selectedWeek);
+}
+
 type DefaultWeekArgs = {
   games: AppGame[];
   regularWeeks: number[];

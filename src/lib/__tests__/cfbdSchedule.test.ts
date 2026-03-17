@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { mapCfbdScheduleGame } from '../schedule/cfbdSchedule';
+import { deriveScheduleWeeks, mapCfbdScheduleGame } from '../schedule/cfbdSchedule';
 
 test('mapCfbdScheduleGame maps valid snake_case payload', () => {
   const result = mapCfbdScheduleGame(
@@ -264,5 +264,67 @@ test('mapCfbdScheduleGame drops payload with missing away team', () => {
   assert.equal(result.ok, false);
   if (!result.ok) {
     assert.equal(result.reason, 'missing_away_team');
+  }
+});
+
+test('mapCfbdScheduleGame preserves week 0 from string payload', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 777,
+      week: ' 0 ',
+      home_team: 'Notre Dame',
+      away_team: 'Navy',
+    },
+    'regular'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.week, 0);
+  }
+});
+
+test('deriveScheduleWeeks includes week 0 and sorts numerically', () => {
+  assert.deepEqual(
+    deriveScheduleWeeks([{ week: 2 }, { week: 0 }, { week: 10 }, { week: 2 }, { week: 1 }]),
+    [0, 1, 2, 10]
+  );
+});
+
+test('mapCfbdScheduleGame preserves plain numeric week 0 payload', () => {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 778,
+      week: 0,
+      home_team: 'USC',
+      away_team: 'LSU',
+    },
+    'regular'
+  );
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.week, 0);
+  }
+});
+
+test('mapCfbdScheduleGame rejects empty, negative, and non-numeric week strings', () => {
+  const cases: Array<unknown> = ['', '   ', '-1', 'week-zero', '0.5'];
+
+  for (const week of cases) {
+    const result = mapCfbdScheduleGame(
+      {
+        id: `bad-${String(week)}`,
+        week: week as string,
+        home_team: 'Texas',
+        away_team: 'Rice',
+      },
+      'regular'
+    );
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, 'missing_week');
+    }
   }
 });
