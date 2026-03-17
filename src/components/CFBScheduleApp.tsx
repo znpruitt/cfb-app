@@ -483,7 +483,7 @@ export default function CFBScheduleApp(): React.ReactElement {
             issues: scoreIssues,
             diag: scoreDiag,
           } = await fetchScoresByGame({
-            games,
+            games: visibleGames,
             aliasMap,
             season: selectedSeason,
             teams,
@@ -504,7 +504,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         setLoadingLive(false);
       }
     },
-    [aliasMap, games, oddsUsage, refreshPlan.odds.fetchOnStartup, selectedSeason]
+    [aliasMap, oddsUsage, refreshPlan.odds.fetchOnStartup, selectedSeason, visibleGames]
   );
 
   useEffect(() => {

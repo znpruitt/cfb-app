@@ -1021,3 +1021,314 @@ test('UAC resolves through present-day policy to FCS classification', () => {
   assert.ok(uac, 'UAC should be tracked as a present-day policy conference');
   assert.equal(uac?.policyClassification, 'FCS');
 });
+
+test('scores fetch requests postseason source and attaches postseason rows by provider id', async () => {
+  const built = build([
+    {
+      id: 'post-orange-bowl',
+      week: 17,
+      startDate: '2025-12-28T01:00:00Z',
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+      homeConference: 'SEC',
+      awayConference: 'SEC',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      label: 'Orange Bowl',
+      eventKey: 'orange-bowl',
+    },
+  ]);
+
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    const req = new URL(url, 'http://localhost');
+
+    if (req.searchParams.get('seasonType') === 'postseason') {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'post-orange-bowl',
+              week: 17,
+              seasonType: 'postseason',
+              startDate: '2025-12-28T01:00:00Z',
+              status: 'final',
+              home: 'Alabama',
+              away: 'Georgia',
+              homeScore: 30,
+              awayScore: 27,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games: built.games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+    });
+
+    assert.equal(Object.keys(result.scoresByKey).length, 1);
+    assert.equal(
+      requested.some((url) => /seasonType=postseason/.test(url)),
+      true,
+      'postseason score fetch should explicitly request postseason seasonType'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('regular-only canonical scope fetches only regular season scores', async () => {
+  const built = build([
+    {
+      id: 'reg-army-navy-w1-scope',
+      week: 1,
+      startDate: '2025-09-01T20:00:00Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Army',
+      awayTeam: 'Navy',
+      homeConference: 'Independent',
+      awayConference: 'American',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+  ]);
+
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchScoresByGame({ games: built.games, aliasMap: {}, season: 2025, teams });
+    assert.equal(
+      requested.some((url) => url.includes('seasonType=postseason')),
+      false
+    );
+    assert.equal(
+      requested.some((url) => url.includes('seasonType=regular')),
+      true
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('postseason-only canonical scope fetches only postseason scores', async () => {
+  const built = build([
+    {
+      id: 'post-orange-bowl-scope',
+      week: 17,
+      startDate: '2025-12-28T01:00:00Z',
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+      homeConference: 'SEC',
+      awayConference: 'SEC',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      label: 'Orange Bowl',
+      eventKey: 'orange-bowl-scope',
+    },
+  ]);
+
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchScoresByGame({ games: built.games, aliasMap: {}, season: 2025, teams });
+    assert.equal(
+      requested.some((url) => url.includes('seasonType=postseason')),
+      true
+    );
+    assert.equal(
+      requested.some((url) => url.includes('seasonType=regular')),
+      false
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('mixed canonical scope fetches both regular and postseason scores only when needed', async () => {
+  const built = build([
+    {
+      id: 'reg-army-navy-mixed',
+      week: 1,
+      startDate: '2025-09-01T20:00:00Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Army',
+      awayTeam: 'Navy',
+      homeConference: 'Independent',
+      awayConference: 'American',
+      status: 'scheduled',
+      seasonType: 'regular',
+    },
+    {
+      id: 'post-orange-bowl-mixed',
+      week: 17,
+      startDate: '2025-12-28T01:00:00Z',
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+      homeConference: 'SEC',
+      awayConference: 'SEC',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      label: 'Orange Bowl',
+      eventKey: 'orange-bowl-mixed',
+    },
+  ]);
+
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchScoresByGame({ games: built.games, aliasMap: {}, season: 2025, teams });
+    assert.equal(
+      requested.some((url) => url.includes('seasonType=postseason')),
+      true
+    );
+    assert.equal(
+      requested.some((url) => url.includes('seasonType=regular')),
+      true
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('week fallback fetch preserves postseason seasonType and still attaches', async () => {
+  const built = build([
+    {
+      id: 'post-fiesta-bowl-fallback',
+      week: 18,
+      startDate: '2026-01-02T01:00:00Z',
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+      homeConference: 'SEC',
+      awayConference: 'SEC',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      label: 'Fiesta Bowl',
+      eventKey: 'fiesta-bowl-fallback',
+    },
+  ]);
+
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    const req = new URL(url, 'http://localhost');
+
+    if (
+      req.searchParams.get('week') == null &&
+      req.searchParams.get('seasonType') === 'postseason'
+    ) {
+      return new Response(JSON.stringify({ error: 'upstream down' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (
+      req.searchParams.get('week') === '18' &&
+      req.searchParams.get('seasonType') === 'postseason'
+    ) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'post-fiesta-bowl-fallback',
+              week: 18,
+              seasonType: 'postseason',
+              status: 'final',
+              startDate: '2026-01-02T01:00:00Z',
+              home: 'Alabama',
+              away: 'Georgia',
+              homeScore: 28,
+              awayScore: 24,
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games: built.games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+    });
+
+    assert.equal(Object.keys(result.scoresByKey).length, 1);
+    assert.equal(
+      requested.some((url) => /week=18/.test(url) && /seasonType=postseason/.test(url)),
+      true,
+      'postseason week fallback should preserve postseason seasonType'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
