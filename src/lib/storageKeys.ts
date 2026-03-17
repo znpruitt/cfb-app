@@ -1,5 +1,4 @@
 export const LEGACY_STORAGE_KEYS = {
-  aliasMap: 'cfb_name_map',
   ownersCsv: 'cfb_owners_csv',
   postseasonOverrides: 'cfb_postseason_overrides',
 } as const;

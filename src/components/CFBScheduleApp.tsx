@@ -334,9 +334,13 @@ export default function CFBScheduleApp(): React.ReactElement {
 
       let loadedOverrides: Record<string, Partial<AppGame>> = {};
       try {
-        const rawOverrides =
-          window.localStorage.getItem(storageKeys.postseasonOverrides) ??
-          window.localStorage.getItem(LEGACY_STORAGE_KEYS.postseasonOverrides);
+        let rawOverrides = window.localStorage.getItem(storageKeys.postseasonOverrides);
+        if (!rawOverrides) {
+          rawOverrides = window.localStorage.getItem(LEGACY_STORAGE_KEYS.postseasonOverrides);
+          if (rawOverrides) {
+            window.localStorage.setItem(storageKeys.postseasonOverrides, rawOverrides);
+          }
+        }
         if (rawOverrides)
           loadedOverrides = JSON.parse(rawOverrides) as Record<string, Partial<AppGame>>;
       } catch {
