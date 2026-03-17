@@ -1,113 +1,95 @@
-Remove Legacy CSV Ingestion
-Objective: Eliminate the outdated CSV schedule loader so the app relies exclusively on API‑driven schedules.
-Key Implementation Steps:
+# Phase 1 Remaining Tasks (Execution Priority)
 
-Identify and remove CSV parsing code and related imports (e.g., in src/lib/legacySchedule.ts).
+This file tracks only the **remaining** Phase 1 architecture-stabilization work.
+Completed or superseded items were removed.
 
-Remove CSV paths from configuration and environment variables.
+## P0 — Add shared retry/backoff + request pacing for upstream API calls
 
-Ensure CFBScheduleApp.tsx no longer references CSV functions.
-Expected Result: The application no longer loads or references the legacy CSV; it expects schedule data from the new API route.
+**Why this is next:** biggest remaining reliability gap for CFBD/Odds fetches.
 
-Create CFBD Schedule API Route
-Objective: Build a Next.js API route that fetches schedule data from CFBD for use in constructing the game model.
-Key Implementation Steps:
+**Scope**
 
-Add src/app/api/schedule/route.ts with a GET handler that fetches the CFBD schedule via fetch.
+- Extend `src/lib/api/fetchUpstream.ts` with optional retry policy (network/timeout/429/5xx).
+- Add exponential backoff (+ jitter) and lightweight per-provider pacing/throttle.
+- Wire policy into:
+  - `src/app/api/schedule/route.ts`
+  - `src/app/api/scores/route.ts`
+  - `src/app/api/odds/route.ts`
 
-Parse the response and return a normalized structure (e.g., an array of raw game objects) to the client.
+**Done when**
 
-Include basic error handling and environment‑driven API keys.
-Expected Result: A working /api/schedule route supplies raw CFBD schedule data for downstream processing.
+- Routes use the shared wrapper (no duplicated retry loops).
+- Retries are bounded and observable in error detail/logging.
 
-Define the Schedule‑Derived Game Model
-Objective: Create an authoritative game representation that other data will attach to.
-Key Implementation Steps:
+---
 
-In src/lib/models.ts, define a Game interface containing canonical homeTeamId, awayTeamId, week, startTime, venue and status fields; leave score and odds optional for later attachments.
+## P1 — Tighten odds/scores adapter boundary to app-facing attached shapes
 
-Provide a factory function in src/lib/gameModel.ts that accepts raw schedule entries and returns Game objects (team names remain unresolved at this stage).
-Expected Result: A clear, extensible game model is available for identity resolution and data attachment.
+**Why this is next:** architecture still splits provider normalization (routes) and schedule attachment (client lib), which weakens adapter boundaries.
 
-Build Canonical Team Identity Resolver
-Objective: Implement a shared normalization layer without changing existing owner/alias persistence.
-Key Implementation Steps:
+**Scope**
 
-Create src/lib/identity.ts to read the current alias and owner mappings (using whatever storage mechanism exists today).
+- Keep canonicalization + attachment in shared lib helpers under `src/lib/*`.
+- Update route contracts to return stable app-facing attached data (keyed by schedule game identity), instead of provider-leaning rows/events.
+- Preserve diagnostics metadata and cache metadata in route responses.
 
-Implement resolveTeamName to map any team name to a canonical ID using these mappings.
+**Done when**
 
-Expose helper functions to look up team owners and refresh alias data from storage.
-Expected Result: The app can consistently resolve team names to canonical IDs without migrating the underlying alias/owner storage.
+- `CFBScheduleApp` no longer needs provider-shape-specific attachment logic for odds/scores.
+- Route responses are stable and provider-agnostic.
 
-Integrate Identity into Schedule Ingestion
-Objective: Produce canonicalized game objects when ingesting the schedule.
-Key Implementation Steps:
+---
 
-Modify the schedule factory in src/lib/gameModel.ts to call resolveTeamName for the home and away team fields.
+## P2 — Resolve legacy-compatibility scope and finish cleanup
 
-Populate homeTeamId and awayTeamId in Game objects using canonical IDs.
+**Why this is next:** legacy fallback behavior exists by design, but Phase 1 completion criteria need explicit close-out.
 
-Update /api/schedule to use this canonicalizing factory so clients receive schedule‑derived games ready for score/odds attachments.
-Expected Result: The schedule API now returns canonical game objects representing the authoritative list of games.
+**Scope**
 
-Implement Scores Ingestion Route
-Objective: Attach CFBD score data to the schedule‑derived game model using the canonical matching layer.
-Key Implementation Steps:
+- Decide/document whether Phase 1 legacy removal means:
+  - schedule CSV only (already done), or
+  - schedule CSV + legacy storage-key fallback cleanup.
+- If approved, remove/limit reads from `LEGACY_STORAGE_KEYS` in:
+  - `src/lib/bootstrap.ts`
+  - `src/components/CFBScheduleApp.tsx`
+- Keep owners upload/caching and alias persistence behavior intact.
 
-Add src/app/api/scores/route.ts with a GET handler calling the CFBD scores endpoint.
+**Done when**
 
-Normalize each score’s team names via resolveTeamName.
+- Legacy boundary is explicit in docs and code behavior matches that boundary.
 
-Match scores to Game objects based on canonical homeTeamId, awayTeamId and start time/week (using a shared matching function rather than in‑memory UI state).
+---
 
-Return a data structure keyed by game ID or add the scores to an exported games collection.
-Expected Result: The app exposes /api/scores that reliably attaches score/status updates to canonical games without assuming a global in‑memory schedule.
+## P3 — Reduce oversized orchestration/core modules (no behavior changes)
 
-Implement Odds Ingestion Route
-Objective: Attach betting lines to canonical games via a Next.js API route.
-Key Implementation Steps:
+**Why this is next:** maintainability risk remains from large files.
 
-Create src/app/api/odds/route.ts that fetches the relevant Odds API endpoint.
+**Scope**
 
-Use resolveTeamName to canonicalize team identifiers.
+- Keep `CFBScheduleApp.tsx` as orchestrator; extract non-trivial logic to focused `src/lib/*` helpers.
+- Prioritize decomposition of:
+  - `src/components/CFBScheduleApp.tsx`
+  - `src/lib/schedule.ts`
+  - `src/lib/scoreAttachment.ts` (if it grows further)
+- No architecture redesign; behavior-preserving refactor only.
 
-Match each odds record to the corresponding Game object using canonical IDs and the week.
+**Done when**
 
-Return odds keyed by game ID or update a shared games data structure.
-Expected Result: /api/odds provides betting context mapped to the schedule‑derived games.
+- Module sizes and responsibilities align better with `AGENTS.md` guardrails.
+- Runtime flow remains unchanged.
 
-Add Lightweight Caching to Ingestion Modules
-Objective: Reduce repeated external calls by caching schedule, score and odds responses.
-Key Implementation Steps:
+---
 
-Implement a simple cache in src/lib/cache.ts (e.g., an object or Map) with get/set functions and TTL support.
+## P4 — Keep Phase 1 docs synchronized with code after each task
 
-Optionally persist cache data to JSON files in a cache/ directory (only if low risk).
+**Why this is next:** prevents plan drift.
 
-Integrate cache checks into /api/schedule, /api/scores and /api/odds so data is served from cache when fresh; otherwise fetch and update cache.
-Expected Result: The API routes use cached data where appropriate, reducing API calls and improving response times.
+**Scope**
 
-Add Rate‑Limit Protection and Retry Logic
-Objective: Ensure external API calls respect provider limits and handle transient failures gracefully.
-Key Implementation Steps:
+- After each Phase 1 task, update:
+  - `docs/next-tasks.md` (remaining work only)
+  - `docs/roadmap.md` (status/completion criteria notes)
 
-Create or update src/lib/apiClient.ts to wrap fetch with a throttle that enforces a minimum interval between requests.
+**Done when**
 
-Implement simple retry logic with exponential backoff for HTTP 429 or network errors.
-
-Use this wrapper in the schedule, scores and odds API routes.
-Expected Result: The ingestion modules respect API rate limits and recover from temporary failures without crashing.
-
-Adapt Diagnostics and Alias Editing Workflow
-Objective: Update existing admin tools to operate on canonical games and identity without changing storage.
-Key Implementation Steps:
-
-Modify diagnostics logic in CFBScheduleApp.tsx or admin components to detect unmatched games, missing odds/scores and alias conflicts using canonical IDs.
-
-Update the alias editing UI (e.g., src/components/AliasEditor.tsx) to call functions in identity.ts for reading and updating alias mappings, preserving the existing human‑in‑the‑loop flow.
-
-Ensure diagnostics entries link to the alias editor where appropriate, enabling repairs without direct JSON edits.
-
-Conduct a final cleanup: remove outdated imports, verify the orchestrator in CFBScheduleApp.tsx invokes the new API routes, and update comments/documentation.
-Expected Result: Admin users can view and resolve data mismatches through the existing interface, and the application runs end‑to‑end with canonicalized games, scores, odds, caching and rate‑limit protection.
+- Task docs consistently reference real current modules and contracts.

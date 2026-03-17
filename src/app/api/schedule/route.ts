@@ -22,6 +22,17 @@ export const revalidate = 3600;
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
+const CFBD_RETRY_POLICY = {
+  maxAttempts: 3,
+  baseDelayMs: 250,
+  maxDelayMs: 2_000,
+  jitterRatio: 0.2,
+  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
+} as const;
+const CFBD_PACING_POLICY = {
+  key: 'cfbd',
+  minIntervalMs: 150,
+} as const;
 
 interface ScheduleMeta {
   source: 'cfbd';
@@ -149,6 +160,8 @@ async function fetchSeasonType(params: {
     cache: 'no-store',
     timeoutMs: 12_000,
     headers: { Authorization: authHeader },
+    retry: CFBD_RETRY_POLICY,
+    pacing: CFBD_PACING_POLICY,
   });
 
   const mapped: ScheduleItem[] = [];
