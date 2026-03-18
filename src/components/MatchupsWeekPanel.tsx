@@ -3,6 +3,7 @@ import React from 'react';
 import type { CombinedOdds } from '../lib/odds';
 import { chipClass, gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
 import {
+  buildMatchupCardViewModel,
   deriveWeekMatchupSections,
   type MatchupBucket,
   type WeekMatchupSections,
@@ -42,9 +43,17 @@ function cardTitle(game: AppGame): string {
     : `${game.csvAway} @ ${game.csvHome}`;
 }
 
-function renderScoreSummary(score?: ScorePack): string {
-  if (!score) return 'No score yet';
-  return `${score.away.team} ${score.away.score ?? '—'} at ${score.home.team} ${score.home.score ?? '—'} (${score.status})`;
+function performanceClasses(tone: 'scheduled' | 'inprogress' | 'final' | 'neutral'): string {
+  if (tone === 'final') {
+    return 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
+  }
+  if (tone === 'inprogress') {
+    return 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300';
+  }
+  if (tone === 'neutral') {
+    return 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-200';
+  }
+  return 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
 }
 
 function Section({
@@ -85,27 +94,40 @@ function Section({
         <p className="text-xs text-gray-600 dark:text-zinc-400">{subtitle}</p>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        {games.map(({ game, awayOwner, homeOwner, awayIsLeagueTeam, homeIsLeagueTeam }) => {
+        {games.map((bucket) => {
+          const { game } = bucket;
           const score = scoresByKey[game.key];
           const odds = oddsByKey[game.key];
           const state = gameStateFromScore(score);
           const hasAnyInfo = Boolean(score || odds);
+          const card = buildMatchupCardViewModel(bucket, scoresByKey, oddsByKey);
 
           return (
-            <article key={game.key} className={`${statusClasses(state, hasAnyInfo)} space-y-3 p-4`}>
+            <article key={game.key} className={`${statusClasses(state, hasAnyInfo)} space-y-4 p-4`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                    {cardTitle(game)}
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-lg font-semibold text-gray-900 dark:text-zinc-100">
+                      {card.title}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                      <span
+                        className={`rounded-full px-2.5 py-1 font-semibold ${performanceClasses(card.performance.tone)}`}
+                      >
+                        {card.performance.summary}
+                      </span>
+                      <span className={pillClass()}>
+                        Kickoff: {formatKickoff(game.date, displayTimeZone)}
+                      </span>
+                      {game.label ? <span className={pillClass()}>{game.label}</span> : null}
+                      {game.neutralDisplay === 'vs' ||
+                      (game.stage !== 'regular' && game.neutral) ? (
+                        <span className={pillClass()}>Neutral Site</span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    <span className={pillClass()}>
-                      Kickoff: {formatKickoff(game.date, displayTimeZone)}
-                    </span>
-                    {game.label ? <span className={pillClass()}>{game.label}</span> : null}
-                    {game.neutralDisplay === 'vs' || (game.stage !== 'regular' && game.neutral) ? (
-                      <span className={pillClass()}>Neutral Site</span>
-                    ) : null}
+                  <div className="text-sm text-gray-700 dark:text-zinc-300">
+                    {card.performance.detail}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1">
@@ -122,65 +144,57 @@ function Section({
                 </div>
               </div>
 
-              <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr]">
+              <div className="grid gap-3 lg:grid-cols-[1.1fr_1fr]">
                 <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                   <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                    League framing
+                    Teams in this matchup
                   </div>
-                  <div className="mt-2 space-y-2 text-sm">
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-zinc-100">Away</div>
-                      <div>{game.csvAway}</div>
-                      <div className="text-xs text-gray-600 dark:text-zinc-400">
-                        {awayOwner
-                          ? `Owner: ${awayOwner}`
-                          : awayIsLeagueTeam
-                            ? 'League team: unowned'
-                            : 'Non-league / FCS opponent'}
+                  <div className="mt-3 space-y-3 text-sm">
+                    <div className="rounded border border-gray-200 px-3 py-2 dark:border-zinc-700">
+                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                        Away side
+                      </div>
+                      <div className="font-medium text-gray-900 dark:text-zinc-100">
+                        {bucket.awayOwner ?? 'Unowned / Non-league'}
+                      </div>
+                      <div className="text-gray-700 dark:text-zinc-300">
+                        {card.supporting.awayTeam}
                       </div>
                     </div>
-                    <div>
-                      <div className="font-medium text-gray-900 dark:text-zinc-100">Home</div>
-                      <div>{game.csvHome}</div>
-                      <div className="text-xs text-gray-600 dark:text-zinc-400">
-                        {homeOwner
-                          ? `Owner: ${homeOwner}`
-                          : homeIsLeagueTeam
-                            ? 'League team: unowned'
-                            : 'Non-league / FCS opponent'}
+                    <div className="rounded border border-gray-200 px-3 py-2 dark:border-zinc-700">
+                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                        Home side
+                      </div>
+                      <div className="font-medium text-gray-900 dark:text-zinc-100">
+                        {bucket.homeOwner ?? 'Unowned / Non-league'}
+                      </div>
+                      <div className="text-gray-700 dark:text-zinc-300">
+                        {card.supporting.homeTeam}
                       </div>
                     </div>
-                    {awayOwner && homeOwner ? (
-                      <div className="rounded bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
-                        Owner Matchup: {awayOwner} vs {homeOwner}
-                      </div>
-                    ) : null}
+                    <div className="text-xs text-gray-600 dark:text-zinc-400">
+                      Game: {cardTitle(game)}
+                    </div>
                   </div>
                 </div>
 
-                <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                    Score
+                <div className="grid gap-3">
+                  <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                      Underlying game score
+                    </div>
+                    <div className="mt-2 text-sm text-gray-900 dark:text-zinc-100">
+                      {card.supporting.scoreSummary}
+                    </div>
                   </div>
-                  <div className="mt-2 text-sm text-gray-900 dark:text-zinc-100">
-                    {renderScoreSummary(score)}
-                  </div>
-                </div>
 
-                <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                    Odds
-                  </div>
-                  <div className="mt-2 text-sm text-gray-900 dark:text-zinc-100">
-                    {odds ? (
-                      <>
-                        <div>Favorite: {odds.favorite ?? '—'}</div>
-                        <div>Spread: {odds.spread ?? '—'}</div>
-                        <div>Total: {odds.total ?? '—'}</div>
-                      </>
-                    ) : (
-                      'No odds available'
-                    )}
+                  <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                      Odds context
+                    </div>
+                    <div className="mt-2 text-sm text-gray-900 dark:text-zinc-100">
+                      {card.supporting.oddsSummary}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -206,7 +220,8 @@ function OtherGamesFallback({
       <div>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Other Week Games</h3>
         <p className="text-xs text-gray-600 dark:text-zinc-400">
-          These games matched the current filters but do not have owner-focused card context yet.
+          These games matched the current filters but are intentionally excluded from owner-focused
+          matchup cards.
         </p>
       </div>
       <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
@@ -239,7 +254,7 @@ export default function MatchupsWeekPanel({
     <div className="space-y-6">
       <Section
         title="Owner vs Owner"
-        subtitle="Primary league matchups for the selected week."
+        subtitle="Owner-first weekly cards showing who is leading, tied, awaiting kickoff, or final."
         emptyLabel="No owner-vs-owner matchups for this week."
         games={derivedSections.ownerMatchups}
         oddsByKey={oddsByKey}
@@ -249,8 +264,8 @@ export default function MatchupsWeekPanel({
 
       <Section
         title="Secondary League Context"
-        subtitle="Lower-priority games involving one owned team against an unowned or non-league/FCS opponent."
-        emptyLabel="No additional owned-vs-unowned or owned-vs-FCS games for this week."
+        subtitle="Owned teams without a true owner-vs-owner matchup stay separate from the primary matchup cards."
+        emptyLabel="No additional owned-team secondary context for this week."
         games={derivedSections.secondaryGames}
         oddsByKey={oddsByKey}
         scoresByKey={scoresByKey}

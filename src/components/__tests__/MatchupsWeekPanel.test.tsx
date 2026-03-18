@@ -13,7 +13,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     week: overrides.week ?? 1,
     providerWeek: overrides.providerWeek ?? overrides.week ?? 1,
     canonicalWeek: overrides.canonicalWeek ?? overrides.week ?? 1,
-    date: overrides.date ?? null,
+    date: overrides.date ?? '2025-08-30T20:00:00.000Z',
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
     stageOrder: overrides.stageOrder ?? 1,
@@ -50,57 +50,73 @@ function game(overrides: Partial<AppGame>): AppGame {
     canAway: overrides.canAway ?? overrides.csvAway ?? 'Away',
     canHome: overrides.canHome ?? overrides.csvHome ?? 'Home',
     awayConf: overrides.awayConf ?? 'SEC',
-    homeConf: overrides.homeConf ?? 'B1G',
+    homeConf: overrides.homeConf ?? 'SEC',
     sources: overrides.sources,
   };
 }
 
-test('matchups view prioritizes owner-vs-owner cards ahead of other league-involved games', () => {
+test('matchups panel prioritizes owner-vs-owner leading state', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
-      games={[
-        game({ key: 'owner', csvAway: 'Georgia', csvHome: 'Michigan' }),
-        game({ key: 'owned-vs-unowned', csvAway: 'Texas', csvHome: 'Utah' }),
-      ]}
-      oddsByKey={{}}
-      scoresByKey={{}}
+      games={[game({ key: 'g1', csvAway: 'Alabama', csvHome: 'Georgia' })]}
+      oddsByKey={{
+        g1: { favorite: 'Georgia', spread: -3.5, total: 51.5, mlHome: -150, mlAway: 130 },
+      }}
+      scoresByKey={{
+        g1: {
+          status: 'Q3 05:00',
+          time: '05:00',
+          home: { team: 'Georgia', score: 17 },
+          away: { team: 'Alabama', score: 24 },
+        },
+      }}
       rosterByTeam={
         new Map([
-          ['Georgia', 'Alice'],
-          ['Michigan', 'Bob'],
-          ['Texas', 'Carol'],
+          ['Alabama', 'Alice'],
+          ['Georgia', 'Bob'],
         ])
       }
-      displayTimeZone="America/Chicago"
+      displayTimeZone="America/New_York"
     />
   );
 
-  assert.ok(html.includes('Owner vs Owner'));
-  assert.ok(html.includes('Primary league matchups for the selected week.'));
-  assert.ok(html.includes('Owner Matchup: Alice vs Bob'));
-  assert.ok(html.includes('Secondary League Context'));
-  assert.ok(html.includes('League team: unowned'));
+  assert.match(html, /Owner vs Owner/);
+  assert.match(html, /Alice vs Bob/);
+  assert.match(html, /Alice leading/);
+  assert.match(html, /Alice 24 - 17 Bob/);
+  assert.match(html, /Teams in this matchup/);
+  assert.match(html, /Underlying game score/);
+  assert.match(html, /Odds context/);
 });
 
-test('matchups view renders a visible fallback when games have no owner-card context', () => {
+test('matchups panel keeps owned-vs-unowned games in secondary context', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
-      games={[
-        game({
-          key: 'unowned',
-          csvAway: 'Utah',
-          csvHome: 'Kansas',
-          date: '2025-09-06T18:00:00.000Z',
-        }),
-      ]}
+      games={[game({ key: 'g2', csvAway: 'Michigan', csvHome: 'Akron', homeConf: 'MAC' })]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Michigan', 'Casey']])}
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Secondary League Context/);
+  assert.match(html, /Casey vs Unowned \/ Non-league/);
+  assert.doesNotMatch(html, /Owner Matchup:/);
+});
+
+test('matchups panel excludes unowned-vs-unowned from matchup cards and summarizes them separately', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g3', csvAway: 'UCLA', csvHome: 'USC' })]}
       oddsByKey={{}}
       scoresByKey={{}}
       rosterByTeam={new Map()}
-      displayTimeZone="America/Chicago"
+      displayTimeZone="America/New_York"
     />
   );
 
-  assert.ok(html.includes('Other Week Games'));
-  assert.ok(html.includes('1 game omitted from owner matchup cards.'));
-  assert.ok(html.includes('Utah @ Kansas'));
+  assert.match(html, /No owner-vs-owner matchups for this week/);
+  assert.match(html, /Other Week Games/);
+  assert.match(html, /1 game omitted from owner matchup cards/);
 });
