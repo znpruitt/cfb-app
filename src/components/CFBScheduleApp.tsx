@@ -476,7 +476,8 @@ export default function CFBScheduleApp(): React.ReactElement {
             issues: scoreIssues,
             diag: scoreDiag,
           } = await fetchScoresByGame({
-            games: visibleGames,
+            games,
+            fallbackScopeGames: visibleGames,
             aliasMap,
             season: selectedSeason,
             teams,
@@ -484,7 +485,21 @@ export default function CFBScheduleApp(): React.ReactElement {
 
           if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
           if (scoreDiag.length) setDiag((p) => [...p, ...scoreDiag]);
-          setScoresByKey((prev) => ({ ...prev, ...nextScores }));
+          setScoresByKey((prev) => {
+            const retained: Record<string, ScorePack> = {};
+            for (const game of games) {
+              const nextScore = nextScores[game.key];
+              if (nextScore) {
+                retained[game.key] = nextScore;
+                continue;
+              }
+              const prevScore = prev[game.key];
+              if (prevScore) {
+                retained[game.key] = prevScore;
+              }
+            }
+            return retained;
+          });
           setLastScoresRefreshAt(new Date().toLocaleString());
           if (!manual) {
             lastAutoScoresRefreshMsRef.current = Date.now();
@@ -497,7 +512,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         setLoadingLive(false);
       }
     },
-    [aliasMap, oddsUsage, refreshPlan.odds.fetchOnStartup, selectedSeason, visibleGames]
+    [aliasMap, games, oddsUsage, refreshPlan.odds.fetchOnStartup, selectedSeason]
   );
 
   useEffect(() => {
