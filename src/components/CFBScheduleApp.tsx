@@ -42,6 +42,7 @@ import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/we
 import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../lib/activeView';
 import {
   EMPTY_SCORE_HYDRATION_STATE,
+  getBootstrapScoreHydrationGames,
   getCanonicalPostseasonGames,
   getHydrationSeasonTypes,
   getLazyScoreHydrationGames,
@@ -611,7 +612,10 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   useEffect(() => {
     if (!scheduleLoaded || hasAutoBootstrappedLiveRef.current) return;
-    const bootstrapScoreGames = games;
+    const bootstrapScoreGames = getBootstrapScoreHydrationGames({
+      games,
+      selectedTab,
+    });
 
     if (bootstrapScoreGames.length === 0) return;
 
