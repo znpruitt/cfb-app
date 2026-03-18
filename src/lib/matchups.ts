@@ -113,7 +113,7 @@ function buildPerformanceState(bucket: MatchupBucket, score?: ScorePack): Matchu
     const awayScore = score.away.score;
     const homeScore = score.home.score;
 
-    if (awayScore == null || homeScore == null) {
+    if (awayScore == null || homeScore == null || state === 'scheduled') {
       return {
         summary:
           state === 'final' ? 'Final' : state === 'inprogress' ? 'In progress' : 'Awaiting kickoff',
@@ -138,7 +138,7 @@ function buildPerformanceState(bucket: MatchupBucket, score?: ScorePack): Matchu
     return {
       summary: state === 'final' ? `Final: ${leader} won` : `${leader} leading`,
       detail: `${leader} ${formatOwnerLead(leaderScore)} - ${formatOwnerLead(trailingScore)} ${trailing}`,
-      tone: state === 'scheduled' ? 'neutral' : state,
+      tone: state,
     };
   }
 

@@ -64,7 +64,7 @@ test('matchups panel prioritizes owner-vs-owner leading state', () => {
       }}
       scoresByKey={{
         g1: {
-          status: 'Q3 05:00',
+          status: 'in progress',
           time: '05:00',
           home: { team: 'Georgia', score: 17 },
           away: { team: 'Alabama', score: 24 },
@@ -87,6 +87,35 @@ test('matchups panel prioritizes owner-vs-owner leading state', () => {
   assert.match(html, /Teams in this matchup/);
   assert.match(html, /Underlying game score/);
   assert.match(html, /Odds context/);
+});
+
+test('matchups panel keeps scheduled fallback zero-zero scores out of tie messaging', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-scheduled', csvAway: 'Florida', csvHome: 'LSU' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-scheduled': {
+          status: 'scheduled',
+          time: 'Sat 7:00 PM',
+          home: { team: 'LSU', score: 0 },
+          away: { team: 'Florida', score: 0 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Florida', 'Dana'],
+          ['LSU', 'Evan'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Dana vs Evan/);
+  assert.match(html, /Awaiting kickoff/);
+  assert.doesNotMatch(html, /Tied/);
+  assert.doesNotMatch(html, /0 - 0/);
 });
 
 test('matchups panel keeps owned-vs-unowned games in secondary context', () => {
