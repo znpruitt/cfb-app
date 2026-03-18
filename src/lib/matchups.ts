@@ -57,3 +57,7 @@ export function deriveWeekMatchupSections(
 
   return { ownerMatchups, secondaryGames, otherGames };
 }
+
+export function countRenderedMatchupCards(sections: WeekMatchupSections): number {
+  return sections.ownerMatchups.length + sections.secondaryGames.length;
+}

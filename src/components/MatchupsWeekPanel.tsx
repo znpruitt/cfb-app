@@ -2,7 +2,11 @@ import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
 import { chipClass, gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
-import { deriveWeekMatchupSections } from '../lib/matchups';
+import {
+  deriveWeekMatchupSections,
+  type MatchupBucket,
+  type WeekMatchupSections,
+} from '../lib/matchups';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
@@ -13,6 +17,7 @@ type MatchupsWeekPanelProps = {
   scoresByKey: Record<string, ScorePack>;
   rosterByTeam: Map<string, string>;
   displayTimeZone?: string;
+  sections?: WeekMatchupSections;
 };
 
 function formatKickoff(date: string | null, timeZone: string): string {
@@ -54,7 +59,7 @@ function Section({
   title: string;
   subtitle: string;
   emptyLabel: string;
-  games: ReturnType<typeof deriveWeekMatchupSections>['ownerMatchups'];
+  games: MatchupBucket[];
   oddsByKey: Record<string, CombinedOdds>;
   scoresByKey: Record<string, ScorePack>;
   displayTimeZone: string;
@@ -87,7 +92,7 @@ function Section({
           const hasAnyInfo = Boolean(score || odds);
 
           return (
-            <article key={game.key} className={`${statusClasses(state, hasAnyInfo)} p-4 space-y-3`}>
+            <article key={game.key} className={`${statusClasses(state, hasAnyInfo)} space-y-3 p-4`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
@@ -187,14 +192,48 @@ function Section({
   );
 }
 
+function OtherGamesFallback({
+  games,
+  displayTimeZone,
+}: {
+  games: MatchupBucket[];
+  displayTimeZone: string;
+}): React.ReactElement | null {
+  if (!games.length) return null;
+
+  return (
+    <section className="space-y-2">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Other Week Games</h3>
+        <p className="text-xs text-gray-600 dark:text-zinc-400">
+          These games matched the current filters but do not have owner-focused card context yet.
+        </p>
+      </div>
+      <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+        <div className="mb-2">
+          {games.length} game{games.length === 1 ? '' : 's'} omitted from owner matchup cards.
+        </div>
+        <ul className="space-y-1 text-xs text-gray-600 dark:text-zinc-400">
+          {games.map(({ game }) => (
+            <li key={game.key}>
+              {cardTitle(game)} · Kickoff: {formatKickoff(game.date, displayTimeZone)}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 export default function MatchupsWeekPanel({
   games,
   oddsByKey,
   scoresByKey,
   rosterByTeam,
   displayTimeZone = getPresentationTimeZone(),
+  sections,
 }: MatchupsWeekPanelProps): React.ReactElement {
-  const sections = deriveWeekMatchupSections(games, rosterByTeam);
+  const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
 
   return (
     <div className="space-y-6">
@@ -202,7 +241,7 @@ export default function MatchupsWeekPanel({
         title="Owner vs Owner"
         subtitle="Primary league matchups for the selected week."
         emptyLabel="No owner-vs-owner matchups for this week."
-        games={sections.ownerMatchups}
+        games={derivedSections.ownerMatchups}
         oddsByKey={oddsByKey}
         scoresByKey={scoresByKey}
         displayTimeZone={displayTimeZone}
@@ -212,11 +251,13 @@ export default function MatchupsWeekPanel({
         title="Secondary League Context"
         subtitle="Lower-priority games involving one owned team against an unowned or non-league/FCS opponent."
         emptyLabel="No additional owned-vs-unowned or owned-vs-FCS games for this week."
-        games={sections.secondaryGames}
+        games={derivedSections.secondaryGames}
         oddsByKey={oddsByKey}
         scoresByKey={scoresByKey}
         displayTimeZone={displayTimeZone}
       />
+
+      <OtherGamesFallback games={derivedSections.otherGames} displayTimeZone={displayTimeZone} />
     </div>
   );
 }

@@ -81,3 +81,26 @@ test('matchups view prioritizes owner-vs-owner cards ahead of other league-invol
   assert.ok(html.includes('Secondary League Context'));
   assert.ok(html.includes('League team: unowned'));
 });
+
+test('matchups view renders a visible fallback when games have no owner-card context', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'unowned',
+          csvAway: 'Utah',
+          csvHome: 'Kansas',
+          date: '2025-09-06T18:00:00.000Z',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      displayTimeZone="America/Chicago"
+    />
+  );
+
+  assert.ok(html.includes('Other Week Games'));
+  assert.ok(html.includes('1 game omitted from owner matchup cards.'));
+  assert.ok(html.includes('Utah @ Kansas'));
+});

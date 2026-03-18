@@ -28,6 +28,7 @@ import { saveServerAliases } from '../lib/aliasesApi';
 import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { pillClass } from '../lib/gameUi';
+import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -373,6 +374,15 @@ export default function CFBScheduleApp(): React.ReactElement {
 
     return next;
   }, [games, selectedConference, selectedWeek, teamFilter]);
+
+  const matchupSections = useMemo(
+    () => deriveWeekMatchupSections(filteredWeekGames, rosterByTeam),
+    [filteredWeekGames, rosterByTeam]
+  );
+  const renderedMatchupCardCount = useMemo(
+    () => countRenderedMatchupCards(matchupSections),
+    [matchupSections]
+  );
 
   const postseasonGames = useMemo(() => {
     const tf = teamFilter.toLowerCase();
@@ -909,8 +919,24 @@ export default function CFBScheduleApp(): React.ReactElement {
                   {weekDateMetadataByWeek.get(selectedWeek)?.label ? (
                     <> · {weekDateMetadataByWeek.get(selectedWeek)?.label}</>
                   ) : null}{' '}
-                  · {filteredWeekGames.length} matchup{filteredWeekGames.length === 1 ? '' : 's'}{' '}
-                  shown
+                  {weekViewMode === 'matchups' ? (
+                    <>
+                      · {renderedMatchupCardCount} matchup card
+                      {renderedMatchupCardCount === 1 ? '' : 's'} shown
+                      {matchupSections.otherGames.length > 0 ? (
+                        <>
+                          {' '}
+                          · {matchupSections.otherGames.length} other game
+                          {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      · {filteredWeekGames.length} matchup
+                      {filteredWeekGames.length === 1 ? '' : 's'} shown
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
@@ -926,6 +952,7 @@ export default function CFBScheduleApp(): React.ReactElement {
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   displayTimeZone={presentationTimeZone}
+                  sections={matchupSections}
                 />
               ) : (
                 <GameWeekPanel
