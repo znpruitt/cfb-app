@@ -15,13 +15,13 @@
 
 ## Phase 2 execution queue (ordered, PR-sized)
 
-1. **Matchup-first weekly card framing**
-   - Make owner-vs-owner context the primary weekly card framing.
-   - Keep team, owner, score, and spread context immediately scannable.
+1. **Matchups card scanability follow-through**
+   - Add stronger in-card cues for favored owner and currently leading owner in the Matchups view.
+   - Keep the enhancement presentation-only and derived from existing score/odds attachments.
 
-2. **Responsive/mobile weekly dashboard polish**
-   - Improve weekly dashboard behavior on phone and tablet breakpoints.
-   - Preserve readability of controls, cards, and game state at smaller sizes.
+2. **Responsive/mobile Matchups polish**
+   - Improve Matchups card behavior on phone and tablet breakpoints.
+   - Preserve readability of owner labels, score context, and odds/status chips at smaller sizes.
 
 3. **Standings baseline**
    - Add a simple standings view with wins/losses.
@@ -36,6 +36,7 @@
 - Current-week default behavior.
 - Weekly dashboard scanability improvements.
 - Ownership labeling cleanup.
+- Matchups tab / weekly view split: Schedule remains the canonical game browser while Matchups provides league-first owner-centric weekly cards.
 - Score hydration follow-through: season-wide manual refresh coverage, safe bootstrap scope, and automatic first-visit postseason hydration.
 
 ## Out of scope for this queue
