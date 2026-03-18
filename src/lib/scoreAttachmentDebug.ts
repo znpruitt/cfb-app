@@ -8,8 +8,10 @@ export type ScoreAttachmentDebugResponse = {
   summary: {
     providerRowCount: number;
     attachedCount: number;
+    actionableCount: number;
     ignoredCount: number;
-    reasons: Record<string, number>;
+    actionableReasons: Record<string, number>;
+    ignoredReasons: Record<string, number>;
   };
   schedule: {
     indexedGameCount: number;
@@ -22,7 +24,10 @@ export type ScoreAttachmentDebugResponse = {
       status?: string | null;
     }>;
   };
-  diagnostics: ScoreAttachmentDiagnostic[];
+  diagnostics: {
+    actionable: ScoreAttachmentDiagnostic[];
+    ignored: ScoreAttachmentDiagnostic[];
+  };
 };
 
 export async function fetchScoreAttachmentDebug(params: {

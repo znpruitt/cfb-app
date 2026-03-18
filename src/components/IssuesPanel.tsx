@@ -21,7 +21,17 @@ export default function IssuesPanel({
   onCommitStagedAliases,
   onStageAlias,
 }: IssuesPanelProps): React.ReactElement | null {
-  if (issues.length === 0 && diag.length === 0) return null;
+  const actionableDiag = diag.filter(
+    (entry): entry is Exclude<DiagEntry, { kind: 'ignored_score_row' }> =>
+      !(entry.kind === 'ignored_score_row' && entry.debugOnly)
+  );
+  const ignoredDebugDiag = diag.filter(
+    (entry): entry is Extract<DiagEntry, { kind: 'ignored_score_row' }> =>
+      entry.kind === 'ignored_score_row' && entry.debugOnly
+  );
+
+  if (issues.length === 0 && actionableDiag.length === 0 && ignoredDebugDiag.length === 0)
+    return null;
 
   return (
     <div className="rounded border border-l-4 border-gray-300 border-l-red-600 bg-red-50 p-3 text-sm text-gray-900 dark:border-zinc-700 dark:border-l-red-400 dark:bg-red-900/25 dark:text-zinc-100 space-y-3">
@@ -48,7 +58,7 @@ export default function IssuesPanel({
         </ul>
       )}
 
-      {diag.length > 0 && (
+      {actionableDiag.length > 0 && (
         <div className="overflow-x-auto rounded border border-gray-200 dark:border-zinc-700">
           <table className="min-w-full text-xs">
             <thead className="bg-white/60 dark:bg-zinc-800">
@@ -62,7 +72,7 @@ export default function IssuesPanel({
               </tr>
             </thead>
             <tbody>
-              {diag.map((d, i) => {
+              {actionableDiag.map((d, i) => {
                 if (d.kind === 'scores_miss') {
                   return (
                     <tr key={`d-${i}`} className="border-t dark:border-zinc-700">
@@ -103,19 +113,6 @@ export default function IssuesPanel({
                           </button>
                         </div>
                       </td>
-                    </tr>
-                  );
-                }
-
-                if (d.kind === 'ignored_score_row') {
-                  return (
-                    <tr key={`d-${i}`} className="border-t dark:border-zinc-700">
-                      <td className="p-2">Ignored score row (debug)</td>
-                      <td className="p-2">{d.week ?? '—'}</td>
-                      <td className="p-2">{d.providerHome}</td>
-                      <td className="p-2">{d.providerAway}</td>
-                      <td className="p-2">reason: {d.reason}</td>
-                      <td className="p-2">No action required unless alias repair is needed.</td>
                     </tr>
                   );
                 }
@@ -200,6 +197,40 @@ export default function IssuesPanel({
             </tbody>
           </table>
         </div>
+      )}
+      {ignoredDebugDiag.length > 0 && (
+        <details className="rounded border border-gray-200 bg-white p-3 text-xs text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+          <summary className="cursor-pointer font-medium">
+            Ignored provider rows (debug) ({ignoredDebugDiag.length})
+          </summary>
+          <div className="mt-3 overflow-x-auto rounded border border-gray-200 dark:border-zinc-700">
+            <table className="min-w-full text-xs">
+              <thead className="bg-white/60 dark:bg-zinc-800">
+                <tr>
+                  <th className="text-left p-2">Type</th>
+                  <th className="text-left p-2">Week</th>
+                  <th className="text-left p-2">Provider Home</th>
+                  <th className="text-left p-2">Provider Away</th>
+                  <th className="text-left p-2">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ignoredDebugDiag.map((d, i) => (
+                  <tr key={`ignored-${i}`} className="border-t dark:border-zinc-700">
+                    <td className="p-2">Ignored score row</td>
+                    <td className="p-2">{d.week ?? '—'}</td>
+                    <td className="p-2">{d.providerHome}</td>
+                    <td className="p-2">{d.providerAway}</td>
+                    <td className="p-2">
+                      <div>{d.diagnostic.userMessage}</div>
+                      <div className="text-gray-500 dark:text-zinc-400">reason: {d.reason}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       )}
     </div>
   );

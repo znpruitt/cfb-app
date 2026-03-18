@@ -1,8 +1,10 @@
 import { normalizeAliasLookup, normalizeTeamName } from './teamNormalization';
 import type { TeamIdentityResolver } from './teamIdentity';
-import type {
-  ScoreAttachmentDiagnostic,
-  ScoreAttachmentFailureReason,
+import {
+  buildScoreAttachmentUserMessage,
+  classifyScoreAttachmentDiagnostic,
+  type ScoreAttachmentDiagnostic,
+  type ScoreAttachmentFailureReason,
 } from './scoreAttachmentDiagnostics';
 
 export type SeasonPhase = 'regular' | 'postseason';
@@ -31,6 +33,7 @@ export type ScheduleIndexEntry = {
 };
 
 export type ScheduleIndex = {
+  entries: ScheduleIndexEntry[];
   byProviderGameId: Map<string, ScheduleIndexEntry[]>;
   byHomeAwayWeek: Map<string, ScheduleIndexEntry[]>;
   byPairWeek: Map<string, ScheduleIndexEntry[]>;
@@ -152,6 +155,7 @@ export function buildScheduleIndex(
   resolver: TeamIdentityResolver
 ): ScheduleIndex {
   const index: ScheduleIndex = {
+    entries: [],
     byProviderGameId: new Map<string, ScheduleIndexEntry[]>(),
     byHomeAwayWeek: new Map<string, ScheduleIndexEntry[]>(),
     byPairWeek: new Map<string, ScheduleIndexEntry[]>(),
@@ -181,6 +185,8 @@ export function buildScheduleIndex(
       awayIdentityKey,
       pairKey,
     };
+
+    index.entries.push(entry);
 
     if (game.providerGameId) {
       pushIndex(index.byProviderGameId, game.providerGameId, entry);
@@ -230,6 +236,34 @@ function traceCandidates(entries: ScheduleIndexEntry[], rejectionReason: string)
   }));
 }
 
+function countPlausibleScheduledGames(params: {
+  row: NormalizedScoreRow;
+  scheduleIndex: ScheduleIndex;
+  homeResolution: TeamIdentityResolution;
+  awayResolution: TeamIdentityResolution;
+}): number {
+  const { row, scheduleIndex, homeResolution, awayResolution } = params;
+  const seasonTypes: SeasonPhase[] = row.seasonType ? [row.seasonType] : ['regular', 'postseason'];
+
+  const matches = scheduleIndex.entries.filter((entry) => {
+    if (row.week != null && entry.week !== row.week) return false;
+    if (!seasonTypes.includes(entry.seasonType)) return false;
+
+    const homeMatches =
+      homeResolution.identityKey != null &&
+      (entry.homeIdentityKey === homeResolution.identityKey ||
+        entry.awayIdentityKey === homeResolution.identityKey);
+    const awayMatches =
+      awayResolution.identityKey != null &&
+      (entry.homeIdentityKey === awayResolution.identityKey ||
+        entry.awayIdentityKey === awayResolution.identityKey);
+
+    return homeMatches || awayMatches;
+  });
+
+  return matches.length;
+}
+
 function unresolvedReason(
   homeResolution: TeamIdentityResolution,
   awayResolution: TeamIdentityResolution
@@ -254,6 +288,13 @@ export function matchScoreRowToSchedule(
 
   const unresolved = unresolvedReason(homeResolution, awayResolution);
   if (unresolved) {
+    const plausibleScheduledGameCount = countPlausibleScheduledGames({
+      row,
+      scheduleIndex,
+      homeResolution,
+      awayResolution,
+    });
+
     return {
       matched: false,
       reason: unresolved,
@@ -261,7 +302,11 @@ export function matchScoreRowToSchedule(
       awayResolution,
       trace: {
         candidateCount: 0,
-        finalNote: 'team identity could not be resolved for one or both participants',
+        plausibleScheduledGameCount,
+        finalNote:
+          plausibleScheduledGameCount > 0
+            ? 'team identity could not be resolved for a plausible in-scope scheduled game'
+            : 'team identity could not be resolved for an out-of-scope or unmatched provider row',
       },
     };
   }
@@ -520,9 +565,15 @@ export function attachScoresToSchedule(params: {
   for (const row of rows) {
     const match = matchScoreRowToSchedule(row, scheduleIndex, resolver, { debugTrace });
     if (!match.matched) {
+      const classification = classifyScoreAttachmentDiagnostic({
+        reason: match.reason,
+        plausibleScheduledGameCount: match.trace.plausibleScheduledGameCount,
+      });
       diagnostics.push({
         type: 'ignored_score_row',
         reason: match.reason,
+        classification,
+        userMessage: buildScoreAttachmentUserMessage({ reason: match.reason, classification }),
         provider: {
           source,
           providerGameId: row.providerEventId,
