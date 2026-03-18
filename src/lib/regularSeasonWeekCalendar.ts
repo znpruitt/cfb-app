@@ -16,6 +16,7 @@ export type RegularSeasonDateCluster = {
   endDateKey: string;
   dateKeys: string[];
   gameCount: number;
+  providerWeeks: number[];
 };
 
 export type RegularSeasonWeekCalendar = {
@@ -81,6 +82,9 @@ export function buildRegularSeasonDateClusters(
         endDateKey: bucket.dateKey,
         dateKeys: [bucket.dateKey],
         gameCount: bucket.games.length,
+        providerWeeks: Array.from(new Set(bucket.games.map((game) => game.week))).sort(
+          (a, b) => a - b
+        ),
       };
       continue;
     }
@@ -90,6 +94,9 @@ export function buildRegularSeasonDateClusters(
       current.endDateKey = bucket.dateKey;
       current.dateKeys.push(bucket.dateKey);
       current.gameCount += bucket.games.length;
+      current.providerWeeks = Array.from(
+        new Set([...current.providerWeeks, ...bucket.games.map((game) => game.week)])
+      ).sort((a, b) => a - b);
       continue;
     }
 
@@ -100,6 +107,9 @@ export function buildRegularSeasonDateClusters(
       endDateKey: bucket.dateKey,
       dateKeys: [bucket.dateKey],
       gameCount: bucket.games.length,
+      providerWeeks: Array.from(new Set(bucket.games.map((game) => game.week))).sort(
+        (a, b) => a - b
+      ),
     };
   }
 
@@ -114,7 +124,14 @@ export function buildRegularSeasonWeekCalendar(
   const firstCluster = clusters[0] ?? null;
   const secondCluster = clusters[1] ?? null;
 
+  const hasDuplicateWeekOneEvidence =
+    firstCluster?.providerWeeks.length === 1 &&
+    secondCluster?.providerWeeks.length === 1 &&
+    firstCluster.providerWeeks[0] === 1 &&
+    secondCluster.providerWeeks[0] === 1;
+
   const hasDerivedWeek0 =
+    hasDuplicateWeekOneEvidence &&
     firstCluster != null &&
     secondCluster != null &&
     firstCluster.gameCount < secondCluster.gameCount;

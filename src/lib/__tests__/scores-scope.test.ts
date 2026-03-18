@@ -295,11 +295,11 @@ test('score refresh keeps provider week 1 rows in scope for canonical week 0 gam
       JSON.stringify({
         items: [
           {
-            id: 'week-0-provider',
+            id: null,
             week: 1,
             seasonType: 'regular',
             status: 'final',
-            startDate: '2025-08-24T12:00:00.000Z',
+            startDate: null,
             home: 'Notre Dame',
             away: 'Navy',
             homeScore: 17,

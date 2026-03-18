@@ -200,3 +200,55 @@ test('same team can appear in derived week 0 and week 1 without collapsing sched
     ]
   );
 });
+
+test('lighter provider week 1 followed by provider week 2 does not derive a false week 0', () => {
+  const scheduleItems = [
+    {
+      id: 'week-1-light',
+      week: 1,
+      startDate: '2026-08-29T16:00:00.000Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Navy',
+      awayTeam: 'Notre Dame',
+      homeConference: 'American',
+      awayConference: 'Independent',
+      status: 'scheduled',
+      seasonType: 'regular' as const,
+    },
+    {
+      id: 'week-2-a',
+      week: 2,
+      startDate: '2026-09-05T16:00:00.000Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Iowa State',
+      awayTeam: 'Iowa',
+      homeConference: 'Big 12',
+      awayConference: 'Big Ten',
+      status: 'scheduled',
+      seasonType: 'regular' as const,
+    },
+    {
+      id: 'week-2-b',
+      week: 2,
+      startDate: '2026-09-06T16:00:00.000Z',
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'Texas',
+      awayTeam: 'Rice',
+      homeConference: 'SEC',
+      awayConference: 'American',
+      status: 'scheduled',
+      seasonType: 'regular' as const,
+    },
+  ];
+
+  const weekCalendar = buildRegularSeasonWeekCalendar(scheduleItems);
+  assert.equal(weekCalendar.openingWeek0Cluster, null);
+  assert.deepEqual(weekCalendar.openingWeek1Cluster?.providerWeeks, [1]);
+
+  const built = buildScheduleFromApi({ aliasMap: {}, teams, season: 2026, scheduleItems });
+  assert.equal(built.games.find((game) => game.providerGameId === 'week-1-light')?.week, 1);
+  assert.equal(built.games.find((game) => game.providerGameId === 'week-2-a')?.week, 2);
+});

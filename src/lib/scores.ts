@@ -287,6 +287,8 @@ export async function fetchScoresByGame(params: {
   const scheduleIndexGames: ScheduleGameForIndex[] = games.map((game) => ({
     key: game.key,
     week: game.week,
+    providerWeek: game.providerWeek ?? game.week,
+    canonicalWeek: game.canonicalWeek ?? game.week,
     date: game.date ?? null,
     stage: game.stage ?? 'regular',
     providerGameId: game.providerGameId ?? null,
