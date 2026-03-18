@@ -141,19 +141,22 @@ async function fetchScoreRows(params: {
   seasonTypes: Array<'regular' | 'postseason'>;
   issues: string[];
   apiBaseUrl?: string;
-}): Promise<ScoreRow[]> {
+}): Promise<{ rows: ScoreRow[]; requestUrls: string[] }> {
   const { season, weeks, seasonTypes, issues, apiBaseUrl } = params;
 
   const rows: ScoreRow[] = [];
+  const requestUrls: string[] = [];
 
   for (const seasonType of seasonTypes) {
     let seasonTypeRowCount = 0;
-    const seasonRes = await fetch(
-      buildApiUrl(`/api/scores?year=${season}&seasonType=${seasonType}`, apiBaseUrl),
-      {
-        cache: 'no-store',
-      }
+    const seasonUrl = buildApiUrl(
+      `/api/scores?year=${season}&seasonType=${seasonType}`,
+      apiBaseUrl
     );
+    requestUrls.push(seasonUrl);
+    const seasonRes = await fetch(seasonUrl, {
+      cache: 'no-store',
+    });
     if (seasonRes.ok) {
       const seasonRaw = parseScorePayload(await seasonRes.json());
       const parsedSeasonRows = seasonRaw
@@ -168,12 +171,14 @@ async function fetchScoreRows(params: {
     const seasonFallbackIssue = `Scores season ${season} (${seasonType}): ${seasonRes.status} ${seasonErr}`;
 
     for (const w of weeks) {
-      const weekRes = await fetch(
-        buildApiUrl(`/api/scores?week=${w}&year=${season}&seasonType=${seasonType}`, apiBaseUrl),
-        {
-          cache: 'no-store',
-        }
+      const weekUrl = buildApiUrl(
+        `/api/scores?week=${w}&year=${season}&seasonType=${seasonType}`,
+        apiBaseUrl
       );
+      requestUrls.push(weekUrl);
+      const weekRes = await fetch(weekUrl, {
+        cache: 'no-store',
+      });
       if (!weekRes.ok) {
         const weekErr = await weekRes.text().catch(() => '');
         issues.push(`Scores week ${w} (${seasonType}): ${weekRes.status} ${weekErr}`);
@@ -197,7 +202,7 @@ async function fetchScoreRows(params: {
     }
   }
 
-  return rows;
+  return { rows, requestUrls };
 }
 
 function seasonTypeFromStage(stage?: GameLike['stage']): 'regular' | 'postseason' {
@@ -236,7 +241,14 @@ export async function fetchScoresByGame(params: {
   scoresByKey: Record<string, ScorePack>;
   issues: string[];
   diag: ScoresDiagEntry[];
-  debugSnapshot?: { providerRowCount: number; attachedCount: number; diagnosticsCount: number };
+  debugSnapshot?: {
+    providerRowCount: number;
+    attachedCount: number;
+    diagnosticsCount: number;
+    requestUrls: string[];
+    loadedWeeks: number[];
+    loadedSeasonTypes: Array<'regular' | 'postseason'>;
+  };
   debugDiagnostics?: ScoreAttachmentDiagnostic[];
 }> {
   const {
@@ -283,7 +295,7 @@ export async function fetchScoresByGame(params: {
   }));
   const scheduleIndex = buildScheduleIndex(scheduleIndexGames, resolver);
 
-  const rows = await fetchScoreRows({
+  const { rows, requestUrls } = await fetchScoreRows({
     season,
     weeks: loadedWeeks,
     seasonTypes: loadedSeasonTypes,
@@ -338,6 +350,9 @@ export async function fetchScoresByGame(params: {
           providerRowCount: scopedRows.length,
           attachedCount: attached.attachedCount,
           diagnosticsCount: attached.diagnostics.length,
+          requestUrls,
+          loadedWeeks,
+          loadedSeasonTypes,
         }
       : undefined,
     debugDiagnostics: debugTrace ? attached.diagnostics : undefined,
