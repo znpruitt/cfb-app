@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
 import type { CfbdConferenceRecord } from '@/lib/conferenceSubdivision';
-import { summarizeAttachmentReasons } from '@/lib/scoreAttachmentDiagnostics';
+import {
+  isActionableScoreAttachmentIssue,
+  isIgnoredOutOfScopeProviderRow,
+  summarizeAttachmentReasons,
+} from '@/lib/scoreAttachmentDiagnostics';
 import type { ScoreAttachmentDebugResponse } from '@/lib/scoreAttachmentDebug';
 import { fetchScoresByGame } from '@/lib/scores';
 
@@ -64,6 +68,8 @@ export async function GET(req: Request) {
   });
 
   const diagnostics = scores.debugDiagnostics ?? [];
+  const actionableDiagnostics = diagnostics.filter(isActionableScoreAttachmentIssue);
+  const ignoredDiagnostics = diagnostics.filter(isIgnoredOutOfScopeProviderRow);
   const response: ScoreAttachmentDebugResponse = {
     year,
     week,
@@ -72,8 +78,10 @@ export async function GET(req: Request) {
     summary: {
       providerRowCount: scores.debugSnapshot?.providerRowCount ?? 0,
       attachedCount: scores.debugSnapshot?.attachedCount ?? 0,
-      ignoredCount: diagnostics.length,
-      reasons: summarizeAttachmentReasons(diagnostics),
+      actionableCount: actionableDiagnostics.length,
+      ignoredCount: ignoredDiagnostics.length,
+      actionableReasons: summarizeAttachmentReasons(actionableDiagnostics),
+      ignoredReasons: summarizeAttachmentReasons(ignoredDiagnostics),
     },
     schedule: {
       indexedGameCount: scopedGames.length,
@@ -86,7 +94,10 @@ export async function GET(req: Request) {
         status: null,
       })),
     },
-    diagnostics,
+    diagnostics: {
+      actionable: actionableDiagnostics,
+      ignored: ignoredDiagnostics,
+    },
   };
 
   return NextResponse.json(response);

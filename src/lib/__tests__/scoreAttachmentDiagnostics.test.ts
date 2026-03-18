@@ -7,7 +7,11 @@ import {
   type NormalizedScoreRow,
   type ScheduleGameForIndex,
 } from '../scoreAttachment';
-import { summarizeAttachmentReasons } from '../scoreAttachmentDiagnostics';
+import {
+  isActionableScoreAttachmentIssue,
+  isIgnoredOutOfScopeProviderRow,
+  summarizeAttachmentReasons,
+} from '../scoreAttachmentDiagnostics';
 import { createTeamIdentityResolver } from '../teamIdentity';
 
 const teams = [
@@ -51,7 +55,7 @@ function row(
   };
 }
 
-test('attachScoresToSchedule emits unresolved and no-match diagnostics with trace metadata', () => {
+test('out-of-scope provider rows remain ignored debug telemetry instead of actionable issues', () => {
   const index = buildScheduleIndex(
     [game({ key: 'army-navy', week: 10, canHome: 'Army', canAway: 'Navy' })],
     resolver
@@ -61,14 +65,8 @@ test('attachScoresToSchedule emits unresolved and no-match diagnostics with trac
     rows: [
       row({
         week: 10,
-        home: { team: 'Unknown U', score: 1 },
-        away: { team: 'Navy', score: 2 },
-        status: 'final',
-      }),
-      row({
-        week: 10,
-        home: { team: 'Boise State', score: 3 },
-        away: { team: 'Washington State', score: 4 },
+        home: { team: 'Nicholls', score: 1 },
+        away: { team: 'Incarnate Word', score: 2 },
         status: 'final',
       }),
     ],
@@ -78,13 +76,43 @@ test('attachScoresToSchedule emits unresolved and no-match diagnostics with trac
   });
 
   assert.equal(result.attachedCount, 0);
-  assert.equal(result.diagnostics.length, 2);
-  assert.equal(result.diagnostics[0].reason, 'unresolved_home_team');
-  assert.equal(result.diagnostics[0].trace.candidateCount, 0);
-  assert.equal(result.diagnostics[1].reason, 'no_scheduled_match');
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].classification, 'ignored');
+  assert.equal(result.diagnostics[0].reason, 'unresolved_both_teams');
+  assert.equal(result.diagnostics[0].userMessage.includes('Ignored:'), true);
+  assert.equal(result.diagnostics[0].trace.plausibleScheduledGameCount, 0);
+  assert.equal(isIgnoredOutOfScopeProviderRow(result.diagnostics[0]), true);
+  assert.equal(isActionableScoreAttachmentIssue(result.diagnostics[0]), false);
 });
 
-test('multiple candidate conflicts return multiple_candidate_matches', () => {
+test('in-scope alias failures remain actionable when they block a plausible canonical game', () => {
+  const index = buildScheduleIndex(
+    [game({ key: 'army-navy', week: 10, canHome: 'Army', canAway: 'Navy' })],
+    resolver
+  );
+
+  const result = attachScoresToSchedule({
+    rows: [
+      row({
+        week: 10,
+        home: { team: 'Army West Point', score: 17 },
+        away: { team: 'Navy', score: 10 },
+        status: 'final',
+      }),
+    ],
+    scheduleIndex: index,
+    resolver,
+    debugTrace: true,
+  });
+
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].reason, 'unresolved_home_team');
+  assert.equal(result.diagnostics[0].classification, 'actionable');
+  assert.equal(result.diagnostics[0].trace.plausibleScheduledGameCount, 1);
+  assert.equal(isActionableScoreAttachmentIssue(result.diagnostics[0]), true);
+});
+
+test('multiple candidate conflicts remain actionable attachment anomalies', () => {
   const index = buildScheduleIndex(
     [
       game({ key: 'g1', week: 1, canHome: 'Army', canAway: 'Navy', providerGameId: 'dup' }),
@@ -116,73 +144,48 @@ test('multiple candidate conflicts return multiple_candidate_matches', () => {
 
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].reason, 'multiple_candidate_matches');
+  assert.equal(result.diagnostics[0].classification, 'actionable');
   assert.equal(result.diagnostics[0].trace.candidateCount, 2);
 });
 
-test('summarizeAttachmentReasons aggregates diagnostics by reason', () => {
-  const summary = summarizeAttachmentReasons([
-    {
-      type: 'ignored_score_row',
-      reason: 'unresolved_home_team',
-      provider: {
-        source: 'test',
-        week: 1,
-        seasonType: 'regular',
-        status: 'final',
-        homeTeamRaw: 'X',
-        awayTeamRaw: 'Y',
-      },
-      normalization: { homeTeamNormalized: 'x', awayTeamNormalized: 'y' },
-      resolution: {
-        homeCanonical: null,
-        awayCanonical: 'Army',
-        homeResolved: false,
-        awayResolved: true,
-      },
-      trace: { candidateCount: 0 },
-    },
-    {
-      type: 'ignored_score_row',
-      reason: 'unresolved_home_team',
-      provider: {
-        source: 'test',
-        week: 1,
-        seasonType: 'regular',
-        status: 'final',
-        homeTeamRaw: 'X2',
-        awayTeamRaw: 'Y2',
-      },
-      normalization: { homeTeamNormalized: 'x2', awayTeamNormalized: 'y2' },
-      resolution: {
-        homeCanonical: null,
-        awayCanonical: 'Army',
-        homeResolved: false,
-        awayResolved: true,
-      },
-      trace: { candidateCount: 0 },
-    },
-    {
-      type: 'ignored_score_row',
-      reason: 'no_scheduled_match',
-      provider: {
-        source: 'test',
-        week: 1,
-        seasonType: 'regular',
-        status: 'final',
-        homeTeamRaw: 'A',
-        awayTeamRaw: 'B',
-      },
-      normalization: { homeTeamNormalized: 'a', awayTeamNormalized: 'b' },
-      resolution: {
-        homeCanonical: 'A',
-        awayCanonical: 'B',
-        homeResolved: true,
-        awayResolved: true,
-      },
-      trace: { candidateCount: 0 },
-    },
-  ]);
+test('summaries keep actionable and ignored reason counts available for diagnostics', () => {
+  const index = buildScheduleIndex(
+    [game({ key: 'army-navy', week: 10, canHome: 'Army', canAway: 'Navy' })],
+    resolver
+  );
 
-  assert.equal(summary.unresolved_home_team, 2);
-  assert.equal(summary.no_scheduled_match, 1);
+  const result = attachScoresToSchedule({
+    rows: [
+      row({
+        week: 10,
+        home: { team: 'Army West Point', score: 17 },
+        away: { team: 'Navy', score: 10 },
+        status: 'final',
+      }),
+      row({
+        week: 10,
+        home: { team: 'Nicholls', score: 1 },
+        away: { team: 'Incarnate Word', score: 2 },
+        status: 'final',
+      }),
+      row({
+        week: 10,
+        home: { team: 'Boise State', score: 3 },
+        away: { team: 'Washington State', score: 4 },
+        status: 'final',
+      }),
+    ],
+    scheduleIndex: index,
+    resolver,
+    debugTrace: true,
+  });
+
+  const actionable = result.diagnostics.filter(isActionableScoreAttachmentIssue);
+  const ignored = result.diagnostics.filter(isIgnoredOutOfScopeProviderRow);
+
+  assert.deepEqual(summarizeAttachmentReasons(actionable), { unresolved_home_team: 1 });
+  assert.deepEqual(summarizeAttachmentReasons(ignored), {
+    unresolved_both_teams: 1,
+    no_scheduled_match: 1,
+  });
 });

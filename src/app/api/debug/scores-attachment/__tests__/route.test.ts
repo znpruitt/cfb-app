@@ -109,8 +109,11 @@ test('debug scores attachment route returns summary and diagnostics from shared 
   assert.equal(json.week, 1);
   assert.equal(json.summary.providerRowCount, 2);
   assert.equal(json.summary.attachedCount, 1);
-  assert.equal(json.summary.ignoredCount, 1);
-  assert.equal(json.summary.reasons.unresolved_home_team, 1);
-  assert.equal(Array.isArray(json.diagnostics), true);
-  assert.equal(json.diagnostics[0].type, 'ignored_score_row');
+  assert.equal(json.summary.actionableCount, 1);
+  assert.equal(json.summary.ignoredCount, 0);
+  assert.equal(json.summary.actionableReasons.unresolved_home_team, 1);
+  assert.equal(Array.isArray(json.diagnostics.actionable), true);
+  assert.equal(Array.isArray(json.diagnostics.ignored), true);
+  assert.equal(json.diagnostics.actionable[0].type, 'ignored_score_row');
+  assert.equal(json.diagnostics.actionable[0].classification, 'actionable');
 });
