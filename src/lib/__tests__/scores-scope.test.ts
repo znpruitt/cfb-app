@@ -209,3 +209,64 @@ test('week 0 score refresh scope stays regular-season scoped', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('empty filtered refresh scope does not widen back to all active-tab weeks on season fetch fallback', async () => {
+  const games = [
+    game({
+      key: 'bowl-17',
+      eventId: 'bowl-17',
+      providerGameId: 'bowl-17-provider',
+      week: 17,
+      stage: 'bowl',
+      postseasonRole: 'bowl',
+      csvHome: 'Alabama',
+      csvAway: 'Georgia',
+      canHome: 'Alabama',
+      canAway: 'Georgia',
+      label: 'Orange Bowl',
+      date: '2025-12-28T01:00:00.000Z',
+    }),
+    game({
+      key: 'bowl-18',
+      eventId: 'bowl-18',
+      providerGameId: 'bowl-18-provider',
+      week: 18,
+      stage: 'bowl',
+      postseasonRole: 'bowl',
+      csvHome: 'Notre Dame',
+      csvAway: 'Navy',
+      canHome: 'Notre Dame',
+      canAway: 'Navy',
+      label: 'Sugar Bowl',
+      date: '2026-01-01T01:00:00.000Z',
+    }),
+  ];
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    return new Response(JSON.stringify({ error: 'upstream down' }), {
+      status: 502,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games,
+      fallbackScopeGames: [],
+      aliasMap: {},
+      season: 2025,
+      teams,
+      debugTrace: true,
+    });
+
+    assert.deepEqual(result.debugSnapshot?.loadedSeasonTypes, []);
+    assert.deepEqual(result.debugSnapshot?.loadedWeeks, []);
+    assert.deepEqual(requested, []);
+    assert.deepEqual(result.scoresByKey, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -273,7 +273,7 @@ export async function fetchScoresByGame(params: {
   );
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
-  const fallbackGames = fallbackScopeGames?.length ? fallbackScopeGames : games;
+  const fallbackGames = fallbackScopeGames ?? games;
   const loadedWeeks = Array.from(new Set<number>(fallbackGames.map((g) => g.week))).sort(
     (a, b) => a - b
   );

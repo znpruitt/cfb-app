@@ -381,15 +381,19 @@ export default function CFBScheduleApp(): React.ReactElement {
     return filteredWeekGames;
   }, [filteredWeekGames, postseasonGames, selectedTab]);
 
-  const scoreScopeGames = useMemo(
-    () =>
-      deriveCanonicalActiveViewGames({
-        games,
-        selectedTab,
-        selectedWeek,
-      }),
-    [games, selectedTab, selectedWeek]
-  );
+  const hasActiveViewFilters = selectedConference !== 'ALL' || teamFilter.trim().length > 0;
+
+  const scoreScopeGames = useMemo(() => {
+    if (visibleGames.length > 0 || hasActiveViewFilters) {
+      return visibleGames;
+    }
+
+    return deriveCanonicalActiveViewGames({
+      games,
+      selectedTab,
+      selectedWeek,
+    });
+  }, [games, hasActiveViewFilters, selectedTab, selectedWeek, visibleGames]);
 
   const refreshPlan = useMemo(
     () =>
