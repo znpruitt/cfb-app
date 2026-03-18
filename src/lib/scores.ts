@@ -231,6 +231,7 @@ export async function fetchScoresByGame(params: {
   teams?: TeamCatalogItem[];
   debugTrace?: boolean;
   apiBaseUrl?: string;
+  fallbackScopeGames?: GameLike[];
 }): Promise<{
   scoresByKey: Record<string, ScorePack>;
   issues: string[];
@@ -238,7 +239,15 @@ export async function fetchScoresByGame(params: {
   debugSnapshot?: { providerRowCount: number; attachedCount: number; diagnosticsCount: number };
   debugDiagnostics?: ScoreAttachmentDiagnostic[];
 }> {
-  const { games, aliasMap, season, teams: providedTeams, debugTrace = false, apiBaseUrl } = params;
+  const {
+    games,
+    aliasMap,
+    season,
+    teams: providedTeams,
+    debugTrace = false,
+    apiBaseUrl,
+    fallbackScopeGames,
+  } = params;
   const issues: string[] = [];
 
   if (games.length === 0) {
@@ -252,8 +261,13 @@ export async function fetchScoresByGame(params: {
   );
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
-  const loadedWeeks = Array.from(new Set<number>(games.map((g) => g.week))).sort((a, b) => a - b);
-  const loadedSeasonTypes = Array.from(new Set(games.map((g) => seasonTypeFromStage(g.stage))));
+  const fallbackGames = fallbackScopeGames?.length ? fallbackScopeGames : games;
+  const loadedWeeks = Array.from(new Set<number>(fallbackGames.map((g) => g.week))).sort(
+    (a, b) => a - b
+  );
+  const loadedSeasonTypes = Array.from(
+    new Set(fallbackGames.map((g) => seasonTypeFromStage(g.stage)))
+  );
   const scheduleIndexGames: ScheduleGameForIndex[] = games.map((game) => ({
     key: game.key,
     week: game.week,
