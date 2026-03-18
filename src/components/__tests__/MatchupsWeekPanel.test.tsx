@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { AppGame } from '../../lib/schedule';
+import { deriveOwnerWeekSlates } from '../../lib/matchups';
 import MatchupsWeekPanel from '../MatchupsWeekPanel';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -134,4 +135,78 @@ test('matchups panel omits unowned-vs-unowned from owner cards and summarizes ex
   assert.match(html, /No owner-relevant games for this week/);
   assert.match(html, /Excluded games/);
   assert.match(html, /1 excluded game/);
+});
+
+test('matchups panel does not duplicate same-owner games when one owner has both teams', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-self', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-self': {
+          status: 'final',
+          time: 'Final',
+          home: { team: 'Oklahoma', score: 21 },
+          away: { team: 'Texas', score: 28 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Texas', 'Alex'],
+          ['Oklahoma', 'Alex'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Alex/);
+  assert.match(html, /1 game/);
+  assert.equal((html.match(/Texas/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /2 games/);
+});
+
+test('owner slate stays mixed when one game is final and another is still scheduled', () => {
+  const games = [
+    game({ key: 'g-final', csvAway: 'Clemson', csvHome: 'Miami' }),
+    game({ key: 'g-later', csvAway: 'Oregon', csvHome: 'USC' }),
+  ];
+  const rosterByTeam = new Map([
+    ['Clemson', 'Casey'],
+    ['Oregon', 'Casey'],
+    ['Miami', 'Dana'],
+    ['USC', 'Evan'],
+  ]);
+  const scoresByKey = {
+    'g-final': {
+      status: 'final',
+      time: 'Final',
+      home: { team: 'Miami', score: 14 },
+      away: { team: 'Clemson', score: 24 },
+    },
+  };
+
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const casey = slates.find((slate) => slate.owner === 'Casey');
+  assert.ok(casey);
+  assert.equal(casey.totalGames, 2);
+  assert.equal(casey.finalGames, 1);
+  assert.equal(casey.scheduledGames, 1);
+  assert.equal(casey.performance.tone, 'neutral');
+  assert.equal(casey.performance.summary, '2 games this week');
+
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={games}
+      oddsByKey={{}}
+      scoresByKey={scoresByKey}
+      rosterByTeam={rosterByTeam}
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Casey/);
+  assert.match(html, /2 games/);
+  assert.match(html, /1 final/);
+  assert.match(html, /1 scheduled/);
 });

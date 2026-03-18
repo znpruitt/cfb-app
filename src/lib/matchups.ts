@@ -264,7 +264,6 @@ function compareSlates(a: OwnerWeekSlate, b: OwnerWeekSlate): number {
 }
 
 function buildOwnerWeekPerformance(
-  owner: string,
   games: OwnerSlateGame[],
   scoresByKey: Record<string, ScorePack>
 ): MatchupPerformanceState {
@@ -305,7 +304,7 @@ function buildOwnerWeekPerformance(
     )
   );
 
-  if (finalGames > 0 && wins + losses + ties > 0) {
+  if (finalGames > 0 && scheduledGames === 0 && wins + losses + ties > 0) {
     const record = `${wins}-${losses}${ties > 0 ? `-${ties}` : ''}`;
     const detailParts = [
       `${games.length} game${games.length === 1 ? '' : 's'} this week`,
@@ -368,22 +367,17 @@ export function deriveOwnerWeekSlates(
   const slatesByOwner = new Map<string, OwnerSlateGame[]>();
 
   for (const bucket of relevantBuckets) {
-    if (bucket.awayOwner) {
-      const slateGame = buildOwnerSlateGame(bucket, bucket.awayOwner);
-      if (slateGame) {
-        const existing = slatesByOwner.get(bucket.awayOwner) ?? [];
-        existing.push(slateGame);
-        slatesByOwner.set(bucket.awayOwner, existing);
-      }
-    }
+    const ownersForBucket = new Set<string>();
+    if (bucket.awayOwner) ownersForBucket.add(bucket.awayOwner);
+    if (bucket.homeOwner) ownersForBucket.add(bucket.homeOwner);
 
-    if (bucket.homeOwner) {
-      const slateGame = buildOwnerSlateGame(bucket, bucket.homeOwner);
-      if (slateGame) {
-        const existing = slatesByOwner.get(bucket.homeOwner) ?? [];
-        existing.push(slateGame);
-        slatesByOwner.set(bucket.homeOwner, existing);
-      }
+    for (const owner of ownersForBucket) {
+      const slateGame = buildOwnerSlateGame(bucket, owner);
+      if (!slateGame) continue;
+
+      const existing = slatesByOwner.get(owner) ?? [];
+      existing.push(slateGame);
+      slatesByOwner.set(owner, existing);
     }
   }
 
@@ -418,7 +412,7 @@ export function deriveOwnerWeekSlates(
         liveGames,
         finalGames,
         scheduledGames,
-        performance: buildOwnerWeekPerformance(owner, gamesForOwner, scoresByKey),
+        performance: buildOwnerWeekPerformance(gamesForOwner, scoresByKey),
       };
     })
     .sort(compareSlates);
