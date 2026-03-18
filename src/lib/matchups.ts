@@ -37,6 +37,27 @@ export type MatchupCardViewModel = MatchupBucket & {
   };
 };
 
+export type OwnerSlateGame = {
+  game: AppGame;
+  ownerTeamSide: 'away' | 'home';
+  ownerTeamName: string;
+  opponentTeamName: string;
+  opponentOwner?: string;
+  isOwnerVsOwner: boolean;
+  isOpponentUnownedOrNonLeague: boolean;
+};
+
+export type OwnerWeekSlate = {
+  owner: string;
+  games: OwnerSlateGame[];
+  opponentOwners: string[];
+  totalGames: number;
+  liveGames: number;
+  finalGames: number;
+  scheduledGames: number;
+  performance: MatchupPerformanceState;
+};
+
 export function deriveWeekMatchupSections(
   games: AppGame[],
   rosterByTeam: Map<string, string>
@@ -207,6 +228,207 @@ export function buildMatchupCardViewModel(
   };
 }
 
+function buildOwnerSlateGame(bucket: MatchupBucket, owner: string): OwnerSlateGame | null {
+  if (bucket.awayOwner === owner) {
+    return {
+      game: bucket.game,
+      ownerTeamSide: 'away',
+      ownerTeamName: bucket.game.csvAway,
+      opponentTeamName: bucket.game.csvHome,
+      opponentOwner: bucket.homeOwner,
+      isOwnerVsOwner: Boolean(bucket.homeOwner),
+      isOpponentUnownedOrNonLeague: !bucket.homeOwner,
+    };
+  }
+
+  if (bucket.homeOwner === owner) {
+    return {
+      game: bucket.game,
+      ownerTeamSide: 'home',
+      ownerTeamName: bucket.game.csvHome,
+      opponentTeamName: bucket.game.csvAway,
+      opponentOwner: bucket.awayOwner,
+      isOwnerVsOwner: Boolean(bucket.awayOwner),
+      isOpponentUnownedOrNonLeague: !bucket.awayOwner,
+    };
+  }
+
+  return null;
+}
+
+function compareSlates(a: OwnerWeekSlate, b: OwnerWeekSlate): number {
+  if (b.liveGames !== a.liveGames) return b.liveGames - a.liveGames;
+  if (b.finalGames !== a.finalGames) return b.finalGames - a.finalGames;
+  if (b.totalGames !== a.totalGames) return b.totalGames - a.totalGames;
+  return a.owner.localeCompare(b.owner);
+}
+
+function buildOwnerWeekPerformance(
+  owner: string,
+  games: OwnerSlateGame[],
+  scoresByKey: Record<string, ScorePack>
+): MatchupPerformanceState {
+  let liveGames = 0;
+  let finalGames = 0;
+  let scheduledGames = 0;
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+
+  for (const slateGame of games) {
+    const score = scoresByKey[slateGame.game.key];
+    const state = getStateFromScore(score);
+
+    if (state === 'inprogress') {
+      liveGames += 1;
+    } else if (state === 'final') {
+      finalGames += 1;
+    } else {
+      scheduledGames += 1;
+    }
+
+    if (!score) continue;
+
+    const ownerScore = slateGame.ownerTeamSide === 'away' ? score.away.score : score.home.score;
+    const opponentScore = slateGame.ownerTeamSide === 'away' ? score.home.score : score.away.score;
+
+    if (ownerScore == null || opponentScore == null || state !== 'final') continue;
+
+    if (ownerScore > opponentScore) wins += 1;
+    else if (ownerScore < opponentScore) losses += 1;
+    else ties += 1;
+  }
+
+  const opponentOwners = Array.from(
+    new Set(
+      games.map((game) => game.opponentOwner).filter((value): value is string => Boolean(value))
+    )
+  );
+
+  if (finalGames > 0 && wins + losses + ties > 0) {
+    const record = `${wins}-${losses}${ties > 0 ? `-${ties}` : ''}`;
+    const detailParts = [
+      `${games.length} game${games.length === 1 ? '' : 's'} this week`,
+      `final record ${record}`,
+    ];
+    if (liveGames > 0) detailParts.push(`${liveGames} live`);
+    if (scheduledGames > 0) detailParts.push(`${scheduledGames} awaiting kickoff`);
+    if (opponentOwners.length > 0) detailParts.push(`faces ${opponentOwners.join(', ')}`);
+
+    return {
+      summary: `Finals in progress · ${record}`,
+      detail: detailParts.join(' · '),
+      tone: liveGames > 0 ? 'inprogress' : 'final',
+    };
+  }
+
+  if (liveGames > 0) {
+    const detailParts = [
+      `${games.length} game${games.length === 1 ? '' : 's'} this week`,
+      `${liveGames} live`,
+    ];
+    if (scheduledGames > 0) detailParts.push(`${scheduledGames} awaiting kickoff`);
+    if (opponentOwners.length > 0) detailParts.push(`faces ${opponentOwners.join(', ')}`);
+
+    return {
+      summary: liveGames === games.length ? 'Live slate' : `${liveGames} live`,
+      detail: detailParts.join(' · '),
+      tone: 'inprogress',
+    };
+  }
+
+  if (scheduledGames === games.length) {
+    return {
+      summary: games.length === 1 ? '1 game scheduled' : `${games.length} games scheduled`,
+      detail:
+        opponentOwners.length > 0
+          ? `Awaiting kickoff · faces ${opponentOwners.join(', ')}`
+          : 'Awaiting kickoff-heavy slate',
+      tone: 'scheduled',
+    };
+  }
+
+  return {
+    summary: `${games.length} game${games.length === 1 ? '' : 's'} this week`,
+    detail:
+      opponentOwners.length > 0
+        ? `Mixed slate · faces ${opponentOwners.join(', ')}`
+        : 'Mixed owned-team slate this week',
+    tone: 'neutral',
+  };
+}
+
+export function deriveOwnerWeekSlates(
+  games: AppGame[],
+  rosterByTeam: Map<string, string>,
+  scoresByKey: Record<string, ScorePack>
+): OwnerWeekSlate[] {
+  const sections = deriveWeekMatchupSections(games, rosterByTeam);
+  const relevantBuckets = [...sections.ownerMatchups, ...sections.secondaryGames];
+  const slatesByOwner = new Map<string, OwnerSlateGame[]>();
+
+  for (const bucket of relevantBuckets) {
+    if (bucket.awayOwner) {
+      const slateGame = buildOwnerSlateGame(bucket, bucket.awayOwner);
+      if (slateGame) {
+        const existing = slatesByOwner.get(bucket.awayOwner) ?? [];
+        existing.push(slateGame);
+        slatesByOwner.set(bucket.awayOwner, existing);
+      }
+    }
+
+    if (bucket.homeOwner) {
+      const slateGame = buildOwnerSlateGame(bucket, bucket.homeOwner);
+      if (slateGame) {
+        const existing = slatesByOwner.get(bucket.homeOwner) ?? [];
+        existing.push(slateGame);
+        slatesByOwner.set(bucket.homeOwner, existing);
+      }
+    }
+  }
+
+  return Array.from(slatesByOwner.entries())
+    .map(([owner, ownerGames]) => {
+      const gamesForOwner = ownerGames.slice().sort((a, b) => {
+        const aTime = a.game.date ? new Date(a.game.date).getTime() : Number.MAX_SAFE_INTEGER;
+        const bTime = b.game.date ? new Date(b.game.date).getTime() : Number.MAX_SAFE_INTEGER;
+        if (aTime !== bTime) return aTime - bTime;
+        return a.game.key.localeCompare(b.game.key);
+      });
+      const liveGames = gamesForOwner.filter(
+        (game) => getStateFromScore(scoresByKey[game.game.key]) === 'inprogress'
+      ).length;
+      const finalGames = gamesForOwner.filter(
+        (game) => getStateFromScore(scoresByKey[game.game.key]) === 'final'
+      ).length;
+      const scheduledGames = gamesForOwner.length - liveGames - finalGames;
+      const opponentOwners = Array.from(
+        new Set(
+          gamesForOwner
+            .map((game) => game.opponentOwner)
+            .filter((value): value is string => Boolean(value))
+        )
+      );
+
+      return {
+        owner,
+        games: gamesForOwner,
+        opponentOwners,
+        totalGames: gamesForOwner.length,
+        liveGames,
+        finalGames,
+        scheduledGames,
+        performance: buildOwnerWeekPerformance(owner, gamesForOwner, scoresByKey),
+      };
+    })
+    .sort(compareSlates);
+}
+
 export function countRenderedMatchupCards(sections: WeekMatchupSections): number {
-  return sections.ownerMatchups.length + sections.secondaryGames.length;
+  const owners = new Set<string>();
+  for (const bucket of [...sections.ownerMatchups, ...sections.secondaryGames]) {
+    if (bucket.awayOwner) owners.add(bucket.awayOwner);
+    if (bucket.homeOwner) owners.add(bucket.homeOwner);
+  }
+  return owners.size;
 }
