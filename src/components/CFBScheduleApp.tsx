@@ -44,6 +44,8 @@ import {
   EMPTY_SCORE_HYDRATION_STATE,
   getBootstrapScoreHydrationGames,
   getCanonicalPostseasonGames,
+  getHydrationSeasonTypes,
+  getLazyScoreHydrationGames,
   markScoreHydrationLoaded,
   type ScoreHydrationState,
 } from '../lib/scoreHydration';
@@ -108,6 +110,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const lastManualLiveRefreshMsRef = useRef<number>(0);
   const lastAutoScoresRefreshMsRef = useRef<number>(0);
   const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
+  const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
 
   const applySavedAliasMap = useCallback(
     (saved: AliasMap) => {
@@ -151,6 +154,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
     hasAutoBootstrappedLiveRef.current = false;
+    hasAttemptedLazyPostseasonHydrationRef.current = false;
   }, []);
 
   const clearOwnersDerivedState = useCallback(() => {
@@ -567,13 +571,7 @@ export default function CFBScheduleApp(): React.ReactElement {
             return retained;
           });
           setLastScoresRefreshAt(new Date().toLocaleString());
-          const loadedSeasonTypes = Array.from(
-            new Set(
-              scoreScopeForRequest.map((game) =>
-                game.stage === 'regular' ? 'regular' : 'postseason'
-              )
-            )
-          ) as Array<'regular' | 'postseason'>;
+          const loadedSeasonTypes = getHydrationSeasonTypes(scoreScopeForRequest);
           if (loadedSeasonTypes.length > 0) {
             setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
           }
@@ -652,22 +650,29 @@ export default function CFBScheduleApp(): React.ReactElement {
   }, [refreshLiveData, refreshPlan.scores.allowAutoOnFocus, scheduleLoaded]);
 
   useEffect(() => {
-    if (!scheduleLoaded || selectedTab !== 'postseason' || loadingLive) return;
-    if (scoreHydrationState.postseason || canonicalPostseasonGames.length === 0) return;
+    if (selectedTab !== 'postseason') {
+      hasAttemptedLazyPostseasonHydrationRef.current = false;
+      return;
+    }
 
+    if (!scheduleLoaded || loadingLive) return;
+
+    const lazyPostseasonGames = getLazyScoreHydrationGames({
+      games,
+      selectedTab,
+      hydrationState: scoreHydrationState,
+      hasAttemptedPostseasonHydration: hasAttemptedLazyPostseasonHydrationRef.current,
+    });
+
+    if (lazyPostseasonGames.length === 0) return;
+
+    hasAttemptedLazyPostseasonHydrationRef.current = true;
     void refreshLiveData({
       manual: false,
       includeOdds: false,
-      scoreScopeGamesOverride: canonicalPostseasonGames,
+      scoreScopeGamesOverride: lazyPostseasonGames,
     });
-  }, [
-    canonicalPostseasonGames,
-    loadingLive,
-    refreshLiveData,
-    scheduleLoaded,
-    scoreHydrationState.postseason,
-    selectedTab,
-  ]);
+  }, [games, loadingLive, refreshLiveData, scheduleLoaded, scoreHydrationState, selectedTab]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {

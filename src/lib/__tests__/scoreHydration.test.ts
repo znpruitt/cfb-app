@@ -7,6 +7,7 @@ import {
   getBootstrapScoreHydrationGames,
   getCanonicalPostseasonGames,
   getCanonicalRegularGames,
+  getHydrationSeasonTypes,
   getLazyScoreHydrationGames,
   markScoreHydrationLoaded,
 } from '../scoreHydration';
@@ -87,6 +88,10 @@ test('bootstrap hydration uses postseason scope when app opens on postseason tab
   );
 });
 
+test('conference championship hydration scope still maps to regular season type', () => {
+  assert.deepEqual(getHydrationSeasonTypes(getCanonicalRegularGames(sampleGames)), ['regular']);
+});
+
 test('regular hydration does not mark postseason as loaded', () => {
   const next = markScoreHydrationLoaded(EMPTY_SCORE_HYDRATION_STATE, ['regular']);
   assert.deepEqual(next, { regular: true, postseason: false });
@@ -109,6 +114,27 @@ test('first postseason visit requests canonical postseason games exactly once', 
     hydrationState: { regular: true, postseason: true },
   });
   assert.deepEqual(revisited, []);
+});
+
+test('failed lazy postseason attempt does not immediately retry until user revisits tab', () => {
+  const blockedRetry = getLazyScoreHydrationGames({
+    games: sampleGames,
+    selectedTab: 'postseason',
+    hydrationState: { regular: true, postseason: false },
+    hasAttemptedPostseasonHydration: true,
+  });
+  assert.deepEqual(blockedRetry, []);
+
+  const revisitRetry = getLazyScoreHydrationGames({
+    games: sampleGames,
+    selectedTab: 'postseason',
+    hydrationState: { regular: true, postseason: false },
+    hasAttemptedPostseasonHydration: false,
+  });
+  assert.deepEqual(
+    revisitRetry.map((game) => game.key),
+    ['bowl']
+  );
 });
 
 test('no postseason games keeps lazy postseason hydration idle', () => {
