@@ -41,6 +41,13 @@ import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../lib/activeView';
 import {
+  EMPTY_SCORE_HYDRATION_STATE,
+  getBootstrapScoreHydrationGames,
+  getCanonicalPostseasonGames,
+  markScoreHydrationLoaded,
+  type ScoreHydrationState,
+} from '../lib/scoreHydration';
+import {
   dedupeIssues,
   isLiveIssue,
   isScheduleIssue,
@@ -92,6 +99,9 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [ownersLoadedFromCache, setOwnersLoadedFromCache] = useState<boolean>(false);
   const [hasCachedOwners, setHasCachedOwners] = useState<boolean>(false);
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
+  const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
+    EMPTY_SCORE_HYDRATION_STATE
+  );
 
   const liveRefreshInFlightRef = useRef<boolean>(false);
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
@@ -139,6 +149,8 @@ export default function CFBScheduleApp(): React.ReactElement {
     setOddsCacheState('unknown');
     setOddsUsage(null);
     setScheduleLoaded(false);
+    setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
+    hasAutoBootstrappedLiveRef.current = false;
   }, []);
 
   const clearOwnersDerivedState = useCallback(() => {
@@ -370,7 +382,9 @@ export default function CFBScheduleApp(): React.ReactElement {
     });
   }, [games, selectedConference, teamFilter]);
 
-  const hasPostseasonGames = useMemo(() => games.some(isTruePostseasonGame), [games]);
+  const canonicalPostseasonGames = useMemo(() => getCanonicalPostseasonGames(games), [games]);
+
+  const hasPostseasonGames = canonicalPostseasonGames.length > 0;
 
   const visibleGames = useMemo(() => {
     if (selectedTab === 'postseason') return postseasonGames;
@@ -402,7 +416,11 @@ export default function CFBScheduleApp(): React.ReactElement {
   );
 
   const refreshLiveData = useCallback(
-    async (options?: { manual?: boolean; includeOdds?: boolean }): Promise<void> => {
+    async (options?: {
+      manual?: boolean;
+      includeOdds?: boolean;
+      scoreScopeGamesOverride?: AppGame[];
+    }): Promise<void> => {
       const manual = options?.manual ?? false;
       if (liveRefreshInFlightRef.current) return;
 
@@ -481,6 +499,8 @@ export default function CFBScheduleApp(): React.ReactElement {
         }
 
         try {
+          const scoreScopeForRequest = options?.scoreScopeGamesOverride ?? scoreScopeGames;
+
           const {
             scoresByKey: nextScores,
             issues: scoreIssues,
@@ -488,7 +508,7 @@ export default function CFBScheduleApp(): React.ReactElement {
             debugSnapshot,
           } = await fetchScoresByGame({
             games,
-            fallbackScopeGames: scoreScopeGames,
+            fallbackScopeGames: scoreScopeForRequest,
             aliasMap,
             season: selectedSeason,
             teams,
@@ -510,19 +530,19 @@ export default function CFBScheduleApp(): React.ReactElement {
               visibleWeeks: Array.from(new Set(visibleGames.map((game) => game.week))).sort(
                 (a, b) => a - b
               ),
-              scoreScopeCount: scoreScopeGames.length,
-              scoreScopeSample: scoreScopeGames.slice(0, 5).map((game) => game.key),
+              scoreScopeCount: scoreScopeForRequest.length,
+              scoreScopeSample: scoreScopeForRequest.slice(0, 5).map((game) => game.key),
               scoreScopeSeasonTypes: Array.from(
                 new Set(
-                  scoreScopeGames.map((game) =>
+                  scoreScopeForRequest.map((game) =>
                     game.stage === 'regular' ? 'regular' : 'postseason'
                   )
                 )
               ),
-              scoreScopeWeeks: Array.from(new Set(scoreScopeGames.map((game) => game.week))).sort(
-                (a, b) => a - b
-              ),
-              emptyScopeEarlyReturn: scoreScopeGames.length === 0,
+              scoreScopeWeeks: Array.from(
+                new Set(scoreScopeForRequest.map((game) => game.week))
+              ).sort((a, b) => a - b),
+              emptyScopeEarlyReturn: scoreScopeForRequest.length === 0,
               providerRowCount: debugSnapshot?.providerRowCount ?? null,
               attachedScoreCount: debugSnapshot?.attachedCount ?? null,
               scoreRequests: debugSnapshot?.requestUrls ?? [],
@@ -547,6 +567,16 @@ export default function CFBScheduleApp(): React.ReactElement {
             return retained;
           });
           setLastScoresRefreshAt(new Date().toLocaleString());
+          const loadedSeasonTypes = Array.from(
+            new Set(
+              scoreScopeForRequest.map((game) =>
+                game.stage === 'regular' ? 'regular' : 'postseason'
+              )
+            )
+          ) as Array<'regular' | 'postseason'>;
+          if (loadedSeasonTypes.length > 0) {
+            setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
+          }
           if (!manual) {
             lastAutoScoresRefreshMsRef.current = Date.now();
           }
@@ -584,9 +614,21 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   useEffect(() => {
     if (!scheduleLoaded || hasAutoBootstrappedLiveRef.current) return;
+
+    const bootstrapScoreGames = getBootstrapScoreHydrationGames({
+      games,
+      selectedTab,
+    });
+
+    if (bootstrapScoreGames.length === 0) return;
+
     hasAutoBootstrappedLiveRef.current = true;
-    void refreshLiveData({ manual: false, includeOdds: refreshPlan.odds.fetchOnStartup });
-  }, [refreshLiveData, refreshPlan.odds.fetchOnStartup, scheduleLoaded]);
+    void refreshLiveData({
+      manual: false,
+      includeOdds: refreshPlan.odds.fetchOnStartup,
+      scoreScopeGamesOverride: bootstrapScoreGames,
+    });
+  }, [games, refreshLiveData, refreshPlan.odds.fetchOnStartup, scheduleLoaded, selectedTab]);
 
   useEffect(() => {
     if (!scheduleLoaded || !refreshPlan.scores.allowAutoOnFocus) return;
@@ -608,6 +650,24 @@ export default function CFBScheduleApp(): React.ReactElement {
       document.removeEventListener('visibilitychange', onFocus);
     };
   }, [refreshLiveData, refreshPlan.scores.allowAutoOnFocus, scheduleLoaded]);
+
+  useEffect(() => {
+    if (!scheduleLoaded || selectedTab !== 'postseason' || loadingLive) return;
+    if (scoreHydrationState.postseason || canonicalPostseasonGames.length === 0) return;
+
+    void refreshLiveData({
+      manual: false,
+      includeOdds: false,
+      scoreScopeGamesOverride: canonicalPostseasonGames,
+    });
+  }, [
+    canonicalPostseasonGames,
+    loadingLive,
+    refreshLiveData,
+    scheduleLoaded,
+    scoreHydrationState.postseason,
+    selectedTab,
+  ]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
