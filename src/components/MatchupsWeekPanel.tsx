@@ -1,11 +1,12 @@
 import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
-import { chipClass, gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
+import { gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
 import {
-  buildMatchupCardViewModel,
+  deriveOwnerWeekSlates,
   deriveWeekMatchupSections,
-  type MatchupBucket,
+  type OwnerSlateGame,
+  type OwnerWeekSlate,
   type WeekMatchupSections,
 } from '../lib/matchups';
 import type { ScorePack } from '../lib/scores';
@@ -35,14 +36,6 @@ function formatKickoff(date: string | null, timeZone: string): string {
   });
 }
 
-function cardTitle(game: AppGame): string {
-  const useNeutralSemantics =
-    game.neutralDisplay === 'vs' || (game.stage !== 'regular' && game.neutral);
-  return useNeutralSemantics
-    ? `${game.csvAway} vs ${game.csvHome}`
-    : `${game.csvAway} @ ${game.csvHome}`;
-}
-
 function performanceClasses(tone: 'scheduled' | 'inprogress' | 'final' | 'neutral'): string {
   if (tone === 'final') {
     return 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
@@ -56,187 +49,184 @@ function performanceClasses(tone: 'scheduled' | 'inprogress' | 'final' | 'neutra
   return 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
 }
 
-function Section({
-  title,
-  subtitle,
-  emptyLabel,
-  games,
-  oddsByKey,
-  scoresByKey,
-  displayTimeZone,
-}: {
-  title: string;
-  subtitle: string;
-  emptyLabel: string;
-  games: MatchupBucket[];
-  oddsByKey: Record<string, CombinedOdds>;
-  scoresByKey: Record<string, ScorePack>;
-  displayTimeZone: string;
-}): React.ReactElement {
-  if (!games.length) {
-    return (
-      <section className="space-y-2">
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{title}</h3>
-          <p className="text-xs text-gray-600 dark:text-zinc-400">{subtitle}</p>
-        </div>
-        <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-          {emptyLabel}
-        </div>
-      </section>
-    );
+function formatGameStatus(score?: ScorePack): string {
+  const state = gameStateFromScore(score);
+  if (state === 'final') return 'Final';
+  if (state === 'inprogress') return score?.status ?? 'In Progress';
+  if (state === 'scheduled') return score?.status ?? 'Scheduled';
+  return 'No live data';
+}
+
+function formatOwnedScore(
+  slateGame: OwnerSlateGame,
+  score?: ScorePack
+): { summary: string; tone: 'scheduled' | 'inprogress' | 'final' | 'neutral' } {
+  const rawState = gameStateFromScore(score);
+  const state = rawState === 'unknown' ? 'scheduled' : rawState;
+  if (!score) {
+    return { summary: 'No score yet', tone: 'scheduled' };
   }
 
+  const ownerScore = slateGame.ownerTeamSide === 'away' ? score.away.score : score.home.score;
+  const opponentScore = slateGame.ownerTeamSide === 'away' ? score.home.score : score.away.score;
+
+  if (ownerScore == null || opponentScore == null || state === 'scheduled') {
+    return { summary: formatGameStatus(score), tone: state };
+  }
+
+  const base = `${ownerScore}-${opponentScore}`;
+  if (ownerScore === opponentScore) {
+    return { summary: state === 'final' ? `Tied ${base}` : `Tied ${base}`, tone: 'neutral' };
+  }
+
+  const verdict = ownerScore > opponentScore ? 'Leading' : 'Trailing';
+  const prefix = state === 'final' ? 'Final' : verdict;
+  return { summary: `${prefix} ${base}`, tone: state };
+}
+
+function compactOddsSummary(odds?: CombinedOdds): string | null {
+  if (!odds) return null;
+  const parts: string[] = [];
+  if (odds.favorite != null && odds.spread != null) {
+    parts.push(`${odds.favorite} ${odds.spread}`);
+  } else if (odds.favorite != null) {
+    parts.push(`Fav ${odds.favorite}`);
+  } else if (odds.spread != null) {
+    parts.push(`Spread ${odds.spread}`);
+  }
+  if (odds.total != null) {
+    parts.push(`Total ${odds.total}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
+}
+
+function GameRow({
+  slateGame,
+  scoresByKey,
+  oddsByKey,
+  displayTimeZone,
+}: {
+  slateGame: OwnerSlateGame;
+  scoresByKey: Record<string, ScorePack>;
+  oddsByKey: Record<string, CombinedOdds>;
+  displayTimeZone: string;
+}): React.ReactElement {
+  const score = scoresByKey[slateGame.game.key];
+  const odds = oddsByKey[slateGame.game.key];
+  const scoreState = formatOwnedScore(slateGame, score);
+  const statusText = formatGameStatus(score);
+  const oddsText = compactOddsSummary(odds);
+
   return (
-    <section className="space-y-2">
-      <div>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{title}</h3>
-        <p className="text-xs text-gray-600 dark:text-zinc-400">{subtitle}</p>
+    <li className="rounded border border-gray-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-900 dark:text-zinc-100">
+            <span className="font-medium">{slateGame.ownerTeamName}</span>
+            <span className="text-gray-500 dark:text-zinc-400">vs</span>
+            <span>{slateGame.opponentTeamName}</span>
+            {slateGame.isOwnerVsOwner && slateGame.opponentOwner ? (
+              <span className={pillClass()}>vs owner {slateGame.opponentOwner}</span>
+            ) : slateGame.isOpponentUnownedOrNonLeague ? (
+              <span className={pillClass()}>Unowned / Non-league</span>
+            ) : null}
+            {slateGame.game.label ? (
+              <span className={pillClass()}>{slateGame.game.label}</span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-gray-600 dark:text-zinc-400">
+            <span>{scoreState.summary}</span>
+            <span>•</span>
+            <span>{statusText}</span>
+            <span>•</span>
+            <span>Kickoff: {formatKickoff(slateGame.game.date, displayTimeZone)}</span>
+            {oddsText ? (
+              <>
+                <span>•</span>
+                <span>{oddsText}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(scoreState.tone)}`}
+        >
+          {scoreState.tone === 'final'
+            ? 'Final'
+            : scoreState.tone === 'inprogress'
+              ? 'Live'
+              : scoreState.tone === 'neutral'
+                ? 'Tied'
+                : 'Scheduled'}
+        </span>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {games.map((bucket) => {
-          const { game } = bucket;
-          const score = scoresByKey[game.key];
-          const odds = oddsByKey[game.key];
-          const state = gameStateFromScore(score);
-          const hasAnyInfo = Boolean(score || odds);
-          const card = buildMatchupCardViewModel(bucket, scoresByKey, oddsByKey);
-
-          return (
-            <article key={game.key} className={`${statusClasses(state, hasAnyInfo)} space-y-4 p-4`}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-2">
-                  <div>
-                    <div className="text-lg font-semibold text-gray-900 dark:text-zinc-100">
-                      {card.title}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                      <span
-                        className={`rounded-full px-2.5 py-1 font-semibold ${performanceClasses(card.performance.tone)}`}
-                      >
-                        {card.performance.summary}
-                      </span>
-                      <span className={pillClass()}>
-                        Kickoff: {formatKickoff(game.date, displayTimeZone)}
-                      </span>
-                      {game.label ? <span className={pillClass()}>{game.label}</span> : null}
-                      {game.neutralDisplay === 'vs' ||
-                      (game.stage !== 'regular' && game.neutral) ? (
-                        <span className={pillClass()}>Neutral Site</span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="text-sm text-gray-700 dark:text-zinc-300">
-                    {card.performance.detail}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  <span className={chipClass()}>
-                    {state === 'final'
-                      ? 'Final'
-                      : state === 'inprogress'
-                        ? 'In Progress'
-                        : state === 'scheduled'
-                          ? 'Scheduled'
-                          : 'No live data'}
-                  </span>
-                  {odds ? <span className={chipClass()}>Odds</span> : null}
-                </div>
-              </div>
-
-              <div className="grid gap-3 lg:grid-cols-[1.1fr_1fr]">
-                <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                    Teams in this matchup
-                  </div>
-                  <div className="mt-3 space-y-3 text-sm">
-                    <div className="rounded border border-gray-200 px-3 py-2 dark:border-zinc-700">
-                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                        Away side
-                      </div>
-                      <div className="font-medium text-gray-900 dark:text-zinc-100">
-                        {bucket.awayOwner ?? 'Unowned / Non-league'}
-                      </div>
-                      <div className="text-gray-700 dark:text-zinc-300">
-                        {card.supporting.awayTeam}
-                      </div>
-                    </div>
-                    <div className="rounded border border-gray-200 px-3 py-2 dark:border-zinc-700">
-                      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                        Home side
-                      </div>
-                      <div className="font-medium text-gray-900 dark:text-zinc-100">
-                        {bucket.homeOwner ?? 'Unowned / Non-league'}
-                      </div>
-                      <div className="text-gray-700 dark:text-zinc-300">
-                        {card.supporting.homeTeam}
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-600 dark:text-zinc-400">
-                      Game: {cardTitle(game)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-3">
-                  <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                      Underlying game score
-                    </div>
-                    <div className="mt-2 text-sm text-gray-900 dark:text-zinc-100">
-                      {card.supporting.scoreSummary}
-                    </div>
-                  </div>
-
-                  <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                      Odds context
-                    </div>
-                    <div className="mt-2 text-sm text-gray-900 dark:text-zinc-100">
-                      {card.supporting.oddsSummary}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    </section>
+    </li>
   );
 }
 
-function OtherGamesFallback({
-  games,
+function EmptyState(): React.ReactElement {
+  return (
+    <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+      No owner-relevant games for this week.
+    </div>
+  );
+}
+
+function OwnerCard({
+  slate,
+  scoresByKey,
+  oddsByKey,
   displayTimeZone,
 }: {
-  games: MatchupBucket[];
+  slate: OwnerWeekSlate;
+  scoresByKey: Record<string, ScorePack>;
+  oddsByKey: Record<string, CombinedOdds>;
   displayTimeZone: string;
-}): React.ReactElement | null {
-  if (!games.length) return null;
+}): React.ReactElement {
+  const detailBits = [
+    `${slate.totalGames} game${slate.totalGames === 1 ? '' : 's'}`,
+    slate.opponentOwners.length > 0
+      ? `Faces ${slate.opponentOwners.join(', ')}`
+      : 'No owner-vs-owner opponent this week',
+  ];
+
+  if (slate.liveGames > 0) detailBits.push(`${slate.liveGames} live`);
+  if (slate.finalGames > 0) detailBits.push(`${slate.finalGames} final`);
+  if (slate.scheduledGames > 0) detailBits.push(`${slate.scheduledGames} scheduled`);
 
   return (
-    <section className="space-y-2">
-      <div>
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Other Week Games</h3>
-        <p className="text-xs text-gray-600 dark:text-zinc-400">
-          These games matched the current filters but are intentionally excluded from owner-focused
-          matchup cards.
-        </p>
-      </div>
-      <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-        <div className="mb-2">
-          {games.length} game{games.length === 1 ? '' : 's'} omitted from owner matchup cards.
+    <article
+      className={`${statusClasses(slate.performance.tone === 'neutral' ? 'unknown' : slate.performance.tone, true)} space-y-3 p-4`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-100">
+              {slate.owner}
+            </h3>
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${performanceClasses(slate.performance.tone)}`}
+            >
+              {slate.performance.summary}
+            </span>
+          </div>
+          <p className="text-sm text-gray-700 dark:text-zinc-300">{detailBits.join(' · ')}</p>
         </div>
-        <ul className="space-y-1 text-xs text-gray-600 dark:text-zinc-400">
-          {games.map(({ game }) => (
-            <li key={game.key}>
-              {cardTitle(game)} · Kickoff: {formatKickoff(game.date, displayTimeZone)}
-            </li>
-          ))}
-        </ul>
+        <div className="text-xs text-gray-500 dark:text-zinc-400">{slate.performance.detail}</div>
       </div>
-    </section>
+
+      <ul className="space-y-2">
+        {slate.games.map((slateGame) => (
+          <GameRow
+            key={`${slate.owner}:${slateGame.game.key}:${slateGame.ownerTeamSide}`}
+            slateGame={slateGame}
+            scoresByKey={scoresByKey}
+            oddsByKey={oddsByKey}
+            displayTimeZone={displayTimeZone}
+          />
+        ))}
+      </ul>
+    </article>
   );
 }
 
@@ -249,30 +239,54 @@ export default function MatchupsWeekPanel({
   sections,
 }: MatchupsWeekPanelProps): React.ReactElement {
   const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
+  const ownerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
 
   return (
-    <div className="space-y-6">
-      <Section
-        title="Owner vs Owner"
-        subtitle="Owner-first weekly cards showing who is leading, tied, awaiting kickoff, or final."
-        emptyLabel="No owner-vs-owner matchups for this week."
-        games={derivedSections.ownerMatchups}
-        oddsByKey={oddsByKey}
-        scoresByKey={scoresByKey}
-        displayTimeZone={displayTimeZone}
-      />
+    <div className="space-y-4">
+      <section className="space-y-2">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+            Owner Weekly Slates
+          </h2>
+          <p className="text-xs text-gray-600 dark:text-zinc-400">
+            One compact card per owner, with weekly summary first and supporting game rows
+            underneath.
+          </p>
+        </div>
 
-      <Section
-        title="Secondary League Context"
-        subtitle="Owned teams without a true owner-vs-owner matchup stay separate from the primary matchup cards."
-        emptyLabel="No additional owned-team secondary context for this week."
-        games={derivedSections.secondaryGames}
-        oddsByKey={oddsByKey}
-        scoresByKey={scoresByKey}
-        displayTimeZone={displayTimeZone}
-      />
+        {ownerSlates.length ? (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {ownerSlates.map((slate) => (
+              <OwnerCard
+                key={slate.owner}
+                slate={slate}
+                scoresByKey={scoresByKey}
+                oddsByKey={oddsByKey}
+                displayTimeZone={displayTimeZone}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState />
+        )}
+      </section>
 
-      <OtherGamesFallback games={derivedSections.otherGames} displayTimeZone={displayTimeZone} />
+      {derivedSections.otherGames.length ? (
+        <section className="space-y-2">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+              Excluded games
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-zinc-400">
+              Unowned vs unowned games remain outside the owner-centric Matchups tab.
+            </p>
+          </div>
+          <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-xs text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+            {derivedSections.otherGames.length} excluded game
+            {derivedSections.otherGames.length === 1 ? '' : 's'}.
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

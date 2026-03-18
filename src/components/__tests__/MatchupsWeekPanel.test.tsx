@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { AppGame } from '../../lib/schedule';
+import { deriveOwnerWeekSlates } from '../../lib/matchups';
 import MatchupsWeekPanel from '../MatchupsWeekPanel';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -55,10 +56,13 @@ function game(overrides: Partial<AppGame>): AppGame {
   };
 }
 
-test('matchups panel prioritizes owner-vs-owner leading state', () => {
+test('matchups panel renders owner-centric cards and duplicates owner-vs-owner game into both slates', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
-      games={[game({ key: 'g1', csvAway: 'Alabama', csvHome: 'Georgia' })]}
+      games={[
+        game({ key: 'g1', csvAway: 'Alabama', csvHome: 'Georgia' }),
+        game({ key: 'g2', csvAway: 'Alabama', csvHome: 'Akron', homeConf: 'MAC' }),
+      ]}
       oddsByKey={{
         g1: { favorite: 'Georgia', spread: -3.5, total: 51.5, mlHome: -150, mlAway: 130 },
       }}
@@ -80,13 +84,14 @@ test('matchups panel prioritizes owner-vs-owner leading state', () => {
     />
   );
 
-  assert.match(html, /Owner vs Owner/);
-  assert.match(html, /Alice vs Bob/);
-  assert.match(html, /Alice leading/);
-  assert.match(html, /Alice 24 - 17 Bob/);
-  assert.match(html, /Teams in this matchup/);
-  assert.match(html, /Underlying game score/);
-  assert.match(html, /Odds context/);
+  assert.match(html, /Owner Weekly Slates/);
+  assert.match(html, /Alice/);
+  assert.match(html, /Bob/);
+  assert.match(html, /2 games/);
+  assert.match(html, /Faces Bob/);
+  assert.match(html, /vs owner Bob/);
+  assert.match(html, /Unowned \/ Non-league/);
+  assert.match(html, /Leading 24-17/);
 });
 
 test('matchups panel keeps scheduled fallback zero-zero scores out of tie messaging', () => {
@@ -112,29 +117,11 @@ test('matchups panel keeps scheduled fallback zero-zero scores out of tie messag
     />
   );
 
-  assert.match(html, /Dana vs Evan/);
-  assert.match(html, /Awaiting kickoff/);
-  assert.doesNotMatch(html, /Tied/);
-  assert.doesNotMatch(html, /0 - 0/);
+  assert.match(html, /1 game scheduled/);
+  assert.doesNotMatch(html, /Tied 0-0/);
 });
 
-test('matchups panel keeps owned-vs-unowned games in secondary context', () => {
-  const html = renderToStaticMarkup(
-    <MatchupsWeekPanel
-      games={[game({ key: 'g2', csvAway: 'Michigan', csvHome: 'Akron', homeConf: 'MAC' })]}
-      oddsByKey={{}}
-      scoresByKey={{}}
-      rosterByTeam={new Map([['Michigan', 'Casey']])}
-      displayTimeZone="America/New_York"
-    />
-  );
-
-  assert.match(html, /Secondary League Context/);
-  assert.match(html, /Casey vs Unowned \/ Non-league/);
-  assert.doesNotMatch(html, /Owner Matchup:/);
-});
-
-test('matchups panel excludes unowned-vs-unowned from matchup cards and summarizes them separately', () => {
+test('matchups panel omits unowned-vs-unowned from owner cards and summarizes exclusion', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
       games={[game({ key: 'g3', csvAway: 'UCLA', csvHome: 'USC' })]}
@@ -145,7 +132,81 @@ test('matchups panel excludes unowned-vs-unowned from matchup cards and summariz
     />
   );
 
-  assert.match(html, /No owner-vs-owner matchups for this week/);
-  assert.match(html, /Other Week Games/);
-  assert.match(html, /1 game omitted from owner matchup cards/);
+  assert.match(html, /No owner-relevant games for this week/);
+  assert.match(html, /Excluded games/);
+  assert.match(html, /1 excluded game/);
+});
+
+test('matchups panel does not duplicate same-owner games when one owner has both teams', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-self', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-self': {
+          status: 'final',
+          time: 'Final',
+          home: { team: 'Oklahoma', score: 21 },
+          away: { team: 'Texas', score: 28 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Texas', 'Alex'],
+          ['Oklahoma', 'Alex'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Alex/);
+  assert.match(html, /1 game/);
+  assert.equal((html.match(/Texas/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /2 games/);
+});
+
+test('owner slate stays mixed when one game is final and another is still scheduled', () => {
+  const games = [
+    game({ key: 'g-final', csvAway: 'Clemson', csvHome: 'Miami' }),
+    game({ key: 'g-later', csvAway: 'Oregon', csvHome: 'USC' }),
+  ];
+  const rosterByTeam = new Map([
+    ['Clemson', 'Casey'],
+    ['Oregon', 'Casey'],
+    ['Miami', 'Dana'],
+    ['USC', 'Evan'],
+  ]);
+  const scoresByKey = {
+    'g-final': {
+      status: 'final',
+      time: 'Final',
+      home: { team: 'Miami', score: 14 },
+      away: { team: 'Clemson', score: 24 },
+    },
+  };
+
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const casey = slates.find((slate) => slate.owner === 'Casey');
+  assert.ok(casey);
+  assert.equal(casey.totalGames, 2);
+  assert.equal(casey.finalGames, 1);
+  assert.equal(casey.scheduledGames, 1);
+  assert.equal(casey.performance.tone, 'neutral');
+  assert.equal(casey.performance.summary, '2 games this week');
+
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={games}
+      oddsByKey={{}}
+      scoresByKey={scoresByKey}
+      rosterByTeam={rosterByTeam}
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Casey/);
+  assert.match(html, /2 games/);
+  assert.match(html, /1 final/);
+  assert.match(html, /1 scheduled/);
 });
