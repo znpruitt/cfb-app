@@ -9,6 +9,8 @@ function game(overrides: Partial<AppGame>): AppGame {
     key: overrides.key ?? 'g',
     eventId: overrides.eventId ?? 'e',
     week: overrides.week ?? 0,
+    providerWeek: overrides.providerWeek ?? overrides.week ?? 0,
+    canonicalWeek: overrides.canonicalWeek ?? overrides.week ?? 0,
     date: overrides.date ?? null,
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',

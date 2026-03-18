@@ -12,6 +12,8 @@ export type SeasonPhase = 'regular' | 'postseason';
 export type ScheduleGameForIndex = {
   key: string;
   week: number;
+  providerWeek?: number;
+  canonicalWeek?: number;
   date: string | null;
   stage: 'regular' | 'conference_championship' | 'bowl' | 'playoff';
   providerGameId: string | null;
@@ -24,6 +26,8 @@ export type ScheduleIndexEntry = {
   gameKey: string;
   game: ScheduleGameForIndex;
   week: number;
+  providerWeek: number;
+  canonicalWeek: number;
   seasonType: SeasonPhase;
   date: string | null;
   providerGameId: string | null;
@@ -173,11 +177,15 @@ export function buildScheduleIndex(
       resolver.resolveName(game.canAway).identityKey ?? normalizeProviderTeamName(game.canAway);
     const seasonType = toSeasonType(game);
     const pairKey = resolver.buildPairKey(game.canHome, game.canAway);
+    const canonicalWeek = game.canonicalWeek ?? game.week;
+    const providerWeek = game.providerWeek ?? game.week;
 
     const entry: ScheduleIndexEntry = {
       gameKey: game.key,
       game,
-      week: game.week,
+      week: canonicalWeek,
+      providerWeek,
+      canonicalWeek,
       seasonType,
       date: game.date,
       providerGameId: game.providerGameId,
@@ -192,12 +200,24 @@ export function buildScheduleIndex(
       pushIndex(index.byProviderGameId, game.providerGameId, entry);
     }
 
-    pushIndex(
-      index.byHomeAwayWeek,
-      buildHomeAwayWeekKey({ homeIdentityKey, awayIdentityKey, week: game.week, seasonType }),
-      entry
-    );
-    pushIndex(index.byPairWeek, buildPairWeekKey({ pairKey, week: game.week, seasonType }), entry);
+    const indexedWeeks = new Set([canonicalWeek, providerWeek]);
+    for (const indexedWeek of indexedWeeks) {
+      pushIndex(
+        index.byHomeAwayWeek,
+        buildHomeAwayWeekKey({
+          homeIdentityKey,
+          awayIdentityKey,
+          week: indexedWeek,
+          seasonType,
+        }),
+        entry
+      );
+      pushIndex(
+        index.byPairWeek,
+        buildPairWeekKey({ pairKey, week: indexedWeek, seasonType }),
+        entry
+      );
+    }
 
     if (game.date) {
       pushIndex(

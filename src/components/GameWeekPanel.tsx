@@ -2,6 +2,7 @@ import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
 import { chipClass, gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
+import { groupGamesByDisplayDate } from '../lib/weekPresentation';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
 
@@ -45,6 +46,8 @@ export default function GameWeekPanel({
   onSavePostseasonOverride,
   hideByes = false,
 }: GameWeekPanelProps): React.ReactElement {
+  const groupedGames = groupGamesByDisplayDate(games);
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -62,159 +65,176 @@ export default function GameWeekPanel({
         </span>
       </div>
 
-      <div className="grid gap-2">
-        {games.map((g) => {
-          const score = scoresByKey[g.key];
-          const odds = oddsByKey[g.key];
-          const state = gameStateFromScore(score);
-          const hasAnyInfo = Boolean(score || odds);
-          const frameClasses = statusClasses(state, hasAnyInfo);
-          const isPlaceholder =
-            g.status === 'placeholder' ||
-            g.isPlaceholder ||
-            g.participants?.home?.kind !== 'team' ||
-            g.participants?.away?.kind !== 'team';
+      <div className="grid gap-4">
+        {groupedGames.map((group) => (
+          <section key={group.dateKey} className="space-y-2">
+            <div
+              className="text-sm font-semibold text-gray-700 dark:text-zinc-300"
+              data-date-header={group.dateKey}
+            >
+              {group.label}
+            </div>
 
-          const chips: string[] = [];
-          if (isPlaceholder) chips.push('Placeholder');
-          if (!score && !odds) chips.push('No scores/odds');
-          if (score) {
-            chips.push(
-              state === 'final'
-                ? 'Final'
-                : state === 'inprogress'
-                  ? 'In Progress'
-                  : state === 'scheduled'
-                    ? 'Scheduled'
-                    : '—'
-            );
-          }
-          if (!odds && !isPlaceholder) chips.push('No odds');
+            <div className="grid gap-2">
+              {group.games.map((g) => {
+                const score = scoresByKey[g.key];
+                const odds = oddsByKey[g.key];
+                const state = gameStateFromScore(score);
+                const hasAnyInfo = Boolean(score || odds);
+                const frameClasses = statusClasses(state, hasAnyInfo);
+                const isPlaceholder =
+                  g.status === 'placeholder' ||
+                  g.isPlaceholder ||
+                  g.participants?.home?.kind !== 'team' ||
+                  g.participants?.away?.kind !== 'team';
 
-          const useNeutralSemantics =
-            g.neutralDisplay === 'vs' || (g.stage !== 'regular' && g.neutral);
-          const matchupLine = useNeutralSemantics
-            ? `${g.csvAway} vs ${g.csvHome}`
-            : g.neutral
-              ? `${g.csvAway} vs ${g.csvHome}`
-              : `${g.csvAway} @ ${g.csvHome}`;
-          const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
-          const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
-          const homeIsLeagueTeam =
-            g.participants.home.kind === 'team' && !isFcsConference(g.homeConf);
-          const awayIsLeagueTeam =
-            g.participants.away.kind === 'team' && !isFcsConference(g.awayConf);
-          const homeOwner = homeIsLeagueTeam ? rosterByTeam.get(g.csvHome) : undefined;
-          const awayOwner = awayIsLeagueTeam ? rosterByTeam.get(g.csvAway) : undefined;
-          const showOwnerMatchup =
-            homeIsLeagueTeam && awayIsLeagueTeam && Boolean(homeOwner) && Boolean(awayOwner);
+                const chips: string[] = [];
+                if (isPlaceholder) chips.push('Placeholder');
+                if (!score && !odds) chips.push('No scores/odds');
+                if (score) {
+                  chips.push(
+                    state === 'final'
+                      ? 'Final'
+                      : state === 'inprogress'
+                        ? 'In Progress'
+                        : state === 'scheduled'
+                          ? 'Scheduled'
+                          : '—'
+                  );
+                }
+                if (!odds && !isPlaceholder) chips.push('No odds');
 
-          return (
-            <details key={g.key} className={frameClasses}>
-              <summary className="cursor-pointer px-3 py-2 flex items-center justify-between">
-                <div className="flex flex-col gap-1">
-                  {showOwnerMatchup && (
-                    <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                      Owner Matchup: {awayOwner} vs {homeOwner}
-                    </div>
-                  )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {g.label && (
-                      <span className="font-semibold text-sm text-violet-700 dark:text-violet-300">
-                        {g.label}
-                      </span>
-                    )}
-                    {useNeutralSemantics && <span className={pillClass()}>Neutral Site</span>}
-                    <span
-                      className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
-                    >
-                      {matchupLine}
-                    </span>
-                    <span className={pillClass()}>Kickoff: {formatKickoff(g.date)}</span>
-                    {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
-                    {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
-                    {homeOwner && <span className={pillClass()}>Home owner: {homeOwner}</span>}
-                    {awayOwner && <span className={pillClass()}>Away owner: {awayOwner}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {chips.map((c) => (
-                    <span key={c} className={chipClass()}>
-                      {c}
-                    </span>
-                  ))}
-                </div>
-              </summary>
+                const useNeutralSemantics =
+                  g.neutralDisplay === 'vs' || (g.stage !== 'regular' && g.neutral);
+                const matchupLine = useNeutralSemantics
+                  ? `${g.csvAway} vs ${g.csvHome}`
+                  : g.neutral
+                    ? `${g.csvAway} vs ${g.csvHome}`
+                    : `${g.csvAway} @ ${g.csvHome}`;
+                const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
+                const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
+                const homeIsLeagueTeam =
+                  g.participants.home.kind === 'team' && !isFcsConference(g.homeConf);
+                const awayIsLeagueTeam =
+                  g.participants.away.kind === 'team' && !isFcsConference(g.awayConf);
+                const homeOwner = homeIsLeagueTeam ? rosterByTeam.get(g.csvHome) : undefined;
+                const awayOwner = awayIsLeagueTeam ? rosterByTeam.get(g.csvAway) : undefined;
+                const showOwnerMatchup =
+                  homeIsLeagueTeam && awayIsLeagueTeam && Boolean(homeOwner) && Boolean(awayOwner);
 
-              <div className="grid md:grid-cols-3 gap-3 p-3">
-                <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                  <div className="font-medium mb-2">Matchup</div>
-                  <div>
-                    <strong>{matchupHostLabel}</strong>: {g.csvHome}
-                  </div>
-                  <div>
-                    <strong>{matchupRoleLabel}</strong>: {g.csvAway}
-                  </div>
-                  <div>
-                    <strong>Week</strong>: {g.week}
-                  </div>
-                  {g.venue && (
-                    <div>
-                      <strong>Venue</strong>: {g.venue}
-                    </div>
-                  )}
-                  {isPlaceholder && onSavePostseasonOverride && (
-                    <button
-                      className="mt-2 px-2 py-1 rounded border text-xs"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        const nextLabel =
-                          window.prompt('Override event label', g.label ?? '') ?? '';
-                        if (!nextLabel.trim()) return;
-                        onSavePostseasonOverride(g.eventId, { label: nextLabel.trim() });
-                      }}
-                    >
-                      Save label override
-                    </button>
-                  )}
-                  {isDebug && (
-                    <div className="text-xs text-gray-600 dark:text-zinc-400 mt-2">
-                      Canonical: {g.canAway} @ {g.canHome}
-                    </div>
-                  )}
-                </div>
+                return (
+                  <details key={g.key} className={frameClasses}>
+                    <summary className="cursor-pointer px-3 py-2 flex items-center justify-between">
+                      <div className="flex flex-col gap-1">
+                        {showOwnerMatchup && (
+                          <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                            Owner Matchup: {awayOwner} vs {homeOwner}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {g.label && (
+                            <span className="font-semibold text-sm text-violet-700 dark:text-violet-300">
+                              {g.label}
+                            </span>
+                          )}
+                          {useNeutralSemantics && <span className={pillClass()}>Neutral Site</span>}
+                          <span
+                            className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
+                          >
+                            {matchupLine}
+                          </span>
+                          <span className={pillClass()}>Kickoff: {formatKickoff(g.date)}</span>
+                          {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
+                          {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
+                          {homeOwner && (
+                            <span className={pillClass()}>Home owner: {homeOwner}</span>
+                          )}
+                          {awayOwner && (
+                            <span className={pillClass()}>Away owner: {awayOwner}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {chips.map((c) => (
+                          <span key={c} className={chipClass()}>
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                    </summary>
 
-                <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                  <div className="font-medium mb-1">Vegas Odds</div>
-                  {odds ? (
-                    <div className="text-sm">
-                      Favorite: {odds.favorite ?? '—'} / Spread: {odds.spread ?? '—'} / Total:{' '}
-                      {odds.total ?? '—'}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-gray-600 dark:text-zinc-400">
-                      {isPlaceholder ? 'Pending matchup' : 'No odds'}
-                    </div>
-                  )}
-                </div>
+                    <div className="grid md:grid-cols-3 gap-3 p-3">
+                      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                        <div className="font-medium mb-2">Matchup</div>
+                        <div>
+                          <strong>{matchupHostLabel}</strong>: {g.csvHome}
+                        </div>
+                        <div>
+                          <strong>{matchupRoleLabel}</strong>: {g.csvAway}
+                        </div>
+                        <div>
+                          <strong>Week</strong>: {g.week}
+                        </div>
+                        {g.venue && (
+                          <div>
+                            <strong>Venue</strong>: {g.venue}
+                          </div>
+                        )}
+                        {isPlaceholder && onSavePostseasonOverride && (
+                          <button
+                            className="mt-2 px-2 py-1 rounded border text-xs"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              const nextLabel =
+                                window.prompt('Override event label', g.label ?? '') ?? '';
+                              if (!nextLabel.trim()) return;
+                              onSavePostseasonOverride(g.eventId, { label: nextLabel.trim() });
+                            }}
+                          >
+                            Save label override
+                          </button>
+                        )}
+                        {isDebug && (
+                          <div className="text-xs text-gray-600 dark:text-zinc-400 mt-2">
+                            Canonical: {g.canAway} @ {g.canHome}
+                          </div>
+                        )}
+                      </div>
 
-                <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                  <div className="font-medium mb-1">Score</div>
-                  {score ? (
-                    <div className="text-sm">
-                      {score.away.team} {score.away.score ?? '—'} at {score.home.team}{' '}
-                      {score.home.score ?? '—'} ({score.status})
+                      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                        <div className="font-medium mb-1">Vegas Odds</div>
+                        {odds ? (
+                          <div className="text-sm">
+                            Favorite: {odds.favorite ?? '—'} / Spread: {odds.spread ?? '—'} / Total:{' '}
+                            {odds.total ?? '—'}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-600 dark:text-zinc-400">
+                            {isPlaceholder ? 'Pending matchup' : 'No odds'}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                        <div className="font-medium mb-1">Score</div>
+                        {score ? (
+                          <div className="text-sm">
+                            {score.away.team} {score.away.score ?? '—'} at {score.home.team}{' '}
+                            {score.home.score ?? '—'} ({score.status})
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-600 dark:text-zinc-400">
+                            {isPlaceholder ? 'Pending matchup' : 'No score'}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <div className="text-sm text-gray-600 dark:text-zinc-400">
-                      {isPlaceholder ? 'Pending matchup' : 'No score'}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </details>
-          );
-        })}
+                  </details>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
 
       {!hideByes && (

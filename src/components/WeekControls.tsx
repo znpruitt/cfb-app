@@ -2,6 +2,7 @@ import React from 'react';
 
 type WeekControlsProps = {
   weeks: number[];
+  weekDateLabels?: Map<number, string>;
   selectedTab: number | 'postseason' | null;
   hasPostseason: boolean;
   selectedConference: string;
@@ -16,6 +17,7 @@ type WeekControlsProps = {
 export default function WeekControls({
   weeks,
   selectedTab,
+  weekDateLabels,
   hasPostseason,
   selectedConference,
   conferences,
@@ -50,19 +52,28 @@ export default function WeekControls({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {weeks.map((w) => (
-          <button
-            key={w}
-            className={`px-3 py-1 rounded border ${
-              selectedTab === w
-                ? 'border-gray-900 bg-gray-900 text-white dark:border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900'
-                : 'border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
-            }`}
-            onClick={() => onSelectWeek(w)}
-          >
-            Week {w}
-          </button>
-        ))}
+        {weeks.map((w) => {
+          const dateLabel = weekDateLabels?.get(w) ?? '';
+
+          return (
+            <button
+              key={w}
+              className={`flex min-w-20 flex-col rounded border px-3 py-1 text-left ${
+                selectedTab === w
+                  ? 'border-gray-900 bg-gray-900 text-white dark:border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900'
+                  : 'border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
+              }`}
+              onClick={() => onSelectWeek(w)}
+            >
+              <span className="font-medium">Week {w}</span>
+              {dateLabel && (
+                <span className="text-xs opacity-80" data-week-date-label={w}>
+                  {dateLabel}
+                </span>
+              )}
+            </button>
+          );
+        })}
 
         {hasPostseason && (
           <button

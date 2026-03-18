@@ -38,6 +38,7 @@ import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
 import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
+import { deriveWeekDateMetadataByWeek } from '../lib/weekPresentation';
 import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../lib/activeView';
 import {
   dedupeIssues,
@@ -321,6 +322,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   }, [selectedTab, selectedWeek]);
 
   const weeks = useMemo(() => deriveRegularWeekTabs(games), [games]);
+  const weekDateMetadataByWeek = useMemo(() => deriveWeekDateMetadataByWeek(games), [games]);
 
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();
@@ -331,32 +333,22 @@ export default function CFBScheduleApp(): React.ReactElement {
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
     const tf = teamFilter.toLowerCase();
-    const next = filterGamesForWeek(games, selectedWeek)
-      .filter((g) => {
-        const confOk =
-          selectedConference === 'ALL' ||
-          g.homeConf === selectedConference ||
-          g.awayConf === selectedConference;
-        const teamOk =
-          !tf || g.csvHome.toLowerCase().includes(tf) || g.csvAway.toLowerCase().includes(tf);
-        return confOk && teamOk;
-      })
-      .sort((a, b) => {
-        const aMarquee = Number(
-          Boolean(rosterByTeam.get(a.csvHome) || rosterByTeam.get(a.csvAway))
-        );
-        const bMarquee = Number(
-          Boolean(rosterByTeam.get(b.csvHome) || rosterByTeam.get(b.csvAway))
-        );
-        return bMarquee - aMarquee || a.csvHome.localeCompare(b.csvHome);
-      });
+    const next = filterGamesForWeek(games, selectedWeek).filter((g) => {
+      const confOk =
+        selectedConference === 'ALL' ||
+        g.homeConf === selectedConference ||
+        g.awayConf === selectedConference;
+      const teamOk =
+        !tf || g.csvHome.toLowerCase().includes(tf) || g.csvAway.toLowerCase().includes(tf);
+      return confOk && teamOk;
+    });
 
     if (IS_DEBUG) {
       summarizeGames(`displayGames: week ${selectedWeek}`, next);
     }
 
     return next;
-  }, [games, rosterByTeam, selectedConference, selectedWeek, teamFilter]);
+  }, [games, selectedConference, selectedWeek, teamFilter]);
 
   const postseasonGames = useMemo(() => {
     const tf = teamFilter.toLowerCase();
@@ -816,6 +808,9 @@ export default function CFBScheduleApp(): React.ReactElement {
           <WeekControls
             weeks={weeks}
             selectedTab={selectedTab}
+            weekDateLabels={
+              new Map(weeks.map((week) => [week, weekDateMetadataByWeek.get(week)?.label ?? '']))
+            }
             hasPostseason={hasPostseasonGames}
             selectedConference={selectedConference}
             conferences={conferences}
@@ -832,8 +827,12 @@ export default function CFBScheduleApp(): React.ReactElement {
           {selectedTab !== 'postseason' && selectedWeek != null && (
             <section className="space-y-3">
               <div className="rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                <span className="font-semibold">Week {selectedWeek}</span> ·{' '}
-                {filteredWeekGames.length} matchup{filteredWeekGames.length === 1 ? '' : 's'} shown
+                <span className="font-semibold">Week {selectedWeek}</span>
+                {weekDateMetadataByWeek.get(selectedWeek)?.label ? (
+                  <> · {weekDateMetadataByWeek.get(selectedWeek)?.label}</>
+                ) : null}{' '}
+                · {filteredWeekGames.length} matchup{filteredWeekGames.length === 1 ? '' : 's'}{' '}
+                shown
               </div>
               <GameWeekPanel
                 games={filteredWeekGames}
