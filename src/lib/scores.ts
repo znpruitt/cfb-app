@@ -29,6 +29,8 @@ export type ScoresDiagEntry = Extract<
 type GameLike = {
   key: string;
   week: number;
+  providerWeek?: number;
+  canonicalWeek?: number;
   date?: string | null;
   stage?: 'regular' | 'conference_championship' | 'bowl' | 'playoff';
   providerGameId?: string | null;
@@ -213,7 +215,9 @@ function filterRowsToScheduleScope(
   rows: NormalizedScoreRow[],
   games: GameLike[]
 ): NormalizedScoreRow[] {
-  const allowedWeeks = new Set(games.map((game) => game.week));
+  const allowedWeeks = new Set(
+    games.flatMap((game) => [game.week, game.providerWeek ?? game.week])
+  );
   const allowedSeasonTypes = new Set(games.map((game) => seasonTypeFromStage(game.stage)));
 
   return rows.filter((row) => {
@@ -274,9 +278,9 @@ export async function fetchScoresByGame(params: {
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
   const fallbackGames = fallbackScopeGames ?? games;
-  const loadedWeeks = Array.from(new Set<number>(fallbackGames.map((g) => g.week))).sort(
-    (a, b) => a - b
-  );
+  const loadedWeeks = Array.from(
+    new Set<number>(fallbackGames.flatMap((g) => [g.week, g.providerWeek ?? g.week]))
+  ).sort((a, b) => a - b);
   const loadedSeasonTypes = Array.from(
     new Set(fallbackGames.map((g) => seasonTypeFromStage(g.stage)))
   );

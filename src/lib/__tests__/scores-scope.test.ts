@@ -18,6 +18,8 @@ function game(overrides: Partial<AppGame>): AppGame {
     key: overrides.key ?? 'g',
     eventId: overrides.eventId ?? 'e',
     week: overrides.week ?? 0,
+    providerWeek: overrides.providerWeek ?? overrides.week ?? 0,
+    canonicalWeek: overrides.canonicalWeek ?? overrides.week ?? 0,
     date: overrides.date ?? null,
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
@@ -266,6 +268,67 @@ test('empty filtered refresh scope does not widen back to all active-tab weeks o
     assert.deepEqual(result.debugSnapshot?.loadedWeeks, []);
     assert.deepEqual(requested, []);
     assert.deepEqual(result.scoresByKey, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('score refresh keeps provider week 1 rows in scope for canonical week 0 games', async () => {
+  const games = [
+    game({
+      key: 'week-0',
+      eventId: 'week-0',
+      providerGameId: 'week-0-provider',
+      week: 0,
+      canonicalWeek: 0,
+      providerWeek: 1,
+      csvHome: 'Notre Dame',
+      csvAway: 'Navy',
+      canHome: 'Notre Dame',
+      canAway: 'Navy',
+      date: '2025-08-24T12:00:00.000Z',
+    }),
+  ];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        items: [
+          {
+            id: 'week-0-provider',
+            week: 1,
+            seasonType: 'regular',
+            status: 'final',
+            startDate: '2025-08-24T12:00:00.000Z',
+            home: 'Notre Dame',
+            away: 'Navy',
+            homeScore: 17,
+            awayScore: 14,
+            time: 'Final',
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )) as typeof fetch;
+
+  try {
+    const fallbackScopeGames = deriveCanonicalActiveViewGames({
+      games,
+      selectedTab: 0,
+      selectedWeek: 0,
+    });
+    const result = await fetchScoresByGame({
+      games,
+      fallbackScopeGames,
+      aliasMap: {},
+      season: 2025,
+      teams,
+      debugTrace: true,
+    });
+
+    assert.deepEqual(result.debugSnapshot?.loadedWeeks, [0, 1]);
+    assert.equal(result.scoresByKey['week-0']?.home.score, 17);
+    assert.equal(result.scoresByKey['week-0']?.away.score, 14);
   } finally {
     globalThis.fetch = originalFetch;
   }

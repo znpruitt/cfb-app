@@ -16,6 +16,11 @@ import {
 } from './schedulePostseasonHelpers';
 import { buildByes, isTrackedGame, resolveRegularSeasonRow } from './scheduleTracking';
 import { isFbsTeam } from './scheduleEligibility';
+import {
+  buildRegularSeasonWeekCalendar,
+  deriveCanonicalRegularSeasonWeek,
+  type WeekCorrectionReason,
+} from './regularSeasonWeekCalendar';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 
@@ -61,6 +66,9 @@ export type ScheduleFieldSources = {
 export type ScheduleWireItem = {
   id: string;
   week: number;
+  providerWeek?: number;
+  canonicalWeek?: number;
+  weekCorrectionReason?: WeekCorrectionReason | null;
   startDate: string | null;
   neutralSite: boolean;
   conferenceGame: boolean;
@@ -99,6 +107,9 @@ export type AppGame = {
   key: string;
   eventId: string;
   week: number;
+  providerWeek: number;
+  canonicalWeek: number;
+  weekCorrectionReason?: WeekCorrectionReason | null;
   date: string | null;
   stage: GameStage;
   status: GameStatus;
@@ -262,8 +273,18 @@ export function buildScheduleFromApi(params: {
 
   const apiRegularGames: AppGame[] = [];
   const apiPostseasonGames: AppGame[] = [];
+  const regularSeasonWeekCalendar = buildRegularSeasonWeekCalendar(scheduleItems);
 
-  for (const item of scheduleItems) {
+  for (const rawItem of scheduleItems) {
+    const regularSeasonWeek = deriveCanonicalRegularSeasonWeek(rawItem, regularSeasonWeekCalendar);
+    const item: ScheduleWireItem = {
+      ...rawItem,
+      providerWeek: regularSeasonWeek.providerWeek,
+      canonicalWeek: regularSeasonWeek.canonicalWeek,
+      weekCorrectionReason: regularSeasonWeek.weekCorrectionReason,
+    };
+    const canonicalWeek = item.canonicalWeek ?? item.week;
+    const providerWeek = item.providerWeek ?? item.week;
     const hasConferenceChampionshipMetadata =
       item.seasonType !== 'postseason' &&
       (item.gamePhase === 'conference_championship' ||
@@ -288,7 +309,10 @@ export function buildScheduleFromApi(params: {
       apiRegularGames.push({
         key: eventId,
         eventId,
-        week: item.week,
+        week: canonicalWeek,
+        providerWeek,
+        canonicalWeek,
+        weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage: 'conference_championship',
         status: mapStatus(item.status, !hasKnownTeams),
@@ -346,7 +370,10 @@ export function buildScheduleFromApi(params: {
       apiPostseasonGames.push({
         key: eventId,
         eventId,
-        week: item.week,
+        week: canonicalWeek,
+        providerWeek,
+        canonicalWeek,
+        weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage,
         status: hasKnownTeams ? 'matchup_set' : 'placeholder',
@@ -436,7 +463,10 @@ export function buildScheduleFromApi(params: {
       apiPostseasonGames.push({
         key: id,
         eventId: id,
-        week: item.week,
+        week: canonicalWeek,
+        providerWeek,
+        canonicalWeek,
+        weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage: classified.stage,
         status: hasKnownTeams ? 'matchup_set' : 'placeholder',
@@ -495,7 +525,7 @@ export function buildScheduleFromApi(params: {
     const canHome = homeResolved.canonicalName ?? item.homeTeam;
     const canAway = awayResolved.canonicalName ?? item.awayTeam;
     const key = resolver.buildGameKey({
-      week: item.week,
+      week: canonicalWeek,
       home: canHome,
       away: canAway,
       neutral: item.neutralSite,
@@ -507,7 +537,10 @@ export function buildScheduleFromApi(params: {
     apiRegularGames.push({
       key,
       eventId: key,
-      week: item.week,
+      week: canonicalWeek,
+      providerWeek,
+      canonicalWeek,
+      weekCorrectionReason: item.weekCorrectionReason ?? null,
       date: item.startDate,
       stage: 'regular',
       status: mapStatus(item.status, false),

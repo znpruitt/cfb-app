@@ -10,6 +10,8 @@ function makeGame(overrides: Partial<AppGame> = {}): AppGame {
     key: overrides.key ?? 'g-1',
     eventId: overrides.eventId ?? 'e-1',
     week: overrides.week ?? 10,
+    providerWeek: overrides.providerWeek ?? overrides.week ?? 10,
+    canonicalWeek: overrides.canonicalWeek ?? overrides.week ?? 10,
     date: overrides.date ?? '2026-10-10T18:00:00.000Z',
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
