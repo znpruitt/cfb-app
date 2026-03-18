@@ -27,6 +27,8 @@ const teams = [
   { school: 'Albany State', level: 'OTHER' },
   { school: 'Army', level: 'FBS' },
   { school: 'Navy', level: 'FBS' },
+  { school: 'Iowa State', level: 'FBS' },
+  { school: 'Kansas State', level: 'FBS' },
   { school: 'Boise State', level: 'FBS' },
   { school: 'Washington State', level: 'FBS' },
 ];
@@ -42,6 +44,8 @@ function game(
   return {
     key: input.key,
     week: input.week,
+    providerWeek: input.providerWeek ?? input.week,
+    canonicalWeek: input.canonicalWeek ?? input.week,
     date: input.date ?? null,
     stage: input.stage ?? 'regular',
     providerGameId: input.providerGameId ?? null,
@@ -210,4 +214,37 @@ test('ambiguous repeated matchup in postseason does not collapse', () => {
   );
   assert.equal(bowl.matched, true);
   if (bowl.matched) assert.equal(bowl.entry.gameKey, 'bowl-boise-wsu');
+});
+
+test('provider week matching still attaches when canonical week differs for opening week 0 game', () => {
+  const resolver = makeResolver();
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'isu-week-0',
+        week: 0,
+        canonicalWeek: 0,
+        providerWeek: 1,
+        canHome: 'Iowa State',
+        canAway: 'Kansas State',
+        date: '2025-08-23T18:00:00Z',
+      }),
+    ],
+    resolver
+  );
+
+  const matched = matchScoreRowToSchedule(
+    row({
+      week: 1,
+      seasonType: 'regular',
+      home: { team: 'Iowa State', score: 27 },
+      away: { team: 'Kansas State', score: 24 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+
+  assert.equal(matched.matched, true);
+  if (matched.matched) assert.equal(matched.entry.gameKey, 'isu-week-0');
 });
