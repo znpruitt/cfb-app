@@ -6,6 +6,8 @@ import AliasEditorPanel from './AliasEditorPanel';
 import IssuesPanel from './IssuesPanel';
 import UploadPanel from './UploadPanel';
 import GameWeekPanel from './GameWeekPanel';
+import MatchupsWeekPanel from './MatchupsWeekPanel';
+import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
 import WeekControls from './WeekControls';
 import AdminUsagePanel from './AdminUsagePanel';
@@ -26,6 +28,7 @@ import { saveServerAliases } from '../lib/aliasesApi';
 import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { pillClass } from '../lib/gameUi';
+import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -74,6 +77,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [teamFilter, setTeamFilter] = useState<string>('');
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedTab, setSelectedTab] = useState<number | 'postseason' | null>(null);
+  const [weekViewMode, setWeekViewMode] = useState<WeekViewMode>('schedule');
 
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
@@ -141,6 +145,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     setSelectedTab(null);
     setSelectedConference('ALL');
     setTeamFilter('');
+    setWeekViewMode('schedule');
     setOddsByKey({});
     setScoresByKey({});
     setIssues([]);
@@ -369,6 +374,15 @@ export default function CFBScheduleApp(): React.ReactElement {
 
     return next;
   }, [games, selectedConference, selectedWeek, teamFilter]);
+
+  const matchupSections = useMemo(
+    () => deriveWeekMatchupSections(filteredWeekGames, rosterByTeam),
+    [filteredWeekGames, rosterByTeam]
+  );
+  const renderedMatchupCardCount = useMemo(
+    () => countRenderedMatchupCards(matchupSections),
+    [matchupSections]
+  );
 
   const postseasonGames = useMemo(() => {
     const tf = teamFilter.toLowerCase();
@@ -899,24 +913,59 @@ export default function CFBScheduleApp(): React.ReactElement {
 
           {selectedTab !== 'postseason' && selectedWeek != null && (
             <section className="space-y-3">
-              <div className="rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                <span className="font-semibold">Week {selectedWeek}</span>
-                {weekDateMetadataByWeek.get(selectedWeek)?.label ? (
-                  <> · {weekDateMetadataByWeek.get(selectedWeek)?.label}</>
-                ) : null}{' '}
-                · {filteredWeekGames.length} matchup{filteredWeekGames.length === 1 ? '' : 's'}{' '}
-                shown
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                <div>
+                  <span className="font-semibold">Week {selectedWeek}</span>
+                  {weekDateMetadataByWeek.get(selectedWeek)?.label ? (
+                    <> · {weekDateMetadataByWeek.get(selectedWeek)?.label}</>
+                  ) : null}{' '}
+                  {weekViewMode === 'matchups' ? (
+                    <>
+                      · {renderedMatchupCardCount} matchup card
+                      {renderedMatchupCardCount === 1 ? '' : 's'} shown
+                      {matchupSections.otherGames.length > 0 ? (
+                        <>
+                          {' '}
+                          · {matchupSections.otherGames.length} other game
+                          {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      · {filteredWeekGames.length} matchup
+                      {filteredWeekGames.length === 1 ? '' : 's'} shown
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                    Weekly view
+                  </span>
+                  <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} />
+                </div>
               </div>
-              <GameWeekPanel
-                games={filteredWeekGames}
-                byes={byes[selectedWeek] ?? []}
-                oddsByKey={oddsByKey}
-                scoresByKey={scoresByKey}
-                rosterByTeam={rosterByTeam}
-                isDebug={IS_DEBUG}
-                onSavePostseasonOverride={savePostseasonOverride}
-                displayTimeZone={presentationTimeZone}
-              />
+              {weekViewMode === 'matchups' ? (
+                <MatchupsWeekPanel
+                  games={filteredWeekGames}
+                  oddsByKey={oddsByKey}
+                  scoresByKey={scoresByKey}
+                  rosterByTeam={rosterByTeam}
+                  displayTimeZone={presentationTimeZone}
+                  sections={matchupSections}
+                />
+              ) : (
+                <GameWeekPanel
+                  games={filteredWeekGames}
+                  byes={byes[selectedWeek] ?? []}
+                  oddsByKey={oddsByKey}
+                  scoresByKey={scoresByKey}
+                  rosterByTeam={rosterByTeam}
+                  isDebug={IS_DEBUG}
+                  onSavePostseasonOverride={savePostseasonOverride}
+                  displayTimeZone={presentationTimeZone}
+                />
+              )}
             </section>
           )}
 
