@@ -5,6 +5,7 @@ import type { AppGame } from '../schedule';
 import {
   deriveWeekDateMetadata,
   deriveWeekDateMetadataByWeek,
+  getGameDisplayDate,
   groupGamesByDisplayDate,
   sortGamesChronologically,
 } from '../weekPresentation';
@@ -123,5 +124,16 @@ test('games are grouped by ascending display date and kickoff order with TBD tim
       { label: 'Sunday, Aug 31', keys: ['next-day'] },
       { label: 'Date TBD', keys: ['tbd'] },
     ]
+  );
+});
+
+test('late-night kickoffs use the same local timezone for labels and grouping', () => {
+  const lateNightGame = game({ key: 'late-night', week: 2, date: '2025-09-07T04:30:00.000Z' });
+
+  assert.equal(getGameDisplayDate(lateNightGame, 'America/Los_Angeles'), '2025-09-06');
+  assert.equal(deriveWeekDateMetadata([lateNightGame], 2, 'America/Los_Angeles').label, 'Sep 6');
+  assert.deepEqual(
+    groupGamesByDisplayDate([lateNightGame], 'America/Los_Angeles').map((group) => group.label),
+    ['Saturday, Sep 6']
   );
 });

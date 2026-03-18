@@ -70,6 +70,7 @@ test('selected week view renders ascending date headers and kickoff order', () =
       rosterByTeam={new Map()}
       isDebug={false}
       hideByes={true}
+      displayTimeZone="America/Los_Angeles"
     />
   );
 
@@ -88,4 +89,29 @@ test('selected week view renders ascending date headers and kickoff order', () =
   assert.ok(lateIndex > earlyIndex);
   assert.ok(nextDayIndex > sundayIndex);
   assert.ok(tbdIndex > tbdHeaderIndex);
+});
+
+test('late-night kickoff header matches kickoff text timezone', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'late-night',
+          csvAway: 'Visitor',
+          csvHome: 'Home',
+          date: '2025-09-07T04:30:00.000Z',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="America/Los_Angeles"
+    />
+  );
+
+  assert.ok(html.includes('Saturday, Sep 6'));
+  assert.ok(html.includes('Kickoff: Sat, Sep 6, 9:30 PM'));
 });

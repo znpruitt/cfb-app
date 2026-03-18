@@ -1,8 +1,11 @@
 import type { AppGame } from './schedule';
 import { isWeekContextGame } from './postseason-display';
 
-const DISPLAY_TIME_ZONE = 'America/New_York';
 const NO_DATE_KEY = 'tbd';
+
+export function getPresentationTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
 
 export type WeekDateMetadata = {
   week: number;
@@ -34,13 +37,16 @@ function parseKickoffMs(date: string | null): number | null {
   return Number.isFinite(kickoffMs) ? kickoffMs : null;
 }
 
-export function getGameDisplayDate(game: AppGame): string | null {
+export function getGameDisplayDate(
+  game: AppGame,
+  timeZone = getPresentationTimeZone()
+): string | null {
   if (!game.date) return null;
   const kickoff = new Date(game.date);
   if (Number.isNaN(kickoff.getTime())) return null;
 
   return new Intl.DateTimeFormat('en-CA', {
-    timeZone: DISPLAY_TIME_ZONE,
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -66,11 +72,14 @@ export function formatWeekDateHeader(dateKey: string): string {
   });
 }
 
-export function deriveWeekDateRangeLabel(games: AppGame[]): string {
+export function deriveWeekDateRangeLabel(
+  games: AppGame[],
+  timeZone = getPresentationTimeZone()
+): string {
   const dateKeys = Array.from(
     new Set(
       games
-        .map((game) => getGameDisplayDate(game))
+        .map((game) => getGameDisplayDate(game, timeZone))
         .filter((dateKey): dateKey is string => !!dateKey)
     )
   ).sort((a, b) => a.localeCompare(b));
@@ -81,12 +90,16 @@ export function deriveWeekDateRangeLabel(games: AppGame[]): string {
   return `${formatWeekDate(dateKeys[0]!)} – ${formatWeekDate(dateKeys[dateKeys.length - 1]!)}`;
 }
 
-export function deriveWeekDateMetadata(games: AppGame[], week: number): WeekDateMetadata {
+export function deriveWeekDateMetadata(
+  games: AppGame[],
+  week: number,
+  timeZone = getPresentationTimeZone()
+): WeekDateMetadata {
   const weekGames = games.filter((game) => isWeekContextGame(game) && game.week === week);
   const dateKeys = Array.from(
     new Set(
       weekGames
-        .map((game) => getGameDisplayDate(game))
+        .map((game) => getGameDisplayDate(game, timeZone))
         .filter((dateKey): dateKey is string => !!dateKey)
     )
   ).sort((a, b) => a.localeCompare(b));
@@ -96,13 +109,16 @@ export function deriveWeekDateMetadata(games: AppGame[], week: number): WeekDate
     dateKeys,
     startDateKey: dateKeys[0] ?? null,
     endDateKey: dateKeys[dateKeys.length - 1] ?? null,
-    label: deriveWeekDateRangeLabel(weekGames),
+    label: deriveWeekDateRangeLabel(weekGames, timeZone),
     datedGameCount: dateKeys.length,
     totalGameCount: weekGames.length,
   };
 }
 
-export function deriveWeekDateMetadataByWeek(games: AppGame[]): Map<number, WeekDateMetadata> {
+export function deriveWeekDateMetadataByWeek(
+  games: AppGame[],
+  timeZone = getPresentationTimeZone()
+): Map<number, WeekDateMetadata> {
   const weeks = Array.from(
     new Set(
       games
@@ -112,13 +128,16 @@ export function deriveWeekDateMetadataByWeek(games: AppGame[]): Map<number, Week
     )
   ).sort((a, b) => a - b);
 
-  return new Map(weeks.map((week) => [week, deriveWeekDateMetadata(games, week)]));
+  return new Map(weeks.map((week) => [week, deriveWeekDateMetadata(games, week, timeZone)]));
 }
 
-export function sortGamesChronologically(games: AppGame[]): AppGame[] {
+export function sortGamesChronologically(
+  games: AppGame[],
+  timeZone = getPresentationTimeZone()
+): AppGame[] {
   return [...games].sort((left, right) => {
-    const leftDateKey = getGameDisplayDate(left) ?? NO_DATE_KEY;
-    const rightDateKey = getGameDisplayDate(right) ?? NO_DATE_KEY;
+    const leftDateKey = getGameDisplayDate(left, timeZone) ?? NO_DATE_KEY;
+    const rightDateKey = getGameDisplayDate(right, timeZone) ?? NO_DATE_KEY;
 
     if (leftDateKey !== rightDateKey) {
       if (leftDateKey === NO_DATE_KEY) return 1;
@@ -142,11 +161,14 @@ export function sortGamesChronologically(games: AppGame[]): AppGame[] {
   });
 }
 
-export function groupGamesByDisplayDate(games: AppGame[]): GameDateGroup[] {
+export function groupGamesByDisplayDate(
+  games: AppGame[],
+  timeZone = getPresentationTimeZone()
+): GameDateGroup[] {
   const grouped = new Map<string, AppGame[]>();
 
-  for (const game of sortGamesChronologically(games)) {
-    const dateKey = getGameDisplayDate(game) ?? NO_DATE_KEY;
+  for (const game of sortGamesChronologically(games, timeZone)) {
+    const dateKey = getGameDisplayDate(game, timeZone) ?? NO_DATE_KEY;
     const bucket = grouped.get(dateKey) ?? [];
     bucket.push(game);
     grouped.set(dateKey, bucket);

@@ -38,7 +38,7 @@ import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
 import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
-import { deriveWeekDateMetadataByWeek } from '../lib/weekPresentation';
+import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../lib/activeView';
 import {
   dedupeIssues,
@@ -322,7 +322,11 @@ export default function CFBScheduleApp(): React.ReactElement {
   }, [selectedTab, selectedWeek]);
 
   const weeks = useMemo(() => deriveRegularWeekTabs(games), [games]);
-  const weekDateMetadataByWeek = useMemo(() => deriveWeekDateMetadataByWeek(games), [games]);
+  const presentationTimeZone = useMemo(() => getPresentationTimeZone(), []);
+  const weekDateMetadataByWeek = useMemo(
+    () => deriveWeekDateMetadataByWeek(games, presentationTimeZone),
+    [games, presentationTimeZone]
+  );
 
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();
@@ -842,6 +846,7 @@ export default function CFBScheduleApp(): React.ReactElement {
                 rosterByTeam={rosterByTeam}
                 isDebug={IS_DEBUG}
                 onSavePostseasonOverride={savePostseasonOverride}
+                displayTimeZone={presentationTimeZone}
               />
             </section>
           )}

@@ -2,17 +2,18 @@ import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
 import { chipClass, gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
-import { groupGamesByDisplayDate } from '../lib/weekPresentation';
+import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
 
 type Game = AppGame;
 
-function formatKickoff(date: string | null): string {
+function formatKickoff(date: string | null, timeZone: string): string {
   if (!date) return 'TBD';
   const kickoff = new Date(date);
   if (Number.isNaN(kickoff.getTime())) return 'TBD';
   return kickoff.toLocaleString(undefined, {
+    timeZone,
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -34,6 +35,7 @@ type GameWeekPanelProps = {
   isDebug: boolean;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   hideByes?: boolean;
+  displayTimeZone?: string;
 };
 
 export default function GameWeekPanel({
@@ -45,8 +47,9 @@ export default function GameWeekPanel({
   isDebug,
   onSavePostseasonOverride,
   hideByes = false,
+  displayTimeZone = getPresentationTimeZone(),
 }: GameWeekPanelProps): React.ReactElement {
-  const groupedGames = groupGamesByDisplayDate(games);
+  const groupedGames = groupGamesByDisplayDate(games, displayTimeZone);
 
   return (
     <>
@@ -143,7 +146,9 @@ export default function GameWeekPanel({
                           >
                             {matchupLine}
                           </span>
-                          <span className={pillClass()}>Kickoff: {formatKickoff(g.date)}</span>
+                          <span className={pillClass()}>
+                            Kickoff: {formatKickoff(g.date, displayTimeZone)}
+                          </span>
                           {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
                           {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
                           {homeOwner && (
