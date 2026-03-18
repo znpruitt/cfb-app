@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { AppGame } from '../schedule';
+import { buildScheduleFromApi, type AppGame } from '../schedule';
 import {
   deriveWeekDateMetadata,
   deriveWeekDateMetadataByWeek,
@@ -136,4 +136,118 @@ test('late-night kickoffs use the same local timezone for labels and grouping', 
     groupGamesByDisplayDate([lateNightGame], 'America/Los_Angeles').map((group) => group.label),
     ['Saturday, Sep 6']
   );
+});
+
+test('presentation timezone changes labels but not canonical week membership', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    season: 2025,
+    teams: [
+      { school: 'Iowa State', level: 'FBS' },
+      { school: 'Kansas State', level: 'FBS' },
+      { school: 'Texas', level: 'FBS' },
+      { school: 'Rice', level: 'FBS' },
+    ],
+    scheduleItems: [
+      {
+        id: 'week-0',
+        week: 1,
+        startDate: '2025-09-07T04:30:00.000Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Iowa State',
+        awayTeam: 'Kansas State',
+        homeConference: 'Big 12',
+        awayConference: 'Big 12',
+        status: 'scheduled',
+        seasonType: 'regular' as const,
+      },
+      {
+        id: 'week-1',
+        week: 1,
+        startDate: '2025-09-07T19:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        homeConference: 'SEC',
+        awayConference: 'American',
+        status: 'scheduled',
+        seasonType: 'regular' as const,
+      },
+    ],
+  });
+
+  const byEastern = deriveWeekDateMetadataByWeek(built.games, 'America/New_York');
+  const byPacific = deriveWeekDateMetadataByWeek(built.games, 'America/Los_Angeles');
+  const byHonolulu = deriveWeekDateMetadataByWeek(built.games, 'Pacific/Honolulu');
+
+  assert.deepEqual(
+    built.games.map((game) => ({
+      key: game.providerGameId,
+      canonicalWeek: game.canonicalWeek,
+      week: game.week,
+    })),
+    [
+      { key: 'week-0', canonicalWeek: 1, week: 1 },
+      { key: 'week-1', canonicalWeek: 1, week: 1 },
+    ]
+  );
+  assert.equal(byEastern.get(1)?.label, 'Sep 7');
+  assert.equal(byPacific.get(1)?.label, 'Sep 6 – Sep 7');
+  assert.equal(byHonolulu.get(1)?.label, 'Sep 6 – Sep 7');
+  assert.deepEqual(
+    built.games.filter((game) => game.week === 1).map((game) => game.providerGameId),
+    ['week-0', 'week-1']
+  );
+});
+
+test('same-date TBD games sort deterministically after timed games', () => {
+  const groups = groupGamesByDisplayDate(
+    [
+      game({ key: 'tbd-b', eventId: 'b', csvAway: 'Zulu', csvHome: 'Home', date: null }),
+      game({
+        key: 'timed',
+        eventId: 'a',
+        csvAway: 'Alpha',
+        csvHome: 'Home',
+        date: '2025-09-07T15:00:00.000Z',
+      }),
+      game({ key: 'tbd-a', eventId: 'c', csvAway: 'Bravo', csvHome: 'Home', date: null }),
+    ],
+    'America/New_York'
+  );
+
+  assert.deepEqual(
+    groups[0]?.games.map((entry) => entry.key),
+    ['timed']
+  );
+  assert.deepEqual(
+    groups[1]?.games.map((entry) => entry.key),
+    ['tbd-b', 'tbd-a']
+  );
+});
+
+test('postseason placeholders and undated games remain stable in presentation helpers', () => {
+  const placeholder = game({
+    key: 'placeholder-bowl',
+    stage: 'bowl',
+    postseasonRole: 'bowl',
+    isPlaceholder: true,
+    label: 'Placeholder Bowl',
+    date: null,
+    csvAway: 'Team TBD',
+    csvHome: 'Team TBD',
+  });
+
+  const grouped = groupGamesByDisplayDate([placeholder], 'Pacific/Honolulu');
+  assert.deepEqual(
+    grouped.map((group) => group.label),
+    ['Date TBD']
+  );
+  assert.equal(
+    deriveWeekDateMetadata([placeholder], placeholder.week, 'Pacific/Honolulu').label,
+    ''
+  );
+  assert.equal(placeholder.canonicalWeek, placeholder.week);
 });
