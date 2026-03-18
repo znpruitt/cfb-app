@@ -37,7 +37,8 @@ import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
-import { chooseDefaultWeek, deriveRegularWeeks, filterGamesForWeek } from '../lib/weekSelection';
+import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
+import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../lib/activeView';
 import {
   dedupeIssues,
   isLiveIssue,
@@ -56,7 +57,6 @@ export default function CFBScheduleApp(): React.ReactElement {
   const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason), [selectedSeason]);
 
   const [games, setGames] = useState<AppGame[]>([]);
-  const [weeks, setWeeks] = useState<number[]>([]);
   const [byes, setByes] = useState<Record<number, string[]>>({});
   const [conferences, setConferences] = useState<string[]>(['ALL']);
   const [roster, setRoster] = useState<OwnerRow[]>([]);
@@ -121,7 +121,6 @@ export default function CFBScheduleApp(): React.ReactElement {
 
   const clearScheduleDerivedState = useCallback(() => {
     setGames([]);
-    setWeeks([]);
     setByes({});
     setConferences(['ALL']);
     setSelectedWeek(null);
@@ -224,8 +223,7 @@ export default function CFBScheduleApp(): React.ReactElement {
         }
 
         setGames(built.games);
-        const regularWeeks = deriveRegularWeeks(built.games);
-        setWeeks(regularWeeks);
+        const regularWeeks = deriveRegularWeekTabs(built.games);
         setByes(built.byes);
         setConferences(built.conferences);
         setScheduleLoaded(true);
@@ -322,6 +320,8 @@ export default function CFBScheduleApp(): React.ReactElement {
     }
   }, [selectedTab, selectedWeek]);
 
+  const weeks = useMemo(() => deriveRegularWeekTabs(games), [games]);
+
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of roster) m.set(r.team, r.owner);
@@ -380,6 +380,20 @@ export default function CFBScheduleApp(): React.ReactElement {
     if (selectedTab === 'postseason') return postseasonGames;
     return filteredWeekGames;
   }, [filteredWeekGames, postseasonGames, selectedTab]);
+
+  const hasActiveViewFilters = selectedConference !== 'ALL' || teamFilter.trim().length > 0;
+
+  const scoreScopeGames = useMemo(() => {
+    if (visibleGames.length > 0 || hasActiveViewFilters) {
+      return visibleGames;
+    }
+
+    return deriveCanonicalActiveViewGames({
+      games,
+      selectedTab,
+      selectedWeek,
+    });
+  }, [games, hasActiveViewFilters, selectedTab, selectedWeek, visibleGames]);
 
   const refreshPlan = useMemo(
     () =>
@@ -475,13 +489,49 @@ export default function CFBScheduleApp(): React.ReactElement {
             scoresByKey: nextScores,
             issues: scoreIssues,
             diag: scoreDiag,
+            debugSnapshot,
           } = await fetchScoresByGame({
             games,
-            fallbackScopeGames: visibleGames,
+            fallbackScopeGames: scoreScopeGames,
             aliasMap,
             season: selectedSeason,
             teams,
+            debugTrace: IS_DEBUG,
           });
+
+          if (IS_DEBUG) {
+            console.log('scores refresh scope', {
+              selectedTab,
+              selectedWeek,
+              regularWeeks: weeks,
+              visibleGamesCount: visibleGames.length,
+              visibleGamesSample: visibleGames.slice(0, 5).map((game) => game.key),
+              visibleSeasonTypes: Array.from(
+                new Set(
+                  visibleGames.map((game) => (game.stage === 'regular' ? 'regular' : 'postseason'))
+                )
+              ),
+              visibleWeeks: Array.from(new Set(visibleGames.map((game) => game.week))).sort(
+                (a, b) => a - b
+              ),
+              scoreScopeCount: scoreScopeGames.length,
+              scoreScopeSample: scoreScopeGames.slice(0, 5).map((game) => game.key),
+              scoreScopeSeasonTypes: Array.from(
+                new Set(
+                  scoreScopeGames.map((game) =>
+                    game.stage === 'regular' ? 'regular' : 'postseason'
+                  )
+                )
+              ),
+              scoreScopeWeeks: Array.from(new Set(scoreScopeGames.map((game) => game.week))).sort(
+                (a, b) => a - b
+              ),
+              emptyScopeEarlyReturn: scoreScopeGames.length === 0,
+              providerRowCount: debugSnapshot?.providerRowCount ?? null,
+              attachedScoreCount: debugSnapshot?.attachedCount ?? null,
+              scoreRequests: debugSnapshot?.requestUrls ?? [],
+            });
+          }
 
           if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
           if (scoreDiag.length) setDiag((p) => [...p, ...scoreDiag]);
@@ -512,7 +562,18 @@ export default function CFBScheduleApp(): React.ReactElement {
         setLoadingLive(false);
       }
     },
-    [aliasMap, games, oddsUsage, refreshPlan.odds.fetchOnStartup, selectedSeason]
+    [
+      aliasMap,
+      games,
+      oddsUsage,
+      refreshPlan.odds.fetchOnStartup,
+      scoreScopeGames,
+      selectedSeason,
+      selectedTab,
+      selectedWeek,
+      visibleGames,
+      weeks,
+    ]
   );
 
   useEffect(() => {
