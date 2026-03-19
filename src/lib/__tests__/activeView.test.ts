@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../activeView.ts';
+import {
+  deriveCanonicalActiveViewGames,
+  deriveRegularWeekTabs,
+  shouldRenderPrimaryViewSection,
+} from '../activeView.ts';
 import type { AppGame } from '../schedule.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -90,5 +94,35 @@ test('week 0 active view returns the week 0 canonical games', () => {
   assert.deepEqual(
     scope.map((g) => g.key),
     ['week-0-a']
+  );
+});
+
+test('primary view section stays visible on postseason tab so standings remains reachable', () => {
+  assert.equal(
+    shouldRenderPrimaryViewSection({
+      selectedTab: 'postseason',
+      selectedWeek: 12,
+      viewMode: 'schedule',
+    }),
+    true
+  );
+  assert.equal(
+    shouldRenderPrimaryViewSection({
+      selectedTab: 'postseason',
+      selectedWeek: 12,
+      viewMode: 'matchups',
+    }),
+    true
+  );
+});
+
+test('primary view section still renders for standings without requiring a selected week', () => {
+  assert.equal(
+    shouldRenderPrimaryViewSection({
+      selectedTab: null,
+      selectedWeek: null,
+      viewMode: 'standings',
+    }),
+    true
   );
 });

@@ -1,6 +1,7 @@
 import type { CombinedOdds } from './odds.ts';
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
+import { deriveFinalOwnedParticipations } from './standings.ts';
 
 function isFcsConference(conference: string | null | undefined): boolean {
   return /\bfcs\b/i.test(conference ?? '');
@@ -278,45 +279,32 @@ function compareSlates(a: OwnerWeekSlate, b: OwnerWeekSlate): number {
 type OwnerCountedRecord = {
   wins: number;
   losses: number;
-  ties: number;
 };
 
 function countOwnerRecordForBucket(
   bucket: MatchupBucket,
   owner: string,
-  score?: ScorePack
+  rosterByTeam: Map<string, string>,
+  scoresByKey: Record<string, ScorePack>
 ): OwnerCountedRecord {
-  const state = getStateFromScore(score);
-  if (!score || state !== 'final') {
-    return { wins: 0, losses: 0, ties: 0 };
-  }
-
-  const participations: Array<'away' | 'home'> = [];
-  if (bucket.awayOwner === owner) participations.push('away');
-  if (bucket.homeOwner === owner) participations.push('home');
+  const participations = deriveFinalOwnedParticipations([bucket.game], rosterByTeam, scoresByKey);
 
   let wins = 0;
   let losses = 0;
-  let ties = 0;
-
-  for (const side of participations) {
-    const ownerScore = side === 'away' ? score.away.score : score.home.score;
-    const opponentScore = side === 'away' ? score.home.score : score.away.score;
-
-    if (ownerScore == null || opponentScore == null) continue;
-
-    if (ownerScore > opponentScore) wins += 1;
-    else if (ownerScore < opponentScore) losses += 1;
-    else ties += 1;
+  for (const participation of participations) {
+    if (participation.owner !== owner) continue;
+    if (participation.result === 'win') wins += 1;
+    else losses += 1;
   }
 
-  return { wins, losses, ties };
+  return { wins, losses };
 }
 
 function buildOwnerWeekPerformance(
   owner: string,
   games: OwnerSlateGame[],
   buckets: MatchupBucket[],
+  rosterByTeam: Map<string, string>,
   scoresByKey: Record<string, ScorePack>
 ): MatchupPerformanceState {
   let liveGames = 0;
@@ -324,7 +312,6 @@ function buildOwnerWeekPerformance(
   let scheduledGames = 0;
   let wins = 0;
   let losses = 0;
-  let ties = 0;
 
   for (const slateGame of games) {
     const score = scoresByKey[slateGame.game.key];
@@ -340,13 +327,12 @@ function buildOwnerWeekPerformance(
   }
 
   for (const bucket of buckets) {
-    const counted = countOwnerRecordForBucket(bucket, owner, scoresByKey[bucket.game.key]);
+    const counted = countOwnerRecordForBucket(bucket, owner, rosterByTeam, scoresByKey);
     wins += counted.wins;
     losses += counted.losses;
-    ties += counted.ties;
   }
 
-  const record = `${wins}–${losses}${ties > 0 ? `–${ties}` : ''}`;
+  const record = `${wins}–${losses}`;
 
   if (scheduledGames === games.length) {
     return {
@@ -454,6 +440,7 @@ export function deriveOwnerWeekSlates(
           owner,
           gamesForOwner,
           bucketsByOwner.get(owner) ?? [],
+          rosterByTeam,
           scoresByKey
         ),
       };

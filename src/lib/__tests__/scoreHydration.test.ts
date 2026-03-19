@@ -72,19 +72,19 @@ const sampleGames = [
   game({ key: 'bowl', week: 18, stage: 'bowl', postseasonRole: 'bowl' }),
 ];
 
-test('bootstrap hydration defaults to canonical regular schedule scope', () => {
+test('bootstrap hydration covers regular and postseason scopes so season standings are complete on first load', () => {
   assert.deepEqual(
     getBootstrapScoreHydrationGames({ games: sampleGames, selectedTab: 1 }).map((game) => game.key),
-    ['reg-1', 'ccg']
+    ['reg-1', 'ccg', 'bowl']
   );
 });
 
-test('bootstrap hydration uses postseason scope when app opens on postseason tab', () => {
+test('bootstrap hydration stays season-wide even when app opens on postseason tab', () => {
   assert.deepEqual(
     getBootstrapScoreHydrationGames({ games: sampleGames, selectedTab: 'postseason' }).map(
       (game) => game.key
     ),
-    ['bowl']
+    ['reg-1', 'ccg', 'bowl']
   );
 });
 

@@ -50,11 +50,8 @@ export function getBootstrapScoreHydrationGames(params: {
   games: AppGame[];
   selectedTab: ActiveScheduleTab;
 }): AppGame[] {
-  const { games, selectedTab } = params;
-  if (selectedTab === 'postseason') {
-    return getCanonicalPostseasonGames(games);
-  }
-  return getCanonicalRegularGames(games);
+  const { games } = params;
+  return [...getCanonicalRegularGames(games), ...getCanonicalPostseasonGames(games)];
 }
 
 export function getLazyScoreHydrationGames(params: {

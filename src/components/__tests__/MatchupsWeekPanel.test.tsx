@@ -482,3 +482,31 @@ test('matchups panel preserves championship placeholder labels instead of collap
   assert.match(html, /ACC Team TBD/);
   assert.doesNotMatch(html, /2 games · vs FCS/);
 });
+
+test('unexpected final ties do not surface as supported matchup record semantics', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-tie', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-tie': {
+          status: 'final',
+          time: 'Final',
+          home: { team: 'Oklahoma', score: 24 },
+          away: { team: 'Texas', score: 24 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Texas', 'Alex'],
+          ['Oklahoma', 'Alex'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Unexpected final tie/);
+  assert.doesNotMatch(html, /Counts as 1W \/ 1L/);
+  assert.doesNotMatch(html, /1–1–1/);
+});
