@@ -4,6 +4,17 @@ import { deriveRegularWeeks, filterGamesForWeek } from './weekSelection.ts';
 
 export type ActiveScheduleTab = number | 'postseason' | null;
 
+export type PrimaryViewMode = 'schedule' | 'matchups' | 'standings';
+
+export function shouldRenderPrimaryViewSection(params: {
+  selectedTab: ActiveScheduleTab;
+  selectedWeek: number | null;
+  viewMode: PrimaryViewMode;
+}): boolean {
+  const { selectedTab, selectedWeek, viewMode } = params;
+  return viewMode === 'standings' || selectedTab === 'postseason' || selectedWeek != null;
+}
+
 export function deriveRegularWeekTabs(games: AppGame[]): number[] {
   return deriveRegularWeeks(games);
 }
