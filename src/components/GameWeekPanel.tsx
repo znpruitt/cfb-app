@@ -64,7 +64,7 @@ export default function GameWeekPanel({
           Scheduled
         </span>
         <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-violet-600 bg-violet-50 text-gray-900 dark:border-zinc-700 dark:border-l-violet-400 dark:bg-violet-900/25 dark:text-zinc-100">
-          Postseason Placeholder
+          Postseason (TBD)
         </span>
       </div>
 

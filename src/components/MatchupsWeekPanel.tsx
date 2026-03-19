@@ -22,6 +22,13 @@ type MatchupsWeekPanelProps = {
   sections?: WeekMatchupSections;
 };
 
+type OpponentSummaryEntry = {
+  label: string;
+  count: number;
+};
+
+const DEFAULT_VISIBLE_OPPONENTS = 3;
+
 function formatKickoff(date: string | null, timeZone: string): string {
   if (!date) return 'TBD';
   const kickoff = new Date(date);
@@ -54,7 +61,77 @@ function formatGameStatus(score?: ScorePack): string {
   if (state === 'final') return 'Final';
   if (state === 'inprogress') return score?.status ?? 'In Progress';
   if (state === 'scheduled') return score?.status ?? 'Scheduled';
-  return 'No live data';
+  return 'Scheduled';
+}
+
+function isFcsConference(conference: string | null | undefined): boolean {
+  return /\bfcs\b/i.test(conference ?? '');
+}
+
+function getOpponentDescriptor(slateGame: OwnerSlateGame): string {
+  if (slateGame.opponentOwner) {
+    return slateGame.opponentOwner === slateGame.owner ? 'Self' : `vs ${slateGame.opponentOwner}`;
+  }
+
+  const opponentConference =
+    slateGame.ownerTeamSide === 'away' ? slateGame.game.homeConf : slateGame.game.awayConf;
+  const opponentParticipant =
+    slateGame.ownerTeamSide === 'away'
+      ? slateGame.game.participants.home
+      : slateGame.game.participants.away;
+
+  if (opponentParticipant.kind !== 'team' || isFcsConference(opponentConference)) {
+    return 'FCS';
+  }
+
+  return 'NoClaim (FBS)';
+}
+
+function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
+  const descriptor = getOpponentDescriptor(slateGame);
+  if (descriptor.startsWith('vs ')) return descriptor.slice(3);
+  return descriptor;
+}
+
+function getOpponentBadgeClasses(descriptor: string): string {
+  if (descriptor === 'FCS') {
+    return 'border-gray-100 bg-gray-50/70 text-gray-500 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-500';
+  }
+  if (descriptor === 'NoClaim (FBS)') {
+    return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-300';
+  }
+  return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-300';
+}
+
+function summarizeOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
+  const counts = new Map<string, number>();
+  const order: string[] = [];
+
+  for (const game of slate.games) {
+    const label = getSummaryOpponentLabel(game);
+    if (!counts.has(label)) order.push(label);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+
+  return order.map((label) => ({ label, count: counts.get(label) ?? 0 }));
+}
+
+function formatOpponentSummaryEntry(entry: OpponentSummaryEntry): string {
+  return entry.count > 1 ? `${entry.label} (x${entry.count})` : entry.label;
+}
+
+function formatSlateSummaryText(
+  entries: OpponentSummaryEntry[],
+  totalGames: number,
+  expanded: boolean
+): string {
+  const visibleEntries = expanded ? entries : entries.slice(0, DEFAULT_VISIBLE_OPPONENTS);
+  const hiddenCount = Math.max(entries.length - visibleEntries.length, 0);
+  const baseSummary = visibleEntries.length
+    ? visibleEntries.map(formatOpponentSummaryEntry).join(', ')
+    : '—';
+  const suffix = hiddenCount > 0 && !expanded ? ` +${hiddenCount}` : '';
+  return `${totalGames} game${totalGames === 1 ? '' : 's'} · vs ${baseSummary}${suffix}`;
 }
 
 function formatOwnedScore(
@@ -64,7 +141,7 @@ function formatOwnedScore(
   const rawState = gameStateFromScore(score);
   const state = rawState === 'unknown' ? 'scheduled' : rawState;
   if (!score) {
-    return { summary: 'No score yet', tone: 'scheduled' };
+    return { summary: 'Scheduled', tone: 'scheduled' };
   }
 
   const ownerScore = slateGame.ownerTeamSide === 'away' ? score.away.score : score.home.score;
@@ -76,12 +153,11 @@ function formatOwnedScore(
 
   const base = `${ownerScore}-${opponentScore}`;
   if (ownerScore === opponentScore) {
-    return { summary: state === 'final' ? `Tied ${base}` : `Tied ${base}`, tone: 'neutral' };
+    return { summary: state === 'final' ? `${base} (final)` : `Tied ${base}`, tone: 'neutral' };
   }
 
   const verdict = ownerScore > opponentScore ? 'Leading' : 'Trailing';
-  const prefix = state === 'final' ? 'Final' : verdict;
-  return { summary: `${prefix} ${base}`, tone: state };
+  return { summary: state === 'final' ? `${base} (final)` : `${verdict} ${base}`, tone: state };
 }
 
 function compactOddsSummary(odds?: CombinedOdds): string | null {
@@ -116,30 +192,37 @@ function GameRow({
   const scoreState = formatOwnedScore(slateGame, score);
   const statusText = formatGameStatus(score);
   const oddsText = compactOddsSummary(odds);
+  const rawStatusTone = gameStateFromScore(score);
+  const statusTone = rawStatusTone === 'unknown' ? 'scheduled' : rawStatusTone;
+  const opponentDescriptor = getOpponentDescriptor(slateGame);
+  const liveRowClasses =
+    statusTone === 'inprogress'
+      ? 'border-l-2 border-l-amber-400/80 bg-amber-50/40 pl-2 dark:border-l-amber-500/70 dark:bg-amber-950/10'
+      : 'border-l-2 border-l-transparent pl-2';
 
   return (
-    <li className="rounded border border-gray-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+    <li className={`rounded-sm py-2 transition-colors ${liveRowClasses}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-900 dark:text-zinc-100">
-            <span className="font-medium">{slateGame.ownerTeamName}</span>
-            <span className="text-gray-500 dark:text-zinc-400">vs</span>
-            <span>{slateGame.opponentTeamName}</span>
-            {slateGame.isOwnerVsOwner && slateGame.opponentOwner ? (
-              <span className={pillClass()}>vs owner {slateGame.opponentOwner}</span>
-            ) : slateGame.isOpponentUnownedOrNonLeague ? (
-              <span className={pillClass()}>Unowned / Non-league</span>
-            ) : null}
             {slateGame.game.label ? (
-              <span className={pillClass()}>{slateGame.game.label}</span>
+              <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
+                {slateGame.game.label}
+              </span>
             ) : null}
+            <span className="font-medium">{slateGame.ownerTeamName}</span>
+            <span className="text-gray-400 dark:text-zinc-500">vs</span>
+            <span>{slateGame.opponentTeamName}</span>
+            <span className={`${pillClass()} ${getOpponentBadgeClasses(opponentDescriptor)}`}>
+              {opponentDescriptor}
+            </span>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs text-gray-600 dark:text-zinc-400">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-zinc-400">
             <span>{scoreState.summary}</span>
             <span>•</span>
             <span>{statusText}</span>
             <span>•</span>
-            <span>Kickoff: {formatKickoff(slateGame.game.date, displayTimeZone)}</span>
+            <span>Kickoff {formatKickoff(slateGame.game.date, displayTimeZone)}</span>
             {oddsText ? (
               <>
                 <span>•</span>
@@ -149,15 +232,9 @@ function GameRow({
           </div>
         </div>
         <span
-          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(scoreState.tone)}`}
+          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
         >
-          {scoreState.tone === 'final'
-            ? 'Final'
-            : scoreState.tone === 'inprogress'
-              ? 'Live'
-              : scoreState.tone === 'neutral'
-                ? 'Tied'
-                : 'Scheduled'}
+          {statusTone === 'final' ? 'Final' : statusTone === 'inprogress' ? 'Live' : 'Scheduled'}
         </span>
       </div>
     </li>
@@ -183,39 +260,43 @@ function OwnerCard({
   oddsByKey: Record<string, CombinedOdds>;
   displayTimeZone: string;
 }): React.ReactElement {
-  const detailBits = [
-    `${slate.totalGames} game${slate.totalGames === 1 ? '' : 's'}`,
-    slate.opponentOwners.length > 0
-      ? `Faces ${slate.opponentOwners.join(', ')}`
-      : 'No owner-vs-owner opponent this week',
-  ];
-
-  if (slate.liveGames > 0) detailBits.push(`${slate.liveGames} live`);
-  if (slate.finalGames > 0) detailBits.push(`${slate.finalGames} final`);
-  if (slate.scheduledGames > 0) detailBits.push(`${slate.scheduledGames} scheduled`);
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  const opponentSummaryEntries = React.useMemo(() => summarizeOpponents(slate), [slate]);
+  const hasHiddenOpponents = opponentSummaryEntries.length > DEFAULT_VISIBLE_OPPONENTS;
 
   return (
     <article
       className={`${statusClasses(slate.performance.tone === 'neutral' ? 'unknown' : slate.performance.tone, true)} space-y-3 p-4`}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-zinc-100">
-              {slate.owner}
-            </h3>
-            <span
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${performanceClasses(slate.performance.tone)}`}
-            >
-              {slate.performance.summary}
-            </span>
-          </div>
-          <p className="text-sm text-gray-700 dark:text-zinc-300">{detailBits.join(' · ')}</p>
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h3 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-zinc-100">
+            {slate.owner}
+          </h3>
+          <span className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+            {slate.performance.summary}
+          </span>
         </div>
-        <div className="text-xs text-gray-500 dark:text-zinc-400">{slate.performance.detail}</div>
+        <p className="text-sm leading-6 text-gray-600 dark:text-zinc-400">
+          <span>
+            {formatSlateSummaryText(opponentSummaryEntries, slate.totalGames, isExpanded)}
+          </span>
+          {hasHiddenOpponents ? (
+            <>
+              <span className="mx-1 text-gray-300 dark:text-zinc-600">•</span>
+              <button
+                type="button"
+                className="text-xs font-medium text-gray-500 underline-offset-2 hover:text-gray-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+                onClick={() => setIsExpanded((current) => !current)}
+              >
+                {isExpanded ? 'Show less' : 'Show all'}
+              </button>
+            </>
+          ) : null}
+        </p>
       </div>
 
-      <ul className="space-y-2">
+      <ul className="divide-y divide-gray-200 dark:divide-zinc-800">
         {slate.games.map((slateGame) => (
           <GameRow
             key={`${slate.owner}:${slateGame.game.key}:${slateGame.ownerTeamSide}`}
@@ -249,8 +330,7 @@ export default function MatchupsWeekPanel({
             Owner Weekly Slates
           </h2>
           <p className="text-xs text-gray-600 dark:text-zinc-400">
-            One compact card per owner, with weekly summary first and supporting game rows
-            underneath.
+            Compact owner-first weekly cards with matchup context, status, kickoff, and odds.
           </p>
         </div>
 
@@ -271,22 +351,14 @@ export default function MatchupsWeekPanel({
         )}
       </section>
 
-      {derivedSections.otherGames.length ? (
-        <section className="space-y-2">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-              Excluded games
-            </h3>
-            <p className="text-xs text-gray-600 dark:text-zinc-400">
-              Unowned vs unowned games remain outside the owner-centric Matchups tab.
-            </p>
-          </div>
-          <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-xs text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-            {derivedSections.otherGames.length} excluded game
-            {derivedSections.otherGames.length === 1 ? '' : 's'}.
-          </div>
-        </section>
-      ) : null}
+      <section className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Excluded games</h2>
+        <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
+          {derivedSections.otherGames.length === 0
+            ? 'All games this week appear on an owner card.'
+            : `${derivedSections.otherGames.length} excluded game${derivedSections.otherGames.length === 1 ? '' : 's'} do not involve owned teams.`}
+        </p>
+      </section>
     </div>
   );
 }
