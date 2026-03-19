@@ -183,7 +183,12 @@ test('matchups panel summarizes self-matchups as Self', () => {
   assert.match(html, /1 game/);
   assert.match(html, /1–1/);
   assert.match(html, /1 game · vs Self/);
-  assert.equal((html.match(/Texas/g) ?? []).length, 1);
+  assert.match(html, /Texas 28 • Oklahoma 21/);
+  assert.match(html, /Counts as 1W \/ 1L/);
+  assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
+  assert.doesNotMatch(html, /Leading 28-21/);
+  assert.doesNotMatch(html, /Trailing 28-21/);
+  assert.equal((html.match(/Texas/g) ?? []).length, 2);
   assert.doesNotMatch(html, /2 games/);
 });
 
@@ -244,6 +249,8 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
   assert.match(html, /3 games · vs FCS, NoClaim \(FBS\), Blair/);
   assert.match(html, /Blair/);
   assert.match(html, /0–1/);
+  assert.match(html, /border-l-emerald-400\/80 bg-emerald-50\/40/);
+  assert.match(html, /border-l-rose-400\/80 bg-rose-50\/40/);
 });
 
 test('scheduled and live games do not change owner final record summaries', () => {

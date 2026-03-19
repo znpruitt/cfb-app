@@ -27,6 +27,14 @@ type OpponentSummaryEntry = {
   count: number;
 };
 
+type GameOutcomeTone =
+  | 'scheduled'
+  | 'inprogress'
+  | 'finalWin'
+  | 'finalLoss'
+  | 'finalSelf'
+  | 'neutral';
+
 const DEFAULT_VISIBLE_OPPONENTS = 3;
 
 function formatKickoff(date: string | null, timeZone: string): string {
@@ -98,6 +106,9 @@ function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
 }
 
 function getOpponentBadgeClasses(descriptor: string): string {
+  if (descriptor === 'Self') {
+    return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300';
+  }
   if (descriptor === 'FCS') {
     return 'border-gray-100 bg-gray-50/70 text-gray-500 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-500';
   }
@@ -138,10 +149,14 @@ function formatSlateSummaryText(
   return `${totalGames} game${totalGames === 1 ? '' : 's'} · vs ${baseSummary}${suffix}`;
 }
 
+function isSelfGame(slateGame: OwnerSlateGame): boolean {
+  return slateGame.opponentOwner === slateGame.owner;
+}
+
 function formatOwnedScore(
   slateGame: OwnerSlateGame,
   score?: ScorePack
-): { summary: string; tone: 'scheduled' | 'inprogress' | 'final' | 'neutral' } {
+): { summary: string; tone: GameOutcomeTone; detail?: string } {
   const rawState = gameStateFromScore(score);
   const state = rawState === 'unknown' ? 'scheduled' : rawState;
   if (!score) {
@@ -150,9 +165,22 @@ function formatOwnedScore(
 
   const ownerScore = slateGame.ownerTeamSide === 'away' ? score.away.score : score.home.score;
   const opponentScore = slateGame.ownerTeamSide === 'away' ? score.home.score : score.away.score;
+  const selfGame = isSelfGame(slateGame);
 
   if (ownerScore == null || opponentScore == null || state === 'scheduled') {
-    return { summary: formatGameStatus(score), tone: state };
+    return {
+      summary: formatGameStatus(score),
+      tone: state === 'final' ? 'neutral' : state,
+    };
+  }
+
+  if (selfGame) {
+    const symmetricSummary = `${slateGame.ownerTeamName} ${ownerScore} • ${slateGame.opponentTeamName} ${opponentScore}`;
+    return {
+      summary: symmetricSummary,
+      tone: state === 'final' ? 'finalSelf' : state,
+      detail: state === 'final' ? 'Counts as 1W / 1L' : undefined,
+    };
   }
 
   const base = `${ownerScore}-${opponentScore}`;
@@ -160,8 +188,30 @@ function formatOwnedScore(
     return { summary: state === 'final' ? `${base} (final)` : `Tied ${base}`, tone: 'neutral' };
   }
 
+  if (state === 'final') {
+    return {
+      summary: `${base} (final)`,
+      tone: ownerScore > opponentScore ? 'finalWin' : 'finalLoss',
+    };
+  }
+
   const verdict = ownerScore > opponentScore ? 'Leading' : 'Trailing';
-  return { summary: state === 'final' ? `${base} (final)` : `${verdict} ${base}`, tone: state };
+  return { summary: `${verdict} ${base}`, tone: state };
+}
+
+function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
+  switch (tone) {
+    case 'inprogress':
+      return 'border-l-2 border-l-amber-400/80 bg-amber-50/40 pl-2 dark:border-l-amber-500/70 dark:bg-amber-950/10';
+    case 'finalWin':
+      return 'border-l-2 border-l-emerald-400/80 bg-emerald-50/40 pl-2 dark:border-l-emerald-500/70 dark:bg-emerald-950/10';
+    case 'finalLoss':
+      return 'border-l-2 border-l-rose-400/80 bg-rose-50/40 pl-2 dark:border-l-rose-500/70 dark:bg-rose-950/10';
+    case 'finalSelf':
+      return 'border-l-2 border-l-violet-400/80 bg-violet-50/40 pl-2 dark:border-l-violet-500/70 dark:bg-violet-950/10';
+    default:
+      return 'border-l-2 border-l-transparent pl-2';
+  }
 }
 
 function compactOddsSummary(odds?: CombinedOdds): string | null {
@@ -208,13 +258,10 @@ function GameRow({
   const rawStatusTone = gameStateFromScore(score);
   const statusTone = rawStatusTone === 'unknown' ? 'scheduled' : rawStatusTone;
   const opponentDescriptor = getOpponentDescriptor(slateGame);
-  const liveRowClasses =
-    statusTone === 'inprogress'
-      ? 'border-l-2 border-l-amber-400/80 bg-amber-50/40 pl-2 dark:border-l-amber-500/70 dark:bg-amber-950/10'
-      : 'border-l-2 border-l-transparent pl-2';
+  const rowClasses = ownerOutcomeRowClasses(scoreState.tone);
 
   return (
-    <li className={`rounded-sm py-2 transition-colors ${liveRowClasses}`}>
+    <li className={`rounded-sm py-2 transition-colors ${rowClasses}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-900 dark:text-zinc-100">
@@ -232,6 +279,12 @@ function GameRow({
           </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-zinc-400">
             <span>{scoreState.summary}</span>
+            {scoreState.detail ? (
+              <>
+                <span>•</span>
+                <span>{scoreState.detail}</span>
+              </>
+            ) : null}
             <span>•</span>
             <span>{statusText}</span>
             <span>•</span>
