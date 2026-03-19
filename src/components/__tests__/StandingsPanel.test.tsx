@@ -8,7 +8,7 @@ import StandingsPanel from '../StandingsPanel';
 test('standings panel renders expected columns and metrics', () => {
   const html = renderToStaticMarkup(
     <StandingsPanel
-      countedGames={4}
+      season={2025}
       rows={[
         {
           owner: 'Alex',
@@ -32,5 +32,6 @@ test('standings panel renders expected columns and metrics', () => {
   assert.match(html, /3–1/);
   assert.match(html, /0.750/);
   assert.match(html, /\+21/);
-  assert.match(html, /Season-to-date standings/);
+  assert.match(html, /2025 Standings/);
+  assert.doesNotMatch(html, /Season-to-date standings/);
 });

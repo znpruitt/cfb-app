@@ -12,6 +12,7 @@ type WeekControlsProps = {
   onSelectPostseason: () => void;
   onSelectedConferenceChange: (conference: string) => void;
   onTeamFilterChange: (value: string) => void;
+  isStandingsActive?: boolean;
 };
 
 export default function WeekControls({
@@ -26,6 +27,7 @@ export default function WeekControls({
   onSelectPostseason,
   onSelectedConferenceChange,
   onTeamFilterChange,
+  isStandingsActive = false,
 }: WeekControlsProps): React.ReactElement {
   return (
     <>
@@ -51,16 +53,20 @@ export default function WeekControls({
         />
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div
+        className={`flex flex-wrap gap-2 transition-opacity ${isStandingsActive ? 'opacity-75' : 'opacity-100'}`}
+      >
         {weeks.map((w) => {
           const dateLabel = weekDateLabels?.get(w) ?? '';
 
           return (
             <button
               key={w}
-              className={`flex min-w-20 flex-col rounded border px-3 py-1 text-left ${
+              className={`flex min-w-20 flex-col rounded border px-3 py-1 text-left transition-colors ${
                 selectedTab === w
-                  ? 'border-gray-900 bg-gray-900 text-white dark:border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900'
+                  ? isStandingsActive
+                    ? 'border-gray-400 bg-gray-100 text-gray-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                    : 'border-gray-900 bg-gray-900 text-white dark:border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900'
                   : 'border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
               }`}
               onClick={() => onSelectWeek(w)}
@@ -77,9 +83,11 @@ export default function WeekControls({
 
         {hasPostseason && (
           <button
-            className={`px-3 py-1 rounded border ${
+            className={`rounded border px-3 py-1 transition-colors ${
               selectedTab === 'postseason'
-                ? 'border-gray-900 bg-gray-900 text-white dark:border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900'
+                ? isStandingsActive
+                  ? 'border-gray-400 bg-gray-100 text-gray-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                  : 'border-gray-900 bg-gray-900 text-white dark:border-zinc-200 dark:bg-zinc-200 dark:text-zinc-900'
                 : 'border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
             }`}
             onClick={onSelectPostseason}

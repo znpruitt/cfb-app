@@ -33,3 +33,25 @@ test('week tabs render dynamic canonical date sublabels', () => {
   assert.match(html, /Aug 29 – Sep 3/);
   assert.match(html, /Postseason/);
 });
+
+test('week tabs are visually de-emphasized when standings is active', () => {
+  const html = renderToStaticMarkup(
+    <WeekControls
+      weeks={[1]}
+      weekDateLabels={new Map([[1, 'Aug 29 – Sep 3']])}
+      selectedTab={1}
+      hasPostseason={false}
+      selectedConference="ALL"
+      conferences={['ALL']}
+      teamFilter=""
+      onSelectWeek={() => {}}
+      onSelectPostseason={() => {}}
+      onSelectedConferenceChange={() => {}}
+      onTeamFilterChange={() => {}}
+      isStandingsActive={true}
+    />
+  );
+
+  assert.match(html, /opacity-75/);
+  assert.match(html, /border-gray-400 bg-gray-100 text-gray-500/);
+});

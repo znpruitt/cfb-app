@@ -923,53 +923,55 @@ export default function CFBScheduleApp(): React.ReactElement {
             onSelectPostseason={() => setSelectedTab('postseason')}
             onSelectedConferenceChange={setSelectedConference}
             onTeamFilterChange={setTeamFilter}
+            isStandingsActive={weekViewMode === 'standings'}
           />
 
           {shouldRenderPrimaryView && (
             <section className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                <div>
-                  {weekViewMode === 'standings' ? (
-                    <>
-                      <span className="font-semibold">Season standings</span> ·{' '}
-                      {standingsSnapshot.rows.length} owner
-                      {standingsSnapshot.rows.length === 1 ? '' : 's'} ranked ·{' '}
-                      {standingsSnapshot.participations.length} counted result
-                      {standingsSnapshot.participations.length === 1 ? '' : 's'}
-                    </>
-                  ) : selectedTab === 'postseason' ? (
-                    <>
-                      <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
-                      game
-                      {postseasonGames.length === 1 ? '' : 's'} shown
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-semibold">Week {activeWeekForDisplay}</span>
-                      {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
-                        <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
-                      ) : null}{' '}
-                      {weekViewMode === 'matchups' ? (
-                        <>
-                          · {renderedMatchupCardCount} matchup card
-                          {renderedMatchupCardCount === 1 ? '' : 's'} shown
-                          {matchupSections.otherGames.length > 0 ? (
-                            <>
-                              {' '}
-                              · {matchupSections.otherGames.length} other game
-                              {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
-                            </>
-                          ) : null}
-                        </>
-                      ) : (
-                        <>
-                          · {filteredWeekGames.length} matchup
-                          {filteredWeekGames.length === 1 ? '' : 's'} shown
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
+              <div
+                className={`flex flex-wrap gap-3 ${
+                  weekViewMode === 'standings'
+                    ? 'justify-end'
+                    : 'items-center justify-between rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
+                }`}
+              >
+                {weekViewMode !== 'standings' ? (
+                  <div>
+                    {selectedTab === 'postseason' ? (
+                      <>
+                        <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
+                        game
+                        {postseasonGames.length === 1 ? '' : 's'} shown
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">Week {activeWeekForDisplay}</span>
+                        {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
+                          <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
+                        ) : null}{' '}
+                        {weekViewMode === 'matchups' ? (
+                          <>
+                            · {renderedMatchupCardCount} matchup card
+                            {renderedMatchupCardCount === 1 ? '' : 's'} shown
+                            {matchupSections.otherGames.length > 0 ? (
+                              <>
+                                {' '}
+                                · {matchupSections.otherGames.length} other game
+                                {matchupSections.otherGames.length === 1 ? '' : 's'} summarized
+                                below
+                              </>
+                            ) : null}
+                          </>
+                        ) : (
+                          <>
+                            · {filteredWeekGames.length} matchup
+                            {filteredWeekGames.length === 1 ? '' : 's'} shown
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-2">
                   <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
                     View
@@ -978,10 +980,7 @@ export default function CFBScheduleApp(): React.ReactElement {
                 </div>
               </div>
               {weekViewMode === 'standings' ? (
-                <StandingsPanel
-                  rows={standingsSnapshot.rows}
-                  countedGames={standingsSnapshot.participations.length}
-                />
+                <StandingsPanel rows={standingsSnapshot.rows} season={selectedSeason} />
               ) : selectedTab === 'postseason' ? null : weekViewMode === 'matchups' ? (
                 <MatchupsWeekPanel
                   games={filteredWeekGames}
