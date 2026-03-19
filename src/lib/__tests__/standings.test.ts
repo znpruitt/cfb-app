@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { AppGame } from '../schedule.ts';
-import { deriveFinalOwnedParticipations, deriveStandings } from '../standings.ts';
+import {
+  deriveFinalOwnedParticipations,
+  deriveStandings,
+  deriveStandingsCoverage,
+} from '../standings.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -296,4 +300,48 @@ test('zero-game owners remain in standings while unexpected final ties stay out 
   } finally {
     console.warn = originalWarn;
   }
+});
+
+test('standings coverage is complete when all owned final games have final scores attached', () => {
+  const games = [
+    game({ key: 'final-owned', csvAway: 'Texas', csvHome: 'Baylor', status: 'final' }),
+  ];
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const scoresByKey = {
+    'final-owned': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Texas', score: 24 },
+      home: { team: 'Baylor', score: 17 },
+    },
+  };
+
+  assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, scoresByKey), {
+    state: 'complete',
+    message: null,
+  });
+});
+
+test('standings coverage reports partial while completed game scores are still loading', () => {
+  const games = [
+    game({ key: 'final-owned', csvAway: 'Texas', csvHome: 'Baylor', status: 'final' }),
+  ];
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+
+  assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, {}, { isLoadingScores: true }), {
+    state: 'partial',
+    message: 'Standings may be incomplete — some completed game scores are still loading.',
+  });
+});
+
+test('standings coverage reports error when completed game scores fail to load', () => {
+  const games = [
+    game({ key: 'final-owned', csvAway: 'Texas', csvHome: 'Baylor', status: 'final' }),
+  ];
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+
+  assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, {}, { hasScoreLoadError: true }), {
+    state: 'error',
+    message: 'Standings may be incomplete — some completed game scores could not be loaded.',
+  });
 });

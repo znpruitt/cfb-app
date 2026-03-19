@@ -1,10 +1,11 @@
 import React from 'react';
 
-import type { OwnerStandingsRow } from '../lib/standings';
+import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 
 type StandingsPanelProps = {
   rows: OwnerStandingsRow[];
   season: number;
+  coverage: StandingsCoverage;
 };
 
 function formatWinPct(value: number): string {
@@ -19,13 +20,28 @@ function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
-export default function StandingsPanel({ rows, season }: StandingsPanelProps): React.ReactElement {
+export default function StandingsPanel({
+  rows,
+  season,
+  coverage,
+}: StandingsPanelProps): React.ReactElement {
   return (
     <section className="space-y-4 rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      <div>
+      <div className="space-y-1">
         <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
           {season} Standings
         </h2>
+        {coverage.message ? (
+          <p
+            className={`text-sm ${
+              coverage.state === 'error'
+                ? 'text-amber-700 dark:text-amber-300'
+                : 'text-gray-600 dark:text-zinc-300'
+            }`}
+          >
+            {coverage.message}
+          </p>
+        ) : null}
       </div>
 
       {rows.length === 0 ? (

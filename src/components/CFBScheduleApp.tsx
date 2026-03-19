@@ -30,7 +30,7 @@ import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { pillClass } from '../lib/gameUi';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
-import { deriveStandings } from '../lib/standings';
+import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -413,6 +413,23 @@ export default function CFBScheduleApp(): React.ReactElement {
   const standingsSnapshot = useMemo(
     () => deriveStandings(games, rosterByTeam, scoresByKey),
     [games, rosterByTeam, scoresByKey]
+  );
+
+  const hasScoreLoadError = useMemo(
+    () =>
+      issues.some(
+        (issue) => issue.startsWith('Scores ') || issue.startsWith('Scores fetch failed:')
+      ),
+    [issues]
+  );
+
+  const standingsCoverage = useMemo(
+    () =>
+      deriveStandingsCoverage(games, rosterByTeam, scoresByKey, {
+        isLoadingScores: loadingLive,
+        hasScoreLoadError,
+      }),
+    [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
   );
 
   const visibleGames = useMemo(() => {
@@ -980,7 +997,11 @@ export default function CFBScheduleApp(): React.ReactElement {
                 </div>
               </div>
               {weekViewMode === 'standings' ? (
-                <StandingsPanel rows={standingsSnapshot.rows} season={selectedSeason} />
+                <StandingsPanel
+                  rows={standingsSnapshot.rows}
+                  season={selectedSeason}
+                  coverage={standingsCoverage}
+                />
               ) : selectedTab === 'postseason' ? null : weekViewMode === 'matchups' ? (
                 <MatchupsWeekPanel
                   games={filteredWeekGames}
