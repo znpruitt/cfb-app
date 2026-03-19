@@ -48,6 +48,7 @@ import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import {
   deriveCanonicalActiveViewGames,
+  derivePrimarySurfaceKind,
   deriveRegularWeekTabs,
   shouldRenderPrimaryViewSection,
 } from '../lib/activeView';
@@ -468,7 +469,12 @@ export default function CFBScheduleApp(): React.ReactElement {
     selectedWeek,
     viewMode: weekViewMode,
   });
-  const isSeasonScopedView = weekViewMode === 'overview' || weekViewMode === 'standings';
+  const primarySurfaceKind = derivePrimarySurfaceKind({
+    selectedTab,
+    viewMode: weekViewMode,
+  });
+  const isSeasonScopedView =
+    primarySurfaceKind === 'overview' || primarySurfaceKind === 'standings';
   const activeSurfaceCopy =
     weekViewMode === 'overview'
       ? {
@@ -1058,7 +1064,7 @@ export default function CFBScheduleApp(): React.ReactElement {
 
           {shouldRenderPrimaryView && (
             <section className="space-y-3">
-              {weekViewMode === 'overview' ? (
+              {primarySurfaceKind === 'overview' ? (
                 <OverviewPanel
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsCoverage={standingsCoverage}
@@ -1071,13 +1077,22 @@ export default function CFBScheduleApp(): React.ReactElement {
                   }
                   displayTimeZone={presentationTimeZone}
                 />
-              ) : weekViewMode === 'standings' ? (
+              ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
                   rows={standingsSnapshot.rows}
                   season={selectedSeason}
                   coverage={standingsCoverage}
                 />
-              ) : selectedTab === 'postseason' ? null : weekViewMode === 'matchups' ? (
+              ) : primarySurfaceKind === 'postseason' ? (
+                <PostseasonPanel
+                  games={postseasonGames}
+                  oddsByKey={oddsByKey}
+                  scoresByKey={scoresByKey}
+                  rosterByTeam={rosterByTeam}
+                  isDebug={IS_DEBUG}
+                  onSavePostseasonOverride={savePostseasonOverride}
+                />
+              ) : weekViewMode === 'matchups' ? (
                 <MatchupsWeekPanel
                   games={filteredWeekGames}
                   oddsByKey={oddsByKey}
@@ -1099,17 +1114,6 @@ export default function CFBScheduleApp(): React.ReactElement {
                 />
               )}
             </section>
-          )}
-
-          {selectedTab === 'postseason' && hasPostseasonGames && weekViewMode !== 'standings' && (
-            <PostseasonPanel
-              games={postseasonGames}
-              oddsByKey={oddsByKey}
-              scoresByKey={scoresByKey}
-              rosterByTeam={rosterByTeam}
-              isDebug={IS_DEBUG}
-              onSavePostseasonOverride={savePostseasonOverride}
-            />
           )}
         </>
       )}

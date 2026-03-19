@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { gameStateFromScore } from '../lib/gameUi';
+import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { OverviewGameItem } from '../lib/overview';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
@@ -30,7 +30,7 @@ function formatScoreLine(item: OverviewGameItem): string {
 
   const awayScore = score.away.score ?? '—';
   const homeScore = score.home.score ?? '—';
-  return `${item.bucket.game.csvAway} ${awayScore} at ${item.bucket.game.csvHome} ${homeScore}`;
+  return `${formatGameMatchupLabel(item.bucket.game)} · ${awayScore}-${homeScore}`;
 }
 
 function summarizeLeagueAngle(item: OverviewGameItem): string {
@@ -47,7 +47,7 @@ function summarizeLeagueAngle(item: OverviewGameItem): string {
     return `${homeOwner}: ${game.csvHome}`;
   }
 
-  return `${game.csvAway} at ${game.csvHome}`;
+  return formatGameMatchupLabel(game);
 }
 
 function summarizePriority(item: OverviewGameItem): string {
@@ -128,7 +128,7 @@ function GameCardList({
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
-                  {item.bucket.game.csvAway} at {item.bucket.game.csvHome}
+                  {formatGameMatchupLabel(item.bucket.game)}
                 </div>
                 <div className="text-sm text-gray-600 dark:text-zinc-300">
                   {summarizeLeagueAngle(item)}
@@ -179,7 +179,7 @@ function GameSummaryList({
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
-                  {item.bucket.game.csvAway} at {item.bucket.game.csvHome}
+                  {formatGameMatchupLabel(item.bucket.game)}
                 </h3>
                 <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                   {summarizePriority(item)}

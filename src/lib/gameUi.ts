@@ -1,4 +1,22 @@
+import type { AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
+
+export function usesNeutralSiteSemantics(
+  game: Pick<AppGame, 'neutral' | 'neutralDisplay' | 'stage'>
+): boolean {
+  return game.neutralDisplay === 'vs' || (game.stage !== 'regular' && game.neutral);
+}
+
+export function formatGameMatchupLabel(
+  game: Pick<AppGame, 'csvAway' | 'csvHome' | 'neutral' | 'neutralDisplay' | 'stage'>,
+  options?: { homeAwaySeparator?: string }
+): string {
+  if (usesNeutralSiteSemantics(game) || game.neutral) {
+    return `${game.csvAway} vs ${game.csvHome}`;
+  }
+
+  return `${game.csvAway} ${options?.homeAwaySeparator ?? 'at'} ${game.csvHome}`;
+}
 
 export function gameStateFromScore(
   score?: ScorePack

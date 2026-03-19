@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   deriveCanonicalActiveViewGames,
+  derivePrimarySurfaceKind,
   deriveRegularWeekTabs,
   shouldRenderPrimaryViewSection,
 } from '../activeView.ts';
@@ -135,5 +136,32 @@ test('primary view section still renders for overview without requiring a select
       viewMode: 'overview',
     }),
     true
+  );
+});
+
+test('overview remains the only primary surface on the postseason tab', () => {
+  assert.equal(
+    derivePrimarySurfaceKind({
+      selectedTab: 'postseason',
+      viewMode: 'overview',
+    }),
+    'overview'
+  );
+});
+
+test('detailed postseason surface remains reachable for non-overview postseason views', () => {
+  assert.equal(
+    derivePrimarySurfaceKind({
+      selectedTab: 'postseason',
+      viewMode: 'schedule',
+    }),
+    'postseason'
+  );
+  assert.equal(
+    derivePrimarySurfaceKind({
+      selectedTab: 'postseason',
+      viewMode: 'matchups',
+    }),
+    'postseason'
   );
 });

@@ -20,6 +20,20 @@ export function shouldRenderPrimaryViewSection(params: {
   );
 }
 
+export type PrimarySurfaceKind = 'overview' | 'standings' | 'schedule' | 'matchups' | 'postseason';
+
+export function derivePrimarySurfaceKind(params: {
+  selectedTab: ActiveScheduleTab;
+  viewMode: PrimaryViewMode;
+}): PrimarySurfaceKind {
+  const { selectedTab, viewMode } = params;
+
+  if (viewMode === 'overview') return 'overview';
+  if (viewMode === 'standings') return 'standings';
+  if (selectedTab === 'postseason') return 'postseason';
+  return viewMode;
+}
+
 export function deriveRegularWeekTabs(games: AppGame[]): number[] {
   return deriveRegularWeeks(games);
 }
