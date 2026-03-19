@@ -1,6 +1,6 @@
-import type { AppGame } from './schedule';
-import { isTruePostseasonGame } from './postseason-display';
-import type { ActiveScheduleTab } from './activeView';
+import type { AppGame } from './schedule.ts';
+import { isTruePostseasonGame } from './postseason-display.ts';
+import type { ActiveScheduleTab } from './activeView.ts';
 
 export type ScoreHydrationState = {
   regular: boolean;

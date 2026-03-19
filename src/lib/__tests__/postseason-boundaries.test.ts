@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isTruePostseasonGame } from '../postseason-display';
-import { buildScheduleFromApi } from '../schedule';
+import { isTruePostseasonGame } from '../postseason-display.ts';
+import { buildScheduleFromApi } from '../schedule.ts';
 
 test('conference placeholders are excluded from postseason tab while week-based chronology remains intact', () => {
   const built = buildScheduleFromApi({

@@ -1,11 +1,11 @@
-import { normalizeAliasLookup, normalizeTeamName } from './teamNormalization';
-import type { TeamIdentityResolver } from './teamIdentity';
+import { normalizeAliasLookup, normalizeTeamName } from './teamNormalization.ts';
+import type { TeamIdentityResolver } from './teamIdentity.ts';
 import {
   buildScoreAttachmentUserMessage,
   classifyScoreAttachmentDiagnostic,
   type ScoreAttachmentDiagnostic,
   type ScoreAttachmentFailureReason,
-} from './scoreAttachmentDiagnostics';
+} from './scoreAttachmentDiagnostics.ts';
 
 export type SeasonPhase = 'regular' | 'postseason';
 

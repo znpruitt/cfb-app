@@ -1,6 +1,6 @@
-import { loadServerAliases, saveServerAliases } from './aliasesApi';
-import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from './storageKeys';
-import type { AliasMap } from './teamNames';
+import { loadServerAliases, saveServerAliases } from './aliasesApi.ts';
+import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from './storageKeys.ts';
+import type { AliasMap } from './teamNames.ts';
 
 function readOwnersCsvWithMigration(storageKey: string): string | null {
   const scoped = window.localStorage.getItem(storageKey);

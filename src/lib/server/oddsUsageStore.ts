@@ -5,7 +5,7 @@ import {
   buildOddsUsageSnapshot,
   type OddsUsageContext,
   type OddsUsageSnapshot,
-} from '@/lib/api/oddsUsage';
+} from '../api/oddsUsage.ts';
 
 let memorySnapshot: OddsUsageSnapshot | null | undefined;
 

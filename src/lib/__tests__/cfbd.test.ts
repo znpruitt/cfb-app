@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildCfbdGamesUrl } from '../cfbd';
-import { seasonStorageKeys } from '../storageKeys';
+import { buildCfbdGamesUrl } from '../cfbd.ts';
+import { seasonStorageKeys } from '../storageKeys.ts';
 
 test('CFBD games URL builder does not include division by default', () => {
   const url = buildCfbdGamesUrl({ year: 2025, seasonType: 'regular' });

@@ -1,4 +1,4 @@
-import { normalizeAliasLookup, normalizeTeamName, stripDiacritics } from './teamNormalization';
+import { normalizeAliasLookup, normalizeTeamName, stripDiacritics } from './teamNormalization.ts';
 
 export type AliasMap = Record<string, string>;
 

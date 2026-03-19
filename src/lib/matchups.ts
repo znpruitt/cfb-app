@@ -1,6 +1,6 @@
-import type { CombinedOdds } from './odds';
-import type { ScorePack } from './scores';
-import type { AppGame } from './schedule';
+import type { CombinedOdds } from './odds.ts';
+import type { ScorePack } from './scores.ts';
+import type { AppGame } from './schedule.ts';
 
 function isFcsConference(conference: string | null | undefined): boolean {
   return /\bfcs\b/i.test(conference ?? '');
@@ -198,7 +198,15 @@ function buildScoreSummary(score?: ScorePack): string {
 
 function buildOddsSummary(odds?: CombinedOdds): string {
   if (!odds) return 'No odds available';
-  return `Favorite: ${odds.favorite ?? '—'} · Spread: ${odds.spread ?? '—'} · Total: ${odds.total ?? '—'}`;
+
+  const sourceLabel =
+    odds.lineSourceStatus === 'latest'
+      ? 'Latest'
+      : odds.lineSourceStatus === 'closing'
+        ? 'Closing'
+        : 'Stored latest';
+
+  return `Favorite: ${odds.favorite ?? '—'} · Spread: ${odds.spread ?? '—'} · Total: ${odds.total ?? '—'} · ${sourceLabel}`;
 }
 
 export function buildMatchupCardViewModel(

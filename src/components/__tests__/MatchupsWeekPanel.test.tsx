@@ -64,7 +64,23 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
         game({ key: 'g2', csvAway: 'Alabama', csvHome: 'Akron', homeConf: 'MAC' }),
       ]}
       oddsByKey={{
-        g1: { favorite: 'Georgia', spread: -3.5, total: 51.5, mlHome: -150, mlAway: 130 },
+        g1: {
+          favorite: 'Georgia',
+          spread: -3.5,
+          homeSpread: -3.5,
+          awaySpread: 3.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 51.5,
+          mlHome: -150,
+          mlAway: 130,
+          overPrice: -108,
+          underPrice: -112,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2025-08-30T18:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
       }}
       scoresByKey={{
         g1: {

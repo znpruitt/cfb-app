@@ -1,4 +1,4 @@
-import type { AppGame } from './schedule';
+import type { AppGame } from './schedule.ts';
 
 export function isWeekContextGame(game: Pick<AppGame, 'stage' | 'postseasonRole'>): boolean {
   return game.stage === 'regular' || game.stage === 'conference_championship';

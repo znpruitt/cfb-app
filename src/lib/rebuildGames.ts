@@ -1,5 +1,5 @@
-import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
-import type { AliasMap } from './teamNames';
+import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
+import type { AliasMap } from './teamNames.ts';
 
 export type RebuildableGame = {
   key: string;

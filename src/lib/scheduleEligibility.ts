@@ -1,13 +1,13 @@
-import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
+import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
 import {
   classifyConferenceForSubdivision,
   type ConferenceSubdivision,
-} from './conferenceSubdivision';
+} from './conferenceSubdivision.ts';
 import {
   recordAmbiguousConference,
   recordPresentDayPolicyConference,
   recordUnresolvedConference,
-} from './conferenceDiagnostics';
+} from './conferenceDiagnostics.ts';
 
 export type EligibilitySubdivision = ConferenceSubdivision;
 

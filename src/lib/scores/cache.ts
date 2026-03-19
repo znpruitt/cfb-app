@@ -1,4 +1,4 @@
-import type { CfbdFallbackReason, ScorePack, SeasonType } from './types';
+import type { CfbdFallbackReason, ScorePack, SeasonType } from './types.ts';
 
 export type CacheWeek = number | 'all';
 export type CacheKey = `${number}-${CacheWeek}-${SeasonType}`;

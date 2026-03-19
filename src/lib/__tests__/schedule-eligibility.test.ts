@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isTruePostseasonGame } from '../postseason-display';
-import { buildScheduleFromApi, type ScheduleWireItem } from '../schedule';
-import { fetchScoresByGame } from '../scores';
+import { isTruePostseasonGame } from '../postseason-display.ts';
+import { buildScheduleFromApi, type ScheduleWireItem } from '../schedule.ts';
+import { fetchScoresByGame } from '../scores.ts';
 import {
   getAmbiguousConferenceDiagnostics,
   getPresentDayPolicyConferenceDiagnostics,
   getUnresolvedConferenceDiagnostics,
   resetUnresolvedConferenceDiagnostics,
-} from '../conferenceDiagnostics';
-import type { CfbdConferenceRecord } from '../conferenceSubdivision';
-import type { TeamCatalogItem } from '../teamIdentity';
+} from '../conferenceDiagnostics.ts';
+import type { CfbdConferenceRecord } from '../conferenceSubdivision.ts';
+import type { TeamCatalogItem } from '../teamIdentity.ts';
 
 const teams: TeamCatalogItem[] = [
   { school: 'Army', level: 'FBS', conference: 'Independent' },

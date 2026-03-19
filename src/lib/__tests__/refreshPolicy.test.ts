@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getRefreshPlan } from '../refreshPolicy';
-import type { AppGame } from '../schedule';
-import type { ScorePack } from '../scores';
+import { getRefreshPlan } from '../refreshPolicy.ts';
+import type { AppGame } from '../schedule.ts';
+import type { ScorePack } from '../scores.ts';
 
 function makeGame(overrides: Partial<AppGame> = {}): AppGame {
   return {

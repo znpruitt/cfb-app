@@ -1,4 +1,4 @@
-import type { CfbdGameLoose, EspnEvent, ScorePack, SeasonType } from './types';
+import type { CfbdGameLoose, EspnEvent, ScorePack, SeasonType } from './types.ts';
 
 export function seasonYearForToday(now = new Date()): number {
   const month = now.getUTCMonth();

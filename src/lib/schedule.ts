@@ -1,26 +1,26 @@
-import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
-import type { AliasMap } from './teamNames';
-import { isLikelyInvalidTeamLabel } from './teamNormalization';
-import { classifyScheduleRow } from './postseason-classify';
+import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
+import type { AliasMap } from './teamNames.ts';
+import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
+import { classifyScheduleRow } from './postseason-classify.ts';
 import {
   resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
   type CfbdConferenceRecord,
-} from './conferenceSubdivision';
-import type { HydrationDiagnostic } from './postseason-hydrate';
+} from './conferenceSubdivision.ts';
+import type { HydrationDiagnostic } from './postseason-hydrate.ts';
 import {
   buildAuthoritativeGameCollection,
   buildConferenceChampionshipEventKey,
   buildPlaceholderParticipant,
   toPlaceholderDisplay,
-} from './schedulePostseasonHelpers';
-import { buildByes, isTrackedGame, resolveRegularSeasonRow } from './scheduleTracking';
-import { isFbsTeam } from './scheduleEligibility';
+} from './schedulePostseasonHelpers.ts';
+import { buildByes, isTrackedGame, resolveRegularSeasonRow } from './scheduleTracking.ts';
+import { isFbsTeam } from './scheduleEligibility.ts';
 import {
   buildRegularSeasonWeekCalendar,
   deriveCanonicalRegularSeasonWeek,
   type WeekCorrectionReason,
-} from './regularSeasonWeekCalendar';
+} from './regularSeasonWeekCalendar.ts';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 
@@ -228,11 +228,11 @@ function sortGames(games: AppGame[]): AppGame[] {
 export type {
   RegularSeasonEligibilityDecision,
   ScheduleEligibilityReason,
-} from './scheduleEligibility';
+} from './scheduleEligibility.ts';
 export {
   classifyTeamSubdivision,
   getRegularSeasonEligibilityDecision,
-} from './scheduleEligibility';
+} from './scheduleEligibility.ts';
 
 export function buildScheduleFromApi(params: {
   scheduleItems: ScheduleWireItem[];

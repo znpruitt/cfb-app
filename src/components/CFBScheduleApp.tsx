@@ -14,7 +14,7 @@ import AdminUsagePanel from './AdminUsagePanel';
 import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
-import { buildOddsByGame, type CombinedOdds, type OddsEvent } from '../lib/odds';
+import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import { fetchScoresByGame, type ScorePack } from '../lib/scores';
 import {
@@ -479,27 +479,24 @@ export default function CFBScheduleApp(): React.ReactElement {
               ]);
             }
             try {
-              const oddsRes = await fetch(`/api/odds`, { cache: 'no-store' });
+              const oddsRes = await fetch(`/api/odds?year=${selectedSeason}`, {
+                cache: 'no-store',
+              });
               if (oddsRes.ok) {
-                const oddsPayload = (await oddsRes.json()) as
-                  | OddsEvent[]
-                  | {
-                      items?: OddsEvent[];
-                      meta?: {
-                        cache?: 'hit' | 'miss';
-                        usage?: OddsUsageSnapshot | null;
-                      };
-                    };
-                const oddsEvents = Array.isArray(oddsPayload)
-                  ? oddsPayload
-                  : (oddsPayload.items ?? []);
-                const cacheState = Array.isArray(oddsPayload)
-                  ? 'unknown'
-                  : (oddsPayload.meta?.cache ?? 'unknown');
+                const oddsPayload = (await oddsRes.json()) as {
+                  items?: CanonicalOddsItem[];
+                  meta?: {
+                    cache?: 'hit' | 'miss';
+                    usage?: OddsUsageSnapshot | null;
+                  };
+                };
+
+                const canonicalItems = oddsPayload.items ?? [];
+                const cacheState = oddsPayload.meta?.cache ?? 'unknown';
+
                 setOddsCacheState(cacheState);
-                setOddsUsage(Array.isArray(oddsPayload) ? null : (oddsPayload.meta?.usage ?? null));
-                const next = buildOddsByGame({ games, oddsEvents, aliasMap, teams });
-                setOddsByKey(next);
+                setOddsUsage(oddsPayload.meta?.usage ?? null);
+                setOddsByKey(buildOddsLookup(canonicalItems));
                 setLastOddsRefreshAt(new Date().toLocaleString());
               } else {
                 const t = await oddsRes.text().catch(() => '');

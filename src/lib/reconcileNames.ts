@@ -1,8 +1,8 @@
-import type { DiagEntry } from './diagnostics';
-import type { AliasMap } from './teamNames';
-import { createTeamIdentityResolver } from './teamIdentity';
-import { normalizeAliasLookup } from './teamNormalization';
-import { fetchTeamsCatalog } from './teamsCatalog';
+import type { DiagEntry } from './diagnostics.ts';
+import type { AliasMap } from './teamNames.ts';
+import { createTeamIdentityResolver } from './teamIdentity.ts';
+import { normalizeAliasLookup } from './teamNormalization.ts';
+import { fetchTeamsCatalog } from './teamsCatalog.ts';
 
 export async function reconcileNamesWithCatalog(params: {
   csvTeams: string[];

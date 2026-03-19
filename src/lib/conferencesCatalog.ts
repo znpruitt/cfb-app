@@ -1,4 +1,4 @@
-import type { CfbdConferenceRecord } from './conferenceSubdivision';
+import type { CfbdConferenceRecord } from './conferenceSubdivision.ts';
 
 type ConferencesWireResponse = {
   items?: CfbdConferenceRecord[];

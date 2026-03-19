@@ -209,9 +209,20 @@ export default function GameWeekPanel({
                       <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                         <div className="font-medium mb-1">Vegas Odds</div>
                         {odds ? (
-                          <div className="text-sm">
-                            Favorite: {odds.favorite ?? '—'} / Spread: {odds.spread ?? '—'} / Total:{' '}
-                            {odds.total ?? '—'}
+                          <div className="space-y-1 text-sm">
+                            <div>
+                              Favorite: {odds.favorite ?? '—'} / Spread: {odds.spread ?? '—'} /
+                              Total: {odds.total ?? '—'}
+                            </div>
+                            <div className="text-xs text-gray-600 dark:text-zinc-400">
+                              Line source:{' '}
+                              {odds.lineSourceStatus === 'latest'
+                                ? 'Latest pre-kickoff'
+                                : odds.lineSourceStatus === 'closing'
+                                  ? 'Frozen closing line'
+                                  : 'Fallback latest for completed game'}
+                              {odds.source ? ` · ${odds.source}` : ''}
+                            </div>
                           </div>
                         ) : (
                           <div className="text-sm text-gray-600 dark:text-zinc-400">

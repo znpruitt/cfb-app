@@ -43,3 +43,18 @@
 
 - Phase 3 historical analytics and long-term ideas stay in `docs/roadmap.md` until promoted.
 - Optional technical debt (extra decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts`) is non-blocking unless explicitly scheduled.
+
+## Cleanup / Maintenance (Non-blocking)
+
+### Tooling: TypeScript import + test runner cleanup
+
+- [ ] Review repo-wide `.ts` import specifier changes introduced with `allowImportingTsExtensions`
+- [ ] Determine if the plain `node --test` workflow can be supported with a more localized solution:
+  - test-only config, loader (e.g. tsx), or narrower tsconfig change
+- [ ] Reduce repo-wide impact if possible (avoid requiring `.ts` specifiers across all source files)
+- [ ] Ensure no regression to the current passing test suite
+
+Notes:
+- This is intentionally separated from feature work.
+- Do not combine with odds, schedule, or UI changes.
+- Only execute when it can be done safely without destabilizing the working app.

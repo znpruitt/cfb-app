@@ -7,7 +7,7 @@ import {
   captureOddsUsageSnapshot,
   getLatestKnownOddsUsage,
   setLatestKnownOddsUsage,
-} from '../server/oddsUsageStore';
+} from '../server/oddsUsageStore.ts';
 
 test.beforeEach(async () => {
   await __deleteOddsUsageStoreFileForTests();

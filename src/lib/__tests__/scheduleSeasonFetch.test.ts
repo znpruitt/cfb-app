@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hasRequiredSeasonTypeFailure } from '../scheduleSeasonFetch';
+import { hasRequiredSeasonTypeFailure } from '../scheduleSeasonFetch.ts';
 
 test('requires both regular and postseason responses when seasonType=all', () => {
   assert.equal(hasRequiredSeasonTypeFailure('all', []), false);

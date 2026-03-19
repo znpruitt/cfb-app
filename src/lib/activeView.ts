@@ -1,6 +1,6 @@
-import type { AppGame } from './schedule';
-import { isTruePostseasonGame } from './postseason-display';
-import { deriveRegularWeeks, filterGamesForWeek } from './weekSelection';
+import type { AppGame } from './schedule.ts';
+import { isTruePostseasonGame } from './postseason-display.ts';
+import { deriveRegularWeeks, filterGamesForWeek } from './weekSelection.ts';
 
 export type ActiveScheduleTab = number | 'postseason' | null;
 

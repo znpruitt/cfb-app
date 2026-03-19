@@ -5,13 +5,24 @@ import {
   __deleteOddsUsageStoreFileForTests,
   __resetOddsUsageStoreForTests,
   getLatestKnownOddsUsage,
-} from '@/lib/server/oddsUsageStore';
+} from '../../../lib/server/oddsUsageStore.ts';
+import {
+  __deleteDurableOddsStoreFileForTests,
+  __resetDurableOddsStoreForTests,
+  getDurableOddsRecord,
+  setDurableOddsStore,
+} from '../../../lib/server/durableOddsStore.ts';
 
-import { GET } from './route';
+import { GET, __resetOddsRouteCacheForTests } from './route.ts';
+
+const DURABLE_ODDS_TEST_SEASON = 2026;
 
 test.beforeEach(async () => {
   await __deleteOddsUsageStoreFileForTests();
   __resetOddsUsageStoreForTests();
+  await __deleteDurableOddsStoreFileForTests(DURABLE_ODDS_TEST_SEASON);
+  __resetDurableOddsStoreForTests();
+  __resetOddsRouteCacheForTests();
   process.env.ODDS_API_KEY = 'test-key';
 });
 
@@ -59,6 +70,625 @@ test('429 without usable usage headers persists fallback-labeled depleted snapsh
     assert.equal(usage?.source, 'quota-error-fallback');
     assert.equal(usage?.remaining, 0);
     assert.equal(usage?.limit, 500);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('successful fetch attaches odds to canonical schedule games and persists latestSnapshot', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/schedule')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'game-1',
+              week: 1,
+              startDate: '2026-09-01T19:30:00.000Z',
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: 'scheduled',
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+          ],
+          meta: { source: 'cfbd', cache: 'miss', generatedAt: '2026-09-01T18:00:00.000Z' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify([
+        {
+          home_team: 'Georgia Bulldogs',
+          away_team: 'Clemson Tigers',
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'spreads',
+                  outcomes: [
+                    { name: 'Georgia', point: -3.5, price: -110 },
+                    { name: 'Clemson', point: 3.5, price: -110 },
+                  ],
+                },
+                {
+                  key: 'h2h',
+                  outcomes: [
+                    { name: 'Georgia', price: -150 },
+                    { name: 'Clemson', price: 130 },
+                  ],
+                },
+                {
+                  key: 'totals',
+                  outcomes: [
+                    { name: 'Over', point: 52.5, price: -108 },
+                    { name: 'Under', point: 52.5, price: -112 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+    );
+    assert.equal(res.status, 200);
+
+    const json = (await res.json()) as {
+      items: Array<{
+        canonicalGameId: string;
+        odds: { spread: number | null; lineSourceStatus: string };
+      }>;
+    };
+
+    assert.equal(json.items.length, 1);
+    assert.equal(json.items[0]?.odds.spread, -3.5);
+    assert.equal(json.items[0]?.odds.lineSourceStatus, 'latest');
+
+    const persisted = await getDurableOddsRecord(
+      DURABLE_ODDS_TEST_SEASON,
+      json.items[0]!.canonicalGameId
+    );
+
+    assert.equal(persisted?.latestSnapshot?.spread, -3.5);
+    assert.equal(persisted?.closingSnapshot, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('post-kickoff refresh freezes closingSnapshot and later refreshes do not overwrite it', async () => {
+  const originalFetch = global.fetch;
+
+  let oddsSpread = -3.5;
+  const scheduleStatus = 'final';
+  const scheduleKickoff = '2026-03-01T19:30:00.000Z';
+
+  await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
+    '1-georgia-clemson-H': {
+      canonicalGameId: '1-georgia-clemson-H',
+      latestSnapshot: {
+        capturedAt: '2026-03-01T19:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingSnapshot: null,
+      closingFrozenAt: null,
+    },
+  });
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/schedule')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'game-1',
+              week: 1,
+              startDate: scheduleKickoff,
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: scheduleStatus,
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+          ],
+          meta: { source: 'cfbd', cache: 'miss', generatedAt: new Date().toISOString() },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify([
+        {
+          home_team: 'Georgia',
+          away_team: 'Clemson',
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'spreads',
+                  outcomes: [
+                    { name: 'Georgia', point: oddsSpread, price: -110 },
+                    { name: 'Clemson', point: Math.abs(oddsSpread), price: -110 },
+                  ],
+                },
+                {
+                  key: 'h2h',
+                  outcomes: [
+                    { name: 'Georgia', price: -150 },
+                    { name: 'Clemson', price: 130 },
+                  ],
+                },
+                {
+                  key: 'totals',
+                  outcomes: [
+                    { name: 'Over', point: 52.5, price: -108 },
+                    { name: 'Under', point: 52.5, price: -112 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const json = (await (
+      await GET(new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`))
+    ).json()) as {
+      items: Array<{ canonicalGameId: string; odds: { lineSourceStatus: string } }>;
+    };
+
+    const canonicalGameId = json.items[0]!.canonicalGameId;
+
+    let persisted = await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, canonicalGameId);
+    assert.equal(persisted?.closingSnapshot?.spread, -3.5);
+    assert.equal(typeof persisted?.closingFrozenAt, 'string');
+
+    oddsSpread = -7.5;
+    await GET(new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`));
+
+    persisted = await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, canonicalGameId);
+    assert.equal(persisted?.closingSnapshot?.spread, -3.5);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('first seen after kickoff does not persist a closing snapshot fallback', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/schedule')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'game-1',
+              week: 1,
+              startDate: '2000-09-01T19:30:00.000Z',
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: 'final',
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+          ],
+          meta: { source: 'cfbd', cache: 'miss', generatedAt: new Date().toISOString() },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify([
+        {
+          home_team: 'Georgia',
+          away_team: 'Clemson',
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'spreads',
+                  outcomes: [
+                    { name: 'Georgia', point: -3.5, price: -110 },
+                    { name: 'Clemson', point: 3.5, price: -110 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+    );
+    assert.equal(res.status, 200);
+
+    const json = (await res.json()) as { items: Array<{ canonicalGameId: string }> };
+    assert.equal(json.items.length, 0);
+
+    const persisted = await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, '1-georgia-clemson-H');
+    assert.equal(persisted, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('kickoff delays reopen an early frozen line and allow a later pre-kickoff refresh to replace latestSnapshot', async () => {
+  const originalFetch = global.fetch;
+
+  let scheduleKickoff = '2026-09-01T19:30:00.000Z';
+  let oddsSpread = -3.5;
+
+  await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
+    '1-georgia-clemson-H': {
+      canonicalGameId: '1-georgia-clemson-H',
+      latestSnapshot: {
+        capturedAt: '2026-03-01T19:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingSnapshot: {
+        capturedAt: '2026-03-01T19:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingFrozenAt: '2026-03-01T19:31:00.000Z',
+    },
+  });
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/schedule')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'game-1',
+              week: 1,
+              startDate: scheduleKickoff,
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: 'scheduled',
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+          ],
+          meta: { source: 'cfbd', cache: 'miss', generatedAt: new Date().toISOString() },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify([
+        {
+          home_team: 'Georgia',
+          away_team: 'Clemson',
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'spreads',
+                  outcomes: [
+                    { name: 'Georgia', point: oddsSpread, price: -110 },
+                    { name: 'Clemson', point: Math.abs(oddsSpread), price: -110 },
+                  ],
+                },
+                {
+                  key: 'h2h',
+                  outcomes: [
+                    { name: 'Georgia', price: -150 },
+                    { name: 'Clemson', price: 130 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    scheduleKickoff = '2999-09-01T21:00:00.000Z';
+    oddsSpread = -7.5;
+
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+    );
+    assert.equal(res.status, 200);
+
+    const persisted = await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, '1-georgia-clemson-H');
+    assert.equal(persisted?.closingSnapshot, null);
+    assert.equal(persisted?.latestSnapshot?.spread, -7.5);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('repeat matchup odds persist independently for regular season and conference championship identities', async () => {
+  const originalFetch = global.fetch;
+
+  await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
+    '1-georgia-clemson-H': {
+      canonicalGameId: '1-georgia-clemson-H',
+      latestSnapshot: {
+        capturedAt: '2026-03-01T19:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingSnapshot: {
+        capturedAt: '2026-03-01T19:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingFrozenAt: '2026-03-01T19:31:00.000Z',
+    },
+  });
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/schedule')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'regular-1',
+              week: 1,
+              startDate: '2026-03-01T19:30:00.000Z',
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: 'final',
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+            {
+              id: 'ccg-1',
+              week: 14,
+              startDate: '2999-12-05T20:00:00.000Z',
+              neutralSite: true,
+              conferenceGame: true,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'SEC',
+              status: 'scheduled',
+              seasonType: 'regular',
+              gamePhase: 'conference_championship',
+              regularSubtype: 'conference_championship',
+              conferenceChampionshipConference: 'SEC',
+              eventKey: 'sec-championship',
+              label: 'SEC Championship',
+            },
+          ],
+          meta: { source: 'cfbd', cache: 'miss', generatedAt: new Date().toISOString() },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify([
+        {
+          home_team: 'Georgia',
+          away_team: 'Clemson',
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'spreads',
+                  outcomes: [
+                    { name: 'Georgia', point: -6.5, price: -110 },
+                    { name: 'Clemson', point: 6.5, price: -110 },
+                  ],
+                },
+                {
+                  key: 'h2h',
+                  outcomes: [
+                    { name: 'Georgia', price: -220 },
+                    { name: 'Clemson', price: 180 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+    );
+    assert.equal(res.status, 200);
+
+    const json = (await res.json()) as {
+      items: Array<{
+        canonicalGameId: string;
+        odds: { spread: number | null; lineSourceStatus: string };
+      }>;
+    };
+
+    const regular = json.items.find((item) => item.canonicalGameId === '1-georgia-clemson-H');
+    const championship = json.items.find(
+      (item) => item.canonicalGameId === '2026-sec-championship'
+    );
+
+    assert.equal(regular?.odds.lineSourceStatus, 'closing');
+    assert.equal(regular?.odds.spread, -3.5);
+    assert.equal(championship?.odds.lineSourceStatus, 'latest');
+    assert.equal(championship?.odds.spread, -6.5);
+
+    const persistedRegular = await getDurableOddsRecord(
+      DURABLE_ODDS_TEST_SEASON,
+      '1-georgia-clemson-H'
+    );
+    const persistedChampionship = await getDurableOddsRecord(
+      DURABLE_ODDS_TEST_SEASON,
+      '2026-sec-championship'
+    );
+
+    assert.equal(persistedRegular?.closingSnapshot?.spread, -3.5);
+    assert.equal(persistedChampionship?.latestSnapshot?.spread, -6.5);
+    assert.equal(persistedChampionship?.closingSnapshot, null);
   } finally {
     global.fetch = originalFetch;
   }

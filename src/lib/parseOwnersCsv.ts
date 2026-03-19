@@ -1,4 +1,4 @@
-import { clamp, parseCSV } from './csv';
+import { clamp, parseCSV } from './csv.ts';
 
 export type OwnerRow = { team: string; owner: string };
 

@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../activeView';
-import type { AppGame } from '../schedule';
+import { deriveCanonicalActiveViewGames, deriveRegularWeekTabs } from '../activeView.ts';
+import type { AppGame } from '../schedule.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {

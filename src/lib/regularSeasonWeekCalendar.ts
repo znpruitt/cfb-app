@@ -1,4 +1,4 @@
-import type { ScheduleWireItem } from './schedule';
+import type { ScheduleWireItem } from './schedule.ts';
 
 const REGULAR_SEASON_CLUSTER_GAP_DAYS = 3;
 const CLUSTER_DATE_TIME_ZONE = 'America/New_York';

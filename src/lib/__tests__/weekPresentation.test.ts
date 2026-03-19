@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildScheduleFromApi, type AppGame } from '../schedule';
+import { buildScheduleFromApi, type AppGame } from '../schedule.ts';
 import {
   deriveWeekDateMetadata,
   deriveWeekDateMetadataByWeek,
   getGameDisplayDate,
   groupGamesByDisplayDate,
   sortGamesChronologically,
-} from '../weekPresentation';
+} from '../weekPresentation.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
