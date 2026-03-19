@@ -64,6 +64,7 @@ import {
   isTransientScheduleIssue,
   summarizeGames,
 } from '../lib/cfbScheduleAppHelpers';
+import { splitIssueDiagnostics } from './IssuesPanel';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
@@ -484,7 +485,7 @@ export default function CFBScheduleApp({
   const activeSurfaceCopy =
     weekViewMode === 'overview'
       ? {
-          eyebrow: 'League-first home',
+          eyebrow: 'League overview',
           title: 'Overview',
           description:
             'Start with the current league picture, then drill into weekly schedule and matchup detail as needed.',
@@ -893,9 +894,10 @@ export default function CFBScheduleApp({
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
     !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
+  const { actionableDiag } = splitIssueDiagnostics(diag);
   const adminAlertCount =
     issues.length +
-    diag.length +
+    actionableDiag.length +
     aliasStaging.deletes.length +
     Object.keys(aliasStaging.upserts).length;
   const adminHref = '/admin';
@@ -907,7 +909,7 @@ export default function CFBScheduleApp({
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200">
-              League-first
+              League Overview
             </span>
             {isAdminSurface ? (
               <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
@@ -916,10 +918,10 @@ export default function CFBScheduleApp({
             ) : null}
           </div>
           <div>
-            <h1 className="text-2xl font-bold">CFB Office Pool</h1>
+            <h1 className="text-2xl font-bold">CFB League Dashboard</h1>
             <p className="max-w-3xl text-sm text-gray-600 dark:text-zinc-400">
-              Overview, schedule, matchups, and standings stay front-and-center on the main app,
-              while commissioner tooling lives on a dedicated admin surface.
+              Overview, schedule, matchups, and standings stay front-and-center on the main
+              dashboard, while commissioner tooling lives on a dedicated admin surface.
             </p>
           </div>
         </div>
@@ -940,8 +942,8 @@ export default function CFBScheduleApp({
 
       {!isAdminSurface && adminAlertCount > 0 ? (
         <p className="text-xs text-gray-600 dark:text-zinc-400">
-          Diagnostics, alias repairs, refresh controls, and owners CSV maintenance moved to the
-          admin surface to keep the default league experience focused.
+          Diagnostics, alias repairs, refresh controls, and owners CSV maintenance live on the admin
+          surface to keep the default league experience focused.
         </p>
       ) : null}
 

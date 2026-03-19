@@ -70,8 +70,12 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
 test('league surface keeps admin tooling off the landing page when a schedule can render', () => {
   const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} />);
 
+  assert.match(html, /CFB League Dashboard/);
+  assert.match(html, /League Overview/);
   assert.match(html, /Overview/);
   assert.match(html, /Admin \/ Debug/);
+  assert.doesNotMatch(html, /League-first/);
+  assert.doesNotMatch(html, /CFB Office Pool/);
   assert.doesNotMatch(html, /League surface unavailable/);
   assert.doesNotMatch(html, /Commissioner tools and diagnostics/);
   assert.doesNotMatch(html, /Admin diagnostics: API usage/);
@@ -83,4 +87,10 @@ test('admin surface still renders dedicated admin and debug tooling', () => {
   assert.match(html, /Commissioner tools and diagnostics/);
   assert.match(html, /Admin diagnostics: API usage/);
   assert.match(html, /Back to league view/);
+});
+
+test('league surface admin attention count ignores informational provider rows', () => {
+  const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} initialIssues={[]} />);
+
+  assert.doesNotMatch(html, /admin item/);
 });
