@@ -126,3 +126,14 @@ test('primary view section still renders for standings without requiring a selec
     true
   );
 });
+
+test('primary view section still renders for overview without requiring a selected week', () => {
+  assert.equal(
+    shouldRenderPrimaryViewSection({
+      selectedTab: null,
+      selectedWeek: null,
+      viewMode: 'overview',
+    }),
+    true
+  );
+});

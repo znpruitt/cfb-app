@@ -34,7 +34,7 @@ test('week tabs render dynamic canonical date sublabels', () => {
   assert.match(html, /Postseason/);
 });
 
-test('week tabs are visually de-emphasized when standings is active', () => {
+test('week tabs are visually de-emphasized when a season-scoped view is active', () => {
   const html = renderToStaticMarkup(
     <WeekControls
       weeks={[1]}
@@ -48,10 +48,12 @@ test('week tabs are visually de-emphasized when standings is active', () => {
       onSelectPostseason={() => {}}
       onSelectedConferenceChange={() => {}}
       onTeamFilterChange={() => {}}
-      isStandingsActive={true}
+      isSeasonViewActive={true}
+      activeViewLabel="Overview"
     />
   );
 
   assert.match(html, /opacity-75/);
   assert.match(html, /border-gray-400 bg-gray-100 text-gray-500/);
+  assert.match(html, /Supporting context while/);
 });

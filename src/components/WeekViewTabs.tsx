@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type WeekViewMode = 'schedule' | 'matchups' | 'standings';
+export type WeekViewMode = 'overview' | 'schedule' | 'matchups' | 'standings';
 
 type WeekViewTabsProps = {
   value: WeekViewMode;
@@ -12,6 +12,7 @@ export default function WeekViewTabs({ value, onChange }: WeekViewTabsProps): Re
     <div className="inline-flex rounded border border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-800">
       {(
         [
+          { key: 'overview', label: 'Overview' },
           { key: 'schedule', label: 'Schedule' },
           { key: 'matchups', label: 'Matchups' },
           { key: 'standings', label: 'Standings' },
