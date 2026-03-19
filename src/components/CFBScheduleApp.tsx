@@ -70,17 +70,21 @@ const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFu
 
 type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
+  initialGames?: AppGame[];
+  initialIssues?: string[];
 };
 
 export default function CFBScheduleApp({
   surface = 'league',
+  initialGames = [],
+  initialIssues = [],
 }: CFBScheduleAppProps = {}): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
 
   const [selectedSeason] = useState<number>(DEFAULT_SEASON);
   const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason), [selectedSeason]);
 
-  const [games, setGames] = useState<AppGame[]>([]);
+  const [games, setGames] = useState<AppGame[]>(initialGames);
   const [byes, setByes] = useState<Record<number, string[]>>({});
   const [conferences, setConferences] = useState<string[]>(['ALL']);
   const [roster, setRoster] = useState<OwnerRow[]>([]);
@@ -94,7 +98,7 @@ export default function CFBScheduleApp({
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
   const [loadingLive, setLoadingLive] = useState<boolean>(false);
   const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
-  const [issues, setIssues] = useState<string[]>([]);
+  const [issues, setIssues] = useState<string[]>(initialIssues);
   const [lastScoresRefreshAt, setLastScoresRefreshAt] = useState<string>('');
   const [lastOddsRefreshAt, setLastOddsRefreshAt] = useState<string>('');
   const [lastScheduleRefreshAt, setLastScheduleRefreshAt] = useState<string>('');
@@ -885,6 +889,10 @@ export default function CFBScheduleApp({
   );
 
   const isAdminSurface = surface === 'admin';
+  const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
+  const fatalBootstrapIssues = issues.filter(isScheduleIssue);
+  const hasFatalLeagueBootstrapFailure =
+    !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
   const adminAlertCount =
     issues.length +
     diag.length +
@@ -937,6 +945,50 @@ export default function CFBScheduleApp({
         </p>
       ) : null}
 
+      {hasFatalLeagueBootstrapFailure ? (
+        <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700 dark:text-red-300">
+              League surface unavailable
+            </p>
+            <h2 className="text-xl font-semibold text-red-950 dark:text-red-100">
+              We couldn’t load the schedule needed to render the league view
+            </h2>
+            <p className="max-w-3xl text-sm text-red-800 dark:text-red-200">
+              Try rebuilding the schedule from CFBD below. If the issue persists, open the admin
+              surface for deeper diagnostics and repair tools.
+            </p>
+          </div>
+
+          <ul className="space-y-2 text-sm text-red-900 dark:text-red-100">
+            {fatalBootstrapIssues.map((issue) => (
+              <li
+                key={issue}
+                className="rounded border border-red-200 bg-white/80 px-3 py-2 dark:border-red-900/60 dark:bg-zinc-950/60"
+              >
+                {issue}
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="rounded border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-900 transition hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:bg-zinc-950 dark:text-red-100 dark:hover:bg-red-950/40"
+              onClick={() => void loadScheduleFromApi(undefined, undefined, { bypassCache: true })}
+              disabled={loadingSchedule}
+            >
+              {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
+            </button>
+            <Link
+              href={adminHref}
+              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Open Admin / Debug
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
       {isAdminSurface ? (
         <AdminDebugSurface
           aliasStaging={aliasStaging}
@@ -983,7 +1035,7 @@ export default function CFBScheduleApp({
         />
       ) : null}
 
-      {(weeks.length > 0 || hasPostseasonGames) && (
+      {canRenderLeagueSurface && (
         <>
           <section className="space-y-4 rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div className="flex flex-wrap items-start justify-between gap-4">
