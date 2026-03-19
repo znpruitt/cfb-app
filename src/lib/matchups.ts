@@ -275,8 +275,48 @@ function compareSlates(a: OwnerWeekSlate, b: OwnerWeekSlate): number {
   return a.owner.localeCompare(b.owner);
 }
 
+type OwnerCountedRecord = {
+  wins: number;
+  losses: number;
+  ties: number;
+};
+
+function countOwnerRecordForBucket(
+  bucket: MatchupBucket,
+  owner: string,
+  score?: ScorePack
+): OwnerCountedRecord {
+  const state = getStateFromScore(score);
+  if (!score || state !== 'final') {
+    return { wins: 0, losses: 0, ties: 0 };
+  }
+
+  const participations: Array<'away' | 'home'> = [];
+  if (bucket.awayOwner === owner) participations.push('away');
+  if (bucket.homeOwner === owner) participations.push('home');
+
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+
+  for (const side of participations) {
+    const ownerScore = side === 'away' ? score.away.score : score.home.score;
+    const opponentScore = side === 'away' ? score.home.score : score.away.score;
+
+    if (ownerScore == null || opponentScore == null) continue;
+
+    if (ownerScore > opponentScore) wins += 1;
+    else if (ownerScore < opponentScore) losses += 1;
+    else ties += 1;
+  }
+
+  return { wins, losses, ties };
+}
+
 function buildOwnerWeekPerformance(
+  owner: string,
   games: OwnerSlateGame[],
+  buckets: MatchupBucket[],
   scoresByKey: Record<string, ScorePack>
 ): MatchupPerformanceState {
   let liveGames = 0;
@@ -297,17 +337,13 @@ function buildOwnerWeekPerformance(
     } else {
       scheduledGames += 1;
     }
+  }
 
-    if (!score) continue;
-
-    const ownerScore = slateGame.ownerTeamSide === 'away' ? score.away.score : score.home.score;
-    const opponentScore = slateGame.ownerTeamSide === 'away' ? score.home.score : score.away.score;
-
-    if (ownerScore == null || opponentScore == null || state !== 'final') continue;
-
-    if (ownerScore > opponentScore) wins += 1;
-    else if (ownerScore < opponentScore) losses += 1;
-    else ties += 1;
+  for (const bucket of buckets) {
+    const counted = countOwnerRecordForBucket(bucket, owner, scoresByKey[bucket.game.key]);
+    wins += counted.wins;
+    losses += counted.losses;
+    ties += counted.ties;
   }
 
   const record = `${wins}–${losses}${ties > 0 ? `–${ties}` : ''}`;
@@ -351,6 +387,7 @@ export function deriveOwnerWeekSlates(
   const sections = deriveWeekMatchupSections(games, rosterByTeam);
   const relevantBuckets = [...sections.ownerMatchups, ...sections.secondaryGames];
   const slatesByOwner = new Map<string, OwnerSlateGame[]>();
+  const bucketsByOwner = new Map<string, MatchupBucket[]>();
 
   for (const bucket of relevantBuckets) {
     const ownersForBucket = new Set<string>();
@@ -364,6 +401,10 @@ export function deriveOwnerWeekSlates(
       const existing = slatesByOwner.get(owner) ?? [];
       existing.push(slateGame);
       slatesByOwner.set(owner, existing);
+
+      const existingBuckets = bucketsByOwner.get(owner) ?? [];
+      existingBuckets.push(bucket);
+      bucketsByOwner.set(owner, existingBuckets);
     }
   }
 
@@ -409,7 +450,12 @@ export function deriveOwnerWeekSlates(
         liveGames,
         finalGames,
         scheduledGames,
-        performance: buildOwnerWeekPerformance(gamesForOwner, scoresByKey),
+        performance: buildOwnerWeekPerformance(
+          owner,
+          gamesForOwner,
+          bucketsByOwner.get(owner) ?? [],
+          scoresByKey
+        ),
       };
     })
     .sort(compareSlates);

@@ -15,9 +15,11 @@ These principles help avoid feature creep and keep the project manageable for a 
 
 Current Development Focus
 
-Phase 1 architecture stabilization is now considered complete after close-out audit. The app is operating with API-first schedule/scores ingestion, canonical identity resolution, schedule-derived game attachment boundaries for odds/scores, and shared upstream retry/backoff/pacing protections.
+Phase 1 architecture stabilization is now complete after close-out audit. The app is operating with API-first schedule/scores ingestion, canonical identity resolution, schedule-derived game attachment boundaries for odds/scores, and shared upstream retry/backoff/pacing protections.
 
-Current focus should shift to Phase 2 user-facing features. Remaining Phase 1 maintainability work (mainly additional decomposition of `src/components/CFBScheduleApp.tsx` and `src/lib/scoreAttachment.ts`) is tracked as **optional technical debt**, not a release blocker.
+Current focus is Phase 2 **core league surfaces**. The product direction is now league-first: schedule data remains the canonical source of game truth, but the user experience should center on helping league members understand the league through Matchups, Standings, Overview/Home context, and clean postseason continuity.
+
+Remaining Phase 1 maintainability work (mainly additional decomposition of `src/components/CFBScheduleApp.tsx` and `src/lib/scoreAttachment.ts`) is tracked as **optional technical debt**, not a release blocker.
 
 Development Workflow
 
@@ -183,53 +185,77 @@ Status note (close-out): these criteria are now met in the current repository st
 
 Phase 2 – Core League Features (Usability)
 
-Goal: Deliver a clean, intuitive interface that league members enjoy using during game days while maintaining simplicity.
+Goal: Deliver the core league-first surfaces that make the app the default place to understand the league throughout the season.
 
-After stabilizing the architecture, shift focus to user‑facing functionality. This phase should avoid features typical of large platforms (such as native mobile apps, push notifications, email alerts, public APIs, WebSocket streaming, chat or gamification). Instead, concentrate on practical features that make the app the league’s go‑to dashboard.
+After stabilizing the architecture, Phase 2 should focus on league consumption rather than generic polish in isolation. Weekly Matchups remains a key surface, but it should sit alongside first-class Standings, a useful Overview/Home foundation, and postseason-aware league presentation. Responsive/mobile polish remains important support work, but it should follow the shape of the primary league surfaces rather than define the phase by itself.
 
 Key Objectives
 
-Clear weekly schedule view:
+Weekly Matchups as a core league view:
 
-Provide a simple schedule page listing games involving league teams for each week. Show kickoff times, opponents, locations and betting context (e.g., spreads, totals). Use color coding or icons to indicate game status (upcoming, live, final).
+Provide a strong owner-vs-owner Matchups experience with live scores, odds context, and outcome clarity. Matchups should remain one of the main league tabs, not just a derivative schedule presentation.
 
-Automatic week detection: Determine the current college football week from the schedule or current date and default the UI to that week on page load. This reduces friction for users and ensures they immediately see relevant games.
+Standings foundation:
 
-Improved matchup presentation:
+Implement a reliable standings surface backed by shared owner metrics and explicit standings rules. The same derived utility should support standings display, overview summaries, and matchup context where useful.
 
-Develop a card‑based interface that pairs owners against each other based on their teams. Keep critical information (teams, owners, score and spread) visible while scrolling, inspired by ESPN’s pinned‑score design.
+League overview / home foundation:
 
-Responsive layout:
+Create a league-first landing surface that summarizes the standings picture, highlights league-relevant live or upcoming games, and gives users quick orientation into the current week.
 
-Ensure the web app renders well on desktops, tablets and phones without building native mobile apps. This can be achieved through responsive CSS frameworks and testing.
+Postseason league support:
 
-Owner vs owner visualization:
+Ensure Matchups, Standings, and Overview continue to behave coherently when the schedule reaches postseason games so the league narrative does not stop at the end of the regular season.
 
-Clearly indicate which owner’s team is favored based on the point spread and show who is currently winning as scores update. Display both teams’ logos or colors to aid quick recognition.
+Responsive support across core surfaces:
 
-Basic standings tracking:
+Ensure Overview, Matchups, Standings, and Schedule remain readable and usable on phones, tablets, and desktops.
 
-Maintain a simple standings table showing each owner’s record (wins/losses) and optional point differential. This helps members understand league standings at a glance.
+Feedback path:
 
-User feedback mechanisms:
+Include a lightweight “Report Issue” or “Submit Feedback” entry point so users can flag data problems or UX confusion.
 
-Include a “Report Issue” or “Submit Feedback” button in the interface. Inspired by user feedback options in fantasy apps, this feature allows league members to flag data errors or suggest improvements.
+Optional presentation refinements:
+
+Favored-owner or leading-owner emphasis can improve scanability, but it should remain lower priority than establishing standings, overview, and postseason-capable league views.
+
+Standings rules
+
+Standings should be derived from **final games involving owned teams** only.
+
+Any final win by an owned team counts the same regardless of opponent type.
+
+Any final loss by an owned team counts the same regardless of opponent type.
+
+If the same owner controls both teams in a final game, that game counts as both a win and a loss for that owner.
+
+Unowned vs unowned games do not count.
+
+Scheduled and live games do not count toward standings.
+
+Ranking / tiebreak order:
+
+1. Win %
+2. Wins
+3. Point Differential
 
 Completion criteria
 
 Phase 2 is complete when:
 
-A weekly schedule view displays all league games for the current week with automatic week detection.
+Standings is a first-class, trustworthy league surface backed by documented rules and shared derived metrics.
 
-Matchup cards clearly show owner vs owner matchups with live scores and betting context.
+Weekly Matchups provides strong owner-vs-owner consumption with clear live/final context.
 
-The web interface is responsive across devices.
+A league overview / home foundation gives users useful top-level league orientation.
 
-Standings tracking (wins/losses and optional point differential) is available.
+The app remains usable and coherent for postseason league consumption, not just regular-season weekly browsing.
 
-A feedback mechanism allows users to report issues.
+Responsive support exists across the core league surfaces (Overview, Matchups, Standings, Schedule).
 
-These features should be stable and intuitive, making the app the default place for league members to follow games.
+A lightweight feedback/reporting path is available.
+
+These criteria intentionally keep Phase 2 grounded while requiring more than a weekly schedule page plus basic responsive cleanup.
 
 Phase 3 – Historical Analytics (Optional)
 
@@ -307,4 +333,4 @@ Add a simple API caching layer (in‑memory with optional JSON files) and rate�
 
 Conclusion
 
-This roadmap reduces unnecessary scope and clearly separates architecture work (Phase 1), user‑facing league features (Phase 2) and optional historical analytics (Phase 3). It places reliability and maintainability at the core, preserves the strengths of deterministic identity resolution and diagnostic transparency, and remains realistic for a single developer using AI assistance. By progressing through these three phases, the CFB Schedule App can deliver a dependable private league dashboard while leaving room for future ideas when capacity allows.
+This roadmap keeps the architecture stable while shifting the active product work toward league-first surfaces. It preserves schedule truth, deterministic identity resolution, and diagnostic transparency, while grounding Phase 2 around Standings, Matchups, Overview/Home, postseason continuity, and responsive support across those surfaces. That keeps the scope realistic for a single developer without reducing the product to schedule viewing alone.
