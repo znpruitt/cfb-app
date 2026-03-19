@@ -16,8 +16,8 @@
 ## Phase 2 execution queue (ordered, PR-sized)
 
 1. **Standings foundation**
-   - Lock in standings rules for league-owned teams before UI implementation drifts.
-   - Implement shared derived league metrics / owner metrics utility.
+   - Lock in standings rules for league-owned teams before UI implementation drifts, including self-matchups counting as both a win and a loss for the same owner.
+   - Implement shared derived league metrics / owner metrics utility using those standings rules consistently across standings and league summaries.
    - Add a first-class Standings tab / view.
 
 2. **League overview / homepage foundation**

@@ -227,6 +227,8 @@ Any final win by an owned team counts the same regardless of opponent type.
 
 Any final loss by an owned team counts the same regardless of opponent type.
 
+If the same owner controls both teams in a final game, that game counts as both a win and a loss for that owner.
+
 Unowned vs unowned games do not count.
 
 Scheduled and live games do not count toward standings.

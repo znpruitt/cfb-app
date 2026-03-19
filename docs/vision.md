@@ -88,7 +88,7 @@ Phase 2 – Core League Surfaces (Current)
 
 Establish standings as a first-class league surface using clear, documented rules.
 
-Build shared owner metrics / derived league utilities that support standings, overview, and matchup context.
+Build shared owner metrics / derived league utilities that support standings, overview, and matchup context, including agreed self-matchup handling.
 
 Create the league overview / home foundation and strengthen weekly Matchups as a core league view.
 
