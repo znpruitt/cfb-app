@@ -38,6 +38,7 @@ export type MatchupCardViewModel = MatchupBucket & {
 };
 
 export type OwnerSlateGame = {
+  owner: string;
   game: AppGame;
   ownerTeamSide: 'away' | 'home';
   ownerTeamName: string;
@@ -231,6 +232,7 @@ export function buildMatchupCardViewModel(
 function buildOwnerSlateGame(bucket: MatchupBucket, owner: string): OwnerSlateGame | null {
   if (bucket.awayOwner === owner) {
     return {
+      owner,
       game: bucket.game,
       ownerTeamSide: 'away',
       ownerTeamName: bucket.game.csvAway,
@@ -243,6 +245,7 @@ function buildOwnerSlateGame(bucket: MatchupBucket, owner: string): OwnerSlateGa
 
   if (bucket.homeOwner === owner) {
     return {
+      owner,
       game: bucket.game,
       ownerTeamSide: 'home',
       ownerTeamName: bucket.game.csvHome,
@@ -258,7 +261,8 @@ function buildOwnerSlateGame(bucket: MatchupBucket, owner: string): OwnerSlateGa
 
 function compareSlates(a: OwnerWeekSlate, b: OwnerWeekSlate): number {
   if (b.liveGames !== a.liveGames) return b.liveGames - a.liveGames;
-  if (b.finalGames !== a.finalGames) return b.finalGames - a.finalGames;
+  if (a.scheduledGames !== b.scheduledGames) return a.scheduledGames - b.scheduledGames;
+  if (a.finalGames !== b.finalGames) return a.finalGames - b.finalGames;
   if (b.totalGames !== a.totalGames) return b.totalGames - a.totalGames;
   return a.owner.localeCompare(b.owner);
 }
@@ -298,62 +302,36 @@ function buildOwnerWeekPerformance(
     else ties += 1;
   }
 
-  const opponentOwners = Array.from(
-    new Set(
-      games.map((game) => game.opponentOwner).filter((value): value is string => Boolean(value))
-    )
-  );
-
-  if (finalGames > 0 && scheduledGames === 0 && wins + losses + ties > 0) {
-    const record = `${wins}-${losses}${ties > 0 ? `-${ties}` : ''}`;
-    const detailParts = [
-      `${games.length} game${games.length === 1 ? '' : 's'} this week`,
-      `final record ${record}`,
-    ];
-    if (liveGames > 0) detailParts.push(`${liveGames} live`);
-    if (scheduledGames > 0) detailParts.push(`${scheduledGames} awaiting kickoff`);
-    if (opponentOwners.length > 0) detailParts.push(`faces ${opponentOwners.join(', ')}`);
-
-    return {
-      summary: `Finals in progress · ${record}`,
-      detail: detailParts.join(' · '),
-      tone: liveGames > 0 ? 'inprogress' : 'final',
-    };
-  }
-
-  if (liveGames > 0) {
-    const detailParts = [
-      `${games.length} game${games.length === 1 ? '' : 's'} this week`,
-      `${liveGames} live`,
-    ];
-    if (scheduledGames > 0) detailParts.push(`${scheduledGames} awaiting kickoff`);
-    if (opponentOwners.length > 0) detailParts.push(`faces ${opponentOwners.join(', ')}`);
-
-    return {
-      summary: liveGames === games.length ? 'Live slate' : `${liveGames} live`,
-      detail: detailParts.join(' · '),
-      tone: 'inprogress',
-    };
-  }
+  const record = `${wins}–${losses}${ties > 0 ? `–${ties}` : ''}`;
 
   if (scheduledGames === games.length) {
     return {
-      summary: games.length === 1 ? '1 game scheduled' : `${games.length} games scheduled`,
-      detail:
-        opponentOwners.length > 0
-          ? `Awaiting kickoff · faces ${opponentOwners.join(', ')}`
-          : 'Awaiting kickoff-heavy slate',
+      summary: 'Scheduled',
+      detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
       tone: 'scheduled',
     };
   }
 
+  if (liveGames > 0) {
+    return {
+      summary: `${record} · ${liveGames} live`,
+      detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
+      tone: 'inprogress',
+    };
+  }
+
+  if (finalGames > 0) {
+    return {
+      summary: record,
+      detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
+      tone: scheduledGames > 0 ? 'neutral' : 'final',
+    };
+  }
+
   return {
-    summary: `${games.length} game${games.length === 1 ? '' : 's'} this week`,
-    detail:
-      opponentOwners.length > 0
-        ? `Mixed slate · faces ${opponentOwners.join(', ')}`
-        : 'Mixed owned-team slate this week',
-    tone: 'neutral',
+    summary: 'Scheduled',
+    detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
+    tone: 'scheduled',
   };
 }
 
@@ -384,6 +362,17 @@ export function deriveOwnerWeekSlates(
   return Array.from(slatesByOwner.entries())
     .map(([owner, ownerGames]) => {
       const gamesForOwner = ownerGames.slice().sort((a, b) => {
+        const stateRank = (game: OwnerSlateGame): number => {
+          const state = getStateFromScore(scoresByKey[game.game.key]);
+          if (state === 'inprogress') return 0;
+          if (state === 'scheduled') return 1;
+          if (state === 'final') return 2;
+          return 3;
+        };
+
+        const rankDiff = stateRank(a) - stateRank(b);
+        if (rankDiff !== 0) return rankDiff;
+
         const aTime = a.game.date ? new Date(a.game.date).getTime() : Number.MAX_SAFE_INTEGER;
         const bTime = b.game.date ? new Date(b.game.date).getTime() : Number.MAX_SAFE_INTEGER;
         if (aTime !== bTime) return aTime - bTime;

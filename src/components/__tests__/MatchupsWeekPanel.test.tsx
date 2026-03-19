@@ -87,11 +87,14 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
   assert.match(html, /Owner Weekly Slates/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
-  assert.match(html, /2 games/);
-  assert.match(html, /Faces Bob/);
-  assert.match(html, /vs owner Bob/);
-  assert.match(html, /Unowned \/ Non-league/);
+  assert.match(html, /0–0 · 1 live/);
+  assert.match(html, /2 games · vs Bob, NoClaim \(FBS\)/);
+  assert.match(html, /vs Bob/);
+  assert.match(html, /NoClaim \(FBS\)/);
   assert.match(html, /Leading 24-17/);
+  assert.doesNotMatch(html, /Faces Bob/);
+  assert.doesNotMatch(html, /vs owner Bob/);
+  assert.doesNotMatch(html, /Unowned \/ Non-league/);
 });
 
 test('matchups panel keeps scheduled fallback zero-zero scores out of tie messaging', () => {
@@ -117,7 +120,7 @@ test('matchups panel keeps scheduled fallback zero-zero scores out of tie messag
     />
   );
 
-  assert.match(html, /1 game scheduled/);
+  assert.match(html, /Scheduled/);
   assert.doesNotMatch(html, /Tied 0-0/);
 });
 
@@ -137,7 +140,7 @@ test('matchups panel omits unowned-vs-unowned from owner cards and summarizes ex
   assert.match(html, /1 excluded game/);
 });
 
-test('matchups panel does not duplicate same-owner games when one owner has both teams', () => {
+test('matchups panel summarizes self-matchups as Self', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
       games={[game({ key: 'g-self', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
@@ -162,11 +165,13 @@ test('matchups panel does not duplicate same-owner games when one owner has both
 
   assert.match(html, /Alex/);
   assert.match(html, /1 game/);
+  assert.match(html, /1–0/);
+  assert.match(html, /1 game · vs Self/);
   assert.equal((html.match(/Texas/g) ?? []).length, 1);
   assert.doesNotMatch(html, /2 games/);
 });
 
-test('owner slate stays mixed when one game is final and another is still scheduled', () => {
+test('owner slate shows final record when one game is final and another is still scheduled', () => {
   const games = [
     game({ key: 'g-final', csvAway: 'Clemson', csvHome: 'Miami' }),
     game({ key: 'g-later', csvAway: 'Oregon', csvHome: 'USC' }),
@@ -193,7 +198,7 @@ test('owner slate stays mixed when one game is final and another is still schedu
   assert.equal(casey.finalGames, 1);
   assert.equal(casey.scheduledGames, 1);
   assert.equal(casey.performance.tone, 'neutral');
-  assert.equal(casey.performance.summary, '2 games this week');
+  assert.equal(casey.performance.summary, '1–0');
 
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
@@ -206,7 +211,137 @@ test('owner slate stays mixed when one game is final and another is still schedu
   );
 
   assert.match(html, /Casey/);
-  assert.match(html, /2 games/);
-  assert.match(html, /1 final/);
-  assert.match(html, /1 scheduled/);
+  assert.match(html, /1–0/);
+  assert.match(html, /2 games · vs Dana, Evan/);
+  assert.doesNotMatch(html, /1 final/);
+  assert.doesNotMatch(html, /1 scheduled/);
+});
+
+test('matchups panel distinguishes unowned fbs opponents from fcs opponents', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({ key: 'g-fbs', csvAway: 'Texas Tech', csvHome: 'Houston', homeConf: 'Big 12' }),
+        game({ key: 'g-fcs', csvAway: 'Kansas State', csvHome: 'North Dakota', homeConf: 'FCS' }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Texas Tech', 'Jordan'],
+          ['Kansas State', 'Jordan'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /NoClaim \(FBS\)/);
+  assert.match(html, /FCS/);
+  assert.doesNotMatch(html, /Unowned \/ Non-league/);
+});
+
+test('matchups panel counts repeated opponents before truncating the summary list', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({ key: 'g1', csvAway: 'A1', csvHome: 'B1' }),
+        game({ key: 'g2', csvAway: 'A2', csvHome: 'B2' }),
+        game({ key: 'g3', csvAway: 'A3', csvHome: 'B3' }),
+        game({ key: 'g4', csvAway: 'A4', csvHome: 'B4' }),
+        game({ key: 'g5', csvAway: 'A5', csvHome: 'B5' }),
+        game({ key: 'g6', csvAway: 'A6', csvHome: 'B6' }),
+        game({ key: 'g7', csvAway: 'A7', csvHome: 'B7' }),
+        game({ key: 'g8', csvAway: 'A8', csvHome: 'B8' }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['A1', 'Taylor'],
+          ['A2', 'Taylor'],
+          ['A3', 'Taylor'],
+          ['A4', 'Taylor'],
+          ['A5', 'Taylor'],
+          ['A6', 'Taylor'],
+          ['A7', 'Taylor'],
+          ['A8', 'Taylor'],
+          ['B1', 'Pruitt'],
+          ['B2', 'Pruitt'],
+          ['B3', 'Carter'],
+          ['B4', 'Carter'],
+          ['B5', 'Carter'],
+          ['B6', 'Surowiec'],
+          ['B7', 'Jordan'],
+          ['B8', 'Ballard'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /8 games · vs Pruitt \(x2\), Carter \(x3\), Surowiec \+2/);
+  assert.match(html, /Show all/);
+});
+
+test('matchups panel preserves championship placeholder labels instead of collapsing them to FCS', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'g-sec-title',
+          stage: 'conference_championship',
+          label: 'SEC Championship',
+          csvAway: 'Georgia',
+          csvHome: 'SEC Team TBD',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'uga',
+              displayName: 'Georgia',
+              canonicalName: 'Georgia',
+              rawName: 'Georgia',
+            },
+            home: {
+              kind: 'placeholder',
+              slotId: 'sec-title-home',
+              displayName: 'SEC Team TBD',
+              source: 'postseason-classifier',
+            },
+          },
+        }),
+        game({
+          key: 'g-acc-title',
+          stage: 'conference_championship',
+          label: 'ACC Championship',
+          csvAway: 'Georgia',
+          csvHome: 'ACC Team TBD',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'uga',
+              displayName: 'Georgia',
+              canonicalName: 'Georgia',
+              rawName: 'Georgia',
+            },
+            home: {
+              kind: 'placeholder',
+              slotId: 'acc-title-home',
+              displayName: 'ACC Team TBD',
+              source: 'postseason-classifier',
+            },
+          },
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Georgia', 'Alex']])}
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /2 games · vs SEC Team TBD, ACC Team TBD/);
+  assert.match(html, /SEC Team TBD/);
+  assert.match(html, /ACC Team TBD/);
+  assert.doesNotMatch(html, /2 games · vs FCS/);
 });
