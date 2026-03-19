@@ -80,6 +80,10 @@ function getOpponentDescriptor(slateGame: OwnerSlateGame): string {
       ? slateGame.game.participants.home
       : slateGame.game.participants.away;
 
+  if (opponentParticipant.kind === 'placeholder' || opponentParticipant.kind === 'derived') {
+    return opponentParticipant.displayName;
+  }
+
   if (opponentParticipant.kind !== 'team' || isFcsConference(opponentConference)) {
     return 'FCS';
   }

@@ -283,3 +283,65 @@ test('matchups panel counts repeated opponents before truncating the summary lis
   assert.match(html, /8 games · vs Pruitt \(x2\), Carter \(x3\), Surowiec \+2/);
   assert.match(html, /Show all/);
 });
+
+test('matchups panel preserves championship placeholder labels instead of collapsing them to FCS', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'g-sec-title',
+          stage: 'conference_championship',
+          label: 'SEC Championship',
+          csvAway: 'Georgia',
+          csvHome: 'SEC Team TBD',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'uga',
+              displayName: 'Georgia',
+              canonicalName: 'Georgia',
+              rawName: 'Georgia',
+            },
+            home: {
+              kind: 'placeholder',
+              slotId: 'sec-title-home',
+              displayName: 'SEC Team TBD',
+              source: 'postseason-classifier',
+            },
+          },
+        }),
+        game({
+          key: 'g-acc-title',
+          stage: 'conference_championship',
+          label: 'ACC Championship',
+          csvAway: 'Georgia',
+          csvHome: 'ACC Team TBD',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'uga',
+              displayName: 'Georgia',
+              canonicalName: 'Georgia',
+              rawName: 'Georgia',
+            },
+            home: {
+              kind: 'placeholder',
+              slotId: 'acc-title-home',
+              displayName: 'ACC Team TBD',
+              source: 'postseason-classifier',
+            },
+          },
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Georgia', 'Alex']])}
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /2 games · vs SEC Team TBD, ACC Team TBD/);
+  assert.match(html, /SEC Team TBD/);
+  assert.match(html, /ACC Team TBD/);
+  assert.doesNotMatch(html, /2 games · vs FCS/);
+});
