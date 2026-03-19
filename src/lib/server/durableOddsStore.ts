@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import type { DurableOddsRecord, DurableOddsSnapshot } from '../odds.ts';
+import { writeJsonFileAtomic } from './atomicFileWrite.ts';
 
 type DurableOddsStoreFile = {
   season: number;
@@ -102,8 +103,7 @@ async function writeStoreFile(
     items: Object.values(store).sort((a, b) => a.canonicalGameId.localeCompare(b.canonicalGameId)),
   };
 
-  await fs.mkdir(dataDir(), { recursive: true });
-  await fs.writeFile(durableOddsFile(season), JSON.stringify(file, null, 2), 'utf8');
+  await writeJsonFileAtomic(durableOddsFile(season), file);
 }
 
 export async function getDurableOddsStore(

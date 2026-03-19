@@ -13,7 +13,7 @@ import {
   setDurableOddsStore,
 } from '../../../lib/server/durableOddsStore.ts';
 
-import { GET, __resetOddsRouteCacheForTests } from './route.ts';
+import { GET, __resetOddsRouteCacheForTests, resolveDefaultSeason } from './route.ts';
 
 const DURABLE_ODDS_TEST_SEASON = 2026;
 
@@ -24,6 +24,37 @@ test.beforeEach(async () => {
   __resetDurableOddsStoreForTests();
   __resetOddsRouteCacheForTests();
   process.env.ODDS_API_KEY = 'test-key';
+});
+
+test('default odds season follows football season year before July when no env override is set', () => {
+  const priorSeasonEnv = process.env.NEXT_PUBLIC_SEASON;
+  delete process.env.NEXT_PUBLIC_SEASON;
+
+  try {
+    assert.equal(resolveDefaultSeason(new Date('2026-03-19T12:00:00.000Z')), 2025);
+    assert.equal(resolveDefaultSeason(new Date('2026-09-01T12:00:00.000Z')), 2026);
+  } finally {
+    if (priorSeasonEnv === undefined) {
+      delete process.env.NEXT_PUBLIC_SEASON;
+    } else {
+      process.env.NEXT_PUBLIC_SEASON = priorSeasonEnv;
+    }
+  }
+});
+
+test('NEXT_PUBLIC_SEASON override still wins for odds default season', () => {
+  const priorSeasonEnv = process.env.NEXT_PUBLIC_SEASON;
+  process.env.NEXT_PUBLIC_SEASON = '2031';
+
+  try {
+    assert.equal(resolveDefaultSeason(new Date('2026-03-19T12:00:00.000Z')), 2031);
+  } finally {
+    if (priorSeasonEnv === undefined) {
+      delete process.env.NEXT_PUBLIC_SEASON;
+    } else {
+      process.env.NEXT_PUBLIC_SEASON = priorSeasonEnv;
+    }
+  }
 });
 
 test('402 with valid usage headers persists authoritative header-derived snapshot', async () => {

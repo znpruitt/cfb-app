@@ -27,6 +27,7 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '../../../lib/server/apiUsageBudget.ts';
+import { seasonYearForToday } from '../../../lib/scores/normalizers.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
 import { SEED_ALIASES, type AliasMap } from '../../../lib/teamNames.ts';
 
@@ -71,7 +72,10 @@ const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/
 const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
 const MARKETS = ['h2h', 'spreads', 'totals'];
 const REGIONS = ['us'];
-const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
+export function resolveDefaultSeason(now = new Date()): number {
+  const envSeason = Number(process.env.NEXT_PUBLIC_SEASON);
+  return Number.isInteger(envSeason) && envSeason > 0 ? envSeason : seasonYearForToday(now);
+}
 
 const ODDS_RETRY_POLICY = {
   maxAttempts: 3,
@@ -202,7 +206,7 @@ function validateOptionalCsvParam(
     bookmakers: field === 'bookmakers' ? values : BOOKMAKERS,
     markets: field === 'markets' ? values : MARKETS,
     regions: field === 'regions' ? values : REGIONS,
-    season: DEFAULT_SEASON,
+    season: resolveDefaultSeason(),
   };
 }
 
@@ -213,7 +217,7 @@ function validateSeason(raw: string | null): QueryValidationResult {
       bookmakers: BOOKMAKERS,
       markets: MARKETS,
       regions: REGIONS,
-      season: DEFAULT_SEASON,
+      season: resolveDefaultSeason(),
     };
   }
 
@@ -240,7 +244,8 @@ function validateQuery(url: URL): QueryValidationResult {
   let bookmakers = BOOKMAKERS;
   let markets = MARKETS;
   let regions = REGIONS;
-  let season = DEFAULT_SEASON;
+  const defaultSeason = resolveDefaultSeason();
+  let season = defaultSeason;
 
   const validators: Array<QueryValidationResult | null> = [
     validateSeason(url.searchParams.get('year')),
@@ -255,7 +260,7 @@ function validateQuery(url: URL): QueryValidationResult {
     bookmakers = result.bookmakers;
     markets = result.markets;
     regions = result.regions;
-    if (result.season !== DEFAULT_SEASON || url.searchParams.has('year')) {
+    if (result.season !== defaultSeason || url.searchParams.has('year')) {
       season = result.season;
     }
   }
