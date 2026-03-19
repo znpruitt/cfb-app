@@ -176,6 +176,15 @@ function formatOwnedScore(
 
   if (selfGame) {
     const symmetricSummary = `${slateGame.ownerTeamName} ${ownerScore} • ${slateGame.opponentTeamName} ${opponentScore}`;
+
+    if (state === 'final' && ownerScore === opponentScore) {
+      return {
+        summary: symmetricSummary,
+        tone: 'neutral',
+        detail: 'Unexpected final tie',
+      };
+    }
+
     return {
       summary: symmetricSummary,
       tone: state === 'final' ? 'finalSelf' : state,

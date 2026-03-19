@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+import StandingsPanel from '../StandingsPanel';
+
+test('standings panel renders expected columns and metrics', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      countedGames={4}
+      rows={[
+        {
+          owner: 'Alex',
+          wins: 3,
+          losses: 1,
+          winPct: 0.75,
+          pointsFor: 120,
+          pointsAgainst: 99,
+          pointDifferential: 21,
+          gamesBack: 0,
+          finalGames: 4,
+        },
+      ]}
+    />
+  );
+
+  for (const label of ['Rank', 'Owner', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB']) {
+    assert.match(html, new RegExp(label.replace('%', '%')));
+  }
+  assert.match(html, /Alex/);
+  assert.match(html, /3–1/);
+  assert.match(html, /0.750/);
+  assert.match(html, /\+21/);
+  assert.match(html, /Season-to-date standings/);
+});
