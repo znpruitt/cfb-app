@@ -31,6 +31,13 @@ export type StandingsSnapshot = {
   leaderWins: number;
 };
 
+export type StandingsCoverageState = 'complete' | 'partial' | 'error';
+
+export type StandingsCoverage = {
+  state: StandingsCoverageState;
+  message: string | null;
+};
+
 function getScoreState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' {
   const status = score?.status?.toLowerCase() ?? '';
 
@@ -46,6 +53,54 @@ function getScoreState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' 
   }
 
   return 'scheduled';
+}
+
+function hasOwnedTeam(game: AppGame, rosterByTeam: Map<string, string>): boolean {
+  return rosterByTeam.has(game.csvAway) || rosterByTeam.has(game.csvHome);
+}
+
+export function deriveStandingsCoverage(
+  games: AppGame[],
+  rosterByTeam: Map<string, string>,
+  scoresByKey: Record<string, ScorePack>,
+  options?: {
+    isLoadingScores?: boolean;
+    hasScoreLoadError?: boolean;
+  }
+): StandingsCoverage {
+  const relevantFinalGames = games.filter(
+    (game) => game.status === 'final' && hasOwnedTeam(game, rosterByTeam)
+  );
+
+  const hasMissingFinalScores = relevantFinalGames.some((game) => {
+    const score = scoresByKey[game.key];
+    if (getScoreState(score) !== 'final') return true;
+
+    return score?.away.score == null || score.home.score == null;
+  });
+
+  if (!hasMissingFinalScores) {
+    return { state: 'complete', message: null };
+  }
+
+  if (options?.hasScoreLoadError) {
+    return {
+      state: 'error',
+      message: 'Standings may be incomplete — some completed game scores could not be loaded.',
+    };
+  }
+
+  if (options?.isLoadingScores) {
+    return {
+      state: 'partial',
+      message: 'Standings may be incomplete — some completed game scores are still loading.',
+    };
+  }
+
+  return {
+    state: 'partial',
+    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+  };
 }
 
 function toOwnedFinalResult(
