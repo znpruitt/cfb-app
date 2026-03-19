@@ -313,6 +313,54 @@ Achievements, badges or other gamification features.
 
 Complex predictive models or betting analytics.
 
+### Platform Extensions (Post-Phase 2)
+
+#### Multi-Year Support
+
+Goal:
+Support multiple seasons (e.g., 2025, 2026, future years) with historical data retention.
+
+Scope:
+- Year selector
+- Season-scoped:
+  - schedule
+  - scores
+  - ownership
+  - standings
+- Ability to view past seasons
+
+Notes:
+- Ownership must be versioned per season
+- All derived metrics must be season-scoped
+- Default should be current active season
+
+Status:
+- Long-term
+- Non-priority
+- Not part of Phase 2
+
+#### Multi-League Support
+
+Goal:
+Support multiple independent leagues within the same app instance (e.g., work league, family league).
+
+Scope:
+- League-level separation of:
+  - ownership mappings
+  - standings
+  - league views
+- Shared schedule data, separate league overlays
+
+Notes:
+- Introduces top-level structure:
+  League → Season → Games → Ownership → Metrics
+- Requires clean data isolation per league
+
+Status:
+- Long-term
+- Non-priority
+- Not part of Phase 2
+
 Implementation Backlog (Example Tasks)
 
 This section illustrates how the roadmap translates into concrete development tasks. Each task should be scoped small enough to complete in a single iteration. Examples include:
