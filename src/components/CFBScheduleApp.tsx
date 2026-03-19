@@ -10,6 +10,7 @@ import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
 import StandingsPanel from './StandingsPanel';
+import OverviewPanel from './OverviewPanel';
 import WeekControls from './WeekControls';
 import AdminUsagePanel from './AdminUsagePanel';
 import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
@@ -31,6 +32,7 @@ import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { pillClass } from '../lib/gameUi';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
+import { deriveOverviewSnapshot } from '../lib/overview';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -46,6 +48,7 @@ import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import {
   deriveCanonicalActiveViewGames,
+  derivePrimarySurfaceKind,
   deriveRegularWeekTabs,
   shouldRenderPrimaryViewSection,
 } from '../lib/activeView';
@@ -83,7 +86,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [teamFilter, setTeamFilter] = useState<string>('');
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedTab, setSelectedTab] = useState<number | 'postseason' | null>(null);
-  const [weekViewMode, setWeekViewMode] = useState<WeekViewMode>('schedule');
+  const [weekViewMode, setWeekViewMode] = useState<WeekViewMode>('overview');
 
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
@@ -151,7 +154,7 @@ export default function CFBScheduleApp(): React.ReactElement {
     setSelectedTab(null);
     setSelectedConference('ALL');
     setTeamFilter('');
-    setWeekViewMode('schedule');
+    setWeekViewMode('overview');
     setOddsByKey({});
     setScoresByKey({});
     setIssues([]);
@@ -432,6 +435,28 @@ export default function CFBScheduleApp(): React.ReactElement {
     [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
   );
 
+  const overviewSnapshot = useMemo(
+    () =>
+      deriveOverviewSnapshot({
+        standingsRows: standingsSnapshot.rows,
+        standingsCoverage,
+        weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
+        allGames: games,
+        rosterByTeam,
+        scoresByKey,
+      }),
+    [
+      filteredWeekGames,
+      games,
+      postseasonGames,
+      rosterByTeam,
+      scoresByKey,
+      selectedTab,
+      standingsCoverage,
+      standingsSnapshot.rows,
+    ]
+  );
+
   const visibleGames = useMemo(() => {
     if (selectedTab === 'postseason') return postseasonGames;
     return filteredWeekGames;
@@ -444,6 +469,40 @@ export default function CFBScheduleApp(): React.ReactElement {
     selectedWeek,
     viewMode: weekViewMode,
   });
+  const primarySurfaceKind = derivePrimarySurfaceKind({
+    selectedTab,
+    viewMode: weekViewMode,
+  });
+  const isSeasonScopedView =
+    primarySurfaceKind === 'overview' || primarySurfaceKind === 'standings';
+  const activeSurfaceCopy =
+    weekViewMode === 'overview'
+      ? {
+          eyebrow: 'League-first home',
+          title: 'Overview',
+          description:
+            'Start with the current league picture, then drill into weekly schedule and matchup detail as needed.',
+        }
+      : weekViewMode === 'standings'
+        ? {
+            eyebrow: 'Season view',
+            title: 'Standings',
+            description:
+              'Season-long owner results and coverage status stay front-and-center here.',
+          }
+        : weekViewMode === 'matchups'
+          ? {
+              eyebrow: 'Week view',
+              title: 'Matchups',
+              description:
+                'Owner-vs-owner cards and owned-team weekly context for the selected tab.',
+            }
+          : {
+              eyebrow: 'Week view',
+              title: 'Schedule',
+              description:
+                'Full game list and live details for the selected week or postseason slate.',
+            };
 
   const scoreScopeGames = useMemo(() => {
     if (visibleGames.length > 0 || hasActiveViewFilters) {
@@ -923,6 +982,65 @@ export default function CFBScheduleApp(): React.ReactElement {
 
       {(weeks.length > 0 || hasPostseasonGames) && (
         <>
+          <section className="space-y-4 rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-3xl space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+                  {activeSurfaceCopy.eyebrow}
+                </p>
+                <h2 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+                  {activeSurfaceCopy.title}
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-zinc-300">
+                  {activeSurfaceCopy.description}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                  Surface
+                </div>
+                <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} />
+              </div>
+            </div>
+
+            {!isSeasonScopedView ? (
+              <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+                {selectedTab === 'postseason' ? (
+                  <>
+                    <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
+                    game
+                    {postseasonGames.length === 1 ? '' : 's'} shown
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold">Week {activeWeekForDisplay}</span>
+                    {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
+                      <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
+                    ) : null}{' '}
+                    {weekViewMode === 'matchups' ? (
+                      <>
+                        · {renderedMatchupCardCount} matchup card
+                        {renderedMatchupCardCount === 1 ? '' : 's'} shown
+                        {matchupSections.otherGames.length > 0 ? (
+                          <>
+                            {' '}
+                            · {matchupSections.otherGames.length} other game
+                            {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
+                          </>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        · {filteredWeekGames.length} matchup
+                        {filteredWeekGames.length === 1 ? '' : 's'} shown
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : null}
+          </section>
+
           <WeekControls
             weeks={weeks}
             selectedTab={selectedTab}
@@ -940,69 +1058,41 @@ export default function CFBScheduleApp(): React.ReactElement {
             onSelectPostseason={() => setSelectedTab('postseason')}
             onSelectedConferenceChange={setSelectedConference}
             onTeamFilterChange={setTeamFilter}
-            isStandingsActive={weekViewMode === 'standings'}
+            isSeasonViewActive={isSeasonScopedView}
+            activeViewLabel={activeSurfaceCopy.title}
           />
 
           {shouldRenderPrimaryView && (
             <section className="space-y-3">
-              <div
-                className={`flex flex-wrap gap-3 ${
-                  weekViewMode === 'standings'
-                    ? 'justify-end'
-                    : 'items-center justify-between rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
-                }`}
-              >
-                {weekViewMode !== 'standings' ? (
-                  <div>
-                    {selectedTab === 'postseason' ? (
-                      <>
-                        <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
-                        game
-                        {postseasonGames.length === 1 ? '' : 's'} shown
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-semibold">Week {activeWeekForDisplay}</span>
-                        {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
-                          <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
-                        ) : null}{' '}
-                        {weekViewMode === 'matchups' ? (
-                          <>
-                            · {renderedMatchupCardCount} matchup card
-                            {renderedMatchupCardCount === 1 ? '' : 's'} shown
-                            {matchupSections.otherGames.length > 0 ? (
-                              <>
-                                {' '}
-                                · {matchupSections.otherGames.length} other game
-                                {matchupSections.otherGames.length === 1 ? '' : 's'} summarized
-                                below
-                              </>
-                            ) : null}
-                          </>
-                        ) : (
-                          <>
-                            · {filteredWeekGames.length} matchup
-                            {filteredWeekGames.length === 1 ? '' : 's'} shown
-                          </>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ) : null}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                    View
-                  </span>
-                  <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} />
-                </div>
-              </div>
-              {weekViewMode === 'standings' ? (
+              {primarySurfaceKind === 'overview' ? (
+                <OverviewPanel
+                  standingsLeaders={overviewSnapshot.standingsLeaders}
+                  standingsCoverage={standingsCoverage}
+                  liveItems={overviewSnapshot.liveItems}
+                  keyMatchups={overviewSnapshot.keyMatchups}
+                  selectedWeekLabel={
+                    selectedTab === 'postseason'
+                      ? 'the postseason'
+                      : `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
+                  }
+                  displayTimeZone={presentationTimeZone}
+                />
+              ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
                   rows={standingsSnapshot.rows}
                   season={selectedSeason}
                   coverage={standingsCoverage}
                 />
-              ) : selectedTab === 'postseason' ? null : weekViewMode === 'matchups' ? (
+              ) : primarySurfaceKind === 'postseason' ? (
+                <PostseasonPanel
+                  games={postseasonGames}
+                  oddsByKey={oddsByKey}
+                  scoresByKey={scoresByKey}
+                  rosterByTeam={rosterByTeam}
+                  isDebug={IS_DEBUG}
+                  onSavePostseasonOverride={savePostseasonOverride}
+                />
+              ) : weekViewMode === 'matchups' ? (
                 <MatchupsWeekPanel
                   games={filteredWeekGames}
                   oddsByKey={oddsByKey}
@@ -1024,17 +1114,6 @@ export default function CFBScheduleApp(): React.ReactElement {
                 />
               )}
             </section>
-          )}
-
-          {selectedTab === 'postseason' && hasPostseasonGames && weekViewMode !== 'standings' && (
-            <PostseasonPanel
-              games={postseasonGames}
-              oddsByKey={oddsByKey}
-              scoresByKey={scoresByKey}
-              rosterByTeam={rosterByTeam}
-              isDebug={IS_DEBUG}
-              onSavePostseasonOverride={savePostseasonOverride}
-            />
           )}
         </>
       )}

@@ -1,7 +1,14 @@
 import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
-import { chipClass, gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
+import {
+  chipClass,
+  formatGameMatchupLabel,
+  gameStateFromScore,
+  pillClass,
+  statusClasses,
+  usesNeutralSiteSemantics,
+} from '../lib/gameUi';
 import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
@@ -107,13 +114,8 @@ export default function GameWeekPanel({
                 }
                 if (!odds && !isPlaceholder) chips.push('No odds');
 
-                const useNeutralSemantics =
-                  g.neutralDisplay === 'vs' || (g.stage !== 'regular' && g.neutral);
-                const matchupLine = useNeutralSemantics
-                  ? `${g.csvAway} vs ${g.csvHome}`
-                  : g.neutral
-                    ? `${g.csvAway} vs ${g.csvHome}`
-                    : `${g.csvAway} @ ${g.csvHome}`;
+                const useNeutralSemantics = usesNeutralSiteSemantics(g);
+                const matchupLine = formatGameMatchupLabel(g, { homeAwaySeparator: '@' });
                 const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
                 const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
                 const homeIsLeagueTeam =
