@@ -26,6 +26,54 @@ test.beforeEach(async () => {
   process.env.ODDS_API_KEY = 'test-key';
 });
 
+function buildScheduleItem(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'game-1',
+    week: 1,
+    startDate: '2026-09-01T19:30:00.000Z',
+    neutralSite: false,
+    conferenceGame: false,
+    homeTeam: 'Georgia',
+    awayTeam: 'Clemson',
+    homeConference: 'SEC',
+    awayConference: 'ACC',
+    status: 'scheduled',
+    seasonType: 'regular',
+    gamePhase: 'regular',
+    ...overrides,
+  };
+}
+
+function buildOddsEvent(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    home_team: 'Georgia Bulldogs',
+    away_team: 'Clemson Tigers',
+    bookmakers: [
+      {
+        key: 'draftkings',
+        title: 'DraftKings',
+        markets: [
+          {
+            key: 'spreads',
+            outcomes: [
+              { name: 'Georgia', point: -3.5, price: -110 },
+              { name: 'Clemson', point: 3.5, price: -110 },
+            ],
+          },
+          {
+            key: 'h2h',
+            outcomes: [
+              { name: 'Georgia', price: -150 },
+              { name: 'Clemson', price: 130 },
+            ],
+          },
+        ],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 test('default odds season follows football season year before July when no env override is set', () => {
   const priorSeasonEnv = process.env.NEXT_PUBLIC_SEASON;
   delete process.env.NEXT_PUBLIC_SEASON;
@@ -54,6 +102,76 @@ test('NEXT_PUBLIC_SEASON override still wins for odds default season', () => {
     } else {
       process.env.NEXT_PUBLIC_SEASON = priorSeasonEnv;
     }
+  }
+});
+
+test('explicit request year stays authoritative when filters are combined', async () => {
+  const originalFetch = global.fetch;
+  const cases = [
+    { label: 'year only', query: '?year=2025' },
+    { label: 'year + markets', query: '?year=2025&markets=h2h' },
+    { label: 'year + bookmakers', query: '?year=2025&bookmakers=draftkings' },
+    { label: 'year + regions', query: '?year=2025&regions=us' },
+    {
+      label: 'year + combined filters',
+      query: '?year=2025&markets=h2h,spreads&bookmakers=draftkings&regions=us',
+    },
+  ];
+
+  try {
+    for (const testCase of cases) {
+      __resetOddsRouteCacheForTests();
+      await __deleteDurableOddsStoreFileForTests(2025);
+      await __deleteDurableOddsStoreFileForTests(2026);
+      const seenScheduleYears: number[] = [];
+
+      global.fetch = (async (input: RequestInfo | URL) => {
+        const url = new URL(typeof input === 'string' ? input : input.toString());
+        if (url.pathname === '/api/schedule') {
+          seenScheduleYears.push(Number(url.searchParams.get('year')));
+          return new Response(JSON.stringify({ items: [buildScheduleItem()] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.pathname === '/api/conferences') {
+          return new Response(JSON.stringify({ items: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        return new Response(JSON.stringify([buildOddsEvent()]), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-requests-used': '5',
+            'x-requests-remaining': '495',
+            'x-requests-last': '1',
+          },
+        });
+      }) as typeof fetch;
+
+      const res = await GET(new Request(`http://localhost/api/odds${testCase.query}`));
+      assert.equal(res.status, 200, testCase.label);
+      const json = (await res.json()) as {
+        items: Array<{ canonicalGameId: string }>;
+        meta: { season: number };
+      };
+
+      assert.deepEqual(
+        seenScheduleYears,
+        [2025],
+        `${testCase.label} should fetch the requested year`
+      );
+      assert.equal(json.meta.season, 2025, `${testCase.label} should report the requested year`);
+      assert.ok(json.items[0]?.canonicalGameId);
+      assert.ok(await getDurableOddsRecord(2025, json.items[0]!.canonicalGameId));
+      assert.equal(await getDurableOddsRecord(2026, json.items[0]!.canonicalGameId), null);
+    }
+  } finally {
+    global.fetch = originalFetch;
   }
 });
 
@@ -209,6 +327,83 @@ test('successful fetch attaches odds to canonical schedule games and persists la
 
     assert.equal(persisted?.latestSnapshot?.spread, -3.5);
     assert.equal(persisted?.closingSnapshot, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('odds canonicalization uses conference records so tracked games match schedule eligibility', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+
+    if (url.pathname === '/api/schedule') {
+      return new Response(
+        JSON.stringify({
+          items: [
+            buildScheduleItem({
+              id: 'reg-aac-vs-fcs',
+              week: 2,
+              startDate: '2026-09-06T20:00:00Z',
+              homeTeam: 'Navy',
+              awayTeam: 'UC Davis',
+              homeConference: 'AAC',
+              awayConference: 'Patriot',
+            }),
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (url.pathname === '/api/conferences') {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              name: 'American Athletic Conference',
+              shortName: 'American Athletic',
+              abbreviation: 'AAC',
+              classification: 'fbs',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify([
+        buildOddsEvent({
+          home_team: 'Navy',
+          away_team: 'UC Davis',
+        }),
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(new Request('http://localhost/api/odds?year=2026'));
+    assert.equal(res.status, 200);
+
+    const json = (await res.json()) as {
+      items: Array<{ canonicalGameId: string }>;
+      meta: { season: number };
+    };
+
+    assert.equal(json.meta.season, 2026);
+    assert.equal(json.items.length, 1);
+    assert.equal(json.items[0]?.canonicalGameId, '2-navy-ucdavis-H');
   } finally {
     global.fetch = originalFetch;
   }

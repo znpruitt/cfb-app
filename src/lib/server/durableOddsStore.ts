@@ -10,6 +10,29 @@ type DurableOddsStoreFile = {
 };
 
 let memoryStore = new Map<number, Record<string, DurableOddsRecord> | undefined>();
+let seasonWriteQueue = new Map<number, Promise<void>>();
+
+async function runSeasonScopedMutation<T>(season: number, task: () => Promise<T>): Promise<T> {
+  const prior = seasonWriteQueue.get(season) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  seasonWriteQueue.set(
+    season,
+    prior.then(() => current)
+  );
+
+  await prior;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (seasonWriteQueue.get(season) === current) {
+      seasonWriteQueue.delete(season);
+    }
+  }
+}
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -121,8 +144,10 @@ export async function setDurableOddsStore(
   season: number,
   store: Record<string, DurableOddsRecord>
 ): Promise<void> {
-  memoryStore.set(season, store);
-  await writeStoreFile(season, store);
+  await runSeasonScopedMutation(season, async () => {
+    memoryStore.set(season, store);
+    await writeStoreFile(season, store);
+  });
 }
 
 export async function getDurableOddsRecord(
@@ -133,23 +158,41 @@ export async function getDurableOddsRecord(
   return store[canonicalGameId] ?? null;
 }
 
+export async function updateDurableOddsStore(
+  season: number,
+  updater: (
+    current: Record<string, DurableOddsRecord>
+  ) => Promise<Record<string, DurableOddsRecord>> | Record<string, DurableOddsRecord>
+): Promise<Record<string, DurableOddsRecord>> {
+  return await runSeasonScopedMutation(season, async () => {
+    const current = await readStoreFile(season);
+    memoryStore.set(season, current);
+
+    const next = await updater({ ...current });
+    memoryStore.set(season, next);
+    await writeStoreFile(season, next);
+    return next;
+  });
+}
+
 export async function upsertDurableOddsRecords(
   season: number,
   records: DurableOddsRecord[]
 ): Promise<Record<string, DurableOddsRecord>> {
-  const current = await getDurableOddsStore(season);
-  const next: Record<string, DurableOddsRecord> = { ...current };
+  return await updateDurableOddsStore(season, (current) => {
+    const next: Record<string, DurableOddsRecord> = { ...current };
 
-  for (const record of records) {
-    next[record.canonicalGameId] = record;
-  }
+    for (const record of records) {
+      next[record.canonicalGameId] = record;
+    }
 
-  await setDurableOddsStore(season, next);
-  return next;
+    return next;
+  });
 }
 
 export function __resetDurableOddsStoreForTests(): void {
   memoryStore = new Map<number, Record<string, DurableOddsRecord> | undefined>();
+  seasonWriteQueue = new Map<number, Promise<void>>();
 }
 
 export async function __deleteDurableOddsStoreFileForTests(season: number): Promise<void> {

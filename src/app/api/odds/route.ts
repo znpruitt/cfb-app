@@ -16,7 +16,8 @@ import {
 } from '../../../lib/odds.ts';
 import { attachOddsEventsToSchedule } from '../../../lib/oddsAttachment.ts';
 import { buildScheduleFromApi, type ScheduleWireItem } from '../../../lib/schedule.ts';
-import { getDurableOddsStore, setDurableOddsStore } from '../../../lib/server/durableOddsStore.ts';
+import type { CfbdConferenceRecord } from '../../../lib/conferenceSubdivision.ts';
+import { updateDurableOddsStore } from '../../../lib/server/durableOddsStore.ts';
 import {
   captureOddsUsageSnapshot,
   getLatestKnownOddsUsage,
@@ -97,20 +98,23 @@ type OddsCache = {
   dayKey: string | null;
 };
 
-type QueryValidationResult =
-  | {
-      ok: true;
-      bookmakers: string[];
-      markets: string[];
-      regions: string[];
-      season: number;
-    }
-  | {
-      ok: false;
-      field: 'bookmakers' | 'markets' | 'regions' | 'year';
-      value: string | null;
-      error: string;
-    };
+type ParsedOddsQuery = {
+  bookmakers: string[];
+  markets: string[];
+  regions: string[];
+  season: number;
+};
+
+type QueryValidationError = {
+  ok: false;
+  field: 'bookmakers' | 'markets' | 'regions' | 'year';
+  value: string | null;
+  error: string;
+};
+
+type QueryValidationResult = { ok: true; query: ParsedOddsQuery } | QueryValidationError;
+type ParsedCsvParamResult = { ok: true; values: string[] } | QueryValidationError;
+type ParsedSeasonResult = { ok: true; season: number } | QueryValidationError;
 
 const oddsCache: OddsCache = {
   entries: {},
@@ -175,12 +179,16 @@ function parseCsvList(raw: string | null): string[] | null {
   return values.length > 0 ? values : null;
 }
 
-function validateOptionalCsvParam(
+function parseValidatedCsvParam(
   field: 'bookmakers' | 'markets' | 'regions',
   raw: string | null,
-  allowed: readonly string[]
-): QueryValidationResult | null {
-  if (raw === null) return null;
+  allowed: readonly string[],
+  fallback: string[]
+): ParsedCsvParamResult {
+  if (raw === null) {
+    return { ok: true, values: fallback };
+  }
+
   const values = parseCsvList(raw);
   if (!values) {
     return {
@@ -201,24 +209,12 @@ function validateOptionalCsvParam(
     };
   }
 
-  return {
-    ok: true,
-    bookmakers: field === 'bookmakers' ? values : BOOKMAKERS,
-    markets: field === 'markets' ? values : MARKETS,
-    regions: field === 'regions' ? values : REGIONS,
-    season: resolveDefaultSeason(),
-  };
+  return { ok: true, values };
 }
 
-function validateSeason(raw: string | null): QueryValidationResult {
+function parseRequestedSeason(raw: string | null): ParsedSeasonResult {
   if (raw === null) {
-    return {
-      ok: true,
-      bookmakers: BOOKMAKERS,
-      markets: MARKETS,
-      regions: REGIONS,
-      season: resolveDefaultSeason(),
-    };
+    return { ok: true, season: resolveDefaultSeason() };
   }
 
   const parsed = Number(raw);
@@ -231,41 +227,59 @@ function validateSeason(raw: string | null): QueryValidationResult {
     };
   }
 
+  return { ok: true, season: parsed };
+}
+
+function parseOddsQuery(url: URL): QueryValidationResult {
+  const seasonResult = parseRequestedSeason(url.searchParams.get('year'));
+  if (!seasonResult.ok) return seasonResult;
+
+  const bookmakersResult = parseValidatedCsvParam(
+    'bookmakers',
+    url.searchParams.get('bookmakers'),
+    BOOKMAKERS,
+    BOOKMAKERS
+  );
+  if (!bookmakersResult.ok) return bookmakersResult;
+
+  const marketsResult = parseValidatedCsvParam(
+    'markets',
+    url.searchParams.get('markets'),
+    MARKETS,
+    MARKETS
+  );
+  if (!marketsResult.ok) return marketsResult;
+
+  const regionsResult = parseValidatedCsvParam(
+    'regions',
+    url.searchParams.get('regions'),
+    REGIONS,
+    REGIONS
+  );
+  if (!regionsResult.ok) return regionsResult;
+
   return {
     ok: true,
-    bookmakers: BOOKMAKERS,
-    markets: MARKETS,
-    regions: REGIONS,
-    season: parsed,
+    query: {
+      season: seasonResult.season,
+      bookmakers: bookmakersResult.values,
+      markets: marketsResult.values,
+      regions: regionsResult.values,
+    },
   };
 }
 
-function validateQuery(url: URL): QueryValidationResult {
-  let bookmakers = BOOKMAKERS;
-  let markets = MARKETS;
-  let regions = REGIONS;
-  const defaultSeason = resolveDefaultSeason();
-  let season = defaultSeason;
-
-  const validators: Array<QueryValidationResult | null> = [
-    validateSeason(url.searchParams.get('year')),
-    validateOptionalCsvParam('bookmakers', url.searchParams.get('bookmakers'), BOOKMAKERS),
-    validateOptionalCsvParam('markets', url.searchParams.get('markets'), MARKETS),
-    validateOptionalCsvParam('regions', url.searchParams.get('regions'), REGIONS),
-  ];
-
-  for (const result of validators) {
-    if (!result) continue;
-    if (!result.ok) return result;
-    bookmakers = result.bookmakers;
-    markets = result.markets;
-    regions = result.regions;
-    if (result.season !== defaultSeason || url.searchParams.has('year')) {
-      season = result.season;
-    }
+async function readConferenceRecords(req: Request): Promise<CfbdConferenceRecord[]> {
+  const reqUrl = new URL(req.url);
+  const conferencesUrl = new URL('/api/conferences', reqUrl.origin);
+  const response = await fetch(conferencesUrl.toString(), { cache: 'no-store' });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`conferences ${response.status} ${detail}`);
   }
 
-  return { ok: true, bookmakers, markets, regions, season };
+  const payload = (await response.json()) as { items?: CfbdConferenceRecord[] };
+  return Array.isArray(payload.items) ? payload.items : [];
 }
 
 async function readTeamsCatalog(): Promise<TeamCatalogItem[]> {
@@ -329,12 +343,27 @@ async function buildCanonicalOddsItems(params: {
   oddsEvents: NormalizedOddsEvent[];
   teams: TeamCatalogItem[];
   aliasMap: AliasMap;
+  conferenceRecords: CfbdConferenceRecord[];
   requestTime: string;
   snapshotCapturedAt: string;
 }): Promise<CanonicalOddsItem[]> {
-  const { season, scheduleItems, oddsEvents, teams, aliasMap, requestTime, snapshotCapturedAt } =
-    params;
-  const builtSchedule = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season });
+  const {
+    season,
+    scheduleItems,
+    oddsEvents,
+    teams,
+    aliasMap,
+    conferenceRecords,
+    requestTime,
+    snapshotCapturedAt,
+  } = params;
+  const builtSchedule = buildScheduleFromApi({
+    scheduleItems,
+    teams,
+    aliasMap,
+    season,
+    conferenceRecords,
+  });
   const games = builtSchedule.games;
 
   const observedNames = Array.from(
@@ -359,74 +388,72 @@ async function buildCanonicalOddsItems(params: {
     resolver,
   });
 
-  const currentStore = await getDurableOddsStore(season);
-  const nextStore: Record<string, DurableOddsRecord> = { ...currentStore };
   const gameByKey = new Map(games.map((game) => [game.key, game]));
 
-  let changed = false;
-  const assignRecord = (gameKey: string, nextRecord: DurableOddsRecord): void => {
-    const prevSerialized = JSON.stringify(nextStore[gameKey] ?? null);
-    const hasData = hasStoredOddsData(nextRecord);
-    const nextSerialized = JSON.stringify(hasData ? nextRecord : null);
-    if (prevSerialized === nextSerialized) return;
+  const nextStore = await updateDurableOddsStore(season, (currentStore) => {
+    const nextStore: Record<string, DurableOddsRecord> = { ...currentStore };
 
-    if (hasData) {
-      nextStore[gameKey] = nextRecord;
-    } else {
-      delete nextStore[gameKey];
-    }
-    changed = true;
-  };
+    const assignRecord = (gameKey: string, nextRecord: DurableOddsRecord): void => {
+      const prevSerialized = JSON.stringify(nextStore[gameKey] ?? null);
+      const hasData = hasStoredOddsData(nextRecord);
+      const nextSerialized = JSON.stringify(hasData ? nextRecord : null);
+      if (prevSerialized === nextSerialized) return;
 
-  for (const game of games) {
-    const currentRecord = nextStore[game.key] ?? emptyRecord(game.key);
-    assignRecord(
-      game.key,
-      freezeClosingSnapshotIfNeeded({
-        record: reopenClosingSnapshotForDelayedKickoffIfNeeded({
-          record: currentRecord,
+      if (hasData) {
+        nextStore[gameKey] = nextRecord;
+      } else {
+        delete nextStore[gameKey];
+      }
+    };
+
+    for (const game of games) {
+      const currentRecord = nextStore[game.key] ?? emptyRecord(game.key);
+      assignRecord(
+        game.key,
+        freezeClosingSnapshotIfNeeded({
+          record: reopenClosingSnapshotForDelayedKickoffIfNeeded({
+            record: currentRecord,
+            kickoff: game.date,
+            now: requestTime,
+          }),
           kickoff: game.date,
           now: requestTime,
-        }),
+        })
+      );
+    }
+
+    for (const match of attached) {
+      const game = gameByKey.get(match.gameKey);
+      if (!game) continue;
+
+      const snapshot = buildDurableOddsSnapshot({
+        game,
+        event: match.event,
+        resolver,
+        capturedAt: snapshotCapturedAt,
+      });
+      if (!snapshot) continue;
+
+      const currentRecord = nextStore[game.key] ?? emptyRecord(game.key);
+      const updated = applyPregameOddsSnapshot({
+        record: currentRecord,
+        snapshot,
         kickoff: game.date,
         now: requestTime,
-      })
-    );
-  }
+      });
 
-  for (const match of attached) {
-    const game = gameByKey.get(match.gameKey);
-    if (!game) continue;
+      assignRecord(
+        game.key,
+        freezeClosingSnapshotIfNeeded({
+          record: updated,
+          kickoff: game.date,
+          now: requestTime,
+        })
+      );
+    }
 
-    const snapshot = buildDurableOddsSnapshot({
-      game,
-      event: match.event,
-      resolver,
-      capturedAt: snapshotCapturedAt,
-    });
-    if (!snapshot) continue;
-
-    const currentRecord = nextStore[game.key] ?? emptyRecord(game.key);
-    const updated = applyPregameOddsSnapshot({
-      record: currentRecord,
-      snapshot,
-      kickoff: game.date,
-      now: requestTime,
-    });
-
-    assignRecord(
-      game.key,
-      freezeClosingSnapshotIfNeeded({
-        record: updated,
-        kickoff: game.date,
-        now: requestTime,
-      })
-    );
-  }
-
-  if (changed) {
-    await setDurableOddsStore(season, nextStore);
-  }
+    return nextStore;
+  });
 
   const items: CanonicalOddsItem[] = [];
   for (const game of games) {
@@ -445,16 +472,22 @@ async function buildCanonicalOddsItems(params: {
 export async function GET(req: Request): Promise<Response> {
   recordRouteRequest('odds');
   try {
-    const query = validateQuery(new URL(req.url));
-    if (!query.ok) {
+    const parsedQuery = parseOddsQuery(new URL(req.url));
+    if (!parsedQuery.ok) {
       return new Response(
-        JSON.stringify({ error: query.error, field: query.field, value: query.value }),
+        JSON.stringify({
+          error: parsedQuery.error,
+          field: parsedQuery.field,
+          value: parsedQuery.value,
+        }),
         {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         }
       );
     }
+
+    const query = parsedQuery.query;
 
     const dayKey = dayKeyUTC();
     if (oddsCache.dayKey !== dayKey) {
@@ -560,10 +593,11 @@ export async function GET(req: Request): Promise<Response> {
     const responseEntry = oddsCache.entries[cacheKey] ?? cachedEntry;
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
-    const [scheduleItems, teams, aliasMap] = await Promise.all([
+    const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([
       fetchCanonicalSchedule(req, query.season),
       readTeamsCatalog(),
       readAliasesForSeason(query.season),
+      readConferenceRecords(req),
     ]);
 
     const items = await buildCanonicalOddsItems({
@@ -572,6 +606,7 @@ export async function GET(req: Request): Promise<Response> {
       oddsEvents: responseEntry?.data ?? [],
       teams,
       aliasMap,
+      conferenceRecords,
       requestTime,
       snapshotCapturedAt,
     });
