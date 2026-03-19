@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 
-import AliasEditorPanel from './AliasEditorPanel';
-import IssuesPanel from './IssuesPanel';
-import UploadPanel from './UploadPanel';
+import AdminDebugSurface from './AdminDebugSurface';
 import GameWeekPanel from './GameWeekPanel';
 import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
@@ -12,8 +11,6 @@ import PostseasonPanel from './PostseasonPanel';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import WeekControls from './WeekControls';
-import AdminUsagePanel from './AdminUsagePanel';
-import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../lib/odds';
@@ -29,7 +26,6 @@ import { normalizeAliasLookup } from '../lib/teamNormalization';
 import { saveServerAliases } from '../lib/aliasesApi';
 import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
-import { pillClass } from '../lib/gameUi';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
 import { deriveOverviewSnapshot } from '../lib/overview';
@@ -72,13 +68,23 @@ import {
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
 
-export default function CFBScheduleApp(): React.ReactElement {
+type CFBScheduleAppProps = {
+  surface?: 'league' | 'admin';
+  initialGames?: AppGame[];
+  initialIssues?: string[];
+};
+
+export default function CFBScheduleApp({
+  surface = 'league',
+  initialGames = [],
+  initialIssues = [],
+}: CFBScheduleAppProps = {}): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
 
   const [selectedSeason] = useState<number>(DEFAULT_SEASON);
   const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason), [selectedSeason]);
 
-  const [games, setGames] = useState<AppGame[]>([]);
+  const [games, setGames] = useState<AppGame[]>(initialGames);
   const [byes, setByes] = useState<Record<number, string[]>>({});
   const [conferences, setConferences] = useState<string[]>(['ALL']);
   const [roster, setRoster] = useState<OwnerRow[]>([]);
@@ -92,7 +98,7 @@ export default function CFBScheduleApp(): React.ReactElement {
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
   const [loadingLive, setLoadingLive] = useState<boolean>(false);
   const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
-  const [issues, setIssues] = useState<string[]>([]);
+  const [issues, setIssues] = useState<string[]>(initialIssues);
   const [lastScoresRefreshAt, setLastScoresRefreshAt] = useState<string>('');
   const [lastOddsRefreshAt, setLastOddsRefreshAt] = useState<string>('');
   const [lastScheduleRefreshAt, setLastScheduleRefreshAt] = useState<string>('');
@@ -881,106 +887,155 @@ export default function CFBScheduleApp(): React.ReactElement {
     },
     [loadScheduleFromApi, storageKeys.postseasonOverrides]
   );
+
+  const isAdminSurface = surface === 'admin';
+  const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
+  const fatalBootstrapIssues = issues.filter(isScheduleIssue);
+  const hasFatalLeagueBootstrapFailure =
+    !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
+  const adminAlertCount =
+    issues.length +
+    diag.length +
+    aliasStaging.deletes.length +
+    Object.keys(aliasStaging.upserts).length;
+  const adminHref = '/admin';
+  const leagueHref = '/';
+
   return (
-    <div className="p-6 space-y-6 text-gray-900 bg-white dark:text-zinc-100 dark:bg-zinc-950">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">CFB Office Pool</h1>
-          <p className="text-sm text-gray-600 dark:text-zinc-400">
-            API-first schedule (CFBD), owners CSV support, and persistent aliases for manual repair.
-          </p>
+    <div className="space-y-6 bg-white p-6 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200">
+              League-first
+            </span>
+            {isAdminSurface ? (
+              <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                Admin / Debug
+              </span>
+            ) : null}
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">CFB Office Pool</h1>
+            <p className="max-w-3xl text-sm text-gray-600 dark:text-zinc-400">
+              Overview, schedule, matchups, and standings stay front-and-center on the main app,
+              while commissioner tooling lives on a dedicated admin surface.
+            </p>
+          </div>
         </div>
-        <div className="flex items-end gap-2">
-          <button
-            className={`px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 ${
-              loadingLive ? 'opacity-60' : ''
-            }`}
-            onClick={() =>
-              void refreshLiveData({
-                manual: true,
-                scoreScopeGamesOverride: games,
-              })
-            }
-            disabled={loadingLive || games.length === 0}
-            title={
-              games.length === 0
-                ? 'Schedule load failed'
-                : 'Refresh scores and context-relevant odds'
-            }
+        <div className="flex flex-wrap items-center gap-2">
+          {!isAdminSurface && adminAlertCount > 0 ? (
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
+              {adminAlertCount} admin item{adminAlertCount === 1 ? '' : 's'} need attention
+            </span>
+          ) : null}
+          <Link
+            href={isAdminSurface ? leagueHref : adminHref}
+            className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
-            {loadingLive ? 'Refreshing…' : 'Refresh data'}
-          </button>
-          <button
-            className="px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-            onClick={openEditor}
-            title="Edit alias map (persists on server)"
-          >
-            Edit Aliases
-          </button>
-          <button
-            className="px-3 py-2 rounded border border-gray-200 bg-gray-50 text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-            onClick={() => void loadScheduleFromApi(undefined, undefined, { bypassCache: true })}
-            disabled={loadingSchedule}
-            title="Force a schedule rebuild from CFBD"
-          >
-            {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
-          </button>
-          <span className="text-xs text-gray-600 dark:text-zinc-400">
-            Schedule: {lastScheduleRefreshAt || 'not loaded'} ({scheduleMeta.cache ?? 'unknown'}{' '}
-            cache)
-          </span>
-          <span className="text-xs text-gray-600 dark:text-zinc-400">
-            Scores: {lastScoresRefreshAt || 'not refreshed'}
-          </span>
-          <span className="text-xs text-gray-600 dark:text-zinc-400">
-            Odds: {lastOddsRefreshAt || 'manual / policy-gated'} ({oddsCacheState} cache)
-          </span>
+            {isAdminSurface ? 'Back to league view' : 'Admin / Debug'}
+          </Link>
         </div>
       </header>
 
-      <p className="text-xs text-gray-600 dark:text-zinc-400">
-        Conservative refresh policy: schedule rebuilds are manual, scores may auto-refresh on focus
-        for active views, and odds remain policy-gated to protect monthly API quotas.
-      </p>
+      {!isAdminSurface && adminAlertCount > 0 ? (
+        <p className="text-xs text-gray-600 dark:text-zinc-400">
+          Diagnostics, alias repairs, refresh controls, and owners CSV maintenance moved to the
+          admin surface to keep the default league experience focused.
+        </p>
+      ) : null}
 
-      <AdminUsagePanel />
-      <ScoreAttachmentDebugPanel season={selectedSeason} onStageAlias={stageAliasWithToast} />
+      {hasFatalLeagueBootstrapFailure ? (
+        <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700 dark:text-red-300">
+              League surface unavailable
+            </p>
+            <h2 className="text-xl font-semibold text-red-950 dark:text-red-100">
+              We couldn’t load the schedule needed to render the league view
+            </h2>
+            <p className="max-w-3xl text-sm text-red-800 dark:text-red-200">
+              Try rebuilding the schedule from CFBD below. If the issue persists, open the admin
+              surface for deeper diagnostics and repair tools.
+            </p>
+          </div>
 
-      <IssuesPanel
-        issues={issues}
-        diag={diag}
-        aliasStaging={aliasStaging}
-        aliasToast={aliasToast}
-        pillClass={pillClass}
-        onCommitStagedAliases={() => void commitStagedAliases()}
-        onStageAlias={stageAliasWithToast}
-      />
+          <ul className="space-y-2 text-sm text-red-900 dark:text-red-100">
+            {fatalBootstrapIssues.map((issue) => (
+              <li
+                key={issue}
+                className="rounded border border-red-200 bg-white/80 px-3 py-2 dark:border-red-900/60 dark:bg-zinc-950/60"
+              >
+                {issue}
+              </li>
+            ))}
+          </ul>
 
-      <AliasEditorPanel
-        open={editOpen}
-        season={selectedSeason}
-        draft={editDraft}
-        onClose={() => setEditOpen(false)}
-        onAddRow={addDraftRow}
-        onSave={() => void saveDraft()}
-        onUpdateKey={updateDraftKey}
-        onUpdateValue={updateDraftValue}
-        onRemoveRow={removeDraftRow}
-      />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="rounded border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-900 transition hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:bg-zinc-950 dark:text-red-100 dark:hover:bg-red-950/40"
+              onClick={() => void loadScheduleFromApi(undefined, undefined, { bypassCache: true })}
+              disabled={loadingSchedule}
+            >
+              {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
+            </button>
+            <Link
+              href={adminHref}
+              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Open Admin / Debug
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
-      <UploadPanel
-        gamesCount={games.length}
-        weeksCount={weeks.length}
-        conferencesCount={conferences.length > 0 ? conferences.length - 1 : 0}
-        ownersCount={roster.length}
-        ownersLoadedFromCache={ownersLoadedFromCache}
-        hasCachedOwners={hasCachedOwners}
-        scheduleLoaded={scheduleLoaded}
-        onOwnersFile={onOwnersFile}
-        onClearCachedOwners={clearCachedOwners}
-      />
+      {isAdminSurface ? (
+        <AdminDebugSurface
+          aliasStaging={aliasStaging}
+          aliasToast={aliasToast}
+          conferences={conferences}
+          diag={diag}
+          editDraft={editDraft}
+          editOpen={editOpen}
+          games={games}
+          hasCachedOwners={hasCachedOwners}
+          issues={issues}
+          lastOddsRefreshAt={lastOddsRefreshAt}
+          lastScheduleRefreshAt={lastScheduleRefreshAt}
+          lastScoresRefreshAt={lastScoresRefreshAt}
+          loadingLive={loadingLive}
+          loadingSchedule={loadingSchedule}
+          oddsCacheState={oddsCacheState}
+          ownersLoadedFromCache={ownersLoadedFromCache}
+          roster={roster}
+          scheduleLoaded={scheduleLoaded}
+          scheduleMeta={scheduleMeta}
+          season={selectedSeason}
+          weeks={weeks}
+          onAddDraftRow={addDraftRow}
+          onClearCachedOwners={clearCachedOwners}
+          onCloseAliasEditor={() => setEditOpen(false)}
+          onCommitStagedAliases={() => void commitStagedAliases()}
+          onOpenAliasEditor={openEditor}
+          onOwnersFile={onOwnersFile}
+          onRefreshData={() =>
+            void refreshLiveData({
+              manual: true,
+              scoreScopeGamesOverride: games,
+            })
+          }
+          onRebuildSchedule={() =>
+            void loadScheduleFromApi(undefined, undefined, { bypassCache: true })
+          }
+          onRemoveDraftRow={removeDraftRow}
+          onSaveAliases={() => void saveDraft()}
+          onStageAlias={stageAliasWithToast}
+          onUpdateDraftKey={updateDraftKey}
+          onUpdateDraftValue={updateDraftValue}
+        />
+      ) : null}
 
-      {(weeks.length > 0 || hasPostseasonGames) && (
+      {canRenderLeagueSurface && (
         <>
           <section className="space-y-4 rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div className="flex flex-wrap items-start justify-between gap-4">
