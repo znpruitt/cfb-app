@@ -167,7 +167,20 @@ test('explicit request year stays authoritative when filters are combined', asyn
       );
       assert.equal(json.meta.season, 2025, `${testCase.label} should report the requested year`);
       assert.ok(json.items[0]?.canonicalGameId);
-      assert.ok(await getDurableOddsRecord(2025, json.items[0]!.canonicalGameId));
+
+      const persisted = await getDurableOddsRecord(2025, json.items[0]!.canonicalGameId);
+      const shouldPersist =
+        testCase.query === '?year=2025' || testCase.query === '?year=2025&regions=us';
+      if (shouldPersist) {
+        assert.ok(persisted, `${testCase.label} should populate the canonical durable store`);
+      } else {
+        assert.equal(
+          persisted,
+          null,
+          `${testCase.label} should not overwrite the canonical durable store`
+        );
+      }
+
       assert.equal(await getDurableOddsRecord(2026, json.items[0]!.canonicalGameId), null);
     }
   } finally {
@@ -219,6 +232,109 @@ test('429 without usable usage headers persists fallback-labeled depleted snapsh
     assert.equal(usage?.source, 'quota-error-fallback');
     assert.equal(usage?.remaining, 0);
     assert.equal(usage?.limit, 500);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('filtered odds requests do not overwrite the shared durable store with partial markets', async () => {
+  const originalFetch = global.fetch;
+
+  await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
+    '1-georgia-clemson-H': {
+      canonicalGameId: '1-georgia-clemson-H',
+      latestSnapshot: {
+        capturedAt: '2026-09-01T18:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingSnapshot: null,
+      closingFrozenAt: null,
+    },
+  });
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [buildScheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(
+      JSON.stringify([
+        buildOddsEvent({
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'h2h',
+                  outcomes: [
+                    { name: 'Georgia', price: -155 },
+                    { name: 'Clemson', price: 135 },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&markets=h2h`)
+    );
+    assert.equal(res.status, 200);
+
+    const json = (await res.json()) as {
+      items: Array<{
+        canonicalGameId: string;
+        odds: { spread: number | null; total: number | null; mlHome: number | null };
+      }>;
+    };
+
+    assert.equal(json.items[0]?.odds.spread, null);
+    assert.equal(json.items[0]?.odds.total, null);
+    assert.equal(json.items[0]?.odds.mlHome, -155);
+
+    const persisted = await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, '1-georgia-clemson-H');
+
+    assert.equal(persisted?.latestSnapshot?.spread, -3.5);
+    assert.equal(persisted?.latestSnapshot?.total, 52.5);
+    assert.equal(persisted?.latestSnapshot?.moneylineHome, -150);
   } finally {
     global.fetch = originalFetch;
   }

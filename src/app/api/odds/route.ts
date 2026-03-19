@@ -17,7 +17,10 @@ import {
 import { attachOddsEventsToSchedule } from '../../../lib/oddsAttachment.ts';
 import { buildScheduleFromApi, type ScheduleWireItem } from '../../../lib/schedule.ts';
 import type { CfbdConferenceRecord } from '../../../lib/conferenceSubdivision.ts';
-import { updateDurableOddsStore } from '../../../lib/server/durableOddsStore.ts';
+import {
+  getDurableOddsStore,
+  updateDurableOddsStore,
+} from '../../../lib/server/durableOddsStore.ts';
 import {
   captureOddsUsageSnapshot,
   getLatestKnownOddsUsage,
@@ -337,6 +340,17 @@ function hasStoredOddsData(record: DurableOddsRecord): boolean {
   return Boolean(record.latestSnapshot || record.closingSnapshot || record.closingFrozenAt);
 }
 
+function isCanonicalDurableQuery(query: ParsedOddsQuery): boolean {
+  return (
+    query.bookmakers.length === BOOKMAKERS.length &&
+    BOOKMAKERS.every((value) => query.bookmakers.includes(value)) &&
+    query.markets.length === MARKETS.length &&
+    MARKETS.every((value) => query.markets.includes(value)) &&
+    query.regions.length === REGIONS.length &&
+    REGIONS.every((value) => query.regions.includes(value))
+  );
+}
+
 async function buildCanonicalOddsItems(params: {
   season: number;
   scheduleItems: ScheduleWireItem[];
@@ -346,6 +360,7 @@ async function buildCanonicalOddsItems(params: {
   conferenceRecords: CfbdConferenceRecord[];
   requestTime: string;
   snapshotCapturedAt: string;
+  persistDurableStore: boolean;
 }): Promise<CanonicalOddsItem[]> {
   const {
     season,
@@ -356,6 +371,7 @@ async function buildCanonicalOddsItems(params: {
     conferenceRecords,
     requestTime,
     snapshotCapturedAt,
+    persistDurableStore,
   } = params;
   const builtSchedule = buildScheduleFromApi({
     scheduleItems,
@@ -390,7 +406,7 @@ async function buildCanonicalOddsItems(params: {
 
   const gameByKey = new Map(games.map((game) => [game.key, game]));
 
-  const nextStore = await updateDurableOddsStore(season, (currentStore) => {
+  const applyOddsStoreUpdates = (currentStore: Record<string, DurableOddsRecord>) => {
     const nextStore: Record<string, DurableOddsRecord> = { ...currentStore };
 
     const assignRecord = (gameKey: string, nextRecord: DurableOddsRecord): void => {
@@ -453,7 +469,11 @@ async function buildCanonicalOddsItems(params: {
     }
 
     return nextStore;
-  });
+  };
+
+  const nextStore = persistDurableStore
+    ? await updateDurableOddsStore(season, applyOddsStoreUpdates)
+    : applyOddsStoreUpdates(await getDurableOddsStore(season));
 
   const items: CanonicalOddsItem[] = [];
   for (const game of games) {
@@ -609,6 +629,7 @@ export async function GET(req: Request): Promise<Response> {
       conferenceRecords,
       requestTime,
       snapshotCapturedAt,
+      persistDurableStore: isCanonicalDurableQuery(query),
     });
 
     return responseFrom(items, {

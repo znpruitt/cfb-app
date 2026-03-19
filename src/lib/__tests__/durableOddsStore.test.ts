@@ -125,3 +125,39 @@ test('season-scoped updates serialize and merge against refreshed state', async 
   assert.equal(store['1-georgia-clemson-H']?.closingSnapshot?.spread, -3.5);
   assert.equal(store['2-texas-ou-H']?.latestSnapshot?.spread, -2.5);
 });
+
+test('reload preserves null numeric fields instead of coercing them to zero', async () => {
+  const record: DurableOddsRecord = {
+    canonicalGameId: '3-georgia-clemson-H',
+    latestSnapshot: {
+      capturedAt: '2026-09-01T12:00:00.000Z',
+      bookmakerKey: 'draftkings',
+      favorite: null,
+      source: 'DraftKings',
+      spread: null,
+      homeSpread: null,
+      awaySpread: null,
+      spreadPriceHome: null,
+      spreadPriceAway: null,
+      moneylineHome: -165,
+      moneylineAway: 145,
+      total: null,
+      overPrice: null,
+      underPrice: null,
+    },
+    closingSnapshot: null,
+    closingFrozenAt: null,
+  };
+
+  await setDurableOddsStore(SEASON, {
+    [record.canonicalGameId]: record,
+  });
+
+  __resetDurableOddsStoreForTests();
+
+  const loaded = await getDurableOddsRecord(SEASON, record.canonicalGameId);
+  assert.equal(loaded?.latestSnapshot?.spread, null);
+  assert.equal(loaded?.latestSnapshot?.homeSpread, null);
+  assert.equal(loaded?.latestSnapshot?.total, null);
+  assert.equal(loaded?.latestSnapshot?.moneylineHome, -165);
+});
