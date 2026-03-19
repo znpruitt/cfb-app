@@ -1,5 +1,5 @@
-import type { AliasStaging } from './diagnostics';
-import { normalizeAliasLookup } from './teamNormalization';
+import type { AliasStaging } from './diagnostics.ts';
+import { normalizeAliasLookup } from './teamNormalization.ts';
 
 export function stageAliasFromMiss(
   providerName: string,

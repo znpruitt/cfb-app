@@ -1,5 +1,5 @@
-import type { AppGame } from './schedule';
-import type { ScorePack } from './scores';
+import type { AppGame } from './schedule.ts';
+import type { ScorePack } from './scores.ts';
 
 export const SCORES_AUTO_REFRESH_MS = 15 * 60 * 1000;
 export const LIVE_MANUAL_COOLDOWN_MS = 30 * 1000;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { AppGame } from '../schedule';
+import type { AppGame } from '../schedule.ts';
 import {
   EMPTY_SCORE_HYDRATION_STATE,
   getBootstrapScoreHydrationGames,
@@ -10,7 +10,7 @@ import {
   getHydrationSeasonTypes,
   getLazyScoreHydrationGames,
   markScoreHydrationLoaded,
-} from '../scoreHydration';
+} from '../scoreHydration.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {

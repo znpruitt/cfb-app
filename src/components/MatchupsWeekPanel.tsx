@@ -167,6 +167,7 @@ function formatOwnedScore(
 function compactOddsSummary(odds?: CombinedOdds): string | null {
   if (!odds) return null;
   const parts: string[] = [];
+
   if (odds.favorite != null && odds.spread != null) {
     parts.push(`${odds.favorite} ${odds.spread}`);
   } else if (odds.favorite != null) {
@@ -174,9 +175,17 @@ function compactOddsSummary(odds?: CombinedOdds): string | null {
   } else if (odds.spread != null) {
     parts.push(`Spread ${odds.spread}`);
   }
+
   if (odds.total != null) {
     parts.push(`Total ${odds.total}`);
   }
+
+  if (odds.lineSourceStatus === 'closing') {
+    parts.push('Closing');
+  } else if (odds.lineSourceStatus === 'fallback-latest-for-completed') {
+    parts.push('Stored latest');
+  }
+
   return parts.length ? parts.join(' · ') : null;
 }
 

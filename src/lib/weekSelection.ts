@@ -1,5 +1,5 @@
-import type { AppGame } from './schedule';
-import { isWeekContextGame } from './postseason-display';
+import type { AppGame } from './schedule.ts';
+import { isWeekContextGame } from './postseason-display.ts';
 
 export function deriveRegularWeeks(games: AppGame[]): number[] {
   return Array.from(

@@ -1,6 +1,11 @@
-import { attachOddsEventsToSchedule } from './oddsAttachment';
-import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
-import type { AliasMap } from './teamNames';
+import { attachOddsEventsToSchedule } from './oddsAttachment.ts';
+import {
+  createTeamIdentityResolver,
+  type TeamCatalogItem,
+  type TeamIdentityResolver,
+} from './teamIdentity.ts';
+import type { AliasMap } from './teamNames.ts';
+import type { AppGame } from './schedule.ts';
 
 export type OddsOutcome = { name?: string; price?: number; point?: number };
 export type OddsMarket = { key?: string; outcomes?: OddsOutcome[] };
@@ -13,13 +18,53 @@ export type OddsEvent = {
   bookmakers?: OddsBookmaker[];
 };
 
+export type OddsLineSourceStatus = 'latest' | 'closing' | 'fallback-latest-for-completed';
+
+export type DurableOddsSnapshot = {
+  capturedAt: string;
+  bookmakerKey: string;
+  favorite: string | null;
+  source: string | null;
+  spread: number | null;
+  homeSpread: number | null;
+  awaySpread: number | null;
+  spreadPriceHome: number | null;
+  spreadPriceAway: number | null;
+  moneylineHome: number | null;
+  moneylineAway: number | null;
+  total: number | null;
+  overPrice: number | null;
+  underPrice: number | null;
+};
+
+export type DurableOddsRecord = {
+  canonicalGameId: string;
+  latestSnapshot: DurableOddsSnapshot | null;
+  closingSnapshot: DurableOddsSnapshot | null;
+  closingFrozenAt: string | null;
+};
+
 export type CombinedOdds = {
   favorite: string | null;
   spread: number | null;
+  homeSpread: number | null;
+  awaySpread: number | null;
+  spreadPriceHome: number | null;
+  spreadPriceAway: number | null;
   total: number | null;
   mlHome: number | null;
   mlAway: number | null;
-  source?: string | null;
+  overPrice: number | null;
+  underPrice: number | null;
+  source: string | null;
+  bookmakerKey: string | null;
+  capturedAt: string | null;
+  lineSourceStatus: OddsLineSourceStatus;
+};
+
+export type CanonicalOddsItem = {
+  canonicalGameId: string;
+  odds: CombinedOdds;
 };
 
 type GameLike = {
@@ -30,6 +75,7 @@ type GameLike = {
   csvHome: string;
   csvAway: string;
   status?: string;
+  date?: string | null;
   participants?: { home?: { kind?: string }; away?: { kind?: string } };
 };
 
@@ -39,7 +85,21 @@ type PreparedOddsEvent = {
   book: OddsBookmaker | undefined;
 };
 
-function pickPreferredBook(ev: OddsEvent): OddsBookmaker | undefined {
+function eventHomeTeam(ev: OddsEvent): string {
+  return ev.homeTeam ?? ev.home_team ?? '';
+}
+
+function eventAwayTeam(ev: OddsEvent): string {
+  return ev.awayTeam ?? ev.away_team ?? '';
+}
+
+function teamMatches(resolver: TeamIdentityResolver, left: string, right: string): boolean {
+  const l = resolver.resolveName(left);
+  const r = resolver.resolveName(right);
+  return (l.identityKey ?? l.normalizedInput) === (r.identityKey ?? r.normalizedInput);
+}
+
+export function pickPreferredBook(ev: OddsEvent): OddsBookmaker | undefined {
   const pref = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
   const books = ev.bookmakers ?? [];
   for (const want of pref) {
@@ -49,24 +109,270 @@ function pickPreferredBook(ev: OddsEvent): OddsBookmaker | undefined {
   return books[0];
 }
 
-function eventHomeTeam(ev: OddsEvent): string {
-  return ev.homeTeam ?? ev.home_team ?? '';
+export function emptyDurableOddsRecord(canonicalGameId: string): DurableOddsRecord {
+  return {
+    canonicalGameId,
+    latestSnapshot: null,
+    closingSnapshot: null,
+    closingFrozenAt: null,
+  };
 }
 
-function eventAwayTeam(ev: OddsEvent): string {
-  return ev.awayTeam ?? ev.away_team ?? '';
+function parseGameKickoffMs(kickoff: string | null | undefined): number | null {
+  if (!kickoff) return null;
+  const parsed = new Date(kickoff).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function teamMatches(
-  resolver: ReturnType<typeof createTeamIdentityResolver>,
-  left: string,
-  right: string
+function isAtOrPastKickoff(
+  kickoff: string | null | undefined,
+  now: string | Date = new Date()
 ): boolean {
-  const l = resolver.resolveName(left);
-  const r = resolver.resolveName(right);
-  return (l.identityKey ?? l.normalizedInput) === (r.identityKey ?? r.normalizedInput);
+  const kickoffMs = parseGameKickoffMs(kickoff);
+  if (kickoffMs == null) return false;
+
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (!Number.isFinite(nowMs)) return false;
+
+  return nowMs >= kickoffMs;
 }
 
+function isCompletedGame(game: Pick<AppGame, 'status'>): boolean {
+  return game.status === 'final';
+}
+
+function snapshotFromStored(
+  snapshot: DurableOddsSnapshot,
+  lineSourceStatus: OddsLineSourceStatus
+): CombinedOdds {
+  return {
+    favorite: snapshot.favorite,
+    spread: snapshot.spread,
+    homeSpread: snapshot.homeSpread,
+    awaySpread: snapshot.awaySpread,
+    spreadPriceHome: snapshot.spreadPriceHome,
+    spreadPriceAway: snapshot.spreadPriceAway,
+    total: snapshot.total,
+    mlHome: snapshot.moneylineHome,
+    mlAway: snapshot.moneylineAway,
+    overPrice: snapshot.overPrice,
+    underPrice: snapshot.underPrice,
+    source: snapshot.source,
+    bookmakerKey: snapshot.bookmakerKey,
+    capturedAt: snapshot.capturedAt,
+    lineSourceStatus,
+  };
+}
+
+export function reopenClosingSnapshotForDelayedKickoffIfNeeded(params: {
+  record: DurableOddsRecord;
+  kickoff: string | null | undefined;
+  now?: string | Date;
+}): DurableOddsRecord {
+  const { record, kickoff, now = new Date() } = params;
+
+  if (!record.closingSnapshot) return record;
+
+  const kickoffMs = parseGameKickoffMs(kickoff);
+  if (kickoffMs == null) return record;
+
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (!Number.isFinite(nowMs) || nowMs >= kickoffMs) return record;
+
+  const closingCapturedMs = new Date(record.closingSnapshot.capturedAt).getTime();
+  if (!Number.isFinite(closingCapturedMs) || closingCapturedMs >= kickoffMs) return record;
+
+  return {
+    ...record,
+    latestSnapshot: record.latestSnapshot ?? record.closingSnapshot,
+    closingSnapshot: null,
+    closingFrozenAt: null,
+  };
+}
+
+export function freezeClosingSnapshotIfNeeded(params: {
+  record: DurableOddsRecord;
+  kickoff: string | null | undefined;
+  now?: string | Date;
+}): DurableOddsRecord {
+  const { record, kickoff, now = new Date() } = params;
+
+  if (record.closingSnapshot) return record;
+  if (!record.latestSnapshot) return record;
+  if (!isAtOrPastKickoff(kickoff, now)) return record;
+
+  const kickoffMs = parseGameKickoffMs(kickoff);
+  const latestCapturedMs = new Date(record.latestSnapshot.capturedAt).getTime();
+
+  if (kickoffMs != null && Number.isFinite(latestCapturedMs) && latestCapturedMs > kickoffMs) {
+    return record;
+  }
+
+  const frozenAt = now instanceof Date ? now.toISOString() : new Date(now).toISOString();
+
+  return {
+    ...record,
+    closingSnapshot: record.latestSnapshot,
+    closingFrozenAt: frozenAt,
+  };
+}
+
+export function applyPregameOddsSnapshot(params: {
+  record: DurableOddsRecord;
+  snapshot: DurableOddsSnapshot;
+  kickoff: string | null | undefined;
+  now?: string | Date;
+}): DurableOddsRecord {
+  const { record, snapshot, kickoff, now = new Date() } = params;
+
+  if (isAtOrPastKickoff(kickoff, now)) {
+    return freezeClosingSnapshotIfNeeded({ record, kickoff, now });
+  }
+
+  return {
+    ...record,
+    latestSnapshot: snapshot,
+  };
+}
+
+export function selectOddsForGame(params: {
+  game: Pick<AppGame, 'status' | 'date'>;
+  record: DurableOddsRecord | null | undefined;
+  now?: string | Date;
+}): CombinedOdds | null {
+  const { game, record, now = new Date() } = params;
+  if (!record) return null;
+
+  const completed = isCompletedGame(game);
+  const started = isAtOrPastKickoff(game.date, now);
+
+  if ((completed || started) && record.closingSnapshot) {
+    return snapshotFromStored(record.closingSnapshot, 'closing');
+  }
+
+  if (completed && record.latestSnapshot) {
+    return snapshotFromStored(record.latestSnapshot, 'fallback-latest-for-completed');
+  }
+
+  if (record.latestSnapshot) {
+    return snapshotFromStored(record.latestSnapshot, 'latest');
+  }
+
+  return null;
+}
+
+export function buildOddsLookup(items: CanonicalOddsItem[]): Record<string, CombinedOdds> {
+  return items.reduce<Record<string, CombinedOdds>>((acc, item) => {
+    if (item?.canonicalGameId && item.odds) {
+      acc[item.canonicalGameId] = item.odds;
+    }
+    return acc;
+  }, {});
+}
+
+export function buildDurableOddsSnapshot(params: {
+  game: Pick<GameLike, 'canHome' | 'canAway'>;
+  event: PreparedOddsEvent;
+  resolver: TeamIdentityResolver;
+  capturedAt?: string;
+}): DurableOddsSnapshot | null {
+  const { game, event, resolver, capturedAt = new Date().toISOString() } = params;
+  const book = event.book;
+  if (!book) return null;
+
+  const markets = book.markets ?? [];
+  const getMarket = (key: string): OddsMarket | undefined =>
+    markets.find((m) => (m.key || '').toLowerCase() === key);
+
+  const h2h = getMarket('h2h');
+  const spreads = getMarket('spreads');
+  const totals = getMarket('totals');
+
+  let favorite: string | null = null;
+  let spread: number | null = null;
+  let homeSpread: number | null = null;
+  let awaySpread: number | null = null;
+  let spreadPriceHome: number | null = null;
+  let spreadPriceAway: number | null = null;
+  let moneylineHome: number | null = null;
+  let moneylineAway: number | null = null;
+  let total: number | null = null;
+  let overPrice: number | null = null;
+  let underPrice: number | null = null;
+
+  if (h2h?.outcomes) {
+    for (const outcome of h2h.outcomes) {
+      const side = outcome.name || '';
+      if (teamMatches(resolver, side, game.canHome)) {
+        moneylineHome = typeof outcome.price === 'number' ? outcome.price : null;
+      }
+      if (teamMatches(resolver, side, game.canAway)) {
+        moneylineAway = typeof outcome.price === 'number' ? outcome.price : null;
+      }
+    }
+  }
+
+  if (spreads?.outcomes) {
+    const homeOutcome = spreads.outcomes.find((outcome) =>
+      teamMatches(resolver, outcome.name || '', game.canHome)
+    );
+    const awayOutcome = spreads.outcomes.find((outcome) =>
+      teamMatches(resolver, outcome.name || '', game.canAway)
+    );
+
+    homeSpread = typeof homeOutcome?.point === 'number' ? homeOutcome.point : null;
+    awaySpread = typeof awayOutcome?.point === 'number' ? awayOutcome.point : null;
+    spreadPriceHome = typeof homeOutcome?.price === 'number' ? homeOutcome.price : null;
+    spreadPriceAway = typeof awayOutcome?.price === 'number' ? awayOutcome.price : null;
+
+    if (homeSpread != null && awaySpread != null) {
+      const homeAbs = Math.abs(homeSpread);
+      const awayAbs = Math.abs(awaySpread);
+      if (homeAbs <= awayAbs) {
+        spread = homeSpread;
+        favorite = homeAbs < awayAbs ? game.canHome : game.canAway;
+      } else {
+        spread = awaySpread;
+        favorite = awayAbs < homeAbs ? game.canAway : game.canHome;
+      }
+    }
+  }
+
+  if (totals?.outcomes) {
+    const over = totals.outcomes.find((o) => (o.name || '').toLowerCase().includes('over'));
+    const under = totals.outcomes.find((o) => (o.name || '').toLowerCase().includes('under'));
+    total =
+      typeof over?.point === 'number'
+        ? over.point
+        : typeof under?.point === 'number'
+          ? under.point
+          : null;
+    overPrice = typeof over?.price === 'number' ? over.price : null;
+    underPrice = typeof under?.price === 'number' ? under.price : null;
+  }
+
+  return {
+    capturedAt,
+    bookmakerKey: book.key?.trim() || 'unknown',
+    favorite,
+    source: book.title?.trim() || book.key?.trim() || null,
+    spread,
+    homeSpread,
+    awaySpread,
+    spreadPriceHome,
+    spreadPriceAway,
+    moneylineHome,
+    moneylineAway,
+    total,
+    overPrice,
+    underPrice,
+  };
+}
+
+/**
+ * Legacy helper retained for compatibility with older tests/callers.
+ * New route consumption should prefer durable canonical odds selection.
+ */
 export function buildOddsByGame(params: {
   games: GameLike[];
   oddsEvents: OddsEvent[];
@@ -92,7 +398,6 @@ export function buildOddsByGame(params: {
     book: pickPreferredBook(event),
   }));
 
-  // Shared-lib attachment boundary: odds events are attached to schedule-derived games here.
   const attached = attachOddsEventsToSchedule({
     games,
     events: preparedEvents,
@@ -105,57 +410,15 @@ export function buildOddsByGame(params: {
     const game = gameByKey.get(match.gameKey);
     if (!game) continue;
 
-    const sourceTitle = match.event.book?.title || match.event.book?.key || null;
-    const markets = match.event.book?.markets ?? [];
-    const getMarket = (key: string): OddsMarket | undefined =>
-      markets.find((m) => (m.key || '').toLowerCase() === key);
+    const snapshot = buildDurableOddsSnapshot({
+      game,
+      event: match.event,
+      resolver,
+      capturedAt: new Date().toISOString(),
+    });
+    if (!snapshot) continue;
 
-    const h2h = getMarket('h2h');
-    const spreads = getMarket('spreads');
-    const totals = getMarket('totals');
-
-    let favorite: string | null = null;
-    let spread: number | null = null;
-    let total: number | null = null;
-    let mlHome: number | null = null;
-    let mlAway: number | null = null;
-
-    if (h2h?.outcomes) {
-      for (const o of h2h.outcomes) {
-        const side = o.name || '';
-        if (teamMatches(resolver, side, match.event.homeTeam)) {
-          mlHome = typeof o.price === 'number' ? o.price : null;
-        }
-        if (teamMatches(resolver, side, match.event.awayTeam)) {
-          mlAway = typeof o.price === 'number' ? o.price : null;
-        }
-      }
-    }
-
-    if (spreads?.outcomes) {
-      const homeOutcome = spreads.outcomes.find((outcome) =>
-        teamMatches(resolver, outcome.name || '', match.event.homeTeam)
-      );
-      const awayOutcome = spreads.outcomes.find((outcome) =>
-        teamMatches(resolver, outcome.name || '', match.event.awayTeam)
-      );
-
-      const homePoint = typeof homeOutcome?.point === 'number' ? homeOutcome.point : null;
-      const awayPoint = typeof awayOutcome?.point === 'number' ? awayOutcome.point : null;
-      if (homePoint != null && awayPoint != null) {
-        const homeAbs = Math.abs(homePoint);
-        const awayAbs = Math.abs(awayPoint);
-        spread = homeAbs <= awayAbs ? homePoint : awayPoint;
-        favorite = homeAbs < awayAbs ? match.event.homeTeam || null : match.event.awayTeam || null;
-      }
-    }
-
-    if (totals?.outcomes) {
-      const over = totals.outcomes.find((o) => (o.name || '').toLowerCase().includes('over'));
-      if (typeof over?.point === 'number') total = over.point;
-    }
-
-    next[game.key] = { favorite, spread, total, mlHome, mlAway, source: sourceTitle };
+    next[game.key] = snapshotFromStored(snapshot, 'latest');
   }
 
   return next;

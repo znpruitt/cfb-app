@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveCanonicalActiveViewGames } from '../activeView';
-import type { AppGame } from '../schedule';
-import { fetchScoresByGame } from '../scores';
-import type { TeamCatalogItem } from '../teamIdentity';
+import { deriveCanonicalActiveViewGames } from '../activeView.ts';
+import type { AppGame } from '../schedule.ts';
+import { fetchScoresByGame } from '../scores.ts';
+import type { TeamCatalogItem } from '../teamIdentity.ts';
 
 const teams: TeamCatalogItem[] = [
   { school: 'Notre Dame', level: 'FBS', conference: 'Independent' },

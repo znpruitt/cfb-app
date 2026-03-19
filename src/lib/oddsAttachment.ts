@@ -1,5 +1,5 @@
-import { buildSchedulePairIndex, type ScheduleAttachmentGame } from './gameAttachment';
-import type { TeamIdentityResolver } from './teamIdentity';
+import { buildSchedulePairIndex, type ScheduleAttachmentGame } from './gameAttachment.ts';
+import type { TeamIdentityResolver } from './teamIdentity.ts';
 
 export type OddsAttachmentEventBase = {
   homeTeam: string;

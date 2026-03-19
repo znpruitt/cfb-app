@@ -1,13 +1,13 @@
-import type { AliasMap } from './teamNames';
+import type { AliasMap } from './teamNames.ts';
 import {
   isLikelyInvalidTeamLabel,
   normalizeAliasLookup,
   normalizeTeamName,
-} from './teamNormalization';
+} from './teamNormalization.ts';
 import {
   inferSubdivisionFromConference as inferConferenceSubdivision,
   type ConferenceSubdivision,
-} from './conferenceSubdivision';
+} from './conferenceSubdivision.ts';
 
 export type TeamCatalogItem = {
   school: string;

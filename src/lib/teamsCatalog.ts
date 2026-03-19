@@ -1,4 +1,4 @@
-import type { TeamCatalogItem } from './teamIdentity';
+import type { TeamCatalogItem } from './teamIdentity.ts';
 
 export async function fetchTeamsCatalog(): Promise<TeamCatalogItem[]> {
   // Team catalog is a single canonical file (src/data/teams.json) served by /api/teams.

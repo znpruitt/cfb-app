@@ -8,8 +8,8 @@ import {
   resolveCanonicalTeamIdentity,
   type NormalizedScoreRow,
   type ScheduleGameForIndex,
-} from '../scoreAttachment';
-import { createTeamIdentityResolver } from '../teamIdentity';
+} from '../scoreAttachment.ts';
+import { createTeamIdentityResolver } from '../teamIdentity.ts';
 
 const teams = [
   { school: 'North Carolina', level: 'FBS' },

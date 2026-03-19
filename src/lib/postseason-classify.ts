@@ -2,8 +2,8 @@ import {
   CONFERENCE_CHAMPIONSHIP_SLOTS,
   matchConferenceChampionshipSlotByConference,
   matchConferenceChampionshipSlotByText,
-} from './conferenceChampionships';
-import type { ScheduleWireItem, GameStage } from './schedule';
+} from './conferenceChampionships.ts';
+import type { ScheduleWireItem, GameStage } from './schedule.ts';
 
 type RowClassification =
   | { kind: 'regular_game' }

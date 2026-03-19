@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isTruePostseasonGame, isWeekContextGame } from '../postseason-display';
+import { isTruePostseasonGame, isWeekContextGame } from '../postseason-display.ts';
 
 test('conference championship stage is excluded from postseason tab classification', () => {
   assert.equal(

@@ -1,4 +1,4 @@
-import type { TeamIdentityResolver } from './teamIdentity';
+import type { TeamIdentityResolver } from './teamIdentity.ts';
 
 export type ScheduleAttachmentGame = {
   key: string;

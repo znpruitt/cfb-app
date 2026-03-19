@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildScheduleFromApi } from '../schedule';
+import { buildScheduleFromApi } from '../schedule.ts';
 import {
   buildRegularSeasonDateClusters,
   buildRegularSeasonWeekCalendar,
   deriveCanonicalRegularSeasonWeek,
-} from '../regularSeasonWeekCalendar';
-import { deriveRegularWeekTabs } from '../activeView';
+} from '../regularSeasonWeekCalendar.ts';
+import { deriveRegularWeekTabs } from '../activeView.ts';
 
 const teams = [
   { school: 'Iowa State', level: 'FBS' as const },

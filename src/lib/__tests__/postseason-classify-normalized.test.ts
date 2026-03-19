@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { classifyScheduleRow } from '../postseason-classify';
+import { classifyScheduleRow } from '../postseason-classify.ts';
 
 test('classifyScheduleRow prefers normalized playoff metadata for CFP quarterfinal bowls', () => {
   const classified = classifyScheduleRow(

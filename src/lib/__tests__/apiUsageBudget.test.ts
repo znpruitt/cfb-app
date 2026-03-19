@@ -6,7 +6,7 @@ import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
   recordRouteRequest,
-} from '../server/apiUsageBudget';
+} from '../server/apiUsageBudget.ts';
 
 test('api usage snapshot tracks route requests and cache outcomes', () => {
   const before = getApiUsageSnapshot();

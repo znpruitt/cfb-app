@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveCfbdUsage } from '../api/cfbdUsage';
+import { resolveCfbdUsage } from '../api/cfbdUsage.ts';
 
 test('CFBD usage tier 0 resolves to limit 1000', () => {
   const usage = resolveCfbdUsage({ patronLevel: 0, remainingCalls: 842 });

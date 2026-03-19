@@ -1,4 +1,4 @@
-import type { AppGame } from './schedule';
+import type { AppGame } from './schedule.ts';
 
 export function dedupeIssues(items: string[]): string[] {
   return Array.from(new Set(items));

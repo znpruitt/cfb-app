@@ -1,7 +1,7 @@
 import type {
   ScoreAttachmentDiagnostic,
   ScoreAttachmentFailureReason,
-} from './scoreAttachmentDiagnostics';
+} from './scoreAttachmentDiagnostics.ts';
 
 export type IssueClassification =
   | 'identity-unresolved'

@@ -1,11 +1,12 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { writeJsonFileAtomic } from './atomicFileWrite.ts';
 import {
   buildOddsUsageSnapshot,
   type OddsUsageContext,
   type OddsUsageSnapshot,
-} from '@/lib/api/oddsUsage';
+} from '../api/oddsUsage.ts';
 
 let memorySnapshot: OddsUsageSnapshot | null | undefined;
 
@@ -75,8 +76,7 @@ async function readSnapshotFile(): Promise<OddsUsageSnapshot | null> {
 }
 
 async function writeSnapshotFile(snapshot: OddsUsageSnapshot): Promise<void> {
-  await fs.mkdir(dataDir(), { recursive: true });
-  await fs.writeFile(oddsUsageFile(), JSON.stringify(snapshot, null, 2), 'utf8');
+  await writeJsonFileAtomic(oddsUsageFile(), snapshot);
 }
 
 export async function getLatestKnownOddsUsage(): Promise<OddsUsageSnapshot | null> {

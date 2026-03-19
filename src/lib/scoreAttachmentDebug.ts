@@ -1,4 +1,4 @@
-import type { ScoreAttachmentDiagnostic } from './scoreAttachmentDiagnostics';
+import type { ScoreAttachmentDiagnostic } from './scoreAttachmentDiagnostics.ts';
 
 export type ScoreAttachmentDebugResponse = {
   year: number;

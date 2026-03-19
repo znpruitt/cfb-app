@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { deriveScheduleWeeks, mapCfbdScheduleGame } from '../schedule/cfbdSchedule';
+import { deriveScheduleWeeks, mapCfbdScheduleGame } from '../schedule/cfbdSchedule.ts';
 
 test('mapCfbdScheduleGame maps valid snake_case payload', () => {
   const result = mapCfbdScheduleGame(

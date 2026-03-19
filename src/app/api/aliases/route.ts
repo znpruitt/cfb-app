@@ -1,6 +1,8 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 
+import { writeJsonFileAtomic } from '../../../lib/server/atomicFileWrite.ts';
+
 /** Canonical alias map type */
 type AliasMap = Record<string, string>;
 
@@ -49,9 +51,8 @@ async function readAliases(year: number): Promise<AliasMap> {
 }
 
 async function writeAliases(year: number, map: AliasMap): Promise<void> {
-  await fs.mkdir(dataDir(), { recursive: true });
   const p = fileForYear(year);
-  await fs.writeFile(p, JSON.stringify(map, null, 2), 'utf8');
+  await writeJsonFileAtomic(p, map);
 }
 
 /* ---------- GET /api/aliases?year=YYYY ---------- */

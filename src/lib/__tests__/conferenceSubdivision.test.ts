@@ -8,7 +8,7 @@ import {
   resetConferenceClassificationRecords,
   resolvePresentDayConferencePolicy,
   setConferenceClassificationRecords,
-} from '../conferenceSubdivision';
+} from '../conferenceSubdivision.ts';
 
 test('normalizeConferenceKey normalizes punctuation and spacing', () => {
   assert.equal(normalizeConferenceKey(' C-USA '), 'cusa');

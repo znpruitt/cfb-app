@@ -1,6 +1,6 @@
-import { createTeamIdentityResolver } from './teamIdentity';
-import { isLikelyInvalidTeamLabel } from './teamNormalization';
-import type { AppGame, ParticipantSlot, ScheduleWireItem } from './schedule';
+import { createTeamIdentityResolver } from './teamIdentity.ts';
+import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
+import type { AppGame, ParticipantSlot, ScheduleWireItem } from './schedule.ts';
 
 function participantCsvValue(participant: ParticipantSlot): string {
   if (participant.kind === 'team') return participant.rawName;

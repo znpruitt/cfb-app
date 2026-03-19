@@ -6,13 +6,13 @@ import {
   buildScheduleIndex,
   type NormalizedScoreRow,
   type ScheduleGameForIndex,
-} from '../scoreAttachment';
+} from '../scoreAttachment.ts';
 import {
   isActionableScoreAttachmentIssue,
   isIgnoredOutOfScopeProviderRow,
   summarizeAttachmentReasons,
-} from '../scoreAttachmentDiagnostics';
-import { createTeamIdentityResolver } from '../teamIdentity';
+} from '../scoreAttachmentDiagnostics.ts';
+import { createTeamIdentityResolver } from '../teamIdentity.ts';
 
 const teams = [
   { school: 'Army', level: 'FBS' },

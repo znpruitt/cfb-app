@@ -1,4 +1,4 @@
-import type { AppGame, ParticipantSlot } from './schedule';
+import type { AppGame, ParticipantSlot } from './schedule.ts';
 
 export type HydrationDiagnostic = {
   eventId: string;

@@ -1,7 +1,7 @@
 import {
   matchConferenceChampionshipSlotByConference,
   matchConferenceChampionshipSlotByText,
-} from '../conferenceChampionships';
+} from '../conferenceChampionships.ts';
 
 export type SeasonType = 'regular' | 'postseason';
 

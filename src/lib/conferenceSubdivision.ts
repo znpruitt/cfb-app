@@ -1,7 +1,7 @@
 import {
   CURRENT_FOOTBALL_CONFERENCES,
   type CurrentFootballConferencePolicy,
-} from '@/data/currentFootballConferences';
+} from '../data/currentFootballConferences.ts';
 
 export type ConferenceSubdivision = 'FBS' | 'FCS' | 'OTHER' | 'UNKNOWN';
 

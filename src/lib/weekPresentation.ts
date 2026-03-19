@@ -1,5 +1,5 @@
-import type { AppGame } from './schedule';
-import { isWeekContextGame } from './postseason-display';
+import type { AppGame } from './schedule.ts';
+import { isWeekContextGame } from './postseason-display.ts';
 
 const NO_DATE_KEY = 'tbd';
 

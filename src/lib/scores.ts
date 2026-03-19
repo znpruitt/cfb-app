@@ -1,17 +1,17 @@
-import type { DiagEntry } from './diagnostics';
+import type { DiagEntry } from './diagnostics.ts';
 import {
   attachScoresToSchedule,
   buildScheduleIndex,
   type NormalizedScoreRow,
   type ScheduleGameForIndex,
-} from './scoreAttachment';
+} from './scoreAttachment.ts';
 import {
   summarizeAttachmentReasons,
   type ScoreAttachmentDiagnostic,
-} from './scoreAttachmentDiagnostics';
-import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
-import type { AliasMap } from './teamNames';
-import { fetchTeamsCatalog } from './teamsCatalog';
+} from './scoreAttachmentDiagnostics.ts';
+import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
+import type { AliasMap } from './teamNames.ts';
+import { fetchTeamsCatalog } from './teamsCatalog.ts';
 
 export type ScoreTeam = { team: string; score: number | null };
 export type ScorePack = {

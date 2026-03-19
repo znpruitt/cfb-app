@@ -1,5 +1,5 @@
-import { CONFERENCE_CHAMPIONSHIP_SLOTS } from './conferenceChampionships';
-import type { GameStage } from './schedule';
+import { CONFERENCE_CHAMPIONSHIP_SLOTS } from './conferenceChampionships.ts';
+import type { GameStage } from './schedule.ts';
 
 export type TemplateEvent = {
   id: string;

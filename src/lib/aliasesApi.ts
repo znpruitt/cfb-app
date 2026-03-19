@@ -1,4 +1,4 @@
-import type { AliasMap } from './teamNames';
+import type { AliasMap } from './teamNames.ts';
 
 export async function loadServerAliases(year: number): Promise<AliasMap> {
   const res = await fetch(`/api/aliases?year=${year}`, { cache: 'no-store' });

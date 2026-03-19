@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { AppGame } from '../schedule';
-import { chooseDefaultWeek, deriveRegularWeeks, filterGamesForWeek } from '../weekSelection';
+import type { AppGame } from '../schedule.ts';
+import { chooseDefaultWeek, deriveRegularWeeks, filterGamesForWeek } from '../weekSelection.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {

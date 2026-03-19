@@ -1,4 +1,4 @@
-import type { ScorePack } from './scores';
+import type { ScorePack } from './scores.ts';
 
 export function gameStateFromScore(
   score?: ScorePack

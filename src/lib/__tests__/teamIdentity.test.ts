@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeTeamName } from '../teamNormalization';
-import { createTeamIdentityResolver } from '../teamIdentity';
-import { buildScheduleFromApi } from '../schedule';
-import { classifyScheduleRow } from '../postseason-classify';
+import { normalizeTeamName } from '../teamNormalization.ts';
+import { createTeamIdentityResolver } from '../teamIdentity.ts';
+import { buildScheduleFromApi } from '../schedule.ts';
+import { classifyScheduleRow } from '../postseason-classify.ts';
 
 test('normalization cases', () => {
   assert.equal(normalizeTeamName('Fordham'), 'fordham');

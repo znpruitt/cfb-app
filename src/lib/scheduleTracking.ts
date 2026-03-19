@@ -1,12 +1,12 @@
-import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity';
-import type { AppGame, ParticipantSlot, ScheduleWireItem } from './schedule';
+import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
+import type { AppGame, ParticipantSlot, ScheduleWireItem } from './schedule.ts';
 import {
   classifyTeamSubdivision,
   getRegularSeasonEligibilityDecision,
   isFbsTeam,
   isOfficePoolEligibleTeamMatchup,
   type ScheduleEligibilityReason,
-} from './scheduleEligibility';
+} from './scheduleEligibility.ts';
 
 export function isTrackedGame(
   game: AppGame,

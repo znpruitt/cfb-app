@@ -5,7 +5,7 @@ import {
   buildOddsUsageSnapshot,
   getOddsQuotaGuardState,
   parseOddsUsageHeaders,
-} from '../api/oddsUsage';
+} from '../api/oddsUsage.ts';
 
 test('parses authoritative odds usage headers', () => {
   const parsed = parseOddsUsageHeaders(
