@@ -181,10 +181,131 @@ test('matchups panel summarizes self-matchups as Self', () => {
 
   assert.match(html, /Alex/);
   assert.match(html, /1 game/);
-  assert.match(html, /1–0/);
+  assert.match(html, /1–1/);
   assert.match(html, /1 game · vs Self/);
-  assert.equal((html.match(/Texas/g) ?? []).length, 1);
+  assert.match(html, /Texas 28 • Oklahoma 21/);
+  assert.match(html, /Counts as 1W \/ 1L/);
+  assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
+  assert.doesNotMatch(html, /Leading 28-21/);
+  assert.doesNotMatch(html, /Trailing 28-21/);
+  assert.equal((html.match(/Texas/g) ?? []).length, 2);
   assert.doesNotMatch(html, /2 games/);
+});
+
+test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {
+  const games = [
+    game({ key: 'g-owned', csvAway: 'Alabama', csvHome: 'Georgia' }),
+    game({ key: 'g-noclaim', csvAway: 'Florida State', csvHome: 'Tulane', homeConf: 'AAC' }),
+    game({ key: 'g-fcs', csvAway: 'Kansas State', csvHome: 'North Dakota', homeConf: 'FCS' }),
+  ];
+  const rosterByTeam = new Map([
+    ['Alabama', 'Avery'],
+    ['Georgia', 'Blair'],
+    ['Florida State', 'Avery'],
+    ['Kansas State', 'Avery'],
+  ]);
+  const scoresByKey = {
+    'g-owned': {
+      status: 'final',
+      time: 'Final',
+      home: { team: 'Georgia', score: 17 },
+      away: { team: 'Alabama', score: 24 },
+    },
+    'g-noclaim': {
+      status: 'final',
+      time: 'Final',
+      home: { team: 'Tulane', score: 31 },
+      away: { team: 'Florida State', score: 20 },
+    },
+    'g-fcs': {
+      status: 'final',
+      time: 'Final',
+      home: { team: 'North Dakota', score: 10 },
+      away: { team: 'Kansas State', score: 35 },
+    },
+  };
+
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const avery = slates.find((slate) => slate.owner === 'Avery');
+  const blair = slates.find((slate) => slate.owner === 'Blair');
+
+  assert.ok(avery);
+  assert.ok(blair);
+  assert.equal(avery.performance.summary, '2–1');
+  assert.equal(blair.performance.summary, '0–1');
+
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={games}
+      oddsByKey={{}}
+      scoresByKey={scoresByKey}
+      rosterByTeam={rosterByTeam}
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Avery/);
+  assert.match(html, /2–1/);
+  assert.match(html, /3 games · vs FCS, NoClaim \(FBS\), Blair/);
+  assert.match(html, /Blair/);
+  assert.match(html, /0–1/);
+  assert.match(html, /border-l-emerald-400\/80 bg-emerald-50\/40/);
+  assert.match(html, /border-l-rose-400\/80 bg-rose-50\/40/);
+});
+
+test('scheduled and live games do not change owner final record summaries', () => {
+  const games = [
+    game({ key: 'g-final', csvAway: 'Clemson', csvHome: 'Miami' }),
+    game({ key: 'g-live', csvAway: 'Oregon', csvHome: 'USC' }),
+    game({ key: 'g-scheduled', csvAway: 'Texas', csvHome: 'Baylor' }),
+  ];
+  const rosterByTeam = new Map([
+    ['Clemson', 'Casey'],
+    ['Oregon', 'Casey'],
+    ['Texas', 'Casey'],
+    ['Miami', 'Dana'],
+    ['USC', 'Evan'],
+  ]);
+  const scoresByKey = {
+    'g-final': {
+      status: 'final',
+      time: 'Final',
+      home: { team: 'Miami', score: 14 },
+      away: { team: 'Clemson', score: 24 },
+    },
+    'g-live': {
+      status: 'in progress',
+      time: 'Q3',
+      home: { team: 'USC', score: 17 },
+      away: { team: 'Oregon', score: 21 },
+    },
+    'g-scheduled': {
+      status: 'scheduled',
+      time: 'Sat 7:30 PM',
+      home: { team: 'Baylor', score: 0 },
+      away: { team: 'Texas', score: 0 },
+    },
+  };
+
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const casey = slates.find((slate) => slate.owner === 'Casey');
+  assert.ok(casey);
+  assert.equal(casey.performance.summary, '1–0 · 1 live');
+  assert.equal(casey.performance.tone, 'inprogress');
+
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={games}
+      oddsByKey={{}}
+      scoresByKey={scoresByKey}
+      rosterByTeam={rosterByTeam}
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Casey/);
+  assert.match(html, /1–0 · 1 live/);
+  assert.match(html, /3 games · vs Evan, NoClaim \(FBS\), Dana/);
 });
 
 test('owner slate shows final record when one game is final and another is still scheduled', () => {
@@ -228,7 +349,7 @@ test('owner slate shows final record when one game is final and another is still
 
   assert.match(html, /Casey/);
   assert.match(html, /1–0/);
-  assert.match(html, /2 games · vs Dana, Evan/);
+  assert.match(html, /2 games · vs Evan, Dana/);
   assert.doesNotMatch(html, /1 final/);
   assert.doesNotMatch(html, /1 scheduled/);
 });
@@ -356,7 +477,7 @@ test('matchups panel preserves championship placeholder labels instead of collap
     />
   );
 
-  assert.match(html, /2 games · vs SEC Team TBD, ACC Team TBD/);
+  assert.match(html, /2 games · vs ACC Team TBD, SEC Team TBD/);
   assert.match(html, /SEC Team TBD/);
   assert.match(html, /ACC Team TBD/);
   assert.doesNotMatch(html, /2 games · vs FCS/);

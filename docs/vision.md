@@ -1,110 +1,80 @@
 Development Plan for the CFB Schedule App
 Purpose and Scope
 
-The CFB Schedule App is a web‑based dashboard that lets members of a college‑football‑based fantasy league follow their teams each week. It ingests data from multiple APIs – the CollegeFootballData API for schedules and live scores, Odds API for Vegas lines, and internal league ownership data – then normalizes team names, attaches scores/odds, maps teams to owners and displays the resulting matchups. The system’s goal is to give every league member a single source of truth for weekly game status, matchups and outcomes.
+The CFB Schedule App is a **league-first dashboard** for a college-football-based office pool. It combines canonical college football schedule data from CFBD with live scores, betting context from The Odds API, and internal league ownership data to create a single place for members to understand the league. The schedule remains the canonical source of truth for game identity, kickoff context, and final outcomes, but the primary user value is league understanding: current standings, weekly matchups, overview/home context, and the league story as the season moves into postseason play.
 
-The development plan below summarises the major features, UI improvements and future enhancements that will make the app reliable and compelling for the league going forward. It incorporates lessons from major fantasy sports platforms – ESPN, Yahoo, Sleeper and others – and aligns those ideas with the project’s architecture and non‑goals.
+The development plan below focuses on the major surfaces and implementation priorities that support that league-first experience while preserving the project’s architecture, deterministic identity matching, and diagnostic transparency.
 
 Major Features
 1. Data Acquisition & Identity Resolution
 
-Canonical schedule ingestion: Replace the old CSV schedule with automated pulling of the entire season from the CFBD schedule API. The schedule should be the sole source of truth for game dates, opponents and week numbers. A local cache can be used to reduce API calls, with periodic refreshes.
+Canonical schedule ingestion: Use the CFBD schedule API as the sole source of truth for game dates, opponents, week numbers, and final game outcomes. A local cache can reduce API calls, but schedule-derived games remain the canonical base record.
 
-Canonical identity resolver: Implement a normalization layer that maps any team name from the CFBD API, Odds API or manual inputs to a single canonical name. This prevents mismatches such as “App State” vs “Appalachian State” and is critical to joining scores and odds correctly. The identity resolver should maintain a table of aliases and allow the commissioner to add overrides when mismatches are detected.
+Canonical identity resolver: Maintain a normalization layer that maps team names from CFBD, The Odds API, and league ownership inputs to a single canonical identity. This prevents mismatches such as “App State” vs “Appalachian State” and remains critical to joining scores, odds, and ownership cleanly.
 
-Live score and odds attachment: After resolving identities, attach real‑time scores from CFBD and betting lines from the Odds API (point spreads, totals, moneylines). The app should also display which team is the favourite or underdog. Odds integration adds context for matchups but should not be used for gambling; it’s purely informational.
+Live score and odds attachment: After resolving identities, attach live scores from CFBD and betting lines from The Odds API to schedule-derived games. Odds provide league context and scanability, but they do not replace schedule truth.
 
-League ownership mapping: Maintain a mapping of teams to league owners (e.g., Alabama → Zach). Use this mapping to derive head‑to‑head matchups and highlight bye weeks. Ownership should be editable through an admin interface.
+League ownership mapping: Maintain a mapping of teams to league owners so the app can derive weekly owner matchups, standings inputs, and league-level context. Ownership should remain editable through commissioner tooling.
 
-Deterministic game matching: Use canonical home team, away team and week to join scores and odds, never fuzzy string matching. When data fails to match, the system should surface the mismatch and allow manual correction.
+Deterministic game matching: Use canonical home team, canonical away team, and schedule-derived identity to join scores and odds. When data fails to match, surface diagnostics and support manual correction rather than silently guessing.
 
 2. Live League Dashboard
 
-Personalized home screen: Provide a home view summarising the user’s teams and matchups for the upcoming week. ESPN’s new fantasy app uses a personalised home screen that ranks starters and highlights analyst picks. Similarly, the CFB app could show each owner’s teams ranked by opponent strength or betting spreads and highlight games that warrant attention (e.g., close spreads or potential upsets).
+League overview / home: Provide a lightweight league-first landing surface that summarizes the current standings picture, key live or upcoming league-relevant games, and the most important weekly matchup context.
 
-Real‑time schedule & live scores: Display the full league schedule for the selected week with kickoff times, TV networks and location. Update scores in real time using WebSockets or polling. When a game is in progress, show the current quarter, time remaining and score; when it is final, show the result and update standings. At‑a‑glance standings on league pages are a key usability feature seen in the Apple Sports app.
+Weekly Matchups view: Offer a dedicated view that shows owner-vs-owner matchups with score, odds, and outcome context. This should remain a core league surface, but as part of a broader experience rather than the entire product identity.
 
-League matchup view: Offer a dedicated view that shows head‑to‑head matchups by owner. ESPN’s updated matchup view allows users to swipe between matchups and keeps the game score pinned at the top. A similar card‑based design would let league members quickly compare scores, odds and outcomes across all owner matchups.
+Owner standings and performance context: Display season-long standings driven by league rules, along with concise owner performance context such as record and point differential. Standings should be easy to understand and trustworthy.
 
-Dynamic roster dashboard / action items: Build a manager screen that tells owners what actions they need to take (e.g., confirm alias mappings, update ownership, resolve mismatches). ESPN’s dynamic roster dashboard reminds users to check waiver wires or respond to trade offers. For the CFB app, this dashboard could highlight games missing odds, unmapped teams or identity conflicts.
+Postseason league context: Ensure the app continues to tell the league story cleanly once the regular season ends, with postseason-aware matchup and standings presentation where appropriate.
 
-Owner standings and scoring: Display season‑long standings using chosen scoring models (wins/losses, point differential, against‑the‑spread performance, upset bonuses). Provide a weekly scoreboard and update standings as games finish.
-
-Diagnostic tools: Surface unresolved identity conflicts, unmatched scores or odds directly in the UI. Provide quick links for the commissioner to fix them without diving into raw data.
+Diagnostic tools: Continue surfacing unresolved identity conflicts, unmatched scores or odds, and reconciliation issues directly in the UI so the commissioner can fix problems quickly.
 
 3. Enhanced Team & Game Information
 
-Team cards: Create detail pages for each team with record, ranking, roster and stats. ESPN’s enhanced player cards include historical logs, career stats and bios; similarly, the CFB app can show historical performance, offensive/defensive rankings and league ownership history for each team.
+Team and game context: Continue improving team/game presentation where it directly supports league consumption, such as records, rankings, kickoff details, and betting context.
 
-Odds & predictions: Show point spreads, totals and moneylines alongside each matchup, along with implied win probabilities. A future enhancement could use simple predictive models (e.g., Elo ratings or odds‑based calculations) to estimate win probabilities and highlight potential upsets.
+Odds & predictions: Show point spreads, totals, and moneylines alongside relevant league matchups. Predictive or model-driven features can remain later enhancements.
 
-Play/scoring highlights: Borrowing from the Apple Sports app’s highlight of goal scorers, provide quick summaries of key scoring plays (e.g., touchdowns, field goals) or momentum shifts. This could be a collapsed timeline that expands for more detail.
-
-History and analytics: Build a historical database starting with the 2025 season. Track owner win/loss records, points scored vs opponent, against‑the‑spread performance and upsets. Provide charts and tables so users can see long‑term trends.
+History and analytics: Build historical league context gradually after core league surfaces are in place. Analytics should support league understanding, not distract from delivering dependable current-season views first.
 
 4. Notification & Engagement Features
 
-Push and email notifications: Send timely alerts for kickoff, scoring plays, upsets, and game finals. Users should be able to customise notification types and quiet hours. Sleeper’s push notifications help users stay informed.
+Feedback and issue reporting: Provide a simple reporting path so league members can flag data issues or UX confusion.
 
-Chat and social features: Integrate a simple chat room or message board so league members can discuss games, trash talk and celebrate upsets. Sleeper’s chat integration fosters community; adding a similar feature will increase engagement.
+Personalization settings: Preserve useful preferences such as selected week, filters, or theme choices when they meaningfully improve day-to-day use.
 
-Personalisation settings: Let users set favourite teams, hide non‑league games, choose dark or light mode, and select accent colours. This will make the dashboard feel tailored to each member.
-
-Accessibility: Ensure the UI meets accessibility standards – readable fonts, high contrast, keyboard navigation, and screen‑reader support. Provide adjustable time‑zones and date formats since the league is in America/Chicago but members may view from elsewhere.
+Accessibility and usability: Ensure the interface is readable, responsive, keyboard-friendly, and practical across devices.
 
 5. Commissioner Tools
 
-Ownership & league management: Provide CRUD interfaces for team‑owner mappings and allow the commissioner to add, remove or transfer teams. Include controls to archive previous seasons and start new ones.
+Ownership & league management: Preserve commissioner controls for managing team-owner mappings and season transitions.
 
-Alias and identity management: Allow manual addition of alias overrides for teams not automatically resolved. Provide logs of unresolved matches.
+Alias and identity management: Allow manual alias overrides and expose unresolved matches through diagnostics.
 
-Season configuration: Let the commissioner define the scoring system (e.g., wins, point differential), decide which odds to display, and set the start/end weeks. Offer schedule templates for 10‑team vs 12‑team leagues analogous to ESPN’s schedule changes.
+Season configuration: Keep season-level settings conservative and focused on league needs, such as standings presentation inputs or display preferences, without introducing unnecessary admin complexity.
 
 User Interface Improvements
 
-The current app functions as a data overlay; to make it a polished league dashboard the UI needs several improvements:
+The app should continue evolving from a schedule-and-data overlay into a league-first control center with a clear hierarchy of surfaces:
 
-Modern responsive design: Adopt a component‑based framework (e.g., React with Tailwind or Material UI) to deliver consistent styling and behaviour on desktop, tablet and mobile. Use card layouts with clearly labelled sections for schedules, matchups, scores and odds.
+League-first navigation: Prioritize Overview / Home, Matchups, Standings, and Schedule as the main way users move through the app.
 
-Navigation and filtering: Implement a week selector and allow users to jump to specific weeks or view the entire season. Add filters by owner, team or conference. Provide breadcrumbs and search so users never feel lost.
+Responsive design: Ensure those core league surfaces remain readable and useful on desktop, tablet, and mobile.
 
-Sticky headers & pinned information: When scrolling through long lists of games or matchups, pin the current week or matchup score at the top, similar to ESPN’s pinned score in its matchup view.
+Navigation and filtering: Maintain week selection and league-relevant filtering without overwhelming the primary league views.
 
-Interactive charts & tables: Use charts sparingly to show standings, point differentials or upset frequencies. Keep tables narrow (no more than three columns) to fit on mobile screens. Use colour coding for win/loss and highlight close spreads.
+Feedback and issue reporting: Keep a lightweight “Report Issue” or “Submit Feedback” entry point available from the primary experience.
 
-Feedback and error reporting: Embed a “Report Issue” or “Submit Feedback” button throughout the app. College Fantasy Football’s app added a “Submit Issue” option for user feedback; a similar approach will help gather bug reports and suggestions.
-
-Dark mode and theming: Offer light/dark themes and allow commissioners to choose an accent colour consistent with the league’s branding. This improves usability during late games and aligns with modern app design trends.
-
-Stateful interaction: Save user preferences (selected week, filters, dark mode) locally so the app restores the same view when the user returns.
-
-Accessibility improvements: Include alt text for icons, support screen readers, and ensure keyboard navigability. Provide high‑contrast mode for visually impaired users.
+Stateful interaction: Save practical user preferences such as selected week or theme.
 
 Future Features & Innovation
 
-To keep the app engaging beyond basic schedule tracking, consider these advanced features:
-
-AI‑driven recommendations and analytics: Leverage machine learning or statistical models to suggest optimal team picks in future drafts, identify undervalued teams based on odds, and alert owners to potential upsets. Yahoo plans AI‑driven recommendations and improved live feed integration; similar intelligence would differentiate the CFB app.
-
-Matchup predictions: Use betting lines and team ratings to compute win probabilities and display them alongside each matchup. Highlight games with close spreads to increase excitement.
-
-Upset tracking: Maintain a list of underdogs who won their games and award bonus points or badges to the owner. Provide historical upset statistics.
-
-Historical season archives: Store full season data from 2025 onward, including ownership history and results. Allow users to browse past seasons and analyze trends across years.
-
-Gamified elements: Introduce badges or achievements for milestones (e.g., most upsets, longest winning streak, highest points differential). Gamification drives engagement and retention.
-
-Cross‑platform availability: After stabilising the web app, consider native mobile apps for iOS and Android or a Progressive Web App (PWA) to support offline usage and push notifications.
-
-Integration with chat platforms: Provide optional integration with Discord or Slack, allowing game updates to be pushed to a league chat. This could reduce the need for separate messaging features while leveraging existing communities.
-
-API gateway & extensibility: Expose the normalized schedule, scores and odds via a secure API so that future tools (e.g., analytics notebooks) can programmatically access the data.
-
-Streaming and live audio integration: Link to legitimate streaming or radio services for game audio (subject to rights). This keeps users within the app during games.
+Later enhancements can include deeper historical analytics, matchup predictions, upset tracking, season archives, and broader engagement ideas, but these should remain secondary to dependable league-first surfaces.
 
 Phased Development Roadmap
 
-Phase 1 – Architecture Stabilization (Q2 2026)
+Phase 1 – Architecture Stabilization (Complete)
 
 Finalize API integrations (CFBD schedule, scores, Odds API).
 
@@ -112,50 +82,30 @@ Build the canonical identity resolver with alias management.
 
 Implement deterministic matching and surface mismatches.
 
-Create basic admin interface for managing team ownership and aliases.
+Create commissioner tooling for ownership and alias management.
 
-Phase 2 – Data Engine & Core Dashboard (Q3 2026)
+Phase 2 – Core League Surfaces (Current)
 
-Build the data pipeline that attaches scores and odds to normalized games.
+Establish standings as a first-class league surface using clear, documented rules.
 
-Develop the weekly schedule dashboard with live scores and odds.
+Build shared owner metrics / derived league utilities that support standings, overview, and matchup context, including agreed self-matchup handling.
 
-Add league matchup view, including head‑to‑head matchups by owner.
+Create the league overview / home foundation and strengthen weekly Matchups as a core league view.
 
-Implement dynamic roster dashboard with action items.
+Extend league usability into postseason scenarios before broad presentation polish.
 
-Phase 3 – UX Improvements & Personalisation (Q4 2026)
+Phase 3 – Responsive Polish & Broader Usability
 
-Redesign the UI with responsive components, sticky headers and dark mode.
+Refine responsive behavior across Overview, Matchups, Standings, and Schedule.
 
-Add week selector, filters and search functionality.
+Add lightweight feedback/reporting entry points and additional usability improvements.
 
-Create team cards with stats and history.
+Phase 4 – Advanced Analytics & Historical Context
 
-Implement push notifications, user preferences and theming.
+Add optional historical league analytics, season archives, and richer performance context.
 
-Phase 4 – Advanced Analytics & Social Features (2027)
-
-Develop predictive models using odds and ratings to estimate win probabilities.
-
-Introduce historical analytics dashboards (owner records, upset tracking).
-
-Add gamification (badges, achievements) and chat integration.
-
-Provide custom scoring models and additional league analytics (e.g., ATS performance, point differential).
-
-Phase 5 – Mobile Apps & API Extensions (2028)
-
-Build native mobile apps or convert the PWA into installable apps.
-
-Expose a public API for league data access.
-
-Explore partnerships or additional features such as streaming or audio integration.
-
-Data Flow Diagram
-
-The following diagram illustrates the high‑level data flow for the CFB Schedule App. Live scores and betting lines are pulled from external APIs, normalized, enriched with league ownership data and then presented in a unified dashboard.
+Explore more advanced predictive or presentation-oriented enhancements only after the core league experience is stable.
 
 Conclusion
 
-By focusing on clean data ingestion, robust identity resolution and a polished, personalised UI, the CFB Schedule App can become an indispensable tool for league members. Borrowing best practices from industry leaders – such as ESPN’s personalized home screen, dynamic dashboards and pinned matchup views, Apple’s at‑a‑glance standings and Sleeper’s social features – will ensure the app feels modern and engaging. Phasing development will allow the team to stabilise the core architecture before layering on analytics, gamification and mobile support. When complete, the app will provide a live league control center, giving fans everything they need to follow and enjoy college football within their fantasy league.
+By keeping the schedule as canonical truth while building the product around league understanding, the CFB Schedule App can become the league’s control center rather than just a schedule viewer with overlays. The near-term path should prioritize dependable standings, strong weekly matchups, a useful league overview, and clean postseason continuity, with responsive polish and advanced analytics layered in only after those core league surfaces are established.
