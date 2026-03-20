@@ -133,6 +133,137 @@ function OwnerGamesTable({
   );
 }
 
+type OwnerPickerProps = {
+  ownerOptions: string[];
+  selectedOwner: string | null;
+  onOwnerChange: (owner: string) => void;
+};
+
+function OwnerPicker({
+  ownerOptions,
+  selectedOwner,
+  onOwnerChange,
+}: OwnerPickerProps): React.ReactElement | null {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
+  const listId = React.useId();
+
+  React.useEffect(() => {
+    setIsOpen(false);
+  }, [selectedOwner]);
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event: MouseEvent): void {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen]);
+
+  if (ownerOptions.length === 0 || !selectedOwner) {
+    return null;
+  }
+
+  const selectedIndex = Math.max(ownerOptions.indexOf(selectedOwner), 0);
+  const previousOwner = ownerOptions.at(
+    (selectedIndex - 1 + ownerOptions.length) % ownerOptions.length
+  );
+  const nextOwner = ownerOptions.at((selectedIndex + 1) % ownerOptions.length);
+
+  return (
+    <div ref={menuRef} className="relative inline-flex items-center gap-2 self-start lg:self-auto">
+      <button
+        type="button"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-300 bg-white text-lg font-semibold text-gray-700 shadow-sm transition hover:border-gray-400 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
+        onClick={() => previousOwner && onOwnerChange(previousOwner)}
+        aria-label={`Previous owner: ${previousOwner ?? selectedOwner}`}
+      >
+        <span aria-hidden="true">←</span>
+      </button>
+
+      <div className="relative">
+        <button
+          type="button"
+          className="inline-flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:border-zinc-700 dark:hover:bg-zinc-950"
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          aria-controls={listId}
+          onClick={() => setIsOpen((current) => !current)}
+        >
+          <span className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+            {selectedOwner}
+          </span>
+          <span className="text-sm font-medium text-gray-500 dark:text-zinc-400" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+
+        {isOpen ? (
+          <div className="absolute left-0 top-full z-20 mt-2 min-w-[240px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-950">
+            <ul
+              id={listId}
+              role="listbox"
+              aria-label="Select owner"
+              className="max-h-72 overflow-y-auto py-1"
+            >
+              {ownerOptions.map((owner) => {
+                const isSelected = owner === selectedOwner;
+                return (
+                  <li key={owner} role="option" aria-selected={isSelected}>
+                    <button
+                      type="button"
+                      className={`flex w-full items-center justify-between px-4 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${
+                        isSelected
+                          ? 'bg-blue-50 font-semibold text-blue-900 dark:bg-blue-950/50 dark:text-blue-100'
+                          : 'text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-900'
+                      }`}
+                      onClick={() => onOwnerChange(owner)}
+                    >
+                      <span>{owner}</span>
+                      {isSelected ? (
+                        <span className="text-xs uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">
+                          Selected
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+
+      <button
+        type="button"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-300 bg-white text-lg font-semibold text-gray-700 shadow-sm transition hover:border-gray-400 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
+        onClick={() => nextOwner && onOwnerChange(nextOwner)}
+        aria-label={`Next owner: ${nextOwner ?? selectedOwner}`}
+      >
+        <span aria-hidden="true">→</span>
+      </button>
+    </div>
+  );
+}
+
 type OwnerPanelProps = {
   snapshot: OwnerViewSnapshot;
   selectedWeekLabel: string;
@@ -158,9 +289,13 @@ export default function OwnerPanel({
             </div>
             {snapshot.header ? (
               <div className="space-y-1">
-                <h2 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-                  {snapshot.header.owner}
-                </h2>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                  <OwnerPicker
+                    ownerOptions={snapshot.ownerOptions}
+                    selectedOwner={snapshot.selectedOwner}
+                    onOwnerChange={onOwnerChange}
+                  />
+                </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-zinc-300">
                   <span>Rank #{snapshot.header.rank}</span>
                   <span>Record {snapshot.header.record}</span>
@@ -179,24 +314,6 @@ export default function OwnerPanel({
               </div>
             )}
           </div>
-
-          <label className="flex min-w-[220px] flex-col gap-1 text-sm font-medium text-gray-700 dark:text-zinc-200">
-            <span>Select owner</span>
-            <select
-              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-              value={snapshot.selectedOwner ?? ''}
-              onChange={(event) => onOwnerChange(event.target.value)}
-            >
-              {snapshot.ownerOptions.length === 0 ? (
-                <option value="">No owners loaded</option>
-              ) : null}
-              {snapshot.ownerOptions.map((owner) => (
-                <option key={owner} value={owner}>
-                  {owner}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
       </section>
 

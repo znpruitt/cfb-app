@@ -83,7 +83,9 @@ test('owner panel renders owner selector, header, roster, and week slate section
   );
 
   assert.match(html, /Owner view/);
-  assert.match(html, /Select owner/);
+  assert.match(html, /aria-label="Previous owner: Bob"/);
+  assert.match(html, /aria-label="Next owner: Bob"/);
+  assert.match(html, /aria-label="Select owner"/);
   assert.match(html, /Alice/);
   assert.match(html, /Rank #1/);
   assert.match(html, /Record 4–1/);
