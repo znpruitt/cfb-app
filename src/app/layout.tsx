@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'CFB App',
-  description: 'College Football Office Pool App',
+  title: 'CFB League Dashboard',
+  description:
+    'College football league dashboard for schedules, matchups, standings, and commissioner diagnostics.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
