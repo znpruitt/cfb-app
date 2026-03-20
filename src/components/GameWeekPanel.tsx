@@ -153,8 +153,12 @@ export default function GameWeekPanel({
                           </span>
                           {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
                           {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
-                          {homeOwner && <span className={pillClass()}>Home team: {homeOwner}</span>}
-                          {awayOwner && <span className={pillClass()}>Away team: {awayOwner}</span>}
+                          {homeOwner && (
+                            <span className={pillClass()}>Home owner: {homeOwner}</span>
+                          )}
+                          {awayOwner && (
+                            <span className={pillClass()}>Away owner: {awayOwner}</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
