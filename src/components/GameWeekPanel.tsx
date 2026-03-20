@@ -133,7 +133,7 @@ export default function GameWeekPanel({
                       <div className="flex flex-col gap-1">
                         {showOwnerMatchup && (
                           <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                            Owner Matchup: {awayOwner} vs {homeOwner}
+                            {awayOwner} vs {homeOwner}
                           </div>
                         )}
                         <div className="flex flex-wrap items-center gap-2">

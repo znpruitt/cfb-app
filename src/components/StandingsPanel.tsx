@@ -48,14 +48,14 @@ export default function StandingsPanel({
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-          Upload owners to populate league standings.
+          Upload surnames to populate league standings.
         </div>
       ) : (
         <div className="-mx-1 overflow-x-auto px-1">
           <table className="min-w-max border-separate border-spacing-0 text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-                {['Rank', 'Owner', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map((label) => (
+                {['Rank', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map((label) => (
                   <th
                     key={label}
                     className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"

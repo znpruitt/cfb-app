@@ -100,7 +100,7 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
     />
   );
 
-  assert.match(html, /Owner Weekly Slates/);
+  assert.match(html, /Weekly Slates/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /0–0 · 1 live/);
@@ -151,7 +151,7 @@ test('matchups panel omits unowned-vs-unowned from owner cards and summarizes ex
     />
   );
 
-  assert.match(html, /No owner-relevant games for this week/);
+  assert.match(html, /No surname-relevant games for this week/);
   assert.match(html, /Excluded games/);
   assert.match(html, /1 excluded game/);
 });

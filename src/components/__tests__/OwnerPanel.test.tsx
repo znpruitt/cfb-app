@@ -82,11 +82,11 @@ test('owner panel renders owner selector, header, roster, and week slate section
     />
   );
 
-  assert.match(html, /Owner view/);
-  assert.match(html, /aria-label="Previous owner: Bob"/);
-  assert.match(html, /aria-label="Next owner: Bob"/);
-  assert.match(html, /Select owner/);
-  assert.match(html, /aria-label="Select owner: Alice"/);
+  assert.match(html, /Roster • Live • This week/);
+  assert.match(html, /aria-label="Previous surname: Bob"/);
+  assert.match(html, /aria-label="Next surname: Bob"/);
+  assert.match(html, /Select surname/);
+  assert.match(html, /aria-label="Select surname: Alice"/);
   assert.match(html, /Alice/);
   assert.match(html, /Rank #1/);
   assert.match(html, /Record 4–1/);
@@ -108,5 +108,5 @@ test('owner panel degrades gracefully when no active week rows are available', (
   );
 
   assert.match(html, /the currently selected week slate/);
-  assert.match(html, /No games for this owner are attached to the selected week\./);
+  assert.match(html, /No games for this surname are attached to the selected week\./);
 });

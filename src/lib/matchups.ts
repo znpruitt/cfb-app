@@ -170,8 +170,8 @@ function buildPerformanceState(bucket: MatchupBucket, score?: ScorePack): Matchu
 
   if (!ownedOwner) {
     return {
-      summary: 'No owner matchup',
-      detail: 'This game is not part of weekly owner-vs-owner cards.',
+      summary: 'No matchup',
+      detail: 'This game is not part of the weekly head-to-head cards.',
       tone: 'neutral',
     };
   }
@@ -187,7 +187,7 @@ function buildPerformanceState(bucket: MatchupBucket, score?: ScorePack): Matchu
   return {
     summary:
       state === 'final' ? 'Final' : state === 'inprogress' ? 'In progress' : 'Awaiting kickoff',
-    detail: `${ownedOwner}'s ${ownedTeam} is in secondary league context this week.`,
+    detail: `${ownedOwner}'s ${ownedTeam} is in secondary team context this week.`,
     tone: state,
   };
 }
@@ -224,9 +224,9 @@ export function buildMatchupCardViewModel(
       bucket.awayOwner && bucket.homeOwner
         ? `${bucket.awayOwner} vs ${bucket.homeOwner}`
         : bucket.awayOwner
-          ? `${bucket.awayOwner} vs Unowned / Non-league`
+          ? `${bucket.awayOwner} vs Open / non-league`
           : bucket.homeOwner
-            ? `Unowned / Non-league vs ${bucket.homeOwner}`
+            ? `Open / non-league vs ${bucket.homeOwner}`
             : `${bucket.game.csvAway} vs ${bucket.game.csvHome}`,
     performance: buildPerformanceState(bucket, score),
     supporting: {

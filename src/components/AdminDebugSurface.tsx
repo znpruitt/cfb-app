@@ -99,7 +99,7 @@ export default function AdminDebugSurface({
             Commissioner tools and diagnostics
           </h2>
           <p className="max-w-3xl text-sm text-gray-600 dark:text-zinc-300">
-            Refresh provider data, repair aliases, manage owners CSV uploads, and inspect API or
+            Refresh provider data, repair aliases, manage surnames CSV uploads, and inspect API or
             score-attachment diagnostics away from the league-facing landing experience.
           </p>
         </div>

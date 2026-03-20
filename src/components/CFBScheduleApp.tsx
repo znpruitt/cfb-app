@@ -539,21 +539,20 @@ export default function CFBScheduleApp({
             eyebrow: 'Season view',
             title: 'Standings',
             description:
-              'Season-long owner results and coverage status stay front-and-center here.',
+              'Season-long surname results and coverage status stay front-and-center here.',
           }
         : weekViewMode === 'owner'
           ? {
-              eyebrow: 'Owner view',
-              title: 'Owner',
+              eyebrow: 'Team view',
+              title: 'Teams',
               description:
-                'Focus on one owner’s roster, live games, and active-week slate in one place.',
+                'Focus on one surname’s roster, live games, and active-week slate in one place.',
             }
           : weekViewMode === 'matchups'
             ? {
                 eyebrow: 'Week view',
                 title: 'Matchups',
-                description:
-                  'Owner-vs-owner cards and owned-team weekly context for the selected tab.',
+                description: 'Surname-based weekly cards and team context for the selected tab.',
               }
             : {
                 eyebrow: 'Week view',
@@ -989,8 +988,8 @@ export default function CFBScheduleApp({
 
       {!isAdminSurface && adminAlertCount > 0 ? (
         <p className="text-xs text-gray-600 dark:text-zinc-400">
-          Diagnostics, alias repairs, refresh controls, and owners CSV maintenance live on the admin
-          surface to keep the default league experience focused.
+          Diagnostics, alias repairs, refresh controls, and surnames CSV maintenance live on the
+          admin surface to keep the default league experience focused.
         </p>
       ) : null}
 

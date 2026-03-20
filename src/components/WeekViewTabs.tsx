@@ -16,7 +16,7 @@ export default function WeekViewTabs({ value, onChange }: WeekViewTabsProps): Re
           { key: 'schedule', label: 'Schedule' },
           { key: 'matchups', label: 'Matchups' },
           { key: 'standings', label: 'Standings' },
-          { key: 'owner', label: 'Owner' },
+          { key: 'owner', label: 'Teams' },
         ] as const
       ).map((tab) => (
         <button

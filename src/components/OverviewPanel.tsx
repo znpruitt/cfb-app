@@ -55,7 +55,7 @@ function summarizeLeagueAngle(item: OverviewGameItem): string {
 }
 
 function summarizePriority(item: OverviewGameItem): string {
-  return item.bucket.awayOwner && item.bucket.homeOwner ? 'Owner vs owner' : 'Owned team spotlight';
+  return item.bucket.awayOwner && item.bucket.homeOwner ? 'Head-to-head' : 'Team spotlight';
 }
 
 function stateBadgeClasses(state: 'final' | 'inprogress' | 'scheduled' | 'unknown'): string {
@@ -119,7 +119,7 @@ function CondensedStandingsTable({
       <table className="min-w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-            {['Rank', 'Owner', 'Record', 'Win %', 'Diff'].map((label) => (
+            {['Rank', 'Team', 'Record', 'Win %', 'Diff'].map((label) => (
               <th
                 key={label}
                 className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"
@@ -168,9 +168,9 @@ function CondensedStandingsTable({
   );
 }
 
-function OwnerMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): React.ReactElement {
+function TeamMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): React.ReactElement {
   if (matrix.owners.length === 0) {
-    return <EmptyState message="Upload owners to map weekly owner-vs-owner game counts." />;
+    return <EmptyState message="Upload surnames to map weekly head-to-head game counts." />;
   }
 
   return (
@@ -179,7 +179,7 @@ function OwnerMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): Re
         <thead>
           <tr className="text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
             <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-200 bg-white px-3 py-2 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
-              Owner
+              Team
             </th>
             {matrix.owners.map((owner) => (
               <th
@@ -382,11 +382,11 @@ export default function OverviewPanel({
           </p>
         ) : (
           <p className="mb-3 text-sm text-gray-600 dark:text-zinc-300">
-            League-wide results update automatically as owned-team final scores are attached.
+            League-wide results update automatically as final team scores are attached.
           </p>
         )}
         {standingsLeaders.length === 0 ? (
-          <EmptyState message="Upload owners to populate the league overview." />
+          <EmptyState message="Upload surnames to populate the league overview." />
         ) : (
           <CondensedStandingsTable rows={standingsLeaders} onOwnerSelect={onOwnerSelect} />
         )}
@@ -394,15 +394,15 @@ export default function OverviewPanel({
 
       <SectionCard
         title="Games by vs games against"
-        description={`Weekly owner-vs-owner map for ${selectedWeekLabel}, showing how many head-to-head games each owner has across the slate.`}
+        description={`Weekly head-to-head map for ${selectedWeekLabel}, showing how many games each surname has across the slate.`}
         tone="weekly"
       >
-        <OwnerMatchupMatrixTable matrix={matchupMatrix} />
+        <TeamMatchupMatrixTable matrix={matchupMatrix} />
       </SectionCard>
 
       <SectionCard
         title="Live league games"
-        description="Track league-relevant live action across all owned teams and owner-vs-owner battles."
+        description="Track league-relevant live action across all teams and head-to-head battles."
         tone="live"
       >
         <GameCardList
@@ -414,7 +414,7 @@ export default function OverviewPanel({
 
       <SectionCard
         title={`${selectedWeekLabel} highlights`}
-        description="Key owner-vs-owner and owned-team games still shaping this week."
+        description="Key head-to-head and team games still shaping this week."
         tone="weekly"
       >
         <GameSummaryList
