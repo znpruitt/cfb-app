@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { deriveOwnerMatchupMatrix } from '../overview';
-import { deriveOwnerViewSnapshot } from '../ownerView';
+import { deriveOwnerRoster, deriveOwnerViewSnapshot } from '../ownerView';
 import type { ScorePack } from '../scores';
 import type { AppGame } from '../schedule';
 import type { OwnerStandingsRow } from '../standings';
@@ -130,6 +130,104 @@ test('deriveOwnerMatchupMatrix counts weekly owner matchups and final records', 
   assert.equal(matrix.rows[2]?.cells[0]?.gameCount, 0);
 });
 
+test('deriveOwnerRoster calculates team records and next games per owned team', () => {
+  const games = [
+    game({ key: 't-final-win', csvAway: 'Texas', csvHome: 'Georgia', status: 'final' }),
+    game({ key: 't-final-loss', csvAway: 'Alabama', csvHome: 'Texas', status: 'final' }),
+    game({
+      key: 't-upcoming',
+      csvAway: 'Texas',
+      csvHome: 'LSU',
+      status: 'scheduled',
+      date: '2026-09-05T17:00:00.000Z',
+    }),
+    game({
+      key: 'm-upcoming',
+      csvAway: 'Michigan',
+      csvHome: 'USC',
+      status: 'scheduled',
+      date: '2026-09-04T17:00:00.000Z',
+    }),
+  ];
+  const scoresByKey: Record<string, ScorePack> = {
+    't-final-win': {
+      home: { team: 'Georgia', score: 21 },
+      away: { team: 'Texas', score: 28 },
+      status: 'Final',
+      time: null,
+    },
+    't-final-loss': {
+      home: { team: 'Texas', score: 14 },
+      away: { team: 'Alabama', score: 24 },
+      status: 'Final',
+      time: null,
+    },
+  };
+
+  const roster = deriveOwnerRoster('Alice', games, rosterByTeam, scoresByKey);
+
+  assert.deepEqual(roster, [
+    {
+      teamName: 'Michigan',
+      record: '0–0',
+      nextOpponent: 'USC',
+      nextKickoff: '2026-09-04T17:00:00.000Z',
+      currentStatus: 'Upcoming',
+      currentScore: null,
+      liveGameKey: null,
+    },
+    {
+      teamName: 'Texas',
+      record: '1–1',
+      nextOpponent: 'LSU',
+      nextKickoff: '2026-09-05T17:00:00.000Z',
+      currentStatus: 'Upcoming',
+      currentScore: null,
+      liveGameKey: null,
+    },
+  ]);
+});
+
+test('deriveOwnerRoster prefers live game context over the next scheduled game', () => {
+  const games = [
+    game({
+      key: 'live-game',
+      csvAway: 'Texas',
+      csvHome: 'Georgia',
+      status: 'in_progress',
+      date: '2026-09-01T17:00:00.000Z',
+    }),
+    game({
+      key: 'future-game',
+      csvAway: 'Texas',
+      csvHome: 'LSU',
+      status: 'scheduled',
+      date: '2026-09-10T17:00:00.000Z',
+    }),
+  ];
+  const scoresByKey: Record<string, ScorePack> = {
+    'live-game': {
+      home: { team: 'Georgia', score: 17 },
+      away: { team: 'Texas', score: 20 },
+      status: 'In Progress',
+      time: null,
+    },
+  };
+
+  const roster = deriveOwnerRoster('Alice', games, rosterByTeam, scoresByKey);
+  const texas = roster.find((row) => row.teamName === 'Texas');
+
+  assert.deepEqual(texas, {
+    teamName: 'Texas',
+    record: '0–0',
+    nextOpponent: 'Georgia',
+    nextKickoff: '2026-09-01T17:00:00.000Z',
+    currentStatus: 'Live',
+    currentScore: 'Texas 20 - 17 Georgia',
+    liveGameKey: 'live-game',
+  });
+});
+
 test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sections', () => {
   const allGames = [
     game({ key: 'live-game', csvAway: 'Texas', csvHome: 'Georgia', status: 'in_progress' }),
@@ -163,43 +261,43 @@ test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sectio
   assert.equal(snapshot.weekRows.length, 2);
   assert.equal(snapshot.weekSummary?.totalGames, 2);
   assert.match(snapshot.weekSummary?.performanceSummary ?? '', /live/i);
-  assert.equal(snapshot.rosterRows[0]?.teamName, 'Texas');
+  assert.equal(snapshot.rosterRows[0]?.teamName, 'Michigan');
+  assert.equal(snapshot.rosterRows[1]?.teamName, 'Texas');
 });
 
-test('deriveOwnerViewSnapshot emits both sides when the selected owner controls both teams', () => {
-  const dualOwnedGame = game({
-    key: 'mirror-game',
-    csvAway: 'Texas',
-    csvHome: 'Michigan',
-    status: 'in_progress',
-  });
+test('deriveOwnerRoster keeps multi-team owners to one row per team and marks season complete', () => {
+  const allGames = [
+    game({ key: 'mirror-game', csvAway: 'Texas', csvHome: 'Michigan', status: 'final' }),
+  ];
   const scoresByKey: Record<string, ScorePack> = {
     'mirror-game': {
       home: { team: 'Michigan', score: 10 },
       away: { team: 'Texas', score: 14 },
-      status: 'In Progress',
+      status: 'Final',
       time: null,
     },
   };
 
-  const snapshot = deriveOwnerViewSnapshot({
-    selectedOwner: 'Alice',
-    standingsRows,
-    allGames: [dualOwnedGame],
-    weekGames: [dualOwnedGame],
-    rosterByTeam,
-    scoresByKey,
-  });
+  const roster = deriveOwnerRoster('Alice', allGames, rosterByTeam, scoresByKey);
 
-  assert.equal(snapshot.rosterRows.length, 2);
-  assert.equal(snapshot.liveRows.length, 2);
-  assert.equal(snapshot.weekRows.length, 2);
-  assert.deepEqual(
-    snapshot.rosterRows.map((row) => [row.ownerTeamSide, row.teamName]),
-    [
-      ['away', 'Texas'],
-      ['home', 'Michigan'],
-    ]
-  );
-  assert.equal(snapshot.weekSummary?.totalGames, 2);
+  assert.deepEqual(roster, [
+    {
+      teamName: 'Michigan',
+      record: '0–1',
+      nextOpponent: null,
+      nextKickoff: null,
+      currentStatus: 'Final',
+      currentScore: null,
+      liveGameKey: null,
+    },
+    {
+      teamName: 'Texas',
+      record: '1–0',
+      nextOpponent: null,
+      nextKickoff: null,
+      currentStatus: 'Final',
+      currentScore: null,
+      liveGameKey: null,
+    },
+  ]);
 });

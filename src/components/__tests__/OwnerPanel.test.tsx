@@ -7,10 +7,10 @@ import OwnerPanel from '../OwnerPanel';
 import type { OwnerViewSnapshot } from '../../lib/ownerView';
 
 const snapshot: OwnerViewSnapshot = {
-  selectedOwner: 'Alice',
-  ownerOptions: ['Alice', 'Bob'],
+  selectedOwner: 'Ballard',
+  ownerOptions: ['Ballard', 'Foster'],
   header: {
-    owner: 'Alice',
+    owner: 'Ballard',
     rank: 1,
     record: '4–1',
     winPct: 0.8,
@@ -18,47 +18,35 @@ const snapshot: OwnerViewSnapshot = {
   },
   rosterRows: [
     {
-      gameKey: 'game-1',
-      ownerTeamSide: 'away',
       teamName: 'Texas',
-      opponentTeamName: 'Georgia',
-      opponentOwner: 'Bob',
-      isOwnerVsOwner: true,
-      status: 'inprogress',
-      statusLabel: 'Q3 08:10',
-      scoreLine: 'Texas 20 - 17 Georgia',
-      kickoff: '2026-09-01T17:00:00.000Z',
-      matchupLabel: 'Texas at Georgia',
+      record: '8–3',
+      nextOpponent: 'Georgia',
+      nextKickoff: '2026-09-01T17:00:00.000Z',
+      currentStatus: 'Live',
+      currentScore: 'Texas 20 - 17 Georgia',
+      liveGameKey: 'game-1',
     },
   ],
   liveRows: [
     {
-      gameKey: 'game-1',
-      ownerTeamSide: 'away',
       teamName: 'Texas',
-      opponentTeamName: 'Georgia',
-      opponentOwner: 'Bob',
-      isOwnerVsOwner: true,
-      status: 'inprogress',
-      statusLabel: 'Q3 08:10',
-      scoreLine: 'Texas 20 - 17 Georgia',
-      kickoff: '2026-09-01T17:00:00.000Z',
-      matchupLabel: 'Texas at Georgia',
+      record: '8–3',
+      nextOpponent: 'Georgia',
+      nextKickoff: '2026-09-01T17:00:00.000Z',
+      currentStatus: 'Live',
+      currentScore: 'Texas 20 - 17 Georgia',
+      liveGameKey: 'game-1',
     },
   ],
   weekRows: [
     {
-      gameKey: 'game-1',
-      ownerTeamSide: 'away',
       teamName: 'Texas',
-      opponentTeamName: 'Georgia',
-      opponentOwner: 'Bob',
-      isOwnerVsOwner: true,
-      status: 'inprogress',
-      statusLabel: 'Q3 08:10',
-      scoreLine: 'Texas 20 - 17 Georgia',
-      kickoff: '2026-09-01T17:00:00.000Z',
-      matchupLabel: 'Texas at Georgia',
+      record: '8–3',
+      nextOpponent: 'Georgia',
+      nextKickoff: '2026-09-01T17:00:00.000Z',
+      currentStatus: 'Live',
+      currentScore: 'Texas 20 - 17 Georgia',
+      liveGameKey: 'game-1',
     },
   ],
   weekSummary: {
@@ -66,13 +54,13 @@ const snapshot: OwnerViewSnapshot = {
     liveGames: 1,
     finalGames: 0,
     scheduledGames: 0,
-    opponentOwners: ['Bob'],
+    opponentOwners: ['Foster'],
     performanceSummary: '0–0 · 1 live',
     performanceDetail: '1 game',
   },
 };
 
-test('owner panel renders owner selector, header, roster, and week slate sections', () => {
+test('owner panel renders merged header navigation and team-based roster table', () => {
   const html = renderToStaticMarkup(
     <OwnerPanel
       snapshot={snapshot}
@@ -83,30 +71,46 @@ test('owner panel renders owner selector, header, roster, and week slate section
   );
 
   assert.match(html, /Roster • Live • This week/);
-  assert.match(html, /aria-label="Previous surname: Bob"/);
-  assert.match(html, /aria-label="Next surname: Bob"/);
-  assert.match(html, /Select surname/);
-  assert.match(html, /aria-label="Select surname: Alice"/);
-  assert.match(html, /Alice/);
+  assert.match(html, /aria-label="Previous owner: Foster"/);
+  assert.match(html, /aria-label="Next owner: Foster"/);
+  assert.doesNotMatch(html, /surname/i);
+  assert.match(html, /Ballard/);
   assert.match(html, /Rank #1/);
   assert.match(html, /Record 4–1/);
   assert.match(html, /Roster/);
   assert.match(html, /Live games/);
   assert.match(html, /Week 1 slate/);
   assert.match(html, /Texas/);
-  assert.match(html, /vs Bob/);
+  assert.match(html, /8–3/);
+  assert.match(html, /vs Georgia/);
+  assert.match(html, /Live/);
 });
 
-test('owner panel degrades gracefully when no active week rows are available', () => {
+test('owner panel renders season-complete messaging without week rows', () => {
   const html = renderToStaticMarkup(
     <OwnerPanel
-      snapshot={{ ...snapshot, weekRows: [], weekSummary: null }}
+      snapshot={{
+        ...snapshot,
+        rosterRows: [
+          {
+            teamName: 'Michigan',
+            record: '10–2',
+            nextOpponent: null,
+            nextKickoff: null,
+            currentStatus: 'Final',
+            currentScore: null,
+            liveGameKey: null,
+          },
+        ],
+        weekRows: [],
+        weekSummary: null,
+      }}
       selectedWeekLabel="the currently selected week"
       displayTimeZone="UTC"
       onOwnerChange={() => {}}
     />
   );
 
-  assert.match(html, /the currently selected week slate/);
-  assert.match(html, /No games for this surname are attached to the selected week\./);
+  assert.match(html, /Season complete/);
+  assert.match(html, /No teams from this selection are attached to the selected week\./);
 });
