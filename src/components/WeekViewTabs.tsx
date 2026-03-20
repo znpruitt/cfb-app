@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type WeekViewMode = 'overview' | 'schedule' | 'matchups' | 'standings';
+export type WeekViewMode = 'overview' | 'schedule' | 'matchups' | 'standings' | 'owner';
 
 type WeekViewTabsProps = {
   value: WeekViewMode;
@@ -16,6 +16,7 @@ export default function WeekViewTabs({ value, onChange }: WeekViewTabsProps): Re
           { key: 'schedule', label: 'Schedule' },
           { key: 'matchups', label: 'Matchups' },
           { key: 'standings', label: 'Standings' },
+          { key: 'owner', label: 'Owner' },
         ] as const
       ).map((tab) => (
         <button

@@ -1,12 +1,16 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
-import type { OverviewGameItem } from '../lib/overview';
+import type { OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
 function formatWinPct(value: number): string {
   return value.toFixed(3);
+}
+
+function formatDiff(value: number): string {
+  return value > 0 ? `+${value}` : String(value);
 }
 
 function formatKickoff(date: string | null, timeZone: string): string {
@@ -99,6 +103,136 @@ function EmptyState({ message }: { message: string }): React.ReactElement {
   return (
     <div className="rounded border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
       {message}
+    </div>
+  );
+}
+
+function CondensedStandingsTable({
+  rows,
+  onOwnerSelect,
+}: {
+  rows: OwnerStandingsRow[];
+  onOwnerSelect?: (owner: string) => void;
+}): React.ReactElement {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full border-separate border-spacing-0 text-sm">
+        <thead>
+          <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+            {['Rank', 'Owner', 'Record', 'Win %', 'Diff'].map((label) => (
+              <th
+                key={label}
+                className="border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
+              >
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr
+              key={row.owner}
+              className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
+            >
+              <td className="border-b border-gray-100 px-3 py-2 text-base font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
+                {index + 1}
+              </td>
+              <td className="border-b border-gray-100 px-3 py-2 font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+                {onOwnerSelect ? (
+                  <button
+                    type="button"
+                    className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                    onClick={() => onOwnerSelect(row.owner)}
+                  >
+                    {row.owner}
+                  </button>
+                ) : (
+                  row.owner
+                )}
+              </td>
+              <td className="border-b border-gray-100 px-3 py-2 font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
+                {row.wins}–{row.losses}
+              </td>
+              <td className="border-b border-gray-100 px-3 py-2 tabular-nums text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
+                {formatWinPct(row.winPct)}
+              </td>
+              <td className="border-b border-gray-100 px-3 py-2 tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
+                {formatDiff(row.pointDifferential)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function OwnerMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): React.ReactElement {
+  if (matrix.owners.length === 0) {
+    return <EmptyState message="Upload owners to map weekly owner-vs-owner game counts." />;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full border-separate border-spacing-0 text-center text-sm">
+        <thead>
+          <tr className="text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+            <th className="sticky left-0 z-10 border-b border-gray-200 bg-white px-3 py-2 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
+              Owner
+            </th>
+            {matrix.owners.map((owner) => (
+              <th
+                key={owner}
+                className="border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
+              >
+                {owner}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {matrix.rows.map((row) => (
+            <tr
+              key={row.owner}
+              className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
+            >
+              <th className="sticky left-0 z-10 border-b border-gray-100 bg-inherit px-3 py-2 text-left font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+                {row.owner}
+              </th>
+              {row.cells.map((cell) => {
+                const isDiagonal = cell.owner === row.owner;
+                const hasGames = cell.gameCount > 0;
+                return (
+                  <td
+                    key={`${row.owner}-${cell.owner}`}
+                    className={`border-b border-gray-100 px-3 py-2 align-middle dark:border-zinc-800 ${
+                      isDiagonal
+                        ? 'bg-gray-100/80 dark:bg-zinc-800/70'
+                        : hasGames
+                          ? 'bg-blue-50/70 font-semibold text-gray-900 dark:bg-blue-950/20 dark:text-zinc-100'
+                          : 'text-gray-400 dark:text-zinc-600'
+                    }`}
+                  >
+                    {hasGames ? (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span>{cell.gameCount}</span>
+                        {cell.record ? (
+                          <span className="text-[11px] font-medium text-gray-500 dark:text-zinc-400">
+                            {cell.record}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span>{isDiagonal ? '—' : ''}</span>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -210,27 +344,31 @@ function GameSummaryList({
 type OverviewPanelProps = {
   standingsLeaders: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
+  matchupMatrix: OwnerMatchupMatrix;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
   selectedWeekLabel: string;
   displayTimeZone?: string;
+  onOwnerSelect?: (owner: string) => void;
 };
 
 export default function OverviewPanel({
   standingsLeaders,
   standingsCoverage,
+  matchupMatrix,
   liveItems,
   keyMatchups,
   selectedWeekLabel,
   displayTimeZone,
+  onOwnerSelect,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
 
   return (
     <div className="space-y-4">
       <SectionCard
-        title="Standings snapshot"
-        description="Top of the league right now, using the same shared standings derivation as the full standings view."
+        title="League standings"
+        description="Full standings in a condensed format so Overview stays useful as the league homepage."
       >
         {standingsCoverage.message ? (
           <p
@@ -244,77 +382,47 @@ export default function OverviewPanel({
           </p>
         ) : (
           <p className="mb-3 text-sm text-gray-600 dark:text-zinc-300">
-            League leaders update automatically as owned-team final scores are attached.
+            League-wide results update automatically as owned-team final scores are attached.
           </p>
         )}
         {standingsLeaders.length === 0 ? (
           <EmptyState message="Upload owners to populate the league overview." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-0 text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-                  {['Rank', 'Owner', 'Record', 'Win %'].map((label) => (
-                    <th
-                      key={label}
-                      className="border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
-                    >
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {standingsLeaders.map((row, index) => (
-                  <tr
-                    key={row.owner}
-                    className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
-                  >
-                    <td className="border-b border-gray-100 px-3 py-2 font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
-                      {index + 1}
-                    </td>
-                    <td className="border-b border-gray-100 px-3 py-2 font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
-                      {row.owner}
-                    </td>
-                    <td className="border-b border-gray-100 px-3 py-2 font-medium tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
-                      {row.wins}–{row.losses}
-                    </td>
-                    <td className="border-b border-gray-100 px-3 py-2 tabular-nums text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
-                      {formatWinPct(row.winPct)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CondensedStandingsTable rows={standingsLeaders} onOwnerSelect={onOwnerSelect} />
         )}
       </SectionCard>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        <SectionCard
-          title="Live league-relevant games"
-          description="Owned-team games in progress right now, with owner-versus-owner contests surfaced first."
-          tone="live"
-        >
-          <GameCardList
-            items={liveItems}
-            emptyMessage="No owned-team games are live right now."
-            timeZone={timeZone}
-          />
-        </SectionCard>
+      <SectionCard
+        title="Games by vs games against"
+        description={`Weekly owner-vs-owner map for ${selectedWeekLabel}, showing how many head-to-head games each owner has across the slate.`}
+        tone="weekly"
+      >
+        <OwnerMatchupMatrixTable matrix={matchupMatrix} />
+      </SectionCard>
 
-        <SectionCard
-          title="This week’s key matchups"
-          description={`A quick-read summary for ${selectedWeekLabel}, not the full matchup board.`}
-          tone="weekly"
-        >
-          <GameSummaryList
-            items={keyMatchups}
-            emptyMessage="No league-relevant games are queued for this view yet."
-            timeZone={timeZone}
-          />
-        </SectionCard>
-      </div>
+      <SectionCard
+        title="Live league games"
+        description="Track league-relevant live action across all owned teams and owner-vs-owner battles."
+        tone="live"
+      >
+        <GameCardList
+          items={liveItems}
+          emptyMessage="No owned-team games are live right now."
+          timeZone={timeZone}
+        />
+      </SectionCard>
+
+      <SectionCard
+        title={`${selectedWeekLabel} highlights`}
+        description="Key owner-vs-owner and owned-team games still shaping this week."
+        tone="weekly"
+      >
+        <GameSummaryList
+          items={keyMatchups}
+          emptyMessage="No league-relevant games are scheduled for this view."
+          timeZone={timeZone}
+        />
+      </SectionCard>
     </div>
   );
 }

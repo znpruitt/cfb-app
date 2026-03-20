@@ -83,6 +83,24 @@ test('league surface keeps admin tooling off the landing page when a schedule ca
   assert.doesNotMatch(html, /Admin diagnostics: API usage/);
 });
 
+test('owner surface remains reachable with owner data even when no week is selected', () => {
+  const html = renderToStaticMarkup(
+    <CFBScheduleApp
+      initialWeekViewMode="owner"
+      initialRoster={[{ owner: 'Alice', team: 'Texas' }]}
+      initialGames={[]}
+      initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
+    />
+  );
+
+  assert.match(html, /Owner view/);
+  assert.match(html, /Select owner/);
+  assert.match(html, /Alice/);
+  assert.match(html, /the currently selected week slate/);
+  assert.match(html, /No games for this owner are attached to the selected week\./);
+  assert.match(html, /League surface unavailable/);
+});
+
 test('admin surface still renders dedicated admin and debug tooling', () => {
   const html = renderToStaticMarkup(<CFBScheduleApp surface="admin" />);
 

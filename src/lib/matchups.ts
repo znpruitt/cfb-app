@@ -238,9 +238,11 @@ export function buildMatchupCardViewModel(
   };
 }
 
-function buildOwnerSlateGame(bucket: MatchupBucket, owner: string): OwnerSlateGame | null {
+function buildOwnerSlateGames(bucket: MatchupBucket, owner: string): OwnerSlateGame[] {
+  const games: OwnerSlateGame[] = [];
+
   if (bucket.awayOwner === owner) {
-    return {
+    games.push({
       owner,
       game: bucket.game,
       ownerTeamSide: 'away',
@@ -249,11 +251,11 @@ function buildOwnerSlateGame(bucket: MatchupBucket, owner: string): OwnerSlateGa
       opponentOwner: bucket.homeOwner,
       isOwnerVsOwner: Boolean(bucket.homeOwner),
       isOpponentUnownedOrNonLeague: !bucket.homeOwner,
-    };
+    });
   }
 
   if (bucket.homeOwner === owner) {
-    return {
+    games.push({
       owner,
       game: bucket.game,
       ownerTeamSide: 'home',
@@ -262,10 +264,10 @@ function buildOwnerSlateGame(bucket: MatchupBucket, owner: string): OwnerSlateGa
       opponentOwner: bucket.awayOwner,
       isOwnerVsOwner: Boolean(bucket.awayOwner),
       isOpponentUnownedOrNonLeague: !bucket.awayOwner,
-    };
+    });
   }
 
-  return null;
+  return games;
 }
 
 function compareSlates(a: OwnerWeekSlate, b: OwnerWeekSlate): number {
@@ -381,11 +383,11 @@ export function deriveOwnerWeekSlates(
     if (bucket.homeOwner) ownersForBucket.add(bucket.homeOwner);
 
     for (const owner of ownersForBucket) {
-      const slateGame = buildOwnerSlateGame(bucket, owner);
-      if (!slateGame) continue;
+      const slateGames = buildOwnerSlateGames(bucket, owner);
+      if (slateGames.length === 0) continue;
 
       const existing = slatesByOwner.get(owner) ?? [];
-      existing.push(slateGame);
+      existing.push(...slateGames);
       slatesByOwner.set(owner, existing);
 
       const existingBuckets = bucketsByOwner.get(owner) ?? [];

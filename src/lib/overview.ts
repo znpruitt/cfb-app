@@ -11,13 +11,29 @@ export type OverviewGameItem = {
   sortDate: number;
 };
 
+export type OwnerMatchupMatrixCell = {
+  owner: string;
+  gameCount: number;
+  record: string | null;
+};
+
+export type OwnerMatchupMatrixRow = {
+  owner: string;
+  cells: OwnerMatchupMatrixCell[];
+};
+
+export type OwnerMatchupMatrix = {
+  owners: string[];
+  rows: OwnerMatchupMatrixRow[];
+};
+
 export type OverviewSnapshot = {
   standingsLeaders: OwnerStandingsRow[];
+  matchupMatrix: OwnerMatchupMatrix;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
 };
 
-const DEFAULT_STANDINGS_LEADER_COUNT = 5;
 const DEFAULT_LIVE_ITEM_COUNT = 6;
 const DEFAULT_KEY_MATCHUP_COUNT = 4;
 
@@ -51,6 +67,63 @@ function isKeyMatchupState(score?: ScorePack): boolean {
   return state === 'inprogress' || state === 'scheduled' || state === 'unknown';
 }
 
+export function deriveOwnerMatchupMatrix(params: {
+  weekGames: AppGame[];
+  standingsRows: OwnerStandingsRow[];
+  rosterByTeam: Map<string, string>;
+  scoresByKey: Record<string, ScorePack>;
+}): OwnerMatchupMatrix {
+  const { weekGames, standingsRows, rosterByTeam, scoresByKey } = params;
+  const owners = standingsRows.map((row) => row.owner);
+  const indexByOwner = new Map(owners.map((owner, index) => [owner, index]));
+  const counts = owners.map(() => owners.map(() => 0));
+  const wins = owners.map(() => owners.map(() => 0));
+  const losses = owners.map(() => owners.map(() => 0));
+
+  const sections = deriveWeekMatchupSections(weekGames, rosterByTeam);
+  for (const bucket of sections.ownerMatchups) {
+    const awayOwner = bucket.awayOwner;
+    const homeOwner = bucket.homeOwner;
+    if (!awayOwner || !homeOwner) continue;
+
+    const awayIndex = indexByOwner.get(awayOwner);
+    const homeIndex = indexByOwner.get(homeOwner);
+    if (awayIndex == null || homeIndex == null) continue;
+
+    counts[awayIndex]![homeIndex]! += 1;
+    counts[homeIndex]![awayIndex]! += 1;
+
+    const score = scoresByKey[bucket.game.key];
+    if (gameStateFromScore(score) !== 'final') continue;
+    const awayScore = score?.away.score;
+    const homeScore = score?.home.score;
+    if (awayScore == null || homeScore == null || awayScore === homeScore) continue;
+
+    if (awayScore > homeScore) {
+      wins[awayIndex]![homeIndex]! += 1;
+      losses[homeIndex]![awayIndex]! += 1;
+    } else {
+      wins[homeIndex]![awayIndex]! += 1;
+      losses[awayIndex]![homeIndex]! += 1;
+    }
+  }
+
+  return {
+    owners,
+    rows: owners.map((rowOwner, rowIndex) => ({
+      owner: rowOwner,
+      cells: owners.map((columnOwner, columnIndex) => ({
+        owner: columnOwner,
+        gameCount: counts[rowIndex]![columnIndex]!,
+        record:
+          wins[rowIndex]![columnIndex] || losses[rowIndex]![columnIndex]
+            ? `${wins[rowIndex]![columnIndex]}–${losses[rowIndex]![columnIndex]}`
+            : null,
+      })),
+    })),
+  };
+}
+
 export function deriveOverviewSnapshot(params: {
   standingsRows: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
@@ -59,7 +132,6 @@ export function deriveOverviewSnapshot(params: {
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
   options?: {
-    standingsLeadersLimit?: number;
     liveItemsLimit?: number;
     keyMatchupsLimit?: number;
   };
@@ -74,10 +146,7 @@ export function deriveOverviewSnapshot(params: {
     options,
   } = params;
 
-  const standingsLeaders = standingsRows.slice(
-    0,
-    options?.standingsLeadersLimit ?? DEFAULT_STANDINGS_LEADER_COUNT
-  );
+  const standingsLeaders = standingsRows;
 
   const allSections = deriveWeekMatchupSections(allGames, rosterByTeam);
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
@@ -100,6 +169,12 @@ export function deriveOverviewSnapshot(params: {
 
   return {
     standingsLeaders,
+    matchupMatrix: deriveOwnerMatchupMatrix({
+      weekGames,
+      standingsRows,
+      rosterByTeam,
+      scoresByKey,
+    }),
     liveItems,
     keyMatchups,
   };
