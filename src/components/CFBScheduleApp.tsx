@@ -951,10 +951,10 @@ export default function CFBScheduleApp({
   const leagueHref = '/';
 
   return (
-    <div className="space-y-6 bg-white p-6 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-6 bg-white px-4 py-5 text-gray-900 sm:px-6 dark:bg-zinc-950 dark:text-zinc-100">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
             <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200">
               League Overview
             </span>
@@ -965,14 +965,14 @@ export default function CFBScheduleApp({
             ) : null}
           </div>
           <div>
-            <h1 className="text-2xl font-bold">CFB League Dashboard</h1>
+            <h1 className="text-2xl font-bold leading-tight sm:text-3xl">CFB League Dashboard</h1>
             <p className="max-w-3xl text-sm text-gray-600 dark:text-zinc-400">
               Overview, schedule, matchups, and standings stay front-and-center on the main
               dashboard, while commissioner tooling lives on a dedicated admin surface.
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
           {!isAdminSurface && adminAlertCount > 0 ? (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
               {adminAlertCount} admin item{adminAlertCount === 1 ? '' : 's'} need attention
@@ -980,7 +980,7 @@ export default function CFBScheduleApp({
           ) : null}
           <Link
             href={isAdminSurface ? leagueHref : adminHref}
-            className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            className="inline-flex items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
             {isAdminSurface ? 'Back to league view' : 'Admin / Debug'}
           </Link>
@@ -1087,7 +1087,7 @@ export default function CFBScheduleApp({
       {canRenderPrimarySurface && (
         <>
           <section className="space-y-4 rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl space-y-1">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
                   {activeSurfaceCopy.eyebrow}
@@ -1099,7 +1099,7 @@ export default function CFBScheduleApp({
                   {activeSurfaceCopy.description}
                 </p>
               </div>
-              <div className="space-y-2">
+              <div className="w-full max-w-xl space-y-2 xl:w-auto">
                 <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
                   Surface
                 </div>
@@ -1108,7 +1108,7 @@ export default function CFBScheduleApp({
             </div>
 
             {!isSeasonScopedView ? (
-              <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+              <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
                 {selectedTab === 'postseason' ? (
                   <>
                     <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}

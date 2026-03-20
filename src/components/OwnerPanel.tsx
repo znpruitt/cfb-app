@@ -81,13 +81,13 @@ function OwnerGamesTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-0 text-sm">
+      <table className="min-w-[56rem] border-separate border-spacing-0 text-sm sm:min-w-full">
         <thead>
-          <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+          <tr className="text-left text-[11px] uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
             {['Team', 'Opponent', 'Owner matchup', 'Status', 'Score', 'Kickoff'].map((label) => (
               <th
                 key={label}
-                className="border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
+                className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"
               >
                 {label}
               </th>
@@ -100,29 +100,29 @@ function OwnerGamesTable({
               key={`${row.gameKey}-${row.ownerTeamSide}`}
               className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
             >
-              <td className="border-b border-gray-100 px-3 py-2 font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+              <td className="border-b border-gray-100 px-2 py-2 font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
                 <div>{row.teamName}</div>
                 <div className="text-xs font-normal text-gray-500 dark:text-zinc-400">
                   {row.matchupLabel}
                 </div>
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-700 dark:border-zinc-800 dark:text-zinc-300">
+              <td className="border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                 {row.opponentTeamName}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-700 dark:border-zinc-800 dark:text-zinc-300">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                 {row.opponentOwner ? `vs ${row.opponentOwner}` : 'Unowned / non-league'}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 dark:border-zinc-800">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
                 <span
                   className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${toneClasses(row.status)}`}
                 >
                   {row.statusLabel}
                 </span>
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-700 dark:border-zinc-800 dark:text-zinc-300">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                 {row.scoreLine}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
                 {formatKickoff(row.kickoff, timeZone)}
               </td>
             </tr>
@@ -157,11 +157,11 @@ export default function OwnerPanel({
               Owner view
             </div>
             {snapshot.header ? (
-              <div className="space-y-1">
-                <h2 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-3xl">
                   {snapshot.header.owner}
                 </h2>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-zinc-300">
+                <div className="grid gap-2 text-sm text-gray-600 sm:grid-cols-2 xl:flex xl:flex-wrap xl:gap-x-4 xl:gap-y-1 dark:text-zinc-300">
                   <span>Rank #{snapshot.header.rank}</span>
                   <span>Record {snapshot.header.record}</span>
                   <span>Win % {formatWinPct(snapshot.header.winPct)}</span>
@@ -180,10 +180,10 @@ export default function OwnerPanel({
             )}
           </div>
 
-          <label className="flex min-w-[220px] flex-col gap-1 text-sm font-medium text-gray-700 dark:text-zinc-200">
+          <label className="flex w-full flex-col gap-1 text-sm font-medium text-gray-700 dark:text-zinc-200 lg:max-w-xs">
             <span>Select owner</span>
             <select
-              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               value={snapshot.selectedOwner ?? ''}
               onChange={(event) => onOwnerChange(event.target.value)}
             >
@@ -227,7 +227,7 @@ export default function OwnerPanel({
         description="Active-week status for the selected owner, including remaining games and owner-vs-owner context."
       >
         {snapshot.weekSummary ? (
-          <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 rounded border border-gray-200 bg-gray-50/80 px-3 py-3 text-sm text-gray-700 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-300">
+          <div className="mb-4 grid gap-2 rounded border border-gray-200 bg-gray-50/80 px-3 py-3 text-sm text-gray-700 sm:grid-cols-2 xl:flex xl:flex-wrap xl:gap-x-4 xl:gap-y-2 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-300">
             <span>{snapshot.weekSummary.performanceSummary}</span>
             <span>{snapshot.weekSummary.performanceDetail}</span>
             <span>{snapshot.weekSummary.liveGames} live</span>

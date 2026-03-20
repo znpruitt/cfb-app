@@ -137,7 +137,7 @@ function formatOpponentSummaryEntry(entry: OpponentSummaryEntry): string {
 
 function formatSlateSummaryText(
   entries: OpponentSummaryEntry[],
-  totalGames: number,
+  displayGameCount: number,
   expanded: boolean
 ): string {
   const visibleEntries = expanded ? entries : entries.slice(0, DEFAULT_VISIBLE_OPPONENTS);
@@ -146,7 +146,7 @@ function formatSlateSummaryText(
     ? visibleEntries.map(formatOpponentSummaryEntry).join(', ')
     : '—';
   const suffix = hiddenCount > 0 && !expanded ? ` +${hiddenCount}` : '';
-  return `${totalGames} game${totalGames === 1 ? '' : 's'} · vs ${baseSummary}${suffix}`;
+  return `${displayGameCount} game${displayGameCount === 1 ? '' : 's'} · vs ${baseSummary}${suffix}`;
 }
 
 function isSelfGame(slateGame: OwnerSlateGame): boolean {
@@ -270,10 +270,10 @@ function GameRow({
   const rowClasses = ownerOutcomeRowClasses(scoreState.tone);
 
   return (
-    <li className={`rounded-sm py-2 transition-colors ${rowClasses}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
+    <li className={`rounded-md px-1 py-2 transition-colors sm:px-2 ${rowClasses}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-900 dark:text-zinc-100">
+          <div className="flex flex-wrap items-center gap-2 text-sm leading-6 text-gray-900 dark:text-zinc-100">
             {slateGame.game.label ? (
               <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
                 {slateGame.game.label}
@@ -286,7 +286,7 @@ function GameRow({
               {opponentDescriptor}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-zinc-400">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
             <span>{scoreState.summary}</span>
             {scoreState.detail ? (
               <>
@@ -338,13 +338,17 @@ function OwnerCard({
   const [isExpanded, setIsExpanded] = React.useState(false);
   const opponentSummaryEntries = React.useMemo(() => summarizeOpponents(slate), [slate]);
   const hasHiddenOpponents = opponentSummaryEntries.length > DEFAULT_VISIBLE_OPPONENTS;
+  const displayGameCount = React.useMemo(
+    () => new Set(slate.games.map((game) => game.game.key)).size,
+    [slate.games]
+  );
 
   return (
     <article
-      className={`${statusClasses(slate.performance.tone === 'neutral' ? 'unknown' : slate.performance.tone, true)} space-y-3 p-4`}
+      className={`${statusClasses(slate.performance.tone === 'neutral' ? 'unknown' : slate.performance.tone, true)} space-y-3 p-4 sm:p-5`}
     >
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3 sm:gap-y-1">
           <h3 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-zinc-100">
             {slate.owner}
           </h3>
@@ -354,7 +358,7 @@ function OwnerCard({
         </div>
         <p className="text-sm leading-6 text-gray-600 dark:text-zinc-400">
           <span>
-            {formatSlateSummaryText(opponentSummaryEntries, slate.totalGames, isExpanded)}
+            {formatSlateSummaryText(opponentSummaryEntries, displayGameCount, isExpanded)}
           </span>
           {hasHiddenOpponents ? (
             <>
@@ -410,7 +414,7 @@ export default function MatchupsWeekPanel({
         </div>
 
         {ownerSlates.length ? (
-          <div className="grid gap-3 xl:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             {ownerSlates.map((slate) => (
               <OwnerCard
                 key={slate.owner}
