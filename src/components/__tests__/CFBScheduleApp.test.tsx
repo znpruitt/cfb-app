@@ -94,7 +94,8 @@ test('owner surface remains reachable with owner data even when no week is selec
   );
 
   assert.match(html, /Owner view/);
-  assert.match(html, /aria-label="Select owner"/);
+  assert.match(html, /Select owner/);
+  assert.match(html, /aria-label="Select owner: Alice"/);
   assert.match(html, /Alice/);
   assert.match(html, /the currently selected week slate/);
   assert.match(html, /No games for this owner are attached to the selected week\./);

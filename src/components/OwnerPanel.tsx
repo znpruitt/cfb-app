@@ -203,13 +203,19 @@ function OwnerPicker({
         <button
           type="button"
           className="inline-flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:border-zinc-700 dark:hover:bg-zinc-950"
+          aria-label={`Select owner: ${selectedOwner}`}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           aria-controls={listId}
           onClick={() => setIsOpen((current) => !current)}
         >
-          <span className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-            {selectedOwner}
+          <span className="flex flex-col">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-400">
+              Select owner
+            </span>
+            <span className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+              {selectedOwner}
+            </span>
           </span>
           <span className="text-sm font-medium text-gray-500 dark:text-zinc-400" aria-hidden="true">
             ▾
