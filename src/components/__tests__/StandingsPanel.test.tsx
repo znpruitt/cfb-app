@@ -26,7 +26,7 @@ test('standings panel renders expected columns and metrics', () => {
     />
   );
 
-  for (const label of ['Rank', 'Owner', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB']) {
+  for (const label of ['Rank', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB']) {
     assert.match(html, new RegExp(label.replace('%', '%')));
   }
   assert.match(html, /Alex/);

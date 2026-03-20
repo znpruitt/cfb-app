@@ -133,7 +133,7 @@ export default function GameWeekPanel({
                       <div className="flex flex-col gap-1">
                         {showOwnerMatchup && (
                           <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                            Owner Matchup: {awayOwner} vs {homeOwner}
+                            {awayOwner} vs {homeOwner}
                           </div>
                         )}
                         <div className="flex flex-wrap items-center gap-2">
@@ -153,12 +153,8 @@ export default function GameWeekPanel({
                           </span>
                           {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
                           {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
-                          {homeOwner && (
-                            <span className={pillClass()}>Home owner: {homeOwner}</span>
-                          )}
-                          {awayOwner && (
-                            <span className={pillClass()}>Away owner: {awayOwner}</span>
-                          )}
+                          {homeOwner && <span className={pillClass()}>Home team: {homeOwner}</span>}
+                          {awayOwner && <span className={pillClass()}>Away team: {awayOwner}</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">

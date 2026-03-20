@@ -34,16 +34,16 @@ export default function UploadPanel({
 
       <div className="grid md:grid-cols-1 gap-4">
         <div>
-          <div className="text-sm font-medium mb-1">Owners CSV</div>
+          <div className="text-sm font-medium mb-1">Surnames CSV</div>
           <div className="mb-2 flex items-center gap-2 text-xs text-gray-600 dark:text-zinc-400">
             <span>Loaded from cache: {ownersLoadedFromCache ? 'Yes' : 'No'}</span>
             <button
               className="px-2 py-0.5 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
               onClick={onClearCachedOwners}
               disabled={!hasCachedOwners}
-              title="Clear cached owners CSV from localStorage"
+              title="Clear cached surnames CSV from localStorage"
             >
-              Clear cached owners CSV
+              Clear cached surnames CSV
             </button>
           </div>
           <input
@@ -53,7 +53,7 @@ export default function UploadPanel({
             className="text-sm file:mr-2 file:rounded file:border file:px-2 file:py-1 file:bg-white file:border-gray-300 dark:file:bg-zinc-800 dark:file:border-zinc-700"
           />
           <div className="text-xs text-gray-600 dark:text-zinc-400 mt-1">
-            Columns: <code>Team, Owner</code>.
+            Columns: <code>Team, Surname</code>.
           </div>
         </div>
       </div>
@@ -61,7 +61,7 @@ export default function UploadPanel({
         Loaded — Games: <strong className="text-gray-900 dark:text-zinc-100">{gamesCount}</strong> |
         Weeks: <strong className="text-gray-900 dark:text-zinc-100">{weeksCount}</strong> |
         Conferences:{' '}
-        <strong className="text-gray-900 dark:text-zinc-100">{conferencesCount}</strong> | Owners:{' '}
+        <strong className="text-gray-900 dark:text-zinc-100">{conferencesCount}</strong> | Surnames:{' '}
         <strong className="text-gray-900 dark:text-zinc-100">{ownersCount}</strong>
       </div>
     </section>

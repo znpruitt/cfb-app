@@ -319,7 +319,7 @@ function GameRow({
 function EmptyState(): React.ReactElement {
   return (
     <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-      No owner-relevant games for this week.
+      No surname-relevant games for this week.
     </div>
   );
 }
@@ -402,10 +402,10 @@ export default function MatchupsWeekPanel({
       <section className="space-y-2">
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
-            Owner Weekly Slates
+            Weekly Slates
           </h2>
           <p className="text-xs text-gray-600 dark:text-zinc-400">
-            Compact owner-first weekly cards with matchup context, status, kickoff, and odds.
+            Compact surname-first weekly cards with matchup context, status, kickoff, and odds.
           </p>
         </div>
 
@@ -430,7 +430,7 @@ export default function MatchupsWeekPanel({
         <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Excluded games</h2>
         <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
           {derivedSections.otherGames.length === 0
-            ? 'All games this week appear on an owner card.'
+            ? 'All games this week appear on a surname card.'
             : `${derivedSections.otherGames.length} excluded game${derivedSections.otherGames.length === 1 ? '' : 's'} do not involve owned teams.`}
         </p>
       </section>
