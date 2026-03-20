@@ -1,6 +1,7 @@
 import React from 'react';
 
-import type { AliasStaging, DiagEntry } from './cfbScheduleTypes';
+import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
+import { hasStagedAliasChanges, splitIssueDiagnostics } from '../lib/adminDiagnostics';
 
 type IssuesPanelProps = {
   issues: string[];
@@ -12,22 +13,6 @@ type IssuesPanelProps = {
   onStageAlias: (providerName: string, csvName: string) => void;
 };
 
-export function splitIssueDiagnostics(diag: DiagEntry[]): {
-  actionableDiag: Array<Exclude<DiagEntry, { kind: 'ignored_score_row' }>>;
-  ignoredDebugDiag: Array<Extract<DiagEntry, { kind: 'ignored_score_row' }>>;
-} {
-  return {
-    actionableDiag: diag.filter(
-      (entry): entry is Exclude<DiagEntry, { kind: 'ignored_score_row' }> =>
-        !(entry.kind === 'ignored_score_row' && entry.debugOnly)
-    ),
-    ignoredDebugDiag: diag.filter(
-      (entry): entry is Extract<DiagEntry, { kind: 'ignored_score_row' }> =>
-        entry.kind === 'ignored_score_row' && entry.debugOnly
-    ),
-  };
-}
-
 export default function IssuesPanel({
   issues,
   diag,
@@ -38,20 +23,23 @@ export default function IssuesPanel({
   onStageAlias,
 }: IssuesPanelProps): React.ReactElement | null {
   const { actionableDiag, ignoredDebugDiag } = splitIssueDiagnostics(diag);
+  const hasStagedAliases = hasStagedAliasChanges(aliasStaging);
   const hasPrimaryIssues = issues.length > 0 || actionableDiag.length > 0;
 
-  if (!hasPrimaryIssues && ignoredDebugDiag.length === 0) return null;
+  if (!hasPrimaryIssues && !hasStagedAliases && ignoredDebugDiag.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      {hasPrimaryIssues ? (
+      {hasPrimaryIssues || hasStagedAliases ? (
         <div className="rounded border border-l-4 border-gray-300 border-l-red-600 bg-red-50 p-3 text-sm text-gray-900 dark:border-zinc-700 dark:border-l-red-400 dark:bg-red-900/25 dark:text-zinc-100 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="font-medium">Issues</div>
+            <div className="font-medium">
+              {hasPrimaryIssues ? 'Issues' : 'Staged alias changes'}
+            </div>
             <div className="flex items-center gap-2">
               <button
                 className="px-2 py-1 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
-                disabled={!Object.keys(aliasStaging.upserts).length && !aliasStaging.deletes.length}
+                disabled={!hasStagedAliases}
                 onClick={onCommitStagedAliases}
                 title="Save staged aliases and refresh"
               >
@@ -60,6 +48,12 @@ export default function IssuesPanel({
               {aliasToast && <span className="text-xs">{aliasToast}</span>}
             </div>
           </div>
+
+          {!hasPrimaryIssues && hasStagedAliases ? (
+            <p className="text-xs text-gray-600 dark:text-zinc-300">
+              Save staged alias mappings to preserve commissioner repairs discovered in debug tools.
+            </p>
+          ) : null}
 
           {issues.length > 0 && (
             <ul className="list-disc pl-5 space-y-1">
@@ -191,6 +185,23 @@ export default function IssuesPanel({
                                 </div>
                               ))}
                             </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (d.kind === 'ignored_score_row') {
+                      return (
+                        <tr key={`d-${i}`} className="border-t dark:border-zinc-700">
+                          <td className="p-2">Score attachment</td>
+                          <td className="p-2">{d.week ?? '—'}</td>
+                          <td className="p-2">{d.providerHome}</td>
+                          <td className="p-2">{d.providerAway}</td>
+                          <td className="p-2">
+                            <div>{d.diagnostic.userMessage}</div>
+                            <div className="text-zinc-500">reason: {d.reason}</div>
+                          </td>
+                          <td className="p-2">
+                            Review score attachment diagnostics in admin debug.
                           </td>
                         </tr>
                       );

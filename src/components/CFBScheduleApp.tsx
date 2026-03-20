@@ -64,7 +64,7 @@ import {
   isTransientScheduleIssue,
   summarizeGames,
 } from '../lib/cfbScheduleAppHelpers';
-import { splitIssueDiagnostics } from './IssuesPanel';
+import { getAdminAlertCount } from '../lib/adminDiagnostics';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
@@ -894,12 +894,7 @@ export default function CFBScheduleApp({
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
     !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
-  const { actionableDiag } = splitIssueDiagnostics(diag);
-  const adminAlertCount =
-    issues.length +
-    actionableDiag.length +
-    aliasStaging.deletes.length +
-    Object.keys(aliasStaging.upserts).length;
+  const adminAlertCount = getAdminAlertCount({ issues, diag, aliasStaging });
   const adminHref = '/admin';
   const leagueHref = '/';
 
