@@ -6,6 +6,7 @@ type StandingsPanelProps = {
   rows: OwnerStandingsRow[];
   season: number;
   coverage: StandingsCoverage;
+  onOwnerSelect?: (owner: string) => void;
 };
 
 function formatWinPct(value: number): string {
@@ -24,6 +25,7 @@ export default function StandingsPanel({
   rows,
   season,
   coverage,
+  onOwnerSelect,
 }: StandingsPanelProps): React.ReactElement {
   return (
     <section className="space-y-4 rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -73,7 +75,17 @@ export default function StandingsPanel({
                     {index + 1}
                   </td>
                   <td className="border-b border-gray-100 px-3 py-2 text-[0.95rem] font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
-                    {row.owner}
+                    {onOwnerSelect ? (
+                      <button
+                        type="button"
+                        className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                        onClick={() => onOwnerSelect(row.owner)}
+                      >
+                        {row.owner}
+                      </button>
+                    ) : (
+                      row.owner
+                    )}
                   </td>
                   <td className="border-b border-gray-100 px-3 py-2 font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
                     {row.wins}–{row.losses}

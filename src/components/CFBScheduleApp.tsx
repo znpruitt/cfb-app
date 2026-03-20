@@ -10,6 +10,7 @@ import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
+import OwnerPanel from './OwnerPanel';
 import WeekControls from './WeekControls';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
@@ -29,6 +30,7 @@ import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
 import { deriveOverviewSnapshot } from '../lib/overview';
+import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -94,6 +96,7 @@ export default function CFBScheduleApp({
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedTab, setSelectedTab] = useState<number | 'postseason' | null>(null);
   const [weekViewMode, setWeekViewMode] = useState<WeekViewMode>('overview');
+  const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
 
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
@@ -162,6 +165,7 @@ export default function CFBScheduleApp({
     setSelectedConference('ALL');
     setTeamFilter('');
     setWeekViewMode('overview');
+    setSelectedOwner(null);
     setOddsByKey({});
     setScoresByKey({});
     setIssues([]);
@@ -442,6 +446,34 @@ export default function CFBScheduleApp({
     [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
   );
 
+  const ownerViewSnapshot = useMemo(
+    () =>
+      deriveOwnerViewSnapshot({
+        selectedOwner,
+        standingsRows: standingsSnapshot.rows,
+        allGames: games,
+        weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
+        rosterByTeam,
+        scoresByKey,
+      }),
+    [
+      filteredWeekGames,
+      games,
+      postseasonGames,
+      rosterByTeam,
+      scoresByKey,
+      selectedOwner,
+      selectedTab,
+      standingsSnapshot.rows,
+    ]
+  );
+
+  useEffect(() => {
+    if (ownerViewSnapshot.selectedOwner !== selectedOwner) {
+      setSelectedOwner(ownerViewSnapshot.selectedOwner);
+    }
+  }, [ownerViewSnapshot.selectedOwner, selectedOwner]);
+
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
@@ -481,7 +513,9 @@ export default function CFBScheduleApp({
     viewMode: weekViewMode,
   });
   const isSeasonScopedView =
-    primarySurfaceKind === 'overview' || primarySurfaceKind === 'standings';
+    primarySurfaceKind === 'overview' ||
+    primarySurfaceKind === 'standings' ||
+    primarySurfaceKind === 'owner';
   const activeSurfaceCopy =
     weekViewMode === 'overview'
       ? {
@@ -497,19 +531,26 @@ export default function CFBScheduleApp({
             description:
               'Season-long owner results and coverage status stay front-and-center here.',
           }
-        : weekViewMode === 'matchups'
+        : weekViewMode === 'owner'
           ? {
-              eyebrow: 'Week view',
-              title: 'Matchups',
+              eyebrow: 'Owner view',
+              title: 'Owner',
               description:
-                'Owner-vs-owner cards and owned-team weekly context for the selected tab.',
+                'Focus on one owner’s roster, live games, and active-week slate in one place.',
             }
-          : {
-              eyebrow: 'Week view',
-              title: 'Schedule',
-              description:
-                'Full game list and live details for the selected week or postseason slate.',
-            };
+          : weekViewMode === 'matchups'
+            ? {
+                eyebrow: 'Week view',
+                title: 'Matchups',
+                description:
+                  'Owner-vs-owner cards and owned-team weekly context for the selected tab.',
+              }
+            : {
+                eyebrow: 'Week view',
+                title: 'Schedule',
+                description:
+                  'Full game list and live details for the selected week or postseason slate.',
+              };
 
   const scoreScopeGames = useMemo(() => {
     if (visibleGames.length > 0 || hasActiveViewFilters) {
@@ -1120,6 +1161,7 @@ export default function CFBScheduleApp({
                 <OverviewPanel
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsCoverage={standingsCoverage}
+                  matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
                   keyMatchups={overviewSnapshot.keyMatchups}
                   selectedWeekLabel={
@@ -1128,12 +1170,31 @@ export default function CFBScheduleApp({
                       : `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
                   }
                   displayTimeZone={presentationTimeZone}
+                  onOwnerSelect={(owner) => {
+                    setSelectedOwner(owner);
+                    setWeekViewMode('owner');
+                  }}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
                   rows={standingsSnapshot.rows}
                   season={selectedSeason}
                   coverage={standingsCoverage}
+                  onOwnerSelect={(owner) => {
+                    setSelectedOwner(owner);
+                    setWeekViewMode('owner');
+                  }}
+                />
+              ) : primarySurfaceKind === 'owner' ? (
+                <OwnerPanel
+                  snapshot={ownerViewSnapshot}
+                  selectedWeekLabel={
+                    selectedTab === 'postseason'
+                      ? 'the postseason'
+                      : `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
+                  }
+                  displayTimeZone={presentationTimeZone}
+                  onOwnerChange={setSelectedOwner}
                 />
               ) : primarySurfaceKind === 'postseason' ? (
                 <PostseasonPanel

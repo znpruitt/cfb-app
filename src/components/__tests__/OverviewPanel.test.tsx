@@ -4,7 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import OverviewPanel from '../OverviewPanel';
-import type { OverviewGameItem } from '../../lib/overview';
+import type { OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { AppGame } from '../../lib/schedule';
 
@@ -87,6 +87,26 @@ const standingsLeaders: OwnerStandingsRow[] = [
 
 const coverage: StandingsCoverage = { state: 'complete', message: null };
 
+const matchupMatrix: OwnerMatchupMatrix = {
+  owners: ['Alice', 'Bob'],
+  rows: [
+    {
+      owner: 'Alice',
+      cells: [
+        { owner: 'Alice', gameCount: 0, record: null },
+        { owner: 'Bob', gameCount: 2, record: '1–1' },
+      ],
+    },
+    {
+      owner: 'Bob',
+      cells: [
+        { owner: 'Alice', gameCount: 2, record: '1–1' },
+        { owner: 'Bob', gameCount: 0, record: null },
+      ],
+    },
+  ],
+};
+
 test('overview panel uses neutral wording for neutral-site games', () => {
   const neutralGame = game({
     csvAway: 'Texas',
@@ -100,6 +120,7 @@ test('overview panel uses neutral wording for neutral-site games', () => {
     <OverviewPanel
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
       liveItems={[item(neutralGame)]}
       keyMatchups={[item(neutralGame)]}
       selectedWeekLabel="Week 1"
@@ -124,6 +145,7 @@ test('overview panel keeps home-away wording for standard games', () => {
     <OverviewPanel
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
       liveItems={[item(homeAwayGame)]}
       keyMatchups={[item(homeAwayGame)]}
       selectedWeekLabel="Week 1"
@@ -132,4 +154,38 @@ test('overview panel keeps home-away wording for standard games', () => {
   );
 
   assert.match(html, /Texas at Rice/);
+});
+
+test('overview panel renders full condensed standings and weekly owner matrix', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        ...standingsLeaders,
+        {
+          owner: 'Bob',
+          wins: 3,
+          losses: 2,
+          winPct: 0.6,
+          pointsFor: 110,
+          pointsAgainst: 101,
+          pointDifferential: 9,
+          gamesBack: 1,
+          finalGames: 5,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /League standings/);
+  assert.match(html, /Games by vs games against/);
+  assert.match(html, /Alice/);
+  assert.match(html, /Bob/);
+  assert.match(html, /1–1/);
+  assert.doesNotMatch(html, /Standings snapshot/);
 });
