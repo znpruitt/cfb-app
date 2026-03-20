@@ -46,7 +46,7 @@ function SectionCard({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <section className="rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+    <section className="rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
           {title}
@@ -60,7 +60,7 @@ function SectionCard({
 
 function EmptyState({ message }: { message: string }): React.ReactElement {
   return (
-    <div className="rounded border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
+    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
       {message}
     </div>
   );
@@ -80,14 +80,14 @@ function OwnerGamesTable({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="-mx-1 overflow-x-auto px-1">
       <table className="min-w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
             {['Team', 'Opponent', 'Owner matchup', 'Status', 'Score', 'Kickoff'].map((label) => (
               <th
                 key={label}
-                className="border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
+                className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"
               >
                 {label}
               </th>
@@ -100,29 +100,29 @@ function OwnerGamesTable({
               key={`${row.gameKey}-${row.ownerTeamSide}`}
               className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
             >
-              <td className="border-b border-gray-100 px-3 py-2 font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+              <td className="border-b border-gray-100 px-2 py-2 font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
                 <div>{row.teamName}</div>
                 <div className="text-xs font-normal text-gray-500 dark:text-zinc-400">
                   {row.matchupLabel}
                 </div>
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-700 dark:border-zinc-800 dark:text-zinc-300">
+              <td className="border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                 {row.opponentTeamName}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-700 dark:border-zinc-800 dark:text-zinc-300">
+              <td className="border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                 {row.opponentOwner ? `vs ${row.opponentOwner}` : 'Unowned / non-league'}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 dark:border-zinc-800">
+              <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
                 <span
                   className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${toneClasses(row.status)}`}
                 >
                   {row.statusLabel}
                 </span>
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-700 dark:border-zinc-800 dark:text-zinc-300">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                 {row.scoreLine}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
                 {formatKickoff(row.kickoff, timeZone)}
               </td>
             </tr>
@@ -189,31 +189,34 @@ function OwnerPicker({
   const nextOwner = ownerOptions.at((selectedIndex + 1) % ownerOptions.length);
 
   return (
-    <div ref={menuRef} className="relative inline-flex items-center gap-2 self-start lg:self-auto">
+    <div
+      ref={menuRef}
+      className="relative flex w-full flex-wrap items-center gap-2 self-start sm:inline-flex sm:w-auto lg:self-auto"
+    >
       <button
         type="button"
-        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-300 bg-white text-lg font-semibold text-gray-700 shadow-sm transition hover:border-gray-400 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-lg font-semibold text-gray-700 shadow-sm transition hover:border-gray-400 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
         onClick={() => previousOwner && onOwnerChange(previousOwner)}
         aria-label={`Previous owner: ${previousOwner ?? selectedOwner}`}
       >
         <span aria-hidden="true">←</span>
       </button>
 
-      <div className="relative">
+      <div className="relative min-w-0 flex-1 sm:flex-none">
         <button
           type="button"
-          className="inline-flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:border-zinc-700 dark:hover:bg-zinc-950"
+          className="inline-flex w-full items-center justify-between gap-3 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:w-auto dark:hover:border-zinc-700 dark:hover:bg-zinc-950"
           aria-label={`Select owner: ${selectedOwner}`}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           aria-controls={listId}
           onClick={() => setIsOpen((current) => !current)}
         >
-          <span className="flex flex-col">
+          <span className="flex min-w-0 flex-col">
             <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-400">
               Select owner
             </span>
-            <span className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+            <span className="truncate text-xl font-semibold tracking-tight text-gray-950 sm:text-2xl dark:text-zinc-50">
               {selectedOwner}
             </span>
           </span>
@@ -223,7 +226,7 @@ function OwnerPicker({
         </button>
 
         {isOpen ? (
-          <div className="absolute left-0 top-full z-20 mt-2 min-w-[240px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-[240px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-auto dark:border-zinc-700 dark:bg-zinc-950">
             <ul
               id={listId}
               role="listbox"
@@ -287,7 +290,7 @@ export default function OwnerPanel({
 
   return (
     <div className="space-y-4">
-      <section className="rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+      <section className="rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
@@ -302,11 +305,19 @@ export default function OwnerPanel({
                     onOwnerChange={onOwnerChange}
                   />
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-zinc-300">
-                  <span>Rank #{snapshot.header.rank}</span>
-                  <span>Record {snapshot.header.record}</span>
-                  <span>Win % {formatWinPct(snapshot.header.winPct)}</span>
-                  <span>Diff {formatDiff(snapshot.header.pointDifferential)}</span>
+                <div className="grid gap-2 text-sm text-gray-600 sm:grid-cols-2 xl:grid-cols-4 dark:text-zinc-300">
+                  <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+                    Rank #{snapshot.header.rank}
+                  </span>
+                  <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+                    Record {snapshot.header.record}
+                  </span>
+                  <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+                    Win % {formatWinPct(snapshot.header.winPct)}
+                  </span>
+                  <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+                    Diff {formatDiff(snapshot.header.pointDifferential)}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -350,13 +361,23 @@ export default function OwnerPanel({
         description="Active-week status for the selected owner, including remaining games and owner-vs-owner context."
       >
         {snapshot.weekSummary ? (
-          <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 rounded border border-gray-200 bg-gray-50/80 px-3 py-3 text-sm text-gray-700 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-300">
-            <span>{snapshot.weekSummary.performanceSummary}</span>
-            <span>{snapshot.weekSummary.performanceDetail}</span>
-            <span>{snapshot.weekSummary.liveGames} live</span>
-            <span>{snapshot.weekSummary.scheduledGames} scheduled</span>
-            <span>{snapshot.weekSummary.finalGames} final</span>
-            <span>
+          <div className="mb-4 grid gap-2 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-3 text-sm text-gray-700 sm:grid-cols-2 xl:grid-cols-3 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-300">
+            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
+              {snapshot.weekSummary.performanceSummary}
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
+              {snapshot.weekSummary.performanceDetail}
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
+              {snapshot.weekSummary.liveGames} live
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
+              {snapshot.weekSummary.scheduledGames} scheduled
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
+              {snapshot.weekSummary.finalGames} final
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
               Opponents:{' '}
               {snapshot.weekSummary.opponentOwners.length > 0
                 ? snapshot.weekSummary.opponentOwners.join(', ')

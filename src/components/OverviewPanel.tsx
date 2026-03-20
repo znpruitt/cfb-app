@@ -87,7 +87,7 @@ function SectionCard({
         : 'border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-900';
 
   return (
-    <section className={`rounded border p-4 shadow-sm ${toneClasses}`}>
+    <section className={`rounded-xl border p-4 shadow-sm ${toneClasses}`}>
       <div className="space-y-1">
         <h2 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
           {title}
@@ -101,7 +101,7 @@ function SectionCard({
 
 function EmptyState({ message }: { message: string }): React.ReactElement {
   return (
-    <div className="rounded border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
+    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
       {message}
     </div>
   );
@@ -115,14 +115,14 @@ function CondensedStandingsTable({
   onOwnerSelect?: (owner: string) => void;
 }): React.ReactElement {
   return (
-    <div className="overflow-x-auto">
+    <div className="-mx-1 overflow-x-auto px-1">
       <table className="min-w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
             {['Rank', 'Owner', 'Record', 'Win %', 'Diff'].map((label) => (
               <th
                 key={label}
-                className="border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
+                className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"
               >
                 {label}
               </th>
@@ -135,10 +135,10 @@ function CondensedStandingsTable({
               key={row.owner}
               className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
             >
-              <td className="border-b border-gray-100 px-3 py-2 text-base font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
+              <td className="border-b border-gray-100 px-2 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
                 {index + 1}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+              <td className="border-b border-gray-100 px-2 py-2 font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
                 {onOwnerSelect ? (
                   <button
                     type="button"
@@ -151,13 +151,13 @@ function CondensedStandingsTable({
                   row.owner
                 )}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
                 {row.wins}–{row.losses}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 tabular-nums text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-600 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                 {formatWinPct(row.winPct)}
               </td>
-              <td className="border-b border-gray-100 px-3 py-2 tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
+              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
                 {formatDiff(row.pointDifferential)}
               </td>
             </tr>
@@ -174,17 +174,17 @@ function OwnerMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): Re
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-0 text-center text-sm">
+    <div className="-mx-1 overflow-x-auto px-1">
+      <table className="min-w-max border-separate border-spacing-0 text-center text-sm">
         <thead>
           <tr className="text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-            <th className="sticky left-0 z-10 border-b border-gray-200 bg-white px-3 py-2 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
+            <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-200 bg-white px-3 py-2 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
               Owner
             </th>
             {matrix.owners.map((owner) => (
               <th
                 key={owner}
-                className="border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
+                className="min-w-[4.5rem] whitespace-nowrap border-b border-gray-200 px-3 py-2 font-semibold dark:border-zinc-700"
               >
                 {owner}
               </th>
@@ -197,7 +197,7 @@ function OwnerMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): Re
               key={row.owner}
               className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
             >
-              <th className="sticky left-0 z-10 border-b border-gray-100 bg-inherit px-3 py-2 text-left font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+              <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-100 bg-inherit px-3 py-2 text-left font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
                 {row.owner}
               </th>
               {row.cells.map((cell) => {
@@ -257,10 +257,10 @@ function GameCardList({
         return (
           <article
             key={item.bucket.game.key}
-            className="rounded border border-gray-200 bg-white/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="rounded-lg border border-gray-200 bg-white/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/70"
           >
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
                 <div className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
                   {formatGameMatchupLabel(item.bucket.game)}
                 </div>
@@ -308,7 +308,7 @@ function GameSummaryList({
         return (
           <article
             key={item.bucket.game.key}
-            className="flex flex-wrap items-start justify-between gap-3 rounded border border-gray-200 bg-white/80 px-3 py-3 dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white/80 px-3 py-3 sm:flex-row sm:items-start sm:justify-between dark:border-zinc-800 dark:bg-zinc-950/70"
           >
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -324,7 +324,7 @@ function GameSummaryList({
               </p>
               <p className="text-xs text-gray-500 dark:text-zinc-400">{formatScoreLine(item)}</p>
             </div>
-            <div className="space-y-1 text-right">
+            <div className="space-y-1 text-left sm:text-right">
               <span
                 className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
               >

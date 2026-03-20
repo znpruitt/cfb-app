@@ -270,8 +270,8 @@ function GameRow({
   const rowClasses = ownerOutcomeRowClasses(scoreState.tone);
 
   return (
-    <li className={`rounded-sm py-2 transition-colors ${rowClasses}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
+    <li className={`rounded-md py-2 transition-colors ${rowClasses}`}>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-900 dark:text-zinc-100">
             {slateGame.game.label ? (
@@ -286,7 +286,7 @@ function GameRow({
               {opponentDescriptor}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-zinc-400">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
             <span>{scoreState.summary}</span>
             {scoreState.detail ? (
               <>
@@ -307,7 +307,7 @@ function GameRow({
           </div>
         </div>
         <span
-          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
+          className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
         >
           {statusTone === 'final' ? 'Final' : statusTone === 'inprogress' ? 'Live' : 'Scheduled'}
         </span>
@@ -341,10 +341,10 @@ function OwnerCard({
 
   return (
     <article
-      className={`${statusClasses(slate.performance.tone === 'neutral' ? 'unknown' : slate.performance.tone, true)} space-y-3 p-4`}
+      className={`${statusClasses(slate.performance.tone === 'neutral' ? 'unknown' : slate.performance.tone, true)} space-y-3 rounded-xl p-4`}
     >
       <div className="space-y-1.5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3 sm:gap-y-1">
           <h3 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-zinc-100">
             {slate.owner}
           </h3>
@@ -401,7 +401,7 @@ export default function MatchupsWeekPanel({
     <div className="space-y-4">
       <section className="space-y-2">
         <div>
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
             Owner Weekly Slates
           </h2>
           <p className="text-xs text-gray-600 dark:text-zinc-400">
@@ -426,7 +426,7 @@ export default function MatchupsWeekPanel({
         )}
       </section>
 
-      <section className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900">
+      <section className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Excluded games</h2>
         <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
           {derivedSections.otherGames.length === 0
