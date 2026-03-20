@@ -97,7 +97,7 @@ function OwnerGamesTable({
         <tbody>
           {rows.map((row) => (
             <tr
-              key={row.gameKey}
+              key={`${row.gameKey}-${row.ownerTeamSide}`}
               className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
             >
               <td className="border-b border-gray-100 px-3 py-2 font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">

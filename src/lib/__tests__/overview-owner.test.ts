@@ -165,3 +165,41 @@ test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sectio
   assert.match(snapshot.weekSummary?.performanceSummary ?? '', /live/i);
   assert.equal(snapshot.rosterRows[0]?.teamName, 'Texas');
 });
+
+test('deriveOwnerViewSnapshot emits both sides when the selected owner controls both teams', () => {
+  const dualOwnedGame = game({
+    key: 'mirror-game',
+    csvAway: 'Texas',
+    csvHome: 'Michigan',
+    status: 'in_progress',
+  });
+  const scoresByKey: Record<string, ScorePack> = {
+    'mirror-game': {
+      home: { team: 'Michigan', score: 10 },
+      away: { team: 'Texas', score: 14 },
+      status: 'In Progress',
+      time: null,
+    },
+  };
+
+  const snapshot = deriveOwnerViewSnapshot({
+    selectedOwner: 'Alice',
+    standingsRows,
+    allGames: [dualOwnedGame],
+    weekGames: [dualOwnedGame],
+    rosterByTeam,
+    scoresByKey,
+  });
+
+  assert.equal(snapshot.rosterRows.length, 2);
+  assert.equal(snapshot.liveRows.length, 2);
+  assert.equal(snapshot.weekRows.length, 2);
+  assert.deepEqual(
+    snapshot.rosterRows.map((row) => [row.ownerTeamSide, row.teamName]),
+    [
+      ['away', 'Texas'],
+      ['home', 'Michigan'],
+    ]
+  );
+  assert.equal(snapshot.weekSummary?.totalGames, 2);
+});

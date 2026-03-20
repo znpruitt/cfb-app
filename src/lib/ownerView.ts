@@ -6,6 +6,7 @@ import type { OwnerStandingsRow } from './standings.ts';
 
 export type OwnerRosterGameRow = {
   gameKey: string;
+  ownerTeamSide: 'away' | 'home';
   teamName: string;
   opponentTeamName: string;
   opponentOwner?: string;
@@ -48,47 +49,53 @@ function buildScoreLine(game: AppGame, score?: ScorePack): string {
   return `${score.away.team} ${score.away.score ?? '—'} - ${score.home.score ?? '—'} ${score.home.team}`;
 }
 
-function toOwnerRosterGameRow(params: {
+function toOwnerRosterGameRows(params: {
   owner: string;
   game: AppGame;
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
-}): OwnerRosterGameRow | null {
+}): OwnerRosterGameRow[] {
   const { owner, game, rosterByTeam, scoresByKey } = params;
   const awayOwner = rosterByTeam.get(game.csvAway);
   const homeOwner = rosterByTeam.get(game.csvHome);
 
-  let teamName: string | null = null;
-  let opponentTeamName: string | null = null;
-  let opponentOwner: string | undefined;
-
-  if (awayOwner === owner) {
-    teamName = game.csvAway;
-    opponentTeamName = game.csvHome;
-    opponentOwner = homeOwner;
-  } else if (homeOwner === owner) {
-    teamName = game.csvHome;
-    opponentTeamName = game.csvAway;
-    opponentOwner = awayOwner;
-  }
-
-  if (!teamName || !opponentTeamName) return null;
-
+  const rows: OwnerRosterGameRow[] = [];
   const score = scoresByKey[game.key];
   const status = gameStateFromScore(score);
 
-  return {
-    gameKey: game.key,
-    teamName,
-    opponentTeamName,
-    opponentOwner,
-    isOwnerVsOwner: Boolean(opponentOwner),
-    status,
-    statusLabel: score?.status ?? 'Scheduled',
-    scoreLine: buildScoreLine(game, score),
-    kickoff: game.date,
-    matchupLabel: formatGameMatchupLabel(game),
-  };
+  if (awayOwner === owner) {
+    rows.push({
+      gameKey: game.key,
+      ownerTeamSide: 'away',
+      teamName: game.csvAway,
+      opponentTeamName: game.csvHome,
+      opponentOwner: homeOwner,
+      isOwnerVsOwner: Boolean(homeOwner),
+      status,
+      statusLabel: score?.status ?? 'Scheduled',
+      scoreLine: buildScoreLine(game, score),
+      kickoff: game.date,
+      matchupLabel: formatGameMatchupLabel(game),
+    });
+  }
+
+  if (homeOwner === owner) {
+    rows.push({
+      gameKey: game.key,
+      ownerTeamSide: 'home',
+      teamName: game.csvHome,
+      opponentTeamName: game.csvAway,
+      opponentOwner: awayOwner,
+      isOwnerVsOwner: Boolean(awayOwner),
+      status,
+      statusLabel: score?.status ?? 'Scheduled',
+      scoreLine: buildScoreLine(game, score),
+      kickoff: game.date,
+      matchupLabel: formatGameMatchupLabel(game),
+    });
+  }
+
+  return rows;
 }
 
 function compareOwnerRosterRows(a: OwnerRosterGameRow, b: OwnerRosterGameRow): number {
@@ -106,7 +113,14 @@ function compareOwnerRosterRows(a: OwnerRosterGameRow, b: OwnerRosterGameRow): n
   const bTime = b.kickoff ? new Date(b.kickoff).getTime() : Number.MAX_SAFE_INTEGER;
   if (aTime !== bTime) return aTime - bTime;
 
-  return a.gameKey.localeCompare(b.gameKey);
+  const keyDiff = a.gameKey.localeCompare(b.gameKey);
+  if (keyDiff !== 0) return keyDiff;
+
+  if (a.ownerTeamSide !== b.ownerTeamSide) {
+    return a.ownerTeamSide === 'away' ? -1 : 1;
+  }
+
+  return a.teamName.localeCompare(b.teamName);
 }
 
 export function deriveOwnerViewSnapshot(params: {
@@ -139,14 +153,16 @@ export function deriveOwnerViewSnapshot(params: {
   const headerRow =
     standingsRows.find((row) => row.owner === resolvedOwner) ?? standingsRows[0] ?? null;
   const rosterRows = allGames
-    .map((game) => toOwnerRosterGameRow({ owner: resolvedOwner, game, rosterByTeam, scoresByKey }))
-    .filter((row): row is OwnerRosterGameRow => Boolean(row))
+    .flatMap((game) =>
+      toOwnerRosterGameRows({ owner: resolvedOwner, game, rosterByTeam, scoresByKey })
+    )
     .sort(compareOwnerRosterRows);
 
   const liveRows = rosterRows.filter((row) => row.status === 'inprogress');
   const weekRows = weekGames
-    .map((game) => toOwnerRosterGameRow({ owner: resolvedOwner, game, rosterByTeam, scoresByKey }))
-    .filter((row): row is OwnerRosterGameRow => Boolean(row))
+    .flatMap((game) =>
+      toOwnerRosterGameRows({ owner: resolvedOwner, game, rosterByTeam, scoresByKey })
+    )
     .sort(compareOwnerRosterRows);
 
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);

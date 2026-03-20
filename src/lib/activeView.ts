@@ -15,6 +15,7 @@ export function shouldRenderPrimaryViewSection(params: {
   return (
     viewMode === 'overview' ||
     viewMode === 'standings' ||
+    viewMode === 'owner' ||
     selectedTab === 'postseason' ||
     selectedWeek != null
   );

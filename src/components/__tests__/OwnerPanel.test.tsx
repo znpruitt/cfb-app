@@ -19,6 +19,7 @@ const snapshot: OwnerViewSnapshot = {
   rosterRows: [
     {
       gameKey: 'game-1',
+      ownerTeamSide: 'away',
       teamName: 'Texas',
       opponentTeamName: 'Georgia',
       opponentOwner: 'Bob',
@@ -33,6 +34,7 @@ const snapshot: OwnerViewSnapshot = {
   liveRows: [
     {
       gameKey: 'game-1',
+      ownerTeamSide: 'away',
       teamName: 'Texas',
       opponentTeamName: 'Georgia',
       opponentOwner: 'Bob',
@@ -47,6 +49,7 @@ const snapshot: OwnerViewSnapshot = {
   weekRows: [
     {
       gameKey: 'game-1',
+      ownerTeamSide: 'away',
       teamName: 'Texas',
       opponentTeamName: 'Georgia',
       opponentOwner: 'Bob',
@@ -89,4 +92,18 @@ test('owner panel renders owner selector, header, roster, and week slate section
   assert.match(html, /Week 1 slate/);
   assert.match(html, /Texas/);
   assert.match(html, /vs Bob/);
+});
+
+test('owner panel degrades gracefully when no active week rows are available', () => {
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={{ ...snapshot, weekRows: [], weekSummary: null }}
+      selectedWeekLabel="the currently selected week"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+
+  assert.match(html, /the currently selected week slate/);
+  assert.match(html, /No games for this owner are attached to the selected week\./);
 });

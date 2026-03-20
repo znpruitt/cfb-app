@@ -75,12 +75,16 @@ type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
   initialGames?: AppGame[];
   initialIssues?: string[];
+  initialRoster?: OwnerRow[];
+  initialWeekViewMode?: WeekViewMode;
 };
 
 export default function CFBScheduleApp({
   surface = 'league',
   initialGames = [],
   initialIssues = [],
+  initialRoster = [],
+  initialWeekViewMode = 'overview',
 }: CFBScheduleAppProps = {}): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
 
@@ -90,12 +94,12 @@ export default function CFBScheduleApp({
   const [games, setGames] = useState<AppGame[]>(initialGames);
   const [byes, setByes] = useState<Record<number, string[]>>({});
   const [conferences, setConferences] = useState<string[]>(['ALL']);
-  const [roster, setRoster] = useState<OwnerRow[]>([]);
+  const [roster, setRoster] = useState<OwnerRow[]>(initialRoster);
   const [selectedConference, setSelectedConference] = useState<string>('ALL');
   const [teamFilter, setTeamFilter] = useState<string>('');
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedTab, setSelectedTab] = useState<number | 'postseason' | null>(null);
-  const [weekViewMode, setWeekViewMode] = useState<WeekViewMode>('overview');
+  const [weekViewMode, setWeekViewMode] = useState<WeekViewMode>(initialWeekViewMode);
   const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
 
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
@@ -503,6 +507,12 @@ export default function CFBScheduleApp({
 
   const hasActiveViewFilters = selectedConference !== 'ALL' || teamFilter.trim().length > 0;
   const activeWeekForDisplay = selectedWeek ?? 0;
+  const activeWeekLabel =
+    selectedTab === 'postseason'
+      ? 'the postseason'
+      : selectedWeek != null
+        ? `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
+        : 'the currently selected week';
   const shouldRenderPrimaryView = shouldRenderPrimaryViewSection({
     selectedTab,
     selectedWeek,
@@ -932,6 +942,7 @@ export default function CFBScheduleApp({
 
   const isAdminSurface = surface === 'admin';
   const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
+  const canRenderPrimarySurface = canRenderLeagueSurface || weekViewMode === 'owner';
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
     !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
@@ -1073,7 +1084,7 @@ export default function CFBScheduleApp({
         />
       ) : null}
 
-      {canRenderLeagueSurface && (
+      {canRenderPrimarySurface && (
         <>
           <section className="space-y-4 rounded border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1164,11 +1175,7 @@ export default function CFBScheduleApp({
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
                   keyMatchups={overviewSnapshot.keyMatchups}
-                  selectedWeekLabel={
-                    selectedTab === 'postseason'
-                      ? 'the postseason'
-                      : `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
-                  }
+                  selectedWeekLabel={activeWeekLabel}
                   displayTimeZone={presentationTimeZone}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
@@ -1188,11 +1195,7 @@ export default function CFBScheduleApp({
               ) : primarySurfaceKind === 'owner' ? (
                 <OwnerPanel
                   snapshot={ownerViewSnapshot}
-                  selectedWeekLabel={
-                    selectedTab === 'postseason'
-                      ? 'the postseason'
-                      : `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
-                  }
+                  selectedWeekLabel={activeWeekLabel}
                   displayTimeZone={presentationTimeZone}
                   onOwnerChange={setSelectedOwner}
                 />
