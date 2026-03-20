@@ -52,15 +52,13 @@ export default function StandingsPanel({
         </div>
       ) : (
         <div className="-mx-1 overflow-x-auto px-1">
-          <table className="min-w-full border-separate border-spacing-0 text-sm">
+          <table className="min-w-max border-separate border-spacing-0 text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
                 {['Rank', 'Owner', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map((label) => (
                   <th
                     key={label}
-                    className={`whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700 ${
-                      label === 'PF' || label === 'PA' ? 'hidden sm:table-cell' : ''
-                    }`}
+                    className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"
                   >
                     {label}
                   </th>
@@ -95,10 +93,10 @@ export default function StandingsPanel({
                   <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-600 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                     {formatWinPct(row.winPct)}
                   </td>
-                  <td className="hidden border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:table-cell sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
+                  <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
                     {row.pointsFor}
                   </td>
-                  <td className="hidden border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:table-cell sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
+                  <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
                     {row.pointsAgainst}
                   </td>
                   <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
