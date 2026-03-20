@@ -87,7 +87,7 @@ function SectionCard({
         : 'border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-900';
 
   return (
-    <section className={`rounded-xl border p-4 shadow-sm ${toneClasses}`}>
+    <section className={`rounded-xl border p-4 shadow-sm sm:p-5 ${toneClasses}`}>
       <div className="space-y-1">
         <h2 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
           {title}
@@ -116,7 +116,7 @@ function CondensedStandingsTable({
 }): React.ReactElement {
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <table className="min-w-full border-separate border-spacing-0 text-sm">
+      <table className="min-w-full border-separate border-spacing-0 text-sm sm:text-[0.95rem]">
         <thead>
           <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
             {['Rank', 'Team', 'Record', 'Win %', 'Diff'].map((label) => (
@@ -139,17 +139,19 @@ function CondensedStandingsTable({
                 {index + 1}
               </td>
               <td className="border-b border-gray-100 px-2 py-2 font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
-                {onOwnerSelect ? (
-                  <button
-                    type="button"
-                    className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                    onClick={() => onOwnerSelect(row.owner)}
-                  >
-                    {row.owner}
-                  </button>
-                ) : (
-                  row.owner
-                )}
+                <div className="min-w-[8.5rem] truncate sm:min-w-0">
+                  {onOwnerSelect ? (
+                    <button
+                      type="button"
+                      className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                      onClick={() => onOwnerSelect(row.owner)}
+                    >
+                      {row.owner}
+                    </button>
+                  ) : (
+                    row.owner
+                  )}
+                </div>
               </td>
               <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
                 {row.wins}–{row.losses}
@@ -175,6 +177,9 @@ function TeamMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): Rea
 
   return (
     <div className="-mx-1 overflow-x-auto px-1">
+      <div className="mb-2 text-xs text-gray-500 dark:text-zinc-400 sm:hidden">
+        Scroll sideways to compare every surname.
+      </div>
       <table className="min-w-max border-separate border-spacing-0 text-center text-sm">
         <thead>
           <tr className="text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
@@ -251,13 +256,13 @@ function GameCardList({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 sm:space-y-3">
       {items.map((item) => {
         const state = gameStateFromScore(item.score);
         return (
           <article
             key={item.bucket.game.key}
-            className="rounded-lg border border-gray-200 bg-white/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="rounded-lg border border-gray-200 bg-white/80 p-3 sm:p-4 dark:border-zinc-800 dark:bg-zinc-950/70"
           >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
@@ -301,14 +306,14 @@ function GameSummaryList({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {items.map((item) => {
         const state = gameStateFromScore(item.score);
 
         return (
           <article
             key={item.bucket.game.key}
-            className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white/80 px-3 py-3 sm:flex-row sm:items-start sm:justify-between dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white/80 px-3 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-4 dark:border-zinc-800 dark:bg-zinc-950/70"
           >
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">

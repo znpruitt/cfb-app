@@ -103,46 +103,74 @@ function OwnerRosterTable({
   }
 
   return (
-    <div className="-mx-1 overflow-x-auto px-1">
-      <table className="min-w-full border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-            {['Team', 'Record', 'Next Game', 'Status'].map((label) => (
-              <th
-                key={label}
-                className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"
-              >
-                {label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr
-              key={row.teamName}
-              className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
-            >
-              <td className="border-b border-gray-100 px-2 py-2 font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
-                {row.teamName}
-              </td>
-              <td className="border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
-                {row.record}
-              </td>
-              <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
-                {renderNextGameCell(row, timeZone)}
-              </td>
-              <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
-                <span
-                  className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
+    <div className="space-y-3">
+      <div className="-mx-1 hidden overflow-x-auto px-1 md:block">
+        <table className="min-w-full border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+              {['Team', 'Record', 'Next Game', 'Status'].map((label) => (
+                <th
+                  key={label}
+                  className="whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700"
                 >
-                  {row.currentStatus}
-                </span>
-              </td>
+                  {label}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.teamName}
+                className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
+              >
+                <td className="border-b border-gray-100 px-2 py-2 font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
+                  {row.teamName}
+                </td>
+                <td className="border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
+                  {row.record}
+                </td>
+                <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
+                  {renderNextGameCell(row, timeZone)}
+                </td>
+                <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
+                  >
+                    {row.currentStatus}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid gap-3 md:hidden">
+        {rows.map((row) => (
+          <article
+            key={row.teamName}
+            className="rounded-lg border border-gray-200 bg-white/80 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
+                  {row.teamName}
+                </h3>
+                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">Record {row.record}</p>
+              </div>
+              <span
+                className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
+              >
+                {row.currentStatus}
+              </span>
+            </div>
+            <div className="mt-3 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-700 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-200">
+              {renderNextGameCell(row, timeZone)}
+            </div>
+          </article>
+        ))}
+      </div>
     </div>
   );
 }
@@ -203,7 +231,10 @@ function OwnerPicker({
   const nextOwner = ownerOptions.at((selectedIndex + 1) % ownerOptions.length);
 
   return (
-    <div ref={menuRef} className="relative flex items-center gap-3 self-start lg:self-auto">
+    <div
+      ref={menuRef}
+      className="relative flex w-full items-center justify-between gap-2 self-start sm:w-auto sm:justify-start sm:gap-3 lg:self-auto"
+    >
       <button
         type="button"
         className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-lg font-semibold text-gray-700 shadow-sm transition hover:border-gray-400 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:text-zinc-50"
@@ -213,17 +244,17 @@ function OwnerPicker({
         <span aria-hidden="true">←</span>
       </button>
 
-      <div className="relative min-w-0">
+      <div className="relative min-w-0 flex-1 sm:flex-none">
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:border-zinc-700 dark:hover:bg-zinc-950"
+          className="inline-flex w-full items-center justify-between gap-2 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:w-auto sm:justify-start dark:hover:border-zinc-700 dark:hover:bg-zinc-950"
           aria-label={`Choose ${selectedOwner}`}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           aria-controls={listId}
           onClick={() => setIsOpen((current) => !current)}
         >
-          <span className="truncate text-3xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+          <span className="truncate text-2xl font-semibold tracking-tight text-gray-950 sm:text-3xl dark:text-zinc-50">
             {selectedOwner}
           </span>
           <span className="text-sm font-medium text-gray-500 dark:text-zinc-400" aria-hidden="true">
@@ -232,7 +263,7 @@ function OwnerPicker({
         </button>
 
         {isOpen ? (
-          <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-[240px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-auto dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:min-w-[240px] sm:w-auto dark:border-zinc-700 dark:bg-zinc-950">
             <ul
               id={listId}
               role="listbox"

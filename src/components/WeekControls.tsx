@@ -33,7 +33,7 @@ export default function WeekControls({
 }: WeekControlsProps): React.ReactElement {
   return (
     <section
-      className={`space-y-3 rounded-xl border px-4 py-3 ${
+      className={`space-y-3 rounded-xl border px-4 py-3 sm:px-5 ${
         isSeasonViewActive
           ? 'border-gray-200 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-900/70'
           : 'border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-900'
@@ -98,7 +98,7 @@ export default function WeekControls({
           return (
             <button
               key={w}
-              className={`flex min-w-[5.25rem] flex-1 flex-col rounded-lg border px-3 py-2 text-left transition-colors sm:flex-none ${
+              className={`flex min-w-[4.75rem] flex-1 flex-col rounded-lg border px-3 py-2 text-left text-sm transition-colors sm:min-w-[5.5rem] sm:flex-none ${
                 selectedTab === w
                   ? isSeasonViewActive
                     ? 'border-gray-400 bg-gray-100 text-gray-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
@@ -119,7 +119,7 @@ export default function WeekControls({
 
         {hasPostseason && (
           <button
-            className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+            className={`flex min-w-[6.5rem] flex-1 items-center rounded-lg border px-3 py-2 text-left text-sm transition-colors sm:flex-none ${
               selectedTab === 'postseason'
                 ? isSeasonViewActive
                   ? 'border-gray-400 bg-gray-100 text-gray-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'

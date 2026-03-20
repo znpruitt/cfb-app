@@ -951,8 +951,8 @@ export default function CFBScheduleApp({
 
   return (
     <div className="space-y-6 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
-      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0 space-y-2">
+      <header className="flex flex-col gap-4 lg:gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200">
               League Overview
@@ -971,7 +971,7 @@ export default function CFBScheduleApp({
             </p>
           </div>
         </div>
-        <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:max-w-sm xl:justify-end">
+        <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start xl:w-auto xl:max-w-md xl:justify-end">
           {!isAdminSurface && adminAlertCount > 0 ? (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
               {adminAlertCount} admin item{adminAlertCount === 1 ? '' : 's'} need attention
@@ -979,7 +979,7 @@ export default function CFBScheduleApp({
           ) : null}
           <Link
             href={isAdminSurface ? leagueHref : adminHref}
-            className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            className="inline-flex w-full items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
             {isAdminSurface ? 'Back to league view' : 'Admin / Debug'}
           </Link>
@@ -1086,7 +1086,7 @@ export default function CFBScheduleApp({
       {canRenderPrimarySurface && (
         <>
           <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="flex flex-col gap-4 lg:gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl space-y-1">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
                   {activeSurfaceCopy.eyebrow}
@@ -1107,7 +1107,7 @@ export default function CFBScheduleApp({
             </div>
 
             {!isSeasonScopedView ? (
-              <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+              <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
                 {selectedTab === 'postseason' ? (
                   <>
                     <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
