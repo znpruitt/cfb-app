@@ -1,4 +1,4 @@
-import { gameStateFromScore } from './gameUi.ts';
+import { gameStateFromScore, usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
@@ -10,6 +10,9 @@ export type OwnerRosterRow = {
   teamName: string;
   record: string;
   nextOpponent: string | null;
+  nextGameLabel: string | null;
+  ownerTeamSide: 'away' | 'home';
+  isNeutralSite: boolean;
   nextKickoff: string | null;
   currentStatus: OwnerRosterRowStatus;
   currentScore: string | null;
@@ -59,12 +62,25 @@ function getTeamGames(teamName: string, games: AppGame[]): AppGame[] {
   return games.filter((game) => game.csvAway === teamName || game.csvHome === teamName);
 }
 
-function isFinalGame(game: AppGame, score?: ScorePack): boolean {
-  return game.status === 'final' || gameStateFromScore(score) === 'final';
+function isAttachedFinalGame(score?: ScorePack): boolean {
+  return gameStateFromScore(score) === 'final';
 }
 
 function isLiveGame(game: AppGame, score?: ScorePack): boolean {
   return game.status === 'in_progress' || gameStateFromScore(score) === 'inprogress';
+}
+
+function getOwnerTeamSide(teamName: string, game: AppGame): 'away' | 'home' {
+  return game.csvAway === teamName ? 'away' : 'home';
+}
+
+function buildNextGameLabel(teamName: string, game: AppGame): string {
+  const opponent = game.csvAway === teamName ? game.csvHome : game.csvAway;
+  if (usesNeutralSiteSemantics(game) || game.neutral) {
+    return `vs ${opponent}`;
+  }
+
+  return game.csvAway === teamName ? `at ${opponent}` : `vs ${opponent}`;
 }
 
 export function deriveOwnerRoster(
@@ -86,7 +102,7 @@ export function deriveOwnerRoster(
 
     for (const game of teamGames) {
       const score = scoresByKey[game.key];
-      if (!isFinalGame(game, score)) continue;
+      if (!isAttachedFinalGame(score)) continue;
 
       const teamScore = game.csvAway === teamName ? score?.away.score : score?.home.score;
       const opponentScore = game.csvAway === teamName ? score?.home.score : score?.away.score;
@@ -99,11 +115,14 @@ export function deriveOwnerRoster(
     const liveGame = teamGames.find((game) => isLiveGame(game, scoresByKey[game.key]));
     if (liveGame) {
       const liveScore = scoresByKey[liveGame.key];
-      const opponentTeamName = liveGame.csvAway === teamName ? liveGame.csvHome : liveGame.csvAway;
+      const ownerTeamSide = getOwnerTeamSide(teamName, liveGame);
       return {
         teamName,
         record: `${wins}–${losses}`,
-        nextOpponent: opponentTeamName,
+        nextOpponent: liveGame.csvAway === teamName ? liveGame.csvHome : liveGame.csvAway,
+        nextGameLabel: buildNextGameLabel(teamName, liveGame),
+        ownerTeamSide,
+        isNeutralSite: usesNeutralSiteSemantics(liveGame) || liveGame.neutral,
         nextKickoff: liveGame.date,
         currentStatus: 'Live',
         currentScore: buildScoreLine(liveScore),
@@ -111,13 +130,16 @@ export function deriveOwnerRoster(
       };
     }
 
-    const nextGame = teamGames.find((game) => !isFinalGame(game, scoresByKey[game.key]));
+    const nextGame = teamGames.find((game) => !isAttachedFinalGame(scoresByKey[game.key]));
     if (nextGame) {
-      const opponentTeamName = nextGame.csvAway === teamName ? nextGame.csvHome : nextGame.csvAway;
+      const ownerTeamSide = getOwnerTeamSide(teamName, nextGame);
       return {
         teamName,
         record: `${wins}–${losses}`,
-        nextOpponent: opponentTeamName,
+        nextOpponent: nextGame.csvAway === teamName ? nextGame.csvHome : nextGame.csvAway,
+        nextGameLabel: buildNextGameLabel(teamName, nextGame),
+        ownerTeamSide,
+        isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
         nextKickoff: nextGame.date,
         currentStatus: 'Upcoming',
         currentScore: null,
@@ -129,6 +151,9 @@ export function deriveOwnerRoster(
       teamName,
       record: `${wins}–${losses}`,
       nextOpponent: null,
+      nextGameLabel: null,
+      ownerTeamSide: 'home',
+      isNeutralSite: false,
       nextKickoff: null,
       currentStatus: 'Final',
       currentScore: null,
@@ -164,6 +189,9 @@ function filterRosterRowsToWeek(
         return {
           ...row,
           nextOpponent: opponentTeamName,
+          nextGameLabel: buildNextGameLabel(row.teamName, liveGame),
+          ownerTeamSide: getOwnerTeamSide(row.teamName, liveGame),
+          isNeutralSite: usesNeutralSiteSemantics(liveGame) || liveGame.neutral,
           nextKickoff: liveGame.date,
           currentStatus: 'Live',
           currentScore: buildScoreLine(scoresByKey[liveGame.key]),
@@ -171,13 +199,16 @@ function filterRosterRowsToWeek(
         };
       }
 
-      const nextGame = teamWeekGames.find((game) => !isFinalGame(game, scoresByKey[game.key]));
+      const nextGame = teamWeekGames.find((game) => !isAttachedFinalGame(scoresByKey[game.key]));
       if (nextGame) {
         const opponentTeamName =
           nextGame.csvAway === row.teamName ? nextGame.csvHome : nextGame.csvAway;
         return {
           ...row,
           nextOpponent: opponentTeamName,
+          nextGameLabel: buildNextGameLabel(row.teamName, nextGame),
+          ownerTeamSide: getOwnerTeamSide(row.teamName, nextGame),
+          isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
           nextKickoff: nextGame.date,
           currentStatus: 'Upcoming',
           currentScore: null,
@@ -192,6 +223,9 @@ function filterRosterRowsToWeek(
         return {
           ...row,
           nextOpponent: opponentTeamName,
+          nextGameLabel: buildNextGameLabel(row.teamName, latestWeekGame),
+          ownerTeamSide: getOwnerTeamSide(row.teamName, latestWeekGame),
+          isNeutralSite: usesNeutralSiteSemantics(latestWeekGame) || latestWeekGame.neutral,
           nextKickoff: latestWeekGame.date,
           currentStatus: 'Final',
           currentScore: buildScoreLine(scoresByKey[latestWeekGame.key]),

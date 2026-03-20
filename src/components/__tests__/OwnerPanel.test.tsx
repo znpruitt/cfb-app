@@ -21,10 +21,37 @@ const snapshot: OwnerViewSnapshot = {
       teamName: 'Texas',
       record: '8–3',
       nextOpponent: 'Georgia',
+      nextGameLabel: 'at Georgia',
+      ownerTeamSide: 'away',
+      isNeutralSite: false,
       nextKickoff: '2026-09-01T17:00:00.000Z',
       currentStatus: 'Live',
       currentScore: 'Texas 20 - 17 Georgia',
       liveGameKey: 'game-1',
+    },
+    {
+      teamName: 'Michigan',
+      record: '9–2',
+      nextOpponent: 'Ohio State',
+      nextGameLabel: 'vs Ohio State',
+      ownerTeamSide: 'home',
+      isNeutralSite: false,
+      nextKickoff: '2026-09-03T17:00:00.000Z',
+      currentStatus: 'Upcoming',
+      currentScore: null,
+      liveGameKey: null,
+    },
+    {
+      teamName: 'Oregon',
+      record: '7–2',
+      nextOpponent: 'Washington',
+      nextGameLabel: 'vs Washington',
+      ownerTeamSide: 'away',
+      isNeutralSite: true,
+      nextKickoff: '2026-09-05T17:00:00.000Z',
+      currentStatus: 'Final',
+      currentScore: 'Oregon 24 - 20 Washington',
+      liveGameKey: null,
     },
   ],
   liveRows: [
@@ -32,6 +59,9 @@ const snapshot: OwnerViewSnapshot = {
       teamName: 'Texas',
       record: '8–3',
       nextOpponent: 'Georgia',
+      nextGameLabel: 'at Georgia',
+      ownerTeamSide: 'away',
+      isNeutralSite: false,
       nextKickoff: '2026-09-01T17:00:00.000Z',
       currentStatus: 'Live',
       currentScore: 'Texas 20 - 17 Georgia',
@@ -43,20 +73,47 @@ const snapshot: OwnerViewSnapshot = {
       teamName: 'Texas',
       record: '8–3',
       nextOpponent: 'Georgia',
+      nextGameLabel: 'at Georgia',
+      ownerTeamSide: 'away',
+      isNeutralSite: false,
       nextKickoff: '2026-09-01T17:00:00.000Z',
       currentStatus: 'Live',
       currentScore: 'Texas 20 - 17 Georgia',
       liveGameKey: 'game-1',
     },
+    {
+      teamName: 'Michigan',
+      record: '9–2',
+      nextOpponent: 'Ohio State',
+      nextGameLabel: 'vs Ohio State',
+      ownerTeamSide: 'home',
+      isNeutralSite: false,
+      nextKickoff: '2026-09-03T17:00:00.000Z',
+      currentStatus: 'Upcoming',
+      currentScore: null,
+      liveGameKey: null,
+    },
+    {
+      teamName: 'Oregon',
+      record: '7–2',
+      nextOpponent: 'Washington',
+      nextGameLabel: 'vs Washington',
+      ownerTeamSide: 'away',
+      isNeutralSite: true,
+      nextKickoff: '2026-09-05T17:00:00.000Z',
+      currentStatus: 'Final',
+      currentScore: 'Oregon 24 - 20 Washington',
+      liveGameKey: null,
+    },
   ],
   weekSummary: {
-    totalGames: 1,
+    totalGames: 3,
     liveGames: 1,
-    finalGames: 0,
-    scheduledGames: 0,
+    finalGames: 1,
+    scheduledGames: 1,
     opponentOwners: ['Foster'],
-    performanceSummary: '0–0 · 1 live',
-    performanceDetail: '1 game',
+    performanceSummary: '1–0 · 1 live',
+    performanceDetail: '3 games',
   },
 };
 
@@ -82,8 +139,24 @@ test('owner panel renders merged header navigation and team-based roster table',
   assert.match(html, /Week 1 slate/);
   assert.match(html, /Texas/);
   assert.match(html, /8–3/);
-  assert.match(html, /vs Georgia/);
+  assert.match(html, /at Georgia/);
+  assert.match(html, /vs Ohio State/);
   assert.match(html, /Live/);
+});
+
+test('owner panel shows live, final, and upcoming week-row detail correctly', () => {
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={snapshot}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+
+  assert.match(html, /Texas 20 - 17 Georgia/);
+  assert.match(html, /Oregon 24 - 20 Washington/);
+  assert.match(html, /Thu, Sep 3, 5:00 PM/);
 });
 
 test('owner panel renders season-complete messaging without week rows', () => {
@@ -96,6 +169,9 @@ test('owner panel renders season-complete messaging without week rows', () => {
             teamName: 'Michigan',
             record: '10–2',
             nextOpponent: null,
+            nextGameLabel: null,
+            ownerTeamSide: 'home',
+            isNeutralSite: false,
             nextKickoff: null,
             currentStatus: 'Final',
             currentScore: null,

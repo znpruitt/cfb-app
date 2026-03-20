@@ -78,10 +78,10 @@ function renderNextGameCell(row: OwnerRosterRow, timeZone: string): React.ReactE
   return (
     <div>
       <div className="font-medium text-gray-700 dark:text-zinc-200">
-        vs {row.nextOpponent ?? 'TBD'}
+        {row.nextGameLabel ?? (row.nextOpponent ? `vs ${row.nextOpponent}` : 'TBD')}
       </div>
       <div className="text-xs text-gray-500 dark:text-zinc-400">
-        {row.currentStatus === 'Live' && row.currentScore
+        {row.currentStatus !== 'Upcoming' && row.currentScore
           ? row.currentScore
           : formatKickoff(row.nextKickoff, timeZone)}
       </div>

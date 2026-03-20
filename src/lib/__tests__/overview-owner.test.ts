@@ -130,7 +130,7 @@ test('deriveOwnerMatchupMatrix counts weekly owner matchups and final records', 
   assert.equal(matrix.rows[2]?.cells[0]?.gameCount, 0);
 });
 
-test('deriveOwnerRoster calculates team records and next games per owned team', () => {
+test('deriveOwnerRoster calculates team records and matchup labels per owned team', () => {
   const games = [
     game({ key: 't-final-win', csvAway: 'Texas', csvHome: 'Georgia', status: 'final' }),
     game({ key: 't-final-loss', csvAway: 'Alabama', csvHome: 'Texas', status: 'final' }),
@@ -143,8 +143,8 @@ test('deriveOwnerRoster calculates team records and next games per owned team', 
     }),
     game({
       key: 'm-upcoming',
-      csvAway: 'Michigan',
-      csvHome: 'USC',
+      csvAway: 'USC',
+      csvHome: 'Michigan',
       status: 'scheduled',
       date: '2026-09-04T17:00:00.000Z',
     }),
@@ -171,6 +171,9 @@ test('deriveOwnerRoster calculates team records and next games per owned team', 
       teamName: 'Michigan',
       record: '0–0',
       nextOpponent: 'USC',
+      nextGameLabel: 'vs USC',
+      ownerTeamSide: 'home',
+      isNeutralSite: false,
       nextKickoff: '2026-09-04T17:00:00.000Z',
       currentStatus: 'Upcoming',
       currentScore: null,
@@ -180,12 +183,34 @@ test('deriveOwnerRoster calculates team records and next games per owned team', 
       teamName: 'Texas',
       record: '1–1',
       nextOpponent: 'LSU',
+      nextGameLabel: 'at LSU',
+      ownerTeamSide: 'away',
+      isNeutralSite: false,
       nextKickoff: '2026-09-05T17:00:00.000Z',
       currentStatus: 'Upcoming',
       currentScore: null,
       liveGameKey: null,
     },
   ]);
+});
+
+test('deriveOwnerRoster uses neutral-site phrasing for neutral games', () => {
+  const games = [
+    game({
+      key: 'neutral-game',
+      csvAway: 'Texas',
+      csvHome: 'Michigan',
+      neutral: true,
+      neutralDisplay: 'vs',
+      status: 'scheduled',
+    }),
+  ];
+
+  const roster = deriveOwnerRoster('Alice', games, rosterByTeam, {});
+  const texas = roster.find((row) => row.teamName === 'Texas');
+
+  assert.equal(texas?.nextGameLabel, 'vs Michigan');
+  assert.equal(texas?.isNeutralSite, true);
 });
 
 test('deriveOwnerRoster prefers live game context over the next scheduled game', () => {
@@ -221,6 +246,9 @@ test('deriveOwnerRoster prefers live game context over the next scheduled game',
     teamName: 'Texas',
     record: '0–0',
     nextOpponent: 'Georgia',
+    nextGameLabel: 'at Georgia',
+    ownerTeamSide: 'away',
+    isNeutralSite: false,
     nextKickoff: '2026-09-01T17:00:00.000Z',
     currentStatus: 'Live',
     currentScore: 'Texas 20 - 17 Georgia',
@@ -231,7 +259,7 @@ test('deriveOwnerRoster prefers live game context over the next scheduled game',
 test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sections', () => {
   const allGames = [
     game({ key: 'live-game', csvAway: 'Texas', csvHome: 'Georgia', status: 'in_progress' }),
-    game({ key: 'sched-game', csvAway: 'Michigan', csvHome: 'USC', status: 'scheduled' }),
+    game({ key: 'sched-game', csvAway: 'USC', csvHome: 'Michigan', status: 'scheduled' }),
     game({ key: 'other-owner', csvAway: 'Oregon', csvHome: 'Washington', status: 'scheduled' }),
   ];
   const weekGames = allGames.slice(0, 2);
@@ -262,7 +290,30 @@ test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sectio
   assert.equal(snapshot.weekSummary?.totalGames, 2);
   assert.match(snapshot.weekSummary?.performanceSummary ?? '', /live/i);
   assert.equal(snapshot.rosterRows[0]?.teamName, 'Michigan');
+  assert.equal(snapshot.rosterRows[0]?.nextGameLabel, 'vs USC');
   assert.equal(snapshot.rosterRows[1]?.teamName, 'Texas');
+  assert.equal(snapshot.rosterRows[1]?.nextGameLabel, 'at Georgia');
+});
+
+test('deriveOwnerViewSnapshot keeps week rows aligned with summary semantics when final score attachment is missing', () => {
+  const allGames = [
+    game({ key: 'missing-final', csvAway: 'Texas', csvHome: 'Georgia', status: 'final' }),
+  ];
+
+  const snapshot = deriveOwnerViewSnapshot({
+    selectedOwner: 'Alice',
+    standingsRows,
+    allGames,
+    weekGames: allGames,
+    rosterByTeam,
+    scoresByKey: {},
+  });
+
+  assert.equal(snapshot.weekSummary?.performanceSummary, 'Scheduled');
+  assert.equal(snapshot.weekSummary?.finalGames, 0);
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
+  assert.equal(snapshot.weekRows[0]?.currentScore, null);
+  assert.equal(snapshot.weekRows[0]?.nextGameLabel, 'at Georgia');
 });
 
 test('deriveOwnerRoster keeps multi-team owners to one row per team and marks season complete', () => {
@@ -285,6 +336,9 @@ test('deriveOwnerRoster keeps multi-team owners to one row per team and marks se
       teamName: 'Michigan',
       record: '0–1',
       nextOpponent: null,
+      nextGameLabel: null,
+      ownerTeamSide: 'home',
+      isNeutralSite: false,
       nextKickoff: null,
       currentStatus: 'Final',
       currentScore: null,
@@ -294,6 +348,9 @@ test('deriveOwnerRoster keeps multi-team owners to one row per team and marks se
       teamName: 'Texas',
       record: '1–0',
       nextOpponent: null,
+      nextGameLabel: null,
+      ownerTeamSide: 'home',
+      isNeutralSite: false,
       nextKickoff: null,
       currentStatus: 'Final',
       currentScore: null,
