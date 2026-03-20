@@ -188,7 +188,10 @@ test('matchups panel summarizes self-matchups as Self', () => {
   assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
   assert.doesNotMatch(html, /Leading 28-21/);
   assert.doesNotMatch(html, /Trailing 28-21/);
-  assert.equal((html.match(/Texas/g) ?? []).length, 2);
+  assert.match(html, /Texas 28 • Oklahoma 21/);
+  assert.match(html, /Oklahoma 21 • Texas 28/);
+  assert.equal((html.match(/>Self</g) ?? []).length, 2);
+  assert.doesNotMatch(html, /Self \(x2\)/);
   assert.doesNotMatch(html, /2 games/);
 });
 

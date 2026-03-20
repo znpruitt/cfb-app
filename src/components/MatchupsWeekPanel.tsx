@@ -119,16 +119,19 @@ function getOpponentBadgeClasses(descriptor: string): string {
 }
 
 function summarizeOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
-  const counts = new Map<string, number>();
+  const countsByLabel = new Map<string, Set<string>>();
   const order: string[] = [];
 
   for (const game of slate.games) {
     const label = getSummaryOpponentLabel(game);
-    if (!counts.has(label)) order.push(label);
-    counts.set(label, (counts.get(label) ?? 0) + 1);
+    if (!countsByLabel.has(label)) {
+      order.push(label);
+      countsByLabel.set(label, new Set<string>());
+    }
+    countsByLabel.get(label)?.add(game.game.key);
   }
 
-  return order.map((label) => ({ label, count: counts.get(label) ?? 0 }));
+  return order.map((label) => ({ label, count: countsByLabel.get(label)?.size ?? 0 }));
 }
 
 function formatOpponentSummaryEntry(entry: OpponentSummaryEntry): string {
