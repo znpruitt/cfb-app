@@ -3,6 +3,7 @@ import React from 'react';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
+import { getGameParticipantTeamId } from '../lib/schedule';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
@@ -37,12 +38,14 @@ function renderMatchupLabel(
   const game = item.bucket.game;
   const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator: '@' });
   const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
+  const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
+  const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
 
   return (
     <>
-      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
+      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(awayTeamId)} />
       {separator}
-      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
+      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(homeTeamId)} />
     </>
   );
 }
@@ -61,6 +64,8 @@ function summarizeLeagueAngle(
   rankingsByTeamId: Map<string, TeamRankingEnrichment>
 ): React.ReactNode {
   const { awayOwner, homeOwner, game } = item.bucket;
+  const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
+  const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
   if (awayOwner && homeOwner) {
     return `${awayOwner} vs ${homeOwner}`;
   }
@@ -69,7 +74,7 @@ function summarizeLeagueAngle(
     return (
       <>
         {awayOwner}:{' '}
-        <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
+        <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(awayTeamId)} />
       </>
     );
   }
@@ -78,7 +83,7 @@ function summarizeLeagueAngle(
     return (
       <>
         {homeOwner}:{' '}
-        <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
+        <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(homeTeamId)} />
       </>
     );
   }

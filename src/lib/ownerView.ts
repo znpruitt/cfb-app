@@ -1,7 +1,7 @@
 import { gameStateFromScore, usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
 import type { ScorePack } from './scores.ts';
-import type { AppGame } from './schedule.ts';
+import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import type { OwnerStandingsRow } from './standings.ts';
 
 export type OwnerRosterRowStatus = 'Final' | 'Live' | 'Upcoming';
@@ -69,11 +69,20 @@ function getTeamId(teamName: string, teamGames: AppGame[]): string {
     (game) => game.csvAway === teamName || game.csvHome === teamName
   );
   if (!firstGame) return teamName;
-  return firstGame.csvAway === teamName ? firstGame.canAway : firstGame.canHome;
+  return (
+    (firstGame.csvAway === teamName
+      ? getGameParticipantTeamId(firstGame, 'away')
+      : getGameParticipantTeamId(firstGame, 'home')) ?? teamName
+  );
 }
 
 function getOpponentTeamId(teamName: string, game: AppGame): string {
-  return game.csvAway === teamName ? game.canHome : game.canAway;
+  return (
+    (game.csvAway === teamName
+      ? getGameParticipantTeamId(game, 'home')
+      : getGameParticipantTeamId(game, 'away')) ??
+    (game.csvAway === teamName ? game.canHome : game.canAway)
+  );
 }
 
 function isAttachedFinalGame(score?: ScorePack): boolean {

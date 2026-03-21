@@ -1,6 +1,6 @@
 import type { CombinedOdds } from './odds.ts';
 import type { ScorePack } from './scores.ts';
-import type { AppGame } from './schedule.ts';
+import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import { deriveFinalOwnedParticipations } from './standings.ts';
 
 function isFcsConference(conference: string | null | undefined): boolean {
@@ -248,9 +248,9 @@ function buildOwnerSlateGames(bucket: MatchupBucket, owner: string): OwnerSlateG
       owner,
       game: bucket.game,
       ownerTeamSide: 'away',
-      ownerTeamId: bucket.game.canAway,
+      ownerTeamId: getGameParticipantTeamId(bucket.game, 'away') ?? bucket.game.canAway,
       ownerTeamName: bucket.game.csvAway,
-      opponentTeamId: bucket.game.canHome,
+      opponentTeamId: getGameParticipantTeamId(bucket.game, 'home') ?? bucket.game.canHome,
       opponentTeamName: bucket.game.csvHome,
       opponentOwner: bucket.homeOwner,
       isOwnerVsOwner: Boolean(bucket.homeOwner),
@@ -263,9 +263,9 @@ function buildOwnerSlateGames(bucket: MatchupBucket, owner: string): OwnerSlateG
       owner,
       game: bucket.game,
       ownerTeamSide: 'home',
-      ownerTeamId: bucket.game.canHome,
+      ownerTeamId: getGameParticipantTeamId(bucket.game, 'home') ?? bucket.game.canHome,
       ownerTeamName: bucket.game.csvHome,
-      opponentTeamId: bucket.game.canAway,
+      opponentTeamId: getGameParticipantTeamId(bucket.game, 'away') ?? bucket.game.canAway,
       opponentTeamName: bucket.game.csvAway,
       opponentOwner: bucket.awayOwner,
       isOwnerVsOwner: Boolean(bucket.awayOwner),

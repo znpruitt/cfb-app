@@ -90,6 +90,7 @@ export default function RankingsPageContent({
           </section>
           <PollSection title="CFP rankings" entries={latestWeek.polls.cfp} />
           <PollSection title="AP Top 25" entries={latestWeek.polls.ap} />
+          <PollSection title="Coaches Poll" entries={latestWeek.polls.coaches} />
         </div>
       ) : (
         <section className="rounded-xl border border-gray-300 bg-white p-4 text-sm text-gray-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">

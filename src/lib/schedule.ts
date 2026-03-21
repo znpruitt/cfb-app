@@ -139,6 +139,12 @@ export type AppGame = {
   homeConf: string;
 };
 
+export function getGameParticipantTeamId(game: AppGame, side: 'home' | 'away'): string | null {
+  const participant = game.participants[side];
+  if (participant.kind !== 'team') return null;
+  return participant.teamId;
+}
+
 export type BuiltSchedule = {
   games: AppGame[];
   weeks: number[];
