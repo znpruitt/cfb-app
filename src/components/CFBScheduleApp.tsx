@@ -558,6 +558,73 @@ export default function CFBScheduleApp({
     return filteredWeekGames;
   }, [filteredWeekGames, postseasonGames, selectedTab]);
 
+  useEffect(() => {
+    if (!IS_DEBUG) return;
+
+    const sampleLookupEntries = Array.from(rankingsByTeamId.entries())
+      .slice(0, 5)
+      .map(([teamId, ranking]) => ({ teamId, ...ranking }));
+    const tracedGame = visibleGames.find((game) => {
+      const homeTeamId =
+        game.participants.home.kind === 'team' ? game.participants.home.teamId : null;
+      const awayTeamId =
+        game.participants.away.kind === 'team' ? game.participants.away.teamId : null;
+      return Boolean(
+        (homeTeamId && rankingsByTeamId.has(homeTeamId)) ||
+          (awayTeamId && rankingsByTeamId.has(awayTeamId))
+      );
+    });
+
+    console.log('rankings selected-week lookup', {
+      selectedSeason,
+      selectedWeek,
+      selectedTab,
+      rankingsWeekChosen: selectedRankingsWeek
+        ? {
+            season: selectedRankingsWeek.season,
+            week: selectedRankingsWeek.week,
+            seasonType: selectedRankingsWeek.seasonType,
+            primarySource: selectedRankingsWeek.primarySource,
+          }
+        : null,
+      lookupSize: rankingsByTeamId.size,
+      sampleLookupEntries,
+    });
+
+    if (tracedGame) {
+      const homeTeamId =
+        tracedGame.participants.home.kind === 'team' ? tracedGame.participants.home.teamId : null;
+      const awayTeamId =
+        tracedGame.participants.away.kind === 'team' ? tracedGame.participants.away.teamId : null;
+      const homeRanking = homeTeamId ? (rankingsByTeamId.get(homeTeamId) ?? null) : null;
+      const awayRanking = awayTeamId ? (rankingsByTeamId.get(awayTeamId) ?? null) : null;
+
+      console.log('rankings traced game', {
+        gameKey: tracedGame.key,
+        week: tracedGame.week,
+        homeTeamName: tracedGame.csvHome,
+        awayTeamName: tracedGame.csvAway,
+        homeCanonicalTeamId: homeTeamId,
+        awayCanonicalTeamId: awayTeamId,
+        homeLookupHit: Boolean(homeRanking),
+        awayLookupHit: Boolean(awayRanking),
+        homeRanking,
+        awayRanking,
+        rankedTeamNameProps: {
+          home: { teamName: tracedGame.csvHome, ranking: homeRanking },
+          away: { teamName: tracedGame.csvAway, ranking: awayRanking },
+        },
+      });
+    }
+  }, [
+    rankingsByTeamId,
+    selectedRankingsWeek,
+    selectedSeason,
+    selectedTab,
+    selectedWeek,
+    visibleGames,
+  ]);
+
   const hasActiveViewFilters = selectedConference !== 'ALL' || teamFilter.trim().length > 0;
   const activeWeekForDisplay = selectedWeek ?? 0;
   const activeWeekLabel =

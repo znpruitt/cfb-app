@@ -33,3 +33,30 @@ test('rankings page renders CFP first and AP as a separate section', () => {
   assert.match(html, /#1 Oregon/);
   assert.match(html, /#2 Texas/);
 });
+
+test('rankings page renders coaches poll entries when that is the available normalized data', () => {
+  const html = renderToStaticMarkup(
+    <RankingsPageContent
+      season={2025}
+      loading={false}
+      error={null}
+      latestWeek={{
+        season: 2025,
+        seasonType: 'postseason',
+        week: 16,
+        primarySource: 'coaches',
+        teams: [],
+        polls: {
+          cfp: [],
+          ap: [],
+          coaches: [
+            { teamId: 'notre-dame', teamName: 'Notre Dame', rank: 4, rankSource: 'coaches' },
+          ],
+        },
+      }}
+    />
+  );
+
+  assert.match(html, /Coaches Poll/);
+  assert.match(html, /#4 Notre Dame/);
+});

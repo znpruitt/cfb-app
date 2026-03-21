@@ -202,3 +202,51 @@ test('neutral-site ranked matchup label preserves vs wording', () => {
   assert.match(html, /Texas<\/span> vs <span>Ohio State/);
   assert.doesNotMatch(html, /Texas<\/span> @ <span>Ohio State/);
 });
+
+test('rankings render when lookup keys use canonical team ids instead of canonical display names', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'ranked',
+          csvAway: 'Ole Miss',
+          csvHome: 'Texas',
+          canAway: 'Mississippi',
+          canHome: 'Texas',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'mississippi',
+              displayName: 'Mississippi',
+              canonicalName: 'Mississippi',
+              rawName: 'Ole Miss',
+            },
+            home: {
+              kind: 'team',
+              teamId: 'texas',
+              displayName: 'Texas',
+              canonicalName: 'Texas',
+              rawName: 'Texas',
+            },
+          },
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      rankingsByTeamId={
+        new Map([
+          ['mississippi', { rank: 12, rankSource: 'ap' }],
+          ['texas', { rank: 3, rankSource: 'cfp' }],
+        ])
+      }
+    />
+  );
+
+  assert.match(html, /#12 Ole Miss/);
+  assert.match(html, /#3 Texas/);
+});

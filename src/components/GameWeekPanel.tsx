@@ -12,7 +12,7 @@ import {
 import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
-import type { AppGame } from '../lib/schedule';
+import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import RankedTeamName from './RankedTeamName';
 
 type Game = AppGame;
@@ -37,12 +37,14 @@ function renderMatchupLabel(
 ): React.ReactElement {
   const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator: '@' });
   const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
+  const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
+  const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
 
   return (
     <>
-      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
+      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(awayTeamId)} />
       {separator}
-      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
+      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(homeTeamId)} />
     </>
   );
 }
@@ -145,6 +147,8 @@ export default function GameWeekPanel({
                 const awayOwner = awayIsLeagueTeam ? rosterByTeam.get(g.csvAway) : undefined;
                 const showOwnerMatchup =
                   homeIsLeagueTeam && awayIsLeagueTeam && Boolean(homeOwner) && Boolean(awayOwner);
+                const homeTeamId = getGameParticipantTeamId(g, 'home') ?? g.canHome;
+                const awayTeamId = getGameParticipantTeamId(g, 'away') ?? g.canAway;
 
                 return (
                   <details key={g.key} className={frameClasses}>
@@ -196,14 +200,14 @@ export default function GameWeekPanel({
                           <strong>{matchupHostLabel}</strong>:{' '}
                           <RankedTeamName
                             teamName={g.csvHome}
-                            ranking={rankingsByTeamId.get(g.canHome)}
+                            ranking={rankingsByTeamId.get(homeTeamId)}
                           />
                         </div>
                         <div>
                           <strong>{matchupRoleLabel}</strong>:{' '}
                           <RankedTeamName
                             teamName={g.csvAway}
-                            ranking={rankingsByTeamId.get(g.canAway)}
+                            ranking={rankingsByTeamId.get(awayTeamId)}
                           />
                         </div>
                         <div>
