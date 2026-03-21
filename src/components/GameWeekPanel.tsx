@@ -13,6 +13,7 @@ import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPre
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
+import GameScoreboard from './GameScoreboard';
 import RankedTeamName from './RankedTeamName';
 
 type Game = AppGame;
@@ -267,10 +268,11 @@ export default function GameWeekPanel({
                       <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                         <div className="font-medium mb-1">Score</div>
                         {score ? (
-                          <div className="text-sm">
-                            {score.away.team} {score.away.score ?? '—'} at {score.home.team}{' '}
-                            {score.home.score ?? '—'} ({score.status})
-                          </div>
+                          <GameScoreboard
+                            score={score}
+                            awayRanking={rankingsByTeamId.get(awayTeamId)}
+                            homeRanking={rankingsByTeamId.get(homeTeamId)}
+                          />
                         ) : (
                           <div className="text-sm text-gray-600 dark:text-zinc-400">
                             {isPlaceholder ? 'Pending matchup' : 'No score'}

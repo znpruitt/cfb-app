@@ -250,3 +250,176 @@ test('rankings render when lookup keys use canonical team ids instead of canonic
   assert.match(html, /#12 Ole Miss/);
   assert.match(html, /#3 Texas/);
 });
+
+test('score block renders stacked scoreboard rows with rankings and final status', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'score-final',
+          csvAway: 'Ole Miss',
+          csvHome: 'Mississippi State',
+          canAway: 'Mississippi',
+          canHome: 'Mississippi State',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'mississippi',
+              displayName: 'Mississippi',
+              canonicalName: 'Mississippi',
+              rawName: 'Ole Miss',
+            },
+            home: {
+              kind: 'team',
+              teamId: 'mississippi-state',
+              displayName: 'Mississippi State',
+              canonicalName: 'Mississippi State',
+              rawName: 'Mississippi State',
+            },
+          },
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-final': {
+          away: { team: 'Ole Miss', score: 38 },
+          home: { team: 'Mississippi State', score: 19 },
+          status: 'Final',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      rankingsByTeamId={new Map([['mississippi', { rank: 7, rankSource: 'ap' }]])}
+    />
+  );
+
+  assert.match(html, /aria-label="Game scoreboard"/);
+  assert.match(html, /FINAL/);
+  assert.match(html, /data-scoreboard-row="away"/);
+  assert.match(html, /data-scoreboard-row="home"/);
+  assert.match(html, /#7 Ole Miss/);
+  assert.match(html, /data-scoreboard-score="away">38<\/span>/);
+  assert.match(html, /data-scoreboard-score="home">19<\/span>/);
+  assert.match(html, /border border-gray-200\/80 font-semibold text-gray-950/);
+  assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
+});
+
+test('score block preserves live and pregame status labels', () => {
+  const liveHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-live', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-live': {
+          away: { team: 'Texas', score: 24 },
+          home: { team: 'Oklahoma', score: 17 },
+          status: 'Q3 8:14',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const scheduledHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-pregame', csvAway: 'USC', csvHome: 'UCLA' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-pregame': {
+          away: { team: 'USC', score: null },
+          home: { team: 'UCLA', score: null },
+          status: '7:30 PM ET',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(liveHtml, /Q3 8:14/);
+  assert.match(scheduledHtml, /7:30 PM ET/);
+  assert.match(scheduledHtml, /data-scoreboard-score="away">—<\/span>/);
+  assert.match(scheduledHtml, /data-scoreboard-score="home">—<\/span>/);
+});
+
+test('score block preserves disrupted terminal provider statuses instead of collapsing to FINAL', () => {
+  const postponedHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-postponed', csvAway: 'Auburn', csvHome: 'LSU' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-postponed': {
+          away: { team: 'Auburn', score: null },
+          home: { team: 'LSU', score: null },
+          status: 'Postponed',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const weatherHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-weather', csvAway: 'Florida', csvHome: 'Georgia' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-weather': {
+          away: { team: 'Florida', score: null },
+          home: { team: 'Georgia', score: null },
+          status: 'Postponed - weather',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const canceledHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-canceled', csvAway: 'UCF', csvHome: 'Houston' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-canceled': {
+          away: { team: 'UCF', score: null },
+          home: { team: 'Houston', score: null },
+          status: 'Canceled',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(postponedHtml, /<div class="text-\[11px\][^"]*">Postponed<\/div>/);
+  assert.match(weatherHtml, /<div class="text-\[11px\][^"]*">Postponed - weather<\/div>/);
+  assert.match(canceledHtml, /<div class="text-\[11px\][^"]*">Canceled<\/div>/);
+  assert.doesNotMatch(postponedHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
+  assert.doesNotMatch(weatherHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
+  assert.doesNotMatch(canceledHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
+});
