@@ -354,3 +354,72 @@ test('score block preserves live and pregame status labels', () => {
   assert.match(scheduledHtml, /data-scoreboard-score="away">—<\/span>/);
   assert.match(scheduledHtml, /data-scoreboard-score="home">—<\/span>/);
 });
+
+test('score block preserves disrupted terminal provider statuses instead of collapsing to FINAL', () => {
+  const postponedHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-postponed', csvAway: 'Auburn', csvHome: 'LSU' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-postponed': {
+          away: { team: 'Auburn', score: null },
+          home: { team: 'LSU', score: null },
+          status: 'Postponed',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const weatherHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-weather', csvAway: 'Florida', csvHome: 'Georgia' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-weather': {
+          away: { team: 'Florida', score: null },
+          home: { team: 'Georgia', score: null },
+          status: 'Postponed - weather',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const canceledHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'score-canceled', csvAway: 'UCF', csvHome: 'Houston' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'score-canceled': {
+          away: { team: 'UCF', score: null },
+          home: { team: 'Houston', score: null },
+          status: 'Canceled',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(postponedHtml, /<div class="text-\[11px\][^"]*">Postponed<\/div>/);
+  assert.match(weatherHtml, /<div class="text-\[11px\][^"]*">Postponed - weather<\/div>/);
+  assert.match(canceledHtml, /<div class="text-\[11px\][^"]*">Canceled<\/div>/);
+  assert.doesNotMatch(postponedHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
+  assert.doesNotMatch(weatherHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
+  assert.doesNotMatch(canceledHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
+});

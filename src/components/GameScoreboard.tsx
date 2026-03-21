@@ -21,6 +21,7 @@ type GameScoreboardProps = {
 function formatScoreStatus(status: string): string {
   const trimmed = status.trim();
   if (!trimmed) return 'STATUS UNKNOWN';
+  if (/\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(trimmed)) return trimmed;
   const state = gameStateFromScore({
     status: trimmed,
     away: { team: '', score: null },
