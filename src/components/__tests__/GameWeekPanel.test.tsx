@@ -174,3 +174,31 @@ test('postseason placeholders with TBD kickoff render stable date fallback', () 
   assert.ok(html.includes('Kickoff: TBD'));
   assert.ok(html.includes('Placeholder Bowl'));
 });
+
+test('neutral-site ranked matchup label preserves vs wording', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'neutral',
+          csvAway: 'Texas',
+          csvHome: 'Ohio State',
+          date: '2025-09-01T17:00:00.000Z',
+          neutral: true,
+          neutralDisplay: 'vs',
+          stage: 'bowl',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
+  assert.doesNotMatch(html, /Texas<\/span> @ <span>Ohio State/);
+});

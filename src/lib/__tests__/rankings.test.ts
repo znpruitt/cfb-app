@@ -137,3 +137,7 @@ test('default rankings season uses football-season logic during the offseason', 
   assert.equal(getDefaultRankingsSeason(null, new Date('2026-03-21T12:00:00.000Z')), 2025);
   assert.equal(getDefaultRankingsSeason(2030, new Date('2026-03-21T12:00:00.000Z')), 2030);
 });
+
+test('dashboard/page offseason defaults stay aligned through shared season fallback', () => {
+  assert.equal(getDefaultRankingsSeason(null, new Date('2026-03-21T12:00:00.000Z')), 2025);
+});

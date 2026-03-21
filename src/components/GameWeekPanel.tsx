@@ -3,6 +3,7 @@ import React from 'react';
 import type { CombinedOdds } from '../lib/odds';
 import {
   chipClass,
+  formatGameMatchupLabel,
   gameStateFromScore,
   pillClass,
   statusClasses,
@@ -28,6 +29,22 @@ function formatKickoff(date: string | null, timeZone: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function renderMatchupLabel(
+  game: AppGame,
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>
+): React.ReactElement {
+  const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator: '@' });
+  const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
+
+  return (
+    <>
+      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
+      {separator}
+      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
+    </>
+  );
 }
 
 function isFcsConference(conference: string | null | undefined): boolean {
@@ -148,15 +165,7 @@ export default function GameWeekPanel({
                           <span
                             className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
                           >
-                            <RankedTeamName
-                              teamName={g.csvAway}
-                              ranking={rankingsByTeamId.get(g.canAway)}
-                            />{' '}
-                            @{' '}
-                            <RankedTeamName
-                              teamName={g.csvHome}
-                              ranking={rankingsByTeamId.get(g.canHome)}
-                            />
+                            {renderMatchupLabel(g, rankingsByTeamId)}
                           </span>
                           <span className={pillClass()}>
                             Kickoff: {formatKickoff(g.date, displayTimeZone)}

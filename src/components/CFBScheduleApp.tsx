@@ -70,12 +70,16 @@ import { getAdminAlertCount } from '../lib/adminDiagnostics';
 import {
   buildRankingsLookup,
   fetchSeasonRankings,
+  getDefaultRankingsSeason,
   selectRankingsWeek,
   type RankingsResponse,
 } from '../lib/rankings';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
-const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
+const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
+const DEFAULT_SEASON = getDefaultRankingsSeason(
+  Number.isFinite(EXPLICIT_SEASON) ? EXPLICIT_SEASON : null
+);
 
 type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
