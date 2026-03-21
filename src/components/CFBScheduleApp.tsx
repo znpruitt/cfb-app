@@ -67,6 +67,12 @@ import {
   summarizeGames,
 } from '../lib/cfbScheduleAppHelpers';
 import { getAdminAlertCount } from '../lib/adminDiagnostics';
+import {
+  buildRankingsLookup,
+  fetchSeasonRankings,
+  selectRankingsWeek,
+  type RankingsResponse,
+} from '../lib/rankings';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
@@ -113,6 +119,7 @@ export default function CFBScheduleApp({
   const [scheduleMeta, setScheduleMeta] = useState<ScheduleFetchMeta>({});
   const [oddsCacheState, setOddsCacheState] = useState<'hit' | 'miss' | 'unknown'>('unknown');
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
+  const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
   const [aliasMap, setAliasMap] = useState<AliasMap>({});
   const [editOpen, setEditOpen] = useState<boolean>(false);
@@ -180,6 +187,7 @@ export default function CFBScheduleApp({
     setScheduleMeta({});
     setOddsCacheState('unknown');
     setOddsUsage(null);
+    setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
     hasAutoBootstrappedLiveRef.current = false;
@@ -366,6 +374,32 @@ export default function CFBScheduleApp({
     }
   }, [selectedTab, selectedWeek]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const nextRankings = await fetchSeasonRankings(selectedSeason);
+        if (!cancelled) {
+          setRankings(nextRankings);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setIssues((prev) =>
+            dedupeIssues([
+              ...prev.filter((issue) => !issue.startsWith('CFBD rankings load failed:')),
+              `CFBD rankings load failed: ${(error as Error).message}`,
+            ])
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSeason]);
+
   const weeks = useMemo(() => deriveRegularWeekTabs(games), [games]);
   const presentationTimeZone = useMemo(() => getPresentationTimeZone(), []);
   const weekDateMetadataByWeek = useMemo(
@@ -498,6 +532,21 @@ export default function CFBScheduleApp({
       standingsCoverage,
       standingsSnapshot.rows,
     ]
+  );
+
+  const selectedRankingsWeek = useMemo(
+    () =>
+      selectRankingsWeek({
+        rankings,
+        selectedWeek,
+        selectedTab,
+      }),
+    [rankings, selectedTab, selectedWeek]
+  );
+
+  const rankingsByTeamId = useMemo(
+    () => buildRankingsLookup(selectedRankingsWeek),
+    [selectedRankingsWeek]
   );
 
   const visibleGames = useMemo(() => {
@@ -948,6 +997,7 @@ export default function CFBScheduleApp({
   const adminAlertCount = getAdminAlertCount({ issues, diag, aliasStaging });
   const adminHref = '/admin';
   const leagueHref = '/';
+  const rankingsHref = '/rankings';
 
   return (
     <div className="space-y-6 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
@@ -976,6 +1026,14 @@ export default function CFBScheduleApp({
             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
               {adminAlertCount} admin item{adminAlertCount === 1 ? '' : 's'} need attention
             </span>
+          ) : null}
+          {!isAdminSurface ? (
+            <Link
+              href={rankingsHref}
+              className="inline-flex w-full items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Rankings
+            </Link>
           ) : null}
           <Link
             href={isAdminSurface ? leagueHref : adminHref}
@@ -1197,6 +1255,7 @@ export default function CFBScheduleApp({
                   selectedWeekLabel={activeWeekLabel}
                   displayTimeZone={presentationTimeZone}
                   onOwnerChange={setSelectedOwner}
+                  rankingsByTeamId={rankingsByTeamId}
                 />
               ) : primarySurfaceKind === 'postseason' ? (
                 <PostseasonPanel
@@ -1215,6 +1274,7 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   displayTimeZone={presentationTimeZone}
                   sections={matchupSections}
+                  rankingsByTeamId={rankingsByTeamId}
                 />
               ) : (
                 <GameWeekPanel
@@ -1226,6 +1286,7 @@ export default function CFBScheduleApp({
                   isDebug={IS_DEBUG}
                   onSavePostseasonOverride={savePostseasonOverride}
                   displayTimeZone={presentationTimeZone}
+                  rankingsByTeamId={rankingsByTeamId}
                 />
               )}
             </section>

@@ -77,10 +77,10 @@ test('selected week view renders ascending date headers and kickoff order', () =
   const saturdayIndex = html.indexOf('Saturday, Aug 30');
   const sundayIndex = html.indexOf('Sunday, Aug 31');
   const tbdHeaderIndex = html.indexOf('Date TBD');
-  const earlyIndex = html.indexOf('F @ E');
-  const lateIndex = html.indexOf('B @ A');
-  const nextDayIndex = html.indexOf('H @ G');
-  const tbdIndex = html.indexOf('D @ C');
+  const earlyIndex = html.indexOf('F</span> @ <span');
+  const lateIndex = html.indexOf('B</span> @ <span');
+  const nextDayIndex = html.indexOf('H</span> @ <span');
+  const tbdIndex = html.indexOf('D</span> @ <span');
 
   assert.ok(saturdayIndex >= 0);
   assert.ok(sundayIndex > saturdayIndex);

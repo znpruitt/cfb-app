@@ -42,7 +42,9 @@ export type OwnerSlateGame = {
   owner: string;
   game: AppGame;
   ownerTeamSide: 'away' | 'home';
+  ownerTeamId: string;
   ownerTeamName: string;
+  opponentTeamId: string;
   opponentTeamName: string;
   opponentOwner?: string;
   isOwnerVsOwner: boolean;
@@ -246,7 +248,9 @@ function buildOwnerSlateGames(bucket: MatchupBucket, owner: string): OwnerSlateG
       owner,
       game: bucket.game,
       ownerTeamSide: 'away',
+      ownerTeamId: bucket.game.canAway,
       ownerTeamName: bucket.game.csvAway,
+      opponentTeamId: bucket.game.canHome,
       opponentTeamName: bucket.game.csvHome,
       opponentOwner: bucket.homeOwner,
       isOwnerVsOwner: Boolean(bucket.homeOwner),
@@ -259,7 +263,9 @@ function buildOwnerSlateGames(bucket: MatchupBucket, owner: string): OwnerSlateG
       owner,
       game: bucket.game,
       ownerTeamSide: 'home',
+      ownerTeamId: bucket.game.canHome,
       ownerTeamName: bucket.game.csvHome,
+      opponentTeamId: bucket.game.canAway,
       opponentTeamName: bucket.game.csvAway,
       opponentOwner: bucket.awayOwner,
       isOwnerVsOwner: Boolean(bucket.awayOwner),

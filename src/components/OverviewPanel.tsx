@@ -2,8 +2,10 @@ import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
+import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
+import RankedTeamName from './RankedTeamName';
 
 function formatWinPct(value: number): string {
   return value.toFixed(3);
@@ -28,6 +30,20 @@ function formatKickoff(date: string | null, timeZone: string): string {
   });
 }
 
+function renderMatchupLabel(
+  item: OverviewGameItem,
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>
+): React.ReactElement {
+  const game = item.bucket.game;
+  return (
+    <>
+      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
+      {' @ '}
+      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
+    </>
+  );
+}
+
 function formatScoreLine(item: OverviewGameItem): string {
   const score = item.score;
   if (!score) return 'Awaiting score';
@@ -37,21 +53,34 @@ function formatScoreLine(item: OverviewGameItem): string {
   return `${formatGameMatchupLabel(item.bucket.game)} · ${awayScore}-${homeScore}`;
 }
 
-function summarizeLeagueAngle(item: OverviewGameItem): string {
+function summarizeLeagueAngle(
+  item: OverviewGameItem,
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>
+): React.ReactNode {
   const { awayOwner, homeOwner, game } = item.bucket;
   if (awayOwner && homeOwner) {
     return `${awayOwner} vs ${homeOwner}`;
   }
 
   if (awayOwner) {
-    return `${awayOwner}: ${game.csvAway}`;
+    return (
+      <>
+        {awayOwner}:{' '}
+        <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
+      </>
+    );
   }
 
   if (homeOwner) {
-    return `${homeOwner}: ${game.csvHome}`;
+    return (
+      <>
+        {homeOwner}:{' '}
+        <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
+      </>
+    );
   }
 
-  return formatGameMatchupLabel(game);
+  return renderMatchupLabel(item, rankingsByTeamId);
 }
 
 function summarizePriority(item: OverviewGameItem): string {
@@ -246,10 +275,12 @@ function GameCardList({
   items,
   emptyMessage,
   timeZone,
+  rankingsByTeamId,
 }: {
   items: OverviewGameItem[];
   emptyMessage: string;
   timeZone: string;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   if (items.length === 0) {
     return <EmptyState message={emptyMessage} />;
@@ -267,10 +298,10 @@ function GameCardList({
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
-                  {formatGameMatchupLabel(item.bucket.game)}
+                  {renderMatchupLabel(item, rankingsByTeamId)}
                 </div>
                 <div className="text-sm text-gray-600 dark:text-zinc-300">
-                  {summarizeLeagueAngle(item)}
+                  {summarizeLeagueAngle(item, rankingsByTeamId)}
                 </div>
               </div>
               <span
@@ -296,10 +327,12 @@ function GameSummaryList({
   items,
   emptyMessage,
   timeZone,
+  rankingsByTeamId,
 }: {
   items: OverviewGameItem[];
   emptyMessage: string;
   timeZone: string;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   if (items.length === 0) {
     return <EmptyState message={emptyMessage} />;
@@ -318,14 +351,14 @@ function GameSummaryList({
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
-                  {formatGameMatchupLabel(item.bucket.game)}
+                  {renderMatchupLabel(item, rankingsByTeamId)}
                 </h3>
                 <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                   {summarizePriority(item)}
                 </span>
               </div>
               <p className="text-sm text-gray-600 dark:text-zinc-300">
-                {summarizeLeagueAngle(item)}
+                {summarizeLeagueAngle(item, rankingsByTeamId)}
               </p>
               <p className="text-xs text-gray-500 dark:text-zinc-400">{formatScoreLine(item)}</p>
             </div>
@@ -355,6 +388,7 @@ type OverviewPanelProps = {
   selectedWeekLabel: string;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 };
 
 export default function OverviewPanel({
@@ -366,6 +400,7 @@ export default function OverviewPanel({
   selectedWeekLabel,
   displayTimeZone,
   onOwnerSelect,
+  rankingsByTeamId = new Map(),
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
 
@@ -414,6 +449,7 @@ export default function OverviewPanel({
           items={liveItems}
           emptyMessage="No owned-team games are live right now."
           timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
 
@@ -426,6 +462,7 @@ export default function OverviewPanel({
           items={keyMatchups}
           emptyMessage="No league-relevant games are scheduled for this view."
           timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
     </div>

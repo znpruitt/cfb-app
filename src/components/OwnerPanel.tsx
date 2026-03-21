@@ -1,7 +1,9 @@
 import React from 'react';
 
 import type { OwnerRosterRow, OwnerViewSnapshot } from '../lib/ownerView';
+import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
+import RankedTeamName from './RankedTeamName';
 
 function formatWinPct(value: number): string {
   return value.toFixed(3);
@@ -66,7 +68,11 @@ function EmptyState({ message }: { message: string }): React.ReactElement {
   );
 }
 
-function renderNextGameCell(row: OwnerRosterRow, timeZone: string): React.ReactElement {
+function renderNextGameCell(
+  row: OwnerRosterRow,
+  timeZone: string,
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>
+): React.ReactElement {
   if (row.currentStatus === 'Final' && !row.nextOpponent) {
     return (
       <div>
@@ -78,7 +84,17 @@ function renderNextGameCell(row: OwnerRosterRow, timeZone: string): React.ReactE
   return (
     <div>
       <div className="font-medium text-gray-700 dark:text-zinc-200">
-        {row.nextGameLabel ?? (row.nextOpponent ? `vs ${row.nextOpponent}` : 'TBD')}
+        {row.nextOpponent ? (
+          <>
+            {row.ownerTeamSide === 'away' ? 'at ' : 'vs '}
+            <RankedTeamName
+              teamName={row.nextOpponent}
+              ranking={rankingsByTeamId.get(row.nextOpponentTeamId ?? '')}
+            />
+          </>
+        ) : (
+          (row.nextGameLabel ?? 'TBD')
+        )}
       </div>
       <div className="text-xs text-gray-500 dark:text-zinc-400">
         {row.currentStatus !== 'Upcoming' && row.currentScore
@@ -93,10 +109,12 @@ function OwnerRosterTable({
   rows,
   emptyMessage,
   timeZone,
+  rankingsByTeamId,
 }: {
   rows: OwnerViewSnapshot['rosterRows'];
   emptyMessage: string;
   timeZone: string;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   if (rows.length === 0) {
     return <EmptyState message={emptyMessage} />;
@@ -125,13 +143,16 @@ function OwnerRosterTable({
                 className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
               >
                 <td className="border-b border-gray-100 px-2 py-2 font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
-                  {row.teamName}
+                  <RankedTeamName
+                    teamName={row.teamName}
+                    ranking={rankingsByTeamId.get(row.teamId ?? row.teamName)}
+                  />
                 </td>
                 <td className="border-b border-gray-100 px-2 py-2 text-gray-700 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
                   {row.record}
                 </td>
                 <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
-                  {renderNextGameCell(row, timeZone)}
+                  {renderNextGameCell(row, timeZone, rankingsByTeamId)}
                 </td>
                 <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
                   <span
@@ -155,7 +176,10 @@ function OwnerRosterTable({
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
-                  {row.teamName}
+                  <RankedTeamName
+                    teamName={row.teamName}
+                    ranking={rankingsByTeamId.get(row.teamId ?? row.teamName)}
+                  />
                 </h3>
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">Record {row.record}</p>
               </div>
@@ -166,7 +190,7 @@ function OwnerRosterTable({
               </span>
             </div>
             <div className="mt-3 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-700 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-200">
-              {renderNextGameCell(row, timeZone)}
+              {renderNextGameCell(row, timeZone, rankingsByTeamId)}
             </div>
           </article>
         ))}
@@ -179,6 +203,7 @@ type OwnerPickerProps = {
   ownerOptions: string[];
   selectedOwner: string | null;
   onOwnerChange: (owner: string) => void;
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 };
 
 function OwnerPicker({
@@ -315,6 +340,7 @@ type OwnerPanelProps = {
   selectedWeekLabel: string;
   displayTimeZone?: string;
   onOwnerChange: (owner: string) => void;
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 };
 
 export default function OwnerPanel({
@@ -322,6 +348,7 @@ export default function OwnerPanel({
   selectedWeekLabel,
   displayTimeZone,
   onOwnerChange,
+  rankingsByTeamId = new Map(),
 }: OwnerPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
 
@@ -381,6 +408,7 @@ export default function OwnerPanel({
           rows={snapshot.rosterRows}
           emptyMessage="No teams are attached to this selection yet."
           timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
 
@@ -392,6 +420,7 @@ export default function OwnerPanel({
           rows={snapshot.liveRows}
           emptyMessage="No live games for this selection right now."
           timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
 
@@ -428,6 +457,7 @@ export default function OwnerPanel({
           rows={snapshot.weekRows}
           emptyMessage="No teams from this selection are attached to the selected week."
           timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
     </div>
