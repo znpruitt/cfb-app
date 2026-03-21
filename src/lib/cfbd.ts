@@ -21,3 +21,15 @@ export function buildCfbdGamesUrl(params: {
 export function buildCfbdConferencesUrl(): URL {
   return new URL('https://api.collegefootballdata.com/conferences');
 }
+
+export function buildCfbdRankingsUrl(params: {
+  year: number;
+  week?: number | null;
+  seasonType?: 'regular' | 'postseason';
+}): URL {
+  const url = new URL('https://api.collegefootballdata.com/rankings');
+  url.searchParams.set('year', String(params.year));
+  if (typeof params.week === 'number') url.searchParams.set('week', String(params.week));
+  if (params.seasonType) url.searchParams.set('seasonType', params.seasonType);
+  return url;
+}

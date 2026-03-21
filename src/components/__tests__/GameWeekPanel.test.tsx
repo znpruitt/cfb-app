@@ -77,10 +77,10 @@ test('selected week view renders ascending date headers and kickoff order', () =
   const saturdayIndex = html.indexOf('Saturday, Aug 30');
   const sundayIndex = html.indexOf('Sunday, Aug 31');
   const tbdHeaderIndex = html.indexOf('Date TBD');
-  const earlyIndex = html.indexOf('F @ E');
-  const lateIndex = html.indexOf('B @ A');
-  const nextDayIndex = html.indexOf('H @ G');
-  const tbdIndex = html.indexOf('D @ C');
+  const earlyIndex = html.indexOf('F</span> @ <span');
+  const lateIndex = html.indexOf('B</span> @ <span');
+  const nextDayIndex = html.indexOf('H</span> @ <span');
+  const tbdIndex = html.indexOf('D</span> @ <span');
 
   assert.ok(saturdayIndex >= 0);
   assert.ok(sundayIndex > saturdayIndex);
@@ -173,4 +173,32 @@ test('postseason placeholders with TBD kickoff render stable date fallback', () 
   assert.ok(html.includes('Date TBD'));
   assert.ok(html.includes('Kickoff: TBD'));
   assert.ok(html.includes('Placeholder Bowl'));
+});
+
+test('neutral-site ranked matchup label preserves vs wording', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'neutral',
+          csvAway: 'Texas',
+          csvHome: 'Ohio State',
+          date: '2025-09-01T17:00:00.000Z',
+          neutral: true,
+          neutralDisplay: 'vs',
+          stage: 'bowl',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
+  assert.doesNotMatch(html, /Texas<\/span> @ <span>Ohio State/);
 });

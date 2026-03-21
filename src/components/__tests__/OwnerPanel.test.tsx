@@ -139,8 +139,8 @@ test('owner panel renders merged header navigation and team-based roster table',
   assert.match(html, /Week 1 slate/);
   assert.match(html, /Texas/);
   assert.match(html, /8–3/);
-  assert.match(html, /at Georgia/);
-  assert.match(html, /vs Ohio State/);
+  assert.match(html, /at <span>Georgia/);
+  assert.match(html, /vs <span>Ohio State/);
   assert.match(html, /Live/);
 });
 
@@ -189,4 +189,23 @@ test('owner panel renders season-complete messaging without week rows', () => {
 
   assert.match(html, /Season complete/);
   assert.match(html, /No teams from this selection are attached to the selected week\./);
+});
+
+test('owner panel preserves neutral-site next-game wording when rankings decorate the opponent', () => {
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={{
+        ...snapshot,
+        rosterRows: [snapshot.rosterRows[2]!],
+        liveRows: [],
+        weekRows: [snapshot.weekRows[2]!],
+      }}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+
+  assert.match(html, /vs <span>Washington/);
+  assert.doesNotMatch(html, /at <span>Washington/);
 });

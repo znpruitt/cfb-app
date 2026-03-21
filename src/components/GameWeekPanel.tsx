@@ -10,8 +10,10 @@ import {
   usesNeutralSiteSemantics,
 } from '../lib/gameUi';
 import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
+import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
+import RankedTeamName from './RankedTeamName';
 
 type Game = AppGame;
 
@@ -29,6 +31,22 @@ function formatKickoff(date: string | null, timeZone: string): string {
   });
 }
 
+function renderMatchupLabel(
+  game: AppGame,
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>
+): React.ReactElement {
+  const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator: '@' });
+  const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
+
+  return (
+    <>
+      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
+      {separator}
+      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
+    </>
+  );
+}
+
 function isFcsConference(conference: string | null | undefined): boolean {
   return /\bfcs\b/i.test(conference ?? '');
 }
@@ -40,6 +58,7 @@ type GameWeekPanelProps = {
   scoresByKey: Record<string, ScorePack>;
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   hideByes?: boolean;
   displayTimeZone?: string;
@@ -52,6 +71,7 @@ export default function GameWeekPanel({
   scoresByKey,
   rosterByTeam,
   isDebug,
+  rankingsByTeamId = new Map(),
   onSavePostseasonOverride,
   hideByes = false,
   displayTimeZone = getPresentationTimeZone(),
@@ -115,7 +135,6 @@ export default function GameWeekPanel({
                 if (!odds && !isPlaceholder) chips.push('No odds');
 
                 const useNeutralSemantics = usesNeutralSiteSemantics(g);
-                const matchupLine = formatGameMatchupLabel(g, { homeAwaySeparator: '@' });
                 const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
                 const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
                 const homeIsLeagueTeam =
@@ -146,7 +165,7 @@ export default function GameWeekPanel({
                           <span
                             className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
                           >
-                            {matchupLine}
+                            {renderMatchupLabel(g, rankingsByTeamId)}
                           </span>
                           <span className={pillClass()}>
                             Kickoff: {formatKickoff(g.date, displayTimeZone)}
@@ -174,10 +193,18 @@ export default function GameWeekPanel({
                       <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
                         <div className="font-medium mb-2">Matchup</div>
                         <div>
-                          <strong>{matchupHostLabel}</strong>: {g.csvHome}
+                          <strong>{matchupHostLabel}</strong>:{' '}
+                          <RankedTeamName
+                            teamName={g.csvHome}
+                            ranking={rankingsByTeamId.get(g.canHome)}
+                          />
                         </div>
                         <div>
-                          <strong>{matchupRoleLabel}</strong>: {g.csvAway}
+                          <strong>{matchupRoleLabel}</strong>:{' '}
+                          <RankedTeamName
+                            teamName={g.csvAway}
+                            ranking={rankingsByTeamId.get(g.canAway)}
+                          />
                         </div>
                         <div>
                           <strong>Week</strong>: {g.week}

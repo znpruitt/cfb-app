@@ -9,8 +9,10 @@ import {
   type OwnerWeekSlate,
   type WeekMatchupSections,
 } from '../lib/matchups';
+import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
+import RankedTeamName from './RankedTeamName';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
 type MatchupsWeekPanelProps = {
@@ -20,6 +22,7 @@ type MatchupsWeekPanelProps = {
   rosterByTeam: Map<string, string>;
   displayTimeZone?: string;
   sections?: WeekMatchupSections;
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 };
 
 type OpponentSummaryEntry = {
@@ -253,11 +256,13 @@ function GameRow({
   scoresByKey,
   oddsByKey,
   displayTimeZone,
+  rankingsByTeamId,
 }: {
   slateGame: OwnerSlateGame;
   scoresByKey: Record<string, ScorePack>;
   oddsByKey: Record<string, CombinedOdds>;
   displayTimeZone: string;
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   const score = scoresByKey[slateGame.game.key];
   const odds = oddsByKey[slateGame.game.key];
@@ -279,9 +284,16 @@ function GameRow({
                 {slateGame.game.label}
               </span>
             ) : null}
-            <span className="font-medium">{slateGame.ownerTeamName}</span>
+            <RankedTeamName
+              className="font-medium"
+              teamName={slateGame.ownerTeamName}
+              ranking={rankingsByTeamId?.get(slateGame.ownerTeamId)}
+            />
             <span className="text-gray-400 dark:text-zinc-500">vs</span>
-            <span>{slateGame.opponentTeamName}</span>
+            <RankedTeamName
+              teamName={slateGame.opponentTeamName}
+              ranking={rankingsByTeamId?.get(slateGame.opponentTeamId)}
+            />
             <span className={`${pillClass()} ${getOpponentBadgeClasses(opponentDescriptor)}`}>
               {opponentDescriptor}
             </span>
@@ -329,11 +341,13 @@ function OwnerCard({
   scoresByKey,
   oddsByKey,
   displayTimeZone,
+  rankingsByTeamId,
 }: {
   slate: OwnerWeekSlate;
   scoresByKey: Record<string, ScorePack>;
   oddsByKey: Record<string, CombinedOdds>;
   displayTimeZone: string;
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const opponentSummaryEntries = React.useMemo(() => summarizeOpponents(slate), [slate]);
@@ -379,6 +393,7 @@ function OwnerCard({
             scoresByKey={scoresByKey}
             oddsByKey={oddsByKey}
             displayTimeZone={displayTimeZone}
+            rankingsByTeamId={rankingsByTeamId}
           />
         ))}
       </ul>
@@ -393,6 +408,7 @@ export default function MatchupsWeekPanel({
   rosterByTeam,
   displayTimeZone = getPresentationTimeZone(),
   sections,
+  rankingsByTeamId = new Map(),
 }: MatchupsWeekPanelProps): React.ReactElement {
   const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
   const ownerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
@@ -418,6 +434,7 @@ export default function MatchupsWeekPanel({
                 scoresByKey={scoresByKey}
                 oddsByKey={oddsByKey}
                 displayTimeZone={displayTimeZone}
+                rankingsByTeamId={rankingsByTeamId}
               />
             ))}
           </div>

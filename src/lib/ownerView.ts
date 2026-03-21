@@ -7,9 +7,11 @@ import type { OwnerStandingsRow } from './standings.ts';
 export type OwnerRosterRowStatus = 'Final' | 'Live' | 'Upcoming';
 
 export type OwnerRosterRow = {
+  teamId?: string;
   teamName: string;
   record: string;
   nextOpponent: string | null;
+  nextOpponentTeamId?: string | null;
   nextGameLabel: string | null;
   ownerTeamSide: 'away' | 'home';
   isNeutralSite: boolean;
@@ -62,6 +64,18 @@ function getTeamGames(teamName: string, games: AppGame[]): AppGame[] {
   return games.filter((game) => game.csvAway === teamName || game.csvHome === teamName);
 }
 
+function getTeamId(teamName: string, teamGames: AppGame[]): string {
+  const firstGame = teamGames.find(
+    (game) => game.csvAway === teamName || game.csvHome === teamName
+  );
+  if (!firstGame) return teamName;
+  return firstGame.csvAway === teamName ? firstGame.canAway : firstGame.canHome;
+}
+
+function getOpponentTeamId(teamName: string, game: AppGame): string {
+  return game.csvAway === teamName ? game.canHome : game.canAway;
+}
+
 function isAttachedFinalGame(score?: ScorePack): boolean {
   return gameStateFromScore(score) === 'final';
 }
@@ -96,6 +110,7 @@ export function deriveOwnerRoster(
 
   return ownedTeams.map((teamName) => {
     const teamGames = getTeamGames(teamName, games).sort(compareGamesByKickoff);
+    const teamId = getTeamId(teamName, teamGames);
 
     let wins = 0;
     let losses = 0;
@@ -117,9 +132,11 @@ export function deriveOwnerRoster(
       const liveScore = scoresByKey[liveGame.key];
       const ownerTeamSide = getOwnerTeamSide(teamName, liveGame);
       return {
+        teamId,
         teamName,
         record: `${wins}–${losses}`,
         nextOpponent: liveGame.csvAway === teamName ? liveGame.csvHome : liveGame.csvAway,
+        nextOpponentTeamId: getOpponentTeamId(teamName, liveGame),
         nextGameLabel: buildNextGameLabel(teamName, liveGame),
         ownerTeamSide,
         isNeutralSite: usesNeutralSiteSemantics(liveGame) || liveGame.neutral,
@@ -134,9 +151,11 @@ export function deriveOwnerRoster(
     if (nextGame) {
       const ownerTeamSide = getOwnerTeamSide(teamName, nextGame);
       return {
+        teamId,
         teamName,
         record: `${wins}–${losses}`,
         nextOpponent: nextGame.csvAway === teamName ? nextGame.csvHome : nextGame.csvAway,
+        nextOpponentTeamId: getOpponentTeamId(teamName, nextGame),
         nextGameLabel: buildNextGameLabel(teamName, nextGame),
         ownerTeamSide,
         isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
@@ -148,9 +167,11 @@ export function deriveOwnerRoster(
     }
 
     return {
+      teamId,
       teamName,
       record: `${wins}–${losses}`,
       nextOpponent: null,
+      nextOpponentTeamId: null,
       nextGameLabel: null,
       ownerTeamSide: 'home',
       isNeutralSite: false,
@@ -189,6 +210,7 @@ function filterRosterRowsToWeek(
         return {
           ...row,
           nextOpponent: opponentTeamName,
+          nextOpponentTeamId: getOpponentTeamId(row.teamName, liveGame),
           nextGameLabel: buildNextGameLabel(row.teamName, liveGame),
           ownerTeamSide: getOwnerTeamSide(row.teamName, liveGame),
           isNeutralSite: usesNeutralSiteSemantics(liveGame) || liveGame.neutral,
@@ -206,6 +228,7 @@ function filterRosterRowsToWeek(
         return {
           ...row,
           nextOpponent: opponentTeamName,
+          nextOpponentTeamId: getOpponentTeamId(row.teamName, nextGame),
           nextGameLabel: buildNextGameLabel(row.teamName, nextGame),
           ownerTeamSide: getOwnerTeamSide(row.teamName, nextGame),
           isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
@@ -223,6 +246,7 @@ function filterRosterRowsToWeek(
         return {
           ...row,
           nextOpponent: opponentTeamName,
+          nextOpponentTeamId: getOpponentTeamId(row.teamName, latestWeekGame),
           nextGameLabel: buildNextGameLabel(row.teamName, latestWeekGame),
           ownerTeamSide: getOwnerTeamSide(row.teamName, latestWeekGame),
           isNeutralSite: usesNeutralSiteSemantics(latestWeekGame) || latestWeekGame.neutral,
@@ -264,8 +288,7 @@ export function deriveOwnerViewSnapshot(params: {
     };
   }
 
-  const headerRow =
-    standingsRows.find((row) => row.owner === resolvedOwner) ?? standingsRows[0] ?? null;
+  const headerRow = standingsRows.find((row) => row.owner === resolvedOwner) ?? null;
   const rosterRows = deriveOwnerRoster(resolvedOwner, allGames, rosterByTeam, scoresByKey);
   const liveRows = rosterRows.filter((row) => row.currentStatus === 'Live');
   const weekRows = filterRosterRowsToWeek(
@@ -277,13 +300,13 @@ export function deriveOwnerViewSnapshot(params: {
   );
 
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
-  const ownerWeekSlate = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey).find(
-    (slate) => slate.owner === resolvedOwner
-  );
-  const ownerRelevantBuckets = [
-    ...weekSections.ownerMatchups,
-    ...weekSections.secondaryGames,
-  ].filter((bucket) => bucket.awayOwner === resolvedOwner || bucket.homeOwner === resolvedOwner);
+  const ownerSlates = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey);
+  const ownerSlate = ownerSlates.find((slate) => slate.owner === resolvedOwner) ?? null;
+  const opponentOwners = ownerSlate?.opponentOwners ?? [];
+  const totalGames = ownerSlate?.totalGames ?? 0;
+  const liveGames = ownerSlate?.liveGames ?? 0;
+  const finalGames = ownerSlate?.finalGames ?? 0;
+  const scheduledGames = ownerSlate?.scheduledGames ?? 0;
 
   return {
     selectedOwner: resolvedOwner,
@@ -300,33 +323,25 @@ export function deriveOwnerViewSnapshot(params: {
     rosterRows,
     liveRows,
     weekRows,
-    weekSummary: ownerWeekSlate
+    weekSummary: ownerSlate
       ? {
-          totalGames: ownerWeekSlate.totalGames,
-          liveGames: ownerWeekSlate.liveGames,
-          finalGames: ownerWeekSlate.finalGames,
-          scheduledGames: ownerWeekSlate.scheduledGames,
-          opponentOwners: ownerWeekSlate.opponentOwners,
-          performanceSummary: ownerWeekSlate.performance.summary,
-          performanceDetail: ownerWeekSlate.performance.detail,
+          totalGames,
+          liveGames,
+          finalGames,
+          scheduledGames,
+          opponentOwners,
+          performanceSummary: ownerSlate.performance.summary,
+          performanceDetail: ownerSlate.performance.detail,
         }
-      : ownerRelevantBuckets.length > 0
+      : weekSections.secondaryGames.length || weekSections.ownerMatchups.length
         ? {
-            totalGames: ownerRelevantBuckets.length,
+            totalGames: 0,
             liveGames: 0,
             finalGames: 0,
-            scheduledGames: ownerRelevantBuckets.length,
-            opponentOwners: Array.from(
-              new Set(
-                ownerRelevantBuckets
-                  .map((bucket) =>
-                    bucket.awayOwner === resolvedOwner ? bucket.homeOwner : bucket.awayOwner
-                  )
-                  .filter((value): value is string => Boolean(value))
-              )
-            ),
-            performanceSummary: 'Scheduled',
-            performanceDetail: `${ownerRelevantBuckets.length} game${ownerRelevantBuckets.length === 1 ? '' : 's'}`,
+            scheduledGames: 0,
+            opponentOwners: [],
+            performanceSummary: 'No games this week',
+            performanceDetail: 'No owned teams are attached to this week.',
           }
         : null,
   };
