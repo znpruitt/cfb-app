@@ -35,10 +35,13 @@ function renderMatchupLabel(
   rankingsByTeamId: Map<string, TeamRankingEnrichment>
 ): React.ReactElement {
   const game = item.bucket.game;
+  const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator: '@' });
+  const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
+
   return (
     <>
       <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(game.canAway)} />
-      {' @ '}
+      {separator}
       <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(game.canHome)} />
     </>
   );

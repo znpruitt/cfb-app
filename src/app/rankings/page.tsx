@@ -3,9 +3,16 @@
 import React from 'react';
 
 import RankingsPageContent from '../../components/RankingsPageContent';
-import { fetchSeasonRankings, type RankingsWeek } from '../../lib/rankings';
+import {
+  fetchSeasonRankings,
+  getDefaultRankingsSeason,
+  type RankingsWeek,
+} from '../../lib/rankings';
 
-const DEFAULT_SEASON = Number(process.env.NEXT_PUBLIC_SEASON ?? new Date().getFullYear());
+const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
+const DEFAULT_SEASON = getDefaultRankingsSeason(
+  Number.isFinite(EXPLICIT_SEASON) ? EXPLICIT_SEASON : null
+);
 
 export default function RankingsPage(): React.ReactElement {
   const [loading, setLoading] = React.useState(true);

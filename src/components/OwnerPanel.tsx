@@ -81,12 +81,17 @@ function renderNextGameCell(
     );
   }
 
+  const nextGamePrefix =
+    row.nextOpponent && row.nextGameLabel?.endsWith(row.nextOpponent)
+      ? row.nextGameLabel.slice(0, -row.nextOpponent.length)
+      : null;
+
   return (
     <div>
       <div className="font-medium text-gray-700 dark:text-zinc-200">
-        {row.nextOpponent ? (
+        {row.nextOpponent && nextGamePrefix != null ? (
           <>
-            {row.ownerTeamSide === 'away' ? 'at ' : 'vs '}
+            {nextGamePrefix}
             <RankedTeamName
               teamName={row.nextOpponent}
               ranking={rankingsByTeamId.get(row.nextOpponentTeamId ?? '')}

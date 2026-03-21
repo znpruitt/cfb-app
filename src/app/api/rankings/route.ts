@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { getDefaultRankingsSeason } from '@/lib/rankings';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 
 export const dynamic = 'force-dynamic';
@@ -10,15 +11,11 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return Number.parseInt(raw, 10);
 }
 
-function seasonYearForToday(now = new Date()): number {
-  return now.getUTCMonth() >= 7 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
-}
-
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const yearParam = url.searchParams.get('year');
 
-  let year = seasonYearForToday();
+  let year = getDefaultRankingsSeason(null);
   if (yearParam !== null) {
     const parsed = parseNonNegativeInt(yearParam);
     const maxYear = new Date().getUTCFullYear() + 1;

@@ -1,3 +1,4 @@
+import { seasonYearForToday } from './scores/normalizers.ts';
 import { normalizeTeamName } from './teamNormalization.ts';
 
 export type RankSource = 'cfp' | 'ap' | 'coaches';
@@ -107,6 +108,12 @@ export function selectRankingsWeek(params: {
 
   const matchingWeeks = rankings.weeks.filter((week) => week.week === selectedWeek);
   return matchingWeeks.at(-1) ?? null;
+}
+
+export function getDefaultRankingsSeason(explicitSeason?: number | null, now = new Date()): number {
+  return Number.isInteger(explicitSeason) && (explicitSeason ?? 0) > 0
+    ? (explicitSeason as number)
+    : seasonYearForToday(now);
 }
 
 export async function fetchSeasonRankings(season: number): Promise<RankingsResponse> {

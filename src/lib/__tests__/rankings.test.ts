@@ -5,6 +5,7 @@ import { createTeamIdentityResolver } from '../teamIdentity';
 import teamsCatalog from '../../data/teams.json';
 import {
   buildRankingsLookup,
+  getDefaultRankingsSeason,
   normalizePollSource,
   selectPrimaryRankSource,
   selectRankingsWeek,
@@ -130,4 +131,9 @@ test('postseason view uses latest available rankings rather than a stale regular
     selectRankingsWeek({ rankings, selectedWeek: 14, selectedTab: 'postseason' }),
     latestWeek
   );
+});
+
+test('default rankings season uses football-season logic during the offseason', () => {
+  assert.equal(getDefaultRankingsSeason(null, new Date('2026-03-21T12:00:00.000Z')), 2025);
+  assert.equal(getDefaultRankingsSeason(2030, new Date('2026-03-21T12:00:00.000Z')), 2030);
 });

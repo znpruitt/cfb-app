@@ -8,6 +8,7 @@ import {
   type CanonicalPollEntry,
   type CanonicalRankedTeam,
   type RankSource,
+  getDefaultRankingsSeason,
   type RankingsResponse,
   type RankingsWeek,
 } from '../rankings.ts';
@@ -44,10 +45,6 @@ const CFBD_PACING_POLICY = {
   key: 'cfbd',
   minIntervalMs: 150,
 } as const;
-
-function seasonYearForToday(now = new Date()): number {
-  return now.getUTCMonth() >= 7 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
-}
 
 function compareWeek(a: RankingsWeek, b: RankingsWeek): number {
   if (a.season !== b.season) return a.season - b.season;
@@ -147,7 +144,9 @@ export function normalizeCfbdRankingsWeeks(
     .sort(compareWeek);
 }
 
-export async function loadSeasonRankings(season = seasonYearForToday()): Promise<RankingsResponse> {
+export async function loadSeasonRankings(
+  season = getDefaultRankingsSeason(null)
+): Promise<RankingsResponse> {
   const cached = CACHE.get(season);
   const now = Date.now();
   if (cached && now - cached.at < CACHE_TTL_MS) {

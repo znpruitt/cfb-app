@@ -128,7 +128,7 @@ test('overview panel uses neutral wording for neutral-site games', () => {
     />
   );
 
-  assert.match(html, /Texas vs Ohio State/);
+  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
   assert.doesNotMatch(html, /Texas at Ohio State/);
 });
 
@@ -153,7 +153,7 @@ test('overview panel keeps home-away wording for standard games', () => {
     />
   );
 
-  assert.match(html, /Texas at Rice/);
+  assert.match(html, /Texas<\/span> @ <span>Rice/);
 });
 
 test('overview panel renders full condensed standings and weekly owner matrix', () => {
