@@ -3,17 +3,20 @@ import React from 'react';
 import { gameStateFromScore } from '../lib/gameUi';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
+import { getTeamDisplayLabel, type TeamDisplayInfo } from '../lib/teamIdentity';
 import RankedTeamName from './RankedTeamName';
 
 type TeamRow = {
   key: 'away' | 'home';
-  label: string;
+  label: TeamDisplayInfo;
   score: number | null;
   ranking?: TeamRankingEnrichment;
 };
 
 type GameScoreboardProps = {
   score: ScorePack;
+  awayTeam: TeamDisplayInfo;
+  homeTeam: TeamDisplayInfo;
   awayRanking?: TeamRankingEnrichment;
   homeRanking?: TeamRankingEnrichment;
 };
@@ -47,12 +50,14 @@ function scoreboardRowClasses(teamScore: number | null, opponentScore: number | 
 
 export default function GameScoreboard({
   score,
+  awayTeam,
+  homeTeam,
   awayRanking,
   homeRanking,
 }: GameScoreboardProps): React.ReactElement {
   const rows: TeamRow[] = [
-    { key: 'away', label: score.away.team, score: score.away.score, ranking: awayRanking },
-    { key: 'home', label: score.home.team, score: score.home.score, ranking: homeRanking },
+    { key: 'away', label: awayTeam, score: score.away.score, ranking: awayRanking },
+    { key: 'home', label: homeTeam, score: score.home.score, ranking: homeRanking },
   ];
 
   return (
@@ -71,7 +76,7 @@ export default function GameScoreboard({
               data-scoreboard-row={team.key}
             >
               <RankedTeamName
-                teamName={team.label}
+                teamName={getTeamDisplayLabel(team.label, 'scoreboard')}
                 ranking={team.ranking}
                 className="min-w-0 flex-1 whitespace-normal break-words pr-3 leading-snug"
               />
@@ -86,8 +91,8 @@ export default function GameScoreboard({
         })}
       </div>
       <span className="sr-only">
-        {score.away.team} {score.away.score ?? '—'} at {score.home.team} {score.home.score ?? '—'} (
-        {score.status})
+        {getTeamDisplayLabel(awayTeam)} {score.away.score ?? '—'} at {getTeamDisplayLabel(homeTeam)}{' '}
+        {score.home.score ?? '—'} ({score.status})
       </span>
     </div>
   );

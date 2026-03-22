@@ -83,10 +83,18 @@ export function buildPlaceholderParticipant(params: {
     const resolved = resolver.resolveName(trimmed);
     if (resolved.status === 'resolved') {
       const canonical = resolved.canonicalName ?? trimmed;
+      const teamIdentity = resolver.getTeamIdentity(canonical);
       return {
         kind: 'team',
         teamId: resolved.identityKey ?? canonical,
         displayName: canonical,
+        labels: teamIdentity
+          ? {
+              displayName: teamIdentity.displayName,
+              shortDisplayName: teamIdentity.shortDisplayName,
+              scoreboardName: teamIdentity.scoreboardName,
+            }
+          : undefined,
         canonicalName: canonical,
         rawName: trimmed,
       };

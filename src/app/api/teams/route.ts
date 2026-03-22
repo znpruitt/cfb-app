@@ -7,6 +7,9 @@ import path from 'node:path';
 /** One team record in your catalog JSON. */
 type TeamItem = {
   school: string;
+  displayName?: string | null;
+  shortDisplayName?: string | null;
+  abbreviation?: string | null;
   mascot?: string | null;
   conference?: string | null;
 
@@ -100,6 +103,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .filter((t) => levelMatches(t, levelParam))
       .map((t) => ({
         school: t.school,
+        displayName: t.displayName ?? t.school,
+        shortDisplayName: t.shortDisplayName ?? null,
+        abbreviation: t.abbreviation ?? null,
         mascot: t.mascot ?? null,
         conference: t.conference ?? null,
         level: normalizeLevel(t),

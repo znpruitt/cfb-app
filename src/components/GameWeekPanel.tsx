@@ -12,11 +12,25 @@ import {
 import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
+import type { TeamDisplayInfo } from '../lib/teamIdentity';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import GameScoreboard from './GameScoreboard';
 import RankedTeamName from './RankedTeamName';
 
 type Game = AppGame;
+
+function participantDisplayInfo(game: AppGame, side: 'home' | 'away'): TeamDisplayInfo {
+  const participant = game.participants[side];
+  if (participant.kind === 'team' && participant.labels) {
+    return participant.labels;
+  }
+
+  return {
+    displayName: participant.displayName,
+    shortDisplayName: participant.displayName,
+    scoreboardName: participant.displayName,
+  };
+}
 
 function formatKickoff(date: string | null, timeZone: string): string {
   if (!date) return 'TBD';
@@ -270,6 +284,8 @@ export default function GameWeekPanel({
                         {score ? (
                           <GameScoreboard
                             score={score}
+                            awayTeam={participantDisplayInfo(g, 'away')}
+                            homeTeam={participantDisplayInfo(g, 'home')}
                             awayRanking={rankingsByTeamId.get(awayTeamId)}
                             homeRanking={rankingsByTeamId.get(homeTeamId)}
                           />
