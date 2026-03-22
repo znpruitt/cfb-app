@@ -87,7 +87,6 @@ export default function GameWeekPanel({
   oddsByKey,
   scoresByKey,
   rosterByTeam,
-  isDebug,
   rankingsByTeamId = new Map(),
   onSavePostseasonOverride,
   hideByes = false,
@@ -152,8 +151,6 @@ export default function GameWeekPanel({
                 if (!odds && !isPlaceholder) chips.push('No odds');
 
                 const useNeutralSemantics = usesNeutralSiteSemantics(g);
-                const matchupRoleLabel = useNeutralSemantics ? 'Team A' : 'Away';
-                const matchupHostLabel = useNeutralSemantics ? 'Team B' : 'Home';
                 const homeIsLeagueTeam =
                   g.participants.home.kind === 'team' && !isFcsConference(g.homeConf);
                 const awayIsLeagueTeam =
@@ -208,93 +205,38 @@ export default function GameWeekPanel({
                       </div>
                     </summary>
 
-                    <div className="grid md:grid-cols-3 gap-3 p-3">
-                      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                        <div className="font-medium mb-2">Matchup</div>
-                        <div>
-                          <strong>{matchupHostLabel}</strong>:{' '}
-                          <RankedTeamName
-                            teamName={g.csvHome}
-                            ranking={rankingsByTeamId.get(homeTeamId)}
-                          />
-                        </div>
-                        <div>
-                          <strong>{matchupRoleLabel}</strong>:{' '}
-                          <RankedTeamName
-                            teamName={g.csvAway}
-                            ranking={rankingsByTeamId.get(awayTeamId)}
-                          />
-                        </div>
-                        <div>
-                          <strong>Week</strong>: {g.week}
-                        </div>
-                        {g.venue && (
-                          <div>
-                            <strong>Venue</strong>: {g.venue}
-                          </div>
-                        )}
-                        {isPlaceholder && onSavePostseasonOverride && (
-                          <button
-                            className="mt-2 px-2 py-1 rounded border text-xs"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              const nextLabel =
-                                window.prompt('Override event label', g.label ?? '') ?? '';
-                              if (!nextLabel.trim()) return;
-                              onSavePostseasonOverride(g.eventId, { label: nextLabel.trim() });
-                            }}
-                          >
-                            Save label override
-                          </button>
-                        )}
-                        {isDebug && (
-                          <div className="text-xs text-gray-600 dark:text-zinc-400 mt-2">
-                            Canonical: {g.canAway} @ {g.canHome}
-                          </div>
-                        )}
-                      </div>
+                    <div className="space-y-3 p-3">
+                      <GameScoreboard
+                        score={score}
+                        awayTeam={participantDisplayInfo(g, 'away')}
+                        homeTeam={participantDisplayInfo(g, 'home')}
+                        awayRanking={rankingsByTeamId.get(awayTeamId)}
+                        homeRanking={rankingsByTeamId.get(homeTeamId)}
+                        kickoffLabel={formatKickoff(g.date, displayTimeZone)}
+                        awayConference={g.awayConf}
+                        homeConference={g.homeConf}
+                        awayOwner={awayOwner}
+                        homeOwner={homeOwner}
+                        venue={g.venue}
+                        odds={odds}
+                        neutralSite={useNeutralSemantics}
+                        isPlaceholder={isPlaceholder}
+                      />
 
-                      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                        <div className="font-medium mb-1">Vegas Odds</div>
-                        {odds ? (
-                          <div className="space-y-1 text-sm">
-                            <div>
-                              Favorite: {odds.favorite ?? '—'} / Spread: {odds.spread ?? '—'} /
-                              Total: {odds.total ?? '—'}
-                            </div>
-                            <div className="text-xs text-gray-600 dark:text-zinc-400">
-                              Line source:{' '}
-                              {odds.lineSourceStatus === 'latest'
-                                ? 'Latest pre-kickoff'
-                                : odds.lineSourceStatus === 'closing'
-                                  ? 'Frozen closing line'
-                                  : 'Fallback latest for completed game'}
-                              {odds.source ? ` · ${odds.source}` : ''}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-gray-600 dark:text-zinc-400">
-                            {isPlaceholder ? 'Pending matchup' : 'No odds'}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
-                        <div className="font-medium mb-1">Score</div>
-                        {score ? (
-                          <GameScoreboard
-                            score={score}
-                            awayTeam={participantDisplayInfo(g, 'away')}
-                            homeTeam={participantDisplayInfo(g, 'home')}
-                            awayRanking={rankingsByTeamId.get(awayTeamId)}
-                            homeRanking={rankingsByTeamId.get(homeTeamId)}
-                          />
-                        ) : (
-                          <div className="text-sm text-gray-600 dark:text-zinc-400">
-                            {isPlaceholder ? 'Pending matchup' : 'No score'}
-                          </div>
-                        )}
-                      </div>
+                      {isPlaceholder && onSavePostseasonOverride && (
+                        <button
+                          className="px-2 py-1 rounded border text-xs"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            const nextLabel =
+                              window.prompt('Override event label', g.label ?? '') ?? '';
+                            if (!nextLabel.trim()) return;
+                            onSavePostseasonOverride(g.eventId, { label: nextLabel.trim() });
+                          }}
+                        >
+                          Save label override
+                        </button>
+                      )}
                     </div>
                   </details>
                 );
