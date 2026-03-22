@@ -25,6 +25,7 @@ import {
   deriveCanonicalRegularSeasonWeek,
   type WeekCorrectionReason,
 } from './regularSeasonWeekCalendar.ts';
+import type { VenueInfo } from './schedule/cfbdSchedule.ts';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 
@@ -82,7 +83,7 @@ export type ScheduleWireItem = {
   homeConference: string;
   awayConference: string;
   status: string;
-  venue?: string | null;
+  venue?: VenueInfo | string | null;
   label?: string | null;
   notes?: string | null;
   seasonType?: 'regular' | 'postseason' | string | null;
@@ -129,7 +130,7 @@ export type AppGame = {
   providerGameId: string | null;
   neutral: boolean;
   neutralDisplay: 'vs' | 'home_away';
-  venue: string | null;
+  venue: VenueInfo | string | null;
   isPlaceholder: boolean;
   sources?: ScheduleFieldSources;
   participants: {

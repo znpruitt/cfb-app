@@ -14,6 +14,13 @@ type TeamRow = {
   ranking?: TeamRankingEnrichment;
 };
 
+type VenueDetails = {
+  stadium?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+};
+
 type GameScoreboardProps = {
   score?: ScorePack;
   awayTeam: TeamDisplayInfo;
@@ -21,12 +28,11 @@ type GameScoreboardProps = {
   awayRanking?: TeamRankingEnrichment;
   homeRanking?: TeamRankingEnrichment;
   kickoffLabel: string;
-  matchupLabel: string;
   homeConference?: string | null;
   awayConference?: string | null;
   homeOwner?: string;
   awayOwner?: string;
-  venue?: string | null;
+  venue?: VenueDetails | string | null;
   odds?: CombinedOdds;
   neutralSite?: boolean;
   isPlaceholder?: boolean;
@@ -62,6 +68,29 @@ function scoreboardRowClasses(teamScore: number | null, opponentScore: number | 
 function formatMoneyline(value: number | null): string | null {
   if (value == null) return null;
   return value > 0 ? `+${value}` : `${value}`;
+}
+
+function cleanVenuePart(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function formatVenueLabel(venue: VenueDetails | string | null | undefined): string | null {
+  if (!venue) return null;
+  if (typeof venue === 'string') return cleanVenuePart(venue);
+
+  const stadium = cleanVenuePart(venue.stadium);
+  const city = cleanVenuePart(venue.city);
+  const state = cleanVenuePart(venue.state);
+  const country = cleanVenuePart(venue.country);
+
+  const stateOrCountry = state ?? country;
+  const location = city ? [city, stateOrCountry].filter(Boolean).join(', ') : null;
+
+  if (stadium && location) return `${stadium} • ${location}`;
+  if (stadium) return stadium;
+  return location;
 }
 
 function buildOddsSummary(params: {
@@ -107,7 +136,6 @@ export default function GameScoreboard({
   awayRanking,
   homeRanking,
   kickoffLabel,
-  matchupLabel,
   homeConference,
   awayConference,
   homeOwner,
@@ -131,6 +159,7 @@ export default function GameScoreboard({
   ].filter(Boolean) as string[];
 
   const oddsSummary = buildOddsSummary({ odds, awayTeam, homeTeam });
+  const venueLabel = formatVenueLabel(venue);
   const statusText = score
     ? formatScoreStatus(score.status)
     : isPlaceholder
@@ -140,10 +169,7 @@ export default function GameScoreboard({
   return (
     <div className="space-y-2.5" aria-label="Game scoreboard">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="text-base font-semibold leading-tight text-gray-950 dark:text-zinc-50 sm:text-lg">
-            {matchupLabel}
-          </div>
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-zinc-500">
             <span>{kickoffLabel}</span>
             {metadataPills.map((pill) => (
@@ -187,10 +213,10 @@ export default function GameScoreboard({
         })}
       </div>
 
-      {venue && (
+      {venueLabel && (
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-zinc-500">
           <span aria-hidden="true">📍</span>
-          <span className="truncate">{venue}</span>
+          <span className="min-w-0 truncate">{venueLabel}</span>
         </div>
       )}
 
