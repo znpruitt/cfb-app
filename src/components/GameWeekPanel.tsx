@@ -213,6 +213,7 @@ export default function GameWeekPanel({
                         awayRanking={rankingsByTeamId.get(awayTeamId)}
                         homeRanking={rankingsByTeamId.get(homeTeamId)}
                         kickoffLabel={formatKickoff(g.date, displayTimeZone)}
+                        matchupLabel={formatGameMatchupLabel(g, { homeAwaySeparator: '@' })}
                         awayConference={g.awayConf}
                         homeConference={g.homeConf}
                         awayOwner={awayOwner}

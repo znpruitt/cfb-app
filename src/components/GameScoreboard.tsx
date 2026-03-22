@@ -21,6 +21,7 @@ type GameScoreboardProps = {
   awayRanking?: TeamRankingEnrichment;
   homeRanking?: TeamRankingEnrichment;
   kickoffLabel: string;
+  matchupLabel: string;
   homeConference?: string | null;
   awayConference?: string | null;
   homeOwner?: string;
@@ -58,7 +59,17 @@ function scoreboardRowClasses(teamScore: number | null, opponentScore: number | 
   ].join(' ');
 }
 
-function buildOddsSummary(odds?: CombinedOdds): string | null {
+function formatMoneyline(value: number | null): string | null {
+  if (value == null) return null;
+  return value > 0 ? `+${value}` : `${value}`;
+}
+
+function buildOddsSummary(params: {
+  odds?: CombinedOdds;
+  awayTeam: TeamDisplayInfo;
+  homeTeam: TeamDisplayInfo;
+}): string | null {
+  const { odds, awayTeam, homeTeam } = params;
   if (!odds) return null;
 
   const segments: string[] = [];
@@ -73,6 +84,19 @@ function buildOddsSummary(odds?: CombinedOdds): string | null {
     segments.push(`O/U: ${odds.total}`);
   }
 
+  const awayMoneyline = formatMoneyline(odds.mlAway);
+  const homeMoneyline = formatMoneyline(odds.mlHome);
+  if (awayMoneyline || homeMoneyline) {
+    const moneylineParts = [
+      awayMoneyline ? `${getTeamDisplayLabel(awayTeam, 'short')} ${awayMoneyline}` : null,
+      homeMoneyline ? `${getTeamDisplayLabel(homeTeam, 'short')} ${homeMoneyline}` : null,
+    ].filter(Boolean);
+
+    if (moneylineParts.length) {
+      segments.push(`ML: ${moneylineParts.join(' • ')}`);
+    }
+  }
+
   return segments.length ? segments.join(' • ') : null;
 }
 
@@ -83,6 +107,7 @@ export default function GameScoreboard({
   awayRanking,
   homeRanking,
   kickoffLabel,
+  matchupLabel,
   homeConference,
   awayConference,
   homeOwner,
@@ -105,7 +130,7 @@ export default function GameScoreboard({
     homeOwner ? `${homeOwner}` : null,
   ].filter(Boolean) as string[];
 
-  const oddsSummary = buildOddsSummary(odds);
+  const oddsSummary = buildOddsSummary({ odds, awayTeam, homeTeam });
   const statusText = score
     ? formatScoreStatus(score.status)
     : isPlaceholder
@@ -117,8 +142,7 @@ export default function GameScoreboard({
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="text-base font-semibold leading-tight text-gray-950 dark:text-zinc-50 sm:text-lg">
-            {getTeamDisplayLabel(awayTeam, 'scoreboard')} @{' '}
-            {getTeamDisplayLabel(homeTeam, 'scoreboard')}
+            {matchupLabel}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-zinc-500">
             <span>{kickoffLabel}</span>
