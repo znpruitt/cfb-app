@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalizeTeamName } from '../teamNormalization.ts';
-import { createTeamIdentityResolver } from '../teamIdentity.ts';
+import { createTeamIdentityResolver, getTeamDisplayLabel } from '../teamIdentity.ts';
 import { buildScheduleFromApi } from '../schedule.ts';
 import { classifyScheduleRow } from '../postseason-classify.ts';
 
@@ -57,6 +57,75 @@ test('resolver cache key includes subdivision changes', () => {
     ],
   });
   assert.equal(second.isFbsName('Boise State'), false);
+});
+
+test('display metadata prefers overrides over provider short-name fields', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [
+      {
+        school: 'Mississippi',
+        displayName: 'Ole Miss Rebels',
+        shortDisplayName: 'MISS',
+        abbreviation: 'MISS',
+        level: 'FBS',
+      },
+    ],
+  });
+
+  const team = resolver.getTeamIdentity('Mississippi');
+  assert.ok(team);
+  assert.equal(team.displayName, 'Mississippi');
+  assert.equal(team.shortDisplayName, 'Ole Miss');
+  assert.equal(team.scoreboardName, 'OLE MISS');
+});
+
+test('display metadata falls back to provider abbreviation when short display is absent', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [{ school: 'Texas Christian', abbreviation: 'TCU', level: 'FBS' }],
+  });
+
+  const team = resolver.getTeamIdentity('Texas Christian');
+  assert.ok(team);
+  assert.equal(team.shortDisplayName, 'TCU');
+  assert.equal(team.scoreboardName, 'TCU');
+});
+
+test('display metadata falls back to full name when provider short names are unavailable', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [{ school: 'Wyoming', level: 'FBS' }],
+  });
+
+  const team = resolver.getTeamIdentity('Wyoming');
+  assert.ok(team);
+  assert.equal(team.shortDisplayName, 'Wyoming');
+  assert.equal(team.scoreboardName, 'Wyoming');
+});
+
+test('display helper selects labels by context', () => {
+  assert.equal(
+    getTeamDisplayLabel(
+      { displayName: 'Mississippi', shortDisplayName: 'Ole Miss', scoreboardName: 'OLE MISS' },
+      'default'
+    ),
+    'Mississippi'
+  );
+  assert.equal(
+    getTeamDisplayLabel(
+      { displayName: 'Mississippi', shortDisplayName: 'Ole Miss', scoreboardName: 'OLE MISS' },
+      'short'
+    ),
+    'Ole Miss'
+  );
+  assert.equal(
+    getTeamDisplayLabel(
+      { displayName: 'Mississippi', shortDisplayName: 'Ole Miss', scoreboardName: 'OLE MISS' },
+      'scoreboard'
+    ),
+    'OLE MISS'
+  );
 });
 test('conference championship row without "game" keyword still maps to conference slot', () => {
   const classified = classifyScheduleRow(

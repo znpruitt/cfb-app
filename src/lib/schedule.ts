@@ -1,4 +1,8 @@
-import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
+import {
+  createTeamIdentityResolver,
+  type TeamCatalogItem,
+  type TeamDisplayInfo,
+} from './teamIdentity.ts';
 import type { AliasMap } from './teamNames.ts';
 import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
 import { classifyScheduleRow } from './postseason-classify.ts';
@@ -29,6 +33,7 @@ export type ParticipantSlot =
       kind: 'team';
       teamId: string;
       displayName: string;
+      labels?: TeamDisplayInfo;
       canonicalName: string;
       rawName: string;
     }
@@ -539,6 +544,8 @@ export function buildScheduleFromApi(params: {
 
     const homeConf = item.homeConference ?? '';
     const awayConf = item.awayConference ?? '';
+    const homeIdentity = resolver.getTeamIdentity(canHome);
+    const awayIdentity = resolver.getTeamIdentity(canAway);
 
     apiRegularGames.push({
       key,
@@ -570,6 +577,13 @@ export function buildScheduleFromApi(params: {
           kind: 'team',
           teamId: homeResolved.identityKey ?? canHome,
           displayName: canHome,
+          labels: homeIdentity
+            ? {
+                displayName: homeIdentity.displayName,
+                shortDisplayName: homeIdentity.shortDisplayName,
+                scoreboardName: homeIdentity.scoreboardName,
+              }
+            : undefined,
           canonicalName: canHome,
           rawName: item.homeTeam,
         },
@@ -577,6 +591,13 @@ export function buildScheduleFromApi(params: {
           kind: 'team',
           teamId: awayResolved.identityKey ?? canAway,
           displayName: canAway,
+          labels: awayIdentity
+            ? {
+                displayName: awayIdentity.displayName,
+                shortDisplayName: awayIdentity.shortDisplayName,
+                scoreboardName: awayIdentity.scoreboardName,
+              }
+            : undefined,
           canonicalName: canAway,
           rawName: item.awayTeam,
         },

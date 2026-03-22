@@ -26,12 +26,18 @@ function requiredEnv(name: string): string {
 type CFBDTeam = {
   id: number;
   school: string; // "San José State"
+  displayName?: string | null;
+  shortDisplayName?: string | null;
+  abbreviation?: string | null;
   mascot?: string | null; // "Spartans"
   conference?: string | null; // "Mountain West"
 };
 
 type CatalogItem = {
   school: string;
+  displayName?: string | null;
+  shortDisplayName?: string | null;
+  abbreviation?: string | null;
   mascot: string | null;
   conference: string | null;
   alts: string[]; // lowercased, deduped aliases
@@ -188,6 +194,9 @@ async function main(): Promise<void> {
 
   let items: CatalogItem[] = rows.map((r) => ({
     school: r.school,
+    displayName: r.displayName ?? null,
+    shortDisplayName: r.shortDisplayName ?? null,
+    abbreviation: r.abbreviation ?? null,
     mascot: r.mascot ?? null,
     conference: r.conference ?? null,
     alts: buildDerivedAlts(r.school, r.mascot),

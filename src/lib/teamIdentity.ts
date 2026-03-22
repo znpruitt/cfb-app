@@ -11,6 +11,9 @@ import {
 
 export type TeamCatalogItem = {
   school: string;
+  displayName?: string | null;
+  shortDisplayName?: string | null;
+  abbreviation?: string | null;
   mascot?: string | null;
   level?: string | null;
   subdivision?: string | null;
@@ -23,12 +26,21 @@ export type TeamSubdivision = ConferenceSubdivision;
 export type TeamIdentity = {
   id: string;
   displayName: string;
+  shortDisplayName: string;
+  scoreboardName: string;
   subdivision: TeamSubdivision;
   conference?: string | null;
   isOwnable: boolean;
   owner?: string | null;
   aliases?: string[];
 };
+
+export type TeamDisplayContext = 'default' | 'short' | 'scoreboard';
+
+export type TeamDisplayInfo = Pick<
+  TeamIdentity,
+  'displayName' | 'shortDisplayName' | 'scoreboardName'
+>;
 
 export type ResolutionSource = 'invalid_label' | 'canonical' | 'alias' | 'unresolved';
 export type ResolutionStatus = 'resolved' | 'unresolved';
@@ -48,6 +60,7 @@ export type TeamResolution = {
 
 export type TeamIdentityResolver = {
   resolveName: (raw: string) => TeamResolution;
+  getTeamIdentity: (raw: string) => TeamIdentity | null;
   buildPairKey: (a: string, b: string) => string;
   buildGameKey: (params: { week: number; home: string; away: string; neutral: boolean }) => string;
   variantsForName: (raw: string) => string[];
@@ -66,6 +79,74 @@ function toSubdivision(level?: string | null): TeamSubdivision {
 
 const REGISTRY_CACHE = new Map<string, Map<string, TeamIdentity>>();
 
+const TEAM_DISPLAY_OVERRIDES: Record<string, Partial<TeamDisplayInfo>> = {
+  mississippi: {
+    displayName: 'Mississippi',
+    shortDisplayName: 'Ole Miss',
+    scoreboardName: 'OLE MISS',
+  },
+  'mississippi-state': {
+    scoreboardName: 'MSST',
+  },
+  miami: {
+    scoreboardName: 'MIAMI',
+  },
+  miamioh: {
+    shortDisplayName: 'Miami (OH)',
+    scoreboardName: 'M-OH',
+  },
+  louisiana: {
+    shortDisplayName: 'Louisiana',
+    scoreboardName: 'LOU',
+  },
+};
+
+function pickDisplayLabel(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function buildTeamDisplayInfo(team: TeamCatalogItem, fallbackName: string): TeamDisplayInfo {
+  const override = TEAM_DISPLAY_OVERRIDES[normalizeTeamName(fallbackName)] ?? {};
+  const displayName =
+    pickDisplayLabel(override.displayName, team.displayName, team.school, fallbackName) ??
+    fallbackName;
+  const shortDisplayName =
+    pickDisplayLabel(
+      override.shortDisplayName,
+      team.shortDisplayName,
+      team.abbreviation,
+      displayName
+    ) ?? displayName;
+  const scoreboardName =
+    pickDisplayLabel(
+      override.scoreboardName,
+      team.shortDisplayName,
+      team.abbreviation,
+      displayName
+    ) ?? displayName;
+
+  return {
+    displayName,
+    shortDisplayName,
+    scoreboardName,
+  };
+}
+
+export function getTeamDisplayLabel(
+  team: TeamDisplayInfo | null | undefined,
+  context: TeamDisplayContext = 'default'
+): string {
+  if (!team) return '';
+  if (context === 'scoreboard')
+    return team.scoreboardName || team.shortDisplayName || team.displayName;
+  if (context === 'short') return team.shortDisplayName || team.displayName;
+  return team.displayName;
+}
+
 function buildCanonicalRegistry(params: {
   teams: TeamCatalogItem[];
   aliasMap: AliasMap;
@@ -80,6 +161,7 @@ function buildCanonicalRegistry(params: {
     if (!displayName) continue;
     const id = normalizeTeamName(displayName);
     if (!id) continue;
+    const teamDisplay = buildTeamDisplayInfo(team, displayName);
 
     const subdivisionFromLevel = toSubdivision(team.level ?? team.subdivision);
     const subdivision =
@@ -89,7 +171,7 @@ function buildCanonicalRegistry(params: {
     const owner = ownersByTeamId?.get(id) ?? null;
     registry.set(id, {
       id,
-      displayName,
+      ...teamDisplay,
       subdivision,
       conference: team.conference ?? null,
       isOwnable: subdivision === 'FBS',
@@ -103,12 +185,12 @@ function buildCanonicalRegistry(params: {
       if (!registry.has(aliasId)) {
         registry.set(aliasId, {
           id: aliasId,
-          displayName,
+          ...teamDisplay,
           subdivision,
           conference: team.conference ?? null,
           isOwnable: subdivision === 'FBS',
           owner,
-          aliases: [displayName],
+          aliases: [teamDisplay.displayName],
         });
       }
     }
@@ -124,6 +206,8 @@ function buildCanonicalRegistry(params: {
       ({
         id: canonicalId,
         displayName: target,
+        shortDisplayName: target,
+        scoreboardName: target,
         subdivision: 'OTHER' as TeamSubdivision,
         conference: null,
         isOwnable: false,
@@ -148,6 +232,8 @@ function buildCanonicalRegistry(params: {
     registry.set(id, {
       id,
       displayName: name,
+      shortDisplayName: name,
+      scoreboardName: name,
       subdivision,
       conference: null,
       isOwnable: false,
@@ -169,6 +255,9 @@ export function createTeamIdentityResolver(params: {
   const cacheKey = JSON.stringify({
     teams: teams.map((t) => [
       t.school,
+      t.displayName,
+      t.shortDisplayName,
+      t.abbreviation,
       t.level,
       t.subdivision,
       t.conference,
@@ -250,6 +339,11 @@ export function createTeamIdentityResolver(params: {
 
   return {
     resolveName,
+    getTeamIdentity: (raw) => {
+      const resolved = resolveName(raw);
+      if (!resolved.identityKey) return null;
+      return registry.get(resolved.identityKey) ?? null;
+    },
     buildPairKey,
     buildGameKey: ({ week, home, away, neutral }) => {
       const homeKey = resolveName(home).identityKey ?? normalizeTeamName(home);

@@ -266,6 +266,11 @@ test('score block renders stacked scoreboard rows with rankings and final status
               kind: 'team',
               teamId: 'mississippi',
               displayName: 'Mississippi',
+              labels: {
+                displayName: 'Mississippi',
+                shortDisplayName: 'Ole Miss',
+                scoreboardName: 'OLE MISS',
+              },
               canonicalName: 'Mississippi',
               rawName: 'Ole Miss',
             },
@@ -273,6 +278,11 @@ test('score block renders stacked scoreboard rows with rankings and final status
               kind: 'team',
               teamId: 'mississippi-state',
               displayName: 'Mississippi State',
+              labels: {
+                displayName: 'Mississippi State',
+                shortDisplayName: 'Mississippi State',
+                scoreboardName: 'MSST',
+              },
               canonicalName: 'Mississippi State',
               rawName: 'Mississippi State',
             },
@@ -301,7 +311,8 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /FINAL/);
   assert.match(html, /data-scoreboard-row="away"/);
   assert.match(html, /data-scoreboard-row="home"/);
-  assert.match(html, /#7 Ole Miss/);
+  assert.match(html, /#7 OLE MISS/);
+  assert.match(html, /MSST/);
   assert.match(html, /data-scoreboard-score="away">38<\/span>/);
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
   assert.match(html, /border border-gray-200\/80 font-semibold text-gray-950/);
