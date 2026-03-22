@@ -61,3 +61,76 @@ test('classifyScheduleRow keeps conference championship metadata in regular-week
 
   assert.deepEqual(classified, { kind: 'regular_game' });
 });
+
+test('classifyScheduleRow preserves venue-only bowl markers for object venues', () => {
+  const classified = classifyScheduleRow(
+    {
+      id: 'venue-object-bowl',
+      week: 17,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'TBD',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: '',
+      notes: '',
+      venue: { stadium: 'Rose Bowl', city: 'Pasadena', state: 'CA', country: 'USA' },
+    },
+    2025
+  );
+
+  assert.equal(classified.kind, 'postseason_placeholder');
+  if (classified.kind === 'postseason_placeholder') {
+    assert.equal(classified.stage, 'bowl');
+    assert.equal(classified.eventKey, 'rose-bowl');
+  }
+});
+
+test('classifyScheduleRow still recognizes venue-only bowl markers for string and location-only venues', () => {
+  const stringVenue = classifyScheduleRow(
+    {
+      id: 'venue-string-bowl',
+      week: 17,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'TBD',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: '',
+      notes: '',
+      venue: 'Rose Bowl',
+    },
+    2025
+  );
+
+  const locationOnlyVenue = classifyScheduleRow(
+    {
+      id: 'venue-location-only',
+      week: 17,
+      startDate: null,
+      neutralSite: true,
+      conferenceGame: false,
+      homeTeam: 'Rose Bowl',
+      awayTeam: 'TBD',
+      homeConference: '',
+      awayConference: '',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      label: '',
+      notes: '',
+      venue: { stadium: null, city: 'Pasadena', state: 'CA', country: 'USA' },
+    },
+    2025
+  );
+
+  assert.equal(stringVenue.kind, 'postseason_placeholder');
+  assert.equal(locationOnlyVenue.kind, 'postseason_placeholder');
+});

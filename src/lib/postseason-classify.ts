@@ -4,6 +4,7 @@ import {
   matchConferenceChampionshipSlotByText,
 } from './conferenceChampionships.ts';
 import type { ScheduleWireItem, GameStage } from './schedule.ts';
+import { comparableVenueText } from './venue.ts';
 
 type RowClassification =
   | { kind: 'regular_game' }
@@ -81,7 +82,13 @@ function slugify(value: string): string {
 }
 
 function normalizedText(row: ScheduleWireItem): string {
-  return [row.homeTeam, row.awayTeam, row.label ?? '', row.notes ?? '', row.venue ?? '']
+  return [
+    row.homeTeam,
+    row.awayTeam,
+    row.label ?? '',
+    row.notes ?? '',
+    comparableVenueText(row.venue),
+  ]
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -110,14 +117,14 @@ function hasChampionshipMarker(text: string): boolean {
   return /\bchampionship\b/i.test(text);
 }
 
-function venueText(value: ScheduleWireItem['venue']): string {
-  if (!value) return '';
-  if (typeof value === 'string') return value;
-  return value.stadium ?? '';
-}
-
 function extractBowlName(row: ScheduleWireItem): string | null {
-  const candidates = [row.label, row.notes, venueText(row.venue), row.homeTeam, row.awayTeam]
+  const candidates = [
+    row.label,
+    row.notes,
+    comparableVenueText(row.venue),
+    row.homeTeam,
+    row.awayTeam,
+  ]
     .map((value) => (value ?? '').trim())
     .filter(Boolean);
 

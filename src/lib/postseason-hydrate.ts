@@ -1,10 +1,5 @@
 import type { AppGame, ParticipantSlot } from './schedule.ts';
-
-function venueText(value: AppGame['venue']): string {
-  if (!value) return '';
-  if (typeof value === 'string') return value;
-  return value.stadium ?? '';
-}
+import { comparableVenueText } from './venue.ts';
 
 export type HydrationDiagnostic = {
   eventId: string;
@@ -55,7 +50,7 @@ function mergeGame(base: AppGame, incoming: AppGame): { merged: AppGame; fieldsU
     fieldsUpdated.push('date');
   }
 
-  if ((!merged.venue || venueText(merged.venue) === '') && incoming.venue) {
+  if ((!merged.venue || comparableVenueText(merged.venue) === '') && incoming.venue) {
     merged = { ...merged, venue: incoming.venue };
     fieldsUpdated.push('venue');
   }
@@ -113,8 +108,8 @@ function scoreSupportSignals(
   }
 
   if (
-    normalized(venueText(base.venue)) &&
-    normalized(venueText(base.venue)) === normalized(venueText(incoming.venue))
+    normalized(comparableVenueText(base.venue)) &&
+    normalized(comparableVenueText(base.venue)) === normalized(comparableVenueText(incoming.venue))
   ) {
     score += 2;
     reasons.push('venue');
