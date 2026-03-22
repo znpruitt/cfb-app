@@ -110,10 +110,10 @@ function pickDisplayLabel(...values: Array<string | null | undefined>): string |
 }
 
 function buildTeamDisplayInfo(team: TeamCatalogItem, fallbackName: string): TeamDisplayInfo {
-  const override = TEAM_DISPLAY_OVERRIDES[normalizeTeamName(fallbackName)] ?? {};
+  const canonicalSchoolName = pickDisplayLabel(team.school, fallbackName) ?? fallbackName;
+  const override = TEAM_DISPLAY_OVERRIDES[normalizeTeamName(canonicalSchoolName)] ?? {};
   const displayName =
-    pickDisplayLabel(override.displayName, team.displayName, team.school, fallbackName) ??
-    fallbackName;
+    pickDisplayLabel(override.displayName, canonicalSchoolName) ?? canonicalSchoolName;
   const shortDisplayName =
     pickDisplayLabel(
       override.shortDisplayName,

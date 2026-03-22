@@ -80,6 +80,31 @@ test('display metadata prefers overrides over provider short-name fields', () =>
   assert.equal(team.scoreboardName, 'OLE MISS');
 });
 
+test('provider displayName does not change canonical identity keys', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [
+      {
+        school: 'Texas',
+        displayName: 'Texas Longhorns',
+        shortDisplayName: 'Texas',
+        abbreviation: 'TEX',
+        level: 'FBS',
+      },
+    ],
+  });
+
+  const resolved = resolver.resolveName('Texas');
+  const team = resolver.getTeamIdentity('Texas');
+
+  assert.equal(resolved.canonicalName, 'Texas');
+  assert.equal(resolved.identityKey, 'texas');
+  assert.ok(team);
+  assert.equal(team.displayName, 'Texas');
+  assert.equal(team.shortDisplayName, 'Texas');
+  assert.equal(team.scoreboardName, 'Texas');
+});
+
 test('display metadata falls back to provider abbreviation when short display is absent', () => {
   const resolver = createTeamIdentityResolver({
     aliasMap: {},
@@ -126,6 +151,63 @@ test('display helper selects labels by context', () => {
     ),
     'OLE MISS'
   );
+});
+
+test('schedule generation keeps team ids anchored to school names when provider displayName differs', () => {
+  const built = buildScheduleFromApi({
+    aliasMap: {},
+    teams: [
+      {
+        school: 'Texas',
+        displayName: 'Texas Longhorns',
+        shortDisplayName: 'Texas',
+        abbreviation: 'TEX',
+        level: 'FBS',
+      },
+      {
+        school: 'Oklahoma',
+        displayName: 'Oklahoma Sooners',
+        shortDisplayName: 'Oklahoma',
+        abbreviation: 'OU',
+        level: 'FBS',
+      },
+    ],
+    season: 2025,
+    scheduleItems: [
+      {
+        id: 'tx-ou',
+        week: 6,
+        startDate: '2025-10-11T16:00:00.000Z',
+        neutralSite: true,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Oklahoma',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+
+  const game = built.games[0];
+  assert.ok(game);
+  assert.equal(game.canHome, 'Texas');
+  assert.equal(game.canAway, 'Oklahoma');
+  assert.equal(game.participants.home.kind, 'team');
+  assert.equal(game.participants.away.kind, 'team');
+  if (game.participants.home.kind === 'team' && game.participants.away.kind === 'team') {
+    assert.equal(game.participants.home.teamId, 'texas');
+    assert.equal(game.participants.away.teamId, 'oklahoma');
+    assert.equal(game.participants.home.canonicalName, 'Texas');
+    assert.equal(game.participants.away.canonicalName, 'Oklahoma');
+    assert.deepEqual(game.participants.home.labels, {
+      displayName: 'Texas',
+      shortDisplayName: 'Texas',
+      scoreboardName: 'Texas',
+    });
+  }
+  assert.equal(game.key, '6-oklahoma-texas-N');
 });
 test('conference championship row without "game" keyword still maps to conference slot', () => {
   const classified = classifyScheduleRow(
