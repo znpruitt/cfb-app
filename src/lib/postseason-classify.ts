@@ -110,8 +110,14 @@ function hasChampionshipMarker(text: string): boolean {
   return /\bchampionship\b/i.test(text);
 }
 
+function venueText(value: ScheduleWireItem['venue']): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value.stadium ?? '';
+}
+
 function extractBowlName(row: ScheduleWireItem): string | null {
-  const candidates = [row.label, row.notes, row.venue, row.homeTeam, row.awayTeam]
+  const candidates = [row.label, row.notes, venueText(row.venue), row.homeTeam, row.awayTeam]
     .map((value) => (value ?? '').trim())
     .filter(Boolean);
 

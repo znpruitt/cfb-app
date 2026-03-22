@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { AppGame } from '../../lib/schedule';
+import type { VenueInfo } from '../../lib/schedule/cfbdSchedule';
 import GameWeekPanel from '../GameWeekPanel';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -27,7 +28,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     providerGameId: overrides.providerGameId ?? null,
     neutral: overrides.neutral ?? false,
     neutralDisplay: overrides.neutralDisplay ?? 'home_away',
-    venue: overrides.venue ?? null,
+    venue: (overrides.venue ?? null) as VenueInfo | string | null,
     isPlaceholder: overrides.isPlaceholder ?? false,
     participants: overrides.participants ?? {
       home: {
@@ -445,7 +446,6 @@ test('expanded scoreboard header preserves neutral-site wording from shared matc
     neutralDisplay: 'vs',
     stage: 'bowl',
   });
-  const expectedLabel = 'Texas vs Ohio State';
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[neutralGame]}
@@ -466,10 +466,8 @@ test('expanded scoreboard header preserves neutral-site wording from shared matc
     />
   );
 
-  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
-  assert.match(html, />Texas vs Ohio State<\/div>/);
-  assert.doesNotMatch(html, />Texas @ Ohio State<\/div>/);
-  assert.ok(html.includes(expectedLabel));
+  assert.equal((html.match(/Texas<\/span> vs <span>Ohio State/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /Texas<\/span> @ <span>Ohio State/);
 });
 
 test('moneyline-only odds still render in expanded scoreboard odds row', () => {
@@ -556,4 +554,87 @@ test('odds row stays hidden only when no displayable odds markets exist', () => 
   assert.doesNotMatch(html, /Spread:/);
   assert.doesNotMatch(html, /O\/U:/);
   assert.doesNotMatch(html, /No odds/);
+});
+
+test('expanded scoreboard venue includes city and state context when available', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'venue-context',
+          csvAway: 'TCU',
+          csvHome: 'Oklahoma State',
+          date: '2025-09-01T17:00:00.000Z',
+          venue: {
+            stadium: 'Boone Pickens Stadium',
+            city: 'Stillwater',
+            state: 'OK',
+            country: 'USA',
+          },
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Boone Pickens Stadium • Stillwater, OK/);
+});
+
+test('expanded scoreboard venue falls back to stadium-only label', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'venue-stadium-only',
+          csvAway: 'Navy',
+          csvHome: 'Notre Dame',
+          date: '2025-08-23T17:00:00.000Z',
+          venue: { stadium: 'Aviva Stadium', city: null, state: null, country: 'Ireland' },
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Aviva Stadium/);
+  assert.doesNotMatch(html, /Aviva Stadium •/);
+});
+
+test('expanded scoreboard removes inner duplicate matchup title and keeps summary label', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'duplicate-matchup',
+          csvAway: 'Texas',
+          csvHome: 'Ohio State',
+          date: '2025-09-01T17:00:00.000Z',
+          neutral: true,
+          neutralDisplay: 'vs',
+          stage: 'bowl',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.equal((html.match(/Texas<\/span> vs <span>Ohio State/g) ?? []).length, 1);
 });

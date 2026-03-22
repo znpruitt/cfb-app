@@ -1,5 +1,11 @@
 import type { AppGame, ParticipantSlot } from './schedule.ts';
 
+function venueText(value: AppGame['venue']): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value.stadium ?? '';
+}
+
 export type HydrationDiagnostic = {
   eventId: string;
   action: 'hydrated' | 'inserted' | 'template-preserved';
@@ -49,7 +55,7 @@ function mergeGame(base: AppGame, incoming: AppGame): { merged: AppGame; fieldsU
     fieldsUpdated.push('date');
   }
 
-  if ((!merged.venue || merged.venue === '') && incoming.venue) {
+  if ((!merged.venue || venueText(merged.venue) === '') && incoming.venue) {
     merged = { ...merged, venue: incoming.venue };
     fieldsUpdated.push('venue');
   }
@@ -106,7 +112,10 @@ function scoreSupportSignals(
     reasons.push('neutral');
   }
 
-  if (normalized(base.venue) && normalized(base.venue) === normalized(incoming.venue)) {
+  if (
+    normalized(venueText(base.venue)) &&
+    normalized(venueText(base.venue)) === normalized(venueText(incoming.venue))
+  ) {
     score += 2;
     reasons.push('venue');
   }

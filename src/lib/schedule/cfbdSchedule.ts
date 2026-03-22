@@ -10,6 +10,13 @@ type PostseasonSubtype = 'bowl' | 'playoff';
 type PlayoffRound = 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff';
 type NeutralSiteDisplay = 'vs' | 'home_away';
 
+export type VenueInfo = {
+  stadium: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+};
+
 export type CfbdScheduleGame = {
   id?: number | string;
   week?: number | string;
@@ -29,6 +36,12 @@ export type CfbdScheduleGame = {
   awayConference?: string | null;
   status?: string | null;
   venue?: string | null;
+  venue_city?: string | null;
+  venueCity?: string | null;
+  venue_state?: string | null;
+  venueState?: string | null;
+  venue_country?: string | null;
+  venueCountry?: string | null;
   notes?: string | null;
   name?: string | null;
   season_type?: SeasonType | string | null;
@@ -64,7 +77,7 @@ export type ScheduleItem = {
   homeConference: string;
   awayConference: string;
   status: string;
-  venue?: string | null;
+  venue?: VenueInfo | string | null;
   label?: string | null;
   notes?: string | null;
   seasonType?: SeasonType;
@@ -91,6 +104,18 @@ export type ScheduleMapResult =
 
 function normalizeString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function extractVenueInfo(game: CfbdScheduleGame): VenueInfo | string | null {
+  const stadium = normalizeString(game.venue) || null;
+  const city = normalizeString(game.venue_city ?? game.venueCity) || null;
+  const state = normalizeString(game.venue_state ?? game.venueState) || null;
+  const country = normalizeString(game.venue_country ?? game.venueCountry) || null;
+
+  if (!stadium && !city && !state && !country) return null;
+  if (!city && !state && !country) return stadium;
+
+  return { stadium, city, state, country };
 }
 
 function normalizeWeek(value: unknown): number | null {
@@ -423,7 +448,7 @@ export function mapCfbdScheduleGame(
       homeConference,
       awayConference,
       status: normalizeString(game.status) || 'scheduled',
-      venue: normalizeString(game.venue) || null,
+      venue: extractVenueInfo(game),
       label: normalizeString(game.name) || null,
       notes: normalizeString(game.notes) || null,
       seasonType,
