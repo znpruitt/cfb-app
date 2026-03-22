@@ -315,7 +315,7 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /MSST/);
   assert.match(html, /data-scoreboard-score="away">38<\/span>/);
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
-  assert.match(html, /border border-gray-200\/80 font-semibold text-gray-950/);
+  assert.match(html, /font-semibold text-gray-950[^"]*border-b border-gray-200\/60/);
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });
 
@@ -427,10 +427,133 @@ test('score block preserves disrupted terminal provider statuses instead of coll
     />
   );
 
-  assert.match(postponedHtml, /<div class="text-\[11px\][^"]*">Postponed<\/div>/);
-  assert.match(weatherHtml, /<div class="text-\[11px\][^"]*">Postponed - weather<\/div>/);
-  assert.match(canceledHtml, /<div class="text-\[11px\][^"]*">Canceled<\/div>/);
-  assert.doesNotMatch(postponedHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
-  assert.doesNotMatch(weatherHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
-  assert.doesNotMatch(canceledHtml, /<div class="text-\[11px\][^"]*">FINAL<\/div>/);
+  assert.match(postponedHtml, />Postponed<\/div>/);
+  assert.match(weatherHtml, />Postponed - weather<\/div>/);
+  assert.match(canceledHtml, />Canceled<\/div>/);
+  assert.doesNotMatch(postponedHtml, />FINAL<\/div>/);
+  assert.doesNotMatch(weatherHtml, />FINAL<\/div>/);
+  assert.doesNotMatch(canceledHtml, />FINAL<\/div>/);
+});
+
+test('expanded scoreboard header preserves neutral-site wording from shared matchup helper', () => {
+  const neutralGame = game({
+    key: 'neutral-expanded',
+    csvAway: 'Texas',
+    csvHome: 'Ohio State',
+    date: '2025-09-01T17:00:00.000Z',
+    neutral: true,
+    neutralDisplay: 'vs',
+    stage: 'bowl',
+  });
+  const expectedLabel = 'Texas vs Ohio State';
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[neutralGame]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'neutral-expanded': {
+          away: { team: 'Texas', score: 27 },
+          home: { team: 'Ohio State', score: 24 },
+          status: 'Final',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
+  assert.match(html, />Texas vs Ohio State<\/div>/);
+  assert.doesNotMatch(html, />Texas @ Ohio State<\/div>/);
+  assert.ok(html.includes(expectedLabel));
+});
+
+test('moneyline-only odds still render in expanded scoreboard odds row', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'moneyline-only',
+          csvAway: 'South Carolina',
+          csvHome: 'Clemson',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{
+        'moneyline-only': {
+          favorite: null,
+          spread: null,
+          homeSpread: null,
+          awaySpread: null,
+          spreadPriceHome: null,
+          spreadPriceAway: null,
+          total: null,
+          mlHome: -600,
+          mlAway: 425,
+          overPrice: null,
+          underPrice: null,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2025-09-01T12:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /ML: South Carolina \+425 • Clemson -600/);
+  assert.doesNotMatch(html, /No odds/);
+});
+
+test('odds row stays hidden only when no displayable odds markets exist', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'empty-odds',
+          csvAway: 'Notre Dame',
+          csvHome: 'Penn State',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{
+        'empty-odds': {
+          favorite: null,
+          spread: null,
+          homeSpread: null,
+          awaySpread: null,
+          spreadPriceHome: null,
+          spreadPriceAway: null,
+          total: null,
+          mlHome: null,
+          mlAway: null,
+          overPrice: null,
+          underPrice: null,
+          source: null,
+          bookmakerKey: null,
+          capturedAt: null,
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /ML:/);
+  assert.doesNotMatch(html, /Spread:/);
+  assert.doesNotMatch(html, /O\/U:/);
+  assert.doesNotMatch(html, /No odds/);
 });
