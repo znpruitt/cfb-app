@@ -253,3 +253,133 @@ test('overview uses postseason context when the active slate is postseason-drive
   assert.equal(snapshot.context.emphasis, 'upcoming');
   assert.deepEqual(snapshot.context.sectionOrder, ['highlights', 'standings', 'matrix', 'live']);
 });
+
+test('overview preserves completed selected-week results even when unrelated owned games are live elsewhere', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+    ['Notre Dame', 'Cory'],
+  ]);
+  const completedWeekGame = game({
+    key: 'completed-week',
+    csvAway: 'Texas',
+    csvHome: 'Oklahoma',
+    date: '2026-09-05T20:00:00.000Z',
+  });
+  const unrelatedLiveGame = game({
+    key: 'unrelated-live',
+    csvAway: 'Notre Dame',
+    csvHome: 'USC',
+    week: 9,
+    date: '2026-11-01T20:00:00.000Z',
+  });
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [completedWeekGame],
+    allGames: [completedWeekGame, unrelatedLiveGame],
+    rosterByTeam,
+    scoresByKey: {
+      'completed-week': {
+        status: 'Final',
+        away: { team: 'Texas', score: 31 },
+        home: { team: 'Oklahoma', score: 24 },
+        time: null,
+      },
+      'unrelated-live': {
+        status: 'In Progress',
+        away: { team: 'Notre Dame', score: 17 },
+        home: { team: 'USC', score: 10 },
+        time: null,
+      },
+    },
+    selectedWeekLabel: 'Week 2',
+  });
+
+  assert.equal(snapshot.context.emphasis, 'recent');
+  assert.deepEqual(
+    snapshot.keyMatchups.map((item) => item.bucket.game.key),
+    ['completed-week']
+  );
+  assert.deepEqual(
+    snapshot.liveItems.map((item) => item.bucket.game.key),
+    ['unrelated-live']
+  );
+});
+
+test('overview context stays upcoming when later active-slate games are truncated out of highlights', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+    ['Notre Dame', 'Cory'],
+    ['LSU', 'Alice'],
+    ['Georgia', 'Bob'],
+  ]);
+  const earlyFinals = [
+    game({ key: 'final-1', csvAway: 'Texas', csvHome: 'Rice', date: '2026-09-05T16:00:00.000Z' }),
+    game({
+      key: 'final-2',
+      csvAway: 'Oklahoma',
+      csvHome: 'Tulsa',
+      date: '2026-09-05T16:15:00.000Z',
+    }),
+    game({
+      key: 'final-3',
+      csvAway: 'Notre Dame',
+      csvHome: 'Navy',
+      date: '2026-09-05T16:30:00.000Z',
+    }),
+    game({ key: 'final-4', csvAway: 'LSU', csvHome: 'ULM', date: '2026-09-05T16:45:00.000Z' }),
+  ];
+  const lateUpcoming = game({
+    key: 'upcoming-5',
+    csvAway: 'Georgia',
+    csvHome: 'Florida',
+    date: '2026-09-05T22:00:00.000Z',
+  });
+
+  const scoresByKey = {
+    'final-1': {
+      status: 'Final',
+      away: { team: 'Texas', score: 31 },
+      home: { team: 'Rice', score: 14 },
+      time: null,
+    },
+    'final-2': {
+      status: 'Final',
+      away: { team: 'Oklahoma', score: 27 },
+      home: { team: 'Tulsa', score: 17 },
+      time: null,
+    },
+    'final-3': {
+      status: 'Final',
+      away: { team: 'Notre Dame', score: 24 },
+      home: { team: 'Navy', score: 20 },
+      time: null,
+    },
+    'final-4': {
+      status: 'Final',
+      away: { team: 'LSU', score: 35 },
+      home: { team: 'ULM', score: 7 },
+      time: null,
+    },
+  };
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [...earlyFinals, lateUpcoming],
+    allGames: [...earlyFinals, lateUpcoming],
+    rosterByTeam,
+    scoresByKey,
+    selectedWeekLabel: 'Week 5',
+  });
+
+  assert.equal(snapshot.context.emphasis, 'upcoming');
+  assert.equal(snapshot.context.highlightsTitle, 'What matters next');
+  assert.deepEqual(
+    snapshot.keyMatchups.map((item) => item.bucket.game.key),
+    ['upcoming-5']
+  );
+});

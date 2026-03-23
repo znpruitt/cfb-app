@@ -90,39 +90,50 @@ function isFinalScore(score?: ScorePack): boolean {
   return gameStateFromScore(score) === 'final';
 }
 
+type ActiveSlateStatus = {
+  hasLive: boolean;
+  hasUpcoming: boolean;
+  hasFinal: boolean;
+};
+
+function deriveActiveSlateStatus(items: OverviewGameItem[]): ActiveSlateStatus {
+  return items.reduce<ActiveSlateStatus>(
+    (status, item) => ({
+      hasLive: status.hasLive || isLiveScore(item.score),
+      hasUpcoming: status.hasUpcoming || isUpcomingScore(item.score),
+      hasFinal: status.hasFinal || isFinalScore(item.score),
+    }),
+    { hasLive: false, hasUpcoming: false, hasFinal: false }
+  );
+}
+
 function deriveOverviewContext(params: {
   weekGames: AppGame[];
-  liveItems: OverviewGameItem[];
-  keyMatchups: OverviewGameItem[];
+  activeSlateStatus: ActiveSlateStatus;
   selectedWeekLabel?: string;
 }): OverviewContext {
-  const { weekGames, liveItems, keyMatchups, selectedWeekLabel } = params;
+  const { weekGames, activeSlateStatus, selectedWeekLabel } = params;
   const scopeLabel = weekGames.some((game) => isTruePostseasonGame(game))
     ? 'Postseason focus'
     : 'Current league focus';
   const scopeDetail = selectedWeekLabel ?? null;
 
-  const liveCount = liveItems.length;
-  const upcomingCount = keyMatchups.filter((item) => isUpcomingScore(item.score)).length;
-  const finalCount = keyMatchups.filter((item) => isFinalScore(item.score)).length;
-
-  if (liveCount > 0) {
+  if (activeSlateStatus.hasLive) {
     return {
       scopeLabel,
       scopeDetail,
       emphasis: 'live',
       highlightsTitle: 'Up next for the league',
-      highlightsDescription:
-        upcomingCount > 0
-          ? 'Live games lead the page, with the next owned-team matchups queued right behind them.'
-          : 'Live action is leading the page while completed and pending league games stay one step back.',
+      highlightsDescription: activeSlateStatus.hasUpcoming
+        ? 'Live games lead the page, with the next owned-team matchups queued right behind them.'
+        : 'Live action is leading the page while completed and pending league games stay one step back.',
       liveDescription:
         'Track league-relevant live action across all teams and head-to-head battles.',
       sectionOrder: ['live', 'highlights', 'standings', 'matrix'],
     };
   }
 
-  if (upcomingCount > 0) {
+  if (activeSlateStatus.hasUpcoming) {
     return {
       scopeLabel,
       scopeDetail,
@@ -135,7 +146,7 @@ function deriveOverviewContext(params: {
     };
   }
 
-  if (finalCount > 0) {
+  if (activeSlateStatus.hasFinal) {
     return {
       scopeLabel,
       scopeDetail,
@@ -252,24 +263,21 @@ export function deriveOverviewSnapshot(params: {
     .sort(compareOverviewItems)
     .slice(0, options?.liveItemsLimit ?? DEFAULT_LIVE_ITEM_COUNT);
 
-  const hasUpcomingWeekGames = [...weekSections.ownerMatchups, ...weekSections.secondaryGames].some(
-    (bucket) => isUpcomingScore(scoresByKey[bucket.game.key])
-  );
-  const includeFinalWeekGames =
-    standingsCoverage.state !== 'complete' || (liveItems.length === 0 && !hasUpcomingWeekGames);
-  const keyMatchups = [...weekSections.ownerMatchups, ...weekSections.secondaryGames]
-    .filter((bucket) => {
-      const score = scoresByKey[bucket.game.key];
-      return includeFinalWeekGames ? true : isKeyMatchupState(score);
-    })
+  const activeSlateItems = [...weekSections.ownerMatchups, ...weekSections.secondaryGames]
     .map((bucket) => toOverviewItem(bucket, scoresByKey[bucket.game.key]))
-    .sort(compareOverviewItems)
+    .sort(compareOverviewItems);
+
+  const activeSlateStatus = deriveActiveSlateStatus(activeSlateItems);
+  const includeFinalWeekGames =
+    standingsCoverage.state !== 'complete' ||
+    (!activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming);
+  const keyMatchups = activeSlateItems
+    .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
     .slice(0, options?.keyMatchupsLimit ?? DEFAULT_KEY_MATCHUP_COUNT);
 
   const context = deriveOverviewContext({
     weekGames,
-    liveItems,
-    keyMatchups,
+    activeSlateStatus,
     selectedWeekLabel,
   });
 
