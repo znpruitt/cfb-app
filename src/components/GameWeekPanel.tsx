@@ -283,30 +283,14 @@ export default function GameWeekPanel({
                               {g.label}
                             </div>
                           )}
-                          <div className="flex items-center gap-2">
-                            <div className="flex min-w-0 flex-1 items-center gap-2">
-                              <span
-                                className="h-2 w-2 shrink-0 rounded-full transition-transform duration-150 group-hover:scale-110"
-                                style={{ backgroundColor: awayColorTreatment.subtleAccent }}
-                                aria-hidden="true"
-                                data-collapsed-team-accent="away"
-                              />
-                              <div
-                                className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : 'text-gray-900 dark:text-zinc-100'}`}
-                              >
-                                {renderMatchupLabel(
-                                  g,
-                                  rankingsByTeamId,
-                                  useNeutralSemantics ? 'vs' : '@'
-                                )}
-                              </div>
-                              <span
-                                className="h-2 w-2 shrink-0 rounded-full transition-transform duration-150 group-hover:scale-110"
-                                style={{ backgroundColor: homeColorTreatment.subtleAccent }}
-                                aria-hidden="true"
-                                data-collapsed-team-accent="home"
-                              />
-                            </div>
+                          <div
+                            className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : 'text-gray-900 dark:text-zinc-100'}`}
+                          >
+                            {renderMatchupLabel(
+                              g,
+                              rankingsByTeamId,
+                              useNeutralSemantics ? 'vs' : '@'
+                            )}
                           </div>
                         </div>
                         <div
