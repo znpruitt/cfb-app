@@ -76,18 +76,47 @@ function resolveSummaryStateLabel(
   return summaryStateLabel(score) ?? scheduleStateLabel(game.status, isPlaceholder) ?? 'Scheduled';
 }
 
-function summaryChipClasses(summaryState: string, isPlaceholder: boolean): string {
-  const normalized = summaryState.trim().toUpperCase();
+function isDisruptedSummaryState(summaryState: string): boolean {
+  return /\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(summaryState);
+}
 
-  if (normalized === 'FINAL') {
+function summaryStateChipBucket(
+  summaryState: string
+): 'final' | 'live' | 'disrupted' | 'postseason' | 'scheduled' {
+  const trimmed = summaryState.trim();
+  const normalized = trimmed.toUpperCase();
+
+  if (normalized === 'FINAL') return 'final';
+  if (isDisruptedSummaryState(trimmed)) return 'disrupted';
+
+  const inferredState = gameStateFromScore({
+    status: trimmed,
+    away: { team: '', score: null },
+    home: { team: '', score: null },
+    time: null,
+  });
+  if (inferredState === 'inprogress') return 'live';
+
+  if (normalized === 'MATCHUP SET') return 'postseason';
+  return 'scheduled';
+}
+
+function summaryChipClasses(summaryState: string, isPlaceholder: boolean): string {
+  const bucket = summaryStateChipBucket(summaryState);
+
+  if (bucket === 'final') {
     return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200';
   }
 
-  if (normalized === 'IN PROGRESS' || /^Q\d\b/.test(normalized) || normalized.includes('HALF')) {
+  if (bucket === 'live') {
     return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200';
   }
 
-  if (normalized === 'MATCHUP SET' || isPlaceholder) {
+  if (bucket === 'disrupted') {
+    return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-200';
+  }
+
+  if (bucket === 'postseason' || isPlaceholder) {
     return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
   }
 
