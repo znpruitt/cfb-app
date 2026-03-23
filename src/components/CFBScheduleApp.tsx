@@ -38,6 +38,7 @@ import {
   type ScheduleFetchMeta,
 } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
+import type { TeamCatalogItem } from '../lib/teamIdentity';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
@@ -104,6 +105,7 @@ export default function CFBScheduleApp({
   const [games, setGames] = useState<AppGame[]>(initialGames);
   const [byes, setByes] = useState<Record<number, string[]>>({});
   const [conferences, setConferences] = useState<string[]>(['ALL']);
+  const [teamCatalog, setTeamCatalog] = useState<TeamCatalogItem[]>([]);
   const [roster, setRoster] = useState<OwnerRow[]>(initialRoster);
   const [selectedConference, setSelectedConference] = useState<string>('ALL');
   const [teamFilter, setTeamFilter] = useState<string>('');
@@ -175,6 +177,7 @@ export default function CFBScheduleApp({
     setGames([]);
     setByes({});
     setConferences(['ALL']);
+    setTeamCatalog([]);
     setSelectedWeek(null);
     setSelectedTab(null);
     setSelectedConference('ALL');
@@ -221,6 +224,7 @@ export default function CFBScheduleApp({
           fetchConferencesCatalog({ bypassCache: options?.bypassCache }),
         ]);
         const scheduleItems = schedulePayload.items;
+        setTeamCatalog(teams);
         setScheduleMeta(schedulePayload.meta ?? {});
         setLastScheduleRefreshAt(new Date().toLocaleString());
         if (IS_DEBUG) {
@@ -416,6 +420,15 @@ export default function CFBScheduleApp({
     for (const r of roster) m.set(r.team, r.owner);
     return m;
   }, [roster]);
+
+  const teamCatalogById = useMemo(() => {
+    const next = new Map<string, TeamCatalogItem>();
+    for (const team of teamCatalog) {
+      const id = team.id?.trim();
+      if (id) next.set(id, team);
+    }
+    return next;
+  }, [teamCatalog]);
 
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
@@ -1357,6 +1370,7 @@ export default function CFBScheduleApp({
                   isDebug={IS_DEBUG}
                   onSavePostseasonOverride={savePostseasonOverride}
                   displayTimeZone={presentationTimeZone}
+                  teamCatalogById={teamCatalogById}
                   rankingsByTeamId={rankingsByTeamId}
                 />
               )}

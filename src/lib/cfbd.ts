@@ -33,3 +33,7 @@ export function buildCfbdRankingsUrl(params: {
   if (params.seasonType) url.searchParams.set('seasonType', params.seasonType);
   return url;
 }
+
+export function buildCfbdTeamsUrl(): URL {
+  return new URL('https://api.collegefootballdata.com/teams/fbs');
+}

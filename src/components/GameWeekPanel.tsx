@@ -11,7 +11,8 @@ import {
 import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
-import type { TeamDisplayInfo } from '../lib/teamIdentity';
+import { getSafeScoreboardTeamColorById } from '../lib/teamColors';
+import type { TeamCatalogItem, TeamDisplayInfo } from '../lib/teamIdentity';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import GameScoreboard from './GameScoreboard';
 import RankedTeamName from './RankedTeamName';
@@ -120,6 +121,7 @@ type GameWeekPanelProps = {
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  teamCatalogById?: Map<string, TeamCatalogItem>;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   hideByes?: boolean;
   displayTimeZone?: string;
@@ -132,6 +134,7 @@ export default function GameWeekPanel({
   scoresByKey,
   rosterByTeam,
   rankingsByTeamId = new Map(),
+  teamCatalogById = new Map(),
   onSavePostseasonOverride,
   hideByes = false,
   displayTimeZone = getPresentationTimeZone(),
@@ -255,6 +258,14 @@ export default function GameWeekPanel({
                         homeConference={g.homeConf}
                         awayOwner={awayOwner}
                         homeOwner={homeOwner}
+                        awayColorTreatment={getSafeScoreboardTeamColorById(
+                          awayTeamId,
+                          teamCatalogById
+                        )}
+                        homeColorTreatment={getSafeScoreboardTeamColorById(
+                          homeTeamId,
+                          teamCatalogById
+                        )}
                         venue={g.venue}
                         odds={odds}
                         isPlaceholder={isPlaceholder}

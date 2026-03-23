@@ -1,6 +1,7 @@
 import React from 'react';
 
 import AdminUsagePanel from './AdminUsagePanel';
+import AdminTeamDatabasePanel from './AdminTeamDatabasePanel';
 import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
 import IssuesPanel from './IssuesPanel';
 import AliasEditorPanel from './AliasEditorPanel';
@@ -151,6 +152,7 @@ export default function AdminDebugSurface({
       </p>
 
       <AdminUsagePanel />
+      <AdminTeamDatabasePanel />
       <ScoreAttachmentDebugPanel season={season} onStageAlias={onStageAlias} />
 
       <IssuesPanel
