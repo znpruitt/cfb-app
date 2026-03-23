@@ -45,11 +45,15 @@ test('very dark team colors are lifted into a readable dark-theme-safe primary a
   assert.ok(contrastAgainstDarkSurface(result.winnerScoreColor) >= 3);
   assert.equal(
     result.rowAccentColor,
-    `rgba(${parseInt(result.baseColor.slice(1, 3), 16)}, ${parseInt(result.baseColor.slice(3, 5), 16)}, ${parseInt(result.baseColor.slice(5, 7), 16)}, 0.45)`
+    `rgba(${parseInt(result.baseColor.slice(1, 3), 16)}, ${parseInt(result.baseColor.slice(3, 5), 16)}, ${parseInt(result.baseColor.slice(5, 7), 16)}, 0.52)`
   );
   assert.equal(
     result.winnerAccentColor,
     `rgba(${parseInt(result.baseColor.slice(1, 3), 16)}, ${parseInt(result.baseColor.slice(3, 5), 16)}, ${parseInt(result.baseColor.slice(5, 7), 16)}, 0.92)`
+  );
+  assert.equal(
+    result.borderAccent,
+    `rgba(${parseInt(result.baseColor.slice(1, 3), 16)}, ${parseInt(result.baseColor.slice(3, 5), 16)}, ${parseInt(result.baseColor.slice(5, 7), 16)}, 0.38)`
   );
 });
 
