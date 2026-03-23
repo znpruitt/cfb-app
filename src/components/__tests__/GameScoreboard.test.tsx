@@ -37,17 +37,38 @@ function renderScoreboard(
   );
 }
 
-test('event name renders as a dedicated row when notes are display-worthy', () => {
-  const html = renderScoreboard({ notes: 'Big 12 Championship Presented by Dr Pepper' });
+test('event name prefers canonical label over provider notes', () => {
+  const html = renderScoreboard({ label: 'Rose Bowl', notes: 'Some raw provider string' });
 
   assert.match(html, /Texas Tech @ Baylor/);
+  assert.match(html, /Rose Bowl/);
+  assert.doesNotMatch(html, /Some raw provider string/);
+});
+
+test('event name falls back to notes when label is missing', () => {
+  const html = renderScoreboard({ label: '', notes: 'Big 12 Championship Presented by Dr Pepper' });
+
   assert.match(html, /Big 12 Championship Presented by Dr Pepper/);
   assert.doesNotMatch(html, /rounded-full/);
 });
 
-test('event name is omitted when notes are empty or not display-worthy', () => {
-  assert.doesNotMatch(renderScoreboard({ notes: '' }), /Big 12 Championship/);
-  assert.doesNotMatch(renderScoreboard({ notes: 'Arlington, TX' }), /Arlington, TX/);
+test('event name falls back when label is rejected and hides when both sources are rejected', () => {
+  assert.match(renderScoreboard({ label: 'Texas Tech @ Baylor', notes: 'Rose Bowl' }), /Rose Bowl/);
+  assert.doesNotMatch(
+    renderScoreboard({ label: '', notes: 'Texas Tech @ Baylor' }),
+    /data-scoreboard-event/
+  );
+  assert.doesNotMatch(renderScoreboard({ label: 'Arlington, TX' }), /data-scoreboard-event/);
+});
+
+test('postseason override label wins over unchanged notes', () => {
+  const html = renderScoreboard({
+    label: 'College Football Playoff Semifinal',
+    notes: 'Cotton Bowl Classic raw',
+  });
+
+  assert.match(html, /College Football Playoff Semifinal/);
+  assert.doesNotMatch(html, /Cotton Bowl Classic raw/);
 });
 
 test('conference and owner render under the correct team rows', () => {
@@ -70,7 +91,7 @@ test('conference and owner render under the correct team rows', () => {
 
 test('metadata row only contains kickoff and neutral-site indicator', () => {
   const html = renderScoreboard({
-    notes: 'Vrbo Fiesta Bowl',
+    label: 'Vrbo Fiesta Bowl',
     awayConference: 'Big 12',
     awayOwner: 'Pruitt',
     homeConference: 'SEC',
@@ -89,6 +110,7 @@ test('metadata row only contains kickoff and neutral-site indicator', () => {
 
 test('team rows handle missing notes owner and conference without extra placeholders', () => {
   const html = renderScoreboard({
+    label: '',
     notes: '',
     awayConference: null,
     awayOwner: undefined,

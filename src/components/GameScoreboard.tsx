@@ -31,6 +31,7 @@ type GameScoreboardProps = {
   awayRanking?: TeamRankingEnrichment;
   homeRanking?: TeamRankingEnrichment;
   matchupLabel: string;
+  label?: string | null;
   notes?: string | null;
   kickoffLabel: string;
   homeConference?: string | null;
@@ -146,6 +147,7 @@ export default function GameScoreboard({
   awayRanking,
   homeRanking,
   matchupLabel,
+  label,
   notes,
   kickoffLabel,
   homeConference,
@@ -176,7 +178,7 @@ export default function GameScoreboard({
     },
   ];
 
-  const eventName = deriveDisplayEventName(notes, matchupLabel);
+  const eventName = deriveDisplayEventName(label, notes, matchupLabel);
   const metadataItems = [kickoffLabel, neutralSite ? 'Neutral Site' : null].filter(
     Boolean
   ) as string[];
@@ -196,7 +198,12 @@ export default function GameScoreboard({
             {matchupLabel}
           </div>
           {eventName && (
-            <div className="text-xs leading-snug text-gray-500 dark:text-zinc-400">{eventName}</div>
+            <div
+              className="text-xs leading-snug text-gray-500 dark:text-zinc-400"
+              data-scoreboard-event
+            >
+              {eventName}
+            </div>
           )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500 dark:text-zinc-500">
             {metadataItems.map((item) => (
