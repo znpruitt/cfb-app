@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { gameStateFromScore } from '../lib/gameUi';
+import { deriveDisplayEventName } from '../lib/gameEventName';
 import type { CombinedOdds } from '../lib/odds';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
@@ -12,6 +13,8 @@ type TeamRow = {
   label: TeamDisplayInfo;
   score: number | null;
   ranking?: TeamRankingEnrichment;
+  conference?: string | null;
+  owner?: string;
 };
 
 type VenueDetails = {
@@ -27,6 +30,9 @@ type GameScoreboardProps = {
   homeTeam: TeamDisplayInfo;
   awayRanking?: TeamRankingEnrichment;
   homeRanking?: TeamRankingEnrichment;
+  matchupLabel: string;
+  label?: string | null;
+  notes?: string | null;
   kickoffLabel: string;
   homeConference?: string | null;
   awayConference?: string | null;
@@ -58,7 +64,7 @@ function scoreboardRowClasses(teamScore: number | null, opponentScore: number | 
   const isLeading = hasScores && teamScore > opponentScore;
 
   return [
-    'flex items-baseline justify-between gap-4 py-2 first:pt-0 last:pb-0',
+    'flex items-start justify-between gap-4 py-2 first:pt-0 last:pb-0',
     isLeading
       ? 'font-semibold text-gray-950 dark:text-zinc-50'
       : 'text-gray-800 dark:text-zinc-200',
@@ -129,12 +135,20 @@ function buildOddsSummary(params: {
   return segments.length ? segments.join(' • ') : null;
 }
 
+function buildTeamContext(conference?: string | null, owner?: string): string | null {
+  const parts = [conference?.trim(), owner?.trim()].filter(Boolean);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 export default function GameScoreboard({
   score,
   awayTeam,
   homeTeam,
   awayRanking,
   homeRanking,
+  matchupLabel,
+  label,
+  notes,
   kickoffLabel,
   homeConference,
   awayConference,
@@ -146,18 +160,28 @@ export default function GameScoreboard({
   isPlaceholder = false,
 }: GameScoreboardProps): React.ReactElement {
   const rows: TeamRow[] = [
-    { key: 'away', label: awayTeam, score: score?.away.score ?? null, ranking: awayRanking },
-    { key: 'home', label: homeTeam, score: score?.home.score ?? null, ranking: homeRanking },
+    {
+      key: 'away',
+      label: awayTeam,
+      score: score?.away.score ?? null,
+      ranking: awayRanking,
+      conference: awayConference,
+      owner: awayOwner,
+    },
+    {
+      key: 'home',
+      label: homeTeam,
+      score: score?.home.score ?? null,
+      ranking: homeRanking,
+      conference: homeConference,
+      owner: homeOwner,
+    },
   ];
 
-  const metadataPills = [
-    neutralSite ? 'Neutral Site' : null,
-    awayConference || null,
-    homeConference || null,
-    awayOwner ? `${awayOwner}` : null,
-    homeOwner ? `${homeOwner}` : null,
-  ].filter(Boolean) as string[];
-
+  const eventName = deriveDisplayEventName(label, notes, matchupLabel);
+  const metadataItems = [kickoffLabel, neutralSite ? 'Neutral Site' : null].filter(
+    Boolean
+  ) as string[];
   const oddsSummary = buildOddsSummary({ odds, awayTeam, homeTeam });
   const venueLabel = formatVenueLabel(venue);
   const statusText = score
@@ -169,16 +193,21 @@ export default function GameScoreboard({
   return (
     <div className="space-y-2.5" aria-label="Game scoreboard">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 dark:text-zinc-500">
-            <span>{kickoffLabel}</span>
-            {metadataPills.map((pill) => (
-              <span
-                key={pill}
-                className="rounded-full border border-gray-300/50 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:border-zinc-700/70 dark:text-zinc-400"
-              >
-                {pill}
-              </span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+            {matchupLabel}
+          </div>
+          {eventName && (
+            <div
+              className="text-xs leading-snug text-gray-500 dark:text-zinc-400"
+              data-scoreboard-event
+            >
+              {eventName}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500 dark:text-zinc-500">
+            {metadataItems.map((item) => (
+              <span key={item}>{item}</span>
             ))}
           </div>
         </div>
@@ -190,6 +219,7 @@ export default function GameScoreboard({
       <div className="px-1 py-0.5">
         {rows.map((team, index) => {
           const opponentScore = rows[index === 0 ? 1 : 0]?.score ?? null;
+          const teamContext = buildTeamContext(team.conference, team.owner);
 
           return (
             <div
@@ -197,11 +227,21 @@ export default function GameScoreboard({
               className={`${scoreboardRowClasses(team.score, opponentScore)} ${index === 0 ? 'border-b border-gray-200/60 dark:border-zinc-800/80' : ''}`}
               data-scoreboard-row={team.key}
             >
-              <RankedTeamName
-                teamName={getTeamDisplayLabel(team.label, 'scoreboard')}
-                ranking={team.ranking}
-                className="min-w-0 flex-1 whitespace-normal break-words pr-3 text-lg leading-snug sm:text-[1.45rem]"
-              />
+              <div className="min-w-0 flex-1 pr-3">
+                <RankedTeamName
+                  teamName={getTeamDisplayLabel(team.label, 'scoreboard')}
+                  ranking={team.ranking}
+                  className="whitespace-normal break-words text-lg leading-snug sm:text-[1.45rem]"
+                />
+                {teamContext && (
+                  <div
+                    className="mt-0.5 text-xs leading-snug text-gray-500 dark:text-zinc-400"
+                    data-scoreboard-team-context={team.key}
+                  >
+                    {teamContext}
+                  </div>
+                )}
+              </div>
               <span
                 className="min-w-[3ch] shrink-0 text-right font-mono text-[2.2rem] font-semibold leading-none tabular-nums sm:text-[2.55rem]"
                 data-scoreboard-score={team.key}

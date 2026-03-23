@@ -131,6 +131,7 @@ export type AppGame = {
   neutral: boolean;
   neutralDisplay: 'vs' | 'home_away';
   venue: VenueInfo | string | null;
+  notes?: string | null;
   isPlaceholder: boolean;
   sources?: ScheduleFieldSources;
   participants: {
@@ -341,6 +342,7 @@ export function buildScheduleFromApi(params: {
         neutralDisplay:
           item.neutralSiteDisplay === 'vs' ? 'vs' : item.neutralSite ? 'vs' : 'home_away',
         venue: item.venue ?? null,
+        notes: item.notes ?? null,
         isPlaceholder: !hasKnownTeams,
         sources: {
           event: 'cfbd-normalized',
@@ -406,6 +408,7 @@ export function buildScheduleFromApi(params: {
         neutral: item.neutralSite,
         neutralDisplay: item.neutralSiteDisplay === 'home_away' ? 'home_away' : 'vs',
         venue: item.venue ?? null,
+        notes: item.notes ?? null,
         isPlaceholder: !hasKnownTeams,
         sources: {
           event: 'cfbd-normalized',
@@ -500,6 +503,7 @@ export function buildScheduleFromApi(params: {
         neutral: item.neutralSite,
         neutralDisplay: item.neutralSiteDisplay === 'home_away' ? 'home_away' : 'vs',
         venue: item.venue ?? null,
+        notes: item.notes ?? null,
         isPlaceholder: !hasKnownTeams,
         sources: {
           event: 'cfbd-label',
