@@ -447,8 +447,8 @@ export default function OverviewPanel({
     ),
     matrix: (
       <SectionCard
-        title="Games by vs games against"
-        description="Head-to-head exposure across the active league slate, with week context kept secondary."
+        title="Head-to-head matchups"
+        description="How often each team faces another this week"
         tone="weekly"
       >
         <TeamMatchupMatrixTable matrix={matchupMatrix} />

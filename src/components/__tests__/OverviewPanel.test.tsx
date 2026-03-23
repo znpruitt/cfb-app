@@ -194,7 +194,7 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   );
 
   assert.match(html, /League standings/);
-  assert.match(html, /Games by vs games against/);
+  assert.match(html, /Head-to-head matchups/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
