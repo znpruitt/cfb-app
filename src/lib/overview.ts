@@ -1,5 +1,6 @@
 import { gameStateFromScore } from './gameUi.ts';
 import { isTruePostseasonGame } from './postseason-display.ts';
+import { chooseDefaultWeek, deriveRegularWeeks, filterGamesForWeek } from './weekSelection.ts';
 import { deriveWeekMatchupSections, type MatchupBucket } from './matchups.ts';
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
@@ -63,6 +64,12 @@ function compareOverviewItems(a: OverviewGameItem, b: OverviewGameItem): number 
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 
+function compareRecentOverviewItems(a: OverviewGameItem, b: OverviewGameItem): number {
+  if (b.priority !== a.priority) return b.priority - a.priority;
+  if (b.sortDate !== a.sortDate) return b.sortDate - a.sortDate;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
+}
+
 function toOverviewItem(bucket: MatchupBucket, score?: ScorePack): OverviewGameItem {
   return {
     bucket,
@@ -84,6 +91,10 @@ function isKeyMatchupState(score?: ScorePack): boolean {
 function isUpcomingScore(score?: ScorePack): boolean {
   const state = gameStateFromScore(score);
   return state === 'scheduled' || state === 'unknown';
+}
+
+function isTrustedAutonomousUpcomingScore(score?: ScorePack): boolean {
+  return gameStateFromScore(score) === 'scheduled';
 }
 
 function isFinalScore(score?: ScorePack): boolean {
@@ -168,6 +179,162 @@ function deriveOverviewContext(params: {
       'Standings stay central while Overview waits for owned-team games to define the next slate.',
     liveDescription: 'Live league games will appear automatically once scores are in progress.',
     sectionOrder: ['standings', 'highlights', 'matrix', 'live'],
+  };
+}
+
+export type AutonomousOverviewScope = {
+  games: AppGame[];
+  label: string | null;
+};
+
+type OverviewScopeCandidate = {
+  games: AppGame[];
+  label: string | null;
+  kind: 'regular' | 'postseason';
+  week: number | null;
+  hasRelevantGames: boolean;
+  status: ActiveSlateStatus;
+  nextUpcomingDate: number;
+  latestRelevantDate: number;
+  isDefaultRegularWeek: boolean;
+};
+
+function finiteMin(values: number[]): number {
+  const finite = values.filter((value) => Number.isFinite(value));
+  return finite.length ? Math.min(...finite) : Number.POSITIVE_INFINITY;
+}
+
+function finiteMax(values: number[]): number {
+  const finite = values.filter((value) => Number.isFinite(value));
+  return finite.length ? Math.max(...finite) : Number.NEGATIVE_INFINITY;
+}
+
+function buildOverviewScopeCandidate(params: {
+  games: AppGame[];
+  label: string | null;
+  kind: 'regular' | 'postseason';
+  week: number | null;
+  rosterByTeam: Map<string, string>;
+  scoresByKey: Record<string, ScorePack>;
+  isDefaultRegularWeek?: boolean;
+}): OverviewScopeCandidate {
+  const {
+    games,
+    label,
+    kind,
+    week,
+    rosterByTeam,
+    scoresByKey,
+    isDefaultRegularWeek = false,
+  } = params;
+  const items = deriveWeekMatchupSections(games, rosterByTeam);
+  const activeSlateItems = [...items.ownerMatchups, ...items.secondaryGames]
+    .map((bucket) => toOverviewItem(bucket, scoresByKey[bucket.game.key]))
+    .sort(compareOverviewItems);
+  const status = deriveActiveSlateStatus(activeSlateItems);
+
+  return {
+    games,
+    label,
+    kind,
+    week,
+    hasRelevantGames: activeSlateItems.length > 0,
+    status,
+    nextUpcomingDate: finiteMin(
+      activeSlateItems
+        .filter((item) => isTrustedAutonomousUpcomingScore(item.score))
+        .map((item) => item.sortDate)
+    ),
+    latestRelevantDate: finiteMax(activeSlateItems.map((item) => item.sortDate)),
+    isDefaultRegularWeek,
+  };
+}
+
+function candidatePriority(candidate: OverviewScopeCandidate): number {
+  if (candidate.status.hasLive) return 3;
+  if (candidate.status.hasUpcoming) return 2;
+  if (candidate.status.hasFinal) return 1;
+  return 0;
+}
+
+function compareOverviewScopeCandidates(
+  a: OverviewScopeCandidate,
+  b: OverviewScopeCandidate
+): number {
+  const priorityDiff = candidatePriority(b) - candidatePriority(a);
+  if (priorityDiff !== 0) return priorityDiff;
+
+  if (candidatePriority(a) === 2 && a.nextUpcomingDate !== b.nextUpcomingDate) {
+    return a.nextUpcomingDate - b.nextUpcomingDate;
+  }
+
+  if (
+    (candidatePriority(a) === 3 || candidatePriority(a) === 1) &&
+    a.latestRelevantDate !== b.latestRelevantDate
+  ) {
+    return b.latestRelevantDate - a.latestRelevantDate;
+  }
+
+  if (a.isDefaultRegularWeek !== b.isDefaultRegularWeek) {
+    return a.isDefaultRegularWeek ? -1 : 1;
+  }
+
+  if (a.kind !== b.kind) {
+    return a.kind === 'postseason' ? -1 : 1;
+  }
+
+  return (b.week ?? -1) - (a.week ?? -1);
+}
+
+export function deriveAutonomousOverviewScope(params: {
+  games: AppGame[];
+  rosterByTeam: Map<string, string>;
+  scoresByKey: Record<string, ScorePack>;
+  nowMs?: number;
+}): AutonomousOverviewScope {
+  const { games, rosterByTeam, scoresByKey, nowMs = Date.now() } = params;
+  const regularWeeks = deriveRegularWeeks(games);
+  const defaultWeek = chooseDefaultWeek({ games, regularWeeks, nowMs });
+
+  const candidates: OverviewScopeCandidate[] = regularWeeks.map((week) =>
+    buildOverviewScopeCandidate({
+      games: filterGamesForWeek(games, week),
+      label: `Week ${week}`,
+      kind: 'regular',
+      week,
+      rosterByTeam,
+      scoresByKey,
+      isDefaultRegularWeek: week === defaultWeek,
+    })
+  );
+
+  const postseasonGames = games.filter((game) => isTruePostseasonGame(game));
+  if (postseasonGames.length > 0) {
+    candidates.push(
+      buildOverviewScopeCandidate({
+        games: postseasonGames,
+        label: 'the postseason',
+        kind: 'postseason',
+        week: null,
+        rosterByTeam,
+        scoresByKey,
+      })
+    );
+  }
+
+  const relevantCandidates = candidates.filter((candidate) => candidate.hasRelevantGames);
+  const rankedCandidates = (relevantCandidates.length ? relevantCandidates : candidates).sort(
+    compareOverviewScopeCandidates
+  );
+  const chosen = rankedCandidates[0];
+
+  if (!chosen) {
+    return { games: [], label: null };
+  }
+
+  return {
+    games: chosen.games,
+    label: chosen.label,
   };
 }
 
@@ -271,8 +438,11 @@ export function deriveOverviewSnapshot(params: {
   const includeFinalWeekGames =
     standingsCoverage.state !== 'complete' ||
     (!activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming);
-  const keyMatchups = activeSlateItems
+  const recentMode =
+    !activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming && activeSlateStatus.hasFinal;
+  const keyMatchups = [...activeSlateItems]
     .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
+    .sort(recentMode ? compareRecentOverviewItems : compareOverviewItems)
     .slice(0, options?.keyMatchupsLimit ?? DEFAULT_KEY_MATCHUP_COUNT);
 
   const context = deriveOverviewContext({

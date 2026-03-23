@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deriveOverviewSnapshot } from '../overview.ts';
+import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../overview.ts';
 import type { AppGame } from '../schedule.ts';
 import type { OwnerStandingsRow, StandingsCoverage } from '../standings.ts';
 
@@ -381,5 +381,159 @@ test('overview context stays upcoming when later active-slate games are truncate
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['upcoming-5']
+  );
+});
+
+test('autonomous overview scope falls back to the default current week when scores are missing', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+  ]);
+  const weekOneGame = game({
+    key: 'week-1-game',
+    week: 1,
+    csvAway: 'Texas',
+    csvHome: 'Rice',
+    date: '2026-09-01T17:00:00.000Z',
+  });
+  const weekEightGame = game({
+    key: 'week-8-game',
+    week: 8,
+    csvAway: 'Oklahoma',
+    csvHome: 'Kansas',
+    date: '2026-10-20T17:00:00.000Z',
+  });
+
+  const scope = deriveAutonomousOverviewScope({
+    games: [weekOneGame, weekEightGame],
+    rosterByTeam,
+    scoresByKey: {},
+    nowMs: Date.parse('2026-10-20T18:00:00.000Z'),
+  });
+
+  assert.equal(scope.label, 'Week 8');
+  assert.deepEqual(
+    scope.games.map((game) => game.key),
+    ['week-8-game']
+  );
+});
+
+test('autonomous overview scope does not let unknown stale slates outrank trusted current-week signals', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+  ]);
+  const staleWeek = game({
+    key: 'stale-week',
+    week: 1,
+    csvAway: 'Texas',
+    csvHome: 'Rice',
+    date: '2026-09-01T17:00:00.000Z',
+  });
+  const currentWeek = game({
+    key: 'current-week',
+    week: 8,
+    csvAway: 'Oklahoma',
+    csvHome: 'Kansas',
+    date: '2026-10-20T19:00:00.000Z',
+  });
+
+  const scope = deriveAutonomousOverviewScope({
+    games: [staleWeek, currentWeek],
+    rosterByTeam,
+    scoresByKey: {
+      'current-week': {
+        status: 'Scheduled',
+        away: { team: 'Oklahoma', score: null },
+        home: { team: 'Kansas', score: null },
+        time: null,
+      },
+    },
+    nowMs: Date.parse('2026-10-20T18:00:00.000Z'),
+  });
+
+  assert.equal(scope.label, 'Week 8');
+  assert.deepEqual(
+    scope.games.map((game) => game.key),
+    ['current-week']
+  );
+});
+
+test('recent-results mode shows the latest completed finals first before truncation', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+    ['Notre Dame', 'Cory'],
+    ['LSU', 'Alice'],
+    ['Georgia', 'Bob'],
+  ]);
+  const completedGames = [
+    game({ key: 'final-1', csvAway: 'Texas', csvHome: 'Rice', date: '2026-09-05T16:00:00.000Z' }),
+    game({
+      key: 'final-2',
+      csvAway: 'Oklahoma',
+      csvHome: 'Tulsa',
+      date: '2026-09-05T17:00:00.000Z',
+    }),
+    game({
+      key: 'final-3',
+      csvAway: 'Notre Dame',
+      csvHome: 'Navy',
+      date: '2026-09-05T18:00:00.000Z',
+    }),
+    game({ key: 'final-4', csvAway: 'LSU', csvHome: 'ULM', date: '2026-09-05T19:00:00.000Z' }),
+    game({
+      key: 'final-5',
+      csvAway: 'Georgia',
+      csvHome: 'Florida',
+      date: '2026-09-05T20:00:00.000Z',
+    }),
+  ];
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: completedGames,
+    allGames: completedGames,
+    rosterByTeam,
+    scoresByKey: {
+      'final-1': {
+        status: 'Final',
+        away: { team: 'Texas', score: 31 },
+        home: { team: 'Rice', score: 14 },
+        time: null,
+      },
+      'final-2': {
+        status: 'Final',
+        away: { team: 'Oklahoma', score: 27 },
+        home: { team: 'Tulsa', score: 17 },
+        time: null,
+      },
+      'final-3': {
+        status: 'Final',
+        away: { team: 'Notre Dame', score: 24 },
+        home: { team: 'Navy', score: 20 },
+        time: null,
+      },
+      'final-4': {
+        status: 'Final',
+        away: { team: 'LSU', score: 35 },
+        home: { team: 'ULM', score: 7 },
+        time: null,
+      },
+      'final-5': {
+        status: 'Final',
+        away: { team: 'Georgia', score: 28 },
+        home: { team: 'Florida', score: 24 },
+        time: null,
+      },
+    },
+    selectedWeekLabel: 'Week 5',
+  });
+
+  assert.equal(snapshot.context.emphasis, 'recent');
+  assert.deepEqual(
+    snapshot.keyMatchups.map((item) => item.bucket.game.key),
+    ['final-5', 'final-4', 'final-3', 'final-2']
   );
 });

@@ -29,7 +29,7 @@ import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
-import { deriveOverviewSnapshot } from '../lib/overview';
+import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../lib/overview';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import {
   buildScheduleFromApi,
@@ -536,24 +536,34 @@ export default function CFBScheduleApp({
     }
   }, [ownerViewSnapshot.selectedOwner, selectedOwner]);
 
+  const overviewScope = useMemo(
+    () =>
+      deriveAutonomousOverviewScope({
+        games,
+        rosterByTeam,
+        scoresByKey,
+      }),
+    [games, rosterByTeam, scoresByKey]
+  );
+
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
         standingsRows: standingsSnapshot.rows,
         standingsCoverage,
-        weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
+        weekGames: overviewScope.games,
         allGames: games,
         rosterByTeam,
         scoresByKey,
-        selectedWeekLabel: activeWeekLabel,
+        selectedWeekLabel: overviewScope.label ?? activeWeekLabel,
       }),
     [
-      filteredWeekGames,
+      activeWeekLabel,
       games,
-      postseasonGames,
+      overviewScope.games,
+      overviewScope.label,
       rosterByTeam,
       scoresByKey,
-      selectedTab,
       standingsCoverage,
       standingsSnapshot.rows,
     ]
@@ -1287,26 +1297,28 @@ export default function CFBScheduleApp({
             ) : null}
           </section>
 
-          <WeekControls
-            weeks={weeks}
-            selectedTab={selectedTab}
-            weekDateLabels={
-              new Map(weeks.map((week) => [week, weekDateMetadataByWeek.get(week)?.label ?? '']))
-            }
-            hasPostseason={hasPostseasonGames}
-            selectedConference={selectedConference}
-            conferences={conferences}
-            teamFilter={teamFilter}
-            onSelectWeek={(week) => {
-              setSelectedWeek(week);
-              setSelectedTab(week);
-            }}
-            onSelectPostseason={() => setSelectedTab('postseason')}
-            onSelectedConferenceChange={setSelectedConference}
-            onTeamFilterChange={setTeamFilter}
-            isSeasonViewActive={isSeasonScopedView}
-            activeViewLabel={activeSurfaceCopy.title}
-          />
+          {primarySurfaceKind !== 'overview' ? (
+            <WeekControls
+              weeks={weeks}
+              selectedTab={selectedTab}
+              weekDateLabels={
+                new Map(weeks.map((week) => [week, weekDateMetadataByWeek.get(week)?.label ?? '']))
+              }
+              hasPostseason={hasPostseasonGames}
+              selectedConference={selectedConference}
+              conferences={conferences}
+              teamFilter={teamFilter}
+              onSelectWeek={(week) => {
+                setSelectedWeek(week);
+                setSelectedTab(week);
+              }}
+              onSelectPostseason={() => setSelectedTab('postseason')}
+              onSelectedConferenceChange={setSelectedConference}
+              onTeamFilterChange={setTeamFilter}
+              isSeasonViewActive={isSeasonScopedView}
+              activeViewLabel={activeSurfaceCopy.title}
+            />
+          ) : null}
 
           {shouldRenderPrimaryView && (
             <section className="space-y-3">

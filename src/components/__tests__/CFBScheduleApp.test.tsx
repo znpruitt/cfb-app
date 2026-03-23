@@ -62,7 +62,7 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
     <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
   );
 
-  assert.match(html, /League surface unavailable/);
+  assert.match(html, /League view unavailable/);
   assert.match(html, /CFBD schedule load failed: upstream CFBD returned 503/);
   assert.match(html, /Rebuild schedule/);
   assert.match(html, /Open Admin \/ Debug/);
@@ -94,12 +94,12 @@ test('owner surface remains reachable with owner data even when no week is selec
   );
 
   assert.match(html, /Roster • Live • This week/);
-  assert.match(html, /Select surname/);
-  assert.match(html, /aria-label="Select surname: Alice"/);
+  assert.match(html, /Choose Alice/);
+  assert.match(html, /aria-label="Choose Alice"/);
   assert.match(html, /Alice/);
   assert.match(html, /the currently selected week slate/);
-  assert.match(html, /No games for this surname are attached to the selected week\./);
-  assert.match(html, /League surface unavailable/);
+  assert.match(html, /No teams from this selection are attached to the selected week\./);
+  assert.match(html, /League view unavailable/);
 });
 
 test('admin surface still renders dedicated admin and debug tooling', () => {
@@ -206,4 +206,48 @@ test('admin attention count includes actionable ignored-score diagnostics but ex
   });
 
   assert.equal(count, 1);
+});
+
+test('overview hides week context controls while still rendering overview content', () => {
+  const html = renderToStaticMarkup(
+    <CFBScheduleApp
+      initialGames={[
+        game({ key: 'week-1', week: 1, csvAway: 'Texas', csvHome: 'Oklahoma' }),
+        game({ key: 'week-2', week: 2, csvAway: 'Notre Dame', csvHome: 'USC' }),
+      ]}
+      initialRoster={[
+        { owner: 'Alice', team: 'Texas' },
+        { owner: 'Bob', team: 'Oklahoma' },
+        { owner: 'Cory', team: 'Notre Dame' },
+      ]}
+    />
+  );
+
+  assert.match(html, /Overview/);
+  assert.match(html, /League standings/);
+  assert.doesNotMatch(html, /Week context/);
+});
+
+test('schedule keeps week context controls visible', () => {
+  const html = renderToStaticMarkup(
+    <CFBScheduleApp
+      initialWeekViewMode="schedule"
+      initialGames={[game({ week: 1 }), game({ key: 'g-2', week: 2 })]}
+    />
+  );
+
+  assert.match(html, /Week context/);
+  assert.match(html, /Browse weeks, postseason, and team filters\./);
+});
+
+test('matchups keeps week context controls visible', () => {
+  const html = renderToStaticMarkup(
+    <CFBScheduleApp
+      initialWeekViewMode="matchups"
+      initialGames={[game({ week: 1 }), game({ key: 'g-2', week: 2 })]}
+    />
+  );
+
+  assert.match(html, /Week context/);
+  assert.match(html, /Browse weeks, postseason, and team filters\./);
 });
