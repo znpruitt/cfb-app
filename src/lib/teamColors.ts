@@ -4,6 +4,8 @@ export type TeamColorSource = 'primary' | 'alt' | 'fallback';
 
 const SCOREBOARD_MIN_LUMINANCE = 0.03;
 const SCOREBOARD_MAX_LUMINANCE = 0.9;
+const SCOREBOARD_DARK_SURFACE = '#0A0A0A';
+const MIN_DARK_THEME_CONTRAST = 3;
 
 export type ScoreboardTeamColorTreatment = {
   source: TeamColorSource;
@@ -124,6 +126,31 @@ function relativeLuminance(rgb: Rgb): number {
   );
 }
 
+function contrastRatio(hexA: string, hexB: string): number {
+  const luminanceA = relativeLuminance(hexToRgb(hexA));
+  const luminanceB = relativeLuminance(hexToRgb(hexB));
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
+
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function liftForDarkThemeContrast(hex: string): string | null {
+  if (contrastRatio(hex, SCOREBOARD_DARK_SURFACE) >= MIN_DARK_THEME_CONTRAST) {
+    return hex;
+  }
+
+  const adjusted = rgbToHsl(hexToRgb(hex));
+  for (let lightness = adjusted.l + 0.01; lightness <= 0.76; lightness += 0.01) {
+    const candidate = rgbToHex(hslToRgb({ ...adjusted, l: clamp(lightness, adjusted.l, 0.76) }));
+    if (contrastRatio(candidate, SCOREBOARD_DARK_SURFACE) >= MIN_DARK_THEME_CONTRAST) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function isUnsafeRawColor(hex: string): boolean {
   const rgb = hexToRgb(hex);
   const hsl = rgbToHsl(rgb);
@@ -204,8 +231,8 @@ function resolveTeamColorCandidate(
     return null;
   }
 
-  const lifted = softenForScoreboard(hex);
-  if (isReasonableScoreboardAccent(lifted)) {
+  const lifted = liftForDarkThemeContrast(softenForScoreboard(hex));
+  if (lifted && isReasonableScoreboardAccent(lifted)) {
     return {
       source,
       baseColor: lifted,
