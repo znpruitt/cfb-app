@@ -3,11 +3,25 @@ import type { AppGame } from './schedule.ts';
 
 export type PostseasonOverridesMap = Record<string, Partial<AppGame>>;
 
-export async function loadServerPostseasonOverrides(year: number): Promise<PostseasonOverridesMap> {
+export type ServerPostseasonOverridesState = {
+  map: PostseasonOverridesMap;
+  hasStoredValue: boolean;
+};
+
+export async function loadServerPostseasonOverrides(
+  year: number
+): Promise<ServerPostseasonOverridesState> {
   const res = await fetch(`/api/postseason-overrides?year=${year}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`postseason overrides GET ${res.status}`);
-  const data = (await res.json()) as { year: number; map?: PostseasonOverridesMap };
-  return data.map ?? {};
+  const data = (await res.json()) as {
+    year: number;
+    map?: PostseasonOverridesMap;
+    hasStoredValue?: boolean;
+  };
+  return {
+    map: data.map ?? {},
+    hasStoredValue: data.hasStoredValue === true,
+  };
 }
 
 export async function saveServerPostseasonOverrides(

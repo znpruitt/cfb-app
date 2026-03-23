@@ -1,4 +1,4 @@
-import { deleteAppState, getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 
 function clampYearMaybe(s: string | null): number {
@@ -16,7 +16,11 @@ export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const year = clampYearMaybe(url.searchParams.get('year'));
   const record = await getAppState<string>(ownersScope(year), 'csv');
-  return Response.json({ year, csvText: typeof record?.value === 'string' ? record.value : null });
+  return Response.json({
+    year,
+    csvText: typeof record?.value === 'string' ? record.value : null,
+    hasStoredValue: Boolean(record),
+  });
 }
 
 export async function PUT(req: Request): Promise<Response> {
@@ -44,9 +48,9 @@ export async function PUT(req: Request): Promise<Response> {
 
   if (typeof csvText === 'string' && csvText.trim()) {
     await setAppState(ownersScope(year), 'csv', csvText);
-    return Response.json({ year, csvText });
+    return Response.json({ year, csvText, hasStoredValue: true });
   }
 
-  await deleteAppState(ownersScope(year), 'csv');
-  return Response.json({ year, csvText: null });
+  await setAppState(ownersScope(year), 'csv', null);
+  return Response.json({ year, csvText: null, hasStoredValue: true });
 }

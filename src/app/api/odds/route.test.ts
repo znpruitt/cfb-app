@@ -9,6 +9,7 @@ import {
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  setAppState,
 } from '../../../lib/server/appStateStore.ts';
 import {
   __deleteDurableOddsStoreFileForTests,
@@ -341,6 +342,63 @@ test('filtered odds requests do not overwrite the shared durable store with part
     assert.equal(persisted?.latestSnapshot?.spread, -3.5);
     assert.equal(persisted?.latestSnapshot?.total, 52.5);
     assert.equal(persisted?.latestSnapshot?.moneylineHome, -150);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('stale shared odds cache entries are refetched instead of treated as permanently fresh', async () => {
+  const originalFetch = global.fetch;
+  const cacheKey =
+    'bookmakers=bet365,betmgm,caesars,draftkings,espnbet,fanduel,pointsbet|markets=h2h,spreads,totals|regions=us';
+  let upstreamCalls = 0;
+
+  await setAppState('odds-cache', `2026:${cacheKey}`, {
+    data: [buildOddsEvent()].map((event) => ({
+      homeTeam: String(event.home_team),
+      awayTeam: String(event.away_team),
+      bookmakers: [],
+    })),
+    lastFetch: Date.now() - 121_000,
+    usage: null,
+  });
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [buildScheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    upstreamCalls += 1;
+    return new Response(JSON.stringify([buildOddsEvent()]), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-requests-used': '5',
+        'x-requests-remaining': '495',
+        'x-requests-last': '1',
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(new Request('http://localhost/api/odds?year=2026'));
+    const json = (await res.json()) as { meta: { cache: 'hit' | 'miss' } };
+
+    assert.equal(res.status, 200);
+    assert.equal(json.meta.cache, 'miss');
+    assert.equal(upstreamCalls, 1);
   } finally {
     global.fetch = originalFetch;
   }

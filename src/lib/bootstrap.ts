@@ -98,9 +98,11 @@ export async function bootstrapAliasesAndCaches(params: {
   let ownersCsvText = readOwnersCsvWithMigration(storageKeys.ownersCsv);
   let ownersLoadIssue: string | undefined;
   try {
-    const serverOwnersCsv = await loadServerOwnersCsv(season);
-    ownersCsvText = serverOwnersCsv;
-    writeOwnersCsvToLocal(storageKeys.ownersCsv, serverOwnersCsv);
+    const serverOwnersState = await loadServerOwnersCsv(season);
+    if (serverOwnersState.hasStoredValue) {
+      ownersCsvText = serverOwnersState.csvText;
+      writeOwnersCsvToLocal(storageKeys.ownersCsv, serverOwnersState.csvText);
+    }
   } catch (err) {
     ownersLoadIssue = `Owners load failed: ${(err as Error).message}`;
   }
@@ -108,9 +110,11 @@ export async function bootstrapAliasesAndCaches(params: {
   let postseasonOverrides = readLocalPostseasonOverrides(storageKeys.postseasonOverrides);
   let postseasonOverridesLoadIssue: string | undefined;
   try {
-    const serverOverrides = await loadServerPostseasonOverrides(season);
-    postseasonOverrides = serverOverrides;
-    writePostseasonOverridesToLocal(storageKeys.postseasonOverrides, serverOverrides);
+    const serverOverridesState = await loadServerPostseasonOverrides(season);
+    if (serverOverridesState.hasStoredValue) {
+      postseasonOverrides = serverOverridesState.map;
+      writePostseasonOverridesToLocal(storageKeys.postseasonOverrides, serverOverridesState.map);
+    }
   } catch (err) {
     postseasonOverridesLoadIssue = `Postseason overrides load failed: ${(err as Error).message}`;
   }

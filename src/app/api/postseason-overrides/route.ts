@@ -1,4 +1,4 @@
-import { deleteAppState, getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 
 function clampYearMaybe(s: string | null): number {
@@ -22,6 +22,7 @@ export async function GET(req: Request): Promise<Response> {
   return Response.json({
     year,
     map: map && typeof map === 'object' && !Array.isArray(map) ? map : {},
+    hasStoredValue: Boolean(record),
   });
 }
 
@@ -50,9 +51,9 @@ export async function PUT(req: Request): Promise<Response> {
 
   if (map && typeof map === 'object') {
     await setAppState(overridesScope(year), 'map', map);
-    return Response.json({ year, map });
+    return Response.json({ year, map, hasStoredValue: true });
   }
 
-  await deleteAppState(overridesScope(year), 'map');
-  return Response.json({ year, map: {} });
+  await setAppState(overridesScope(year), 'map', {});
+  return Response.json({ year, map: {}, hasStoredValue: true });
 }

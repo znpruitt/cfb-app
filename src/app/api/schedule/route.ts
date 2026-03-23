@@ -20,6 +20,7 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
+const SCHEDULE_CACHE_TTL_MS = revalidate * 1000;
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
 const MAX_CACHE_ENTRIES = 250;
@@ -56,6 +57,16 @@ type CacheEntry = {
   failedSeasonTypes: SeasonType[];
 };
 const CACHE: Record<string, CacheEntry> = {};
+
+export function __resetScheduleRouteCacheForTests(): void {
+  for (const key of Object.keys(CACHE)) {
+    delete CACHE[key];
+  }
+}
+
+function isFreshScheduleCacheEntry(entry: CacheEntry | undefined, now: number): boolean {
+  return Boolean(entry && now - entry.at < SCHEDULE_CACHE_TTL_MS);
+}
 
 function parseNonNegativeInt(raw: string | null): number | null {
   if (!raw || !/^\d+$/.test(raw)) return null;
@@ -271,7 +282,7 @@ export async function GET(req: Request) {
   }
 
   const hit = CACHE[cacheKey];
-  if (!bypassCache && hit) {
+  if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
     recordRouteCacheHit('schedule');
     return NextResponse.json<ScheduleResponse>({
       items: hit.items,
@@ -288,20 +299,21 @@ export async function GET(req: Request) {
 
   if (!bypassCache) {
     const stored = await getAppState<CacheEntry>('schedule', cacheKey);
-    if (stored?.value) {
-      CACHE[cacheKey] = stored.value;
+    const storedValue = stored?.value;
+    if (storedValue && isFreshScheduleCacheEntry(storedValue, now)) {
+      CACHE[cacheKey] = storedValue;
       pruneCache(CACHE, 'schedule');
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
-        items: stored.value.items,
+        items: storedValue.items,
         meta: {
           source: 'cfbd',
           cache: 'hit',
           fallbackUsed: false,
-          generatedAt: new Date(stored.value.at).toISOString(),
-          partialFailure: stored.value.partialFailure,
-          ...(stored.value.failedSeasonTypes.length > 0
-            ? { failedSeasonTypes: stored.value.failedSeasonTypes }
+          generatedAt: new Date(storedValue.at).toISOString(),
+          partialFailure: storedValue.partialFailure,
+          ...(storedValue.failedSeasonTypes.length > 0
+            ? { failedSeasonTypes: storedValue.failedSeasonTypes }
             : {}),
         },
       });

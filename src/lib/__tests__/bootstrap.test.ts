@@ -63,11 +63,11 @@ test('bootstrap clears stale local owners and postseason overrides when the shar
     }
 
     if (url.includes('/api/owners?')) {
-      return Response.json({ year: season, csvText: null });
+      return Response.json({ year: season, csvText: null, hasStoredValue: true });
     }
 
     if (url.includes('/api/postseason-overrides?')) {
-      return Response.json({ year: season, map: {} });
+      return Response.json({ year: season, map: {}, hasStoredValue: true });
     }
 
     throw new Error(`Unexpected request: ${url}`);
@@ -81,6 +81,47 @@ test('bootstrap clears stale local owners and postseason overrides when the shar
   assert.equal(localStorage.getItem(LEGACY_STORAGE_KEYS.ownersCsv), null);
   assert.equal(localStorage.getItem(storageKeys.postseasonOverrides), null);
   assert.equal(localStorage.getItem(LEGACY_STORAGE_KEYS.postseasonOverrides), null);
+});
+
+test('bootstrap preserves legacy local owners and overrides when shared state is unseeded', async () => {
+  const season = 2026;
+  const storageKeys = seasonStorageKeys(season);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  localStorage.setItem(LEGACY_STORAGE_KEYS.ownersCsv, 'legacy owners');
+  localStorage.setItem(
+    LEGACY_STORAGE_KEYS.postseasonOverrides,
+    JSON.stringify({ legacy: { notes: 'legacy override' } })
+  );
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+
+    if (url.includes('/api/aliases?')) {
+      return Response.json({ year: season, map: {} });
+    }
+
+    if (url.includes('/api/owners?')) {
+      return Response.json({ year: season, csvText: null, hasStoredValue: false });
+    }
+
+    if (url.includes('/api/postseason-overrides?')) {
+      return Response.json({ year: season, map: {}, hasStoredValue: false });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {} });
+
+  assert.equal(result.ownersCsvText, 'legacy owners');
+  assert.deepEqual(result.postseasonOverrides, { legacy: { notes: 'legacy override' } });
+  assert.equal(localStorage.getItem(storageKeys.ownersCsv), 'legacy owners');
+  assert.equal(
+    localStorage.getItem(storageKeys.postseasonOverrides),
+    JSON.stringify({ legacy: { notes: 'legacy override' } })
+  );
 });
 
 test('bootstrap keeps cached owners and overrides when the server load fails', async () => {
