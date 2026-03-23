@@ -7,7 +7,13 @@ const SCOREBOARD_MAX_LUMINANCE = 0.9;
 const SCOREBOARD_DARK_SURFACE = '#0A0A0A';
 const MIN_DARK_THEME_CONTRAST = 3;
 
-export type ScoreboardTeamColorTreatment = {
+type TeamColorRoles = {
+  subtleAccent: string;
+  strongAccent: string;
+  borderAccent: string;
+};
+
+export type ScoreboardTeamColorTreatment = TeamColorRoles & {
   source: TeamColorSource;
   baseColor: string;
   rowAccentColor: string;
@@ -201,14 +207,24 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${clamp(alpha, 0, 1).toFixed(2)})`;
 }
 
+function buildAccentRoles(hex: string): TeamColorRoles {
+  return {
+    subtleAccent: withAlpha(hex, 0.52),
+    strongAccent: withAlpha(hex, 0.92),
+    borderAccent: withAlpha(hex, 0.28),
+  };
+}
+
 function buildTreatment(hex: string, source: TeamColorSource): ScoreboardTeamColorTreatment {
   const safeBase = softenForScoreboard(hex);
+  const roles = buildAccentRoles(safeBase);
 
   return {
+    ...roles,
     source,
     baseColor: safeBase,
-    rowAccentColor: withAlpha(safeBase, 0.45),
-    winnerAccentColor: withAlpha(safeBase, 0.92),
+    rowAccentColor: roles.subtleAccent,
+    winnerAccentColor: roles.strongAccent,
     winnerScoreColor: safeBase,
   };
 }
@@ -233,13 +249,7 @@ function resolveTeamColorCandidate(
 
   const lifted = liftForDarkThemeContrast(softenForScoreboard(hex));
   if (lifted && isReasonableScoreboardAccent(lifted)) {
-    return {
-      source,
-      baseColor: lifted,
-      rowAccentColor: withAlpha(lifted, 0.45),
-      winnerAccentColor: withAlpha(lifted, 0.92),
-      winnerScoreColor: lifted,
-    };
+    return buildTreatment(lifted, source);
   }
 
   return null;

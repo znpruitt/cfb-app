@@ -20,6 +20,9 @@ const homeTeam = {
 const awayColorTreatment = {
   source: 'primary' as const,
   baseColor: '#A32638',
+  subtleAccent: 'rgba(163, 38, 56, 0.52)',
+  strongAccent: 'rgba(163, 38, 56, 0.92)',
+  borderAccent: 'rgba(163, 38, 56, 0.28)',
   rowAccentColor: 'rgba(163, 38, 56, 0.45)',
   winnerAccentColor: 'rgba(163, 38, 56, 0.92)',
   winnerScoreColor: '#A32638',
@@ -28,6 +31,9 @@ const awayColorTreatment = {
 const homeColorTreatment = {
   source: 'alt' as const,
   baseColor: '#1B6F3A',
+  subtleAccent: 'rgba(27, 111, 58, 0.52)',
+  strongAccent: 'rgba(27, 111, 58, 0.92)',
+  borderAccent: 'rgba(27, 111, 58, 0.28)',
   rowAccentColor: 'rgba(27, 111, 58, 0.45)',
   winnerAccentColor: 'rgba(27, 111, 58, 0.92)',
   winnerScoreColor: '#1B6F3A',
@@ -154,4 +160,18 @@ test('odds row stays hidden only when no displayable odds markets exist', () => 
   assert.doesNotMatch(html, /O\/U:/);
   assert.doesNotMatch(html, /No odds/i);
   assert.doesNotMatch(html, /border-t border-gray-200\/60/);
+});
+
+test('expanded scoreboard status uses chip-only state color treatment', () => {
+  const html = renderScoreboard({
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Texas Tech', score: 34 },
+      home: { team: 'Baylor', score: 17 },
+    },
+  });
+
+  assert.match(html, /border-emerald-200[^>]*data-scoreboard-status=\"true\">FINAL<\/div>/);
+  assert.doesNotMatch(html, /bg-emerald-50[^>]*aria-label="Game scoreboard"/);
 });

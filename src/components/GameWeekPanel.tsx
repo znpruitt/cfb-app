@@ -5,7 +5,6 @@ import type { CombinedOdds } from '../lib/odds';
 import {
   formatGameMatchupLabel,
   gameStateFromScore,
-  statusClasses,
   usesNeutralSiteSemantics,
 } from '../lib/gameUi';
 import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
@@ -77,6 +76,53 @@ function resolveSummaryStateLabel(
   return summaryStateLabel(score) ?? scheduleStateLabel(game.status, isPlaceholder) ?? 'Scheduled';
 }
 
+function isDisruptedSummaryState(summaryState: string): boolean {
+  return /\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(summaryState);
+}
+
+function summaryStateChipBucket(
+  summaryState: string
+): 'final' | 'live' | 'disrupted' | 'postseason' | 'scheduled' {
+  const trimmed = summaryState.trim();
+  const normalized = trimmed.toUpperCase();
+
+  if (normalized === 'FINAL') return 'final';
+  if (isDisruptedSummaryState(trimmed)) return 'disrupted';
+
+  const inferredState = gameStateFromScore({
+    status: trimmed,
+    away: { team: '', score: null },
+    home: { team: '', score: null },
+    time: null,
+  });
+  if (inferredState === 'inprogress') return 'live';
+
+  if (normalized === 'MATCHUP SET') return 'postseason';
+  return 'scheduled';
+}
+
+function summaryChipClasses(summaryState: string, isPlaceholder: boolean): string {
+  const bucket = summaryStateChipBucket(summaryState);
+
+  if (bucket === 'final') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200';
+  }
+
+  if (bucket === 'live') {
+    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200';
+  }
+
+  if (bucket === 'disrupted') {
+    return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-200';
+  }
+
+  if (bucket === 'postseason' || isPlaceholder) {
+    return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
+  }
+
+  return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
+}
+
 function shouldShowCollapsedCanonicalLabel(game: AppGame, isPlaceholder: boolean): boolean {
   if (!isPlaceholder || !game.label?.trim()) return false;
 
@@ -144,16 +190,16 @@ export default function GameWeekPanel({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-emerald-600 bg-emerald-50 text-gray-900 dark:border-zinc-700 dark:border-l-emerald-400 dark:bg-emerald-900/25 dark:text-zinc-100">
+        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200">
           Final
         </span>
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-amber-600 bg-amber-50 text-gray-900 dark:border-zinc-700 dark:border-l-amber-400 dark:bg-amber-900/25 dark:text-zinc-100">
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
           In Progress
         </span>
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-blue-600 bg-blue-50 text-gray-900 dark:border-zinc-700 dark:border-l-blue-400 dark:bg-blue-900/25 dark:text-zinc-100">
+        <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
           Scheduled
         </span>
-        <span className="px-2 py-0.5 rounded border-l-4 border border-gray-300 border-l-violet-600 bg-violet-50 text-gray-900 dark:border-zinc-700 dark:border-l-violet-400 dark:bg-violet-900/25 dark:text-zinc-100">
+        <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200">
           Postseason (TBD)
         </span>
       </div>
@@ -172,14 +218,12 @@ export default function GameWeekPanel({
               {group.games.map((g) => {
                 const score = scoresByKey[g.key];
                 const odds = oddsByKey[g.key];
-                const state = gameStateFromScore(score);
-                const hasAnyInfo = Boolean(score || odds);
-                const frameClasses = statusClasses(state, hasAnyInfo);
                 const isPlaceholder =
                   g.status === 'placeholder' ||
                   g.isPlaceholder ||
                   g.participants?.home?.kind !== 'team' ||
                   g.participants?.away?.kind !== 'team';
+                const resolvedSummaryState = resolveSummaryStateLabel(g, score, isPlaceholder);
 
                 const useNeutralSemantics = usesNeutralSiteSemantics(g);
                 const matchupLabel = formatGameMatchupLabel(g, {
@@ -196,36 +240,81 @@ export default function GameWeekPanel({
                   homeIsLeagueTeam && awayIsLeagueTeam && Boolean(homeOwner) && Boolean(awayOwner);
                 const homeTeamId = getGameParticipantTeamId(g, 'home') ?? g.canHome;
                 const awayTeamId = getGameParticipantTeamId(g, 'away') ?? g.canAway;
+                const awayColorTreatment = getSafeScoreboardTeamColorById(
+                  awayTeamId,
+                  teamCatalogById
+                );
+                const homeColorTreatment = getSafeScoreboardTeamColorById(
+                  homeTeamId,
+                  teamCatalogById
+                );
 
                 return (
-                  <details key={g.key} className={frameClasses}>
-                    <summary className="cursor-pointer px-3 py-2 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex flex-col gap-1">
-                        {showOwnerMatchup && (
-                          <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                            {awayOwner} vs {homeOwner}
-                          </div>
-                        )}
-                        {shouldShowCollapsedCanonicalLabel(g, isPlaceholder) && (
-                          <div className="text-xs font-semibold text-violet-700 dark:text-violet-300">
-                            {g.label}
-                          </div>
-                        )}
-                        <div
-                          className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : 'text-gray-900 dark:text-zinc-100'}`}
-                        >
-                          {renderMatchupLabel(
-                            g,
-                            rankingsByTeamId,
-                            useNeutralSemantics ? 'vs' : '@'
-                          )}
-                        </div>
-                      </div>
+                  <details
+                    key={g.key}
+                    className="group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700"
+                  >
+                    <summary className="cursor-pointer list-none px-3 py-2">
                       <div
-                        className="shrink-0 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-400"
-                        data-summary-state
+                        className="-mt-2 -mx-3 mb-2 flex h-1 overflow-hidden"
+                        aria-hidden="true"
+                        data-card-team-accents
                       >
-                        {resolveSummaryStateLabel(g, score, isPlaceholder)}
+                        <span
+                          className="block h-full flex-1 transition-opacity duration-150 group-hover:opacity-100 opacity-80"
+                          style={{ backgroundColor: awayColorTreatment.borderAccent }}
+                          data-card-team-accent="away"
+                        />
+                        <span
+                          className="block h-full flex-1 transition-opacity duration-150 group-hover:opacity-100 opacity-80"
+                          style={{ backgroundColor: homeColorTreatment.borderAccent }}
+                          data-card-team-accent="home"
+                        />
+                      </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex flex-col gap-1">
+                          {showOwnerMatchup && (
+                            <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                              {awayOwner} vs {homeOwner}
+                            </div>
+                          )}
+                          {shouldShowCollapsedCanonicalLabel(g, isPlaceholder) && (
+                            <div className="text-xs font-semibold text-violet-700 dark:text-violet-300">
+                              {g.label}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                              <span
+                                className="h-2 w-2 shrink-0 rounded-full transition-transform duration-150 group-hover:scale-110"
+                                style={{ backgroundColor: awayColorTreatment.subtleAccent }}
+                                aria-hidden="true"
+                                data-collapsed-team-accent="away"
+                              />
+                              <div
+                                className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : 'text-gray-900 dark:text-zinc-100'}`}
+                              >
+                                {renderMatchupLabel(
+                                  g,
+                                  rankingsByTeamId,
+                                  useNeutralSemantics ? 'vs' : '@'
+                                )}
+                              </div>
+                              <span
+                                className="h-2 w-2 shrink-0 rounded-full transition-transform duration-150 group-hover:scale-110"
+                                style={{ backgroundColor: homeColorTreatment.subtleAccent }}
+                                aria-hidden="true"
+                                data-collapsed-team-accent="home"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] ${summaryChipClasses(resolvedSummaryState, isPlaceholder)}`}
+                          data-summary-state
+                        >
+                          {resolvedSummaryState}
+                        </div>
                       </div>
                     </summary>
 
@@ -258,14 +347,8 @@ export default function GameWeekPanel({
                         homeConference={g.homeConf}
                         awayOwner={awayOwner}
                         homeOwner={homeOwner}
-                        awayColorTreatment={getSafeScoreboardTeamColorById(
-                          awayTeamId,
-                          teamCatalogById
-                        )}
-                        homeColorTreatment={getSafeScoreboardTeamColorById(
-                          homeTeamId,
-                          teamCatalogById
-                        )}
+                        awayColorTreatment={awayColorTreatment}
+                        homeColorTreatment={homeColorTreatment}
                         venue={g.venue}
                         odds={odds}
                         isPlaceholder={isPlaceholder}

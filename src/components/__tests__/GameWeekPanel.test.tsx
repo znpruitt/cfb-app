@@ -222,6 +222,155 @@ test('collapsed summary preserves canonical schedule status when score data is m
   assert.doesNotMatch(html, /data-summary-state[^>]*>Scheduled<\/div>/);
 });
 
+test('schedule-only status chips map to resolved summary states', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'schedule-final-chip',
+          csvAway: 'Texas',
+          csvHome: 'Kansas State',
+          status: 'final',
+        }),
+        game({
+          key: 'schedule-live-chip',
+          csvAway: 'TCU',
+          csvHome: 'Baylor',
+          status: 'in_progress',
+        }),
+        game({
+          key: 'schedule-scheduled-chip',
+          csvAway: 'Iowa State',
+          csvHome: 'Kansas',
+          status: 'scheduled',
+        }),
+        game({
+          key: 'schedule-matchup-set-chip',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Peach Bowl',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /border-emerald-200[^>]*data-summary-state="true">FINAL<\/div>/);
+  assert.match(html, /border-amber-200[^>]*data-summary-state="true">IN PROGRESS<\/div>/);
+  assert.match(html, /border-sky-200[^>]*data-summary-state="true">Scheduled<\/div>/);
+  assert.match(html, /border-violet-200[^>]*data-summary-state="true">MATCHUP SET<\/div>/);
+});
+
+test('live summary chip styling reuses shared game-state detection for full-word labels', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({ key: 'live-quarter-1', csvAway: 'Texas', csvHome: 'Baylor' }),
+        game({ key: 'live-quarter-3', csvAway: 'TCU', csvHome: 'Kansas State' }),
+        game({ key: 'live-ot', csvAway: 'Iowa State', csvHome: 'Kansas' }),
+        game({ key: 'live-half', csvAway: 'Oklahoma', csvHome: 'Oklahoma State' }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'live-quarter-1': {
+          away: { team: 'Texas', score: 7 },
+          home: { team: 'Baylor', score: 3 },
+          status: '1st Quarter',
+          time: null,
+        },
+        'live-quarter-3': {
+          away: { team: 'TCU', score: 20 },
+          home: { team: 'Kansas State', score: 14 },
+          status: '3rd Quarter',
+          time: null,
+        },
+        'live-ot': {
+          away: { team: 'Iowa State', score: 24 },
+          home: { team: 'Kansas', score: 24 },
+          status: 'In OT',
+          time: null,
+        },
+        'live-half': {
+          away: { team: 'Oklahoma', score: 17 },
+          home: { team: 'Oklahoma State', score: 14 },
+          status: 'Half',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /border-amber-200[^>]*data-summary-state="true">1ST QUARTER<\/div>/);
+  assert.match(html, /border-amber-200[^>]*data-summary-state="true">3RD QUARTER<\/div>/);
+  assert.match(html, /border-amber-200[^>]*data-summary-state="true">IN OT<\/div>/);
+  assert.match(html, /border-amber-200[^>]*data-summary-state="true">HALF<\/div>/);
+});
+
+test('disrupted summary chips stay distinct from scheduled styling', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({ key: 'disrupted-postponed', csvAway: 'Texas', csvHome: 'Baylor' }),
+        game({ key: 'disrupted-canceled', csvAway: 'TCU', csvHome: 'Kansas State' }),
+        game({ key: 'disrupted-suspended', csvAway: 'Iowa State', csvHome: 'Kansas' }),
+        game({ key: 'disrupted-delayed', csvAway: 'Oklahoma', csvHome: 'Oklahoma State' }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'disrupted-postponed': {
+          away: { team: 'Texas', score: null },
+          home: { team: 'Baylor', score: null },
+          status: 'Postponed',
+          time: null,
+        },
+        'disrupted-canceled': {
+          away: { team: 'TCU', score: null },
+          home: { team: 'Kansas State', score: null },
+          status: 'Canceled',
+          time: null,
+        },
+        'disrupted-suspended': {
+          away: { team: 'Iowa State', score: null },
+          home: { team: 'Kansas', score: null },
+          status: 'Suspended',
+          time: null,
+        },
+        'disrupted-delayed': {
+          away: { team: 'Oklahoma', score: null },
+          home: { team: 'Oklahoma State', score: null },
+          status: 'Delayed',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /border-rose-200[^>]*data-summary-state="true">Postponed<\/div>/);
+  assert.match(html, /border-rose-200[^>]*data-summary-state="true">Canceled<\/div>/);
+  assert.match(html, /border-rose-200[^>]*data-summary-state="true">Suspended<\/div>/);
+  assert.match(html, /border-rose-200[^>]*data-summary-state="true">Delayed<\/div>/);
+  assert.doesNotMatch(html, /border-sky-200[^>]*data-summary-state="true">Postponed<\/div>/);
+});
+
 test('neutral-site ranked matchup label preserves vs wording', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
@@ -388,7 +537,7 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
   assert.match(
     html,
-    /data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="alt"/
+    /data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="primary"/
   );
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });
@@ -949,4 +1098,45 @@ test('neutral-site provider matchup labels fall back to notes when canonical mat
   assert.match(html, /data-expanded-event-name[^>]*>Aer Lingus College Football Classic<\/div>/);
   assert.doesNotMatch(html, /data-expanded-event-name[^>]*>Notre Dame @ Navy<\/div>/);
   assert.equal((html.match(/Notre Dame<\/span> vs <span>Navy/g) ?? []).length, 1);
+});
+
+test('collapsed rows use neutral cards with chip-only state styling and team accents', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'accented', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        accented: {
+          away: { team: 'Texas', score: 31 },
+          home: { team: 'Oklahoma', score: 21 },
+          status: 'Final',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      teamCatalogById={
+        new Map([
+          [
+            'Texas',
+            { id: 'Texas', school: 'Texas', color: '#BF5700', altColor: '#FFFFFF', alts: [] },
+          ],
+          [
+            'Oklahoma',
+            { id: 'Oklahoma', school: 'Oklahoma', color: '#841617', altColor: '#FDF9D8', alts: [] },
+          ],
+        ])
+      }
+    />
+  );
+
+  assert.match(html, /data-card-team-accent="away"/);
+  assert.match(html, /data-card-team-accent="home"/);
+  assert.match(html, /data-collapsed-team-accent="away"/);
+  assert.match(html, /data-collapsed-team-accent="home"/);
+  assert.match(html, /border-emerald-200[^>]*data-summary-state=\"true\">FINAL<\/div>/);
+  assert.doesNotMatch(html, /bg-emerald-50 text-gray-900/);
 });

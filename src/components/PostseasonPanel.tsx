@@ -4,6 +4,7 @@ import type { CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
+import type { TeamCatalogItem } from '../lib/teamIdentity';
 import GameWeekPanel from './GameWeekPanel';
 
 type PostseasonPanelProps = {
@@ -12,6 +13,7 @@ type PostseasonPanelProps = {
   scoresByKey: Record<string, ScorePack>;
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
+  teamCatalogById?: Map<string, TeamCatalogItem>;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
 };
 
@@ -38,6 +40,7 @@ export default function PostseasonPanel({
   scoresByKey,
   rosterByTeam,
   isDebug,
+  teamCatalogById = new Map(),
   onSavePostseasonOverride,
 }: PostseasonPanelProps): React.ReactElement {
   const postseason = games.filter(isTruePostseasonGame);
@@ -78,6 +81,7 @@ export default function PostseasonPanel({
               scoresByKey={scoresByKey}
               rosterByTeam={rosterByTeam}
               isDebug={isDebug}
+              teamCatalogById={teamCatalogById}
               onSavePostseasonOverride={onSavePostseasonOverride}
             />
           </div>

@@ -58,6 +58,30 @@ function formatScoreStatus(status: string): string {
   return trimmed.toUpperCase();
 }
 
+function scoreboardStatusChipClasses(score: ScorePack | undefined, isPlaceholder: boolean): string {
+  if (isPlaceholder && !score) {
+    return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
+  }
+  if (!score) {
+    return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
+  }
+
+  const trimmed = score.status.trim();
+  if (/\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(trimmed)) {
+    return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
+  }
+
+  const state = gameStateFromScore(score);
+  if (state === 'final') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200';
+  }
+  if (state === 'inprogress') {
+    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200';
+  }
+
+  return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
+}
+
 function scoreboardRowClasses(isLeading: boolean): string {
   return [
     'flex items-start justify-between gap-4 py-1.5 pl-3 first:pt-0 last:pb-0',
@@ -180,12 +204,13 @@ export default function GameScoreboard({
     : isPlaceholder
       ? 'PENDING MATCHUP'
       : 'NO SCORE';
+  const statusChipClasses = scoreboardStatusChipClasses(score, isPlaceholder);
 
   return (
     <div className="space-y-1.5" aria-label="Game scoreboard">
       <div className="flex justify-end">
         <div
-          className="shrink-0 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-500"
+          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] ${statusChipClasses}`}
           data-scoreboard-status
         >
           {statusText}
