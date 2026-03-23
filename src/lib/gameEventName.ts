@@ -6,13 +6,20 @@ function looksLikeLocation(value: string): boolean {
   return /^[A-Za-z .'-]+,\s*[A-Z]{2,3}$/.test(value);
 }
 
+function normalizeMatchupEquivalence(value: string): string {
+  return value
+    .toLocaleLowerCase()
+    .replace(/\s+(?:@|vs\.?)\s+/gi, ' v ')
+    .trim();
+}
+
 function isDisplayable(value: string, matchupLabel: string): boolean {
   if (!value) return false;
   if (/^(tbd|n\/a|none)$/i.test(value)) return false;
   if (looksLikeLocation(value)) return false;
   if (
     matchupLabel &&
-    value.localeCompare(matchupLabel, undefined, { sensitivity: 'accent' }) === 0
+    normalizeMatchupEquivalence(value) === normalizeMatchupEquivalence(matchupLabel)
   ) {
     return false;
   }

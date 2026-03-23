@@ -896,3 +896,33 @@ test('expanded event name prefers label over notes and preserves valid notes fal
     /data-expanded-event-name[^>]*>Aer Lingus College Football Classic<\/div>/
   );
 });
+
+test('neutral-site provider matchup labels fall back to notes when canonical matchup uses vs', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'neutral-site-provider-label',
+          csvAway: 'Notre Dame',
+          csvHome: 'Navy',
+          date: '2025-08-23T17:00:00.000Z',
+          neutral: true,
+          neutralDisplay: 'vs',
+          label: 'Notre Dame @ Navy',
+          notes: 'Aer Lingus College Football Classic',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-expanded-event-name[^>]*>Aer Lingus College Football Classic<\/div>/);
+  assert.doesNotMatch(html, /data-expanded-event-name[^>]*>Notre Dame @ Navy<\/div>/);
+  assert.equal((html.match(/Notre Dame<\/span> vs <span>Navy/g) ?? []).length, 1);
+});
