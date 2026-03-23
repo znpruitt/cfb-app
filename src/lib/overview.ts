@@ -64,6 +64,12 @@ function compareOverviewItems(a: OverviewGameItem, b: OverviewGameItem): number 
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 
+function compareRecentOverviewItems(a: OverviewGameItem, b: OverviewGameItem): number {
+  if (b.priority !== a.priority) return b.priority - a.priority;
+  if (b.sortDate !== a.sortDate) return b.sortDate - a.sortDate;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
+}
+
 function toOverviewItem(bucket: MatchupBucket, score?: ScorePack): OverviewGameItem {
   return {
     bucket,
@@ -85,6 +91,10 @@ function isKeyMatchupState(score?: ScorePack): boolean {
 function isUpcomingScore(score?: ScorePack): boolean {
   const state = gameStateFromScore(score);
   return state === 'scheduled' || state === 'unknown';
+}
+
+function isTrustedAutonomousUpcomingScore(score?: ScorePack): boolean {
+  return gameStateFromScore(score) === 'scheduled';
 }
 
 function isFinalScore(score?: ScorePack): boolean {
@@ -231,7 +241,9 @@ function buildOverviewScopeCandidate(params: {
     hasRelevantGames: activeSlateItems.length > 0,
     status,
     nextUpcomingDate: finiteMin(
-      activeSlateItems.filter((item) => isUpcomingScore(item.score)).map((item) => item.sortDate)
+      activeSlateItems
+        .filter((item) => isTrustedAutonomousUpcomingScore(item.score))
+        .map((item) => item.sortDate)
     ),
     latestRelevantDate: finiteMax(activeSlateItems.map((item) => item.sortDate)),
     isDefaultRegularWeek,
@@ -426,8 +438,11 @@ export function deriveOverviewSnapshot(params: {
   const includeFinalWeekGames =
     standingsCoverage.state !== 'complete' ||
     (!activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming);
-  const keyMatchups = activeSlateItems
+  const recentMode =
+    !activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming && activeSlateStatus.hasFinal;
+  const keyMatchups = [...activeSlateItems]
     .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
+    .sort(recentMode ? compareRecentOverviewItems : compareOverviewItems)
     .slice(0, options?.keyMatchupsLimit ?? DEFAULT_KEY_MATCHUP_COUNT);
 
   const context = deriveOverviewContext({
