@@ -49,9 +49,9 @@ data/teams-*.json   text eol=lf
 # -------------------------------------------------------
 # Lockfiles & config
 # -------------------------------------------------------
-package-lock.json text eol=lf -diff
-yarn.lock         text eol=lf -diff
-pnpm-lock.yaml    text eol=lf -diff
+package-lock.json text eol=lf
+yarn.lock         text eol=lf
+pnpm-lock.yaml    text eol=lf
 .eslintrc*        text eol=lf
 .prettierrc*      text eol=lf
 .browserslistrc   text eol=lf

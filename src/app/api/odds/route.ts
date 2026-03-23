@@ -33,9 +33,12 @@ import {
 } from '../../../lib/server/apiUsageBudget.ts';
 import { seasonYearForToday } from '../../../lib/scores/normalizers.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
+import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { SEED_ALIASES, type AliasMap } from '../../../lib/teamNames.ts';
 
 export const revalidate = 120;
+const ODDS_CACHE_TTL_MS = revalidate * 1000;
 
 type UpstreamOddsOutcome = { name?: string; price?: number; point?: number };
 type UpstreamOddsMarket = { key?: string; outcomes?: UpstreamOddsOutcome[] };
@@ -119,6 +122,12 @@ type QueryValidationResult = { ok: true; query: ParsedOddsQuery } | QueryValidat
 type ParsedCsvParamResult = { ok: true; values: string[] } | QueryValidationError;
 type ParsedSeasonResult = { ok: true; season: number } | QueryValidationError;
 
+type SharedOddsCacheEntry = {
+  data: NormalizedOddsEvent[];
+  lastFetch: number;
+  usage: OddsUsageSnapshot | null;
+};
+
 const oddsCache: OddsCache = {
   entries: {},
   dayKey: null,
@@ -127,6 +136,10 @@ const oddsCache: OddsCache = {
 export function __resetOddsRouteCacheForTests(): void {
   oddsCache.entries = {};
   oddsCache.dayKey = null;
+}
+
+function isFreshOddsCacheEntry(entry: SharedOddsCacheEntry | undefined, now: number): boolean {
+  return Boolean(entry && now - entry.lastFetch < ODDS_CACHE_TTL_MS);
 }
 
 function responseFrom(items: CanonicalOddsItem[], meta: OddsMeta, status = 200): Response {
@@ -292,26 +305,12 @@ async function readTeamsCatalog(): Promise<TeamCatalogItem[]> {
 }
 
 async function readAliasesForSeason(season: number): Promise<AliasMap> {
-  try {
-    const raw = await fs.readFile(
-      path.join(process.cwd(), 'data', `aliases-${season}.json`),
-      'utf8'
-    );
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { ...SEED_ALIASES };
-    }
-
-    const aliases: AliasMap = { ...SEED_ALIASES };
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof key === 'string' && typeof value === 'string') {
-        aliases[key] = value;
-      }
-    }
-    return aliases;
-  } catch {
+  const record = await getAppState<AliasMap>(`aliases:${season}`, 'map');
+  if (!record?.value || typeof record.value !== 'object' || Array.isArray(record.value)) {
     return { ...SEED_ALIASES };
   }
+
+  return { ...SEED_ALIASES, ...record.value };
 }
 
 async function fetchCanonicalSchedule(req: Request, season: number): Promise<ScheduleWireItem[]> {
@@ -514,12 +513,36 @@ export async function GET(req: Request): Promise<Response> {
       oddsCache.dayKey = dayKey;
     }
 
+    const refreshRequested = new URL(req.url).searchParams.get('refresh') === '1';
+    if (refreshRequested) {
+      const authFailure = requireAdminRequest(req);
+      if (authFailure) return authFailure;
+    }
+
     const cacheKey = createCacheKey(query);
+    const now = Date.now();
     const cachedEntry = oddsCache.entries[cacheKey];
-    const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 30 * 60 * 1000;
+    let responseEntry: SharedOddsCacheEntry | undefined = cachedEntry;
     let fetchedFromUpstream = false;
 
-    if (!cachedEntry || stale) {
+    if (!refreshRequested && isFreshOddsCacheEntry(cachedEntry, now)) {
+      recordRouteCacheHit('odds');
+    } else if (!refreshRequested) {
+      const stored = await getAppState<SharedOddsCacheEntry>(
+        'odds-cache',
+        `${query.season}:${cacheKey}`
+      );
+      const storedValue = stored?.value;
+      if (storedValue && isFreshOddsCacheEntry(storedValue, now)) {
+        oddsCache.entries[cacheKey] = storedValue;
+        responseEntry = storedValue;
+        recordRouteCacheHit('odds');
+      } else {
+        responseEntry = undefined;
+      }
+    }
+
+    if (!responseEntry || refreshRequested) {
       recordRouteCacheMiss('odds');
 
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
@@ -594,7 +617,7 @@ export async function GET(req: Request): Promise<Response> {
         cacheStatus: 'miss',
       });
 
-      oddsCache.entries[cacheKey] = {
+      responseEntry = {
         data: Array.isArray(upstreamData)
           ? upstreamData
               .map(normalizeUpstreamOddsEvent)
@@ -603,14 +626,10 @@ export async function GET(req: Request): Promise<Response> {
         lastFetch: Date.now(),
         usage,
       };
+      oddsCache.entries[cacheKey] = responseEntry;
+      await setAppState('odds-cache', `${query.season}:${cacheKey}`, responseEntry);
       fetchedFromUpstream = true;
     }
-
-    if (cachedEntry && !stale) {
-      recordRouteCacheHit('odds');
-    }
-
-    const responseEntry = oddsCache.entries[cacheKey] ?? cachedEntry;
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
     const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([

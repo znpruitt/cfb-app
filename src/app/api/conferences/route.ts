@@ -9,6 +9,7 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
+import { getAppState, setAppState } from '@/lib/server/appStateStore';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
@@ -49,6 +50,25 @@ export async function GET(req: Request) {
     });
   }
 
+  if (!bypassCache) {
+    const stored = await getAppState<{ at: number; items: CfbdConferenceRecord[] }>(
+      'conferences',
+      'snapshot'
+    );
+    if (stored?.value && Date.now() - stored.value.at < CACHE_TTL_MS) {
+      cache = stored.value;
+      recordRouteCacheHit('conferences');
+      return NextResponse.json<ConferencesResponse>({
+        items: stored.value.items,
+        meta: {
+          source: 'cache',
+          generatedAt: new Date(stored.value.at).toISOString(),
+          fallbackUsed: false,
+        },
+      });
+    }
+  }
+
   recordRouteCacheMiss('conferences');
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
@@ -74,6 +94,7 @@ export async function GET(req: Request) {
     );
 
     cache = { at: Date.now(), items: Array.isArray(items) ? items : [] };
+    await setAppState('conferences', 'snapshot', cache);
 
     return NextResponse.json<ConferencesResponse>({
       items: cache.items,

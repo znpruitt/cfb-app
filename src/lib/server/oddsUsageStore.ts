@@ -1,7 +1,4 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-
-import { writeJsonFileAtomic } from './atomicFileWrite.ts';
+import { deleteAppState, getAppState, setAppState } from './appStateStore.ts';
 import {
   buildOddsUsageSnapshot,
   type OddsUsageContext,
@@ -10,73 +7,17 @@ import {
 
 let memorySnapshot: OddsUsageSnapshot | null | undefined;
 
-function dataDir(): string {
-  return path.join(process.cwd(), 'data');
-}
-
-function oddsUsageFile(): string {
-  return path.join(dataDir(), 'odds-usage-snapshot.json');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === 'string');
-}
-
-function toSnapshot(value: unknown): OddsUsageSnapshot | null {
-  if (!isRecord(value)) return null;
-
-  const used = Number(value.used);
-  const remaining = Number(value.remaining);
-  const lastCost = Number(value.lastCost);
-  const limit = Number(value.limit);
-
-  if (
-    !Number.isFinite(used) ||
-    !Number.isFinite(remaining) ||
-    !Number.isFinite(lastCost) ||
-    !Number.isFinite(limit)
-  ) {
-    return null;
-  }
-
-  const capturedAt = typeof value.capturedAt === 'string' ? value.capturedAt : '';
-  const source = value.source;
-  if (!capturedAt || (source !== 'odds-response-headers' && source !== 'quota-error-fallback'))
-    return null;
-
-  return {
-    used,
-    remaining,
-    lastCost,
-    limit,
-    capturedAt,
-    source,
-    sportKey: typeof value.sportKey === 'string' ? value.sportKey : undefined,
-    markets: isStringArray(value.markets) ? value.markets : undefined,
-    regions: isStringArray(value.regions) ? value.regions : undefined,
-    endpointType: typeof value.endpointType === 'string' ? value.endpointType : undefined,
-    cacheStatus:
-      value.cacheStatus === 'hit' || value.cacheStatus === 'miss' || value.cacheStatus === 'unknown'
-        ? value.cacheStatus
-        : undefined,
-  };
+function oddsUsageScope(): string {
+  return 'odds-usage';
 }
 
 async function readSnapshotFile(): Promise<OddsUsageSnapshot | null> {
-  try {
-    const raw = await fs.readFile(oddsUsageFile(), 'utf8');
-    return toSnapshot(JSON.parse(raw));
-  } catch {
-    return null;
-  }
+  const record = await getAppState<OddsUsageSnapshot>(oddsUsageScope(), 'latest');
+  return record?.value ?? null;
 }
 
 async function writeSnapshotFile(snapshot: OddsUsageSnapshot): Promise<void> {
-  await writeJsonFileAtomic(oddsUsageFile(), snapshot);
+  await setAppState(oddsUsageScope(), 'latest', snapshot);
 }
 
 export async function getLatestKnownOddsUsage(): Promise<OddsUsageSnapshot | null> {
@@ -110,5 +51,5 @@ export function __resetOddsUsageStoreForTests(): void {
 
 export async function __deleteOddsUsageStoreFileForTests(): Promise<void> {
   memorySnapshot = undefined;
-  await fs.rm(oddsUsageFile(), { force: true });
+  await deleteAppState(oddsUsageScope(), 'latest');
 }

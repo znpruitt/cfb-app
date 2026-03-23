@@ -13,6 +13,7 @@ import {
   type RankingsWeek,
 } from '../rankings.ts';
 import { SEED_ALIASES } from '../teamNames.ts';
+import { getAppState, setAppState } from './appStateStore.ts';
 
 export type CfbdPollRank = {
   rank: number | null;
@@ -159,6 +160,21 @@ export async function loadSeasonRankings(
     };
   }
 
+  const stored = await getAppState<{ at: number; response: RankingsResponse }>(
+    'rankings',
+    String(season)
+  );
+  if (stored?.value && now - stored.value.at < CACHE_TTL_MS) {
+    CACHE.set(season, stored.value);
+    return {
+      ...stored.value.response,
+      meta: {
+        ...stored.value.response.meta,
+        cache: 'hit',
+      },
+    };
+  }
+
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
     throw new Error('CFBD_API_KEY missing');
@@ -189,6 +205,8 @@ export async function loadSeasonRankings(
     },
   };
 
-  CACHE.set(season, { at: now, response });
+  const cacheEntry = { at: now, response };
+  CACHE.set(season, cacheEntry);
+  await setAppState('rankings', String(season), cacheEntry);
   return response;
 }

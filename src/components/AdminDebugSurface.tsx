@@ -1,5 +1,7 @@
 import React from 'react';
 
+import AdminAuthPanel from './AdminAuthPanel';
+import AdminStorageStatusPanel from './AdminStorageStatusPanel';
 import AdminUsagePanel from './AdminUsagePanel';
 import AdminTeamDatabasePanel from './AdminTeamDatabasePanel';
 import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
@@ -151,6 +153,8 @@ export default function AdminDebugSurface({
         for active views, and odds remain policy-gated to protect monthly API quotas.
       </p>
 
+      <AdminAuthPanel />
+      <AdminStorageStatusPanel />
       <AdminUsagePanel />
       <AdminTeamDatabasePanel />
       <ScoreAttachmentDebugPanel season={season} onStageAlias={onStageAlias} />

@@ -26,6 +26,7 @@ import {
   type WeekCorrectionReason,
 } from './regularSeasonWeekCalendar.ts';
 import type { VenueInfo } from './schedule/cfbdSchedule.ts';
+import { requireAdminAuthHeaders } from './adminAuth.ts';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 
@@ -196,7 +197,10 @@ export async function fetchSeasonSchedule(
   const searchParams = new URLSearchParams({ year: String(season) });
   if (options?.bypassCache) searchParams.set('bypassCache', '1');
 
-  const response = await fetch(`/api/schedule?${searchParams.toString()}`, { cache: 'no-store' });
+  const response = await fetch(`/api/schedule?${searchParams.toString()}`, {
+    cache: 'no-store',
+    headers: options?.bypassCache ? requireAdminAuthHeaders() : undefined,
+  });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     throw new Error(`schedule ${response.status} ${detail}`);

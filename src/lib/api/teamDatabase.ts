@@ -1,3 +1,4 @@
+import { requireAdminAuthHeaders } from '../adminAuth.ts';
 import type { TeamDatabaseSyncSummary } from '../teamDatabase';
 
 export type TeamDatabaseSyncResponse = {
@@ -10,7 +11,7 @@ export type TeamDatabaseSyncResponse = {
 export async function syncTeamDatabase(): Promise<TeamDatabaseSyncResponse> {
   const response = await fetch('/api/admin/team-database', {
     method: 'POST',
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...requireAdminAuthHeaders() },
   });
 
   const payload = (await response.json()) as unknown;

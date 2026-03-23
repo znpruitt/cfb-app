@@ -7,6 +7,10 @@ import {
 } from '@/lib/server/teamDatabaseStore';
 
 import { POST } from './route';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+} from '../../../../lib/server/appStateStore.ts';
 
 type MockFetch = typeof fetch;
 
@@ -18,6 +22,11 @@ test.beforeEach(async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   __resetTeamDatabaseStoreForTests();
   await __deleteTeamDatabaseStoreFileForTests();
+});
+
+test.beforeEach(async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
 });
 
 test('team database sync route fetches CFBD teams, persists them, and returns summary', async () => {

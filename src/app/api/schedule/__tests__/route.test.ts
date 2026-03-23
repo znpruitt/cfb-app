@@ -1,13 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GET } from '../route';
+import { GET, __resetScheduleRouteCacheForTests } from '../route';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  setAppState,
+} from '../../../../lib/server/appStateStore.ts';
 
 type MockFetch = typeof fetch;
 
 function setMockFetch(impl: Parameters<MockFetch>[1] extends never ? never : any) {
   global.fetch = impl as MockFetch;
 }
+
+test.beforeEach(async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetScheduleRouteCacheForTests();
+});
 
 test('schedule route returns mapped items from CFBD upstream', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
@@ -145,4 +156,35 @@ test('schedule route bypassCache=1 forces an upstream refetch', async () => {
   assert.equal(secondJson.meta.cache, 'miss');
   assert.equal(firstJson.items[0].homeTeam, 'Home 1');
   assert.equal(secondJson.items[0].homeTeam, 'Home 2');
+});
+
+test('stale shared schedule cache entries are refetched instead of treated as permanently fresh', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  let fetchCount = 0;
+
+  await setAppState('schedule', '2026-all-regular', {
+    at: Date.now() - 3_601_000,
+    items: [{ week: 1, homeTeam: 'Stale Home', awayTeam: 'Away', seasonType: 'regular' }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  setMockFetch(async () => {
+    fetchCount += 1;
+    return new Response(
+      JSON.stringify([{ week: 1, home_team: 'Fresh Home', away_team: 'Away', id: fetchCount }]),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }
+    );
+  });
+
+  const res = await GET(new Request('http://localhost/api/schedule?year=2026&seasonType=regular'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(fetchCount, 1);
+  assert.equal(json.meta.cache, 'miss');
+  assert.equal(json.items[0].homeTeam, 'Fresh Home');
 });

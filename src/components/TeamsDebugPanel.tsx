@@ -3,6 +3,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { getAdminAuthHeaders } from '../lib/adminAuth';
+
 type TeamItem = {
   school: string;
   mascot?: string | null;
@@ -148,7 +150,7 @@ export default function TeamsDebugPanel(): React.ReactElement {
     try {
       const r = await fetch(`/api/aliases?year=${year}`, {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
         body: JSON.stringify({ upserts: { [key]: school }, deletes: [] as string[] }),
       });
       if (!r.ok) {
@@ -174,7 +176,7 @@ export default function TeamsDebugPanel(): React.ReactElement {
     try {
       const r = await fetch(`/api/aliases?year=${year}`, {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
         body: JSON.stringify({ upserts: {}, deletes: [alias] }),
       });
       if (!r.ok) {
