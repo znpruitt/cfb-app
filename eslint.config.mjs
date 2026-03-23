@@ -3,7 +3,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 import nextPlugin from '@next/eslint-plugin-next';
 import tseslint from 'typescript-eslint';
-import prettierPlugin from 'eslint-plugin-prettier';
+import eslintConfigPrettier from 'eslint-config-prettier';
 import unusedImports from 'eslint-plugin-unused-imports';
 
 const projectFiles = ['**/*.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'];
@@ -45,14 +45,11 @@ export default [
     files: projectFiles,
     plugins: {
       '@next/next': nextPlugin,
-      prettier: prettierPlugin,
       'unused-imports': unusedImports,
     },
     rules: {
       ...nextPlugin.configs.recommended.rules,
       ...nextPlugin.configs['core-web-vitals'].rules,
-
-      'prettier/prettier': 'warn',
 
       'unused-imports/no-unused-imports': 'warn',
       'unused-imports/no-unused-vars': [
@@ -68,4 +65,6 @@ export default [
       '@typescript-eslint/no-explicit-any': 'off',
     },
   },
+
+  eslintConfigPrettier,
 ];

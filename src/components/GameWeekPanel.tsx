@@ -226,8 +226,8 @@ export default function GameWeekPanel({
                       </div>
                     </summary>
 
-                    <div className="space-y-3 p-3">
-                      <div className="space-y-1">
+                    <div className="space-y-2.5 px-3 py-3">
+                      <div className="space-y-0.5">
                         {eventName && (
                           <div
                             className="text-sm leading-snug text-gray-400 dark:text-zinc-500"

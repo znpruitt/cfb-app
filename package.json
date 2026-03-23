@@ -6,11 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
-    "lint:fix": "eslint src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --fix",
+    "lint": "npm run lint:eslint && npm run lint:format",
+    "lint:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**'",
+    "lint:all": "npm run lint:all:eslint && npm run lint:all:format",
+    "lint:fix": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**' --fix",
+    "lint:format": "prettier --check --cache --cache-strategy content src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:quick": "npm run lint:eslint",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "fetch:teams": "tsx scripts/fetch-cfbd-teams.ts --year 2025"
+    "format:check": "npm run lint:all:format",
+    "fetch:teams": "tsx scripts/fetch-cfbd-teams.ts --year 2025",
+    "lint:all:eslint": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:all:format": "prettier --check --cache --cache-strategy content src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts"
   },
   "dependencies": {
     "cfbd": "^5.11.4",

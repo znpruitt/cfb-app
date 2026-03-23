@@ -58,7 +58,7 @@ function scoreboardRowClasses(teamScore: number | null, opponentScore: number | 
   const isLeading = hasScores && teamScore > opponentScore;
 
   return [
-    'flex items-start justify-between gap-4 border-l-2 py-2 pl-3 first:pt-0 last:pb-0',
+    'flex items-start justify-between gap-4 border-l-2 py-1.5 pl-3 first:pt-0 last:pb-0',
     isLeading
       ? 'border-l-emerald-600 text-gray-950 dark:border-l-emerald-400 dark:text-zinc-50'
       : 'border-l-transparent text-gray-800 dark:text-zinc-200',
@@ -176,7 +176,7 @@ export default function GameScoreboard({
       : 'NO SCORE';
 
   return (
-    <div className="space-y-2" aria-label="Game scoreboard">
+    <div className="space-y-1.5" aria-label="Game scoreboard">
       <div className="flex justify-end">
         <div
           className="shrink-0 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-500"
@@ -186,7 +186,7 @@ export default function GameScoreboard({
         </div>
       </div>
 
-      <div className="px-1 py-0.5">
+      <div className="px-1">
         {rows.map((team, index) => {
           const opponentScore = rows[index === 0 ? 1 : 0]?.score ?? null;
           const teamContext = buildTeamContext(team.conference, team.owner);
@@ -194,7 +194,7 @@ export default function GameScoreboard({
           return (
             <div
               key={team.key}
-              className={`${scoreboardRowClasses(team.score, opponentScore)} ${index === 0 ? 'border-b border-gray-200/60 dark:border-zinc-800/80' : ''}`}
+              className={`${scoreboardRowClasses(team.score, opponentScore)} ${index === 0 ? 'border-b border-gray-200/40 dark:border-zinc-800/60' : ''}`}
               data-scoreboard-row={team.key}
               data-scoreboard-winner={
                 team.score != null && opponentScore != null && team.score > opponentScore
@@ -204,7 +204,7 @@ export default function GameScoreboard({
                 <RankedTeamName
                   teamName={getTeamDisplayLabel(team.label, 'scoreboard')}
                   ranking={team.ranking}
-                  className="whitespace-normal break-words text-lg leading-snug sm:text-[1.45rem]"
+                  className="whitespace-normal break-words text-lg leading-tight sm:text-[1.45rem]"
                 />
                 {teamContext && (
                   <div
@@ -238,7 +238,7 @@ export default function GameScoreboard({
       )}
 
       {oddsSummary && (
-        <div className="border-t border-gray-200/60 pt-2 text-sm text-gray-500 dark:border-zinc-800/80 dark:text-zinc-400">
+        <div className="border-t border-gray-200/60 pt-1.5 text-sm text-gray-500 dark:border-zinc-800/80 dark:text-zinc-400">
           {oddsSummary}
         </div>
       )}
