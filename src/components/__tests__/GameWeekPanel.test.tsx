@@ -364,7 +364,7 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
   assert.match(
     html,
-    /border-l-emerald-600[^"]*border-b border-gray-200\/60[^>]*data-scoreboard-row="away" data-scoreboard-winner="true"/
+    /border-l-emerald-600[^"]*border-b border-gray-200\/40[^>]*data-scoreboard-row="away" data-scoreboard-winner="true"/
   );
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });
@@ -839,4 +839,60 @@ test('expanded event name falls back to notes and suppresses duplicate matchup l
     /data-expanded-event-name[^>]*>World’s Largest Outdoor Cocktail Party<\/div>/
   );
   assert.doesNotMatch(suppressedHtml, /data-expanded-event-name/);
+});
+
+test('expanded event name prefers label over notes and preserves valid notes fallback examples', () => {
+  const labelHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'event-label-wins',
+          csvAway: 'Notre Dame',
+          csvHome: 'Navy',
+          date: '2025-08-23T17:00:00.000Z',
+          label: 'Official Event Name',
+          notes: 'Aer Lingus College Football Classic',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const notesHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'event-aer-lingus',
+          csvAway: 'Notre Dame',
+          csvHome: 'Navy',
+          date: '2025-08-23T17:00:00.000Z',
+          label: 'Notre Dame @ Navy',
+          notes: 'Aer Lingus College Football Classic',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(labelHtml, /data-expanded-event-name[^>]*>Official Event Name<\/div>/);
+  assert.doesNotMatch(
+    labelHtml,
+    /data-expanded-event-name[^>]*>Aer Lingus College Football Classic<\/div>/
+  );
+  assert.match(
+    notesHtml,
+    /data-expanded-event-name[^>]*>Aer Lingus College Football Classic<\/div>/
+  );
 });

@@ -24,3 +24,14 @@ test('deriveDisplayEventName suppresses empty and non-display-worthy label or no
   assert.equal(deriveDisplayEventName('Texas @ Ohio State', null, 'Texas @ Ohio State'), null);
   assert.equal(deriveDisplayEventName('', 'Texas @ Ohio State', 'Texas @ Ohio State'), null);
 });
+
+test('deriveDisplayEventName allows valid notes when label is suppressed', () => {
+  assert.equal(
+    deriveDisplayEventName(
+      'Florida @ Georgia',
+      'Aer Lingus College Football Classic',
+      'Florida @ Georgia'
+    ),
+    'Aer Lingus College Football Classic'
+  );
+});

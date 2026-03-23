@@ -6,16 +6,16 @@ function looksLikeLocation(value: string): boolean {
   return /^[A-Za-z .'-]+,\s*[A-Z]{2,3}$/.test(value);
 }
 
-function isDisplayWorthy(value: string, matchupLabel: string): boolean {
+function isDisplayable(value: string, matchupLabel: string): boolean {
   if (!value) return false;
   if (/^(tbd|n\/a|none)$/i.test(value)) return false;
+  if (looksLikeLocation(value)) return false;
   if (
     matchupLabel &&
     value.localeCompare(matchupLabel, undefined, { sensitivity: 'accent' }) === 0
   ) {
     return false;
   }
-  if (looksLikeLocation(value)) return false;
 
   return true;
 }
@@ -29,8 +29,8 @@ export function deriveDisplayEventName(
   const normalizedNotes = normalizeText(notes);
   const normalizedMatchup = normalizeText(matchupLabel);
 
-  if (isDisplayWorthy(normalizedLabel, normalizedMatchup)) return normalizedLabel;
-  if (isDisplayWorthy(normalizedNotes, normalizedMatchup)) return normalizedNotes;
+  if (isDisplayable(normalizedLabel, normalizedMatchup)) return normalizedLabel;
+  if (isDisplayable(normalizedNotes, normalizedMatchup)) return normalizedNotes;
 
   return null;
 }
