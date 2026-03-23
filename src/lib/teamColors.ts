@@ -211,7 +211,7 @@ function buildAccentRoles(hex: string): TeamColorRoles {
   return {
     subtleAccent: withAlpha(hex, 0.52),
     strongAccent: withAlpha(hex, 0.92),
-    borderAccent: withAlpha(hex, 0.28),
+    borderAccent: withAlpha(hex, 0.38),
   };
 }
 

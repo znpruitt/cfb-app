@@ -1147,7 +1147,7 @@ test('expanded cards keep away/home accents on the outer card instead of renderi
 
   assert.match(
     html,
-    /<details[^>]*style="[^"]*inset 0 1px 0[^"]*inset 0 -1px 0[^"]*"[^>]*data-card-team-accent-top="away"[^>]*data-card-team-accent-bottom="home"/
+    /<details[^>]*style="[^"]*inset 0 2px 0[^"]*inset 0 -2px 0[^"]*"[^>]*data-card-team-accent-top="away"[^>]*data-card-team-accent-bottom="home"/
   );
   assert.doesNotMatch(html, /data-card-team-accent-edge=/);
   assert.doesNotMatch(html, /<summary[^>]*>[\s\S]*inset 0 -1px 0/);

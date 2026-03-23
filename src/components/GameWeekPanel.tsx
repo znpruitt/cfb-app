@@ -254,7 +254,7 @@ export default function GameWeekPanel({
                     key={g.key}
                     className="group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700"
                     style={{
-                      boxShadow: `inset 0 1px 0 ${awayColorTreatment.borderAccent}, inset 0 -1px 0 ${homeColorTreatment.borderAccent}`,
+                      boxShadow: `inset 0 2px 0 ${awayColorTreatment.borderAccent}, inset 0 -2px 0 ${homeColorTreatment.borderAccent}`,
                     }}
                     data-card-team-accent-top="away"
                     data-card-team-accent-bottom="home"
