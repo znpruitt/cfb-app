@@ -388,7 +388,7 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
   assert.match(
     html,
-    /data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="alt"/
+    /data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="primary"/
   );
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });
@@ -949,4 +949,45 @@ test('neutral-site provider matchup labels fall back to notes when canonical mat
   assert.match(html, /data-expanded-event-name[^>]*>Aer Lingus College Football Classic<\/div>/);
   assert.doesNotMatch(html, /data-expanded-event-name[^>]*>Notre Dame @ Navy<\/div>/);
   assert.equal((html.match(/Notre Dame<\/span> vs <span>Navy/g) ?? []).length, 1);
+});
+
+test('collapsed rows use neutral cards with chip-only state styling and team accents', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'accented', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        accented: {
+          away: { team: 'Texas', score: 31 },
+          home: { team: 'Oklahoma', score: 21 },
+          status: 'Final',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      teamCatalogById={
+        new Map([
+          [
+            'Texas',
+            { id: 'Texas', school: 'Texas', color: '#BF5700', altColor: '#FFFFFF', alts: [] },
+          ],
+          [
+            'Oklahoma',
+            { id: 'Oklahoma', school: 'Oklahoma', color: '#841617', altColor: '#FDF9D8', alts: [] },
+          ],
+        ])
+      }
+    />
+  );
+
+  assert.match(html, /data-card-team-accent="away"/);
+  assert.match(html, /data-card-team-accent="home"/);
+  assert.match(html, /data-collapsed-team-accent="away"/);
+  assert.match(html, /data-collapsed-team-accent="home"/);
+  assert.match(html, /border-emerald-200[^>]*data-summary-state=\"true\">FINAL<\/div>/);
+  assert.doesNotMatch(html, /bg-emerald-50 text-gray-900/);
 });
