@@ -2,6 +2,11 @@ import type { TeamCatalogItem } from './teamIdentity';
 
 export type TeamColorSource = 'primary' | 'alt' | 'fallback';
 
+const SCOREBOARD_MIN_LUMINANCE = 0.03;
+const SCOREBOARD_MAX_LUMINANCE = 0.9;
+const SCOREBOARD_DARK_SURFACE = '#0A0A0A';
+const MIN_DARK_THEME_CONTRAST = 3;
+
 export type ScoreboardTeamColorTreatment = {
   source: TeamColorSource;
   baseColor: string;
@@ -121,12 +126,37 @@ function relativeLuminance(rgb: Rgb): number {
   );
 }
 
+function contrastRatio(hexA: string, hexB: string): number {
+  const luminanceA = relativeLuminance(hexToRgb(hexA));
+  const luminanceB = relativeLuminance(hexToRgb(hexB));
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
+
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function liftForDarkThemeContrast(hex: string): string | null {
+  if (contrastRatio(hex, SCOREBOARD_DARK_SURFACE) >= MIN_DARK_THEME_CONTRAST) {
+    return hex;
+  }
+
+  const adjusted = rgbToHsl(hexToRgb(hex));
+  for (let lightness = adjusted.l + 0.01; lightness <= 0.76; lightness += 0.01) {
+    const candidate = rgbToHex(hslToRgb({ ...adjusted, l: clamp(lightness, adjusted.l, 0.76) }));
+    if (contrastRatio(candidate, SCOREBOARD_DARK_SURFACE) >= MIN_DARK_THEME_CONTRAST) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function isUnsafeRawColor(hex: string): boolean {
   const rgb = hexToRgb(hex);
   const hsl = rgbToHsl(rgb);
   const luminance = relativeLuminance(rgb);
 
-  if (luminance < 0.03 || luminance > 0.9) return true;
+  if (luminance < SCOREBOARD_MIN_LUMINANCE || luminance > SCOREBOARD_MAX_LUMINANCE) return true;
   if (hsl.l < 0.16 || hsl.l > 0.84) return true;
   if (hsl.s < 0.08 && (hsl.l < 0.24 || hsl.l > 0.78)) return true;
 
@@ -134,6 +164,21 @@ function isUnsafeRawColor(hex: string): boolean {
   if (isYellowGold) return true;
 
   return false;
+}
+
+function isReasonableScoreboardAccent(hex: string): boolean {
+  const rgb = hexToRgb(hex);
+  const hsl = rgbToHsl(rgb);
+  const luminance = relativeLuminance(rgb);
+
+  if (luminance < SCOREBOARD_MIN_LUMINANCE || luminance > SCOREBOARD_MAX_LUMINANCE) return false;
+  if (hsl.l < 0.22 || hsl.l > 0.76) return false;
+  if (hsl.s < 0.12 && (hsl.l < 0.3 || hsl.l > 0.72)) return false;
+
+  const isYellowGold = hsl.h >= 42 && hsl.h <= 72;
+  if (isYellowGold && hsl.l > 0.42) return false;
+
+  return true;
 }
 
 function softenForScoreboard(hex: string): string {
@@ -168,18 +213,46 @@ function buildTreatment(hex: string, source: TeamColorSource): ScoreboardTeamCol
   };
 }
 
+function resolveTeamColorCandidate(
+  hex: string | null,
+  source: TeamColorSource
+): ScoreboardTeamColorTreatment | null {
+  if (!hex) return null;
+
+  if (!isUnsafeRawColor(hex)) {
+    return buildTreatment(hex, source);
+  }
+
+  const rawRgb = hexToRgb(hex);
+  const rawHsl = rgbToHsl(rawRgb);
+  const rawLuminance = relativeLuminance(rawRgb);
+  const rawIsExtremeNeutral = rawHsl.s < 0.08 && (rawHsl.l < 0.12 || rawHsl.l > 0.88);
+  if (rawLuminance < 0.015 || rawLuminance > 0.97 || rawIsExtremeNeutral) {
+    return null;
+  }
+
+  const lifted = liftForDarkThemeContrast(softenForScoreboard(hex));
+  if (lifted && isReasonableScoreboardAccent(lifted)) {
+    return {
+      source,
+      baseColor: lifted,
+      rowAccentColor: withAlpha(lifted, 0.45),
+      winnerAccentColor: withAlpha(lifted, 0.92),
+      winnerScoreColor: lifted,
+    };
+  }
+
+  return null;
+}
+
 export function getSafeScoreboardTeamColor(
   team?: Pick<TeamCatalogItem, 'color' | 'altColor'> | null
 ): ScoreboardTeamColorTreatment {
-  const primary = normalizeHexColor(team?.color);
-  if (primary && !isUnsafeRawColor(primary)) {
-    return buildTreatment(primary, 'primary');
-  }
+  const primary = resolveTeamColorCandidate(normalizeHexColor(team?.color), 'primary');
+  if (primary) return primary;
 
-  const alt = normalizeHexColor(team?.altColor);
-  if (alt && !isUnsafeRawColor(alt)) {
-    return buildTreatment(alt, 'alt');
-  }
+  const alt = resolveTeamColorCandidate(normalizeHexColor(team?.altColor), 'alt');
+  if (alt) return alt;
 
   return buildTreatment(FALLBACK_BASE, 'fallback');
 }
