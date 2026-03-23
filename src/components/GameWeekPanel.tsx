@@ -76,25 +76,18 @@ function resolveSummaryStateLabel(
   return summaryStateLabel(score) ?? scheduleStateLabel(game.status, isPlaceholder) ?? 'Scheduled';
 }
 
-function summaryChipClasses(
-  game: AppGame,
-  score: ScorePack | undefined,
-  isPlaceholder: boolean
-): string {
-  if (isPlaceholder && (!score || game.stage !== 'regular')) {
-    return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
-  }
+function summaryChipClasses(summaryState: string, isPlaceholder: boolean): string {
+  const normalized = summaryState.trim().toUpperCase();
 
-  const state = gameStateFromScore(score);
-  if (state === 'final') {
+  if (normalized === 'FINAL') {
     return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200';
   }
-  if (state === 'inprogress') {
+
+  if (normalized === 'IN PROGRESS' || /^Q\d\b/.test(normalized) || normalized.includes('HALF')) {
     return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200';
   }
 
-  const scheduleLabel = scheduleStateLabel(game.status, isPlaceholder)?.toLowerCase();
-  if (scheduleLabel?.includes('matchup set') || (isPlaceholder && game.stage !== 'regular')) {
+  if (normalized === 'MATCHUP SET' || isPlaceholder) {
     return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
   }
 
@@ -201,6 +194,7 @@ export default function GameWeekPanel({
                   g.isPlaceholder ||
                   g.participants?.home?.kind !== 'team' ||
                   g.participants?.away?.kind !== 'team';
+                const resolvedSummaryState = resolveSummaryStateLabel(g, score, isPlaceholder);
 
                 const useNeutralSemantics = usesNeutralSiteSemantics(g);
                 const matchupLabel = formatGameMatchupLabel(g, {
@@ -287,10 +281,10 @@ export default function GameWeekPanel({
                           </div>
                         </div>
                         <div
-                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] ${summaryChipClasses(g, score, isPlaceholder)}`}
+                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] ${summaryChipClasses(resolvedSummaryState, isPlaceholder)}`}
                           data-summary-state
                         >
-                          {resolveSummaryStateLabel(g, score, isPlaceholder)}
+                          {resolvedSummaryState}
                         </div>
                       </div>
                     </summary>

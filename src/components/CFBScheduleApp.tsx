@@ -1348,6 +1348,7 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
+                  teamCatalogById={teamCatalogById}
                   onSavePostseasonOverride={savePostseasonOverride}
                 />
               ) : weekViewMode === 'matchups' ? (
@@ -1368,9 +1369,9 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
+                  teamCatalogById={teamCatalogById}
                   onSavePostseasonOverride={savePostseasonOverride}
                   displayTimeZone={presentationTimeZone}
-                  teamCatalogById={teamCatalogById}
                   rankingsByTeamId={rankingsByTeamId}
                 />
               )}

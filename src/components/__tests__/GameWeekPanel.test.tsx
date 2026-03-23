@@ -222,6 +222,54 @@ test('collapsed summary preserves canonical schedule status when score data is m
   assert.doesNotMatch(html, /data-summary-state[^>]*>Scheduled<\/div>/);
 });
 
+test('schedule-only status chips map to resolved summary states', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'schedule-final-chip',
+          csvAway: 'Texas',
+          csvHome: 'Kansas State',
+          status: 'final',
+        }),
+        game({
+          key: 'schedule-live-chip',
+          csvAway: 'TCU',
+          csvHome: 'Baylor',
+          status: 'in_progress',
+        }),
+        game({
+          key: 'schedule-scheduled-chip',
+          csvAway: 'Iowa State',
+          csvHome: 'Kansas',
+          status: 'scheduled',
+        }),
+        game({
+          key: 'schedule-matchup-set-chip',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Peach Bowl',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /border-emerald-200[^>]*data-summary-state="true">FINAL<\/div>/);
+  assert.match(html, /border-amber-200[^>]*data-summary-state="true">IN PROGRESS<\/div>/);
+  assert.match(html, /border-sky-200[^>]*data-summary-state="true">Scheduled<\/div>/);
+  assert.match(html, /border-violet-200[^>]*data-summary-state="true">MATCHUP SET<\/div>/);
+});
+
 test('neutral-site ranked matchup label preserves vs wording', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
