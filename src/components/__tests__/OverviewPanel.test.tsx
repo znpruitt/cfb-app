@@ -4,7 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import OverviewPanel from '../OverviewPanel';
-import type { OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
+import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { AppGame } from '../../lib/schedule';
 
@@ -87,6 +87,17 @@ const standingsLeaders: OwnerStandingsRow[] = [
 
 const coverage: StandingsCoverage = { state: 'complete', message: null };
 
+const defaultContext: OverviewContext = {
+  scopeLabel: 'Current league focus',
+  scopeDetail: 'Week 1',
+  emphasis: 'upcoming',
+  highlightsTitle: 'What matters next',
+  highlightsDescription:
+    'The active slate is upcoming, so Overview leads with the next head-to-head and owned-team games to watch.',
+  liveDescription: 'If games go live, they will automatically move to the top of Overview.',
+  sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+};
+
 const matchupMatrix: OwnerMatchupMatrix = {
   owners: ['Alice', 'Bob'],
   rows: [
@@ -123,7 +134,7 @@ test('overview panel uses neutral wording for neutral-site games', () => {
       matchupMatrix={matchupMatrix}
       liveItems={[item(neutralGame)]}
       keyMatchups={[item(neutralGame)]}
-      selectedWeekLabel="Week 1"
+      context={defaultContext}
       displayTimeZone="UTC"
     />
   );
@@ -148,7 +159,7 @@ test('overview panel keeps home-away wording for standard games', () => {
       matchupMatrix={matchupMatrix}
       liveItems={[item(homeAwayGame)]}
       keyMatchups={[item(homeAwayGame)]}
-      selectedWeekLabel="Week 1"
+      context={defaultContext}
       displayTimeZone="UTC"
     />
   );
@@ -177,7 +188,7 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
       matchupMatrix={matchupMatrix}
       liveItems={[]}
       keyMatchups={[]}
-      selectedWeekLabel="Week 1"
+      context={defaultContext}
       displayTimeZone="UTC"
     />
   );
@@ -188,4 +199,22 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
   assert.doesNotMatch(html, /Standings snapshot/);
+});
+
+test('overview panel orders sections from active context instead of always leading with standings', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(game({ key: 'next-up' }))]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.ok(html.indexOf('What matters next') < html.indexOf('League standings'));
+  assert.ok(html.includes('Current league focus'));
+  assert.ok(html.includes('Week 1'));
 });

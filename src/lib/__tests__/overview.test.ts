@@ -189,3 +189,67 @@ test('overview key matchups keep owned-vs-owned games ahead of other owned-team 
     ['ou-tex', 'nd-usc']
   );
 });
+
+test('overview shifts to recent-results emphasis when the active slate is complete', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+  ]);
+  const finalOwnerVsOwner = game({
+    key: 'ou-tex-final',
+    csvAway: 'Texas',
+    csvHome: 'Oklahoma',
+    date: '2026-09-05T20:00:00.000Z',
+  });
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [finalOwnerVsOwner],
+    allGames: [finalOwnerVsOwner],
+    rosterByTeam,
+    scoresByKey: {
+      'ou-tex-final': {
+        status: 'Final',
+        away: { team: 'Texas', score: 31 },
+        home: { team: 'Oklahoma', score: 28 },
+        time: null,
+      },
+    },
+    selectedWeekLabel: 'Week 2',
+  });
+
+  assert.equal(snapshot.context.emphasis, 'recent');
+  assert.equal(snapshot.context.highlightsTitle, 'Recent league results');
+  assert.deepEqual(snapshot.context.sectionOrder, ['highlights', 'standings', 'matrix', 'live']);
+  assert.deepEqual(
+    snapshot.keyMatchups.map((item) => item.bucket.game.key),
+    ['ou-tex-final']
+  );
+});
+
+test('overview uses postseason context when the active slate is postseason-driven', () => {
+  const rosterByTeam = new Map([['Texas', 'Alice']]);
+  const semifinal = game({
+    key: 'semifinal',
+    csvAway: 'Texas',
+    csvHome: 'Michigan',
+    date: '2026-12-31T21:00:00.000Z',
+    stage: 'playoff',
+    postseasonRole: 'playoff',
+  });
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [semifinal],
+    allGames: [semifinal],
+    rosterByTeam,
+    scoresByKey: {},
+    selectedWeekLabel: 'the postseason',
+  });
+
+  assert.equal(snapshot.context.scopeLabel, 'Postseason focus');
+  assert.equal(snapshot.context.emphasis, 'upcoming');
+  assert.deepEqual(snapshot.context.sectionOrder, ['highlights', 'standings', 'matrix', 'live']);
+});
