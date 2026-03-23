@@ -1,7 +1,6 @@
 import React from 'react';
 
 import { gameStateFromScore } from '../lib/gameUi';
-import { deriveDisplayEventName } from '../lib/gameEventName';
 import type { CombinedOdds } from '../lib/odds';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
@@ -30,17 +29,12 @@ type GameScoreboardProps = {
   homeTeam: TeamDisplayInfo;
   awayRanking?: TeamRankingEnrichment;
   homeRanking?: TeamRankingEnrichment;
-  matchupLabel: string;
-  label?: string | null;
-  notes?: string | null;
-  kickoffLabel: string;
   homeConference?: string | null;
   awayConference?: string | null;
   homeOwner?: string;
   awayOwner?: string;
   venue?: VenueDetails | string | null;
   odds?: CombinedOdds;
-  neutralSite?: boolean;
   isPlaceholder?: boolean;
 };
 
@@ -64,10 +58,10 @@ function scoreboardRowClasses(teamScore: number | null, opponentScore: number | 
   const isLeading = hasScores && teamScore > opponentScore;
 
   return [
-    'flex items-start justify-between gap-4 py-2 first:pt-0 last:pb-0',
+    'flex items-start justify-between gap-4 border-l-2 py-2 pl-3 first:pt-0 last:pb-0',
     isLeading
-      ? 'font-semibold text-gray-950 dark:text-zinc-50'
-      : 'text-gray-800 dark:text-zinc-200',
+      ? 'border-l-emerald-600 text-gray-950 dark:border-l-emerald-400 dark:text-zinc-50'
+      : 'border-l-transparent text-gray-800 dark:text-zinc-200',
   ].join(' ');
 }
 
@@ -146,17 +140,12 @@ export default function GameScoreboard({
   homeTeam,
   awayRanking,
   homeRanking,
-  matchupLabel,
-  label,
-  notes,
-  kickoffLabel,
   homeConference,
   awayConference,
   homeOwner,
   awayOwner,
   venue,
   odds,
-  neutralSite = false,
   isPlaceholder = false,
 }: GameScoreboardProps): React.ReactElement {
   const rows: TeamRow[] = [
@@ -178,10 +167,6 @@ export default function GameScoreboard({
     },
   ];
 
-  const eventName = deriveDisplayEventName(label, notes, matchupLabel);
-  const metadataItems = [kickoffLabel, neutralSite ? 'Neutral Site' : null].filter(
-    Boolean
-  ) as string[];
   const oddsSummary = buildOddsSummary({ odds, awayTeam, homeTeam });
   const venueLabel = formatVenueLabel(venue);
   const statusText = score
@@ -191,27 +176,12 @@ export default function GameScoreboard({
       : 'NO SCORE';
 
   return (
-    <div className="space-y-2.5" aria-label="Game scoreboard">
-      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-            {matchupLabel}
-          </div>
-          {eventName && (
-            <div
-              className="text-xs leading-snug text-gray-500 dark:text-zinc-400"
-              data-scoreboard-event
-            >
-              {eventName}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500 dark:text-zinc-500">
-            {metadataItems.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
-          </div>
-        </div>
-        <div className="shrink-0 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-500">
+    <div className="space-y-2" aria-label="Game scoreboard">
+      <div className="flex justify-end">
+        <div
+          className="shrink-0 text-right text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-500"
+          data-scoreboard-status
+        >
           {statusText}
         </div>
       </div>
@@ -226,6 +196,9 @@ export default function GameScoreboard({
               key={team.key}
               className={`${scoreboardRowClasses(team.score, opponentScore)} ${index === 0 ? 'border-b border-gray-200/60 dark:border-zinc-800/80' : ''}`}
               data-scoreboard-row={team.key}
+              data-scoreboard-winner={
+                team.score != null && opponentScore != null && team.score > opponentScore
+              }
             >
               <div className="min-w-0 flex-1 pr-3">
                 <RankedTeamName
@@ -243,7 +216,11 @@ export default function GameScoreboard({
                 )}
               </div>
               <span
-                className="min-w-[3ch] shrink-0 text-right font-mono text-[2.2rem] font-semibold leading-none tabular-nums sm:text-[2.55rem]"
+                className={`min-w-[3ch] shrink-0 text-right font-mono text-[2.2rem] leading-none tabular-nums sm:text-[2.55rem] ${
+                  team.score != null && opponentScore != null && team.score > opponentScore
+                    ? 'font-extrabold text-emerald-700 dark:text-emerald-300'
+                    : 'font-semibold text-gray-800 dark:text-zinc-200'
+                }`}
                 data-scoreboard-score={team.key}
               >
                 {team.score ?? '—'}
@@ -254,14 +231,14 @@ export default function GameScoreboard({
       </div>
 
       {venueLabel && (
-        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-zinc-500">
+        <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-zinc-500">
           <span aria-hidden="true">📍</span>
           <span className="min-w-0 truncate">{venueLabel}</span>
         </div>
       )}
 
       {oddsSummary && (
-        <div className="border-t border-gray-200/60 pt-2 text-sm text-gray-600 dark:border-zinc-800/80 dark:text-zinc-400">
+        <div className="border-t border-gray-200/60 pt-2 text-sm text-gray-500 dark:border-zinc-800/80 dark:text-zinc-400">
           {oddsSummary}
         </div>
       )}
