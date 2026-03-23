@@ -781,7 +781,7 @@ test('collapsed summary removes duplicate chips and keeps owner matchup plus sta
   assert.doesNotMatch(html, /Neutral Site/);
 });
 
-test('collapsed summary uses only the split top border for team identity accents', () => {
+test('card edge accents are attached to the outer card with away/home mapping', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -801,9 +801,14 @@ test('collapsed summary uses only the split top border for team identity accents
     />
   );
 
-  assert.match(html, /data-card-team-accents/);
-  assert.match(html, /data-card-team-accent="away"/);
-  assert.match(html, /data-card-team-accent="home"/);
+  assert.match(html, /data-card-team-accent-top="away"/);
+  assert.match(html, /data-card-team-accent-bottom="home"/);
+  assert.match(
+    html,
+    /<details[^>]*data-card-team-accent-top="away"[^>]*data-card-team-accent-bottom="home"/
+  );
+  assert.doesNotMatch(html, /data-card-team-accent-edge=/);
+  assert.doesNotMatch(html, /flex h-1 overflow-hidden/);
   assert.doesNotMatch(html, /data-collapsed-team-accent=/);
 });
 
@@ -1126,7 +1131,29 @@ test('neutral-site provider matchup labels fall back to notes when canonical mat
   assert.equal((html.match(/Notre Dame<\/span> vs <span>Navy/g) ?? []).length, 1);
 });
 
-test('collapsed rows use neutral cards with chip-only state styling and split top border accents', () => {
+test('expanded cards keep away/home accents on the outer card instead of rendering an interior divider', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'expanded-accented', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(
+    html,
+    /<details[^>]*style="[^"]*inset 0 1px 0[^"]*inset 0 -1px 0[^"]*"[^>]*data-card-team-accent-top="away"[^>]*data-card-team-accent-bottom="home"/
+  );
+  assert.doesNotMatch(html, /data-card-team-accent-edge=/);
+  assert.doesNotMatch(html, /<summary[^>]*>[\s\S]*inset 0 -1px 0/);
+});
+
+test('collapsed rows use neutral cards with chip-only state styling and outer card accent edges', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[game({ key: 'accented', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
@@ -1159,8 +1186,8 @@ test('collapsed rows use neutral cards with chip-only state styling and split to
     />
   );
 
-  assert.match(html, /data-card-team-accent="away"/);
-  assert.match(html, /data-card-team-accent="home"/);
+  assert.match(html, /data-card-team-accent-top="away"/);
+  assert.match(html, /data-card-team-accent-bottom="home"/);
   assert.doesNotMatch(html, /data-collapsed-team-accent=/);
   assert.match(html, /border-emerald-200[^>]*data-summary-state=\"true\">FINAL<\/div>/);
   assert.doesNotMatch(html, /bg-emerald-50 text-gray-900/);

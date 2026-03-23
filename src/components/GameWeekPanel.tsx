@@ -253,24 +253,13 @@ export default function GameWeekPanel({
                   <details
                     key={g.key}
                     className="group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700"
+                    style={{
+                      boxShadow: `inset 0 1px 0 ${awayColorTreatment.borderAccent}, inset 0 -1px 0 ${homeColorTreatment.borderAccent}`,
+                    }}
+                    data-card-team-accent-top="away"
+                    data-card-team-accent-bottom="home"
                   >
                     <summary className="cursor-pointer list-none px-3 py-2">
-                      <div
-                        className="-mt-2 -mx-3 mb-2 flex h-1 overflow-hidden"
-                        aria-hidden="true"
-                        data-card-team-accents
-                      >
-                        <span
-                          className="block h-full flex-1 transition-opacity duration-150 group-hover:opacity-100 opacity-80"
-                          style={{ backgroundColor: awayColorTreatment.borderAccent }}
-                          data-card-team-accent="away"
-                        />
-                        <span
-                          className="block h-full flex-1 transition-opacity duration-150 group-hover:opacity-100 opacity-80"
-                          style={{ backgroundColor: homeColorTreatment.borderAccent }}
-                          data-card-team-accent="home"
-                        />
-                      </div>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex flex-col gap-1">
                           {showOwnerMatchup && (
