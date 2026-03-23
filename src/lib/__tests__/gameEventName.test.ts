@@ -24,3 +24,36 @@ test('deriveDisplayEventName suppresses empty and non-display-worthy label or no
   assert.equal(deriveDisplayEventName('Texas @ Ohio State', null, 'Texas @ Ohio State'), null);
   assert.equal(deriveDisplayEventName('', 'Texas @ Ohio State', 'Texas @ Ohio State'), null);
 });
+
+test('deriveDisplayEventName allows valid notes when label is suppressed', () => {
+  assert.equal(
+    deriveDisplayEventName(
+      'Florida @ Georgia',
+      'Aer Lingus College Football Classic',
+      'Florida @ Georgia'
+    ),
+    'Aer Lingus College Football Classic'
+  );
+});
+
+test('deriveDisplayEventName treats neutral-site separator variants as duplicate matchup text', () => {
+  assert.equal(
+    deriveDisplayEventName(
+      'Notre Dame @ Navy',
+      'Aer Lingus College Football Classic',
+      'Notre Dame vs Navy'
+    ),
+    'Aer Lingus College Football Classic'
+  );
+});
+
+test('deriveDisplayEventName keeps distinct labels even when matchup is neutral-site', () => {
+  assert.equal(
+    deriveDisplayEventName(
+      'Aer Lingus College Football Classic',
+      'Navy-Marine Corps Memorial Stadium',
+      'Notre Dame vs Navy'
+    ),
+    'Aer Lingus College Football Classic'
+  );
+});
