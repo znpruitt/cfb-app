@@ -23,7 +23,9 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 ## Linting workflow
 
 - `npm run lint` is the fast day-to-day check for local development. It runs scoped ESLint on app/source/config files and a separate scoped Prettier check, intentionally skipping heavier test and data paths for speed.
+- `npm run lint:fix` is the matching local fix command. It runs ESLint auto-fixes first and then Prettier writes on that same fast/local scope.
 - `npm run lint:all` is the pre-merge / CI command. It runs full-project ESLint plus full-project Prettier checks across `src`, including `src/**/__tests__/**` and `src/data/**`.
+- `npm run lint:fix:all` is the full-project fix variant if you need to repair test/data formatting or lint issues before a larger cleanup.
 - Prettier runs separately from ESLint so formatting checks stay consistent without paying the cost of the `prettier/prettier` ESLint rule on every file.
 - There is no CI workflow checked into this repository today, but `npm run lint:all` is ready to be used as the CI/pre-merge lint command when one is added.
 

@@ -9,14 +9,19 @@
     "lint": "npm run lint:eslint && npm run lint:format",
     "lint:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**'",
     "lint:all": "npm run lint:all:eslint && npm run lint:all:format",
-    "lint:fix": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**' --fix",
+    "lint:fix": "npm run lint:fix:eslint && npm run lint:fix:format",
     "lint:format": "prettier --check --cache --cache-strategy content src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
     "lint:quick": "npm run lint:eslint",
     "format": "prettier --write .",
     "format:check": "npm run lint:all:format",
     "fetch:teams": "tsx scripts/fetch-cfbd-teams.ts --year 2025",
     "lint:all:eslint": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
-    "lint:all:format": "prettier --check --cache --cache-strategy content src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts"
+    "lint:all:format": "prettier --check --cache --cache-strategy content src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:fix:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**' --fix",
+    "lint:fix:format": "prettier --write src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:fix:all": "npm run lint:fix:all:eslint && npm run lint:fix:all:format",
+    "lint:fix:all:eslint": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --fix",
+    "lint:fix:all:format": "prettier --write src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts"
   },
   "dependencies": {
     "cfbd": "^5.11.4",
