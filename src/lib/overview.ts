@@ -1,4 +1,5 @@
 import { gameStateFromScore } from './gameUi.ts';
+import { isTruePostseasonGame } from './postseason-display.ts';
 import { deriveWeekMatchupSections, type MatchupBucket } from './matchups.ts';
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
@@ -27,11 +28,24 @@ export type OwnerMatchupMatrix = {
   rows: OwnerMatchupMatrixRow[];
 };
 
+export type OverviewSectionKind = 'standings' | 'matrix' | 'live' | 'highlights';
+
+export type OverviewContext = {
+  scopeLabel: string;
+  scopeDetail: string | null;
+  emphasis: 'live' | 'upcoming' | 'recent' | 'standings';
+  highlightsTitle: string;
+  highlightsDescription: string;
+  liveDescription: string;
+  sectionOrder: OverviewSectionKind[];
+};
+
 export type OverviewSnapshot = {
   standingsLeaders: OwnerStandingsRow[];
   matchupMatrix: OwnerMatchupMatrix;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
+  context: OverviewContext;
 };
 
 const DEFAULT_LIVE_ITEM_COUNT = 6;
@@ -65,6 +79,96 @@ function isLiveScore(score?: ScorePack): boolean {
 function isKeyMatchupState(score?: ScorePack): boolean {
   const state = gameStateFromScore(score);
   return state === 'inprogress' || state === 'scheduled' || state === 'unknown';
+}
+
+function isUpcomingScore(score?: ScorePack): boolean {
+  const state = gameStateFromScore(score);
+  return state === 'scheduled' || state === 'unknown';
+}
+
+function isFinalScore(score?: ScorePack): boolean {
+  return gameStateFromScore(score) === 'final';
+}
+
+type ActiveSlateStatus = {
+  hasLive: boolean;
+  hasUpcoming: boolean;
+  hasFinal: boolean;
+};
+
+function deriveActiveSlateStatus(items: OverviewGameItem[]): ActiveSlateStatus {
+  return items.reduce<ActiveSlateStatus>(
+    (status, item) => ({
+      hasLive: status.hasLive || isLiveScore(item.score),
+      hasUpcoming: status.hasUpcoming || isUpcomingScore(item.score),
+      hasFinal: status.hasFinal || isFinalScore(item.score),
+    }),
+    { hasLive: false, hasUpcoming: false, hasFinal: false }
+  );
+}
+
+function deriveOverviewContext(params: {
+  weekGames: AppGame[];
+  activeSlateStatus: ActiveSlateStatus;
+  selectedWeekLabel?: string;
+}): OverviewContext {
+  const { weekGames, activeSlateStatus, selectedWeekLabel } = params;
+  const scopeLabel = weekGames.some((game) => isTruePostseasonGame(game))
+    ? 'Postseason focus'
+    : 'Current league focus';
+  const scopeDetail = selectedWeekLabel ?? null;
+
+  if (activeSlateStatus.hasLive) {
+    return {
+      scopeLabel,
+      scopeDetail,
+      emphasis: 'live',
+      highlightsTitle: 'Up next for the league',
+      highlightsDescription: activeSlateStatus.hasUpcoming
+        ? 'Live games lead the page, with the next owned-team matchups queued right behind them.'
+        : 'Live action is leading the page while completed and pending league games stay one step back.',
+      liveDescription:
+        'Track league-relevant live action across all teams and head-to-head battles.',
+      sectionOrder: ['live', 'highlights', 'standings', 'matrix'],
+    };
+  }
+
+  if (activeSlateStatus.hasUpcoming) {
+    return {
+      scopeLabel,
+      scopeDetail,
+      emphasis: 'upcoming',
+      highlightsTitle: 'What matters next',
+      highlightsDescription:
+        'The active slate is upcoming, so Overview leads with the next head-to-head and owned-team games to watch.',
+      liveDescription: 'If games go live, they will automatically move to the top of Overview.',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    };
+  }
+
+  if (activeSlateStatus.hasFinal) {
+    return {
+      scopeLabel,
+      scopeDetail,
+      emphasis: 'recent',
+      highlightsTitle: 'Recent league results',
+      highlightsDescription:
+        'The active slate is mostly complete, so Overview highlights the latest owned-team results before the broader season view.',
+      liveDescription: 'If new live action starts, it will automatically take priority here.',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    };
+  }
+
+  return {
+    scopeLabel,
+    scopeDetail,
+    emphasis: 'standings',
+    highlightsTitle: 'League watch list',
+    highlightsDescription:
+      'Standings stay central while Overview waits for owned-team games to define the next slate.',
+    liveDescription: 'Live league games will appear automatically once scores are in progress.',
+    sectionOrder: ['standings', 'highlights', 'matrix', 'live'],
+  };
 }
 
 export function deriveOwnerMatchupMatrix(params: {
@@ -135,6 +239,7 @@ export function deriveOverviewSnapshot(params: {
     liveItemsLimit?: number;
     keyMatchupsLimit?: number;
   };
+  selectedWeekLabel?: string;
 }): OverviewSnapshot {
   const {
     standingsRows,
@@ -144,6 +249,7 @@ export function deriveOverviewSnapshot(params: {
     rosterByTeam,
     scoresByKey,
     options,
+    selectedWeekLabel,
   } = params;
 
   const standingsLeaders = standingsRows;
@@ -157,15 +263,23 @@ export function deriveOverviewSnapshot(params: {
     .sort(compareOverviewItems)
     .slice(0, options?.liveItemsLimit ?? DEFAULT_LIVE_ITEM_COUNT);
 
-  const includeFinalWeekGames = standingsCoverage.state !== 'complete';
-  const keyMatchups = [...weekSections.ownerMatchups, ...weekSections.secondaryGames]
-    .filter((bucket) => {
-      const score = scoresByKey[bucket.game.key];
-      return includeFinalWeekGames ? true : isKeyMatchupState(score);
-    })
+  const activeSlateItems = [...weekSections.ownerMatchups, ...weekSections.secondaryGames]
     .map((bucket) => toOverviewItem(bucket, scoresByKey[bucket.game.key]))
-    .sort(compareOverviewItems)
+    .sort(compareOverviewItems);
+
+  const activeSlateStatus = deriveActiveSlateStatus(activeSlateItems);
+  const includeFinalWeekGames =
+    standingsCoverage.state !== 'complete' ||
+    (!activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming);
+  const keyMatchups = activeSlateItems
+    .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
     .slice(0, options?.keyMatchupsLimit ?? DEFAULT_KEY_MATCHUP_COUNT);
+
+  const context = deriveOverviewContext({
+    weekGames,
+    activeSlateStatus,
+    selectedWeekLabel,
+  });
 
   return {
     standingsLeaders,
@@ -177,5 +291,6 @@ export function deriveOverviewSnapshot(params: {
     }),
     liveItems,
     keyMatchups,
+    context,
   };
 }

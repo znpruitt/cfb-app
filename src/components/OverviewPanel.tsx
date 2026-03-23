@@ -1,7 +1,12 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
-import type { OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
+import type {
+  OverviewContext,
+  OverviewGameItem,
+  OverviewSectionKind,
+  OwnerMatchupMatrix,
+} from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId } from '../lib/schedule';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -393,7 +398,7 @@ type OverviewPanelProps = {
   matchupMatrix: OwnerMatchupMatrix;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
-  selectedWeekLabel: string;
+  context: OverviewContext;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
@@ -405,18 +410,18 @@ export default function OverviewPanel({
   matchupMatrix,
   liveItems,
   keyMatchups,
-  selectedWeekLabel,
+  context,
   displayTimeZone,
   onOwnerSelect,
   rankingsByTeamId = new Map(),
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
 
-  return (
-    <div className="space-y-4">
+  const sections: Record<OverviewSectionKind, React.ReactElement> = {
+    standings: (
       <SectionCard
         title="League standings"
-        description="Full standings in a condensed format so Overview stays useful as the league homepage."
+        description="Season-long results stay within reach without forcing Overview to feel like a week report."
       >
         {standingsCoverage.message ? (
           <p
@@ -439,20 +444,18 @@ export default function OverviewPanel({
           <CondensedStandingsTable rows={standingsLeaders} onOwnerSelect={onOwnerSelect} />
         )}
       </SectionCard>
-
+    ),
+    matrix: (
       <SectionCard
         title="Games by vs games against"
-        description={`Weekly head-to-head map for ${selectedWeekLabel}, showing how many games each surname has across the slate.`}
+        description="Head-to-head exposure across the active league slate, with week context kept secondary."
         tone="weekly"
       >
         <TeamMatchupMatrixTable matrix={matchupMatrix} />
       </SectionCard>
-
-      <SectionCard
-        title="Live league games"
-        description="Track league-relevant live action across all teams and head-to-head battles."
-        tone="live"
-      >
+    ),
+    live: (
+      <SectionCard title="Live league games" description={context.liveDescription} tone="live">
         <GameCardList
           items={liveItems}
           emptyMessage="No owned-team games are live right now."
@@ -460,10 +463,11 @@ export default function OverviewPanel({
           rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
-
+    ),
+    highlights: (
       <SectionCard
-        title={`${selectedWeekLabel} highlights`}
-        description="Key head-to-head and team games still shaping this week."
+        title={context.highlightsTitle}
+        description={context.highlightsDescription}
         tone="weekly"
       >
         <GameSummaryList
@@ -473,6 +477,36 @@ export default function OverviewPanel({
           rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
+    ),
+  };
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+              {context.scopeLabel}
+            </p>
+            <p className="text-sm text-gray-700 dark:text-zinc-200">
+              {context.emphasis === 'live'
+                ? 'Overview is prioritizing live league action right now.'
+                : context.emphasis === 'upcoming'
+                  ? 'Overview is leading with the next actionable slate.'
+                  : context.emphasis === 'recent'
+                    ? 'Overview is leading with the latest completed league results.'
+                    : 'Overview is leaning on season context until the next slate takes shape.'}
+            </p>
+          </div>
+          {context.scopeDetail ? (
+            <p className="text-xs text-gray-500 dark:text-zinc-400">{context.scopeDetail}</p>
+          ) : null}
+        </div>
+      </section>
+
+      {context.sectionOrder.map((sectionKey) => (
+        <React.Fragment key={sectionKey}>{sections[sectionKey]}</React.Fragment>
+      ))}
     </div>
   );
 }

@@ -500,6 +500,13 @@ export default function CFBScheduleApp({
       }),
     [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
   );
+  const activeWeekForDisplay = selectedWeek ?? 0;
+  const activeWeekLabel =
+    selectedTab === 'postseason'
+      ? 'the postseason'
+      : selectedWeek != null
+        ? `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
+        : 'the currently selected week';
 
   const ownerViewSnapshot = useMemo(
     () =>
@@ -538,6 +545,7 @@ export default function CFBScheduleApp({
         allGames: games,
         rosterByTeam,
         scoresByKey,
+        selectedWeekLabel: activeWeekLabel,
       }),
     [
       filteredWeekGames,
@@ -639,13 +647,6 @@ export default function CFBScheduleApp({
   ]);
 
   const hasActiveViewFilters = selectedConference !== 'ALL' || teamFilter.trim().length > 0;
-  const activeWeekForDisplay = selectedWeek ?? 0;
-  const activeWeekLabel =
-    selectedTab === 'postseason'
-      ? 'the postseason'
-      : selectedWeek != null
-        ? `Week ${activeWeekForDisplay}${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? ` (${weekDateMetadataByWeek.get(activeWeekForDisplay)?.label})` : ''}`
-        : 'the currently selected week';
   const shouldRenderPrimaryView = shouldRenderPrimaryViewSection({
     selectedTab,
     selectedWeek,
@@ -1101,7 +1102,7 @@ export default function CFBScheduleApp({
             <h1 className="text-2xl font-bold sm:text-3xl">CFB League Dashboard</h1>
             <p className="max-w-3xl text-sm text-gray-600 dark:text-zinc-400">
               Overview, schedule, matchups, and standings stay front-and-center on the main
-              dashboard, while commissioner tooling lives on a dedicated admin surface.
+              dashboard, while commissioner tooling lives on a dedicated admin area.
             </p>
           </div>
         </div>
@@ -1131,7 +1132,7 @@ export default function CFBScheduleApp({
       {!isAdminSurface && adminAlertCount > 0 ? (
         <p className="text-xs text-gray-600 dark:text-zinc-400">
           Diagnostics, alias repairs, refresh controls, and surnames CSV maintenance live on the
-          admin surface to keep the default league experience focused.
+          admin area to keep the default league experience focused.
         </p>
       ) : null}
 
@@ -1139,14 +1140,14 @@ export default function CFBScheduleApp({
         <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
           <div className="space-y-1">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700 dark:text-red-300">
-              League surface unavailable
+              League view unavailable
             </p>
             <h2 className="text-xl font-semibold text-red-950 dark:text-red-100">
               We couldn’t load the schedule needed to render the league view
             </h2>
             <p className="max-w-3xl text-sm text-red-800 dark:text-red-200">
               Try rebuilding the schedule from CFBD below. If the issue persists, open the admin
-              surface for deeper diagnostics and repair tools.
+              area for deeper diagnostics and repair tools.
             </p>
           </div>
 
@@ -1242,7 +1243,7 @@ export default function CFBScheduleApp({
               </div>
               <div className="w-full space-y-2 xl:max-w-2xl">
                 <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                  Surface
+                  View
                 </div>
                 <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} />
               </div>
@@ -1316,7 +1317,7 @@ export default function CFBScheduleApp({
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
                   keyMatchups={overviewSnapshot.keyMatchups}
-                  selectedWeekLabel={activeWeekLabel}
+                  context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
