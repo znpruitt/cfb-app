@@ -256,21 +256,12 @@ export default function GameWeekPanel({
                   >
                     <summary className="cursor-pointer list-none px-3 py-2">
                       <div
-                        className="-mt-2 -mx-3 mb-2 flex h-1 overflow-hidden"
+                        className="-mt-2 -mx-3 mb-2 h-px transition-opacity duration-150 group-hover:opacity-100 opacity-80"
                         aria-hidden="true"
-                        data-card-team-accents
-                      >
-                        <span
-                          className="block h-full flex-1 transition-opacity duration-150 group-hover:opacity-100 opacity-80"
-                          style={{ backgroundColor: awayColorTreatment.borderAccent }}
-                          data-card-team-accent="away"
-                        />
-                        <span
-                          className="block h-full flex-1 transition-opacity duration-150 group-hover:opacity-100 opacity-80"
-                          style={{ backgroundColor: homeColorTreatment.borderAccent }}
-                          data-card-team-accent="home"
-                        />
-                      </div>
+                        style={{ backgroundColor: awayColorTreatment.borderAccent }}
+                        data-card-team-accent-edge="top"
+                        data-card-team-accent="away"
+                      />
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex flex-col gap-1">
                           {showOwnerMatchup && (
@@ -300,6 +291,13 @@ export default function GameWeekPanel({
                           {resolvedSummaryState}
                         </div>
                       </div>
+                      <div
+                        className="-mx-3 mt-2 -mb-2 h-px transition-opacity duration-150 group-hover:opacity-100 opacity-80"
+                        aria-hidden="true"
+                        style={{ backgroundColor: homeColorTreatment.borderAccent }}
+                        data-card-team-accent-edge="bottom"
+                        data-card-team-accent="home"
+                      />
                     </summary>
 
                     <div className="space-y-2.5 px-3 py-3">

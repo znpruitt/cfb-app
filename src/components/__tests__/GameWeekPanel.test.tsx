@@ -781,7 +781,7 @@ test('collapsed summary removes duplicate chips and keeps owner matchup plus sta
   assert.doesNotMatch(html, /Neutral Site/);
 });
 
-test('collapsed summary uses only the split top border for team identity accents', () => {
+test('collapsed summary uses separate away/home accent edges for team identity', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -801,9 +801,10 @@ test('collapsed summary uses only the split top border for team identity accents
     />
   );
 
-  assert.match(html, /data-card-team-accents/);
-  assert.match(html, /data-card-team-accent="away"/);
-  assert.match(html, /data-card-team-accent="home"/);
+  assert.match(html, /data-card-team-accent-edge="top"[^>]*data-card-team-accent="away"/);
+  assert.match(html, /data-card-team-accent-edge="bottom"[^>]*data-card-team-accent="home"/);
+  assert.doesNotMatch(html, /data-card-team-accents/);
+  assert.doesNotMatch(html, /flex h-1 overflow-hidden/);
   assert.doesNotMatch(html, /data-collapsed-team-accent=/);
 });
 
@@ -1126,7 +1127,7 @@ test('neutral-site provider matchup labels fall back to notes when canonical mat
   assert.equal((html.match(/Notre Dame<\/span> vs <span>Navy/g) ?? []).length, 1);
 });
 
-test('collapsed rows use neutral cards with chip-only state styling and split top border accents', () => {
+test('collapsed rows use neutral cards with chip-only state styling and separate away/home accent edges', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[game({ key: 'accented', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
@@ -1159,8 +1160,8 @@ test('collapsed rows use neutral cards with chip-only state styling and split to
     />
   );
 
-  assert.match(html, /data-card-team-accent="away"/);
-  assert.match(html, /data-card-team-accent="home"/);
+  assert.match(html, /data-card-team-accent-edge="top"[^>]*data-card-team-accent="away"/);
+  assert.match(html, /data-card-team-accent-edge="bottom"[^>]*data-card-team-accent="home"/);
   assert.doesNotMatch(html, /data-collapsed-team-accent=/);
   assert.match(html, /border-emerald-200[^>]*data-summary-state=\"true\">FINAL<\/div>/);
   assert.doesNotMatch(html, /bg-emerald-50 text-gray-900/);
