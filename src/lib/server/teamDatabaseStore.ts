@@ -1,0 +1,149 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
+import type { TeamCatalogItem } from '../teamIdentity.ts';
+import type { TeamDatabaseFile } from '../teamDatabase.ts';
+import { writeJsonFileAtomic } from './atomicFileWrite.ts';
+
+type TeamCatalogSourceFile = {
+  year?: number;
+  items?: unknown;
+};
+
+let memoryStore: TeamDatabaseFile | null | undefined;
+let writeQueue: Promise<void> = Promise.resolve();
+
+function dataDir(): string {
+  return path.join(process.cwd(), 'data');
+}
+
+function durableTeamDatabaseFile(): string {
+  return path.join(dataDir(), 'team-database.json');
+}
+
+function sourceTeamsCatalogFile(): string {
+  return path.join(process.cwd(), 'src', 'data', 'teams.json');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean)
+    : [];
+}
+
+function toTeamCatalogItem(value: unknown): TeamCatalogItem | null {
+  if (!isRecord(value)) return null;
+
+  const school = toNullableString(value.school);
+  if (!school) return null;
+
+  return {
+    id: toNullableString(value.id),
+    providerId:
+      typeof value.providerId === 'number' && Number.isFinite(value.providerId)
+        ? value.providerId
+        : null,
+    school,
+    displayName: toNullableString(value.displayName),
+    shortDisplayName: toNullableString(value.shortDisplayName),
+    abbreviation: toNullableString(value.abbreviation),
+    mascot: toNullableString(value.mascot),
+    level: toNullableString(value.level),
+    subdivision: toNullableString(value.subdivision),
+    conference: toNullableString(value.conference),
+    classification: toNullableString(value.classification),
+    color: toNullableString(value.color),
+    altColor: toNullableString(value.altColor),
+    logos: toStringArray(value.logos),
+    alts: toStringArray(value.alts),
+  };
+}
+
+function toTeamDatabaseFile(value: unknown): TeamDatabaseFile | null {
+  if (!isRecord(value) || !Array.isArray(value.items)) return null;
+
+  const items = value.items
+    .map(toTeamCatalogItem)
+    .filter((item): item is TeamCatalogItem => !!item);
+
+  return {
+    source: value.source === 'cfbd' ? 'cfbd' : 'cfbd',
+    updatedAt: toNullableString(value.updatedAt) ?? new Date(0).toISOString(),
+    items,
+  };
+}
+
+async function readSourceCatalogFallback(): Promise<TeamDatabaseFile> {
+  try {
+    const raw = await fs.readFile(sourceTeamsCatalogFile(), 'utf8');
+    const parsed = JSON.parse(raw) as TeamCatalogSourceFile;
+    const items = Array.isArray(parsed.items)
+      ? parsed.items.map(toTeamCatalogItem).filter((item): item is TeamCatalogItem => !!item)
+      : [];
+
+    return {
+      source: 'cfbd',
+      updatedAt: new Date(0).toISOString(),
+      items,
+    };
+  } catch {
+    return {
+      source: 'cfbd',
+      updatedAt: new Date(0).toISOString(),
+      items: [],
+    };
+  }
+}
+
+async function readStoreFile(): Promise<TeamDatabaseFile> {
+  try {
+    const raw = await fs.readFile(durableTeamDatabaseFile(), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    return toTeamDatabaseFile(parsed) ?? (await readSourceCatalogFallback());
+  } catch {
+    return await readSourceCatalogFallback();
+  }
+}
+
+export async function getTeamDatabaseFile(): Promise<TeamDatabaseFile> {
+  if (memoryStore !== undefined && memoryStore !== null) return memoryStore;
+  const loaded = await readStoreFile();
+  memoryStore = loaded;
+  return loaded;
+}
+
+export async function getTeamDatabaseItems(): Promise<TeamCatalogItem[]> {
+  const file = await getTeamDatabaseFile();
+  return file.items;
+}
+
+export async function setTeamDatabaseFile(file: TeamDatabaseFile): Promise<void> {
+  writeQueue = writeQueue.then(async () => {
+    memoryStore = file;
+    await writeJsonFileAtomic(durableTeamDatabaseFile(), file);
+  });
+
+  await writeQueue;
+}
+
+export function __resetTeamDatabaseStoreForTests(): void {
+  memoryStore = undefined;
+  writeQueue = Promise.resolve();
+}
+
+export async function __deleteTeamDatabaseStoreFileForTests(): Promise<void> {
+  memoryStore = undefined;
+  await fs.rm(durableTeamDatabaseFile(), { force: true });
+}
+
+export function __getTeamDatabaseStoreFilePathForTests(): string {
+  return durableTeamDatabaseFile();
+}

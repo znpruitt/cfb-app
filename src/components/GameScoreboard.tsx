@@ -4,6 +4,8 @@ import { gameStateFromScore } from '../lib/gameUi';
 import type { CombinedOdds } from '../lib/odds';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
+import type { ScoreboardTeamColorTreatment } from '../lib/teamColors';
+import { getSafeScoreboardTeamColor } from '../lib/teamColors';
 import { getTeamDisplayLabel, type TeamDisplayInfo } from '../lib/teamIdentity';
 import RankedTeamName from './RankedTeamName';
 
@@ -14,6 +16,7 @@ type TeamRow = {
   ranking?: TeamRankingEnrichment;
   conference?: string | null;
   owner?: string;
+  colorTreatment?: ScoreboardTeamColorTreatment;
 };
 
 type VenueDetails = {
@@ -33,6 +36,8 @@ type GameScoreboardProps = {
   awayConference?: string | null;
   homeOwner?: string;
   awayOwner?: string;
+  awayColorTreatment?: ScoreboardTeamColorTreatment;
+  homeColorTreatment?: ScoreboardTeamColorTreatment;
   venue?: VenueDetails | string | null;
   odds?: CombinedOdds;
   isPlaceholder?: boolean;
@@ -53,15 +58,12 @@ function formatScoreStatus(status: string): string {
   return trimmed.toUpperCase();
 }
 
-function scoreboardRowClasses(teamScore: number | null, opponentScore: number | null): string {
-  const hasScores = teamScore != null && opponentScore != null;
-  const isLeading = hasScores && teamScore > opponentScore;
-
+function scoreboardRowClasses(isLeading: boolean): string {
   return [
-    'flex items-start justify-between gap-4 border-l-2 py-1.5 pl-3 first:pt-0 last:pb-0',
+    'flex items-start justify-between gap-4 py-1.5 pl-3 first:pt-0 last:pb-0',
     isLeading
-      ? 'border-l-emerald-600 text-gray-950 dark:border-l-emerald-400 dark:text-zinc-50'
-      : 'border-l-transparent text-gray-800 dark:text-zinc-200',
+      ? 'border-l-[3px] text-gray-950 dark:text-zinc-50'
+      : 'border-l-2 text-gray-800 dark:text-zinc-200',
   ].join(' ');
 }
 
@@ -144,6 +146,8 @@ export default function GameScoreboard({
   awayConference,
   homeOwner,
   awayOwner,
+  awayColorTreatment,
+  homeColorTreatment,
   venue,
   odds,
   isPlaceholder = false,
@@ -156,6 +160,7 @@ export default function GameScoreboard({
       ranking: awayRanking,
       conference: awayConference,
       owner: awayOwner,
+      colorTreatment: awayColorTreatment ?? getSafeScoreboardTeamColor(null),
     },
     {
       key: 'home',
@@ -164,6 +169,7 @@ export default function GameScoreboard({
       ranking: homeRanking,
       conference: homeConference,
       owner: homeOwner,
+      colorTreatment: homeColorTreatment ?? getSafeScoreboardTeamColor(null),
     },
   ];
 
@@ -190,15 +196,25 @@ export default function GameScoreboard({
         {rows.map((team, index) => {
           const opponentScore = rows[index === 0 ? 1 : 0]?.score ?? null;
           const teamContext = buildTeamContext(team.conference, team.owner);
+          const isWinner =
+            team.score != null && opponentScore != null && team.score > opponentScore;
+          const rowStyle = {
+            borderLeftColor: isWinner
+              ? team.colorTreatment?.winnerAccentColor
+              : team.colorTreatment?.rowAccentColor,
+          } satisfies React.CSSProperties;
+          const scoreStyle = isWinner
+            ? ({ color: team.colorTreatment?.winnerScoreColor } satisfies React.CSSProperties)
+            : undefined;
 
           return (
             <div
               key={team.key}
-              className={`${scoreboardRowClasses(team.score, opponentScore)} ${index === 0 ? 'border-b border-gray-200/40 dark:border-zinc-800/60' : ''}`}
+              className={`${scoreboardRowClasses(isWinner)} ${index === 0 ? 'border-b border-gray-200/40 dark:border-zinc-800/60' : ''}`}
+              style={rowStyle}
               data-scoreboard-row={team.key}
-              data-scoreboard-winner={
-                team.score != null && opponentScore != null && team.score > opponentScore
-              }
+              data-scoreboard-winner={isWinner}
+              data-scoreboard-accent-source={team.colorTreatment?.source ?? 'fallback'}
             >
               <div className="min-w-0 flex-1 pr-3">
                 <RankedTeamName
@@ -217,10 +233,9 @@ export default function GameScoreboard({
               </div>
               <span
                 className={`min-w-[3ch] shrink-0 text-right font-mono text-[2.2rem] leading-none tabular-nums sm:text-[2.55rem] ${
-                  team.score != null && opponentScore != null && team.score > opponentScore
-                    ? 'font-extrabold text-emerald-700 dark:text-emerald-300'
-                    : 'font-semibold text-gray-800 dark:text-zinc-200'
+                  isWinner ? 'font-extrabold' : 'font-semibold text-gray-800 dark:text-zinc-200'
                 }`}
+                style={scoreStyle}
                 data-scoreboard-score={team.key}
               >
                 {team.score ?? '—'}
