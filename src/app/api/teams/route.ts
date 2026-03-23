@@ -1,53 +1,13 @@
-// src/app/api/teams/route.ts
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 
-/** One team record in your catalog JSON. */
-type TeamItem = {
-  school: string;
-  displayName?: string | null;
-  shortDisplayName?: string | null;
-  abbreviation?: string | null;
-  mascot?: string | null;
-  conference?: string | null;
-
-  /** Some catalogs use `level`, others use `subdivision`; we normalize either. */
-  level?: string | null; // e.g. "FBS" | "FCS" | "D2" | ...
-  subdivision?: string | null; // e.g. "FBS" | "FCS" | "D2" | ...
-
-  /** Optional list of alternative names (aliases) if present in your file. */
-  alts?: string[];
-};
-
-/** The overall teams catalog file shape. */
-type TeamsCatalog = {
-  year: number;
-  items: TeamItem[];
-};
+import { getTeamDatabaseFile } from '@/lib/server/teamDatabaseStore';
+import type { TeamCatalogItem } from '@/lib/teamIdentity';
 
 type NormalizedLevel = 'FBS' | 'FCS' | 'D2' | 'D3' | 'NAIA' | 'OTHER';
 
-/** Canonical local teams catalog path. */
-function catalogFile(): string {
-  return path.join(process.cwd(), 'src', 'data', 'teams.json');
-}
-
-/** Load the teams catalog from the canonical file. */
-async function loadCatalog(): Promise<TeamsCatalog | null> {
-  try {
-    const raw = await fs.readFile(catalogFile(), 'utf8');
-    const parsed = JSON.parse(raw) as TeamsCatalog;
-    return parsed && Array.isArray(parsed.items) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Normalize a team record's level/subdivision into one of our enums. */
-function normalizeLevel(t: TeamItem): NormalizedLevel {
-  const raw = (t.level ?? t.subdivision ?? '').toString().trim().toUpperCase();
+function normalizeLevel(t: TeamCatalogItem): NormalizedLevel {
+  const raw = (t.level ?? t.subdivision ?? t.classification ?? '').toString().trim().toUpperCase();
 
   if (raw === 'FBS') return 'FBS';
   if (raw === 'FCS') return 'FCS';
@@ -55,7 +15,6 @@ function normalizeLevel(t: TeamItem): NormalizedLevel {
   if (raw === 'D3' || raw === 'DIVISION III' || raw === 'NCAA D3') return 'D3';
   if (raw === 'NAIA') return 'NAIA';
 
-  // Some catalogs might use odd strings; map a few common ones:
   if (raw.includes('FBS')) return 'FBS';
   if (raw.includes('FCS')) return 'FCS';
   if (raw.includes('II')) return 'D2';
@@ -64,13 +23,11 @@ function normalizeLevel(t: TeamItem): NormalizedLevel {
   return 'OTHER';
 }
 
-/** Does a team match the requested level? */
-function levelMatches(t: TeamItem, want: NormalizedLevel | 'ALL'): boolean {
+function levelMatches(t: TeamCatalogItem, want: NormalizedLevel | 'ALL'): boolean {
   if (want === 'ALL') return true;
   return normalizeLevel(t) === want;
 }
 
-/** Parse `level` query into our allowed set. */
 function parseLevelParam(q: string | null): NormalizedLevel | 'ALL' {
   const v = (q ?? 'ALL').toString().trim().toUpperCase();
   if (v === 'ALL') return 'ALL';
@@ -83,17 +40,16 @@ function parseLevelParam(q: string | null): NormalizedLevel | 'ALL' {
   return 'ALL';
 }
 
-/** GET /api/teams?level=FBS|FCS|D2|D3|NAIA|OTHER|ALL */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(req.url);
     const levelParam = parseLevelParam(searchParams.get('level'));
+    const catalog = await getTeamDatabaseFile();
 
-    const catalog = await loadCatalog();
-    if (!catalog) {
+    if (!Array.isArray(catalog.items) || catalog.items.length === 0) {
       return NextResponse.json(
         {
-          error: 'No teams catalog found. Add src/data/teams.json and restart.',
+          error: 'No teams catalog found. Add src/data/teams.json or sync the team database.',
         },
         { status: 404 }
       );
@@ -102,20 +58,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const items = catalog.items
       .filter((t) => levelMatches(t, levelParam))
       .map((t) => ({
+        id: t.id ?? null,
+        providerId: t.providerId ?? null,
         school: t.school,
         displayName: t.displayName ?? t.school,
         shortDisplayName: t.shortDisplayName ?? null,
         abbreviation: t.abbreviation ?? null,
         mascot: t.mascot ?? null,
         conference: t.conference ?? null,
+        classification: t.classification ?? null,
         level: normalizeLevel(t),
+        color: t.color ?? null,
+        altColor: t.altColor ?? null,
+        logos: Array.isArray(t.logos) ? t.logos : [],
         alts: Array.isArray(t.alts) ? t.alts : [],
       }))
       .sort((a, b) => (a.school || '').localeCompare(b.school || ''));
 
     return NextResponse.json(
       {
-        year: catalog.year,
+        source: catalog.source,
+        updatedAt: catalog.updatedAt,
         level: levelParam,
         count: items.length,
         items,

@@ -351,6 +351,30 @@ test('score block renders stacked scoreboard rows with rankings and final status
       hideByes={true}
       displayTimeZone="UTC"
       rankingsByTeamId={new Map([['mississippi', { rank: 7, rankSource: 'ap' }]])}
+      teamCatalogById={
+        new Map([
+          [
+            'mississippi',
+            {
+              id: 'mississippi',
+              school: 'Mississippi',
+              color: '#13294B',
+              altColor: '#CE1126',
+              alts: [],
+            },
+          ],
+          [
+            'mississippistate',
+            {
+              id: 'mississippistate',
+              school: 'Mississippi State',
+              color: '#660000',
+              altColor: '#FFFFFF',
+              alts: [],
+            },
+          ],
+        ])
+      }
     />
   );
 
@@ -364,7 +388,7 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
   assert.match(
     html,
-    /border-l-emerald-600[^"]*border-b border-gray-200\/40[^>]*data-scoreboard-row="away" data-scoreboard-winner="true"/
+    /data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="alt"/
   );
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });

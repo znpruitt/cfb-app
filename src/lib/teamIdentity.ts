@@ -10,6 +10,8 @@ import {
 } from './conferenceSubdivision.ts';
 
 export type TeamCatalogItem = {
+  id?: string | null;
+  providerId?: number | null;
   school: string;
   displayName?: string | null;
   shortDisplayName?: string | null;
@@ -18,6 +20,10 @@ export type TeamCatalogItem = {
   level?: string | null;
   subdivision?: string | null;
   conference?: string | null;
+  classification?: string | null;
+  color?: string | null;
+  altColor?: string | null;
+  logos?: string[];
   alts?: string[];
 };
 
@@ -159,7 +165,7 @@ function buildCanonicalRegistry(params: {
   for (const team of teams) {
     const displayName = team.school?.trim();
     if (!displayName) continue;
-    const id = normalizeTeamName(displayName);
+    const id = team.id?.trim() || normalizeTeamName(displayName);
     if (!id) continue;
     const teamDisplay = buildTeamDisplayInfo(team, displayName);
 

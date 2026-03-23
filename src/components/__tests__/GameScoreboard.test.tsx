@@ -17,6 +17,22 @@ const homeTeam = {
   scoreboardName: 'Baylor',
 };
 
+const awayColorTreatment = {
+  source: 'primary' as const,
+  baseColor: '#A32638',
+  rowAccentColor: 'rgba(163, 38, 56, 0.45)',
+  winnerAccentColor: 'rgba(163, 38, 56, 0.92)',
+  winnerScoreColor: '#A32638',
+};
+
+const homeColorTreatment = {
+  source: 'alt' as const,
+  baseColor: '#1B6F3A',
+  rowAccentColor: 'rgba(27, 111, 58, 0.45)',
+  winnerAccentColor: 'rgba(27, 111, 58, 0.92)',
+  winnerScoreColor: '#1B6F3A',
+};
+
 function renderScoreboard(
   overrides: Partial<React.ComponentProps<typeof GameScoreboard>> = {}
 ): string {
@@ -24,6 +40,8 @@ function renderScoreboard(
     <GameScoreboard
       awayTeam={awayTeam}
       homeTeam={homeTeam}
+      awayColorTreatment={awayColorTreatment}
+      homeColorTreatment={homeColorTreatment}
       score={{
         status: 'scheduled',
         time: null,
@@ -43,7 +61,7 @@ test('scoreboard body does not render a duplicate matchup heading', () => {
   assert.match(html, /Baylor/);
 });
 
-test('winner row receives accent styling and loser stays neutral', () => {
+test('both team rows receive team-color identity accents and winner treatment stays stronger', () => {
   const html = renderScoreboard({
     score: {
       status: 'Final',
@@ -55,13 +73,16 @@ test('winner row receives accent styling and loser stays neutral', () => {
 
   assert.match(
     html,
-    /border-l-2[^"]*border-l-emerald-600[^>]*data-scoreboard-row="away" data-scoreboard-winner="true"/
+    /style="border-left-color:rgba\(163, 38, 56, 0.92\)" data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="primary"/
   );
-  assert.match(html, /data-scoreboard-score="away">34<\/span>/);
-  assert.match(html, /font-extrabold text-emerald-700/);
   assert.match(
     html,
-    /border-l-2[^"]*border-l-transparent[^>]*data-scoreboard-row="home" data-scoreboard-winner="false"/
+    /style="border-left-color:rgba\(27, 111, 58, 0.45\)" data-scoreboard-row="home" data-scoreboard-winner="false" data-scoreboard-accent-source="alt"/
+  );
+  assert.match(html, /font-extrabold" style="color:#A32638" data-scoreboard-score="away"/);
+  assert.match(
+    html,
+    /font-semibold text-gray-800 dark:text-zinc-200" data-scoreboard-score="home">17<\/span>/
   );
 });
 

@@ -2477,3 +2477,26 @@ test('postseason rows do not require placeholder hydration to avoid playoff/bowl
 
   assert.deepEqual(built.hydrationDiagnostics, []);
 });
+
+test('registry prefers persisted canonical id while keeping school-name identity resolution stable', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [
+      {
+        id: 'texas',
+        providerId: 42,
+        school: 'Texas',
+        color: '#BF5700',
+        altColor: '#FFFFFF',
+        level: 'FBS',
+      },
+    ],
+  });
+
+  const resolved = resolver.resolveName('Texas');
+  const team = resolver.getTeamIdentity('Texas');
+
+  assert.equal(resolved.identityKey, 'texas');
+  assert.equal(resolved.canonicalName, 'Texas');
+  assert.equal(team?.id, 'texas');
+});
