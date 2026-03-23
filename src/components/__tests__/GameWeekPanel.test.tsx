@@ -180,6 +180,48 @@ test('postseason placeholders with TBD kickoff render stable date fallback', () 
   assert.ok(html.includes('Placeholder Bowl'));
 });
 
+test('collapsed summary preserves canonical schedule status when score data is missing', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'status-in-progress',
+          csvAway: 'Texas',
+          csvHome: 'Kansas State',
+          status: 'in_progress',
+        }),
+        game({
+          key: 'status-final',
+          csvAway: 'TCU',
+          csvHome: 'Baylor',
+          status: 'final',
+        }),
+        game({
+          key: 'status-matchup-set',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Fiesta Bowl',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-summary-state[^>]*>IN PROGRESS<\/div>/);
+  assert.match(html, /data-summary-state[^>]*>FINAL<\/div>/);
+  assert.match(html, /data-summary-state[^>]*>MATCHUP SET<\/div>/);
+  assert.doesNotMatch(html, /data-summary-state[^>]*>Scheduled<\/div>/);
+});
+
 test('neutral-site ranked matchup label preserves vs wording', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
@@ -564,6 +606,54 @@ test('collapsed summary removes duplicate chips and keeps owner matchup plus sta
   assert.doesNotMatch(html, />SEC<\/span>/);
   assert.doesNotMatch(html, />Big 12<\/span>/);
   assert.doesNotMatch(html, /Neutral Site/);
+});
+
+test('collapsed placeholder rows keep canonical labels when matchup text is not distinctive', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'placeholder-fiesta',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Fiesta Bowl',
+        }),
+        game({
+          key: 'placeholder-rose',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Rose Bowl',
+        }),
+        game({
+          key: 'normal-game',
+          csvAway: 'Texas',
+          csvHome: 'Oklahoma',
+          label: 'Red River Rivalry',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Fiesta Bowl/);
+  assert.match(html, /Rose Bowl/);
+  assert.equal((html.match(/Team TBD<\/span> @ <span>Team TBD/g) ?? []).length, 2);
+  assert.doesNotMatch(
+    html,
+    /Red River Rivalry<\/div><div class="font-medium text-gray-900 dark:text-zinc-100"><span>Texas<\/span> @ <span>Oklahoma<\/span>/
+  );
 });
 
 test('odds row stays hidden only when no displayable odds markets exist', () => {

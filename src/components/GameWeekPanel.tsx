@@ -45,15 +45,48 @@ function formatKickoff(date: string | null, timeZone: string): string {
   });
 }
 
-function summaryStateLabel(score: ScorePack | undefined, isPlaceholder: boolean): string {
-  if (!score) return isPlaceholder ? 'Placeholder' : 'Scheduled';
-
+function summaryStateLabel(score: ScorePack | undefined): string | null {
+  if (!score) return null;
   const trimmed = score.status.trim();
   if (/\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(trimmed)) return trimmed;
   const state = gameStateFromScore(score);
   if (state === 'final') return 'FINAL';
   if (state === 'inprogress') return trimmed.toUpperCase();
   return trimmed;
+}
+
+function scheduleStateLabel(
+  status: string | null | undefined,
+  isPlaceholder: boolean
+): string | null {
+  const trimmed = status?.trim();
+  if (!trimmed) return isPlaceholder ? 'Placeholder' : null;
+  if (trimmed === 'scheduled') return isPlaceholder ? 'Placeholder' : 'Scheduled';
+  if (trimmed === 'final') return 'FINAL';
+  if (trimmed === 'in_progress') return 'IN PROGRESS';
+  if (trimmed === 'matchup_set') return 'MATCHUP SET';
+  return trimmed.replace(/_/g, ' ');
+}
+
+function resolveSummaryStateLabel(
+  game: AppGame,
+  score: ScorePack | undefined,
+  isPlaceholder: boolean
+): string {
+  return summaryStateLabel(score) ?? scheduleStateLabel(game.status, isPlaceholder) ?? 'Scheduled';
+}
+
+function shouldShowCollapsedCanonicalLabel(game: AppGame, isPlaceholder: boolean): boolean {
+  if (!isPlaceholder || !game.label?.trim()) return false;
+
+  const matchupParticipants = [game.csvAway, game.csvHome].map((value) =>
+    value.trim().toLowerCase()
+  );
+  const hasTemplateParticipant = matchupParticipants.some(
+    (value) => value === 'team tbd' || value === 'tbd' || value.includes('winner')
+  );
+
+  return hasTemplateParticipant || game.stage !== 'regular';
 }
 
 function renderMatchupLabel(
@@ -170,6 +203,11 @@ export default function GameWeekPanel({
                             {awayOwner} vs {homeOwner}
                           </div>
                         )}
+                        {shouldShowCollapsedCanonicalLabel(g, isPlaceholder) && (
+                          <div className="text-xs font-semibold text-violet-700 dark:text-violet-300">
+                            {g.label}
+                          </div>
+                        )}
                         <div
                           className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : 'text-gray-900 dark:text-zinc-100'}`}
                         >
@@ -184,7 +222,7 @@ export default function GameWeekPanel({
                         className="shrink-0 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-400"
                         data-summary-state
                       >
-                        {summaryStateLabel(score, isPlaceholder)}
+                        {resolveSummaryStateLabel(g, score, isPlaceholder)}
                       </div>
                     </summary>
 
