@@ -1,7 +1,5 @@
-import { promises as fs } from 'fs';
-import path from 'path';
-
-import { writeJsonFileAtomic } from '../../../lib/server/atomicFileWrite.ts';
+import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 
 /** Canonical alias map type */
 type AliasMap = Record<string, string>;
@@ -14,8 +12,6 @@ type PutBody =
   | { map: AliasMap; upserts?: never; deletes?: never }
   | { map?: never; upserts?: AliasMap; deletes?: string[] };
 
-/* ---------- helpers ---------- */
-
 function clampYearMaybe(s: string | null): number {
   const fallback = new Date().getFullYear();
   if (!s) return fallback;
@@ -23,39 +19,20 @@ function clampYearMaybe(s: string | null): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function dataDir(): string {
-  return path.join(process.cwd(), 'data');
-}
-
-function fileForYear(year: number): string {
-  return path.join(dataDir(), `aliases-${year}.json`);
+function aliasesScope(year: number): string {
+  return `aliases:${year}`;
 }
 
 async function readAliases(year: number): Promise<AliasMap> {
-  try {
-    const p = fileForYear(year);
-    const raw = await fs.readFile(p, 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const map: AliasMap = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        if (typeof k === 'string' && typeof v === 'string') map[k] = v;
-      }
-      return map;
-    }
-    return {};
-  } catch {
-    // File not found or unreadable: start with empty map
-    return {};
-  }
+  const record = await getAppState<AliasMap>(aliasesScope(year), 'map');
+  const map = record?.value;
+  return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
 async function writeAliases(year: number, map: AliasMap): Promise<void> {
-  const p = fileForYear(year);
-  await writeJsonFileAtomic(p, map);
+  await setAppState(aliasesScope(year), 'map', map);
 }
 
-/* ---------- GET /api/aliases?year=YYYY ---------- */
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const year = clampYearMaybe(url.searchParams.get('year'));
@@ -63,8 +40,10 @@ export async function GET(req: Request): Promise<Response> {
   return Response.json({ year, map });
 }
 
-/* ---------- PUT /api/aliases?year=YYYY ---------- */
 export async function PUT(req: Request): Promise<Response> {
+  const authFailure = requireAdminRequest(req);
+  if (authFailure) return authFailure;
+
   const url = new URL(req.url);
   const year = clampYearMaybe(url.searchParams.get('year'));
 
@@ -75,7 +54,6 @@ export async function PUT(req: Request): Promise<Response> {
     return new Response('Invalid JSON body', { status: 400 });
   }
 
-  // Type guards
   const isAliasMap = (x: unknown): x is AliasMap =>
     !!x &&
     typeof x === 'object' &&
@@ -87,7 +65,6 @@ export async function PUT(req: Request): Promise<Response> {
   const isStringArray = (x: unknown): x is string[] =>
     Array.isArray(x) && x.every((v) => typeof v === 'string');
 
-  // Narrow the body to PutBody
   let body: PutBody | null = null;
   if (bodyUnknown && typeof bodyUnknown === 'object') {
     const obj = bodyUnknown as Record<string, unknown>;
@@ -111,15 +88,11 @@ export async function PUT(req: Request): Promise<Response> {
     });
   }
 
-  // Load current aliases
   const current = await readAliases(year);
 
-  // Apply either full replace or patch
   let next: AliasMap;
   if ('map' in body) {
-    // Explicitly handle potential undefined with fallback (for TS satisfaction)
-    const fullMap: AliasMap = body.map ?? {};
-    next = fullMap;
+    next = body.map ?? {};
   } else {
     next = { ...current };
 

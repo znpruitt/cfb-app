@@ -15,12 +15,13 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
+import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { requireAdminRequest } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD === '1';
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
 const CFBD_RETRY_POLICY = {
   maxAttempts: 3,
@@ -214,9 +215,6 @@ async function fetchSeasonType(params: {
     });
   }
 
-  CACHE[cacheKey] = { at: Date.now(), items, partialFailure: false, failedSeasonTypes: [] };
-  pruneCache(CACHE, 'schedule');
-
   return { items, requestUrl };
 }
 
@@ -265,9 +263,15 @@ export async function GET(req: Request) {
         : 'all';
 
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
-  const hit = CACHE[cacheKey];
   const now = Date.now();
-  if (!bypassCache && hit && now - hit.at < CACHE_TTL_MS) {
+
+  if (bypassCache) {
+    const authFailure = requireAdminRequest(req);
+    if (authFailure) return authFailure;
+  }
+
+  const hit = CACHE[cacheKey];
+  if (!bypassCache && hit) {
     recordRouteCacheHit('schedule');
     return NextResponse.json<ScheduleResponse>({
       items: hit.items,
@@ -280,6 +284,28 @@ export async function GET(req: Request) {
         ...(hit.failedSeasonTypes.length > 0 ? { failedSeasonTypes: hit.failedSeasonTypes } : {}),
       },
     });
+  }
+
+  if (!bypassCache) {
+    const stored = await getAppState<CacheEntry>('schedule', cacheKey);
+    if (stored?.value) {
+      CACHE[cacheKey] = stored.value;
+      pruneCache(CACHE, 'schedule');
+      recordRouteCacheHit('schedule');
+      return NextResponse.json<ScheduleResponse>({
+        items: stored.value.items,
+        meta: {
+          source: 'cfbd',
+          cache: 'hit',
+          fallbackUsed: false,
+          generatedAt: new Date(stored.value.at).toISOString(),
+          partialFailure: stored.value.partialFailure,
+          ...(stored.value.failedSeasonTypes.length > 0
+            ? { failedSeasonTypes: stored.value.failedSeasonTypes }
+            : {}),
+        },
+      });
+    }
   }
 
   recordRouteCacheMiss('schedule');
@@ -376,13 +402,15 @@ export async function GET(req: Request) {
   const items = successes
     .flatMap((payload) => payload.items)
     .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
-  CACHE[cacheKey] = {
+  const nextCacheEntry: CacheEntry = {
     at: now,
     items,
     partialFailure: failedSeasonTypes.length > 0,
     failedSeasonTypes,
   };
+  CACHE[cacheKey] = nextCacheEntry;
   pruneCache(CACHE, 'schedule');
+  await setAppState('schedule', cacheKey, nextCacheEntry);
 
   if (IS_DEBUG) {
     console.log('schedule route summary', {

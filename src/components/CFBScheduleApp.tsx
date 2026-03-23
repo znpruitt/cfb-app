@@ -42,6 +42,9 @@ import type { TeamCatalogItem } from '../lib/teamIdentity';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
+import { requireAdminAuthHeaders } from '../lib/adminAuth';
+import { saveServerOwnersCsv } from '../lib/ownersApi';
+import { saveServerPostseasonOverrides } from '../lib/postseasonOverridesApi';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
 import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
@@ -331,27 +334,17 @@ export default function CFBScheduleApp({
         aliasMap: bootAliasMap,
         aliasLoadIssue,
         ownersCsvText,
+        ownersLoadIssue,
+        postseasonOverrides: loadedOverrides,
+        postseasonOverridesLoadIssue,
       } = await bootstrapAliasesAndCaches({ season: selectedSeason, seedAliases: SEED_ALIASES });
 
       setAliasMap(bootAliasMap);
       if (aliasLoadIssue) setIssues((p) => [...p, aliasLoadIssue]);
+      if (ownersLoadIssue) setIssues((p) => [...p, ownersLoadIssue]);
+      if (postseasonOverridesLoadIssue) setIssues((p) => [...p, postseasonOverridesLoadIssue]);
 
       setHasCachedOwners(Boolean(ownersCsvText));
-
-      let loadedOverrides: Record<string, Partial<AppGame>> = {};
-      try {
-        let rawOverrides = window.localStorage.getItem(storageKeys.postseasonOverrides);
-        if (!rawOverrides) {
-          rawOverrides = window.localStorage.getItem(LEGACY_STORAGE_KEYS.postseasonOverrides);
-          if (rawOverrides) {
-            window.localStorage.setItem(storageKeys.postseasonOverrides, rawOverrides);
-          }
-        }
-        if (rawOverrides)
-          loadedOverrides = JSON.parse(rawOverrides) as Record<string, Partial<AppGame>>;
-      } catch {
-        loadedOverrides = {};
-      }
       setManualPostseasonOverrides(loadedOverrides);
 
       await loadScheduleFromApi(bootAliasMap, loadedOverrides);
@@ -368,12 +361,17 @@ export default function CFBScheduleApp({
       const file = e.target.files?.[0];
       if (!file) return;
       const text = await file.text();
-      window.localStorage.setItem(storageKeys.ownersCsv, text);
-      setHasCachedOwners(true);
-      setOwnersLoadedFromCache(false);
-      tryParseOwnersCSV(text);
+      try {
+        await saveServerOwnersCsv(selectedSeason, text);
+        window.localStorage.setItem(storageKeys.ownersCsv, text);
+        setHasCachedOwners(true);
+        setOwnersLoadedFromCache(false);
+        tryParseOwnersCSV(text);
+      } catch (err) {
+        setIssues((prev) => [...prev, `Owners save failed: ${(err as Error).message}`]);
+      }
     },
-    [storageKeys.ownersCsv, tryParseOwnersCSV]
+    [selectedSeason, storageKeys.ownersCsv, tryParseOwnersCSV]
   );
 
   useEffect(() => {
@@ -773,9 +771,13 @@ export default function CFBScheduleApp({
               ]);
             }
             try {
-              const oddsRes = await fetch(`/api/odds?year=${selectedSeason}`, {
-                cache: 'no-store',
-              });
+              const oddsRes = await fetch(
+                `/api/odds?year=${selectedSeason}${manual ? '&refresh=1' : ''}`,
+                {
+                  cache: 'no-store',
+                  headers: manual ? requireAdminAuthHeaders() : undefined,
+                }
+              );
               if (oddsRes.ok) {
                 const oddsPayload = (await oddsRes.json()) as {
                   items?: CanonicalOddsItem[];
@@ -1077,10 +1079,13 @@ export default function CFBScheduleApp({
       });
 
       if (nextOverrides) {
+        void saveServerPostseasonOverrides(selectedSeason, nextOverrides).catch((err) => {
+          setIssues((p) => [...p, `Postseason override save failed: ${(err as Error).message}`]);
+        });
         void loadScheduleFromApi(undefined, nextOverrides);
       }
     },
-    [loadScheduleFromApi, storageKeys.postseasonOverrides]
+    [loadScheduleFromApi, selectedSeason, storageKeys.postseasonOverrides]
   );
 
   const isAdminSurface = surface === 'admin';

@@ -33,6 +33,8 @@ import {
 } from '../../../lib/server/apiUsageBudget.ts';
 import { seasonYearForToday } from '../../../lib/scores/normalizers.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
+import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { SEED_ALIASES, type AliasMap } from '../../../lib/teamNames.ts';
 
 export const revalidate = 120;
@@ -118,6 +120,12 @@ type QueryValidationError = {
 type QueryValidationResult = { ok: true; query: ParsedOddsQuery } | QueryValidationError;
 type ParsedCsvParamResult = { ok: true; values: string[] } | QueryValidationError;
 type ParsedSeasonResult = { ok: true; season: number } | QueryValidationError;
+
+type SharedOddsCacheEntry = {
+  data: NormalizedOddsEvent[];
+  lastFetch: number;
+  usage: OddsUsageSnapshot | null;
+};
 
 const oddsCache: OddsCache = {
   entries: {},
@@ -292,26 +300,12 @@ async function readTeamsCatalog(): Promise<TeamCatalogItem[]> {
 }
 
 async function readAliasesForSeason(season: number): Promise<AliasMap> {
-  try {
-    const raw = await fs.readFile(
-      path.join(process.cwd(), 'data', `aliases-${season}.json`),
-      'utf8'
-    );
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { ...SEED_ALIASES };
-    }
-
-    const aliases: AliasMap = { ...SEED_ALIASES };
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof key === 'string' && typeof value === 'string') {
-        aliases[key] = value;
-      }
-    }
-    return aliases;
-  } catch {
+  const record = await getAppState<AliasMap>(`aliases:${season}`, 'map');
+  if (!record?.value || typeof record.value !== 'object' || Array.isArray(record.value)) {
     return { ...SEED_ALIASES };
   }
+
+  return { ...SEED_ALIASES, ...record.value };
 }
 
 async function fetchCanonicalSchedule(req: Request, season: number): Promise<ScheduleWireItem[]> {
@@ -514,12 +508,32 @@ export async function GET(req: Request): Promise<Response> {
       oddsCache.dayKey = dayKey;
     }
 
+    const refreshRequested = new URL(req.url).searchParams.get('refresh') === '1';
+    if (refreshRequested) {
+      const authFailure = requireAdminRequest(req);
+      if (authFailure) return authFailure;
+    }
+
     const cacheKey = createCacheKey(query);
     const cachedEntry = oddsCache.entries[cacheKey];
-    const stale = !cachedEntry || Date.now() - cachedEntry.lastFetch > 30 * 60 * 1000;
+    let responseEntry: SharedOddsCacheEntry | undefined = cachedEntry;
     let fetchedFromUpstream = false;
 
-    if (!cachedEntry || stale) {
+    if (!refreshRequested && cachedEntry) {
+      recordRouteCacheHit('odds');
+    } else if (!refreshRequested) {
+      const stored = await getAppState<SharedOddsCacheEntry>(
+        'odds-cache',
+        `${query.season}:${cacheKey}`
+      );
+      if (stored?.value) {
+        oddsCache.entries[cacheKey] = stored.value;
+        responseEntry = stored.value;
+        recordRouteCacheHit('odds');
+      }
+    }
+
+    if (!responseEntry || refreshRequested) {
       recordRouteCacheMiss('odds');
 
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
@@ -594,7 +608,7 @@ export async function GET(req: Request): Promise<Response> {
         cacheStatus: 'miss',
       });
 
-      oddsCache.entries[cacheKey] = {
+      responseEntry = {
         data: Array.isArray(upstreamData)
           ? upstreamData
               .map(normalizeUpstreamOddsEvent)
@@ -603,14 +617,10 @@ export async function GET(req: Request): Promise<Response> {
         lastFetch: Date.now(),
         usage,
       };
+      oddsCache.entries[cacheKey] = responseEntry;
+      await setAppState('odds-cache', `${query.season}:${cacheKey}`, responseEntry);
       fetchedFromUpstream = true;
     }
-
-    if (cachedEntry && !stale) {
-      recordRouteCacheHit('odds');
-    }
-
-    const responseEntry = oddsCache.entries[cacheKey] ?? cachedEntry;
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
     const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([

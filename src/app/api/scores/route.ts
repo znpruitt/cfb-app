@@ -7,6 +7,7 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
+import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
 import {
   seasonYearForToday,
@@ -161,6 +162,20 @@ export async function GET(req: Request) {
     });
   }
 
+  const stored = await getAppState<CacheEntry>('scores', cacheKey);
+  if (stored?.value && now - stored.value.at < CACHE_TTL_MS) {
+    SCORES_CACHE[cacheKey] = stored.value;
+    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES);
+    recordRouteCacheHit('scores');
+    return responseFrom(stored.value.items, {
+      source: stored.value.source,
+      cache: 'hit',
+      fallbackUsed: stored.value.source === 'espn',
+      generatedAt: new Date(stored.value.at).toISOString(),
+      cfbdFallbackReason: stored.value.cfbdFallbackReason,
+    });
+  }
+
   recordRouteCacheMiss('scores');
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
@@ -201,12 +216,14 @@ export async function GET(req: Request) {
       }
 
       if (items.length > 0) {
-        SCORES_CACHE[cacheKey] = {
+        const nextEntry: CacheEntry = {
           at: now,
           items,
           source: 'cfbd',
           cfbdFallbackReason: 'none',
         };
+        SCORES_CACHE[cacheKey] = nextEntry;
+        await setAppState('scores', cacheKey, nextEntry);
         pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
           if (IS_DEBUG) {
             console.log('cfbd cache evicted', {
@@ -293,12 +310,14 @@ export async function GET(req: Request) {
       if (pack) items.push(pack);
     }
 
-    SCORES_CACHE[cacheKey] = {
+    const nextEntry: CacheEntry = {
       at: now,
       items,
       source: 'espn',
       cfbdFallbackReason,
     };
+    SCORES_CACHE[cacheKey] = nextEntry;
+    await setAppState('scores', cacheKey, nextEntry);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
         console.log('cfbd cache evicted', {

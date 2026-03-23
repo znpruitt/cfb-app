@@ -2,12 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { GET } from '../route';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+} from '../../../../lib/server/appStateStore.ts';
 
 type MockFetch = typeof fetch;
 
 function setMockFetch(impl: Parameters<MockFetch>[1] extends never ? never : any) {
   global.fetch = impl as MockFetch;
 }
+
+test.beforeEach(async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+});
 
 test('schedule route returns mapped items from CFBD upstream', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';

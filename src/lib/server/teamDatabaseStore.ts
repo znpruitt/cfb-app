@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { TeamCatalogItem } from '../teamIdentity.ts';
 import type { TeamDatabaseFile } from '../teamDatabase.ts';
 import { normalizeTeamName } from '../teamNormalization.ts';
-import { writeJsonFileAtomic } from './atomicFileWrite.ts';
+import { deleteAppState, getAppState, setAppState } from './appStateStore.ts';
 
 type TeamCatalogSourceFile = {
   year?: number;
@@ -13,15 +13,9 @@ type TeamCatalogSourceFile = {
 
 let memoryStore: TeamDatabaseFile | null | undefined;
 let writeQueue: Promise<void> = Promise.resolve();
-let writeTeamDatabaseFile: (filePath: string, value: unknown) => Promise<void> =
-  writeJsonFileAtomic;
 
-function dataDir(): string {
-  return path.join(process.cwd(), 'data');
-}
-
-function durableTeamDatabaseFile(): string {
-  return path.join(dataDir(), 'team-database.json');
+function teamDatabaseScope(): string {
+  return 'team-database';
 }
 
 function sourceTeamsCatalogFile(): string {
@@ -111,13 +105,8 @@ async function readSourceCatalogFallback(): Promise<TeamDatabaseFile> {
 }
 
 async function readStoreFile(): Promise<TeamDatabaseFile> {
-  try {
-    const raw = await fs.readFile(durableTeamDatabaseFile(), 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    return toTeamDatabaseFile(parsed) ?? (await readSourceCatalogFallback());
-  } catch {
-    return await readSourceCatalogFallback();
-  }
+  const record = await getAppState<TeamDatabaseFile>(teamDatabaseScope(), 'current');
+  return toTeamDatabaseFile(record?.value) ?? (await readSourceCatalogFallback());
 }
 
 export async function getTeamDatabaseFile(): Promise<TeamDatabaseFile> {
@@ -136,7 +125,7 @@ export async function setTeamDatabaseFile(file: TeamDatabaseFile): Promise<void>
   const writeOperation = writeQueue
     .catch(() => undefined)
     .then(async () => {
-      await writeTeamDatabaseFile(durableTeamDatabaseFile(), file);
+      await setAppState(teamDatabaseScope(), 'current', file);
       memoryStore = file;
     });
 
@@ -151,20 +140,20 @@ export async function setTeamDatabaseFile(file: TeamDatabaseFile): Promise<void>
 export function __resetTeamDatabaseStoreForTests(): void {
   memoryStore = undefined;
   writeQueue = Promise.resolve();
-  writeTeamDatabaseFile = writeJsonFileAtomic;
 }
 
 export async function __deleteTeamDatabaseStoreFileForTests(): Promise<void> {
   memoryStore = undefined;
-  await fs.rm(durableTeamDatabaseFile(), { force: true });
+  await deleteAppState(teamDatabaseScope(), 'current');
 }
 
 export function __getTeamDatabaseStoreFilePathForTests(): string {
-  return durableTeamDatabaseFile();
+  return path.join(process.cwd(), 'data', 'team-database.json');
 }
 
 export function __setTeamDatabaseWriteImplForTests(
-  impl: (filePath: string, value: unknown) => Promise<void>
+  impl?: (filePath: string, value: unknown) => Promise<void>
 ): void {
-  writeTeamDatabaseFile = impl;
+  void impl;
+  // no-op: durability is abstracted through appStateStore in production hardening mode
 }

@@ -7,6 +7,10 @@ import {
   getLatestKnownOddsUsage,
 } from '../../../lib/server/oddsUsageStore.ts';
 import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+} from '../../../lib/server/appStateStore.ts';
+import {
   __deleteDurableOddsStoreFileForTests,
   __resetDurableOddsStoreForTests,
   getDurableOddsRecord,
@@ -18,6 +22,8 @@ import { GET, __resetOddsRouteCacheForTests, resolveDefaultSeason } from './rout
 const DURABLE_ODDS_TEST_SEASON = 2026;
 
 test.beforeEach(async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
   await __deleteOddsUsageStoreFileForTests();
   __resetOddsUsageStoreForTests();
   await __deleteDurableOddsStoreFileForTests(DURABLE_ODDS_TEST_SEASON);
@@ -509,7 +515,7 @@ test('odds canonicalization uses conference records so tracked games match sched
   }) as typeof fetch;
 
   try {
-    const res = await GET(new Request('http://localhost/api/odds?year=2026'));
+    const res = await GET(new Request('http://localhost/api/odds?year=2026&refresh=1'));
     assert.equal(res.status, 200);
 
     const json = (await res.json()) as {
