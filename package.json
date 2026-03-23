@@ -6,10 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
-    "lint:fix": "eslint src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --fix",
+    "lint": "npm run lint:eslint && npm run lint:format",
+    "lint:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**'",
+    "lint:all": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:fix": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**' --fix",
+    "lint:format": "prettier --check --cache --cache-strategy content src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:quick": "npm run lint:eslint",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --check src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
     "fetch:teams": "tsx scripts/fetch-cfbd-teams.ts --year 2025"
   },
   "dependencies": {
