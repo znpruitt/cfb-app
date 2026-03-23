@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import type { TeamCatalogItem } from '../teamIdentity.ts';
 import type { TeamDatabaseFile } from '../teamDatabase.ts';
+import { normalizeTeamName } from '../teamNormalization.ts';
 import { writeJsonFileAtomic } from './atomicFileWrite.ts';
 
 type TeamCatalogSourceFile = {
@@ -12,6 +13,8 @@ type TeamCatalogSourceFile = {
 
 let memoryStore: TeamDatabaseFile | null | undefined;
 let writeQueue: Promise<void> = Promise.resolve();
+let writeTeamDatabaseFile: (filePath: string, value: unknown) => Promise<void> =
+  writeJsonFileAtomic;
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -30,13 +33,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function toNullableString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value : null;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function toStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean)
     : [];
+}
+
+function deriveCanonicalTeamId(school: string): string | null {
+  return normalizeTeamName(school);
 }
 
 function toTeamCatalogItem(value: unknown): TeamCatalogItem | null {
@@ -46,7 +53,7 @@ function toTeamCatalogItem(value: unknown): TeamCatalogItem | null {
   if (!school) return null;
 
   return {
-    id: toNullableString(value.id),
+    id: toNullableString(value.id) ?? deriveCanonicalTeamId(school),
     providerId:
       typeof value.providerId === 'number' && Number.isFinite(value.providerId)
         ? value.providerId
@@ -126,17 +133,25 @@ export async function getTeamDatabaseItems(): Promise<TeamCatalogItem[]> {
 }
 
 export async function setTeamDatabaseFile(file: TeamDatabaseFile): Promise<void> {
-  writeQueue = writeQueue.then(async () => {
-    memoryStore = file;
-    await writeJsonFileAtomic(durableTeamDatabaseFile(), file);
-  });
+  const writeOperation = writeQueue
+    .catch(() => undefined)
+    .then(async () => {
+      await writeTeamDatabaseFile(durableTeamDatabaseFile(), file);
+      memoryStore = file;
+    });
 
-  await writeQueue;
+  writeQueue = writeOperation.then(
+    () => undefined,
+    () => undefined
+  );
+
+  await writeOperation;
 }
 
 export function __resetTeamDatabaseStoreForTests(): void {
   memoryStore = undefined;
   writeQueue = Promise.resolve();
+  writeTeamDatabaseFile = writeJsonFileAtomic;
 }
 
 export async function __deleteTeamDatabaseStoreFileForTests(): Promise<void> {
@@ -146,4 +161,10 @@ export async function __deleteTeamDatabaseStoreFileForTests(): Promise<void> {
 
 export function __getTeamDatabaseStoreFilePathForTests(): string {
   return durableTeamDatabaseFile();
+}
+
+export function __setTeamDatabaseWriteImplForTests(
+  impl: (filePath: string, value: unknown) => Promise<void>
+): void {
+  writeTeamDatabaseFile = impl;
 }
