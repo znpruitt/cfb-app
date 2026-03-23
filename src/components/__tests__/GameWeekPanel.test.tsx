@@ -21,6 +21,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     slotOrder: overrides.slotOrder ?? 0,
     eventKey: overrides.eventKey ?? overrides.key ?? 'g',
     label: overrides.label ?? null,
+    notes: overrides.notes ?? null,
     conference: overrides.conference ?? null,
     bowlName: overrides.bowlName ?? null,
     playoffRound: overrides.playoffRound ?? null,
@@ -114,7 +115,8 @@ test('late-night kickoff header matches kickoff text timezone', () => {
   );
 
   assert.ok(html.includes('Saturday, Sep 6'));
-  assert.ok(html.includes('Kickoff: Sat, Sep 6, 9:30 PM'));
+  assert.ok(html.includes('Sat, Sep 6, 9:30 PM'));
+  assert.doesNotMatch(html, /Kickoff:/);
 });
 
 test('selected week panel stays aligned with week metadata date basis for the same timezone', () => {
@@ -142,8 +144,9 @@ test('selected week panel stays aligned with week metadata date basis for the sa
 
   assert.ok(html.includes('Saturday, Sep 6'));
   assert.ok(html.includes('Sunday, Sep 7'));
-  assert.ok(html.includes('Kickoff: Sat, Sep 6, 9:30 PM'));
-  assert.ok(html.includes('Kickoff: Sun, Sep 7, 12:00 PM'));
+  assert.ok(html.includes('Sat, Sep 6, 9:30 PM'));
+  assert.ok(html.includes('Sun, Sep 7, 12:00 PM'));
+  assert.doesNotMatch(html, /Kickoff:/);
 });
 
 test('postseason placeholders with TBD kickoff render stable date fallback', () => {
@@ -172,8 +175,51 @@ test('postseason placeholders with TBD kickoff render stable date fallback', () 
   );
 
   assert.ok(html.includes('Date TBD'));
-  assert.ok(html.includes('Kickoff: TBD'));
+  assert.ok(html.includes('TBD'));
+  assert.doesNotMatch(html, /Kickoff:/);
   assert.ok(html.includes('Placeholder Bowl'));
+});
+
+test('collapsed summary preserves canonical schedule status when score data is missing', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'status-in-progress',
+          csvAway: 'Texas',
+          csvHome: 'Kansas State',
+          status: 'in_progress',
+        }),
+        game({
+          key: 'status-final',
+          csvAway: 'TCU',
+          csvHome: 'Baylor',
+          status: 'final',
+        }),
+        game({
+          key: 'status-matchup-set',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Fiesta Bowl',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-summary-state[^>]*>IN PROGRESS<\/div>/);
+  assert.match(html, /data-summary-state[^>]*>FINAL<\/div>/);
+  assert.match(html, /data-summary-state[^>]*>MATCHUP SET<\/div>/);
+  assert.doesNotMatch(html, /data-summary-state[^>]*>Scheduled<\/div>/);
 });
 
 test('neutral-site ranked matchup label preserves vs wording', () => {
@@ -316,7 +362,10 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /MSST/);
   assert.match(html, /data-scoreboard-score="away">38<\/span>/);
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
-  assert.match(html, /font-semibold text-gray-950[^"]*border-b border-gray-200\/60/);
+  assert.match(
+    html,
+    /border-l-emerald-600[^"]*border-b border-gray-200\/60[^>]*data-scoreboard-row="away" data-scoreboard-winner="true"/
+  );
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });
 
@@ -436,7 +485,7 @@ test('score block preserves disrupted terminal provider statuses instead of coll
   assert.doesNotMatch(canceledHtml, />FINAL<\/div>/);
 });
 
-test('expanded scoreboard header preserves neutral-site wording from shared matchup helper', () => {
+test('collapsed summary keeps matchup wording while expanded metadata owns kickoff and neutral-site details', () => {
   const neutralGame = game({
     key: 'neutral-expanded',
     csvAway: 'Texas',
@@ -468,6 +517,9 @@ test('expanded scoreboard header preserves neutral-site wording from shared matc
 
   assert.equal((html.match(/Texas<\/span> vs <span>Ohio State/g) ?? []).length, 1);
   assert.doesNotMatch(html, /Texas<\/span> @ <span>Ohio State/);
+  assert.equal((html.match(/Neutral Site/g) ?? []).length, 1);
+  assert.match(html, /data-expanded-metadata/);
+  assert.match(html, /Mon, Sep 1, 5:00 PM/);
 });
 
 test('moneyline-only odds still render in expanded scoreboard odds row', () => {
@@ -510,6 +562,98 @@ test('moneyline-only odds still render in expanded scoreboard odds row', () => {
 
   assert.match(html, /ML: South Carolina \+425 • Clemson -600/);
   assert.doesNotMatch(html, /No odds/);
+});
+
+test('collapsed summary removes duplicate chips and keeps owner matchup plus state only', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'summary-minimal',
+          csvAway: 'Texas',
+          csvHome: 'Oklahoma',
+          date: '2025-10-11T19:30:00.000Z',
+          awayConf: 'SEC',
+          homeConf: 'Big 12',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'summary-minimal': {
+          away: { team: 'Texas', score: 24 },
+          home: { team: 'Oklahoma', score: 17 },
+          status: 'Final',
+          time: null,
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Texas', 'Casey'],
+          ['Oklahoma', 'Jordan'],
+        ])
+      }
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Casey vs Jordan/);
+  assert.match(html, /data-summary-state[^>]*>FINAL<\/div>/);
+  assert.doesNotMatch(html, /Home owner:/);
+  assert.doesNotMatch(html, /Away owner:/);
+  assert.doesNotMatch(html, />SEC<\/span>/);
+  assert.doesNotMatch(html, />Big 12<\/span>/);
+  assert.doesNotMatch(html, /Neutral Site/);
+});
+
+test('collapsed placeholder rows keep canonical labels when matchup text is not distinctive', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'placeholder-fiesta',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Fiesta Bowl',
+        }),
+        game({
+          key: 'placeholder-rose',
+          csvAway: 'Team TBD',
+          csvHome: 'Team TBD',
+          stage: 'bowl',
+          status: 'matchup_set',
+          isPlaceholder: true,
+          label: 'Rose Bowl',
+        }),
+        game({
+          key: 'normal-game',
+          csvAway: 'Texas',
+          csvHome: 'Oklahoma',
+          label: 'Red River Rivalry',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Fiesta Bowl/);
+  assert.match(html, /Rose Bowl/);
+  assert.equal((html.match(/Team TBD<\/span> @ <span>Team TBD/g) ?? []).length, 2);
+  assert.doesNotMatch(
+    html,
+    /Red River Rivalry<\/div><div class="font-medium text-gray-900 dark:text-zinc-100"><span>Texas<\/span> @ <span>Oklahoma<\/span>/
+  );
 });
 
 test('odds row stays hidden only when no displayable odds markets exist', () => {
@@ -612,7 +756,7 @@ test('expanded scoreboard venue falls back to stadium-only label', () => {
   assert.doesNotMatch(html, /Aviva Stadium •/);
 });
 
-test('expanded scoreboard removes inner duplicate matchup title and keeps summary label', () => {
+test('expanded scoreboard removes inner duplicate matchup title and renders event subtitle from canonical label', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -621,6 +765,7 @@ test('expanded scoreboard removes inner duplicate matchup title and keeps summar
           csvAway: 'Texas',
           csvHome: 'Ohio State',
           date: '2025-09-01T17:00:00.000Z',
+          label: 'Cotton Bowl Classic',
           neutral: true,
           neutralDisplay: 'vs',
           stage: 'bowl',
@@ -637,4 +782,61 @@ test('expanded scoreboard removes inner duplicate matchup title and keeps summar
   );
 
   assert.equal((html.match(/Texas<\/span> vs <span>Ohio State/g) ?? []).length, 1);
+  assert.match(html, /data-expanded-event-name/);
+  assert.match(html, /Cotton Bowl Classic/);
+  assert.ok(html.includes('data-scoreboard-row="away"'));
+  assert.ok(html.includes('data-scoreboard-row="home"'));
+  assert.equal((html.match(/Texas @ Ohio State/g) ?? []).length, 0);
+});
+
+test('expanded event name falls back to notes and suppresses duplicate matchup labels', () => {
+  const fallbackHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'event-notes',
+          csvAway: 'Florida',
+          csvHome: 'Georgia',
+          date: '2025-11-01T19:30:00.000Z',
+          label: '',
+          notes: 'World’s Largest Outdoor Cocktail Party',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const suppressedHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'event-suppressed',
+          csvAway: 'Florida',
+          csvHome: 'Georgia',
+          date: '2025-11-01T19:30:00.000Z',
+          label: 'Florida @ Georgia',
+          notes: 'Florida @ Georgia',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(
+    fallbackHtml,
+    /data-expanded-event-name[^>]*>World’s Largest Outdoor Cocktail Party<\/div>/
+  );
+  assert.doesNotMatch(suppressedHtml, /data-expanded-event-name/);
 });

@@ -1,11 +1,10 @@
 import React from 'react';
 
+import { deriveDisplayEventName } from '../lib/gameEventName';
 import type { CombinedOdds } from '../lib/odds';
 import {
-  chipClass,
   formatGameMatchupLabel,
   gameStateFromScore,
-  pillClass,
   statusClasses,
   usesNeutralSiteSemantics,
 } from '../lib/gameUi';
@@ -46,11 +45,56 @@ function formatKickoff(date: string | null, timeZone: string): string {
   });
 }
 
+function summaryStateLabel(score: ScorePack | undefined): string | null {
+  if (!score) return null;
+  const trimmed = score.status.trim();
+  if (/\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(trimmed)) return trimmed;
+  const state = gameStateFromScore(score);
+  if (state === 'final') return 'FINAL';
+  if (state === 'inprogress') return trimmed.toUpperCase();
+  return trimmed;
+}
+
+function scheduleStateLabel(
+  status: string | null | undefined,
+  isPlaceholder: boolean
+): string | null {
+  const trimmed = status?.trim();
+  if (!trimmed) return isPlaceholder ? 'Placeholder' : null;
+  if (trimmed === 'scheduled') return isPlaceholder ? 'Placeholder' : 'Scheduled';
+  if (trimmed === 'final') return 'FINAL';
+  if (trimmed === 'in_progress') return 'IN PROGRESS';
+  if (trimmed === 'matchup_set') return 'MATCHUP SET';
+  return trimmed.replace(/_/g, ' ');
+}
+
+function resolveSummaryStateLabel(
+  game: AppGame,
+  score: ScorePack | undefined,
+  isPlaceholder: boolean
+): string {
+  return summaryStateLabel(score) ?? scheduleStateLabel(game.status, isPlaceholder) ?? 'Scheduled';
+}
+
+function shouldShowCollapsedCanonicalLabel(game: AppGame, isPlaceholder: boolean): boolean {
+  if (!isPlaceholder || !game.label?.trim()) return false;
+
+  const matchupParticipants = [game.csvAway, game.csvHome].map((value) =>
+    value.trim().toLowerCase()
+  );
+  const hasTemplateParticipant = matchupParticipants.some(
+    (value) => value === 'team tbd' || value === 'tbd' || value.includes('winner')
+  );
+
+  return hasTemplateParticipant || game.stage !== 'regular';
+}
+
 function renderMatchupLabel(
   game: AppGame,
-  rankingsByTeamId: Map<string, TeamRankingEnrichment>
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>,
+  homeAwaySeparator: '@' | 'vs'
 ): React.ReactElement {
-  const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator: '@' });
+  const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator });
   const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
   const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
   const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
@@ -134,23 +178,11 @@ export default function GameWeekPanel({
                   g.participants?.home?.kind !== 'team' ||
                   g.participants?.away?.kind !== 'team';
 
-                const chips: string[] = [];
-                if (isPlaceholder) chips.push('Placeholder');
-                if (!score && !odds) chips.push('No scores/odds');
-                if (score) {
-                  chips.push(
-                    state === 'final'
-                      ? 'Final'
-                      : state === 'inprogress'
-                        ? 'In Progress'
-                        : state === 'scheduled'
-                          ? 'Scheduled'
-                          : '—'
-                  );
-                }
-                if (!odds && !isPlaceholder) chips.push('No odds');
-
                 const useNeutralSemantics = usesNeutralSiteSemantics(g);
+                const matchupLabel = formatGameMatchupLabel(g, {
+                  homeAwaySeparator: useNeutralSemantics ? 'vs' : '@',
+                });
+                const eventName = deriveDisplayEventName(g.label, g.notes, matchupLabel);
                 const homeIsLeagueTeam =
                   g.participants.home.kind === 'team' && !isFcsConference(g.homeConf);
                 const awayIsLeagueTeam =
@@ -164,65 +196,67 @@ export default function GameWeekPanel({
 
                 return (
                   <details key={g.key} className={frameClasses}>
-                    <summary className="cursor-pointer px-3 py-2 flex items-center justify-between">
-                      <div className="flex flex-col gap-1">
+                    <summary className="cursor-pointer px-3 py-2 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex flex-col gap-1">
                         {showOwnerMatchup && (
                           <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
                             {awayOwner} vs {homeOwner}
                           </div>
                         )}
-                        <div className="flex flex-wrap items-center gap-2">
-                          {g.label && (
-                            <span className="font-semibold text-sm text-violet-700 dark:text-violet-300">
-                              {g.label}
-                            </span>
-                          )}
-                          {useNeutralSemantics && <span className={pillClass()}>Neutral Site</span>}
-                          <span
-                            className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : ''}`}
-                          >
-                            {renderMatchupLabel(g, rankingsByTeamId)}
-                          </span>
-                          <span className={pillClass()}>
-                            Kickoff: {formatKickoff(g.date, displayTimeZone)}
-                          </span>
-                          {g.homeConf && <span className={pillClass()}>{g.homeConf}</span>}
-                          {g.awayConf && <span className={pillClass()}>{g.awayConf}</span>}
-                          {homeOwner && (
-                            <span className={pillClass()}>Home owner: {homeOwner}</span>
-                          )}
-                          {awayOwner && (
-                            <span className={pillClass()}>Away owner: {awayOwner}</span>
+                        {shouldShowCollapsedCanonicalLabel(g, isPlaceholder) && (
+                          <div className="text-xs font-semibold text-violet-700 dark:text-violet-300">
+                            {g.label}
+                          </div>
+                        )}
+                        <div
+                          className={`font-medium ${isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : 'text-gray-900 dark:text-zinc-100'}`}
+                        >
+                          {renderMatchupLabel(
+                            g,
+                            rankingsByTeamId,
+                            useNeutralSemantics ? 'vs' : '@'
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {chips.map((c) => (
-                          <span key={c} className={chipClass()}>
-                            {c}
-                          </span>
-                        ))}
+                      <div
+                        className="shrink-0 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-400"
+                        data-summary-state
+                      >
+                        {resolveSummaryStateLabel(g, score, isPlaceholder)}
                       </div>
                     </summary>
 
                     <div className="space-y-3 p-3">
+                      <div className="space-y-1">
+                        {eventName && (
+                          <div
+                            className="text-sm leading-snug text-gray-400 dark:text-zinc-500"
+                            data-expanded-event-name
+                          >
+                            {eventName}
+                          </div>
+                        )}
+                        <div
+                          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400 dark:text-zinc-500"
+                          data-expanded-metadata
+                        >
+                          <span>{formatKickoff(g.date, displayTimeZone)}</span>
+                          {useNeutralSemantics && <span>Neutral Site</span>}
+                        </div>
+                      </div>
+
                       <GameScoreboard
                         score={score}
                         awayTeam={participantDisplayInfo(g, 'away')}
                         homeTeam={participantDisplayInfo(g, 'home')}
                         awayRanking={rankingsByTeamId.get(awayTeamId)}
                         homeRanking={rankingsByTeamId.get(homeTeamId)}
-                        matchupLabel={formatGameMatchupLabel(g, { homeAwaySeparator: '@' })}
-                        label={g.label}
-                        notes={g.notes}
-                        kickoffLabel={formatKickoff(g.date, displayTimeZone)}
                         awayConference={g.awayConf}
                         homeConference={g.homeConf}
                         awayOwner={awayOwner}
                         homeOwner={homeOwner}
                         venue={g.venue}
                         odds={odds}
-                        neutralSite={useNeutralSemantics}
                         isPlaceholder={isPlaceholder}
                       />
 
