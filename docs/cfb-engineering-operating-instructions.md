@@ -261,19 +261,18 @@ Codex must perform a compliance self-check before returning any technical respon
 
 For technical responses, Codex must verify:
 
-- the response follows the standard response structure
-- the Summary section is present
-- the first line under Summary is `PROMPT_ID: <ID>`
+- technical responses comply with Section 2
+- PROMPT_ID is present
 - the PROMPT_ID exactly matches the prompt header
+- response structure and ordering comply with Section 2
 
 Codex must also perform a compliance self-check before creating any git commit.
 
 For commits, Codex must verify:
 
-- the first line of the commit message is `PROMPT_ID: <ID>`
-- the PROMPT_ID exactly matches the implementing prompt
+- commit messages comply with Section 3.8
 
-If either self-check fails, the response or commit message is invalid and must be corrected before completion.
+If any self-check fails, the response or commit is invalid and must be corrected before completion.
 
 This self-check is required for all future Codex work governed by these instructions.
 
