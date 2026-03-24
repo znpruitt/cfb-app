@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { CONFERENCES_SNAPSHOT } from '@/data/conferencesSnapshot';
-import { __resetConferencesRouteCacheForTests, GET } from '../route';
+import { __resetConferencesRouteCacheForTests } from '../cache';
+import { GET } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,

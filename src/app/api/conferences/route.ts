@@ -11,6 +11,7 @@ import {
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import { getConferencesRouteCache, setConferencesRouteCache } from './cache';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
@@ -28,12 +29,6 @@ type ConferencesResponse = {
   };
 };
 
-let cache: { at: number; items: CfbdConferenceRecord[] } | null = null;
-
-export function __resetConferencesRouteCacheForTests(): void {
-  cache = null;
-}
-
 function parseBooleanQueryParam(raw: string | null): boolean {
   if (!raw) return false;
   const normalized = raw.trim().toLowerCase();
@@ -49,13 +44,14 @@ export async function GET(req: Request) {
   const isAdmin = !adminAuthFailure;
   if (bypassCache && adminAuthFailure) return adminAuthFailure;
 
-  if (!bypassCache && cache && Date.now() - cache.at < CACHE_TTL_MS) {
+  const inMemoryCache = getConferencesRouteCache();
+  if (!bypassCache && inMemoryCache && Date.now() - inMemoryCache.at < CACHE_TTL_MS) {
     recordRouteCacheHit('conferences');
     return NextResponse.json<ConferencesResponse>({
-      items: cache.items,
+      items: inMemoryCache.items,
       meta: {
         source: 'cache',
-        generatedAt: new Date(cache.at).toISOString(),
+        generatedAt: new Date(inMemoryCache.at).toISOString(),
         fallbackUsed: false,
       },
     });
@@ -66,7 +62,7 @@ export async function GET(req: Request) {
     'snapshot'
   );
   if (!bypassCache && stored?.value && Date.now() - stored.value.at < CACHE_TTL_MS) {
-    cache = stored.value;
+    setConferencesRouteCache(stored.value);
     recordRouteCacheHit('conferences');
     return NextResponse.json<ConferencesResponse>({
       items: stored.value.items,
@@ -80,7 +76,7 @@ export async function GET(req: Request) {
 
   if (!bypassCache && !isAdmin) {
     if (stored?.value) {
-      cache = stored.value;
+      setConferencesRouteCache(stored.value);
       recordRouteCacheHit('conferences');
       return NextResponse.json<ConferencesResponse>({
         items: stored.value.items,
@@ -126,14 +122,15 @@ export async function GET(req: Request) {
       }
     );
 
-    cache = { at: Date.now(), items: Array.isArray(items) ? items : [] };
-    await setAppState('conferences', 'snapshot', cache);
+    const nextCache = { at: Date.now(), items: Array.isArray(items) ? items : [] };
+    setConferencesRouteCache(nextCache);
+    await setAppState('conferences', 'snapshot', nextCache);
 
     return NextResponse.json<ConferencesResponse>({
-      items: cache.items,
+      items: nextCache.items,
       meta: {
         source: 'cfbd_live',
-        generatedAt: new Date(cache.at).toISOString(),
+        generatedAt: new Date(nextCache.at).toISOString(),
         fallbackUsed: false,
       },
     });
