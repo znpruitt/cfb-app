@@ -146,6 +146,41 @@ test('deriveLeagueInsights includes leader gap and ranked matchup priority', () 
   assert.ok(insights.some((insight) => insight.text.includes('#7 vs #14 matchup this week')));
 });
 
+test('deriveLeagueInsights adds leader gap widened cue when prior snapshot gap was smaller', () => {
+  const insights = deriveLeagueInsights({
+    standings,
+    previousStandings: [
+      {
+        owner: 'Pruitt',
+        wins: 10,
+        losses: 2,
+        winPct: 0.833,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Maleski',
+        wins: 9,
+        losses: 3,
+        winPct: 0.78,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: 1,
+        finalGames: 12,
+      },
+    ],
+    recentResults: [],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(insights.some((insight) => insight.text === 'Leader gap widened to 0.077'));
+});
+
 test('deriveLeagueInsights includes close-game count', () => {
   const closeGame = item(
     game({
@@ -215,6 +250,7 @@ test('deriveLeagueInsights does not show top-two result for scheduled or live to
 
   assert.ok(!scheduledInsights.some((insight) => insight.text === 'Top 2 matchup result'));
   assert.ok(!liveInsights.some((insight) => insight.text === 'Top 2 matchup result'));
+  assert.ok(liveInsights.some((insight) => insight.text === '1 live game affecting standings'));
 });
 
 test('deriveLeagueInsights does not show top-two result for final game with only one top-two owner', () => {

@@ -66,6 +66,11 @@ function ownerRankLookup(rows: OwnerStandingsRow[]): Map<string, number> {
   return new Map(rows.map((row, index) => [row.owner, index + 1]));
 }
 
+function leaderGap(rows: OwnerStandingsRow[]): number | null {
+  if (rows.length < 2) return null;
+  return Math.max(0, rows[0].winPct - rows[1].winPct);
+}
+
 export function deriveLeagueInsights({
   standings,
   previousStandings,
@@ -78,12 +83,30 @@ export function deriveLeagueInsights({
   const runnerUp = standings[1];
 
   if (leader && runnerUp) {
-    const gap = Math.max(0, leader.winPct - runnerUp.winPct);
+    const gap = leaderGap(standings) ?? 0;
     insights.push({
       id: 'leader-gap',
       text: `${leader.owner} leads by ${gap.toFixed(3)} win%`,
       priority: 100,
     });
+
+    const previousGap = previousStandings ? leaderGap(previousStandings) : null;
+    if (previousGap != null) {
+      const gapDelta = gap - previousGap;
+      if (gapDelta > 0.001) {
+        insights.push({
+          id: 'leader-gap-widened',
+          text: `Leader gap widened to ${gap.toFixed(3)}`,
+          priority: 98,
+        });
+      } else if (gapDelta < -0.001) {
+        insights.push({
+          id: 'leader-gap-tightened',
+          text: `Leader gap tightened to ${gap.toFixed(3)}`,
+          priority: 98,
+        });
+      }
+    }
   }
 
   if (previousStandings?.length) {
@@ -138,7 +161,7 @@ export function deriveLeagueInsights({
   if (liveGames.length > 0) {
     insights.push({
       id: 'live-impact',
-      text: `${liveGames.length} live ${liveGames.length === 1 ? 'game' : 'games'} impacting standings`,
+      text: `${liveGames.length} live ${liveGames.length === 1 ? 'game' : 'games'} affecting standings`,
       priority: 89,
     });
   }

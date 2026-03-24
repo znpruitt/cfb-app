@@ -215,72 +215,61 @@ function LeagueSummaryHero({
   const phase = deriveLeagueSummaryPhase({ liveItems, keyMatchups, standingsCoverage });
   const hasTieAtTop = runnerUp ? runnerUp.winPct === leader.winPct : false;
   const winPctGap = runnerUp ? Math.max(0, leader.winPct - runnerUp.winPct) : 0;
-  const seasonStatusLabel =
+  const progressSignal = context.scopeDetail ? context.scopeDetail : context.scopeLabel;
+  const placementSummary = [runnerUp, thirdPlace]
+    .map((row, index) => (row ? `#${index + 2} ${row.owner} ${row.wins}–${row.losses}` : null))
+    .filter((value): value is string => value !== null)
+    .join(' · ');
+  const toneClasses =
     phase === 'complete'
-      ? 'Final results'
+      ? 'border-emerald-300/80 from-emerald-100/80 dark:border-emerald-900/70 dark:from-emerald-950/30'
+      : 'border-blue-200 dark:border-blue-900/70 from-blue-100/90 dark:from-blue-950/35';
+  const metricSignal =
+    phase === 'inSeason'
+      ? runnerUp
+        ? hasTieAtTop
+          ? 'Gap tied'
+          : `Gap #2 ${formatPctGap(winPctGap)}`
+        : 'Gap #2 —'
+      : `Diff ${formatDiff(leader.pointDifferential)}`;
+  const headline =
+    phase === 'complete'
+      ? `Champion: ${leader.owner}`
       : phase === 'postseason'
         ? 'Championship race'
-        : 'League leader';
-  const progressSignal = context.scopeDetail ? context.scopeDetail : context.scopeLabel;
-  const placementSummary =
-    runnerUp || thirdPlace
-      ? `2nd: ${runnerUp ? `${runnerUp.owner} (${runnerUp.wins}–${runnerUp.losses})` : '—'} · 3rd: ${
-          thirdPlace ? `${thirdPlace.owner} (${thirdPlace.wins}–${thirdPlace.losses})` : '—'
-        }`
-      : null;
-
-  if (phase === 'complete') {
-    return (
-      <section className="rounded-2xl border border-emerald-300/80 bg-gradient-to-r from-emerald-100/80 via-white to-white px-4 py-4 shadow-sm dark:border-emerald-900/70 dark:from-emerald-950/30 dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800 dark:text-emerald-300">
-          Final standings
-        </p>
-        <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
-          Champion: {leader.owner}
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-700 dark:text-zinc-200">
-          <span className="rounded-full border border-emerald-300 bg-white/85 px-2 py-0.5 font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-            {leader.wins}–{leader.losses}
-          </span>
-          <span className="font-medium">Win% {formatWinPct(leader.winPct)}</span>
-          <span className="text-gray-500 dark:text-zinc-400">•</span>
-          <span className="font-medium">Diff {formatDiff(leader.pointDifferential)}</span>
-        </div>
-        {placementSummary ? (
-          <p className="mt-2 text-xs text-gray-600 dark:text-zinc-300">{placementSummary}</p>
-        ) : null}
-      </section>
-    );
-  }
-
-  const primarySignal = runnerUp
-    ? hasTieAtTop
-      ? 'Tied at the top'
-      : `Gap over #2: ${formatPctGap(winPctGap)} win%`
-    : 'No runner-up yet';
-  const inSeasonHeadline =
-    phase === 'postseason' ? `Race leader: ${leader.owner}` : `Leader: ${leader.owner}`;
-
+        : `League leader: ${leader.owner}`;
+  const supportingCopy =
+    placementSummary.length > 0
+      ? placementSummary
+      : phase === 'postseason'
+        ? 'Postseason games now decide the title race.'
+        : progressSignal;
   return (
-    <section className="rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-100/90 via-white to-white px-4 py-4 shadow-sm dark:border-blue-900/70 dark:from-blue-950/35 dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-800 dark:text-blue-300">
-        {seasonStatusLabel}
+    <section
+      className={`rounded-2xl border bg-gradient-to-r via-white to-white px-4 py-4 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5 ${toneClasses}`}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-300">
+        League summary
       </p>
       <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
-        {inSeasonHeadline}
+        {headline}
       </p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-700 dark:text-zinc-200">
-        <span className="rounded-full border border-blue-300 bg-white/85 px-2 py-0.5 font-semibold text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-gray-700 dark:text-zinc-200">
+        <span className="rounded-full border border-gray-300 bg-white/85 px-2 py-0.5 font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
           {leader.wins}–{leader.losses}
         </span>
         <span className="font-medium">Win% {formatWinPct(leader.winPct)}</span>
         <span className="text-gray-500 dark:text-zinc-400">•</span>
-        <span className="font-medium">{primarySignal}</span>
+        <span className="font-medium">{metricSignal}</span>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-zinc-300">
-        {placementSummary ? <span>{placementSummary}</span> : null}
-        <span className="text-gray-500 dark:text-zinc-400">•</span>
-        <span>{progressSignal}</span>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-zinc-300">
+        <span>{supportingCopy}</span>
+        {placementSummary ? (
+          <>
+            <span className="text-gray-500 dark:text-zinc-400">•</span>
+            <span>{progressSignal}</span>
+          </>
+        ) : null}
       </div>
     </section>
   );
@@ -289,10 +278,15 @@ function LeagueSummaryHero({
 function CondensedStandingsTable({
   rows,
   onOwnerSelect,
+  previousRows,
 }: {
   rows: OwnerStandingsRow[];
   onOwnerSelect?: (owner: string) => void;
+  previousRows?: OwnerStandingsRow[] | null;
 }): React.ReactElement {
+  const previousRankLookup = new Map(
+    (previousRows ?? []).map((row, index) => [row.owner, index + 1] as const)
+  );
   return (
     <div className="-mx-1 overflow-x-auto px-1">
       <div className="min-w-full text-sm sm:text-[0.92rem]">
@@ -317,6 +311,23 @@ function CondensedStandingsTable({
             >
               <span className="text-base font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
                 {index + 1}
+                {(() => {
+                  const previousRank = previousRankLookup.get(row.owner);
+                  if (!previousRank || previousRank === index + 1) return null;
+                  const movedUp = previousRank > index + 1;
+                  return (
+                    <span
+                      className={`ml-1 text-[11px] font-semibold ${
+                        movedUp
+                          ? 'text-emerald-700 dark:text-emerald-300'
+                          : 'text-amber-700 dark:text-amber-300'
+                      }`}
+                      aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
+                    >
+                      {movedUp ? '↑' : '↓'}
+                    </span>
+                  );
+                })()}
               </span>
               <span
                 className={`min-w-0 truncate ${
@@ -524,7 +535,7 @@ function GameSummaryList({
                 : 'border-gray-200 bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/70'
             }`}
           >
-            <div className="grid grid-cols-[minmax(0,1fr)_4.4rem] gap-x-2.5">
+            <div className="grid grid-cols-[minmax(0,1fr)_3.8rem] gap-x-2 sm:grid-cols-[minmax(0,1fr)_4rem]">
               <div className="min-w-0 space-y-1 leading-tight">
                 <div className="inline-flex min-w-0 items-center gap-1.5">
                   <p className="min-w-0 truncate text-sm font-semibold text-gray-950 dark:text-zinc-50">
@@ -557,7 +568,7 @@ function GameSummaryList({
                 </div>
               </div>
               <div className="flex items-start justify-end pt-0.5">
-                <span className="w-[4.2rem] rounded-md border border-gray-200 bg-white/85 px-1.5 py-1 text-center text-sm font-semibold tabular-nums text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+                <span className="w-[3.7rem] rounded-md border border-gray-200 bg-white/85 px-1 py-1 text-center text-sm font-semibold tabular-nums text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 sm:w-[4rem]">
                   {awayScore}–{homeScore}
                 </span>
               </div>
@@ -659,7 +670,11 @@ export default function OverviewPanel({
           {standingsLeaders.length === 0 ? (
             <EmptyState message="Upload surnames to populate league standings." compact />
           ) : (
-            <CondensedStandingsTable rows={standingsLeaders} onOwnerSelect={onOwnerSelect} />
+            <CondensedStandingsTable
+              rows={standingsLeaders}
+              onOwnerSelect={onOwnerSelect}
+              previousRows={previousStandingsLeaders}
+            />
           )}
         </SectionCard>
 

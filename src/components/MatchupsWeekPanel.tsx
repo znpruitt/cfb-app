@@ -1,7 +1,7 @@
 import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
-import { gameStateFromScore, pillClass, statusClasses } from '../lib/gameUi';
+import { gameStateFromScore, pillClass } from '../lib/gameUi';
 import {
   deriveOwnerWeekSlates,
   deriveWeekMatchupSections,
@@ -226,6 +226,32 @@ function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
   }
 }
 
+function ownerCardSurfaceClasses(tone: OwnerWeekSlate['performance']['tone']): string {
+  if (tone === 'final') {
+    return 'border-emerald-300/70 bg-emerald-500/5 dark:border-emerald-900/70 dark:bg-emerald-950/15';
+  }
+  if (tone === 'inprogress') {
+    return 'border-amber-300/70 bg-amber-500/5 dark:border-amber-900/70 dark:bg-amber-950/15';
+  }
+  if (tone === 'scheduled') {
+    return 'border-blue-300/70 bg-blue-500/5 dark:border-blue-900/70 dark:bg-blue-950/15';
+  }
+  return 'border-gray-300/90 bg-white dark:border-zinc-700 dark:bg-zinc-900';
+}
+
+function ownerRecordToneClasses(tone: OwnerWeekSlate['performance']['tone']): string {
+  if (tone === 'final') {
+    return 'text-emerald-700 dark:text-emerald-300';
+  }
+  if (tone === 'inprogress') {
+    return 'text-amber-700 dark:text-amber-300';
+  }
+  if (tone === 'scheduled') {
+    return 'text-blue-700 dark:text-blue-300';
+  }
+  return 'text-gray-900 dark:text-zinc-100';
+}
+
 function compactOddsSummary(odds?: CombinedOdds): string | null {
   if (!odds) return null;
   const parts: string[] = [];
@@ -355,14 +381,16 @@ function OwnerCard({
 
   return (
     <article
-      className={`${statusClasses(slate.performance.tone === 'neutral' ? 'unknown' : slate.performance.tone, true)} space-y-3 rounded-xl p-4 sm:p-5`}
+      className={`space-y-3 rounded-xl border p-4 shadow-sm sm:p-5 ${ownerCardSurfaceClasses(slate.performance.tone)}`}
     >
       <div className="space-y-2">
         <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3 sm:gap-y-1">
           <h3 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-zinc-100">
             {slate.owner}
           </h3>
-          <span className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+          <span
+            className={`text-base font-semibold ${ownerRecordToneClasses(slate.performance.tone)}`}
+          >
             {slate.performance.summary}
           </span>
         </div>

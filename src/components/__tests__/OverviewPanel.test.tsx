@@ -205,6 +205,7 @@ test('overview highlights keep canonical neutral matchup separator with compact 
 
   assert.match(html, /Texas<\/span> vs <span>Ohio State/);
   assert.match(html, /24–21/);
+  assert.match(html, /grid-cols-\[minmax\(0,1fr\)_3\.8rem\]/);
 });
 
 test('overview panel renders full condensed standings and weekly owner matrix', () => {
@@ -254,7 +255,7 @@ test('overview panel summary shows in-season leader, record, and win percentage'
     />
   );
 
-  assert.match(html, /League leader/);
+  assert.match(html, /League leader: Alice/);
   assert.match(html, /Alice/);
   assert.match(html, /4–1/);
   assert.match(html, /Win% 0.800/);
@@ -296,8 +297,8 @@ test('overview panel summary uses standings win% gap over #2 during in-season st
     />
   );
 
-  assert.match(html, /Gap over #2: 0.079 win%/);
-  assert.doesNotMatch(html, /Tied at the top/);
+  assert.match(html, /Gap #2 0.079/);
+  assert.doesNotMatch(html, /Gap tied/);
 });
 
 test('overview panel summary shows tie copy when top win percentages match', () => {
@@ -336,7 +337,7 @@ test('overview panel summary shows tie copy when top win percentages match', () 
     />
   );
 
-  assert.match(html, /Tied at the top/);
+  assert.match(html, /Gap tied/);
 });
 
 test('overview panel summary uses postseason in-progress championship language', () => {
@@ -363,7 +364,7 @@ test('overview panel summary uses postseason in-progress championship language',
     />
   );
 
-  assert.match(html, /Championship race/);
+  assert.match(html, />Championship race</);
   assert.doesNotMatch(html, /League leader/);
 });
 
@@ -422,11 +423,10 @@ test('overview panel summary shows season-complete champion, second, and third',
     />
   );
 
-  assert.match(html, /Final standings/);
   assert.match(html, /Champion: Pruitt/);
   assert.match(html, /81–39/);
-  assert.match(html, /2nd: Maleski \(65–41\)/);
-  assert.match(html, /3rd: Whited \(70–45\)/);
+  assert.match(html, /#2 Maleski 65–41/);
+  assert.match(html, /#3 Whited 70–45/);
   assert.doesNotMatch(html, /League leader/);
 });
 
@@ -494,12 +494,76 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
     />
   );
 
-  assert.ok(html.indexOf('League leader') < html.indexOf('League standings'));
+  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings'));
   assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
   assert.ok(html.indexOf('What matters next') < html.indexOf('Live: none right now.'));
   assert.ok(html.indexOf('Live: none right now.') < html.indexOf('Head-to-head matrix'));
-  assert.ok(html.includes('No runner-up yet'));
+  assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
+});
+
+test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 6,
+          losses: 2,
+          winPct: 0.75,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 8,
+          gamesBack: 0,
+          finalGames: 8,
+        },
+        {
+          owner: 'Bob',
+          wins: 5,
+          losses: 3,
+          winPct: 0.625,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 5,
+          gamesBack: 1,
+          finalGames: 8,
+        },
+      ]}
+      previousStandingsLeaders={[
+        {
+          owner: 'Bob',
+          wins: 5,
+          losses: 3,
+          winPct: 0.625,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 5,
+          gamesBack: 0,
+          finalGames: 8,
+        },
+        {
+          owner: 'Alice',
+          wins: 6,
+          losses: 2,
+          winPct: 0.75,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 8,
+          gamesBack: 1,
+          finalGames: 8,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /↑/);
+  assert.match(html, /↓/);
 });
 
 test('overview panel uses compact live empty state copy', () => {
