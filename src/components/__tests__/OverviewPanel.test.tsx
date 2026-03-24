@@ -240,3 +240,20 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
   assert.ok(html.includes('Current league focus'));
   assert.ok(html.includes('Week 1'));
 });
+
+test('overview panel uses compact live empty state copy', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /No live games/);
+  assert.doesNotMatch(html, /No owned-team games are live right now/);
+});
