@@ -9,6 +9,25 @@
 
 ## Completed phases / milestones
 
+### Phase 2A — Production Hardening Closeout (engineering implementation)
+
+- **Status:** Engineering closeout landed; hosted mobile/device validation remains as operational sign-off.
+- **Goals completed:**
+  - Hardened shared durable commissioner-managed state for hosted reads.
+  - Protected commissioner mutation and refresh flows with lightweight admin authorization.
+  - Enforced season-persistent cache-first behavior with admin-only rebuild semantics for schedule/reference refresh.
+  - Landed shared cache snapshots for expensive regenerable data and conservative quota-aware refresh behavior.
+  - Clarified diagnostics authority by distinguishing shared durable state from ephemeral process-memory counters.
+- **Key outcomes:**
+  - Ordinary member traffic now reads shared cached state without opportunistic upstream rebuilds of schedule/reference data.
+  - Commissioner/admin refresh actions are explicit and auditable.
+  - Diagnostics are clearer for hosted operators, reducing confusion during production recovery workflows.
+- **Optional follow-up debt (non-blocking):**
+  - Continue tightening admin/debug copy based on real hosted usage feedback.
+  - Optional decomposition of larger files remains available after hosted validation stabilizes.
+
+---
+
 ### Phase 2 — Score Hydration + Weekly Usability Progress
 
 - **Status:** Landed; follow-on Phase 2 usability work remains active.
