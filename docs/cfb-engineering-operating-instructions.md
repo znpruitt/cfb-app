@@ -156,17 +156,13 @@ The registry should remain:
 
 Every Codex technical summary must include the originating PROMPT_ID.
 
-The PROMPT_ID must be the first line under the Summary section.
-
-Required format:
-
-    PROMPT_ID: <ID>
-
 The PROMPT_ID must exactly match the prompt header.
+
+Placement and response-order requirements are governed by Section 2.
 
 No alternate casing or alternate label formats are allowed.
 
-Any summary missing this requirement is invalid.
+Any summary missing PROMPT_ID, or using a non-matching or improperly labeled PROMPT_ID, is invalid.
 
 ## 3.7 Instruction Block Identification Requirement
 
