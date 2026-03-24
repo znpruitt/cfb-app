@@ -243,40 +243,51 @@ function CondensedStandingsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr
-              key={row.owner}
-              className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
-            >
-              <td className="border-b border-gray-100 px-2 py-1.5 text-base font-semibold tabular-nums text-gray-900 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-100">
-                {index + 1}
-              </td>
-              <td className="border-b border-gray-100 px-2 py-1.5 font-semibold text-gray-950 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-50">
-                <div className="min-w-[8.5rem] truncate sm:min-w-0">
-                  {onOwnerSelect ? (
-                    <button
-                      type="button"
-                      className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                      onClick={() => onOwnerSelect(row.owner)}
-                    >
-                      {row.owner}
-                    </button>
-                  ) : (
-                    row.owner
-                  )}
-                </div>
-              </td>
-              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-1.5 font-semibold tabular-nums text-gray-900 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-100">
-                {row.wins}–{row.losses}
-              </td>
-              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-1.5 tabular-nums text-gray-600 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-300">
-                {formatWinPct(row.winPct)}
-              </td>
-              <td className="whitespace-nowrap border-b border-gray-100 px-2 py-1.5 tabular-nums text-gray-500 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-400">
-                {formatDiff(row.pointDifferential)}
-              </td>
-            </tr>
-          ))}
+          {rows.map((row, index) => {
+            const isTopThree = index < 3;
+            return (
+              <tr
+                key={row.owner}
+                className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
+                  isTopThree ? 'bg-blue-50/55 dark:bg-blue-950/15' : ''
+                }`}
+              >
+                <td className="border-b border-gray-100 px-2 py-1.5 text-base font-semibold tabular-nums text-gray-900 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-100">
+                  {index + 1}
+                </td>
+                <td
+                  className={`border-b border-gray-100 px-2 py-1.5 sm:px-2.5 dark:border-zinc-800 ${
+                    isTopThree
+                      ? 'font-bold text-gray-950 dark:text-zinc-50'
+                      : 'font-semibold text-gray-950 dark:text-zinc-50'
+                  }`}
+                >
+                  <div className="min-w-[8.5rem] truncate sm:min-w-0">
+                    {onOwnerSelect ? (
+                      <button
+                        type="button"
+                        className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                        onClick={() => onOwnerSelect(row.owner)}
+                      >
+                        {row.owner}
+                      </button>
+                    ) : (
+                      row.owner
+                    )}
+                  </div>
+                </td>
+                <td className="whitespace-nowrap border-b border-gray-100 px-2 py-1.5 font-semibold tabular-nums text-gray-900 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-100">
+                  {row.wins}–{row.losses}
+                </td>
+                <td className="whitespace-nowrap border-b border-gray-100 px-2 py-1.5 tabular-nums text-gray-600 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-300">
+                  {formatWinPct(row.winPct)}
+                </td>
+                <td className="whitespace-nowrap border-b border-gray-100 px-2 py-1.5 tabular-nums text-gray-500 sm:px-2.5 dark:border-zinc-800 dark:text-zinc-400">
+                  {formatDiff(row.pointDifferential)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -421,7 +432,7 @@ function GameSummaryList({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {items.map((item) => {
         const score = item.score;
         const awayScore = score?.away.score ?? '—';
@@ -429,14 +440,17 @@ function GameSummaryList({
         const status = score?.status ?? 'Scheduled';
         const state = gameStateFromScore(score);
         const kickoff = formatKickoff(item.bucket.game.date, timeZone);
-        const leagueAngle = summarizeLeagueAngle(item, rankingsByTeamId);
+        const ownerLabel =
+          item.bucket.awayOwner && item.bucket.homeOwner
+            ? `${item.bucket.awayOwner} vs ${item.bucket.homeOwner}`
+            : summarizeLeagueAngle(item, rankingsByTeamId);
 
         return (
           <article
             key={item.bucket.game.key}
             className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/70"
           >
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 leading-tight">
               <p className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
                 <RankedTeamName
                   teamName={item.bucket.game.csvAway}
@@ -452,16 +466,15 @@ function GameSummaryList({
                   )}
                 />
               </p>
-              <p className="text-xs text-gray-600 dark:text-zinc-300">{leagueAngle}</p>
-              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+              <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-zinc-300">
+                <span>{ownerLabel}</span>
                 <span
-                  className={`inline-flex rounded-full border px-1.5 py-0.5 font-semibold ${stateBadgeClasses(state)}`}
+                  className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
                 >
                   {status}
                 </span>
-                <span>•</span>
-                <span className="normal-case tracking-normal">{kickoff}</span>
               </div>
+              <p className="text-[11px] text-gray-500 dark:text-zinc-400">{kickoff}</p>
             </div>
           </article>
         );
@@ -493,10 +506,12 @@ export default function OverviewPanel({
   onOwnerSelect,
   rankingsByTeamId = new Map(),
 }: OverviewPanelProps): React.ReactElement {
+  const [isMobileMatrixExpanded, setIsMobileMatrixExpanded] = React.useState(false);
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
+  const liveTitle = liveItems.length === 0 ? 'Live · none' : `Live · ${liveItems.length}`;
 
   return (
-    <div className="space-y-3.5">
+    <div className="space-y-3">
       <LeagueSummaryBar standingsLeaders={standingsLeaders} context={context} />
 
       <SectionCard title="League standings" headingClassName="text-xl">
@@ -518,7 +533,7 @@ export default function OverviewPanel({
         )}
       </SectionCard>
 
-      <SectionCard title={context.highlightsTitle} tone="weekly">
+      <SectionCard title={context.highlightsTitle} tone="weekly" compact>
         <GameSummaryList
           items={keyMatchups}
           emptyMessage="No league-relevant games are scheduled for this view."
@@ -527,8 +542,10 @@ export default function OverviewPanel({
         />
       </SectionCard>
 
-      <SectionCard title="Live games" tone="live" compact>
-        <GameCardList items={liveItems} timeZone={timeZone} rankingsByTeamId={rankingsByTeamId} />
+      <SectionCard title={liveTitle} tone="live" compact>
+        {liveItems.length > 0 ? (
+          <GameCardList items={liveItems} timeZone={timeZone} rankingsByTeamId={rankingsByTeamId} />
+        ) : null}
       </SectionCard>
 
       <SectionCard
@@ -537,11 +554,17 @@ export default function OverviewPanel({
         headingClassName="text-sm sm:text-base"
         compact
       >
-        <details className="group sm:hidden" data-testid="head-to-head-details">
+        <details
+          className="group sm:hidden"
+          data-testid="head-to-head-details"
+          onToggle={(event) => {
+            setIsMobileMatrixExpanded((event.currentTarget as HTMLDetailsElement).open);
+          }}
+        >
           <summary className="cursor-pointer list-none text-xs font-medium text-gray-500 group-open:mb-2 dark:text-zinc-400">
-            Show weekly matrix
+            Head-to-head (tap to expand)
           </summary>
-          <TeamMatchupMatrixTable matrix={matchupMatrix} />
+          {isMobileMatrixExpanded ? <TeamMatchupMatrixTable matrix={matchupMatrix} /> : null}
         </details>
         <div className="hidden sm:block">
           <TeamMatchupMatrixTable matrix={matchupMatrix} />

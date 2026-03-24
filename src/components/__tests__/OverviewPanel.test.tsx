@@ -235,8 +235,8 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
 
   assert.ok(html.indexOf('League summary') < html.indexOf('League standings'));
   assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
-  assert.ok(html.indexOf('What matters next') < html.indexOf('Live games'));
-  assert.ok(html.indexOf('Live games') < html.indexOf('Head-to-head matrix'));
+  assert.ok(html.indexOf('What matters next') < html.indexOf('Live · none'));
+  assert.ok(html.indexOf('Live · none') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Current league focus'));
   assert.ok(html.includes('Week 1'));
 });
@@ -254,6 +254,7 @@ test('overview panel uses compact live empty state copy', () => {
     />
   );
 
-  assert.match(html, /No live games/);
-  assert.doesNotMatch(html, /No owned-team games are live right now/);
+  assert.match(html, /Live · none/);
+  assert.doesNotMatch(html, /No live games/);
+  assert.match(html, /Head-to-head \(tap to expand\)/);
 });

@@ -1119,20 +1119,17 @@ export default function CFBScheduleApp({
 
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
-      <header className="flex flex-col gap-3 lg:gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200">
-              League Overview
-            </span>
-            {isAdminSurface ? (
-              <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+      <header className="flex flex-col gap-2.5 lg:gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1 space-y-1">
+          {isAdminSurface ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                 Admin / Debug
               </span>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           <div>
-            <h1 className="text-xl font-bold sm:text-2xl">CFB League Dashboard</h1>
+            <h1 className="text-lg font-bold sm:text-2xl">CFB League Dashboard</h1>
           </div>
         </div>
         <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start xl:w-auto xl:max-w-md xl:justify-end">
