@@ -238,7 +238,9 @@ All commits produced from Codex work MUST include the originating PROMPT_ID.
 
 The first line of the commit message MUST be a concise, human-readable subject.
 
-The PROMPT_ID must appear in the commit body immediately below the subject.
+A blank line must separate the subject from the commit body.
+
+The PROMPT_ID must appear as the first line of the commit body (after a blank line separator).
 
 Required format:
 
