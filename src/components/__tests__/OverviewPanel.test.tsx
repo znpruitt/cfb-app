@@ -429,6 +429,57 @@ test('overview panel summary shows season-complete champion, second, and third',
   assert.doesNotMatch(html, /League leader/);
 });
 
+test('overview panel summary does not render season-complete framing when standings coverage is partial', () => {
+  const postseasonFinal = game({ stage: 'bowl', status: 'final' });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={{ state: 'partial', message: 'Some games are still missing.' }}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[
+        itemWithScore(postseasonFinal, {
+          status: 'FINAL',
+          away: { team: 'Away', score: 10 },
+          home: { team: 'Home', score: 14 },
+          time: null,
+        }),
+      ]}
+      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /Final results/);
+  assert.doesNotMatch(html, /Champion:/);
+  assert.match(html, /Championship race/);
+});
+
+test('overview panel summary does not render season-complete framing when standings coverage is error', () => {
+  const postseasonFinal = game({ stage: 'bowl', status: 'final' });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={{ state: 'error', message: 'Standings load failed.' }}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[
+        itemWithScore(postseasonFinal, {
+          status: 'FINAL',
+          away: { team: 'Away', score: 10 },
+          home: { team: 'Home', score: 14 },
+          time: null,
+        }),
+      ]}
+      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /Final results/);
+  assert.match(html, /Championship race/);
+});
+
 test('overview panel keeps league-home ordering with standings ahead of highlights', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel

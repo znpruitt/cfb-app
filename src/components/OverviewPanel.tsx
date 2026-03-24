@@ -165,6 +165,7 @@ type LeagueSummaryPhase = 'inSeason' | 'postseason' | 'complete';
 function deriveLeagueSummaryPhase(params: {
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
+  standingsCoverage: StandingsCoverage;
 }): LeagueSummaryPhase {
   const allItems = [...params.liveItems, ...params.keyMatchups];
   const hasPostseasonGames = allItems.some((item) => isTruePostseasonGame(item.bucket.game));
@@ -176,7 +177,8 @@ function deriveLeagueSummaryPhase(params: {
     return state === 'inprogress' || state === 'scheduled' || state === 'unknown';
   });
 
-  return hasActiveOrUpcomingPostseasonGame ? 'postseason' : 'complete';
+  if (hasActiveOrUpcomingPostseasonGame) return 'postseason';
+  return params.standingsCoverage.state === 'complete' ? 'complete' : 'postseason';
 }
 
 function LeagueSummaryHero({
@@ -184,11 +186,13 @@ function LeagueSummaryHero({
   context,
   liveItems,
   keyMatchups,
+  standingsCoverage,
 }: {
   standingsLeaders: OwnerStandingsRow[];
   context: OverviewContext;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
+  standingsCoverage: StandingsCoverage;
 }): React.ReactElement {
   const leader = standingsLeaders[0];
   const runnerUp = standingsLeaders[1];
@@ -207,7 +211,7 @@ function LeagueSummaryHero({
     );
   }
 
-  const phase = deriveLeagueSummaryPhase({ liveItems, keyMatchups });
+  const phase = deriveLeagueSummaryPhase({ liveItems, keyMatchups, standingsCoverage });
   const hasTieAtTop = runnerUp ? runnerUp.winPct === leader.winPct : false;
   const winPctGap = runnerUp ? Math.max(0, leader.winPct - runnerUp.winPct) : 0;
   const seasonStatusLabel =
@@ -575,6 +579,7 @@ export default function OverviewPanel({
         context={context}
         liveItems={liveItems}
         keyMatchups={keyMatchups}
+        standingsCoverage={standingsCoverage}
       />
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
