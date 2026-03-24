@@ -291,6 +291,62 @@ test('long-name live rows keep canonical ordering with inline scoreline', () => 
   assert.match(html, /Neutral site/);
 });
 
+test('live rows do not render ISO kickoff timestamps as live clock metadata', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live-iso', csvAway: 'Utah', csvHome: 'Arizona' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live-iso': {
+          status: 'in progress',
+          time: '2026-09-12T23:00:00.000Z',
+          home: { team: 'Arizona', score: 17 },
+          away: { team: 'Utah', score: 21 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Utah', 'Kai'],
+          ['Arizona', 'Lee'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Utah[\s\S]*21[\s\S]*–[\s\S]*17[\s\S]*Arizona/);
+  assert.match(html, /vs Lee/);
+  assert.match(html, /Sat, Aug 30, 4:00 PM/);
+  assert.doesNotMatch(html, /2026-09-12T23:00:00.000Z/);
+});
+
+test('live rows still render real in-game clock values', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live-clock', csvAway: 'Auburn', csvHome: 'Ole Miss' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live-clock': {
+          status: 'in progress',
+          time: 'Q3 8:14',
+          home: { team: 'Ole Miss', score: 24 },
+          away: { team: 'Auburn', score: 20 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Auburn', 'Moe'],
+          ['Ole Miss', 'Ned'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Q3 8:14/);
+  assert.match(html, /vs Ned/);
+});
+
 test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {
   const games = [
     game({ key: 'g-owned', csvAway: 'Alabama', csvHome: 'Georgia' }),

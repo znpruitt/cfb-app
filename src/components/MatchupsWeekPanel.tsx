@@ -256,10 +256,18 @@ function buildLiveClockLabel(score?: ScorePack): string | null {
   if (!score) return null;
   const status = score.status?.trim() ?? '';
   const time = score.time?.trim() ?? '';
-  if (time.length === 0 && status.length === 0) return null;
-  if (time.length > 0 && /in progress/i.test(status)) return time;
-  if (time.length > 0 && status.length > 0) return `${status} ${time}`;
-  return time.length > 0 ? time : status;
+  const hasIsoDatePrefix = /^\d{4}-\d{2}-\d{2}[t\s]\d{2}:\d{2}/i.test(time);
+  const hasIsoUtcSuffix = /z$/i.test(time);
+  const parsedTime = Date.parse(time);
+  const looksLikeKickoffTimestamp =
+    time.length > 0 && (hasIsoDatePrefix || hasIsoUtcSuffix) && Number.isFinite(parsedTime);
+  const liveClockTime = looksLikeKickoffTimestamp ? '' : time;
+
+  if (liveClockTime.length === 0 && status.length === 0) return null;
+  if (liveClockTime.length > 0 && /in progress/i.test(status)) return liveClockTime;
+  if (liveClockTime.length > 0 && status.length > 0) return `${status} ${liveClockTime}`;
+  if (/in progress/i.test(status)) return null;
+  return liveClockTime.length > 0 ? liveClockTime : status;
 }
 
 function GameRow({
