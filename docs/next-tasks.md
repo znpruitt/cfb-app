@@ -57,6 +57,41 @@
 - Add a lightweight member-facing issue/reporting path once hosted stability is in place.
 - Revisit optional decomposition of large files only after the production-safe path is stable.
 
+## Next execution phase (after production hardening): League experience improvements
+
+This block starts after the production-safe path above is complete and stable in hosted usage.
+
+1. **Overview hierarchy restructure**
+   - Reorder the Overview page so standings/leader context is first.
+   - Keep matchup details present but secondary to league-state signal.
+
+2. **League summary bar**
+   - Add a compact top-level summary strip with immediate league context.
+   - Keep it data-first and scan-friendly on mobile and desktop.
+
+3. **Recent results emphasis**
+   - Increase visibility of recently completed games and their league impact.
+   - Reduce friction to answer “what just happened?” in one pass.
+
+4. **Live-state clarity**
+   - Surface live-game context more clearly when games are in progress.
+   - Keep presentation consistent with quota-safe refresh constraints.
+
+5. **Head-to-head table tuning**
+   - De-emphasize or condense lower-signal table sections that crowd primary league context.
+   - Preserve commissioner/debug utility while reducing member-facing noise.
+
+6. **Mobile-first readability pass**
+   - Tighten spacing, hierarchy, and scan order for small screens.
+   - Validate quick league-state comprehension within seconds on phones.
+
+## Future-planned note: Multi-league support (scoped)
+
+- Multi-league support is future-planned, not part of the active production-hardening queue.
+- League-specific boundary: owner table / ownership overlay data.
+- Shared global CFB/reference data remains common across leagues (schedule, scores, odds, rankings, conferences).
+- Expected approach: league slug or `leagueId` routing boundary without duplicating CFBD ingestion.
+
 ## Out of scope for this queue
 
 - New matching systems or changes to schedule-first identity rules.
