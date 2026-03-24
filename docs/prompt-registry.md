@@ -25,3 +25,13 @@ The registry should remain:
 - Purpose: Require Codex to self-check PROMPT_ID compliance before returning summaries or creating commits.
 - Scope: docs only.
 - Notes: Follow-up governance hardening after initial in-repo bootstrap.
+
+### DOCS-POST-MERGE-GOVERNANCE-FIXES-v1
+- Purpose: Resolve optional instruction-block validation and improve commit traceability without degrading readable git history.
+- Scope: docs only.
+- Notes: Post-merge cleanup for governance consistency and maintainability.
+
+### DOCS-PROMPT-RESPONSE-REQUIREMENT-v1
+- Purpose: Update prompt governance to require explicit final response requirements in every Codex prompt.
+- Scope: docs only.
+- Notes: Ensures response-format expectations are restated at execution time, including Section 2 and Section 3.8 applicability.
