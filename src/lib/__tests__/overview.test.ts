@@ -249,7 +249,7 @@ test('overview uses postseason context when the active slate is postseason-drive
     selectedWeekLabel: 'the postseason',
   });
 
-  assert.equal(snapshot.context.scopeLabel, 'Postseason focus');
+  assert.equal(snapshot.context.scopeLabel, 'Postseason');
   assert.equal(snapshot.context.emphasis, 'upcoming');
   assert.deepEqual(snapshot.context.sectionOrder, ['highlights', 'standings', 'matrix', 'live']);
 });

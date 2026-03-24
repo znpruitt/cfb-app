@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
+import { isTruePostseasonGame } from '../lib/postseason-display';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId } from '../lib/schedule';
@@ -159,66 +160,132 @@ function EmptyState({
   );
 }
 
-function LeagueSummaryBar({
+type LeagueSummaryPhase = 'inSeason' | 'postseason' | 'complete';
+
+function deriveLeagueSummaryPhase(params: {
+  liveItems: OverviewGameItem[];
+  keyMatchups: OverviewGameItem[];
+  standingsCoverage: StandingsCoverage;
+}): LeagueSummaryPhase {
+  const allItems = [...params.liveItems, ...params.keyMatchups];
+  const hasPostseasonGames = allItems.some((item) => isTruePostseasonGame(item.bucket.game));
+  if (!hasPostseasonGames) return 'inSeason';
+
+  const hasActiveOrUpcomingPostseasonGame = allItems.some((item) => {
+    if (!isTruePostseasonGame(item.bucket.game)) return false;
+    const state = gameStateFromScore(item.score);
+    return state === 'inprogress' || state === 'scheduled' || state === 'unknown';
+  });
+
+  if (hasActiveOrUpcomingPostseasonGame) return 'postseason';
+  return params.standingsCoverage.state === 'complete' ? 'complete' : 'postseason';
+}
+
+function LeagueSummaryHero({
   standingsLeaders,
   context,
+  liveItems,
+  keyMatchups,
+  standingsCoverage,
 }: {
   standingsLeaders: OwnerStandingsRow[];
   context: OverviewContext;
+  liveItems: OverviewGameItem[];
+  keyMatchups: OverviewGameItem[];
+  standingsCoverage: StandingsCoverage;
 }): React.ReactElement {
   const leader = standingsLeaders[0];
   const runnerUp = standingsLeaders[1];
+  const thirdPlace = standingsLeaders[2];
 
   if (!leader) {
     return (
-      <section className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
+      <section className="rounded-2xl border border-gray-200 bg-gray-50/90 px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60 sm:px-6">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
           League summary
         </p>
-        <p className="mt-1 text-sm text-gray-700 dark:text-zinc-200">
+        <p className="mt-2 text-sm text-gray-700 dark:text-zinc-200">
           Upload surnames to unlock league leader tracking.
         </p>
       </section>
     );
   }
 
+  const phase = deriveLeagueSummaryPhase({ liveItems, keyMatchups, standingsCoverage });
   const hasTieAtTop = runnerUp ? runnerUp.winPct === leader.winPct : false;
   const winPctGap = runnerUp ? Math.max(0, leader.winPct - runnerUp.winPct) : 0;
-  const leaderStatusLabel = runnerUp
-    ? hasTieAtTop
-      ? 'Tied at the top'
-      : `Leads by ${formatPctGap(winPctGap)} win%`
-    : 'No runner-up yet';
+  const seasonStatusLabel =
+    phase === 'complete'
+      ? 'Final results'
+      : phase === 'postseason'
+        ? 'Championship race'
+        : 'League leader';
+  const contextSignal =
+    phase === 'complete'
+      ? `#2 ${runnerUp?.owner ?? '—'} · #3 ${thirdPlace?.owner ?? '—'}`
+      : runnerUp
+        ? hasTieAtTop
+          ? 'Tied at the top'
+          : `Gap over #2: ${formatPctGap(winPctGap)} win%`
+        : 'No runner-up yet';
+  const progressSignal = context.scopeDetail ? context.scopeDetail : context.scopeLabel;
+
+  if (phase === 'complete') {
+    return (
+      <section className="rounded-2xl border border-emerald-300/80 bg-gradient-to-r from-emerald-100/80 via-white to-white px-4 py-4 shadow-sm dark:border-emerald-900/70 dark:from-emerald-950/30 dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800 dark:text-emerald-300">
+          {seasonStatusLabel}
+        </p>
+        <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1">
+          <span className="text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-3xl">
+            Champion: {leader.owner}
+          </span>
+          <span className="rounded-full border border-emerald-300 bg-white/80 px-2.5 py-0.5 text-sm font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+            {leader.wins}–{leader.losses}
+          </span>
+          <span className="text-sm font-medium text-gray-700 dark:text-zinc-200">
+            Win% {formatWinPct(leader.winPct)}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 text-sm text-gray-700 dark:text-zinc-200 sm:grid-cols-3">
+          <p className="rounded-lg border border-gray-200 bg-white/85 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/80">
+            Champion: {leader.owner} ({leader.wins}–{leader.losses})
+          </p>
+          <p className="rounded-lg border border-gray-200 bg-white/85 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/80">
+            2nd: {runnerUp ? `${runnerUp.owner} (${runnerUp.wins}–${runnerUp.losses})` : '—'}
+          </p>
+          <p className="rounded-lg border border-gray-200 bg-white/85 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/80">
+            3rd:{' '}
+            {thirdPlace ? `${thirdPlace.owner} (${thirdPlace.wins}–${thirdPlace.losses})` : '—'}
+          </p>
+        </div>
+        <p className="mt-2 text-xs text-gray-600 dark:text-zinc-300">{contextSignal}</p>
+      </section>
+    );
+  }
 
   return (
-    <section className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50/95 to-white px-4 py-3 shadow-sm dark:border-blue-900/70 dark:from-blue-950/25 dark:to-zinc-900 sm:px-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-300">
-            League summary
+    <section className="rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-100/90 via-white to-white px-4 py-4 shadow-sm dark:border-blue-900/70 dark:from-blue-950/35 dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-800 dark:text-blue-300">
+            {seasonStatusLabel}
           </p>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-700 dark:text-zinc-200">
-            <span className="text-base font-semibold text-gray-950 dark:text-zinc-50">
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-1 text-gray-700 dark:text-zinc-200">
+            <span className="text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-3xl">
               {leader.owner}
             </span>
-            <span className="rounded-full border border-blue-200 bg-white/80 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
-              {leader.wins}-{leader.losses}
+            <span className="rounded-full border border-blue-300 bg-white/85 px-2.5 py-0.5 text-sm font-semibold text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+              {leader.wins}–{leader.losses}
             </span>
-            <span className="text-xs text-gray-600 dark:text-zinc-300">
+            <span className="text-sm font-medium text-gray-700 dark:text-zinc-200">
               Win% {formatWinPct(leader.winPct)}
             </span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-zinc-300 sm:justify-end">
-          <span>{leaderStatusLabel}</span>
-          <span className="hidden text-gray-400 sm:inline dark:text-zinc-500">•</span>
-          <span>{context.scopeLabel}</span>
-          {context.scopeDetail ? (
-            <>
-              <span className="hidden text-gray-400 sm:inline dark:text-zinc-500">•</span>
-              <span>{context.scopeDetail}</span>
-            </>
-          ) : null}
+        <div className="grid gap-1 text-xs text-gray-600 dark:text-zinc-300 sm:justify-items-end">
+          <span>{contextSignal}</span>
+          <span>{progressSignal}</span>
         </div>
       </div>
     </section>
@@ -234,8 +301,8 @@ function CondensedStandingsTable({
 }): React.ReactElement {
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <div className="min-w-full text-sm sm:text-[0.95rem]">
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-[0.14em] text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
+      <div className="min-w-full text-sm sm:text-[0.92rem]">
+        <div className="grid grid-cols-[2.2rem_minmax(0,1fr)_4.7rem_4.2rem_3.8rem] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-[0.14em] text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
           <span className="font-semibold">Rank</span>
           <span className="font-semibold">Team</span>
           <span className="text-right font-semibold">Record</span>
@@ -248,7 +315,7 @@ function CondensedStandingsTable({
           return (
             <div
               key={row.owner}
-              className={`grid grid-cols-[auto_1fr_auto_auto_auto] items-center gap-x-2 border-b border-gray-100 px-2 py-2 dark:border-zinc-800 ${
+              className={`grid grid-cols-[2.2rem_minmax(0,1fr)_4.7rem_4.2rem_3.8rem] items-center gap-x-2 border-b border-gray-100 px-2 py-2 dark:border-zinc-800 ${
                 isTopThree
                   ? 'bg-blue-50/55 dark:bg-blue-950/15'
                   : 'odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900'
@@ -507,43 +574,57 @@ export default function OverviewPanel({
 
   return (
     <div className="space-y-3">
-      <LeagueSummaryBar standingsLeaders={standingsLeaders} context={context} />
+      <LeagueSummaryHero
+        standingsLeaders={standingsLeaders}
+        context={context}
+        liveItems={liveItems}
+        keyMatchups={keyMatchups}
+        standingsCoverage={standingsCoverage}
+      />
 
-      <SectionCard title="League standings" headingClassName="text-xl">
-        {standingsCoverage.message ? (
-          <p
-            className={`mb-3 text-sm ${
-              standingsCoverage.state === 'error'
-                ? 'text-amber-700 dark:text-amber-300'
-                : 'text-gray-600 dark:text-zinc-300'
-            }`}
-          >
-            {standingsCoverage.message}
-          </p>
-        ) : null}
-        {standingsLeaders.length === 0 ? (
-          <EmptyState message="Upload surnames to populate the league overview." compact />
-        ) : (
-          <CondensedStandingsTable rows={standingsLeaders} onOwnerSelect={onOwnerSelect} />
-        )}
-      </SectionCard>
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
+        <SectionCard title="League standings" headingClassName="text-lg sm:text-xl" compact>
+          {standingsCoverage.message ? (
+            <p
+              className={`mb-3 text-sm ${
+                standingsCoverage.state === 'error'
+                  ? 'text-amber-700 dark:text-amber-300'
+                  : 'text-gray-600 dark:text-zinc-300'
+              }`}
+            >
+              {standingsCoverage.message}
+            </p>
+          ) : null}
+          {standingsLeaders.length === 0 ? (
+            <EmptyState message="Upload surnames to populate league standings." compact />
+          ) : (
+            <CondensedStandingsTable rows={standingsLeaders} onOwnerSelect={onOwnerSelect} />
+          )}
+        </SectionCard>
 
-      <SectionCard title={context.highlightsTitle} tone="weekly" compact>
-        <GameSummaryList
-          items={keyMatchups}
-          emptyMessage="No league-relevant games are scheduled for this view."
-          timeZone={timeZone}
-          rankingsByTeamId={rankingsByTeamId}
-        />
-      </SectionCard>
+        <div className="space-y-3">
+          <SectionCard title={context.highlightsTitle} tone="weekly" compact>
+            <GameSummaryList
+              items={keyMatchups}
+              emptyMessage="No league-relevant games are scheduled for this view."
+              timeZone={timeZone}
+              rankingsByTeamId={rankingsByTeamId}
+            />
+          </SectionCard>
 
-      <SectionCard title={liveTitle} tone="live" compact>
-        {liveItems.length > 0 ? (
-          <GameCardList items={liveItems} timeZone={timeZone} rankingsByTeamId={rankingsByTeamId} />
-        ) : (
-          <p className="text-sm text-gray-500 dark:text-zinc-400">No live games.</p>
-        )}
-      </SectionCard>
+          {liveItems.length > 0 ? (
+            <SectionCard title={liveTitle} tone="live" compact>
+              <GameCardList
+                items={liveItems}
+                timeZone={timeZone}
+                rankingsByTeamId={rankingsByTeamId}
+              />
+            </SectionCard>
+          ) : (
+            <p className="px-1 text-xs text-gray-500 dark:text-zinc-400">Live: none right now.</p>
+          )}
+        </div>
+      </div>
 
       <SectionCard
         title="Head-to-head matrix"
