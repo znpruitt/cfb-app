@@ -152,7 +152,7 @@ export async function loadSeasonRankings(
   const allowRefresh = options?.allowRefresh ?? false;
   const cached = CACHE.get(season);
   const now = Date.now();
-  if (cached && now - cached.at < CACHE_TTL_MS) {
+  if (!allowRefresh && cached && now - cached.at < CACHE_TTL_MS) {
     return {
       ...cached.response,
       meta: {
@@ -166,7 +166,7 @@ export async function loadSeasonRankings(
     'rankings',
     String(season)
   );
-  if (stored?.value && now - stored.value.at < CACHE_TTL_MS) {
+  if (!allowRefresh && stored?.value && now - stored.value.at < CACHE_TTL_MS) {
     CACHE.set(season, stored.value);
     return {
       ...stored.value.response,

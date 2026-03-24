@@ -94,6 +94,48 @@ test('rankings route allows admin bypassCache refresh and persists snapshot', as
   }
 });
 
+test('rankings bypassCache=1 bypasses fresh in-memory cache and fetches upstream again', async () => {
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  const originalFetch = global.fetch;
+  let calls = 0;
+  setMockFetch(async () => {
+    calls += 1;
+    return new Response(
+      JSON.stringify([
+        {
+          season: 2026,
+          seasonType: 'regular',
+          week: 9,
+          polls: [{ poll: 'AP Top 25', ranks: [{ rank: 1, school: 'Texas' }] }],
+        },
+      ]),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+
+  try {
+    const first = await GET(
+      new Request('http://localhost/api/rankings?year=2026&bypassCache=1', {
+        headers: { 'x-admin-token': 'admin-token' },
+      })
+    );
+    const second = await GET(
+      new Request('http://localhost/api/rankings?year=2026&bypassCache=1', {
+        headers: { 'x-admin-token': 'admin-token' },
+      })
+    );
+    await second.json();
+
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal(calls, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('rankings route serves stale shared cache to non-admin reads', async () => {
   process.env.ADMIN_API_TOKEN = 'admin-token';
 

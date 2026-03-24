@@ -78,6 +78,7 @@ import {
   selectRankingsWeek,
   type RankingsResponse,
 } from '../lib/rankings';
+import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -154,6 +155,7 @@ export default function CFBScheduleApp({
   const lastAutoScoresRefreshMsRef = useRef<number>(0);
   const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
   const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
+  const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
 
   const applySavedAliasMap = useCallback(
     (saved: AliasMap) => {
@@ -210,12 +212,15 @@ export default function CFBScheduleApp({
 
   const loadRankings = useCallback(
     async (options?: { bypassCache?: boolean }) => {
+      const requestId = rankingsRequestGuardRef.current.nextRequestId();
       try {
         const nextRankings = await fetchSeasonRankings(selectedSeason, {
           bypassCache: options?.bypassCache,
         });
+        if (!rankingsRequestGuardRef.current.isCurrent(requestId)) return;
         setRankings(nextRankings);
       } catch (error) {
+        if (!rankingsRequestGuardRef.current.isCurrent(requestId)) return;
         setIssues((prev) =>
           dedupeIssues([
             ...prev.filter((issue) => !issue.startsWith('CFBD rankings load failed:')),
@@ -410,15 +415,12 @@ export default function CFBScheduleApp({
   }, [selectedTab, selectedWeek]);
 
   useEffect(() => {
-    let cancelled = false;
-
     (async () => {
-      if (cancelled) return;
       await loadRankings();
     })();
 
     return () => {
-      cancelled = true;
+      rankingsRequestGuardRef.current.cancelOutstanding();
     };
   }, [loadRankings]);
 
