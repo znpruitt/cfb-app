@@ -252,103 +252,121 @@ function ownerRecordToneClasses(tone: OwnerWeekSlate['performance']['tone']): st
   return 'text-gray-900 dark:text-zinc-100';
 }
 
-function compactOddsSummary(odds?: CombinedOdds): string | null {
-  if (!odds) return null;
-  const parts: string[] = [];
-
-  if (odds.favorite != null && odds.spread != null) {
-    parts.push(`${odds.favorite} ${odds.spread}`);
-  } else if (odds.favorite != null) {
-    parts.push(`Fav ${odds.favorite}`);
-  } else if (odds.spread != null) {
-    parts.push(`Spread ${odds.spread}`);
-  }
-
-  if (odds.total != null) {
-    parts.push(`Total ${odds.total}`);
-  }
-
-  if (odds.lineSourceStatus === 'closing') {
-    parts.push('Closing');
-  } else if (odds.lineSourceStatus === 'fallback-latest-for-completed') {
-    parts.push('Stored latest');
-  }
-
-  return parts.length ? parts.join(' · ') : null;
+function buildLiveClockLabel(score?: ScorePack): string | null {
+  if (!score) return null;
+  const status = score.status?.trim() ?? '';
+  const time = score.time?.trim() ?? '';
+  if (time.length === 0 && status.length === 0) return null;
+  if (time.length > 0 && /in progress/i.test(status)) return time;
+  if (time.length > 0 && status.length > 0) return `${status} ${time}`;
+  return time.length > 0 ? time : status;
 }
 
 function GameRow({
   slateGame,
   scoresByKey,
-  oddsByKey,
   displayTimeZone,
   rankingsByTeamId,
 }: {
   slateGame: OwnerSlateGame;
   scoresByKey: Record<string, ScorePack>;
-  oddsByKey: Record<string, CombinedOdds>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   const score = scoresByKey[slateGame.game.key];
-  const odds = oddsByKey[slateGame.game.key];
-  const scoreState = formatOwnedScore(slateGame, score);
-  const statusText = formatGameStatus(score);
-  const oddsText = compactOddsSummary(odds);
+  const ownerOutcome = formatOwnedScore(slateGame, score);
   const rawStatusTone = gameStateFromScore(score);
   const statusTone = rawStatusTone === 'unknown' ? 'scheduled' : rawStatusTone;
   const opponentDescriptor = getOpponentDescriptor(slateGame);
-  const rowClasses = ownerOutcomeRowClasses(scoreState.tone);
+  const rowClasses = ownerOutcomeRowClasses(ownerOutcome.tone);
+  const awayTeamName = slateGame.game.csvAway;
+  const homeTeamName = slateGame.game.csvHome;
+  const awayTeamId =
+    slateGame.ownerTeamSide === 'away' ? slateGame.ownerTeamId : slateGame.opponentTeamId;
+  const homeTeamId =
+    slateGame.ownerTeamSide === 'home' ? slateGame.ownerTeamId : slateGame.opponentTeamId;
+  const awayScore = score?.away.score;
+  const homeScore = score?.home.score;
+  const hasPrimaryScoreline =
+    (statusTone === 'final' || statusTone === 'inprogress') &&
+    (awayScore != null || homeScore != null);
+  const liveClockLabel = buildLiveClockLabel(score);
+  const metadataEntries: string[] = [];
+  if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
+  metadataEntries.push(opponentDescriptor);
+  if (statusTone === 'scheduled') {
+    metadataEntries.push(`Kickoff ${formatKickoff(slateGame.game.date, displayTimeZone)}`);
+  } else {
+    metadataEntries.push(formatKickoff(slateGame.game.date, displayTimeZone));
+  }
+  if (slateGame.game.neutral) {
+    metadataEntries.push('Neutral site');
+  }
 
   return (
-    <li className={`rounded-md py-2.5 transition-colors ${rowClasses}`}>
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2 text-sm leading-5 text-gray-900 dark:text-zinc-100">
-            {slateGame.game.label ? (
-              <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
-                {slateGame.game.label}
-              </span>
-            ) : null}
-            <RankedTeamName
-              className="font-medium"
-              teamName={slateGame.ownerTeamName}
-              ranking={rankingsByTeamId?.get(slateGame.ownerTeamId)}
-            />
-            <span className="text-gray-400 dark:text-zinc-500">vs</span>
-            <RankedTeamName
-              teamName={slateGame.opponentTeamName}
-              ranking={rankingsByTeamId?.get(slateGame.opponentTeamId)}
-            />
-            <span className={`${pillClass()} ${getOpponentBadgeClasses(opponentDescriptor)}`}>
-              {opponentDescriptor}
+    <li className={`rounded-md py-2 transition-colors ${rowClasses}`}>
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-1.5 text-sm leading-5 text-gray-900 dark:text-zinc-100">
+          {slateGame.game.label ? (
+            <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
+              {slateGame.game.label}
             </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-            <span>{scoreState.summary}</span>
-            {scoreState.detail ? (
-              <>
-                <span>•</span>
-                <span>{scoreState.detail}</span>
-              </>
-            ) : null}
-            <span>•</span>
-            <span>{statusText}</span>
-            <span>•</span>
-            <span>Kickoff {formatKickoff(slateGame.game.date, displayTimeZone)}</span>
-            {oddsText ? (
-              <>
-                <span>•</span>
-                <span>{oddsText}</span>
-              </>
-            ) : null}
-          </div>
+          ) : null}
+          {hasPrimaryScoreline ? (
+            <>
+              <RankedTeamName
+                className="font-medium"
+                teamName={awayTeamName}
+                ranking={rankingsByTeamId?.get(awayTeamId)}
+              />
+              <span className="inline-flex min-w-[2ch] justify-end font-semibold tabular-nums">
+                {awayScore ?? '—'}
+              </span>
+              <span className="text-gray-400 dark:text-zinc-500">–</span>
+              <span className="inline-flex min-w-[2ch] justify-start font-semibold tabular-nums">
+                {homeScore ?? '—'}
+              </span>
+              <RankedTeamName
+                className="font-medium"
+                teamName={homeTeamName}
+                ranking={rankingsByTeamId?.get(homeTeamId)}
+              />
+            </>
+          ) : (
+            <>
+              <RankedTeamName
+                className="font-medium"
+                teamName={awayTeamName}
+                ranking={rankingsByTeamId?.get(awayTeamId)}
+              />
+              <span className="text-gray-400 dark:text-zinc-500">@</span>
+              <RankedTeamName
+                className="font-medium"
+                teamName={homeTeamName}
+                ranking={rankingsByTeamId?.get(homeTeamId)}
+              />
+            </>
+          )}
+          <span
+            className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
+          >
+            {statusTone === 'final' ? 'Final' : statusTone === 'inprogress' ? 'Live' : 'Scheduled'}
+          </span>
         </div>
-        <span
-          className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
-        >
-          {statusTone === 'final' ? 'Final' : statusTone === 'inprogress' ? 'Live' : 'Scheduled'}
-        </span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+          {metadataEntries.map((entry, index) => (
+            <React.Fragment key={`${slateGame.game.key}:meta:${entry}`}>
+              {index > 0 ? <span>•</span> : null}
+              {entry === opponentDescriptor ? (
+                <span className={`${pillClass()} ${getOpponentBadgeClasses(opponentDescriptor)}`}>
+                  {entry}
+                </span>
+              ) : (
+                <span>{entry}</span>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
       </div>
     </li>
   );
@@ -365,13 +383,11 @@ function EmptyState(): React.ReactElement {
 function OwnerCard({
   slate,
   scoresByKey,
-  oddsByKey,
   displayTimeZone,
   rankingsByTeamId,
 }: {
   slate: OwnerWeekSlate;
   scoresByKey: Record<string, ScorePack>;
-  oddsByKey: Record<string, CombinedOdds>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
@@ -419,7 +435,6 @@ function OwnerCard({
             key={`${slate.owner}:${slateGame.game.key}:${slateGame.ownerTeamSide}`}
             slateGame={slateGame}
             scoresByKey={scoresByKey}
-            oddsByKey={oddsByKey}
             displayTimeZone={displayTimeZone}
             rankingsByTeamId={rankingsByTeamId}
           />
@@ -429,15 +444,15 @@ function OwnerCard({
   );
 }
 
-export default function MatchupsWeekPanel({
-  games,
-  oddsByKey,
-  scoresByKey,
-  rosterByTeam,
-  displayTimeZone = getPresentationTimeZone(),
-  sections,
-  rankingsByTeamId = new Map(),
-}: MatchupsWeekPanelProps): React.ReactElement {
+export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.ReactElement {
+  const {
+    games,
+    scoresByKey,
+    rosterByTeam,
+    displayTimeZone = getPresentationTimeZone(),
+    sections,
+    rankingsByTeamId = new Map(),
+  } = props;
   const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
   const ownerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
 
@@ -460,7 +475,6 @@ export default function MatchupsWeekPanel({
                 key={slate.owner}
                 slate={slate}
                 scoresByKey={scoresByKey}
-                oddsByKey={oddsByKey}
                 displayTimeZone={displayTimeZone}
                 rankingsByTeamId={rankingsByTeamId}
               />
