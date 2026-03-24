@@ -107,7 +107,14 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
   assert.match(html, /2 games · vs Bob, NoClaim \(FBS\)/);
   assert.match(html, /vs Bob/);
   assert.match(html, /NoClaim \(FBS\)/);
-  assert.match(html, /Leading 24-17/);
+  assert.match(html, /Alabama[\s\S]*24[\s\S]*–[\s\S]*17[\s\S]*Georgia/);
+  assert.match(html, /05:00/);
+  assert.doesNotMatch(html, /Leading 24-17/);
+  assert.doesNotMatch(html, /Trailing 24-17/);
+  assert.doesNotMatch(
+    html,
+    /Kickoff Sat, Aug 30, 4:00 PM<\/span><span>•<\/span><span>Georgia -3.5/
+  );
   assert.match(html, /rounded-xl border p-4 shadow-sm sm:p-5 border-amber-300\/70 bg-amber-500\/5/);
   assert.doesNotMatch(html, /border-l-4 border-l-emerald-600 bg-emerald-50 text-gray-900/);
   assert.doesNotMatch(html, /Faces Bob/);
@@ -185,13 +192,188 @@ test('matchups panel summarizes self-matchups as Self', () => {
   assert.match(html, /2 games/);
   assert.match(html, /1–1/);
   assert.match(html, /2 games · vs Self \(x2\)/);
-  assert.match(html, /Texas 28 • Oklahoma 21/);
-  assert.match(html, /Counts as 1W \/ 1L/);
+  assert.match(html, /Texas[\s\S]*28[\s\S]*–[\s\S]*21[\s\S]*Oklahoma/);
   assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
   assert.doesNotMatch(html, /Leading 28-21/);
   assert.doesNotMatch(html, /Trailing 28-21/);
-  assert.equal((html.match(/Texas/g) ?? []).length, 4);
+  assert.equal((html.match(/Texas/g) ?? []).length, 2);
   assert.doesNotMatch(html, /1 game · vs Self/);
+});
+
+test('matchups panel keeps status text non-redundant for completed games', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-final-clean', csvAway: 'Iowa', csvHome: 'Nebraska' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-final-clean': {
+          status: 'Final',
+          time: 'Final',
+          home: { team: 'Nebraska', score: 24 },
+          away: { team: 'Iowa', score: 31 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Iowa', 'Lane'],
+          ['Nebraska', 'Mira'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.equal((html.match(/>Final</g) ?? []).length, 2);
+  assert.doesNotMatch(html, /Final: /);
+  assert.doesNotMatch(html, /Kickoff /);
+  assert.match(html, /Iowa[\s\S]*31[\s\S]*–[\s\S]*24[\s\S]*Nebraska/);
+});
+
+test('scheduled rows keep matchup primary and score out of metadata', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-sched-row', csvAway: 'Rutgers', csvHome: 'Maryland' })]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Rutgers', 'Nia'],
+          ['Maryland', 'Omar'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(
+    html,
+    /Rutgers<\/span><span class="text-gray-400 dark:text-zinc-500">@<\/span><span class="font-medium">Maryland/
+  );
+  assert.match(html, /Kickoff Sat, Aug 30, 4:00 PM/);
+  assert.doesNotMatch(html, /tabular-nums">0</);
+});
+
+test('scheduled neutral rows use vs separator instead of @', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({ key: 'g-sched-neutral', csvAway: 'Texas', csvHome: 'Ohio State', neutral: true }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Texas', 'Uma'],
+          ['Ohio State', 'Vic'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(
+    html,
+    /Texas<\/span><span class="text-gray-400 dark:text-zinc-500">vs<\/span><span class="font-medium">Ohio State/
+  );
+  assert.doesNotMatch(
+    html,
+    /Texas<\/span><span class="text-gray-400 dark:text-zinc-500">@<\/span><span class="font-medium">Ohio State/
+  );
+  assert.match(html, /Neutral site/);
+});
+
+test('long-name live rows keep canonical ordering with inline scoreline', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'g-long-live',
+          csvAway: 'Very Long Away Team Name University',
+          csvHome: 'Extremely Long Home Team Name College',
+          neutral: true,
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-long-live': {
+          status: 'in progress',
+          time: 'Q3 8:14',
+          home: { team: 'Extremely Long Home Team Name College', score: 17 },
+          away: { team: 'Very Long Away Team Name University', score: 21 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Very Long Away Team Name University', 'Pat'],
+          ['Extremely Long Home Team Name College', 'Rin'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(
+    html,
+    /Very Long Away Team Name University<\/span><span class="inline-flex min-w-\[2ch\] justify-end font-semibold tabular-nums">21<\/span><span class="text-gray-400 dark:text-zinc-500">–<\/span><span class="inline-flex min-w-\[2ch\] justify-start font-semibold tabular-nums">17<\/span><span class="font-medium">Extremely Long Home Team Name College/
+  );
+  assert.match(html, /Q3 8:14/);
+  assert.match(html, /Neutral site/);
+});
+
+test('live rows do not render ISO kickoff timestamps as live clock metadata', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live-iso', csvAway: 'Utah', csvHome: 'Arizona' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live-iso': {
+          status: 'in progress',
+          time: '2026-09-12T23:00:00.000Z',
+          home: { team: 'Arizona', score: 17 },
+          away: { team: 'Utah', score: 21 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Utah', 'Kai'],
+          ['Arizona', 'Lee'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Utah[\s\S]*21[\s\S]*–[\s\S]*17[\s\S]*Arizona/);
+  assert.match(html, /vs Lee/);
+  assert.match(html, /Sat, Aug 30, 4:00 PM/);
+  assert.doesNotMatch(html, /2026-09-12T23:00:00.000Z/);
+});
+
+test('live rows still render real in-game clock values', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live-clock', csvAway: 'Auburn', csvHome: 'Ole Miss' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live-clock': {
+          status: 'in progress',
+          time: 'Q3 8:14',
+          home: { team: 'Ole Miss', score: 24 },
+          away: { team: 'Auburn', score: 20 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Auburn', 'Moe'],
+          ['Ole Miss', 'Ned'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(html, /Q3 8:14/);
+  assert.match(html, /vs Ned/);
 });
 
 test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {
@@ -509,7 +691,8 @@ test('unexpected final ties do not surface as supported matchup record semantics
     />
   );
 
-  assert.match(html, /Unexpected final tie/);
+  assert.match(html, /Texas[\s\S]*24[\s\S]*–[\s\S]*24[\s\S]*Oklahoma/);
+  assert.equal((html.match(/>Final</g) ?? []).length, 2);
   assert.doesNotMatch(html, /Counts as 1W \/ 1L/);
   assert.doesNotMatch(html, /1–1–1/);
 });
