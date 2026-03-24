@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
+import { deriveGameHighlightTags, deriveLeagueInsights } from '../lib/leagueInsights';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
@@ -220,73 +221,66 @@ function LeagueSummaryHero({
       : phase === 'postseason'
         ? 'Championship race'
         : 'League leader';
-  const contextSignal =
-    phase === 'complete'
-      ? `#2 ${runnerUp?.owner ?? '—'} · #3 ${thirdPlace?.owner ?? '—'}`
-      : runnerUp
-        ? hasTieAtTop
-          ? 'Tied at the top'
-          : `Gap over #2: ${formatPctGap(winPctGap)} win%`
-        : 'No runner-up yet';
   const progressSignal = context.scopeDetail ? context.scopeDetail : context.scopeLabel;
+  const placementSummary =
+    runnerUp || thirdPlace
+      ? `2nd: ${runnerUp ? `${runnerUp.owner} (${runnerUp.wins}–${runnerUp.losses})` : '—'} · 3rd: ${
+          thirdPlace ? `${thirdPlace.owner} (${thirdPlace.wins}–${thirdPlace.losses})` : '—'
+        }`
+      : null;
 
   if (phase === 'complete') {
     return (
       <section className="rounded-2xl border border-emerald-300/80 bg-gradient-to-r from-emerald-100/80 via-white to-white px-4 py-4 shadow-sm dark:border-emerald-900/70 dark:from-emerald-950/30 dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800 dark:text-emerald-300">
-          {seasonStatusLabel}
+          Final standings
         </p>
-        <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1">
-          <span className="text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-3xl">
-            Champion: {leader.owner}
-          </span>
-          <span className="rounded-full border border-emerald-300 bg-white/80 px-2.5 py-0.5 text-sm font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+        <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
+          Champion: {leader.owner}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-700 dark:text-zinc-200">
+          <span className="rounded-full border border-emerald-300 bg-white/85 px-2 py-0.5 font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
             {leader.wins}–{leader.losses}
           </span>
-          <span className="text-sm font-medium text-gray-700 dark:text-zinc-200">
-            Win% {formatWinPct(leader.winPct)}
-          </span>
+          <span className="font-medium">Win% {formatWinPct(leader.winPct)}</span>
+          <span className="text-gray-500 dark:text-zinc-400">•</span>
+          <span className="font-medium">Diff {formatDiff(leader.pointDifferential)}</span>
         </div>
-        <div className="mt-3 grid gap-2 text-sm text-gray-700 dark:text-zinc-200 sm:grid-cols-3">
-          <p className="rounded-lg border border-gray-200 bg-white/85 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/80">
-            Champion: {leader.owner} ({leader.wins}–{leader.losses})
-          </p>
-          <p className="rounded-lg border border-gray-200 bg-white/85 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/80">
-            2nd: {runnerUp ? `${runnerUp.owner} (${runnerUp.wins}–${runnerUp.losses})` : '—'}
-          </p>
-          <p className="rounded-lg border border-gray-200 bg-white/85 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900/80">
-            3rd:{' '}
-            {thirdPlace ? `${thirdPlace.owner} (${thirdPlace.wins}–${thirdPlace.losses})` : '—'}
-          </p>
-        </div>
-        <p className="mt-2 text-xs text-gray-600 dark:text-zinc-300">{contextSignal}</p>
+        {placementSummary ? (
+          <p className="mt-2 text-xs text-gray-600 dark:text-zinc-300">{placementSummary}</p>
+        ) : null}
       </section>
     );
   }
 
+  const primarySignal = runnerUp
+    ? hasTieAtTop
+      ? 'Tied at the top'
+      : `Gap over #2: ${formatPctGap(winPctGap)} win%`
+    : 'No runner-up yet';
+  const inSeasonHeadline =
+    phase === 'postseason' ? `Race leader: ${leader.owner}` : `Leader: ${leader.owner}`;
+
   return (
     <section className="rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-100/90 via-white to-white px-4 py-4 shadow-sm dark:border-blue-900/70 dark:from-blue-950/35 dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-800 dark:text-blue-300">
-            {seasonStatusLabel}
-          </p>
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-1 text-gray-700 dark:text-zinc-200">
-            <span className="text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-3xl">
-              {leader.owner}
-            </span>
-            <span className="rounded-full border border-blue-300 bg-white/85 px-2.5 py-0.5 text-sm font-semibold text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
-              {leader.wins}–{leader.losses}
-            </span>
-            <span className="text-sm font-medium text-gray-700 dark:text-zinc-200">
-              Win% {formatWinPct(leader.winPct)}
-            </span>
-          </div>
-        </div>
-        <div className="grid gap-1 text-xs text-gray-600 dark:text-zinc-300 sm:justify-items-end">
-          <span>{contextSignal}</span>
-          <span>{progressSignal}</span>
-        </div>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-800 dark:text-blue-300">
+        {seasonStatusLabel}
+      </p>
+      <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
+        {inSeasonHeadline}
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-700 dark:text-zinc-200">
+        <span className="rounded-full border border-blue-300 bg-white/85 px-2 py-0.5 font-semibold text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+          {leader.wins}–{leader.losses}
+        </span>
+        <span className="font-medium">Win% {formatWinPct(leader.winPct)}</span>
+        <span className="text-gray-500 dark:text-zinc-400">•</span>
+        <span className="font-medium">{primarySignal}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-zinc-300">
+        {placementSummary ? <span>{placementSummary}</span> : null}
+        <span className="text-gray-500 dark:text-zinc-400">•</span>
+        <span>{progressSignal}</span>
       </div>
     </section>
   );
@@ -487,11 +481,13 @@ function GameSummaryList({
   emptyMessage,
   timeZone,
   rankingsByTeamId,
+  topOwnerNames,
 }: {
   items: OverviewGameItem[];
   emptyMessage: string;
   timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  topOwnerNames: Set<string>;
 }): React.ReactElement {
   if (items.length === 0) {
     return <EmptyState message={emptyMessage} compact />;
@@ -510,37 +506,84 @@ function GameSummaryList({
           item.bucket.awayOwner && item.bucket.homeOwner
             ? `${item.bucket.awayOwner} vs ${item.bucket.homeOwner}`
             : summarizeLeagueAngle(item, rankingsByTeamId);
+        const highlightTags = deriveGameHighlightTags({
+          item,
+          rankingsByTeamId,
+          topOwners: topOwnerNames,
+        });
+        const hasPriorityHighlight = highlightTags.some(
+          (tag) => tag.id === 'top25' || tag.id === 'topMatchup'
+        );
 
         return (
           <article
             key={item.bucket.game.key}
-            className="rounded-lg border border-gray-200 bg-white/80 p-3 dark:border-zinc-800 dark:bg-zinc-950/70"
+            className={`rounded-lg border p-3 ${
+              hasPriorityHighlight
+                ? 'border-blue-300/80 bg-blue-50/40 dark:border-blue-900/70 dark:bg-blue-950/15'
+                : 'border-gray-200 bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/70'
+            }`}
           >
-            <div className="space-y-1 leading-tight">
-              <div className="flex items-center justify-between gap-2">
+            <div className="grid grid-cols-[minmax(0,1fr)_4.4rem] gap-x-2.5">
+              <div className="min-w-0 space-y-1 leading-tight">
                 <div className="inline-flex min-w-0 items-center gap-1.5">
                   <p className="min-w-0 truncate text-sm font-semibold text-gray-950 dark:text-zinc-50">
                     {renderMatchupLabel(item, rankingsByTeamId)}
                   </p>
+                  {highlightTags.length > 0 ? (
+                    <div className="inline-flex flex-wrap items-center gap-1">
+                      {highlightTags.map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="inline-flex rounded-full border border-gray-300 bg-white/85 px-1.5 py-0.5 text-xs font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                        >
+                          {tag.text}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                <span className="shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums text-gray-700 dark:text-zinc-200">
+                <p className="text-xs leading-snug text-gray-600 dark:text-zinc-300">
+                  {ownerLabel}
+                </p>
+                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
+                  <span
+                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
+                  >
+                    {status}
+                  </span>
+                  <span aria-hidden="true">•</span>
+                  <span>{kickoff}</span>
+                </div>
+              </div>
+              <div className="flex items-start justify-end pt-0.5">
+                <span className="w-[4.2rem] rounded-md border border-gray-200 bg-white/85 px-1.5 py-1 text-center text-sm font-semibold tabular-nums text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
                   {awayScore}–{homeScore}
                 </span>
-              </div>
-              <p className="text-xs leading-snug text-gray-600 dark:text-zinc-300">{ownerLabel}</p>
-              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
-                <span
-                  className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
-                >
-                  {status}
-                </span>
-                <span aria-hidden="true">•</span>
-                <span>{kickoff}</span>
               </div>
             </div>
           </article>
         );
       })}
+    </div>
+  );
+}
+
+function InsightStrip({
+  insights,
+}: {
+  insights: { id: string; text: string }[];
+}): React.ReactElement | null {
+  if (insights.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-gray-200/80 bg-gray-50/70 px-3 py-2 text-xs text-gray-600 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300">
+      {insights.map((insight, index) => (
+        <React.Fragment key={insight.id}>
+          {index > 0 ? <span aria-hidden="true">•</span> : null}
+          <span className="font-medium">{insight.text}</span>
+        </React.Fragment>
+      ))}
     </div>
   );
 }
@@ -555,6 +598,7 @@ type OverviewPanelProps = {
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  previousStandingsLeaders?: OwnerStandingsRow[] | null;
 };
 
 export default function OverviewPanel({
@@ -567,10 +611,26 @@ export default function OverviewPanel({
   displayTimeZone,
   onOwnerSelect,
   rankingsByTeamId = new Map(),
+  previousStandingsLeaders = null,
 }: OverviewPanelProps): React.ReactElement {
   const [isMobileMatrixExpanded, setIsMobileMatrixExpanded] = React.useState(false);
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const liveTitle = liveItems.length === 0 ? 'Live · none' : `Live · ${liveItems.length}`;
+  const topOwnerNames = React.useMemo(
+    () => new Set(standingsLeaders.slice(0, 3).map((row) => row.owner)),
+    [standingsLeaders]
+  );
+  const insights = React.useMemo(
+    () =>
+      deriveLeagueInsights({
+        standings: standingsLeaders,
+        previousStandings: previousStandingsLeaders,
+        recentResults: keyMatchups,
+        liveGames: liveItems,
+        rankingsByTeamId,
+      }),
+    [standingsLeaders, previousStandingsLeaders, keyMatchups, liveItems, rankingsByTeamId]
+  );
 
   return (
     <div className="space-y-3">
@@ -581,8 +641,9 @@ export default function OverviewPanel({
         keyMatchups={keyMatchups}
         standingsCoverage={standingsCoverage}
       />
+      <InsightStrip insights={insights} />
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <SectionCard title="League standings" headingClassName="text-lg sm:text-xl" compact>
           {standingsCoverage.message ? (
             <p
@@ -609,6 +670,7 @@ export default function OverviewPanel({
               emptyMessage="No league-relevant games are scheduled for this view."
               timeZone={timeZone}
               rankingsByTeamId={rankingsByTeamId}
+              topOwnerNames={topOwnerNames}
             />
           </SectionCard>
 

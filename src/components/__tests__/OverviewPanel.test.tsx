@@ -422,8 +422,9 @@ test('overview panel summary shows season-complete champion, second, and third',
     />
   );
 
-  assert.match(html, /Final results/);
-  assert.match(html, /Champion: Pruitt \(81–39\)/);
+  assert.match(html, /Final standings/);
+  assert.match(html, /Champion: Pruitt/);
+  assert.match(html, /81–39/);
   assert.match(html, /2nd: Maleski \(65–41\)/);
   assert.match(html, /3rd: Whited \(70–45\)/);
   assert.doesNotMatch(html, /League leader/);
@@ -517,4 +518,162 @@ test('overview panel uses compact live empty state copy', () => {
   assert.match(html, /Live: none right now\./);
   assert.doesNotMatch(html, /Postseason focus/);
   assert.match(html, /Head-to-head \(tap to expand\)/);
+});
+
+test('overview panel renders insight strip with prioritized ranked matchup signal', () => {
+  const rankedGame = game({
+    key: 'ranked-game',
+    csvAway: 'Texas',
+    csvHome: 'Miami',
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: 'texas',
+        displayName: 'Texas',
+        canonicalName: 'Texas',
+        rawName: 'Texas',
+      },
+      home: {
+        kind: 'team',
+        teamId: 'miami',
+        displayName: 'Miami',
+        canonicalName: 'Miami',
+        rawName: 'Miami',
+      },
+    },
+  });
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Pruitt',
+          wins: 10,
+          losses: 2,
+          winPct: 0.833,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+        {
+          owner: 'Maleski',
+          wins: 9,
+          losses: 3,
+          winPct: 0.75,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 1,
+          finalGames: 12,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(rankedGame)]}
+      rankingsByTeamId={
+        new Map([
+          ['texas', { rank: 7, rankSource: 'ap' }],
+          ['miami', { rank: 14, rankSource: 'ap' }],
+        ])
+      }
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Pruitt leads by 0.083 win%/);
+  assert.match(html, /#7 vs #14 matchup this week/);
+});
+
+test('overview panel game summary badges prefer top-25 and top-matchup over close and ranked', () => {
+  const rankedCloseTopGame = itemWithScore(
+    game({
+      key: 'badge-priority',
+      csvAway: 'Ohio State',
+      csvHome: 'Oregon',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'osu',
+          displayName: 'Ohio State',
+          canonicalName: 'Ohio State',
+          rawName: 'Ohio State',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'oregon',
+          displayName: 'Oregon',
+          canonicalName: 'Oregon',
+          rawName: 'Oregon',
+        },
+      },
+    }),
+    {
+      status: 'FINAL',
+      away: { team: 'Ohio State', score: 31 },
+      home: { team: 'Oregon', score: 24 },
+      time: null,
+    }
+  );
+  rankedCloseTopGame.bucket.awayOwner = 'Alice';
+  rankedCloseTopGame.bucket.homeOwner = 'Bob';
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 8,
+          losses: 1,
+          winPct: 0.889,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 9,
+        },
+        {
+          owner: 'Bob',
+          wins: 7,
+          losses: 2,
+          winPct: 0.778,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 1,
+          finalGames: 9,
+        },
+        {
+          owner: 'Cara',
+          wins: 6,
+          losses: 3,
+          winPct: 0.667,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 2,
+          finalGames: 9,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[rankedCloseTopGame]}
+      rankingsByTeamId={
+        new Map([
+          ['osu', { rank: 6, rankSource: 'ap' }],
+          ['oregon', { rank: 11, rankSource: 'ap' }],
+        ])
+      }
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /#6 vs #11/);
+  assert.match(html, /Top matchup/);
+  assert.doesNotMatch(html, />Close</);
 });
