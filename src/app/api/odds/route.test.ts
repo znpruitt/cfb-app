@@ -18,7 +18,8 @@ import {
   setDurableOddsStore,
 } from '../../../lib/server/durableOddsStore.ts';
 
-import { GET, __resetOddsRouteCacheForTests, resolveDefaultSeason } from './route.ts';
+import { GET } from './route.ts';
+import { __resetOddsRouteCacheForTests, resolveDefaultSeason } from './routeInternals.ts';
 
 const DURABLE_ODDS_TEST_SEASON = 2026;
 

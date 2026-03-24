@@ -6,9 +6,7 @@ import { buildTeamDatabaseFile, type CfbdTeamRecord } from '@/lib/teamDatabase';
 import { getTeamDatabaseFile, setTeamDatabaseFile } from '@/lib/server/teamDatabaseStore';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 
-export async function POST(
-  req: Request = new Request('http://localhost/api/admin/team-database')
-): Promise<NextResponse> {
+export async function POST(req: Request): Promise<NextResponse> {
   const authFailure = requireAdminRequest(req);
   if (authFailure)
     return NextResponse.json({ error: 'admin-authorization-required' }, { status: 401 });
