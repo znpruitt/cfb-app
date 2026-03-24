@@ -172,6 +172,6 @@ test('expanded scoreboard status uses chip-only state color treatment', () => {
     },
   });
 
-  assert.match(html, /border-emerald-200[^>]*data-scoreboard-status=\"true\">FINAL<\/div>/);
+  assert.match(html, /border-emerald-200[^>]*data-scoreboard-status="true">FINAL<\/div>/);
   assert.doesNotMatch(html, /bg-emerald-50[^>]*aria-label="Game scoreboard"/);
 });

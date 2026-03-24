@@ -10,6 +10,8 @@ import {
   type SeasonType,
 } from '@/lib/schedule/cfbdSchedule';
 import { hasRequiredSeasonTypeFailure } from '@/lib/scheduleSeasonFetch';
+
+import { type CacheEntry, SCHEDULE_ROUTE_CACHE } from './cache';
 import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
@@ -50,21 +52,10 @@ interface ScheduleResponse {
   meta: ScheduleMeta;
 }
 
-type CacheEntry = {
-  at: number;
-  items: ScheduleItem[];
-  partialFailure: boolean;
-  failedSeasonTypes: SeasonType[];
-};
-const CACHE: Record<string, CacheEntry> = {};
-
-export function __resetScheduleRouteCacheForTests(): void {
-  for (const key of Object.keys(CACHE)) {
-    delete CACHE[key];
-  }
-}
-
-function isFreshScheduleCacheEntry(entry: CacheEntry | undefined, now: number): boolean {
+function isFreshScheduleCacheEntry(
+  entry: (typeof SCHEDULE_ROUTE_CACHE)[string] | undefined,
+  now: number
+): boolean {
   return Boolean(entry && now - entry.at < SCHEDULE_CACHE_TTL_MS);
 }
 
@@ -85,7 +76,7 @@ function seasonYearForToday(now = new Date()): number {
   return month >= 7 ? year : year - 1;
 }
 
-function pruneCache(cache: Record<string, CacheEntry>, label: string) {
+function pruneCache(cache: typeof SCHEDULE_ROUTE_CACHE, label: string) {
   const entries = Object.entries(cache);
   if (entries.length <= MAX_CACHE_ENTRIES) return;
 
@@ -281,7 +272,7 @@ export async function GET(req: Request) {
     if (authFailure) return authFailure;
   }
 
-  const hit = CACHE[cacheKey];
+  const hit = SCHEDULE_ROUTE_CACHE[cacheKey];
   if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
     recordRouteCacheHit('schedule');
     return NextResponse.json<ScheduleResponse>({
@@ -301,8 +292,8 @@ export async function GET(req: Request) {
     const stored = await getAppState<CacheEntry>('schedule', cacheKey);
     const storedValue = stored?.value;
     if (storedValue && isFreshScheduleCacheEntry(storedValue, now)) {
-      CACHE[cacheKey] = storedValue;
-      pruneCache(CACHE, 'schedule');
+      SCHEDULE_ROUTE_CACHE[cacheKey] = storedValue;
+      pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
         items: storedValue.items,
@@ -420,8 +411,8 @@ export async function GET(req: Request) {
     partialFailure: failedSeasonTypes.length > 0,
     failedSeasonTypes,
   };
-  CACHE[cacheKey] = nextCacheEntry;
-  pruneCache(CACHE, 'schedule');
+  SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
+  pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
   await setAppState('schedule', cacheKey, nextCacheEntry);
 
   if (IS_DEBUG) {

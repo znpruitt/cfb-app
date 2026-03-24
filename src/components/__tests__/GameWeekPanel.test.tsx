@@ -1189,6 +1189,6 @@ test('collapsed rows use neutral cards with chip-only state styling and outer ca
   assert.match(html, /data-card-team-accent-top="away"/);
   assert.match(html, /data-card-team-accent-bottom="home"/);
   assert.doesNotMatch(html, /data-collapsed-team-accent=/);
-  assert.match(html, /border-emerald-200[^>]*data-summary-state=\"true\">FINAL<\/div>/);
+  assert.match(html, /border-emerald-200[^>]*data-summary-state="true">FINAL<\/div>/);
   assert.doesNotMatch(html, /bg-emerald-50 text-gray-900/);
 });
