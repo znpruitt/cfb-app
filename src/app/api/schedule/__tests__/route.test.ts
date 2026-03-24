@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GET, __resetScheduleRouteCacheForTests } from '../route';
+import { GET } from '../route';
+import { resetScheduleRouteCacheForTests } from '../cache';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -17,7 +18,7 @@ function setMockFetch(impl: Parameters<MockFetch>[1] extends never ? never : any
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
-  __resetScheduleRouteCacheForTests();
+  resetScheduleRouteCacheForTests();
 });
 
 test('schedule route returns mapped items from CFBD upstream', async () => {
