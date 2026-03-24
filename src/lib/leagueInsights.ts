@@ -1,3 +1,4 @@
+import { gameStateFromScore } from './gameUi.ts';
 import type { OverviewGameItem } from './overview.ts';
 import type { TeamRankingEnrichment } from './rankings.ts';
 import { getGameParticipantTeamId } from './schedule.ts';
@@ -48,6 +49,17 @@ function isTopOwnerGame(item: OverviewGameItem, topOwners: Set<string>): boolean
     (item.bucket.awayOwner && topOwners.has(item.bucket.awayOwner)) ||
       (item.bucket.homeOwner && topOwners.has(item.bucket.homeOwner))
   );
+}
+
+function isFinalTopTwoHeadToHead(item: OverviewGameItem, topTwoOwners: Set<string>): boolean {
+  if (topTwoOwners.size < 2) return false;
+  if (gameStateFromScore(item.score) !== 'final') return false;
+
+  const awayOwner = item.bucket.awayOwner;
+  const homeOwner = item.bucket.homeOwner;
+  if (!awayOwner || !homeOwner || awayOwner === homeOwner) return false;
+
+  return topTwoOwners.has(awayOwner) && topTwoOwners.has(homeOwner);
 }
 
 function ownerRankLookup(rows: OwnerStandingsRow[]): Map<string, number> {
@@ -141,7 +153,7 @@ export function deriveLeagueInsights({
       text: 'Leader game live now',
       priority: 88,
     });
-  } else if (topOwners.size > 0 && recentResults.some((item) => isTopOwnerGame(item, topOwners))) {
+  } else if (recentResults.some((item) => isFinalTopTwoHeadToHead(item, topOwners))) {
     insights.push({
       id: 'top-two-result',
       text: 'Top 2 matchup result',

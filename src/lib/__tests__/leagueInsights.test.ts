@@ -171,6 +171,71 @@ test('deriveLeagueInsights includes close-game count', () => {
   assert.ok(insights.some((insight) => insight.text === '1 close game this week'));
 });
 
+test('deriveLeagueInsights shows top-two result only for final top-two head-to-head', () => {
+  const finalTopTwoGame = item(game({ key: 'top-two-final' }), 'Pruitt', 'Maleski');
+  finalTopTwoGame.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 35 },
+    home: { team: 'Home', score: 31 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [finalTopTwoGame],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(insights.some((insight) => insight.text === 'Top 2 matchup result'));
+});
+
+test('deriveLeagueInsights does not show top-two result for scheduled or live top-two games', () => {
+  const scheduledTopTwoGame = item(game({ key: 'top-two-scheduled' }), 'Pruitt', 'Maleski');
+  const liveTopTwoGame = item(game({ key: 'top-two-live' }), 'Pruitt', 'Maleski');
+  liveTopTwoGame.score = {
+    status: 'Q3',
+    away: { team: 'Away', score: 14 },
+    home: { team: 'Home', score: 10 },
+    time: '05:44',
+  };
+
+  const scheduledInsights = deriveLeagueInsights({
+    standings,
+    recentResults: [scheduledTopTwoGame],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+  const liveInsights = deriveLeagueInsights({
+    standings,
+    recentResults: [liveTopTwoGame],
+    liveGames: [liveTopTwoGame],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(!scheduledInsights.some((insight) => insight.text === 'Top 2 matchup result'));
+  assert.ok(!liveInsights.some((insight) => insight.text === 'Top 2 matchup result'));
+});
+
+test('deriveLeagueInsights does not show top-two result for final game with only one top-two owner', () => {
+  const finalOneTopTwoOwnerGame = item(game({ key: 'one-top-two-final' }), 'Pruitt', 'Whited');
+  finalOneTopTwoOwnerGame.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 28 },
+    home: { team: 'Home', score: 24 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [finalOneTopTwoOwnerGame],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(!insights.some((insight) => insight.text === 'Top 2 matchup result'));
+});
+
 test('deriveGameHighlightTags prioritizes top-25 then top-matchup badges and caps tag count', () => {
   const rankedCloseGame = item(
     game({
