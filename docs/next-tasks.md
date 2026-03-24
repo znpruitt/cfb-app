@@ -6,6 +6,7 @@
 - Keep tasks small and scoped to a **single implementation PR** where practical.
 - Move completed work summaries to `docs/completed-work.md`.
 - Keep broader context and later-phase ideas in `docs/roadmap.md`.
+- Reference implementation prompts by explicit `PROMPT_ID` and follow the header convention documented in `docs/prompt-registry.md`.
 
 ## Current phase
 

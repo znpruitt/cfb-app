@@ -13,6 +13,9 @@ Core principles:
 - **Quota-conscious freshness.** Freshness matters, but it must be balanced against CFBD and Odds API monthly quotas.
 - **Admin-controlled persistence and refresh.** Season-persistent shared data should update through commissioner/admin flows, not opportunistically from public traffic.
 - **Diagnostics over silent failure.** Problems should surface clearly and be recoverable.
+- **Prompt traceability.** Codex prompts should use standardized headers and stable `PROMPT_ID`s so work can be referenced and revised cleanly across phases.
+
+Prompt format and registry guidance live in `docs/prompt-registry.md`.
 
 ## Current status
 

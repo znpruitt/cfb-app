@@ -10,6 +10,12 @@ The product remains **API-first**:
 - **The Odds API** is the source of truth for betting odds.
 - The **schedule remains the canonical game universe** that all downstream score and odds attachment must respect.
 
+## Prompt governance (execution hygiene)
+
+- Codex implementation prompts for this project should include a standardized header with `PROMPT_ID`, `PURPOSE`, and `SCOPE`.
+- Prompt IDs should follow `<PHASE>-<AREA>-<SHORT_NAME>-v<version>` and be referenced explicitly in later discussion.
+- Use `docs/prompt-registry.md` as the lightweight reference list for important prompts.
+
 ## Production direction
 
 The app is no longer just a local commissioner tool. The production target is a **low-maintenance hosted deployment** suitable for repeated member access during the season.

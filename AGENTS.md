@@ -122,6 +122,18 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
 5. **Local caching remains intentional**
    - Preserve practical season-scoped local cache behavior for owners/aliases unless explicitly asked to change it.
 
+6. **Structured prompt headers are required for Codex prompts**
+   - Every new project Codex prompt should begin with:
+     - `PROMPT_ID`
+     - `PURPOSE`
+     - `SCOPE`
+   - Use this standard ID format: `<PHASE>-<AREA>-<SHORT_NAME>-v<version>`
+   - IDs should be human-readable and stable for later reference.
+   - Bump the version when behavior or scope changes materially.
+   - Minor wording-only edits may keep the same version if task intent is unchanged.
+   - In follow-up discussion, reference prior prompts by explicit `PROMPT_ID` (avoid vague references like “that earlier prompt”).
+   - See `docs/prompt-registry.md` for template and registry tracking.
+
 ---
 
 ## File size / complexity guardrails
