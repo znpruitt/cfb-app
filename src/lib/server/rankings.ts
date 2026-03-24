@@ -146,11 +146,13 @@ export function normalizeCfbdRankingsWeeks(
 }
 
 export async function loadSeasonRankings(
-  season = getDefaultRankingsSeason(null)
+  season = getDefaultRankingsSeason(null),
+  options?: { allowRefresh?: boolean }
 ): Promise<RankingsResponse> {
+  const allowRefresh = options?.allowRefresh ?? false;
   const cached = CACHE.get(season);
   const now = Date.now();
-  if (cached && now - cached.at < CACHE_TTL_MS) {
+  if (!allowRefresh && cached && now - cached.at < CACHE_TTL_MS) {
     return {
       ...cached.response,
       meta: {
@@ -164,7 +166,7 @@ export async function loadSeasonRankings(
     'rankings',
     String(season)
   );
-  if (stored?.value && now - stored.value.at < CACHE_TTL_MS) {
+  if (!allowRefresh && stored?.value && now - stored.value.at < CACHE_TTL_MS) {
     CACHE.set(season, stored.value);
     return {
       ...stored.value.response,
@@ -173,6 +175,27 @@ export async function loadSeasonRankings(
         cache: 'hit',
       },
     };
+  }
+
+  if (!allowRefresh) {
+    const staleCandidates = [cached, stored?.value].filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(entry)
+    );
+    const stale = staleCandidates.sort((a, b) => b.at - a.at)[0] ?? null;
+    if (stale) {
+      return {
+        ...stale.response,
+        meta: {
+          ...stale.response.meta,
+          cache: 'hit',
+          stale: true,
+          rebuildRequired: true,
+        },
+      };
+    }
+    throw new Error(
+      'rankings cache miss: admin refresh required (retry with bypassCache=1 and admin token)'
+    );
   }
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
@@ -209,4 +232,15 @@ export async function loadSeasonRankings(
   CACHE.set(season, cacheEntry);
   await setAppState('rankings', String(season), cacheEntry);
   return response;
+}
+
+export function __resetSeasonRankingsCacheForTests(): void {
+  CACHE.clear();
+}
+
+export function __setSeasonRankingsCacheForTests(
+  season: number,
+  entry: { at: number; response: RankingsResponse }
+): void {
+  CACHE.set(season, entry);
 }

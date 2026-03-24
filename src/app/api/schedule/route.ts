@@ -45,6 +45,8 @@ interface ScheduleMeta {
   generatedAt: string;
   partialFailure: boolean;
   failedSeasonTypes?: SeasonType[];
+  stale?: boolean;
+  rebuildRequired?: boolean;
 }
 
 interface ScheduleResponse {
@@ -266,11 +268,9 @@ export async function GET(req: Request) {
 
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
   const now = Date.now();
-
-  if (bypassCache) {
-    const authFailure = requireAdminRequest(req);
-    if (authFailure) return authFailure;
-  }
+  const adminAuthFailure = requireAdminRequest(req);
+  const isAdmin = !adminAuthFailure;
+  if (bypassCache && adminAuthFailure) return adminAuthFailure;
 
   const hit = SCHEDULE_ROUTE_CACHE[cacheKey];
   if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
@@ -308,6 +308,37 @@ export async function GET(req: Request) {
             : {}),
         },
       });
+    }
+
+    if (!isAdmin) {
+      if (storedValue) {
+        SCHEDULE_ROUTE_CACHE[cacheKey] = storedValue;
+        pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
+        recordRouteCacheHit('schedule');
+        return NextResponse.json<ScheduleResponse>({
+          items: storedValue.items,
+          meta: {
+            source: 'cfbd',
+            cache: 'hit',
+            fallbackUsed: false,
+            generatedAt: new Date(storedValue.at).toISOString(),
+            partialFailure: storedValue.partialFailure,
+            stale: true,
+            rebuildRequired: true,
+            ...(storedValue.failedSeasonTypes.length > 0
+              ? { failedSeasonTypes: storedValue.failedSeasonTypes }
+              : {}),
+          },
+        });
+      }
+
+      return NextResponse.json(
+        {
+          error:
+            'schedule cache miss: admin refresh required (retry with bypassCache=1 and admin token)',
+        },
+        { status: 503 }
+      );
     }
   }
 

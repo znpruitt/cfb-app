@@ -78,6 +78,7 @@ import {
   selectRankingsWeek,
   type RankingsResponse,
 } from '../lib/rankings';
+import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -154,6 +155,7 @@ export default function CFBScheduleApp({
   const lastAutoScoresRefreshMsRef = useRef<number>(0);
   const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
   const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
+  const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
 
   const applySavedAliasMap = useCallback(
     (saved: AliasMap) => {
@@ -207,6 +209,28 @@ export default function CFBScheduleApp({
   const clearOwnersDerivedState = useCallback(() => {
     setRoster([]);
   }, []);
+
+  const loadRankings = useCallback(
+    async (options?: { bypassCache?: boolean }) => {
+      const requestId = rankingsRequestGuardRef.current.nextRequestId();
+      try {
+        const nextRankings = await fetchSeasonRankings(selectedSeason, {
+          bypassCache: options?.bypassCache,
+        });
+        if (!rankingsRequestGuardRef.current.isCurrent(requestId)) return;
+        setRankings(nextRankings);
+      } catch (error) {
+        if (!rankingsRequestGuardRef.current.isCurrent(requestId)) return;
+        setIssues((prev) =>
+          dedupeIssues([
+            ...prev.filter((issue) => !issue.startsWith('CFBD rankings load failed:')),
+            `CFBD rankings load failed: ${(error as Error).message}`,
+          ])
+        );
+      }
+    },
+    [selectedSeason]
+  );
 
   // API-first schedule loader. CFBD now defines the game universe for normal operation.
   const loadScheduleFromApi = useCallback(
@@ -292,6 +316,9 @@ export default function CFBScheduleApp({
         setByes(built.byes);
         setConferences(built.conferences);
         setScheduleLoaded(true);
+        if (options?.bypassCache) {
+          await loadRankings({ bypassCache: true });
+        }
         if (selectedWeek == null && regularWeeks.length) {
           const nextDefaultWeek = chooseDefaultWeek({ games: built.games, regularWeeks });
           setSelectedWeek(nextDefaultWeek);
@@ -309,7 +336,14 @@ export default function CFBScheduleApp({
         setLoadingSchedule(false);
       }
     },
-    [aliasMap, clearScheduleDerivedState, manualPostseasonOverrides, selectedSeason, selectedWeek]
+    [
+      aliasMap,
+      clearScheduleDerivedState,
+      loadRankings,
+      manualPostseasonOverrides,
+      selectedSeason,
+      selectedWeek,
+    ]
   );
 
   const clearCachedOwners = useCallback(() => {
@@ -381,30 +415,14 @@ export default function CFBScheduleApp({
   }, [selectedTab, selectedWeek]);
 
   useEffect(() => {
-    let cancelled = false;
-
     (async () => {
-      try {
-        const nextRankings = await fetchSeasonRankings(selectedSeason);
-        if (!cancelled) {
-          setRankings(nextRankings);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setIssues((prev) =>
-            dedupeIssues([
-              ...prev.filter((issue) => !issue.startsWith('CFBD rankings load failed:')),
-              `CFBD rankings load failed: ${(error as Error).message}`,
-            ])
-          );
-        }
-      }
+      await loadRankings();
     })();
 
     return () => {
-      cancelled = true;
+      rankingsRequestGuardRef.current.cancelOutstanding();
     };
-  }, [selectedSeason]);
+  }, [loadRankings]);
 
   const weeks = useMemo(() => deriveRegularWeekTabs(games), [games]);
   const presentationTimeZone = useMemo(() => getPresentationTimeZone(), []);

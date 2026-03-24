@@ -1,5 +1,6 @@
 import { seasonYearForToday } from './scores/normalizers.ts';
 import { normalizeTeamName } from './teamNormalization.ts';
+import { requireAdminAuthHeaders } from './adminAuth.ts';
 
 export type RankSource = 'cfp' | 'ap' | 'coaches';
 
@@ -36,6 +37,8 @@ export type RankingsResponse = {
     source: 'cfbd';
     cache: 'hit' | 'miss';
     generatedAt: string;
+    stale?: boolean;
+    rebuildRequired?: boolean;
   };
 };
 
@@ -116,8 +119,17 @@ export function getDefaultRankingsSeason(explicitSeason?: number | null, now = n
     : seasonYearForToday(now);
 }
 
-export async function fetchSeasonRankings(season: number): Promise<RankingsResponse> {
-  const response = await fetch(`/api/rankings?year=${season}`, { cache: 'no-store' });
+export async function fetchSeasonRankings(
+  season: number,
+  options?: { bypassCache?: boolean }
+): Promise<RankingsResponse> {
+  const search = new URLSearchParams({ year: String(season) });
+  if (options?.bypassCache) search.set('bypassCache', '1');
+
+  const response = await fetch(`/api/rankings?${search.toString()}`, {
+    cache: 'no-store',
+    headers: options?.bypassCache ? requireAdminAuthHeaders() : undefined,
+  });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
     throw new Error(`rankings ${response.status} ${detail}`);

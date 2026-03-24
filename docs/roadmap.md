@@ -18,7 +18,11 @@ Core principles:
 
 - Phase 1 architecture stabilization is complete.
 - Core league surfaces are in place.
-- The next major milestone is **production hardening for hosted league-member access**.
+- Phase 2A production hardening is in **late closeout**:
+  - admin-only rebuild semantics are enforced for schedule/reference refresh paths
+  - diagnostics now distinguish shared authoritative state from ephemeral process-memory counters
+  - remaining closeout item is hosted mobile/device validation evidence
+- The next major milestone after closeout is **Phase 2B league UX / engagement**.
 
 ## Production data policy
 
@@ -69,7 +73,7 @@ Keep this intentionally small:
 
 ## Roadmap phases
 
-## Phase 2A — Production hardening (active)
+## Phase 2A — Production hardening (late closeout)
 
 ### Objective
 Make the existing league-first app safe and efficient for hosted member traffic without rewriting the architecture.
