@@ -64,7 +64,7 @@ function scheduleStateLabel(
   if (trimmed === 'scheduled') return isPlaceholder ? 'Placeholder' : 'Scheduled';
   if (trimmed === 'final') return 'FINAL';
   if (trimmed === 'in_progress') return 'IN PROGRESS';
-  if (trimmed === 'matchup_set') return 'MATCHUP SET';
+  if (trimmed === 'matchup_set') return 'Scheduled';
   return trimmed.replace(/_/g, ' ');
 }
 
@@ -82,7 +82,7 @@ function isDisruptedSummaryState(summaryState: string): boolean {
 
 function summaryStateChipBucket(
   summaryState: string
-): 'final' | 'live' | 'disrupted' | 'postseason' | 'scheduled' {
+): 'final' | 'live' | 'disrupted' | 'scheduled' {
   const trimmed = summaryState.trim();
   const normalized = trimmed.toUpperCase();
 
@@ -97,7 +97,6 @@ function summaryStateChipBucket(
   });
   if (inferredState === 'inprogress') return 'live';
 
-  if (normalized === 'MATCHUP SET') return 'postseason';
   return 'scheduled';
 }
 
@@ -116,7 +115,7 @@ function summaryChipClasses(summaryState: string, isPlaceholder: boolean): strin
     return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-200';
   }
 
-  if (bucket === 'postseason' || isPlaceholder) {
+  if (isPlaceholder) {
     return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
   }
 
@@ -199,9 +198,6 @@ export default function GameWeekPanel({
         <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
           Scheduled
         </span>
-        <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200">
-          Postseason (TBD)
-        </span>
       </div>
 
       <div className="grid gap-4">
@@ -283,7 +279,7 @@ export default function GameWeekPanel({
                           </div>
                         </div>
                         <div
-                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] ${summaryChipClasses(resolvedSummaryState, isPlaceholder)}`}
+                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(resolvedSummaryState, isPlaceholder)}`}
                           data-summary-state
                         >
                           {resolvedSummaryState}
@@ -291,7 +287,7 @@ export default function GameWeekPanel({
                       </div>
                     </summary>
 
-                    <div className="space-y-2.5 px-3 py-3">
+                    <div className="space-y-2 px-3 py-3">
                       <div className="space-y-0.5">
                         {eventName && (
                           <div

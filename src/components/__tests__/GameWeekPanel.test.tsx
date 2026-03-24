@@ -218,8 +218,8 @@ test('collapsed summary preserves canonical schedule status when score data is m
 
   assert.match(html, /data-summary-state[^>]*>IN PROGRESS<\/div>/);
   assert.match(html, /data-summary-state[^>]*>FINAL<\/div>/);
-  assert.match(html, /data-summary-state[^>]*>MATCHUP SET<\/div>/);
-  assert.doesNotMatch(html, /data-summary-state[^>]*>Scheduled<\/div>/);
+  assert.match(html, /data-summary-state[^>]*>Scheduled<\/div>/);
+  assert.doesNotMatch(html, /data-summary-state[^>]*>MATCHUP SET<\/div>/);
 });
 
 test('schedule-only status chips map to resolved summary states', () => {
@@ -267,7 +267,62 @@ test('schedule-only status chips map to resolved summary states', () => {
   assert.match(html, /border-emerald-200[^>]*data-summary-state="true">FINAL<\/div>/);
   assert.match(html, /border-amber-200[^>]*data-summary-state="true">IN PROGRESS<\/div>/);
   assert.match(html, /border-sky-200[^>]*data-summary-state="true">Scheduled<\/div>/);
-  assert.match(html, /border-violet-200[^>]*data-summary-state="true">MATCHUP SET<\/div>/);
+  assert.match(html, /border-violet-200[^>]*data-summary-state="true">Scheduled<\/div>/);
+  assert.doesNotMatch(html, /MATCHUP SET/);
+});
+
+test('status legend only includes game-state labels and omits postseason pseudo-status', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({ key: 'legend-state', csvAway: 'Texas', csvHome: 'Baylor', status: 'scheduled' }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, />Final<\/span>/);
+  assert.match(html, />In Progress<\/span>/);
+  assert.match(html, />Scheduled<\/span>/);
+  assert.doesNotMatch(html, /Postseason \(TBD\)/);
+});
+
+test('expanded cards avoid visible duplicate status labels by hiding summary chip when open', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'final-expanded-status',
+          csvAway: 'Texas',
+          csvHome: 'Baylor',
+          status: 'final',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'final-expanded-status': {
+          status: 'Final',
+          time: null,
+          away: { team: 'Texas', score: 31 },
+          home: { team: 'Baylor', score: 24 },
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /group-open:hidden[^>]*data-summary-state[^>]*>FINAL<\/div>/);
+  assert.match(html, /data-scoreboard-status[^>]*>FINAL<\/div>/);
 });
 
 test('live summary chip styling reuses shared game-state detection for full-word labels', () => {

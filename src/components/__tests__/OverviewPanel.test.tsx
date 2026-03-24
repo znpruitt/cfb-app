@@ -7,6 +7,7 @@ import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { AppGame } from '../../lib/schedule';
+import type { ScorePack } from '../../lib/scores';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -68,6 +69,13 @@ function item(gameValue: AppGame): OverviewGameItem {
     },
     priority: 2,
     sortDate: 1,
+  };
+}
+
+function itemWithScore(gameValue: AppGame, score: ScorePack): OverviewGameItem {
+  return {
+    ...item(gameValue),
+    score,
   };
 }
 
@@ -167,6 +175,38 @@ test('overview panel keeps home-away wording for standard games', () => {
   assert.match(html, /Texas<\/span> @ <span>Rice/);
 });
 
+test('overview highlights keep canonical neutral matchup separator with compact score header', () => {
+  const neutralGame = game({
+    csvAway: 'Texas',
+    csvHome: 'Ohio State',
+    neutral: true,
+    neutralDisplay: 'vs',
+    stage: 'bowl',
+  });
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[
+        itemWithScore(neutralGame, {
+          status: 'FINAL',
+          away: { team: 'Texas', score: 24 },
+          home: { team: 'Ohio State', score: 21 },
+          time: null,
+        }),
+      ]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
+  assert.match(html, /24–21/);
+});
+
 test('overview panel renders full condensed standings and weekly owner matrix', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
@@ -194,14 +234,112 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   );
 
   assert.match(html, /League standings/);
-  assert.match(html, /Head-to-head matchups/);
+  assert.match(html, /Head-to-head matrix/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
   assert.doesNotMatch(html, /Standings snapshot/);
 });
 
-test('overview panel orders sections from active context instead of always leading with standings', () => {
+test('overview panel summary bar shows current leader and record', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /League summary/);
+  assert.match(html, /Alice/);
+  assert.match(html, /4-1/);
+  assert.match(html, /Win% 0.800/);
+});
+
+test('overview panel summary bar uses standings win% ranking for leader status', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 6,
+          losses: 1,
+          winPct: 0.857,
+          pointsFor: 200,
+          pointsAgainst: 180,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 7,
+        },
+        {
+          owner: 'Bob',
+          wins: 7,
+          losses: 2,
+          winPct: 0.778,
+          pointsFor: 230,
+          pointsAgainst: 210,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 9,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Leads by 0.079 win%/);
+  assert.doesNotMatch(html, /Tied at the top/);
+});
+
+test('overview panel summary bar shows tie copy when top win percentages match', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 6,
+          losses: 2,
+          winPct: 0.75,
+          pointsFor: 200,
+          pointsAgainst: 180,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 8,
+        },
+        {
+          owner: 'Bob',
+          wins: 9,
+          losses: 3,
+          winPct: 0.75,
+          pointsFor: 290,
+          pointsAgainst: 260,
+          pointDifferential: 30,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Tied at the top/);
+});
+
+test('overview panel keeps league-home ordering with standings ahead of highlights', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -214,7 +352,28 @@ test('overview panel orders sections from active context instead of always leadi
     />
   );
 
-  assert.ok(html.indexOf('What matters next') < html.indexOf('League standings'));
+  assert.ok(html.indexOf('League summary') < html.indexOf('League standings'));
+  assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
+  assert.ok(html.indexOf('What matters next') < html.indexOf('Live · none'));
+  assert.ok(html.indexOf('Live · none') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Current league focus'));
   assert.ok(html.includes('Week 1'));
+});
+
+test('overview panel uses compact live empty state copy', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Live · none/);
+  assert.match(html, /No live games\./);
+  assert.match(html, /Head-to-head \(tap to expand\)/);
 });
