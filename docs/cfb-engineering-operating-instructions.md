@@ -70,7 +70,17 @@ For technical work, responses should follow this structure:
     
     ## Implementation Plan
     
-    ## Codex Instruction Block (if needed)
+    ## Codex Instruction Block (optional, only when needed)
+
+Always required in technical responses:
+
+- `PROMPT_ID: <ID>`
+- `## Summary`
+- `## Diagnosis / Key Considerations`
+- `## Recommended Approach`
+- `## Implementation Plan`
+
+`## Codex Instruction Block` is optional and is only required when an instruction block is needed for implementation or handoff.
 
 For technical responses, the first visible line of the response MUST be the originating PROMPT_ID.
 
@@ -90,7 +100,7 @@ Required section header text must match exactly:
 - `## Diagnosis / Key Considerations`
 - `## Recommended Approach`
 - `## Implementation Plan`
-- `## Codex Instruction Block (if needed)`
+- `## Codex Instruction Block` (optional; include only when an instruction block is needed for implementation or handoff)
 
 No substitutions are allowed (for example, `Summary:` or `Diagnosis` without exact matching header text is invalid).
 
@@ -103,6 +113,7 @@ Failure condition:
 - If a technical response begins with `Summary` before the PROMPT_ID, it is invalid and must be regenerated.
 - If PROMPT_ID is missing, or is not the first visible line of the response, the response is invalid and must be regenerated.
 - If any required section header is missing or incorrectly formatted, the response is invalid and must be regenerated.
+- Omitting `## Codex Instruction Block` is valid when no instruction block is needed.
 - If headers are present but not using `##` markdown format, the response is invalid and must be regenerated.
 
 Enforcement:
@@ -225,13 +236,15 @@ Any reusable instruction artifact without a PROMPT_ID is invalid.
 
 All commits produced from Codex work MUST include the originating PROMPT_ID.
 
-The PROMPT_ID must be the first line of the commit message.
+The first line of the commit message MUST be a concise, human-readable subject.
+
+The PROMPT_ID must appear in the commit body immediately below the subject.
 
 Required format:
 
-    PROMPT_ID: <ID>
+    <descriptive commit summary>
 
-    <commit summary>
+    PROMPT_ID: <ID>
 
 The PROMPT_ID must exactly match the implementing prompt.
 
@@ -242,7 +255,7 @@ This applies to all commit types, including:
 - refactors
 - documentation updates
 
-Any commit without a PROMPT_ID is non-compliant.
+Any commit missing either a descriptive subject or a matching PROMPT_ID is non-compliant.
 
 ## 3.9 Universal Traceability
 
@@ -275,6 +288,33 @@ For commits, Codex must verify:
 If any self-check fails, the response or commit is invalid and must be corrected before completion.
 
 This self-check is required for all future Codex work governed by these instructions.
+
+## 3.11 Final Response Requirement in Prompts
+
+Every Codex prompt must include a final response requirement section.
+
+This section must explicitly restate the required response format for that task.
+
+For technical work, the final response requirement must require:
+
+- `PROMPT_ID: <ID>` as the first visible line of the response
+- compliance with the standard technical response structure defined in Section 2
+
+If commit creation is in scope, the final response requirement should also restate the applicable commit-format requirement from Section 3.8.
+
+A prompt that omits a final response requirement is incomplete.
+
+Example:
+
+```md
+# Final Response Requirement
+
+Your final response is invalid unless it begins with:
+
+PROMPT_ID: <ID>
+
+Then follow the required technical response structure from Section 2.
+```
 
 ---
 
