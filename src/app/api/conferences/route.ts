@@ -10,6 +10,7 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { requireAdminRequest } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
@@ -22,10 +23,16 @@ type ConferencesResponse = {
     source: 'cfbd_live' | 'cache' | 'local_snapshot';
     generatedAt: string;
     fallbackUsed: boolean;
+    stale?: boolean;
+    rebuildRequired?: boolean;
   };
 };
 
 let cache: { at: number; items: CfbdConferenceRecord[] } | null = null;
+
+export function __resetConferencesRouteCacheForTests(): void {
+  cache = null;
+}
 
 function parseBooleanQueryParam(raw: string | null): boolean {
   if (!raw) return false;
@@ -38,6 +45,10 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
+  const adminAuthFailure = requireAdminRequest(req);
+  const isAdmin = !adminAuthFailure;
+  if (bypassCache && adminAuthFailure) return adminAuthFailure;
+
   if (!bypassCache && cache && Date.now() - cache.at < CACHE_TTL_MS) {
     recordRouteCacheHit('conferences');
     return NextResponse.json<ConferencesResponse>({
@@ -50,12 +61,25 @@ export async function GET(req: Request) {
     });
   }
 
-  if (!bypassCache) {
-    const stored = await getAppState<{ at: number; items: CfbdConferenceRecord[] }>(
-      'conferences',
-      'snapshot'
-    );
-    if (stored?.value && Date.now() - stored.value.at < CACHE_TTL_MS) {
+  const stored = await getAppState<{ at: number; items: CfbdConferenceRecord[] }>(
+    'conferences',
+    'snapshot'
+  );
+  if (!bypassCache && stored?.value && Date.now() - stored.value.at < CACHE_TTL_MS) {
+    cache = stored.value;
+    recordRouteCacheHit('conferences');
+    return NextResponse.json<ConferencesResponse>({
+      items: stored.value.items,
+      meta: {
+        source: 'cache',
+        generatedAt: new Date(stored.value.at).toISOString(),
+        fallbackUsed: false,
+      },
+    });
+  }
+
+  if (!bypassCache && !isAdmin) {
+    if (stored?.value) {
       cache = stored.value;
       recordRouteCacheHit('conferences');
       return NextResponse.json<ConferencesResponse>({
@@ -64,9 +88,18 @@ export async function GET(req: Request) {
           source: 'cache',
           generatedAt: new Date(stored.value.at).toISOString(),
           fallbackUsed: false,
+          stale: true,
+          rebuildRequired: true,
         },
       });
     }
+    return NextResponse.json(
+      {
+        error:
+          'conferences cache miss: admin refresh required (retry with bypassCache=1 and admin token)',
+      },
+      { status: 503 }
+    );
   }
 
   recordRouteCacheMiss('conferences');

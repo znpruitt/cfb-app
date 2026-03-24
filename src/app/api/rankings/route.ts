@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { getDefaultRankingsSeason } from '@/lib/rankings';
 import { loadSeasonRankings } from '@/lib/server/rankings';
+import { requireAdminRequest } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
@@ -14,6 +15,9 @@ function parseNonNegativeInt(raw: string | null): number | null {
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const yearParam = url.searchParams.get('year');
+  const bypassCache =
+    (url.searchParams.get('bypassCache') ?? '').trim().toLowerCase() === '1' ||
+    (url.searchParams.get('bypassCache') ?? '').trim().toLowerCase() === 'true';
 
   let year = getDefaultRankingsSeason(null);
   if (yearParam !== null) {
@@ -29,11 +33,13 @@ export async function GET(req: Request) {
   }
 
   try {
-    return NextResponse.json(await loadSeasonRankings(year));
+    const authFailure = requireAdminRequest(req);
+    if (bypassCache && authFailure) return authFailure;
+
+    return NextResponse.json(await loadSeasonRankings(year, { allowRefresh: bypassCache }));
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown rankings error' },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : 'Unknown rankings error';
+    const status = message.includes('admin refresh required') ? 503 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

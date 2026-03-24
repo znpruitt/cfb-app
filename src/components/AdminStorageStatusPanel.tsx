@@ -10,6 +10,16 @@ type StorageStatusResponse = {
     filePath?: string;
   };
   adminTokenConfigured?: boolean;
+  diagnostics?: {
+    appState?: {
+      persistence?: string;
+      authoritative?: boolean;
+    };
+    routeCounters?: {
+      persistence?: string;
+      authoritative?: boolean;
+    };
+  };
 };
 
 export default function AdminStorageStatusPanel(): React.ReactElement {
@@ -56,6 +66,17 @@ export default function AdminStorageStatusPanel(): React.ReactElement {
         </p>
         <p className="text-xs text-gray-600 dark:text-zinc-400">
           Admin token configured on server: {status?.adminTokenConfigured ? 'Yes' : 'No'}
+        </p>
+        <p className="text-xs text-gray-600 dark:text-zinc-400">
+          Authoritative shared state: {status?.diagnostics?.appState?.persistence ?? 'unknown'} (
+          {status?.diagnostics?.appState?.authoritative ? 'authoritative' : 'not authoritative'})
+        </p>
+        <p className="text-xs text-gray-600 dark:text-zinc-400">
+          Route counters: {status?.diagnostics?.routeCounters?.persistence ?? 'unknown'} (
+          {status?.diagnostics?.routeCounters?.authoritative
+            ? 'authoritative'
+            : 'debug-only / ephemeral'}
+          )
         </p>
         {mode === 'production-misconfigured' ? (
           <p className="text-xs text-red-700 dark:text-red-400">

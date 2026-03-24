@@ -19,6 +19,7 @@ test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   resetScheduleRouteCacheForTests();
+  delete process.env.ADMIN_API_TOKEN;
 });
 
 test('schedule route returns mapped items from CFBD upstream', async () => {
@@ -125,6 +126,7 @@ test('schedule route returns 502 for seasonType=all when one request fails', asy
 
 test('schedule route bypassCache=1 forces an upstream refetch', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
 
   let fetchCount = 0;
   setMockFetch(async () => {
@@ -141,12 +143,16 @@ test('schedule route bypassCache=1 forces an upstream refetch', async () => {
   });
 
   const first = await GET(
-    new Request('http://localhost/api/schedule?year=2026&seasonType=regular')
+    new Request('http://localhost/api/schedule?year=2026&seasonType=regular&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
   );
   const firstJson = await first.json();
 
   const second = await GET(
-    new Request('http://localhost/api/schedule?year=2026&seasonType=regular&bypassCache=1')
+    new Request('http://localhost/api/schedule?year=2026&seasonType=regular&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
   );
   const secondJson = await second.json();
 
@@ -157,6 +163,46 @@ test('schedule route bypassCache=1 forces an upstream refetch', async () => {
   assert.equal(secondJson.meta.cache, 'miss');
   assert.equal(firstJson.items[0].homeTeam, 'Home 1');
   assert.equal(secondJson.items[0].homeTeam, 'Home 2');
+});
+
+test('schedule route blocks non-admin upstream rebuild when shared cache is missing', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  setMockFetch(async () => {
+    throw new Error('upstream fetch should not run for non-admin cache miss');
+  });
+
+  const res = await GET(new Request('http://localhost/api/schedule?year=2026&seasonType=regular'));
+  const json = await res.json();
+
+  assert.equal(res.status, 503);
+  assert.match(String(json.error ?? ''), /admin refresh required/i);
+});
+
+test('schedule route serves stale shared cache to non-admin requests instead of rebuilding', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  await setAppState('schedule', '2026-all-regular', {
+    at: Date.now() - 10 * 60 * 60 * 1000,
+    items: [{ week: 1, homeTeam: 'Stale Home', awayTeam: 'Away', seasonType: 'regular' }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  setMockFetch(async () => {
+    throw new Error('upstream fetch should not run for stale non-admin reads');
+  });
+
+  const res = await GET(new Request('http://localhost/api/schedule?year=2026&seasonType=regular'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(json.meta.cache, 'hit');
+  assert.equal(json.meta.stale, true);
+  assert.equal(json.meta.rebuildRequired, true);
+  assert.equal(json.items[0].homeTeam, 'Stale Home');
 });
 
 test('stale shared schedule cache entries are refetched instead of treated as permanently fresh', async () => {

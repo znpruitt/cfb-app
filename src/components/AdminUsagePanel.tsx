@@ -56,8 +56,9 @@ export default function AdminUsagePanel({
       </summary>
       <div className="mt-3 space-y-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm dark:border-zinc-700 dark:bg-zinc-900">
         <p className="text-xs text-gray-600 dark:text-zinc-400">
-          CFBD usage is fetched from /api/admin/usage. Odds usage comes from the latest known
-          server-side snapshot derived from Odds API response headers.
+          CFBD usage is an authoritative provider response at request time. Odds usage is the latest
+          known shared durable snapshot captured from Odds API response headers. In-memory route
+          counters are separate debug-only signals and are not shown here.
         </p>
 
         <button
@@ -81,6 +82,9 @@ export default function AdminUsagePanel({
             <p className="text-xs text-gray-600 dark:text-zinc-400">
               Patron level: {cfbdUsage.patronLevel}
             </p>
+            <p className="text-xs text-gray-600 dark:text-zinc-400">
+              Classification: authoritative provider read (ephemeral per request).
+            </p>
           </div>
         )}
 
@@ -100,6 +104,10 @@ export default function AdminUsagePanel({
                 Last Updated: {new Date(oddsUsage.capturedAt).toLocaleString()}
               </p>
               <p className="text-xs text-gray-600 dark:text-zinc-400">Source: {oddsUsage.source}</p>
+              <p className="text-xs text-gray-600 dark:text-zinc-400">
+                Classification: shared durable snapshot (authoritative for last captured value, not
+                a live provider read).
+              </p>
               {oddsUsage.source === 'quota-error-fallback' && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">
                   Note: this snapshot is a conservative fallback generated from a quota error
