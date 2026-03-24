@@ -67,7 +67,7 @@ test('team database sync route fetches CFBD teams, persists them, and returns su
     );
   });
 
-  const res = await POST();
+  const res = await POST(new Request('http://localhost/api/admin/team-database'));
   const payload = (await res.json()) as {
     ok: boolean;
     summary: {
