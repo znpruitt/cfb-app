@@ -79,3 +79,49 @@ A successful first hosted launch looks like this:
 - scores feel timely enough for hobby-scale use without burning through CFBD quota
 - odds remain useful without exhausting the smaller monthly Odds API budget
 - production recovery paths are simple and understandable when upstream APIs fail or quotas get tight
+
+## League experience direction (additive product layer)
+
+Production correctness is required, but not sufficient. The hosted app must also communicate league state quickly and clearly for ordinary members.
+
+### Core league-experience requirement
+
+- A member should understand the current league state within seconds of opening the app.
+- Primary user questions to answer immediately:
+  - who is winning the league?
+  - what just happened?
+  - what matters right now?
+  - what should I look at next?
+
+### Overview page hierarchy target
+
+The Overview page should be the highest-signal league entry point and should prioritize, in order:
+
+1. leader / standings context
+2. recent results
+3. live games (when applicable)
+4. weekly matchup context
+
+### UI communication rules
+
+- Prefer signal over explanation: data-first presentation with clear visual hierarchy.
+- Reduce descriptive filler copy that competes with standings/results/live context.
+- Keep league-state surfaces scan-friendly on desktop and mobile.
+- During active game windows, emphasize that league state is changing as scores finalize.
+
+### Seasonal “alive” expectation
+
+In-season behavior should feel active, not static:
+
+- as games complete, the visible league picture should update coherently
+- standings movement should be legible
+- recent outcomes should remain easy to scan without digging through secondary panels
+
+### Future multi-league direction (scope guard)
+
+Future multi-league support should keep the current API-first, schedule-first model:
+
+- a commissioner may manage multiple private leagues
+- league-specific variation is primarily the ownership overlay (owner roster/mapping)
+- schedule/scores/odds/rankings/conferences remain shared global CFB data
+- avoid per-league duplication of CFBD ingestion or schedule pipelines

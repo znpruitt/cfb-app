@@ -125,16 +125,41 @@ Phase 2A is complete when:
 - schedule-first architecture remains intact
 - quota usage is conservative enough for the hobby-scale deployment target
 
-## Phase 2B — League polish after hardening
+## Phase 2B — League UX / engagement after hardening
 
 ### Objective
-Finish league-facing usability work once hosted stability is in place.
+Finish league-facing usability and engagement work once hosted stability is in place.
 
-### Example follow-ons
-- further Overview / Matchups / Standings polish
-- feedback/report issue entry point
-- additional mobile polish
-- commissioner-friendly recovery UX refinements
+### Core UX workstreams
+
+1. **Top-level league summary strip**
+   - Add a compact league summary bar at the top of Overview.
+   - Prioritize immediate league-state cues (leader, near-term movement, active week context).
+
+2. **Overview hierarchy restructuring**
+   - Reorder Overview to foreground standings context first.
+   - Increase prominence of recent results and live games when relevant.
+   - Keep weekly matchup context visible but secondary to league-state signal.
+
+3. **Signal-first copy and layout pass**
+   - Reduce explanatory filler copy in primary league surfaces.
+   - Prefer concise labels, stronger hierarchy, and data-first scanning.
+   - Tune head-to-head/table density so the highest-signal blocks remain dominant.
+
+4. **Mobile-first scanning/readability**
+   - Improve readability and section hierarchy for mobile league checks.
+   - Confirm summary, standings, and recent/live context remain legible without deep scrolling.
+
+5. **Lightweight league narrative layer**
+   - Add compact weekly narrative cues:
+     - movement in standings
+     - recent outcomes
+     - notable results/top performers
+   - Keep narrative output lightweight and deterministic (no heavy content system).
+
+6. **Follow-on polish**
+   - feedback/report issue entry point
+   - commissioner-friendly recovery UX refinements
 
 ## Phase 3 — Historical analytics (optional)
 
@@ -146,6 +171,29 @@ Add historical/analytical features only after hosted current-season operation is
 - upset / odds retrospectives
 - historical owner performance summaries
 - deeper visualizations
+
+## Phase 4 — Multi-league commissioner support (future)
+
+### Objective
+Support multiple private leagues managed by the same commissioner while preserving shared global sports data pipelines.
+
+### Scope
+
+- Multiple private leagues (work/family/friends-style) under one commissioner.
+- League-specific data is the ownership overlay (owner roster/mapping and related league views).
+- Shared global CFB data remains common across leagues:
+  - schedule
+  - scores
+  - odds
+  - rankings
+  - conferences
+- Likely routing boundary: league slug or `leagueId` scoped league pages.
+
+### Non-goals
+
+- No duplication of CFBD ingestion/schedule pipelines per league.
+- No broad SaaS/self-serve multi-tenant platform redesign.
+- No change to the small-footprint production model unless scale requirements prove it necessary.
 
 ## Architecture rules that remain unchanged
 
