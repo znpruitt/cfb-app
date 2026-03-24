@@ -1,7 +1,7 @@
 import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
-import { gameStateFromScore, pillClass } from '../lib/gameUi';
+import { gameStateFromScore, pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
 import {
   deriveOwnerWeekSlates,
   deriveWeekMatchupSections,
@@ -298,6 +298,8 @@ function GameRow({
   const hasPrimaryScoreline =
     (statusTone === 'final' || statusTone === 'inprogress') &&
     (awayScore != null || homeScore != null);
+  const scheduledSeparator =
+    usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
   const metadataEntries: string[] = [];
   if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
@@ -347,7 +349,7 @@ function GameRow({
                 teamName={awayTeamName}
                 ranking={rankingsByTeamId?.get(awayTeamId)}
               />
-              <span className="text-gray-400 dark:text-zinc-500">@</span>
+              <span className="text-gray-400 dark:text-zinc-500">{scheduledSeparator}</span>
               <RankedTeamName
                 className="font-medium"
                 teamName={homeTeamName}

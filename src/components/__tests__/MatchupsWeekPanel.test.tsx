@@ -253,6 +253,35 @@ test('scheduled rows keep matchup primary and score out of metadata', () => {
   assert.doesNotMatch(html, /tabular-nums">0</);
 });
 
+test('scheduled neutral rows use vs separator instead of @', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({ key: 'g-sched-neutral', csvAway: 'Texas', csvHome: 'Ohio State', neutral: true }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Texas', 'Uma'],
+          ['Ohio State', 'Vic'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  assert.match(
+    html,
+    /Texas<\/span><span class="text-gray-400 dark:text-zinc-500">vs<\/span><span class="font-medium">Ohio State/
+  );
+  assert.doesNotMatch(
+    html,
+    /Texas<\/span><span class="text-gray-400 dark:text-zinc-500">@<\/span><span class="font-medium">Ohio State/
+  );
+  assert.match(html, /Neutral site/);
+});
+
 test('long-name live rows keep canonical ordering with inline scoreline', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
