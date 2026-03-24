@@ -124,9 +124,7 @@ function deriveOverviewContext(params: {
   selectedWeekLabel?: string;
 }): OverviewContext {
   const { weekGames, activeSlateStatus, selectedWeekLabel } = params;
-  const scopeLabel = weekGames.some((game) => isTruePostseasonGame(game))
-    ? 'Postseason focus'
-    : 'Current league focus';
+  const scopeLabel = weekGames.some((game) => isTruePostseasonGame(game)) ? 'Postseason' : 'League';
   const scopeDetail = selectedWeekLabel ?? null;
 
   if (activeSlateStatus.hasLive) {

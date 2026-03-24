@@ -96,7 +96,7 @@ const standingsLeaders: OwnerStandingsRow[] = [
 const coverage: StandingsCoverage = { state: 'complete', message: null };
 
 const defaultContext: OverviewContext = {
-  scopeLabel: 'Current league focus',
+  scopeLabel: 'League',
   scopeDetail: 'Week 1',
   emphasis: 'upcoming',
   highlightsTitle: 'What matters next',
@@ -241,7 +241,7 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   assert.doesNotMatch(html, /Standings snapshot/);
 });
 
-test('overview panel summary bar shows current leader and record', () => {
+test('overview panel summary shows in-season leader, record, and win percentage', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -254,13 +254,13 @@ test('overview panel summary bar shows current leader and record', () => {
     />
   );
 
-  assert.match(html, /League summary/);
+  assert.match(html, /League leader/);
   assert.match(html, /Alice/);
-  assert.match(html, /4-1/);
+  assert.match(html, /4–1/);
   assert.match(html, /Win% 0.800/);
 });
 
-test('overview panel summary bar uses standings win% ranking for leader status', () => {
+test('overview panel summary uses standings win% gap over #2 during in-season state', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[
@@ -296,11 +296,11 @@ test('overview panel summary bar uses standings win% ranking for leader status',
     />
   );
 
-  assert.match(html, /Leads by 0.079 win%/);
+  assert.match(html, /Gap over #2: 0.079 win%/);
   assert.doesNotMatch(html, /Tied at the top/);
 });
 
-test('overview panel summary bar shows tie copy when top win percentages match', () => {
+test('overview panel summary shows tie copy when top win percentages match', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[
@@ -339,6 +339,96 @@ test('overview panel summary bar shows tie copy when top win percentages match',
   assert.match(html, /Tied at the top/);
 });
 
+test('overview panel summary uses postseason in-progress championship language', () => {
+  const postseasonGame = game({
+    stage: 'bowl',
+    status: 'in_progress',
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[
+        itemWithScore(postseasonGame, {
+          status: 'Q3',
+          away: { team: 'Away', score: 21 },
+          home: { team: 'Home', score: 17 },
+          time: '09:10',
+        }),
+      ]}
+      keyMatchups={[item(postseasonGame)]}
+      context={{ ...defaultContext, scopeLabel: 'Postseason' }}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Championship race/);
+  assert.doesNotMatch(html, /League leader/);
+});
+
+test('overview panel summary shows season-complete champion, second, and third', () => {
+  const postseasonFinal = game({ stage: 'bowl', status: 'final' });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Pruitt',
+          wins: 81,
+          losses: 39,
+          winPct: 0.675,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 120,
+        },
+        {
+          owner: 'Maleski',
+          wins: 65,
+          losses: 41,
+          winPct: 0.613,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 106,
+        },
+        {
+          owner: 'Whited',
+          wins: 70,
+          losses: 45,
+          winPct: 0.609,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 115,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[
+        itemWithScore(postseasonFinal, {
+          status: 'FINAL',
+          away: { team: 'Away', score: 17 },
+          home: { team: 'Home', score: 24 },
+          time: null,
+        }),
+      ]}
+      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Final results/);
+  assert.match(html, /Champion: Pruitt \(81–39\)/);
+  assert.match(html, /2nd: Maleski \(65–41\)/);
+  assert.match(html, /3rd: Whited \(70–45\)/);
+  assert.doesNotMatch(html, /League leader/);
+});
+
 test('overview panel keeps league-home ordering with standings ahead of highlights', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
@@ -352,11 +442,11 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
     />
   );
 
-  assert.ok(html.indexOf('League summary') < html.indexOf('League standings'));
+  assert.ok(html.indexOf('League leader') < html.indexOf('League standings'));
   assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
-  assert.ok(html.indexOf('What matters next') < html.indexOf('Live · none'));
-  assert.ok(html.indexOf('Live · none') < html.indexOf('Head-to-head matrix'));
-  assert.ok(html.includes('Current league focus'));
+  assert.ok(html.indexOf('What matters next') < html.indexOf('Live: none right now.'));
+  assert.ok(html.indexOf('Live: none right now.') < html.indexOf('Head-to-head matrix'));
+  assert.ok(html.includes('No runner-up yet'));
   assert.ok(html.includes('Week 1'));
 });
 
@@ -373,7 +463,7 @@ test('overview panel uses compact live empty state copy', () => {
     />
   );
 
-  assert.match(html, /Live · none/);
-  assert.match(html, /No live games\./);
+  assert.match(html, /Live: none right now\./);
+  assert.doesNotMatch(html, /Postseason focus/);
   assert.match(html, /Head-to-head \(tap to expand\)/);
 });
