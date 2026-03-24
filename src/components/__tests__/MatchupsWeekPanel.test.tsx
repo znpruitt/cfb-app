@@ -108,6 +108,8 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
   assert.match(html, /vs Bob/);
   assert.match(html, /NoClaim \(FBS\)/);
   assert.match(html, /Leading 24-17/);
+  assert.match(html, /rounded-xl border p-4 shadow-sm sm:p-5 border-amber-300\/70 bg-amber-500\/5/);
+  assert.doesNotMatch(html, /border-l-4 border-l-emerald-600 bg-emerald-50 text-gray-900/);
   assert.doesNotMatch(html, /Faces Bob/);
   assert.doesNotMatch(html, /vs owner Bob/);
   assert.doesNotMatch(html, /Unowned \/ Non-league/);
@@ -180,16 +182,16 @@ test('matchups panel summarizes self-matchups as Self', () => {
   );
 
   assert.match(html, /Alex/);
-  assert.match(html, /1 game/);
+  assert.match(html, /2 games/);
   assert.match(html, /1–1/);
-  assert.match(html, /1 game · vs Self/);
+  assert.match(html, /2 games · vs Self \(x2\)/);
   assert.match(html, /Texas 28 • Oklahoma 21/);
   assert.match(html, /Counts as 1W \/ 1L/);
   assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
   assert.doesNotMatch(html, /Leading 28-21/);
   assert.doesNotMatch(html, /Trailing 28-21/);
-  assert.equal((html.match(/Texas/g) ?? []).length, 2);
-  assert.doesNotMatch(html, /2 games/);
+  assert.equal((html.match(/Texas/g) ?? []).length, 4);
+  assert.doesNotMatch(html, /1 game · vs Self/);
 });
 
 test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {
@@ -247,6 +249,7 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
   assert.match(html, /Avery/);
   assert.match(html, /2–1/);
   assert.match(html, /3 games · vs FCS, NoClaim \(FBS\), Blair/);
+  assert.match(html, /bg-emerald-500\/5/);
   assert.match(html, /Blair/);
   assert.match(html, /0–1/);
   assert.match(html, /border-l-emerald-400\/80 bg-emerald-50\/40/);
