@@ -7,7 +7,10 @@ import {
   __resetAppStateForTests,
   setAppState,
 } from '@/lib/server/appStateStore';
-import { __resetSeasonRankingsCacheForTests } from '@/lib/server/rankings';
+import {
+  __resetSeasonRankingsCacheForTests,
+  __setSeasonRankingsCacheForTests,
+} from '@/lib/server/rankings';
 
 type MockFetch = typeof fetch;
 
@@ -158,4 +161,44 @@ test('rankings route serves stale shared cache to non-admin reads', async () => 
   assert.equal(res.status, 200);
   assert.equal(json.meta.stale, true);
   assert.equal(json.meta.rebuildRequired, true);
+});
+
+test('rankings stale fallback prefers newer shared durable snapshot over older in-memory stale cache', async () => {
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  const olderGeneratedAt = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
+  const newerGeneratedAt = new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString();
+
+  __setSeasonRankingsCacheForTests(2027, {
+    at: Date.now() - 10 * 60 * 60 * 1000,
+    response: {
+      weeks: [],
+      latestWeek: null,
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        generatedAt: olderGeneratedAt,
+      },
+    },
+  });
+
+  await setAppState('rankings', '2027', {
+    at: Date.now() - 7 * 60 * 60 * 1000,
+    response: {
+      weeks: [],
+      latestWeek: null,
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        generatedAt: newerGeneratedAt,
+      },
+    },
+  });
+
+  const res = await GET(new Request('http://localhost/api/rankings?year=2027'));
+  const json = (await res.json()) as { meta: { generatedAt: string; stale?: boolean } };
+
+  assert.equal(res.status, 200);
+  assert.equal(json.meta.stale, true);
+  assert.equal(json.meta.generatedAt, newerGeneratedAt);
 });

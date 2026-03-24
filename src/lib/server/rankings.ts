@@ -178,7 +178,10 @@ export async function loadSeasonRankings(
   }
 
   if (!allowRefresh) {
-    const stale = cached ?? stored?.value;
+    const staleCandidates = [cached, stored?.value].filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(entry)
+    );
+    const stale = staleCandidates.sort((a, b) => b.at - a.at)[0] ?? null;
     if (stale) {
       return {
         ...stale.response,
@@ -233,4 +236,11 @@ export async function loadSeasonRankings(
 
 export function __resetSeasonRankingsCacheForTests(): void {
   CACHE.clear();
+}
+
+export function __setSeasonRankingsCacheForTests(
+  season: number,
+  entry: { at: number; response: RankingsResponse }
+): void {
+  CACHE.set(season, entry);
 }
