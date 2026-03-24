@@ -16,6 +16,10 @@ function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
+function formatPctGap(value: number): string {
+  return value.toFixed(3);
+}
+
 function formatKickoff(date: string | null, timeZone: string): string {
   if (!date) return 'TBD';
   const kickoff = new Date(date);
@@ -178,11 +182,12 @@ function LeagueSummaryBar({
     );
   }
 
-  const gamesAhead = runnerUp ? Math.max(0, runnerUp.gamesBack - leader.gamesBack) : 0;
-  const gamesAheadLabel = runnerUp
-    ? gamesAhead > 0
-      ? `${gamesAhead.toFixed(1)} GB cushion`
-      : 'Tied at the top'
+  const hasTieAtTop = runnerUp ? runnerUp.winPct === leader.winPct : false;
+  const winPctGap = runnerUp ? Math.max(0, leader.winPct - runnerUp.winPct) : 0;
+  const leaderStatusLabel = runnerUp
+    ? hasTieAtTop
+      ? 'Tied at the top'
+      : `Leads by ${formatPctGap(winPctGap)} win%`
     : 'No runner-up yet';
 
   return (
@@ -205,7 +210,7 @@ function LeagueSummaryBar({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-zinc-300 sm:justify-end">
-          <span>{gamesAheadLabel}</span>
+          <span>{leaderStatusLabel}</span>
           <span className="hidden text-gray-400 sm:inline dark:text-zinc-500">•</span>
           <span>{context.scopeLabel}</span>
           {context.scopeDetail ? (

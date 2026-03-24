@@ -220,6 +220,85 @@ test('overview panel summary bar shows current leader and record', () => {
   assert.match(html, /Win% 0.800/);
 });
 
+test('overview panel summary bar uses standings win% ranking for leader status', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 6,
+          losses: 1,
+          winPct: 0.857,
+          pointsFor: 200,
+          pointsAgainst: 180,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 7,
+        },
+        {
+          owner: 'Bob',
+          wins: 7,
+          losses: 2,
+          winPct: 0.778,
+          pointsFor: 230,
+          pointsAgainst: 210,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 9,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Leads by 0.079 win%/);
+  assert.doesNotMatch(html, /Tied at the top/);
+});
+
+test('overview panel summary bar shows tie copy when top win percentages match', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 6,
+          losses: 2,
+          winPct: 0.75,
+          pointsFor: 200,
+          pointsAgainst: 180,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 8,
+        },
+        {
+          owner: 'Bob',
+          wins: 9,
+          losses: 3,
+          winPct: 0.75,
+          pointsFor: 290,
+          pointsAgainst: 260,
+          pointDifferential: 30,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Tied at the top/);
+});
+
 test('overview panel keeps league-home ordering with standings ahead of highlights', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
