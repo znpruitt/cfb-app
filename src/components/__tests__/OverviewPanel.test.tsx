@@ -194,14 +194,33 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   );
 
   assert.match(html, /League standings/);
-  assert.match(html, /Head-to-head matchups/);
+  assert.match(html, /Head-to-head matrix/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
   assert.doesNotMatch(html, /Standings snapshot/);
 });
 
-test('overview panel orders sections from active context instead of always leading with standings', () => {
+test('overview panel summary bar shows current leader and record', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /League summary/);
+  assert.match(html, /Alice/);
+  assert.match(html, /4-1/);
+  assert.match(html, /Win% 0.800/);
+});
+
+test('overview panel keeps league-home ordering with standings ahead of highlights', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -214,7 +233,10 @@ test('overview panel orders sections from active context instead of always leadi
     />
   );
 
-  assert.ok(html.indexOf('What matters next') < html.indexOf('League standings'));
+  assert.ok(html.indexOf('League summary') < html.indexOf('League standings'));
+  assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
+  assert.ok(html.indexOf('What matters next') < html.indexOf('Live games'));
+  assert.ok(html.indexOf('Live games') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Current league focus'));
   assert.ok(html.includes('Week 1'));
 });

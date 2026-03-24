@@ -1,12 +1,7 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
-import type {
-  OverviewContext,
-  OverviewGameItem,
-  OverviewSectionKind,
-  OwnerMatchupMatrix,
-} from '../lib/overview';
+import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId } from '../lib/schedule';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -112,40 +107,116 @@ function stateBadgeClasses(state: 'final' | 'inprogress' | 'scheduled' | 'unknow
 
 function SectionCard({
   title,
-  description,
   children,
   tone = 'default',
+  headingClassName,
 }: {
   title: string;
-  description: string;
   children: React.ReactNode;
-  tone?: 'default' | 'live' | 'weekly';
+  tone?: 'default' | 'live' | 'weekly' | 'secondary';
+  headingClassName?: string;
 }): React.ReactElement {
   const toneClasses =
     tone === 'live'
-      ? 'border-amber-200/70 bg-gradient-to-br from-amber-50/80 to-white dark:border-amber-900/60 dark:from-amber-950/20 dark:to-zinc-900'
+      ? 'border-amber-200/80 bg-gradient-to-br from-amber-50/90 to-white dark:border-amber-900/60 dark:from-amber-950/25 dark:to-zinc-900'
       : tone === 'weekly'
         ? 'border-blue-200/70 bg-gradient-to-br from-blue-50/70 to-white dark:border-blue-900/60 dark:from-blue-950/20 dark:to-zinc-900'
-        : 'border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-900';
+        : tone === 'secondary'
+          ? 'border-gray-200 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-950/60'
+          : 'border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-900';
 
   return (
     <section className={`rounded-xl border p-4 shadow-sm sm:p-5 ${toneClasses}`}>
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-          {title}
-        </h2>
-        <p className="text-sm text-gray-600 dark:text-zinc-300">{description}</p>
-      </div>
-      <div className="mt-4">{children}</div>
+      <h2
+        className={`text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50 ${headingClassName ?? ''}`.trim()}
+      >
+        {title}
+      </h2>
+      <div className="mt-3.5">{children}</div>
     </section>
   );
 }
 
-function EmptyState({ message }: { message: string }): React.ReactElement {
+function EmptyState({
+  message,
+  compact = false,
+}: {
+  message: string;
+  compact?: boolean;
+}): React.ReactElement {
   return (
-    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
+    <div
+      className={`rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300 ${
+        compact ? 'py-2.5' : 'py-4'
+      }`}
+    >
       {message}
     </div>
+  );
+}
+
+function LeagueSummaryBar({
+  standingsLeaders,
+  context,
+}: {
+  standingsLeaders: OwnerStandingsRow[];
+  context: OverviewContext;
+}): React.ReactElement {
+  const leader = standingsLeaders[0];
+  const runnerUp = standingsLeaders[1];
+
+  if (!leader) {
+    return (
+      <section className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+          League summary
+        </p>
+        <p className="mt-1 text-sm text-gray-700 dark:text-zinc-200">
+          Upload surnames to unlock league leader tracking.
+        </p>
+      </section>
+    );
+  }
+
+  const gamesAhead = runnerUp ? Math.max(0, runnerUp.gamesBack - leader.gamesBack) : 0;
+  const gamesAheadLabel = runnerUp
+    ? gamesAhead > 0
+      ? `${gamesAhead.toFixed(1)} GB cushion`
+      : 'Tied at the top'
+    : 'No runner-up yet';
+
+  return (
+    <section className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50/95 to-white px-4 py-3 shadow-sm dark:border-blue-900/70 dark:from-blue-950/25 dark:to-zinc-900 sm:px-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-300">
+            League summary
+          </p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-700 dark:text-zinc-200">
+            <span className="text-base font-semibold text-gray-950 dark:text-zinc-50">
+              {leader.owner}
+            </span>
+            <span className="rounded-full border border-blue-200 bg-white/80 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+              {leader.wins}-{leader.losses}
+            </span>
+            <span className="text-xs text-gray-600 dark:text-zinc-300">
+              Win% {formatWinPct(leader.winPct)}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 dark:text-zinc-300 sm:justify-end">
+          <span>{gamesAheadLabel}</span>
+          <span className="hidden text-gray-400 sm:inline dark:text-zinc-500">•</span>
+          <span>{context.scopeLabel}</span>
+          {context.scopeDetail ? (
+            <>
+              <span className="hidden text-gray-400 sm:inline dark:text-zinc-500">•</span>
+              <span>{context.scopeDetail}</span>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -214,7 +285,7 @@ function CondensedStandingsTable({
 
 function TeamMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): React.ReactElement {
   if (matrix.owners.length === 0) {
-    return <EmptyState message="Upload surnames to map weekly head-to-head game counts." />;
+    return <EmptyState message="Upload surnames to map weekly head-to-head game counts." compact />;
   }
 
   return (
@@ -296,7 +367,7 @@ function GameCardList({
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   if (items.length === 0) {
-    return <EmptyState message={emptyMessage} />;
+    return <EmptyState message={emptyMessage} compact />;
   }
 
   return (
@@ -306,7 +377,7 @@ function GameCardList({
         return (
           <article
             key={item.bucket.game.key}
-            className="rounded-lg border border-gray-200 bg-white/80 p-3 sm:p-4 dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="rounded-lg border border-amber-200/80 bg-white/85 p-3 sm:p-4 dark:border-amber-900/70 dark:bg-zinc-950/70"
           >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
@@ -348,7 +419,7 @@ function GameSummaryList({
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   if (items.length === 0) {
-    return <EmptyState message={emptyMessage} />;
+    return <EmptyState message={emptyMessage} compact />;
   }
 
   return (
@@ -417,12 +488,11 @@ export default function OverviewPanel({
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
 
-  const sections: Record<OverviewSectionKind, React.ReactElement> = {
-    standings: (
-      <SectionCard
-        title="League standings"
-        description="Season-long results stay within reach without forcing Overview to feel like a week report."
-      >
+  return (
+    <div className="space-y-4">
+      <LeagueSummaryBar standingsLeaders={standingsLeaders} context={context} />
+
+      <SectionCard title="League standings" headingClassName="text-xl">
         {standingsCoverage.message ? (
           <p
             className={`mb-3 text-sm ${
@@ -433,43 +503,15 @@ export default function OverviewPanel({
           >
             {standingsCoverage.message}
           </p>
-        ) : (
-          <p className="mb-3 text-sm text-gray-600 dark:text-zinc-300">
-            League-wide results update automatically as final team scores are attached.
-          </p>
-        )}
+        ) : null}
         {standingsLeaders.length === 0 ? (
-          <EmptyState message="Upload surnames to populate the league overview." />
+          <EmptyState message="Upload surnames to populate the league overview." compact />
         ) : (
           <CondensedStandingsTable rows={standingsLeaders} onOwnerSelect={onOwnerSelect} />
         )}
       </SectionCard>
-    ),
-    matrix: (
-      <SectionCard
-        title="Head-to-head matchups"
-        description="How often each team faces another this week"
-        tone="weekly"
-      >
-        <TeamMatchupMatrixTable matrix={matchupMatrix} />
-      </SectionCard>
-    ),
-    live: (
-      <SectionCard title="Live league games" description={context.liveDescription} tone="live">
-        <GameCardList
-          items={liveItems}
-          emptyMessage="No owned-team games are live right now."
-          timeZone={timeZone}
-          rankingsByTeamId={rankingsByTeamId}
-        />
-      </SectionCard>
-    ),
-    highlights: (
-      <SectionCard
-        title={context.highlightsTitle}
-        description={context.highlightsDescription}
-        tone="weekly"
-      >
+
+      <SectionCard title={context.highlightsTitle} tone="weekly">
         <GameSummaryList
           items={keyMatchups}
           emptyMessage="No league-relevant games are scheduled for this view."
@@ -477,36 +519,19 @@ export default function OverviewPanel({
           rankingsByTeamId={rankingsByTeamId}
         />
       </SectionCard>
-    ),
-  };
 
-  return (
-    <div className="space-y-4">
-      <section className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
-              {context.scopeLabel}
-            </p>
-            <p className="text-sm text-gray-700 dark:text-zinc-200">
-              {context.emphasis === 'live'
-                ? 'Overview is prioritizing live league action right now.'
-                : context.emphasis === 'upcoming'
-                  ? 'Overview is leading with the next actionable slate.'
-                  : context.emphasis === 'recent'
-                    ? 'Overview is leading with the latest completed league results.'
-                    : 'Overview is leaning on season context until the next slate takes shape.'}
-            </p>
-          </div>
-          {context.scopeDetail ? (
-            <p className="text-xs text-gray-500 dark:text-zinc-400">{context.scopeDetail}</p>
-          ) : null}
-        </div>
-      </section>
+      <SectionCard title="Live games" tone="live">
+        <GameCardList
+          items={liveItems}
+          emptyMessage="No owned-team games are live right now."
+          timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
+        />
+      </SectionCard>
 
-      {context.sectionOrder.map((sectionKey) => (
-        <React.Fragment key={sectionKey}>{sections[sectionKey]}</React.Fragment>
-      ))}
+      <SectionCard title="Head-to-head matrix" tone="secondary" headingClassName="text-base">
+        <TeamMatchupMatrixTable matrix={matchupMatrix} />
+      </SectionCard>
     </div>
   );
 }
