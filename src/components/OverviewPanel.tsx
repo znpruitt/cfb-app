@@ -1,11 +1,17 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
-import { deriveGameHighlightTags, deriveLeagueInsights } from '../lib/leagueInsights';
+import {
+  computeStandings,
+  computeWeeklyInsights,
+  deriveGameHighlightTags,
+  deriveLeagueInsights,
+} from '../lib/leagueInsights';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
-import { getGameParticipantTeamId } from '../lib/schedule';
+import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
+import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
@@ -131,14 +137,14 @@ function SectionCard({
 
   return (
     <section
-      className={`rounded-xl border shadow-sm ${compact ? 'p-3 sm:p-4' : 'p-3.5 sm:p-5'} ${toneClasses}`}
+      className={`rounded-xl border shadow-sm ${compact ? 'p-2.5 sm:p-3.5' : 'p-3 sm:p-4.5'} ${toneClasses}`}
     >
       <h2
         className={`text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50 ${headingClassName ?? ''}`.trim()}
       >
         {title}
       </h2>
-      <div className={`${compact ? 'mt-2.5' : 'mt-3'}`}>{children}</div>
+      <div className={`${compact ? 'mt-2' : 'mt-2.5'}`}>{children}</div>
     </section>
   );
 }
@@ -292,7 +298,7 @@ function CondensedStandingsTable({
       <div className="min-w-full text-sm sm:text-[0.92rem]">
         <div className="grid grid-cols-[2.2rem_minmax(0,1fr)_4.7rem_4.2rem_3.8rem] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-[0.14em] text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
           <span className="font-semibold">Rank</span>
-          <span className="font-semibold">Team</span>
+          <span className="font-semibold">Owner</span>
           <span className="text-right font-semibold">Record</span>
           <span className="text-right font-semibold">Win %</span>
           <span className="text-right font-semibold">Diff</span>
@@ -305,7 +311,9 @@ function CondensedStandingsTable({
               key={row.owner}
               className={`grid grid-cols-[2.2rem_minmax(0,1fr)_4.7rem_4.2rem_3.8rem] items-center gap-x-2 border-b border-gray-100 px-2 py-2 dark:border-zinc-800 ${
                 isTopThree
-                  ? 'bg-blue-50/55 dark:bg-blue-950/15'
+                  ? index === 0
+                    ? 'bg-blue-100/85 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/35 dark:ring-blue-900'
+                    : 'bg-blue-50/55 dark:bg-blue-950/15'
                   : 'odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900'
               }`}
             >
@@ -588,7 +596,7 @@ function InsightStrip({
   if (insights.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-gray-200/80 bg-gray-50/70 px-3 py-2 text-xs text-gray-600 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300">
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-gray-200/80 bg-gray-50/70 px-2.5 py-1.5 text-xs text-gray-600 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300">
       {insights.map((insight, index) => (
         <React.Fragment key={insight.id}>
           {index > 0 ? <span aria-hidden="true">•</span> : null}
@@ -599,7 +607,19 @@ function InsightStrip({
   );
 }
 
+function FeaturedWeeklyCallout({ text }: { text: string | null }): React.ReactElement | null {
+  if (!text) return null;
+  return (
+    <div className="rounded-lg border border-blue-200/80 bg-blue-50/60 px-2.5 py-1.5 text-sm font-medium text-blue-900 dark:border-blue-900 dark:bg-blue-950/25 dark:text-blue-200">
+      Most interesting this week: {text}
+    </div>
+  );
+}
+
 type OverviewPanelProps = {
+  games?: AppGame[];
+  scoresByKey?: Record<string, ScorePack>;
+  rosterByTeam?: Map<string, string>;
   standingsLeaders: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
   matchupMatrix: OwnerMatchupMatrix;
@@ -613,6 +633,9 @@ type OverviewPanelProps = {
 };
 
 export default function OverviewPanel({
+  games = [],
+  scoresByKey = {},
+  rosterByTeam = new Map(),
   standingsLeaders,
   standingsCoverage,
   matchupMatrix,
@@ -642,9 +665,100 @@ export default function OverviewPanel({
       }),
     [standingsLeaders, previousStandingsLeaders, keyMatchups, liveItems, rankingsByTeamId]
   );
+  const leagueStandings = React.useMemo(
+    () => computeStandings(games, scoresByKey, rosterByTeam),
+    [games, scoresByKey, rosterByTeam]
+  );
+  const weeklyInsights = React.useMemo(
+    () => computeWeeklyInsights(games, scoresByKey, rosterByTeam),
+    [games, scoresByKey, rosterByTeam]
+  );
+  const leagueSnapshotItems = React.useMemo(() => {
+    const leader = leagueStandings[0];
+    const runnerUp = leagueStandings[1];
+    const chaseGap =
+      leader && runnerUp
+        ? `Chase gap: ${formatWinPct(Math.max(0, leader.winPct - runnerUp.winPct))} win%`
+        : 'Chase gap: —';
+    return [
+      {
+        id: 'leader',
+        label: 'Leader',
+        value: leader ? `${leader.owner} (${leader.wins}-${leader.losses})` : '—',
+      },
+      { id: 'gap', label: 'Closest chase', value: chaseGap },
+      {
+        id: 'swing',
+        label: 'Swing games',
+        value: `${weeklyInsights.ownedVsOwnedGames}`,
+      },
+      {
+        id: 'live',
+        label: 'Live owned games',
+        value: `${weeklyInsights.totalLiveOwnedGames}`,
+      },
+    ];
+  }, [leagueStandings, weeklyInsights.ownedVsOwnedGames, weeklyInsights.totalLiveOwnedGames]);
+  const featuredWeeklyCallout = React.useMemo(() => {
+    const topOwnerVsOwner = keyMatchups.find((item) => {
+      const { awayOwner, homeOwner } = item.bucket;
+      return Boolean(awayOwner && homeOwner && awayOwner !== homeOwner);
+    });
+    if (topOwnerVsOwner) {
+      const { awayOwner, homeOwner } = topOwnerVsOwner.bucket;
+      return `${awayOwner} vs ${homeOwner}`;
+    }
+
+    const topSignal = keyMatchups.find((item) => {
+      const tags = deriveGameHighlightTags({
+        item,
+        rankingsByTeamId,
+        topOwners: topOwnerNames,
+      });
+      return tags.some((tag) => tag.id === 'top25' || tag.id === 'topMatchup');
+    });
+    if (topSignal) return formatGameMatchupLabel(topSignal.bucket.game);
+    return null;
+  }, [keyMatchups, rankingsByTeamId, topOwnerNames]);
 
   return (
     <div className="space-y-3">
+      <SectionCard title="League snapshot" headingClassName="text-lg sm:text-xl" compact>
+        <div className="mb-2.5 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+          {leagueSnapshotItems.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-md border border-gray-200 bg-gray-50/70 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/50"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                {item.label}
+              </p>
+              <p className="mt-0.5 text-[13px] font-semibold text-gray-900 dark:text-zinc-100">
+                {item.value}
+              </p>
+            </div>
+          ))}
+        </div>
+        <FeaturedWeeklyCallout text={featuredWeeklyCallout} />
+        {leagueStandings.length === 0 ? (
+          <EmptyState message="Upload surnames to populate standings." compact />
+        ) : (
+          <CondensedStandingsTable
+            rows={leagueStandings.map((row) => ({
+              owner: row.owner,
+              wins: row.wins,
+              losses: row.losses,
+              winPct: row.winPct,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: row.pointDiff,
+              gamesBack: 0,
+              finalGames: row.wins + row.losses,
+            }))}
+            onOwnerSelect={onOwnerSelect}
+          />
+        )}
+      </SectionCard>
       <LeagueSummaryHero
         standingsLeaders={standingsLeaders}
         context={context}
@@ -698,7 +812,9 @@ export default function OverviewPanel({
               />
             </SectionCard>
           ) : (
-            <p className="px-1 text-xs text-gray-500 dark:text-zinc-400">Live: none right now.</p>
+            <p className="px-1 text-xs text-gray-500 dark:text-zinc-400">
+              No live games right now.
+            </p>
           )}
         </div>
       </div>

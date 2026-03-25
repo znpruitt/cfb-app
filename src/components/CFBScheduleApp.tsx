@@ -1116,6 +1116,25 @@ export default function CFBScheduleApp({
   const adminHref = '/admin';
   const leagueHref = '/';
   const rankingsHref = '/rankings';
+  const visibleScoresCount = useMemo(
+    () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
+    [scoresByKey, visibleGames]
+  );
+  const visibleOddsCount = useMemo(
+    () => visibleGames.filter((game) => Boolean(oddsByKey[game.key])).length,
+    [oddsByKey, visibleGames]
+  );
+  const userFacingLiveIssues = useMemo(
+    () =>
+      issues.filter(
+        (issue) =>
+          issue.startsWith('Odds ') ||
+          issue.startsWith('Scores ') ||
+          issue.startsWith('Odds fetch failed:') ||
+          issue.startsWith('Scores fetch failed:')
+      ),
+    [issues]
+  );
 
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
@@ -1130,6 +1149,9 @@ export default function CFBScheduleApp({
           ) : null}
           <div>
             <h1 className="text-lg font-bold sm:text-2xl">CFB League Dashboard</h1>
+            <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
+              Track owner matchups, scores, and odds for the selected league view.
+            </p>
           </div>
         </div>
         <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start xl:w-auto xl:max-w-md xl:justify-end">
@@ -1254,6 +1276,48 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
+          {!isAdminSurface ? (
+            <section className="space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                {loadingSchedule && !scheduleLoaded ? (
+                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/25 dark:text-sky-200">
+                    Loading schedule…
+                  </span>
+                ) : null}
+                {loadingLive ? (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
+                    Refreshing scores and odds…
+                  </span>
+                ) : null}
+                {!loadingLive &&
+                visibleGames.length > 0 &&
+                visibleScoresCount < visibleGames.length ? (
+                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                    Scores available for {visibleScoresCount}/{visibleGames.length} games.
+                  </span>
+                ) : null}
+                {!loadingLive && visibleGames.length > 0 && visibleOddsCount === 0 ? (
+                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                    Odds unavailable in this view.
+                  </span>
+                ) : null}
+                {!loadingLive &&
+                visibleGames.length > 0 &&
+                visibleOddsCount > 0 &&
+                visibleOddsCount < visibleGames.length ? (
+                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                    Odds available for {visibleOddsCount}/{visibleGames.length} games.
+                  </span>
+                ) : null}
+              </div>
+              {userFacingLiveIssues.length > 0 ? (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Some live data could not be updated. Showing the latest available results.
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+
           <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div className="flex flex-col gap-4 lg:gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl space-y-1">
@@ -1340,6 +1404,9 @@ export default function CFBScheduleApp({
             <section className="space-y-3">
               {primarySurfaceKind === 'overview' ? (
                 <OverviewPanel
+                  games={games}
+                  scoresByKey={scoresByKey}
+                  rosterByTeam={rosterByTeam}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsCoverage={standingsCoverage}
                   matchupMatrix={overviewSnapshot.matchupMatrix}

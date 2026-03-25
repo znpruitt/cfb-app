@@ -1,8 +1,11 @@
 import { gameStateFromScore } from './gameUi.ts';
 import type { OverviewGameItem } from './overview.ts';
 import type { TeamRankingEnrichment } from './rankings.ts';
-import { getGameParticipantTeamId } from './schedule.ts';
+import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
+import type { ScorePack } from './scores.ts';
+import type { CombinedOdds } from './odds.ts';
 import type { OwnerStandingsRow } from './standings.ts';
+import { normalizeTeamName } from './teamNormalization.ts';
 
 export type Insight = {
   id: string;
@@ -263,4 +266,380 @@ export function deriveGameHighlightTags(params: {
   }
 
   return tags.sort((a, b) => b.priority - a.priority).slice(0, TOP_BADGE_LIMIT);
+}
+
+export type LeagueStandingRow = {
+  owner: string;
+  wins: number;
+  losses: number;
+  winPct: number;
+  pointDiff: number;
+  liveGames: number;
+};
+
+export type WeeklyInsights = {
+  mostActiveOwner: string | null;
+  mostActiveGames: number;
+  mostLiveOwner: string | null;
+  mostLiveGames: number;
+  totalLiveOwnedGames: number;
+  totalOwnedGames: number;
+  ownedVsOwnedGames: number;
+  leaderThisWeek: string | null;
+  leaderWins: number;
+  leaderProjectedWins: number;
+};
+
+export type LeagueGameTag = 'swing' | 'upset' | 'even';
+export const LEAGUE_TAG_PRIORITY: Record<LeagueGameTag, number> = {
+  swing: 3,
+  upset: 2,
+  even: 1,
+};
+export const LEAGUE_TAG_LABELS: Record<LeagueGameTag, string> = {
+  swing: 'Swing',
+  upset: 'Upset alert',
+  even: 'Even spread',
+};
+
+function getState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'unknown' {
+  return gameStateFromScore(score);
+}
+
+function addOwnerCount(counter: Map<string, number>, owner: string | undefined): void {
+  if (!owner) return;
+  counter.set(owner, (counter.get(owner) ?? 0) + 1);
+}
+
+function sideIdentityCandidates(game: AppGame, side: 'away' | 'home'): string[] {
+  const participant = game.participants[side];
+  const teamId = getGameParticipantTeamId(game, side);
+  const csvName = side === 'away' ? game.csvAway : game.csvHome;
+  const canonicalName = side === 'away' ? game.canAway : game.canHome;
+
+  const raw = [
+    teamId,
+    participant.kind === 'team' ? participant.canonicalName : null,
+    participant.kind === 'team' ? participant.displayName : null,
+    participant.kind === 'team' ? participant.rawName : null,
+    canonicalName,
+    csvName,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const value of raw) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    unique.push(value);
+  }
+  return unique;
+}
+
+function ownerForSide(
+  game: AppGame,
+  side: 'away' | 'home',
+  ownershipMap: Map<string, string>
+): string | undefined {
+  for (const candidate of sideIdentityCandidates(game, side)) {
+    const owner = ownershipMap.get(candidate);
+    if (owner) return owner;
+  }
+  return undefined;
+}
+
+function ownerTeamSides(
+  game: AppGame,
+  ownershipMap: Map<string, string>
+): { awayOwner?: string; homeOwner?: string } {
+  return {
+    awayOwner: ownerForSide(game, 'away', ownershipMap),
+    homeOwner: ownerForSide(game, 'home', ownershipMap),
+  };
+}
+
+function scoreForSide(score: ScorePack, side: 'away' | 'home'): number | null {
+  return side === 'away' ? score.away.score : score.home.score;
+}
+
+function spreadMagnitude(odds?: CombinedOdds): number | null {
+  if (!odds) return null;
+  if (typeof odds.spread === 'number') return Math.abs(odds.spread);
+  if (typeof odds.homeSpread === 'number') return Math.abs(odds.homeSpread);
+  if (typeof odds.awaySpread === 'number') return Math.abs(odds.awaySpread);
+  return null;
+}
+
+function favoriteSideFromOdds(game: AppGame, odds?: CombinedOdds): 'away' | 'home' | null {
+  if (!odds) return null;
+
+  if (typeof odds.homeSpread === 'number' && typeof odds.awaySpread === 'number') {
+    if (odds.homeSpread < odds.awaySpread) return 'home';
+    if (odds.awaySpread < odds.homeSpread) return 'away';
+  }
+
+  if (odds.favorite) {
+    const favoriteKey = normalizeTeamName(odds.favorite);
+    const homeKeys = new Set(
+      sideIdentityCandidates(game, 'home').map((value) => normalizeTeamName(value))
+    );
+    const awayKeys = new Set(
+      sideIdentityCandidates(game, 'away').map((value) => normalizeTeamName(value))
+    );
+    if (homeKeys.has(favoriteKey)) return 'home';
+    if (awayKeys.has(favoriteKey)) return 'away';
+  }
+
+  return null;
+}
+
+function projectedWinsForOwner(
+  game: AppGame,
+  score: ScorePack,
+  owner: string,
+  ownershipMap: Map<string, string>,
+  includeFinals: boolean
+): number {
+  const { awayOwner, homeOwner } = ownerTeamSides(game, ownershipMap);
+  const awayScore = score.away.score;
+  const homeScore = score.home.score;
+  if (awayScore == null || homeScore == null) return 0;
+
+  const state = getState(score);
+  const awayWinning = awayScore > homeScore;
+  const homeWinning = homeScore > awayScore;
+
+  if (state !== 'inprogress' && (!includeFinals || state !== 'final')) return 0;
+
+  let wins = 0;
+  if (awayOwner === owner && awayWinning) wins += 1;
+  if (homeOwner === owner && homeWinning) wins += 1;
+  return wins;
+}
+
+export function computeStandings(
+  games: AppGame[],
+  scores: Record<string, ScorePack>,
+  ownershipMap: Map<string, string>
+): LeagueStandingRow[] {
+  const owners = Array.from(new Set(ownershipMap.values())).sort((a, b) => a.localeCompare(b));
+  const base = new Map<string, LeagueStandingRow>(
+    owners.map((owner) => [
+      owner,
+      { owner, wins: 0, losses: 0, winPct: 0, pointDiff: 0, liveGames: 0 },
+    ])
+  );
+
+  for (const game of games) {
+    const score = scores[game.key];
+    const state = getState(score);
+    const { awayOwner, homeOwner } = ownerTeamSides(game, ownershipMap);
+
+    if (state === 'inprogress') {
+      if (awayOwner) base.get(awayOwner)!.liveGames += 1;
+      if (homeOwner) base.get(homeOwner)!.liveGames += 1;
+    }
+
+    if (!score || state !== 'final') continue;
+    const awayScore = score.away.score;
+    const homeScore = score.home.score;
+    if (awayScore == null || homeScore == null) continue;
+
+    if (awayOwner) {
+      const row = base.get(awayOwner)!;
+      row.pointDiff += awayScore - homeScore;
+      if (awayScore > homeScore) row.wins += 1;
+      if (awayScore < homeScore) row.losses += 1;
+    }
+
+    if (homeOwner) {
+      const row = base.get(homeOwner)!;
+      row.pointDiff += homeScore - awayScore;
+      if (homeScore > awayScore) row.wins += 1;
+      if (homeScore < awayScore) row.losses += 1;
+    }
+  }
+
+  return Array.from(base.values())
+    .map((row) => {
+      const gamesPlayed = row.wins + row.losses;
+      return {
+        ...row,
+        winPct: gamesPlayed > 0 ? row.wins / gamesPlayed : 0,
+      };
+    })
+    .sort((left, right) => {
+      if (right.winPct !== left.winPct) return right.winPct - left.winPct;
+      if (right.wins !== left.wins) return right.wins - left.wins;
+      if (right.pointDiff !== left.pointDiff) return right.pointDiff - left.pointDiff;
+      return left.owner.localeCompare(right.owner);
+    });
+}
+
+export function computeWeeklyInsights(
+  games: AppGame[],
+  scores: Record<string, ScorePack>,
+  ownershipMap: Map<string, string>
+): WeeklyInsights {
+  const ownerGameCounts = new Map<string, number>();
+  const ownerLiveCounts = new Map<string, number>();
+  const ownerWins = new Map<string, number>();
+  const ownerProjected = new Map<string, number>();
+  let totalLiveOwnedGames = 0;
+  let totalOwnedGames = 0;
+  let ownedVsOwnedGames = 0;
+
+  for (const game of games) {
+    const score = scores[game.key];
+    const state = getState(score);
+    const { awayOwner, homeOwner } = ownerTeamSides(game, ownershipMap);
+
+    const hasOwnedAway = Boolean(awayOwner);
+    const hasOwnedHome = Boolean(homeOwner);
+    if (hasOwnedAway || hasOwnedHome) totalOwnedGames += 1;
+    if (hasOwnedAway && hasOwnedHome) ownedVsOwnedGames += 1;
+
+    addOwnerCount(ownerGameCounts, awayOwner);
+    addOwnerCount(ownerGameCounts, homeOwner);
+
+    if (state === 'inprogress') {
+      if (hasOwnedAway || hasOwnedHome) totalLiveOwnedGames += 1;
+      addOwnerCount(ownerLiveCounts, awayOwner);
+      addOwnerCount(ownerLiveCounts, homeOwner);
+    }
+
+    if (!score) continue;
+    if (state === 'final') {
+      const awayScore = scoreForSide(score, 'away');
+      const homeScore = scoreForSide(score, 'home');
+      if (awayScore != null && homeScore != null) {
+        if (awayOwner && awayScore > homeScore)
+          ownerWins.set(awayOwner, (ownerWins.get(awayOwner) ?? 0) + 1);
+        if (homeOwner && homeScore > awayScore)
+          ownerWins.set(homeOwner, (ownerWins.get(homeOwner) ?? 0) + 1);
+      }
+    }
+
+    const owners = Array.from(
+      new Set([awayOwner, homeOwner].filter((v): v is string => Boolean(v)))
+    );
+    for (const owner of owners) {
+      const wins = projectedWinsForOwner(game, score, owner, ownershipMap, false);
+      if (wins > 0) ownerProjected.set(owner, (ownerProjected.get(owner) ?? 0) + wins);
+    }
+  }
+
+  const ownerPool = Array.from(
+    new Set([
+      ...ownershipMap.values(),
+      ...ownerGameCounts.keys(),
+      ...ownerLiveCounts.keys(),
+      ...ownerWins.keys(),
+      ...ownerProjected.keys(),
+    ])
+  );
+
+  const pickLeader = (counter: Map<string, number>): { owner: string | null; count: number } => {
+    let owner: string | null = null;
+    let count = 0;
+    for (const name of ownerPool) {
+      const value = counter.get(name) ?? 0;
+      if (
+        value > count ||
+        (value === count && value > 0 && owner && name.localeCompare(owner) < 0)
+      ) {
+        owner = name;
+        count = value;
+      }
+      if (owner == null && value > 0) {
+        owner = name;
+        count = value;
+      }
+    }
+    return { owner, count };
+  };
+
+  const activity = pickLeader(ownerGameCounts);
+  const live = pickLeader(ownerLiveCounts);
+
+  let leaderThisWeek: string | null = null;
+  let leaderWins = 0;
+  let leaderProjectedWins = 0;
+  for (const owner of ownerPool) {
+    const wins = ownerWins.get(owner) ?? 0;
+    const projected = (ownerProjected.get(owner) ?? 0) + wins;
+    if (
+      projected > leaderProjectedWins ||
+      (projected === leaderProjectedWins && wins > leaderWins) ||
+      (projected === leaderProjectedWins &&
+        wins === leaderWins &&
+        leaderThisWeek &&
+        owner.localeCompare(leaderThisWeek) < 0) ||
+      (leaderThisWeek == null && projected > 0)
+    ) {
+      leaderThisWeek = owner;
+      leaderWins = wins;
+      leaderProjectedWins = projected;
+    }
+  }
+
+  return {
+    mostActiveOwner: activity.owner,
+    mostActiveGames: activity.count,
+    mostLiveOwner: live.owner,
+    mostLiveGames: live.count,
+    totalLiveOwnedGames,
+    totalOwnedGames,
+    ownedVsOwnedGames,
+    leaderThisWeek,
+    leaderWins,
+    leaderProjectedWins,
+  };
+}
+
+export function computeGameTags(
+  game: AppGame,
+  score: ScorePack | undefined,
+  odds: CombinedOdds | undefined,
+  ownershipMap: Map<string, string>,
+  spreadThreshold = 3
+): LeagueGameTag[] {
+  const tags: LeagueGameTag[] = [];
+  const { awayOwner, homeOwner } = ownerTeamSides(game, ownershipMap);
+
+  if (awayOwner && homeOwner && awayOwner !== homeOwner) {
+    tags.push('swing');
+  }
+
+  const state = getState(score);
+  if (score && state === 'inprogress') {
+    const awayScore = score.away.score;
+    const homeScore = score.home.score;
+    const favoriteSide = favoriteSideFromOdds(game, odds);
+
+    if (awayScore != null && homeScore != null && favoriteSide) {
+      const underdogLeading =
+        (favoriteSide === 'home' && awayScore > homeScore) ||
+        (favoriteSide === 'away' && homeScore > awayScore);
+      if (underdogLeading) tags.push('upset');
+    }
+  }
+
+  const spread = spreadMagnitude(odds);
+  if (spread != null && spread <= spreadThreshold) {
+    tags.push('even');
+  }
+
+  return tags;
+}
+
+export function prioritizeGameTags(tags: LeagueGameTag[]): {
+  primary: LeagueGameTag | null;
+  secondary: LeagueGameTag[];
+} {
+  if (tags.length === 0) return { primary: null, secondary: [] };
+  const deduped = Array.from(new Set(tags));
+  deduped.sort((left, right) => LEAGUE_TAG_PRIORITY[right] - LEAGUE_TAG_PRIORITY[left]);
+  const [primary, ...secondary] = deduped;
+  return { primary: primary ?? null, secondary };
 }

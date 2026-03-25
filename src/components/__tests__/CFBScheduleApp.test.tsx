@@ -83,6 +83,14 @@ test('league surface keeps admin tooling off the landing page when a schedule ca
   assert.doesNotMatch(html, /Admin diagnostics: API usage/);
 });
 
+test('league surface shows compact orientation and partial data availability copy', () => {
+  const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} />);
+
+  assert.match(html, /Track owner matchups, scores, and odds for the selected league view\./);
+  assert.match(html, /Scores available for 0\/1 games\./);
+  assert.match(html, /Odds unavailable in this view\./);
+});
+
 test('owner surface remains reachable with owner data even when no week is selected', () => {
   const html = renderToStaticMarkup(
     <CFBScheduleApp

@@ -239,7 +239,7 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
-  assert.doesNotMatch(html, /Standings snapshot/);
+  assert.match(html, /League snapshot/);
 });
 
 test('overview panel summary shows in-season leader, record, and win percentage', () => {
@@ -496,8 +496,8 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
 
   assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings'));
   assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
-  assert.ok(html.indexOf('What matters next') < html.indexOf('Live: none right now.'));
-  assert.ok(html.indexOf('Live: none right now.') < html.indexOf('Head-to-head matrix'));
+  assert.ok(html.indexOf('What matters next') < html.indexOf('No live games right now.'));
+  assert.ok(html.indexOf('No live games right now.') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
 });
@@ -579,7 +579,7 @@ test('overview panel uses compact live empty state copy', () => {
     />
   );
 
-  assert.match(html, /Live: none right now\./);
+  assert.match(html, /No live games right now\./);
   assert.doesNotMatch(html, /Postseason focus/);
   assert.match(html, /Head-to-head \(tap to expand\)/);
 });
