@@ -730,6 +730,41 @@ test('overview panel renders insight strip with prioritized ranked matchup signa
   assert.match(html, /#7 vs #14 matchup this week/);
 });
 
+test('overview panel insight strip shows biggest gain and biggest drop signals', () => {
+  const movementGameFinal = itemWithScore(game({ key: 'movement-final' }), {
+    status: 'FINAL',
+    away: { team: 'Away', score: 34 },
+    home: { team: 'Home', score: 20 },
+    time: null,
+  });
+  movementGameFinal.bucket.awayOwner = 'Alice';
+  movementGameFinal.bucket.homeOwner = 'Bob';
+
+  const movementGameLive = itemWithScore(game({ key: 'movement-live' }), {
+    status: 'In Progress',
+    away: { team: 'Away', score: 21 },
+    home: { team: 'Home', score: 10 },
+    time: '09:58',
+  });
+  movementGameLive.bucket.awayOwner = 'Alice';
+  movementGameLive.bucket.homeOwner = 'Bob';
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[movementGameLive]}
+      keyMatchups={[movementGameFinal, movementGameLive]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Biggest gain: Alice \(\+2 wins\)/);
+  assert.match(html, /Biggest drop: Bob \(-2\)/);
+});
+
 test('overview panel game summary badges prefer top-25 and top-matchup over close and ranked', () => {
   const rankedCloseTopGame = itemWithScore(
     game({
@@ -818,4 +853,181 @@ test('overview panel game summary badges prefer top-25 and top-matchup over clos
   assert.match(html, /#6 vs #11/);
   assert.match(html, /Top matchup/);
   assert.doesNotMatch(html, />Close</);
+  const topMatchupOccurrences = html.match(/Top matchup/g) ?? [];
+  assert.equal(topMatchupOccurrences.length, 1);
+});
+
+test('overview highlights prioritize top matchup and conditionally render upset watch plus standings context', () => {
+  const topMatchup = itemWithScore(
+    game({
+      key: 'top-matchup-highlight',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'away-top',
+          displayName: 'Away Top',
+          canonicalName: 'Away Top',
+          rawName: 'Away Top',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'home-top',
+          displayName: 'Home Top',
+          canonicalName: 'Home Top',
+          rawName: 'Home Top',
+        },
+      },
+    }),
+    {
+      status: 'In Progress',
+      away: { team: 'Away Top', score: 17 },
+      home: { team: 'Home Top', score: 14 },
+      time: '05:55',
+    }
+  );
+  topMatchup.bucket.awayOwner = 'Alice';
+  topMatchup.bucket.homeOwner = 'Bob';
+
+  const upsetWatch = itemWithScore(
+    game({
+      key: 'upset-watch-highlight',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'favorite-away',
+          displayName: 'Favorite Away',
+          canonicalName: 'Favorite Away',
+          rawName: 'Favorite Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'home-underdog',
+          displayName: 'Home Underdog',
+          canonicalName: 'Home Underdog',
+          rawName: 'Home Underdog',
+        },
+      },
+    }),
+    {
+      status: 'In Progress',
+      away: { team: 'Favorite Away', score: 10 },
+      home: { team: 'Home Underdog', score: 24 },
+      time: '08:41',
+    }
+  );
+  upsetWatch.bucket.awayOwner = 'Casey';
+  upsetWatch.bucket.homeOwner = 'Drew';
+
+  const rankedSpotlight = item(
+    game({
+      key: 'ranked-spotlight-highlight',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'ranked-away',
+          displayName: 'Ranked Away',
+          canonicalName: 'Ranked Away',
+          rawName: 'Ranked Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'unranked-home',
+          displayName: 'Unranked Home',
+          canonicalName: 'Unranked Home',
+          rawName: 'Unranked Home',
+        },
+      },
+    })
+  );
+  rankedSpotlight.bucket.awayOwner = 'Erin';
+  rankedSpotlight.bucket.homeOwner = 'Frank';
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 8,
+          losses: 2,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 12,
+          gamesBack: 0,
+          finalGames: 10,
+        },
+        {
+          owner: 'Bob',
+          wins: 8,
+          losses: 2,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 10,
+          gamesBack: 0,
+          finalGames: 10,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[topMatchup, upsetWatch]}
+      keyMatchups={[rankedSpotlight, upsetWatch, topMatchup]}
+      rankingsByTeamId={
+        new Map([
+          ['away-top', { rank: 11, rankSource: 'ap' }],
+          ['home-top', { rank: 15, rankSource: 'ap' }],
+          ['favorite-away', { rank: 20, rankSource: 'ap' }],
+          ['ranked-away', { rank: 9, rankSource: 'ap' }],
+        ])
+      }
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.ok(html.indexOf('Top matchup') < html.indexOf('Upset watch'));
+  assert.match(html, /Upset watch/);
+  assert.doesNotMatch(html, /Ranked spotlight/);
+  assert.match(html, /Tight race: Alice and Bob are separated by 0.000 win%/);
+});
+
+test('overview standings context suppresses leader-gap duplicate messaging when race is not tight', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 10,
+          losses: 2,
+          winPct: 0.833,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+        {
+          owner: 'Bob',
+          wins: 8,
+          losses: 4,
+          winPct: 0.667,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 2,
+          finalGames: 12,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /Leader gap:/);
+  assert.doesNotMatch(html, /Tight race:/);
+  assert.match(html, /Alice leads by 0.166 win%/);
 });

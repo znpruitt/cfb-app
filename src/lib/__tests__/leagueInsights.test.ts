@@ -8,6 +8,7 @@ import {
   prioritizeGameTags,
   deriveGameHighlightTags,
   deriveLeagueInsights,
+  deriveOverviewHighlightSignals,
 } from '../leagueInsights.ts';
 import type { OverviewGameItem } from '../overview.ts';
 import type { TeamRankingEnrichment } from '../rankings.ts';
@@ -211,6 +212,234 @@ test('deriveLeagueInsights includes close-game count', () => {
   });
 
   assert.ok(insights.some((insight) => insight.text === '1 close game this week'));
+});
+
+test('deriveLeagueInsights includes biggest gain and biggest drop movement signals', () => {
+  const gameOne = item(game({ key: 'movement-1' }), 'Alex', 'Blair');
+  gameOne.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 31 },
+    home: { team: 'Home', score: 21 },
+    time: null,
+  };
+  const gameTwo = item(game({ key: 'movement-2' }), 'Alex', 'Blair');
+  gameTwo.score = {
+    status: 'In Progress',
+    away: { team: 'Away', score: 24 },
+    home: { team: 'Home', score: 10 },
+    time: '04:11',
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [gameOne, gameTwo],
+    liveGames: [gameTwo],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(insights.some((insight) => insight.text === 'Biggest gain: Alex (+2 wins)'));
+  assert.ok(insights.some((insight) => insight.text === 'Biggest drop: Blair (-2)'));
+});
+
+test('deriveLeagueInsights movement signals require minimum two games per owner', () => {
+  const singleResult = item(game({ key: 'movement-single' }), 'Alex', 'Blair');
+  singleResult.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 28 },
+    home: { team: 'Home', score: 14 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [singleResult],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain:')));
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
+});
+
+test('deriveLeagueInsights does not double-count same-owner matchup sides for movement qualification', () => {
+  const selfOwned = item(game({ key: 'self-owned-single' }), 'Alex', 'Alex');
+  selfOwned.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 35 },
+    home: { team: 'Home', score: 21 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [selfOwned],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain:')));
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
+});
+
+test('deriveLeagueInsights same-owner matchups cannot emit both biggest gain and biggest drop', () => {
+  const selfOwnedOne = item(game({ key: 'self-owned-1' }), 'Alex', 'Alex');
+  selfOwnedOne.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 31 },
+    home: { team: 'Home', score: 24 },
+    time: null,
+  };
+  const selfOwnedTwo = item(game({ key: 'self-owned-2' }), 'Alex', 'Alex');
+  selfOwnedTwo.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 17 },
+    home: { team: 'Home', score: 14 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [selfOwnedOne, selfOwnedTwo],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain: Alex')));
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop: Alex')));
+});
+
+test('deriveOverviewHighlightSignals picks deterministic top matchup and upset watch', () => {
+  const topMatchup = item(game({ key: 'top-matchup' }), 'Alex', 'Blair');
+  topMatchup.score = {
+    status: 'In Progress',
+    away: { team: 'Away', score: 24 },
+    home: { team: 'Home', score: 20 },
+    time: '03:20',
+  };
+  const upsetWatch = item(
+    game({
+      key: 'upset-watch',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'favorite-away',
+          displayName: 'Favorite Away',
+          canonicalName: 'Favorite Away',
+          rawName: 'Favorite Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'home-underdog',
+          displayName: 'Home Underdog',
+          canonicalName: 'Home Underdog',
+          rawName: 'Home Underdog',
+        },
+      },
+    }),
+    'Casey',
+    'Drew'
+  );
+  upsetWatch.score = {
+    status: 'In Progress',
+    away: { team: 'Favorite Away', score: 10 },
+    home: { team: 'Home Underdog', score: 24 },
+    time: '07:44',
+  };
+  const rankedSpotlight = item(
+    game({
+      key: 'ranked-spotlight',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'ranked-away',
+          displayName: 'Ranked Away',
+          canonicalName: 'Ranked Away',
+          rawName: 'Ranked Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'unranked-home',
+          displayName: 'Unranked Home',
+          canonicalName: 'Unranked Home',
+          rawName: 'Unranked Home',
+        },
+      },
+    }),
+    'Evan',
+    'Fran'
+  );
+
+  const signals = deriveOverviewHighlightSignals({
+    keyMatchups: [rankedSpotlight, topMatchup, upsetWatch],
+    rankingsByTeamId: new Map([
+      ['favorite-away', { rank: 20, rankSource: 'ap' }],
+      ['ranked-away', { rank: 7, rankSource: 'ap' }],
+    ]),
+  });
+
+  assert.equal(signals.topMatchupKey, 'top-matchup');
+  assert.deepEqual(signals.upsetWatchKeys, ['upset-watch']);
+  assert.equal(signals.rankedHighlightKey, 'ranked-spotlight');
+});
+
+test('deriveOverviewHighlightSignals returns null top matchup when no distinct owner-vs-owner games exist', () => {
+  const sameOwner = item(game({ key: 'same-owner' }), 'Alex', 'Alex');
+  const singleOwned = item(game({ key: 'single-owned' }), 'Alex', 'Placeholder');
+  singleOwned.bucket.homeOwner = undefined;
+  const unowned = item(game({ key: 'unowned' }), 'Placeholder', 'Placeholder');
+  unowned.bucket.awayOwner = undefined;
+  unowned.bucket.homeOwner = undefined;
+
+  const signals = deriveOverviewHighlightSignals({
+    keyMatchups: [sameOwner, singleOwned, unowned],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(signals.topMatchupKey, null);
+});
+
+test('deriveOverviewHighlightSignals ignores non-rendered live items for top/ranked selection', () => {
+  const displayedMatchup = item(
+    game({
+      key: 'displayed-matchup',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'displayed-away',
+          displayName: 'Displayed Away',
+          canonicalName: 'Displayed Away',
+          rawName: 'Displayed Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'displayed-home',
+          displayName: 'Displayed Home',
+          canonicalName: 'Displayed Home',
+          rawName: 'Displayed Home',
+        },
+      },
+    }),
+    'Alex',
+    'Blair'
+  );
+  displayedMatchup.score = {
+    status: 'In Progress',
+    away: { team: 'Displayed Away', score: 14 },
+    home: { team: 'Displayed Home', score: 10 },
+    time: '03:30',
+  };
+
+  const signals = deriveOverviewHighlightSignals({
+    keyMatchups: [displayedMatchup],
+    rankingsByTeamId: new Map([
+      ['displayed-away', { rank: 12, rankSource: 'ap' }],
+      ['displayed-home', { rank: 19, rankSource: 'ap' }],
+      ['offscope-away', { rank: 1, rankSource: 'ap' }],
+    ]),
+  });
+
+  assert.equal(signals.topMatchupKey, 'displayed-matchup');
+  assert.equal(signals.rankedHighlightKey, 'displayed-matchup');
 });
 
 test('deriveLeagueInsights shows top-two result only for final top-two head-to-head', () => {
