@@ -239,7 +239,52 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
-  assert.doesNotMatch(html, /Standings snapshot/);
+  assert.match(html, /League snapshot/);
+});
+
+test('overview standings emphasize leader row and show live count when available', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      games={[game({ key: 'live-1', csvAway: 'Texas', csvHome: 'Rice' })]}
+      scoresByKey={{
+        'live-1': {
+          status: 'In Progress',
+          away: { team: 'Texas', score: 14 },
+          home: { team: 'Rice', score: 10 },
+          time: '07:11',
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Texas', 'Alice'],
+          ['Rice', 'Bob'],
+        ])
+      }
+      standingsLeaders={[
+        ...standingsLeaders,
+        {
+          owner: 'Bob',
+          wins: 3,
+          losses: 2,
+          winPct: 0.6,
+          pointsFor: 110,
+          pointsAgainst: 101,
+          pointDifferential: 9,
+          gamesBack: 1,
+          finalGames: 5,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Leader/);
+  assert.match(html, /1 live/);
 });
 
 test('overview panel summary shows in-season leader, record, and win percentage', () => {
@@ -496,8 +541,8 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
 
   assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings'));
   assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
-  assert.ok(html.indexOf('What matters next') < html.indexOf('Live: none right now.'));
-  assert.ok(html.indexOf('Live: none right now.') < html.indexOf('Head-to-head matrix'));
+  assert.ok(html.indexOf('What matters next') < html.indexOf('No live games right now.'));
+  assert.ok(html.indexOf('No live games right now.') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
 });
@@ -579,7 +624,7 @@ test('overview panel uses compact live empty state copy', () => {
     />
   );
 
-  assert.match(html, /Live: none right now\./);
+  assert.match(html, /No live games right now\./);
   assert.doesNotMatch(html, /Postseason focus/);
   assert.match(html, /Head-to-head \(tap to expand\)/);
 });
