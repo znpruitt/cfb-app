@@ -3,6 +3,12 @@ import React from 'react';
 import type { CombinedOdds } from '../lib/odds';
 import { gameStateFromScore, pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
 import {
+  computeGameTags,
+  computeStandings,
+  LEAGUE_TAG_LABELS,
+  prioritizeGameTags,
+} from '../lib/leagueInsights';
+import {
   deriveOwnerWeekSlates,
   deriveWeekMatchupSections,
   type OwnerSlateGame,
@@ -39,7 +45,6 @@ type GameOutcomeTone =
   | 'neutral';
 
 const DEFAULT_VISIBLE_OPPONENTS = 3;
-
 function formatKickoff(date: string | null, timeZone: string): string {
   if (!date) return 'TBD';
   const kickoff = new Date(date);
@@ -273,15 +278,23 @@ function buildLiveClockLabel(score?: ScorePack): string | null {
 function GameRow({
   slateGame,
   scoresByKey,
+  oddsByKey,
+  rosterByTeam,
   displayTimeZone,
   rankingsByTeamId,
 }: {
   slateGame: OwnerSlateGame;
   scoresByKey: Record<string, ScorePack>;
+  oddsByKey: Record<string, CombinedOdds>;
+  rosterByTeam: Map<string, string>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   const score = scoresByKey[slateGame.game.key];
+  const odds = oddsByKey[slateGame.game.key];
+  const { primary, secondary } = prioritizeGameTags(
+    computeGameTags(slateGame.game, score, odds, rosterByTeam)
+  );
   const ownerOutcome = formatOwnedScore(slateGame, score);
   const rawStatusTone = gameStateFromScore(score);
   const statusTone = rawStatusTone === 'unknown' ? 'scheduled' : rawStatusTone;
@@ -364,6 +377,21 @@ function GameRow({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+          {primary ? (
+            <span className="inline-flex flex-wrap gap-1">
+              <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
+                {LEAGUE_TAG_LABELS[primary]}
+              </span>
+              {secondary.map((tag) => (
+                <span
+                  key={`${slateGame.game.key}:tag:${tag}`}
+                  className="rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                >
+                  {LEAGUE_TAG_LABELS[tag]}
+                </span>
+              ))}
+            </span>
+          ) : null}
           {metadataEntries.map((entry, index) => (
             <React.Fragment key={`${slateGame.game.key}:meta:${entry}`}>
               {index > 0 ? <span>•</span> : null}
@@ -392,12 +420,18 @@ function EmptyState(): React.ReactElement {
 
 function OwnerCard({
   slate,
+  ownerStanding,
   scoresByKey,
+  oddsByKey,
+  rosterByTeam,
   displayTimeZone,
   rankingsByTeamId,
 }: {
   slate: OwnerWeekSlate;
+  ownerStanding?: ReturnType<typeof computeStandings>[number];
   scoresByKey: Record<string, ScorePack>;
+  oddsByKey: Record<string, CombinedOdds>;
+  rosterByTeam: Map<string, string>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
@@ -407,7 +441,7 @@ function OwnerCard({
 
   return (
     <article
-      className={`space-y-3 rounded-xl border p-4 shadow-sm sm:p-5 ${ownerCardSurfaceClasses(slate.performance.tone)}`}
+      className={`space-y-2.5 rounded-xl border p-3.5 shadow-sm sm:p-4 ${ownerCardSurfaceClasses(slate.performance.tone)}`}
     >
       <div className="space-y-2">
         <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3 sm:gap-y-1">
@@ -420,9 +454,13 @@ function OwnerCard({
             {slate.performance.summary}
           </span>
         </div>
-        <p className="text-sm leading-6 text-gray-600 dark:text-zinc-400 break-words">
+        <p className="text-sm leading-5 text-gray-600 dark:text-zinc-400 break-words">
           <span>
             {formatSlateSummaryText(opponentSummaryEntries, slate.totalGames, isExpanded)}
+          </span>
+          <span className="mx-1 text-gray-300 dark:text-zinc-600">•</span>
+          <span>
+            total {slate.totalGames} · wins {ownerStanding?.wins ?? 0} · live {slate.liveGames}
           </span>
           {hasHiddenOpponents ? (
             <>
@@ -445,6 +483,8 @@ function OwnerCard({
             key={`${slate.owner}:${slateGame.game.key}:${slateGame.ownerTeamSide}`}
             slateGame={slateGame}
             scoresByKey={scoresByKey}
+            oddsByKey={oddsByKey}
+            rosterByTeam={rosterByTeam}
             displayTimeZone={displayTimeZone}
             rankingsByTeamId={rankingsByTeamId}
           />
@@ -457,6 +497,7 @@ function OwnerCard({
 export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.ReactElement {
   const {
     games,
+    oddsByKey,
     scoresByKey,
     rosterByTeam,
     displayTimeZone = getPresentationTimeZone(),
@@ -465,26 +506,49 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
   } = props;
   const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
   const ownerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const oddsAvailableCount = React.useMemo(
+    () => games.filter((game) => Boolean(oddsByKey[game.key])).length,
+    [games, oddsByKey]
+  );
+  const standingsByOwner = React.useMemo(
+    () =>
+      new Map(
+        computeStandings(games, scoresByKey, rosterByTeam).map((row) => [row.owner, row] as const)
+      ),
+    [games, scoresByKey, rosterByTeam]
+  );
 
   return (
-    <div className="space-y-4">
-      <section className="space-y-2">
+    <div className="space-y-3">
+      <section className="space-y-1.5">
         <div>
           <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
             Weekly Slates
           </h2>
-          <p className="text-xs text-gray-600 dark:text-zinc-400">
-            Compact surname-first weekly cards with matchup context, status, kickoff, and odds.
+          <p className="text-xs text-gray-600 dark:text-zinc-400">Owner-first weekly cards.</p>
+          <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+            Live games and primary tags are highlighted.
           </p>
+          {games.length > 0 && oddsAvailableCount === 0 ? (
+            <p className="text-[11px] text-gray-500 dark:text-zinc-400">Odds are unavailable.</p>
+          ) : null}
+          {games.length > 0 && oddsAvailableCount > 0 && oddsAvailableCount < games.length ? (
+            <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+              Odds available for {oddsAvailableCount}/{games.length} games.
+            </p>
+          ) : null}
         </div>
 
         {ownerSlates.length ? (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-2.5 lg:grid-cols-2">
             {ownerSlates.map((slate) => (
               <OwnerCard
                 key={slate.owner}
                 slate={slate}
+                ownerStanding={standingsByOwner.get(slate.owner)}
                 scoresByKey={scoresByKey}
+                oddsByKey={oddsByKey}
+                rosterByTeam={rosterByTeam}
                 displayTimeZone={displayTimeZone}
                 rankingsByTeamId={rankingsByTeamId}
               />
@@ -495,7 +559,7 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
         )}
       </section>
 
-      <section className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-3 sm:px-4 dark:border-zinc-700 dark:bg-zinc-900">
+      <section className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 sm:px-4 dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Excluded games</h2>
         <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
           {derivedSections.otherGames.length === 0

@@ -7,6 +7,12 @@ import {
   gameStateFromScore,
   usesNeutralSiteSemantics,
 } from '../lib/gameUi';
+import {
+  computeGameTags,
+  LEAGUE_TAG_LABELS,
+  prioritizeGameTags,
+  type LeagueGameTag,
+} from '../lib/leagueInsights';
 import { getPresentationTimeZone, groupGamesByDisplayDate } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
@@ -122,6 +128,12 @@ function summaryChipClasses(summaryState: string, isPlaceholder: boolean): strin
   return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
 }
 
+function liveCardAccentClass(summaryState: string): string {
+  return summaryStateChipBucket(summaryState) === 'live'
+    ? 'ring-1 ring-amber-300/70 dark:ring-amber-800/60'
+    : '';
+}
+
 function shouldShowCollapsedCanonicalLabel(game: AppGame, isPlaceholder: boolean): boolean {
   if (!isPlaceholder || !game.label?.trim()) return false;
 
@@ -158,6 +170,22 @@ function isFcsConference(conference: string | null | undefined): boolean {
   return /\bfcs\b/i.test(conference ?? '');
 }
 
+function primaryTagCardClasses(primaryTag: LeagueGameTag | null, hasRankedTeam: boolean): string {
+  if (primaryTag === 'swing') {
+    return 'border-indigo-300/80 bg-indigo-50/35 dark:border-indigo-900/70 dark:bg-indigo-950/20';
+  }
+  if (primaryTag === 'upset') {
+    return 'border-amber-300/80 bg-amber-50/35 dark:border-amber-900/70 dark:bg-amber-950/20';
+  }
+  if (primaryTag === 'even') {
+    return 'border-sky-300/80 bg-sky-50/30 dark:border-sky-900/70 dark:bg-sky-950/20';
+  }
+  if (hasRankedTeam) {
+    return 'border-blue-300/70 bg-blue-50/20 dark:border-blue-900/70 dark:bg-blue-950/15';
+  }
+  return '';
+}
+
 type GameWeekPanelProps = {
   games: Game[];
   byes: string[];
@@ -185,10 +213,14 @@ export default function GameWeekPanel({
   displayTimeZone = getPresentationTimeZone(),
 }: GameWeekPanelProps): React.ReactElement {
   const groupedGames = groupGamesByDisplayDate(games, displayTimeZone);
+  const totalGames = games.length;
+  const scoresAvailableCount = games.filter((game) => Boolean(scoresByKey[game.key])).length;
+  const oddsAvailableCount = games.filter((game) => Boolean(oddsByKey[game.key])).length;
+  const hasNoGames = totalGames === 0;
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200">
           Final
         </span>
@@ -198,11 +230,37 @@ export default function GameWeekPanel({
         <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
           Scheduled
         </span>
+        <span className="ml-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
+          Tags: Swing &gt; Upset alert &gt; Even spread
+        </span>
       </div>
+      {hasNoGames ? (
+        <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+          No games match the current filters.
+        </div>
+      ) : null}
+      {!hasNoGames ? (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600 dark:text-zinc-400">
+          {scoresAvailableCount < totalGames ? (
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
+              Scores: {scoresAvailableCount}/{totalGames}
+            </span>
+          ) : null}
+          {oddsAvailableCount === 0 ? (
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
+              Odds unavailable
+            </span>
+          ) : oddsAvailableCount < totalGames ? (
+            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
+              Odds: {oddsAvailableCount}/{totalGames}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-4">
         {groupedGames.map((group) => (
-          <section key={group.dateKey} className="space-y-2">
+          <section key={group.dateKey} className="space-y-1.5">
             <div
               className="text-sm font-semibold text-gray-700 dark:text-zinc-300"
               data-date-header={group.dateKey}
@@ -210,7 +268,7 @@ export default function GameWeekPanel({
               {group.label}
             </div>
 
-            <div className="grid gap-2">
+            <div className="grid gap-1.5">
               {group.games.map((g) => {
                 const score = scoresByKey[g.key];
                 const odds = oddsByKey[g.key];
@@ -244,18 +302,27 @@ export default function GameWeekPanel({
                   homeTeamId,
                   teamCatalogById
                 );
+                const hasRankedTeam =
+                  (rankingsByTeamId.get(homeTeamId)?.rank ?? null) != null ||
+                  (rankingsByTeamId.get(awayTeamId)?.rank ?? null) != null;
+                const tagState = prioritizeGameTags(computeGameTags(g, score, odds, rosterByTeam));
+                const emphasisClasses = primaryTagCardClasses(tagState.primary, hasRankedTeam);
 
                 return (
                   <details
                     key={g.key}
-                    className="group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700"
+                    className={`group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${liveCardAccentClass(
+                      resolvedSummaryState
+                    )} ${emphasisClasses}`}
                     style={{
                       boxShadow: `inset 0 2px 0 ${awayColorTreatment.borderAccent}, inset 0 -2px 0 ${homeColorTreatment.borderAccent}`,
                     }}
                     data-card-team-accent-top="away"
                     data-card-team-accent-bottom="home"
+                    data-primary-tag={tagState.primary ?? ''}
+                    data-ranked-game={hasRankedTeam ? 'true' : 'false'}
                   >
-                    <summary className="cursor-pointer list-none px-3 py-2">
+                    <summary className="cursor-pointer list-none px-2.5 py-1.5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex flex-col gap-1">
                           {showOwnerMatchup && (
@@ -277,6 +344,21 @@ export default function GameWeekPanel({
                               useNeutralSemantics ? 'vs' : '@'
                             )}
                           </div>
+                          {tagState.primary ? (
+                            <div className="mt-0.5 inline-flex flex-wrap items-center gap-1 text-[10px] uppercase tracking-wide">
+                              <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
+                                {LEAGUE_TAG_LABELS[tagState.primary]}
+                              </span>
+                              {tagState.secondary.map((tag) => (
+                                <span
+                                  key={`${g.key}:${tag}`}
+                                  className="rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-medium text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                                >
+                                  {LEAGUE_TAG_LABELS[tag]}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                         <div
                           className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(resolvedSummaryState, isPlaceholder)}`}
@@ -287,7 +369,7 @@ export default function GameWeekPanel({
                       </div>
                     </summary>
 
-                    <div className="space-y-2 px-3 py-3">
+                    <div className="space-y-1.5 px-2.5 py-2.5">
                       <div className="space-y-0.5">
                         {eventName && (
                           <div

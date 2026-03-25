@@ -83,6 +83,14 @@ test('league surface keeps admin tooling off the landing page when a schedule ca
   assert.doesNotMatch(html, /Admin diagnostics: API usage/);
 });
 
+test('league surface shows compact orientation and partial data availability copy', () => {
+  const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} />);
+
+  assert.match(html, /Track owner matchups, scores, and odds for the selected league view\./);
+  assert.match(html, /Scores available for 0\/1 games\./);
+  assert.match(html, /Odds unavailable in this view\./);
+});
+
 test('owner surface remains reachable with owner data even when no week is selected', () => {
   const html = renderToStaticMarkup(
     <CFBScheduleApp
@@ -250,4 +258,24 @@ test('matchups keeps week context controls visible', () => {
 
   assert.match(html, /Week context/);
   assert.match(html, /Browse weeks, postseason, and team filters\./);
+});
+
+test('standings hides week context controls and keeps season-level framing', () => {
+  const html = renderToStaticMarkup(
+    <CFBScheduleApp
+      initialWeekViewMode="standings"
+      initialGames={[game({ week: 1 }), game({ key: 'g-2', week: 2 })]}
+      initialRoster={[
+        { owner: 'Alice', team: 'Away Team' },
+        { owner: 'Bob', team: 'Home Team' },
+      ]}
+    />
+  );
+
+  assert.match(html, /Standings/);
+  assert.match(
+    html,
+    /Season-long surname results and coverage status stay front-and-center here\./
+  );
+  assert.doesNotMatch(html, /Week context/);
 });

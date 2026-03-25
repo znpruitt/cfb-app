@@ -1247,3 +1247,158 @@ test('collapsed rows use neutral cards with chip-only state styling and outer ca
   assert.match(html, /border-emerald-200[^>]*data-summary-state="true">FINAL<\/div>/);
   assert.doesNotMatch(html, /bg-emerald-50 text-gray-900/);
 });
+
+test('schedule cards use primary tag priority (swing over upset/even) with subordinate secondary tags', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'priority', csvAway: 'Away Team', csvHome: 'Home Team' })]}
+      byes={[]}
+      oddsByKey={{
+        priority: {
+          favorite: 'Home Team',
+          spread: -2.5,
+          homeSpread: -2.5,
+          awaySpread: 2.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 51.5,
+          mlHome: -140,
+          mlAway: 118,
+          overPrice: -110,
+          underPrice: -110,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2026-09-01T17:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{
+        priority: {
+          away: { team: 'Away Team', score: 17 },
+          home: { team: 'Home Team', score: 10 },
+          status: 'In Progress',
+          time: '05:32',
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Away Team', 'Alice'],
+          ['Home Team', 'Bob'],
+        ])
+      }
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-primary-tag="swing"/);
+  assert.match(html, /Swing/);
+  assert.match(html, /Upset alert/);
+  assert.match(html, /Even spread/);
+});
+
+test('important games get emphasis classes while unrelated rows remain neutral', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({ key: 'swing-game', csvAway: 'A', csvHome: 'B' }),
+        game({ key: 'neutral-game', csvAway: 'C', csvHome: 'D' }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['A', 'Owner A'],
+          ['B', 'Owner B'],
+        ])
+      }
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-primary-tag="swing"/);
+  assert.match(html, /border-indigo-300\/80 bg-indigo-50\/35/);
+  assert.match(html, /data-primary-tag=""/);
+});
+
+test('ranked games receive subtle emphasis without requiring league tags', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'ranked-subtle', csvAway: 'Away', csvHome: 'Home' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      rankingsByTeamId={new Map([['h', { rank: 7, rankSource: 'ap' }]])}
+    />
+  );
+
+  assert.match(html, /data-ranked-game="true"/);
+  assert.match(html, /border-blue-300\/70 bg-blue-50\/20/);
+});
+
+test('schedule header shows compact tag priority legend', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'legend', csvAway: 'Away', csvHome: 'Home' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Tags: Swing &gt; Upset alert &gt; Even spread/);
+});
+
+test('live schedule cards keep live summary state and add subtle live ring accent', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'live-ring', csvAway: 'Away', csvHome: 'Home' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'live-ring': {
+          away: { team: 'Away', score: 10 },
+          home: { team: 'Home', score: 7 },
+          status: 'In Progress',
+          time: '08:11',
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-summary-state[^>]*>IN PROGRESS<\/div>/);
+  assert.match(html, /ring-1 ring-amber-300\/70/);
+});
+
+test('schedule panel shows empty-state copy when no games match selected scope', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /No games match the current filters\./);
+});
