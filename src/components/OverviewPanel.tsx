@@ -285,10 +285,12 @@ function CondensedStandingsTable({
   rows,
   onOwnerSelect,
   previousRows,
+  liveCountByOwner,
 }: {
   rows: OwnerStandingsRow[];
   onOwnerSelect?: (owner: string) => void;
   previousRows?: OwnerStandingsRow[] | null;
+  liveCountByOwner?: Map<string, number>;
 }): React.ReactElement {
   const previousRankLookup = new Map(
     (previousRows ?? []).map((row, index) => [row.owner, index + 1] as const)
@@ -296,25 +298,23 @@ function CondensedStandingsTable({
   return (
     <div className="-mx-1 overflow-x-auto px-1">
       <div className="min-w-full text-sm sm:text-[0.92rem]">
-        <div className="grid grid-cols-[2.2rem_minmax(0,1fr)_4.7rem_4.2rem_3.8rem] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-[0.14em] text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
+        <div className="grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-[0.14em] text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
           <span className="font-semibold">Rank</span>
-          <span className="font-semibold">Owner</span>
-          <span className="text-right font-semibold">Record</span>
-          <span className="text-right font-semibold">Win %</span>
-          <span className="text-right font-semibold">Diff</span>
+          <span className="font-semibold">Owner · Record · Metrics</span>
         </div>
 
         {rows.map((row, index) => {
           const isTopThree = index < 3;
+          const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
           return (
             <div
               key={row.owner}
-              className={`grid grid-cols-[2.2rem_minmax(0,1fr)_4.7rem_4.2rem_3.8rem] items-center gap-x-2 border-b border-gray-100 px-2 py-2 dark:border-zinc-800 ${
-                isTopThree
-                  ? index === 0
-                    ? 'bg-blue-100/85 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/35 dark:ring-blue-900'
-                    : 'bg-blue-50/55 dark:bg-blue-950/15'
-                  : 'odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900'
+              className={`grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-100 px-2 py-2 dark:border-zinc-800 ${
+                index === 0
+                  ? 'bg-blue-100/90 ring-1 ring-inset ring-blue-300 dark:bg-blue-950/40 dark:ring-blue-800'
+                  : isTopThree
+                    ? 'bg-blue-50/60 dark:bg-blue-950/15'
+                    : 'odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900'
               }`}
             >
               <span className="text-base font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
@@ -337,34 +337,48 @@ function CondensedStandingsTable({
                   );
                 })()}
               </span>
-              <span
-                className={`min-w-0 truncate ${
-                  isTopThree
-                    ? 'font-bold text-gray-950 dark:text-zinc-50'
-                    : 'font-semibold text-gray-950 dark:text-zinc-50'
-                }`}
-              >
-                {onOwnerSelect ? (
-                  <button
-                    type="button"
-                    className="max-w-full truncate text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                    onClick={() => onOwnerSelect(row.owner)}
+              <div className={`min-w-0 ${index > 2 ? 'text-gray-800 dark:text-zinc-200' : ''}`}>
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span
+                    className={`min-w-0 truncate ${
+                      index === 0
+                        ? 'font-extrabold text-gray-950 dark:text-zinc-50'
+                        : isTopThree
+                          ? 'font-bold text-gray-950 dark:text-zinc-50'
+                          : 'font-semibold text-gray-900 dark:text-zinc-100'
+                    }`}
                   >
-                    {row.owner}
-                  </button>
-                ) : (
-                  row.owner
-                )}
-              </span>
-              <span className="whitespace-nowrap text-right font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
-                {row.wins}–{row.losses}
-              </span>
-              <span className="whitespace-nowrap text-right tabular-nums text-gray-600 dark:text-zinc-300">
-                {formatWinPct(row.winPct)}
-              </span>
-              <span className="whitespace-nowrap text-right tabular-nums text-gray-500 dark:text-zinc-400">
-                {formatDiff(row.pointDifferential)}
-              </span>
+                    {onOwnerSelect ? (
+                      <button
+                        type="button"
+                        className="max-w-full truncate text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                        onClick={() => onOwnerSelect(row.owner)}
+                      >
+                        {row.owner}
+                      </button>
+                    ) : (
+                      row.owner
+                    )}
+                  </span>
+                  {index === 0 ? (
+                    <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                      Leader
+                    </span>
+                  ) : null}
+                  <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                    {row.wins}–{row.losses}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
+                  <span>Win% {formatWinPct(row.winPct)}</span>
+                  <span>Diff {formatDiff(row.pointDifferential)}</span>
+                  {liveCount > 0 ? (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                      {liveCount} live
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             </div>
           );
         })}
@@ -669,6 +683,10 @@ export default function OverviewPanel({
     () => computeStandings(games, scoresByKey, rosterByTeam),
     [games, scoresByKey, rosterByTeam]
   );
+  const liveCountByOwner = React.useMemo(
+    () => new Map(leagueStandings.map((row) => [row.owner, row.liveGames] as const)),
+    [leagueStandings]
+  );
   const weeklyInsights = React.useMemo(
     () => computeWeeklyInsights(games, scoresByKey, rosterByTeam),
     [games, scoresByKey, rosterByTeam]
@@ -756,6 +774,7 @@ export default function OverviewPanel({
               finalGames: row.wins + row.losses,
             }))}
             onOwnerSelect={onOwnerSelect}
+            liveCountByOwner={liveCountByOwner}
           />
         )}
       </SectionCard>
@@ -788,6 +807,7 @@ export default function OverviewPanel({
               rows={standingsLeaders}
               onOwnerSelect={onOwnerSelect}
               previousRows={previousStandingsLeaders}
+              liveCountByOwner={liveCountByOwner}
             />
           )}
         </SectionCard>
