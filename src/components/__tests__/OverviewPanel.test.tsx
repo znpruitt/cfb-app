@@ -853,6 +853,8 @@ test('overview panel game summary badges prefer top-25 and top-matchup over clos
   assert.match(html, /#6 vs #11/);
   assert.match(html, /Top matchup/);
   assert.doesNotMatch(html, />Close</);
+  const topMatchupOccurrences = html.match(/Top matchup/g) ?? [];
+  assert.equal(topMatchupOccurrences.length, 1);
 });
 
 test('overview highlights prioritize top matchup and conditionally render upset watch plus standings context', () => {
@@ -987,4 +989,45 @@ test('overview highlights prioritize top matchup and conditionally render upset 
   assert.match(html, /Upset watch/);
   assert.doesNotMatch(html, /Ranked spotlight/);
   assert.match(html, /Tight race: Alice and Bob are separated by 0.000 win%/);
+});
+
+test('overview standings context suppresses leader-gap duplicate messaging when race is not tight', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 10,
+          losses: 2,
+          winPct: 0.833,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+        {
+          owner: 'Bob',
+          wins: 8,
+          losses: 4,
+          winPct: 0.667,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 2,
+          finalGames: 12,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /Leader gap:/);
+  assert.doesNotMatch(html, /Tight race:/);
+  assert.match(html, /Alice leads by 0.166 win%/);
 });

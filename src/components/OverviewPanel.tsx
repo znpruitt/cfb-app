@@ -589,12 +589,13 @@ function GameSummaryList({
           highlightSignals.rankedHighlightKey === item.bucket.game.key &&
           !isTopMatchup &&
           !isUpsetWatch;
-        const highlightLabel = isTopMatchup
-          ? 'Top matchup'
-          : isUpsetWatch
-            ? 'Upset watch'
-            : isRankedSpotlight
-              ? 'Ranked spotlight'
+        const hasTopMatchupTag = highlightTags.some((tag) => tag.id === 'topMatchup');
+        const highlightLabel = isUpsetWatch
+          ? 'Upset watch'
+          : isRankedSpotlight
+            ? 'Ranked spotlight'
+            : isTopMatchup && !hasTopMatchupTag
+              ? 'Top matchup'
               : null;
 
         return (
@@ -746,10 +747,8 @@ export default function OverviewPanel({
     const leader = standingsLeaders[0];
     const runnerUp = standingsLeaders[1];
     const gap = Math.max(0, leader.winPct - runnerUp.winPct);
-    if (gap <= 0.03) {
-      return `Tight race: ${leader.owner} and ${runnerUp.owner} are separated by ${formatPctGap(gap)} win%.`;
-    }
-    return `Leader gap: ${formatPctGap(gap)} win% over #2 ${runnerUp.owner}.`;
+    if (gap > 0.03) return null;
+    return `Tight race: ${leader.owner} and ${runnerUp.owner} are separated by ${formatPctGap(gap)} win%.`;
   }, [standingsLeaders]);
 
   return (
