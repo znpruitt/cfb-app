@@ -126,18 +126,27 @@ function deriveMovementOutcomes(params: {
     const homeScore = item.score?.home.score;
     if (awayScore == null || homeScore == null) continue;
 
-    const sideResults = [
-      {
-        owner: item.bucket.awayOwner,
-        score: awayScore,
-        opponentScore: homeScore,
-      },
-      {
-        owner: item.bucket.homeOwner,
-        score: homeScore,
-        opponentScore: awayScore,
-      },
-    ];
+    const sideResults =
+      item.bucket.awayOwner && item.bucket.homeOwner && item.bucket.awayOwner === item.bucket.homeOwner
+        ? [
+            {
+              owner: item.bucket.awayOwner,
+              score: Math.max(awayScore, homeScore),
+              opponentScore: Math.min(awayScore, homeScore),
+            },
+          ]
+        : [
+            {
+              owner: item.bucket.awayOwner,
+              score: awayScore,
+              opponentScore: homeScore,
+            },
+            {
+              owner: item.bucket.homeOwner,
+              score: homeScore,
+              opponentScore: awayScore,
+            },
+          ];
 
     for (const result of sideResults) {
       if (!result.owner) continue;
@@ -376,6 +385,14 @@ export function deriveOverviewHighlightSignals(params: {
   const items = Array.from(dedupedByKey.values());
 
   const topMatchup = items
+    .filter(
+      (item) =>
+        Boolean(
+          item.bucket.awayOwner &&
+            item.bucket.homeOwner &&
+            item.bucket.awayOwner !== item.bucket.homeOwner
+        )
+    )
     .map((item) => {
       const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
       const margin = gameMargin(item);

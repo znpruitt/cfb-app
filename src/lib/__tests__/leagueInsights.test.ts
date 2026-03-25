@@ -261,6 +261,53 @@ test('deriveLeagueInsights movement signals require minimum two games per owner'
   assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
 });
 
+test('deriveLeagueInsights does not double-count same-owner matchup sides for movement qualification', () => {
+  const selfOwned = item(game({ key: 'self-owned-single' }), 'Alex', 'Alex');
+  selfOwned.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 35 },
+    home: { team: 'Home', score: 21 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [selfOwned],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain:')));
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
+});
+
+test('deriveLeagueInsights same-owner matchups cannot emit both biggest gain and biggest drop', () => {
+  const selfOwnedOne = item(game({ key: 'self-owned-1' }), 'Alex', 'Alex');
+  selfOwnedOne.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 31 },
+    home: { team: 'Home', score: 24 },
+    time: null,
+  };
+  const selfOwnedTwo = item(game({ key: 'self-owned-2' }), 'Alex', 'Alex');
+  selfOwnedTwo.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 17 },
+    home: { team: 'Home', score: 14 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [selfOwnedOne, selfOwnedTwo],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(insights.some((insight) => insight.text === 'Biggest gain: Alex (+2 wins)'));
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop: Alex')));
+});
+
 test('deriveOverviewHighlightSignals picks deterministic top matchup and upset watch', () => {
   const topMatchup = item(game({ key: 'top-matchup' }), 'Alex', 'Blair');
   topMatchup.score = {
@@ -334,6 +381,23 @@ test('deriveOverviewHighlightSignals picks deterministic top matchup and upset w
   assert.equal(signals.topMatchupKey, 'top-matchup');
   assert.deepEqual(signals.upsetWatchKeys, ['upset-watch']);
   assert.equal(signals.rankedHighlightKey, 'ranked-spotlight');
+});
+
+test('deriveOverviewHighlightSignals returns null top matchup when no distinct owner-vs-owner games exist', () => {
+  const sameOwner = item(game({ key: 'same-owner' }), 'Alex', 'Alex');
+  const singleOwned = item(game({ key: 'single-owned' }), 'Alex', 'Placeholder');
+  singleOwned.bucket.homeOwner = undefined;
+  const unowned = item(game({ key: 'unowned' }), 'Placeholder', 'Placeholder');
+  unowned.bucket.awayOwner = undefined;
+  unowned.bucket.homeOwner = undefined;
+
+  const signals = deriveOverviewHighlightSignals({
+    keyMatchups: [sameOwner, singleOwned, unowned],
+    liveItems: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(signals.topMatchupKey, null);
 });
 
 test('deriveLeagueInsights shows top-two result only for final top-two head-to-head', () => {
