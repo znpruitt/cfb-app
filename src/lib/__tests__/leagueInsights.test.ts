@@ -8,6 +8,7 @@ import {
   prioritizeGameTags,
   deriveGameHighlightTags,
   deriveLeagueInsights,
+  deriveOverviewHighlightSignals,
 } from '../leagueInsights.ts';
 import type { OverviewGameItem } from '../overview.ts';
 import type { TeamRankingEnrichment } from '../rankings.ts';
@@ -211,6 +212,128 @@ test('deriveLeagueInsights includes close-game count', () => {
   });
 
   assert.ok(insights.some((insight) => insight.text === '1 close game this week'));
+});
+
+test('deriveLeagueInsights includes biggest gain and biggest drop movement signals', () => {
+  const gameOne = item(game({ key: 'movement-1' }), 'Alex', 'Blair');
+  gameOne.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 31 },
+    home: { team: 'Home', score: 21 },
+    time: null,
+  };
+  const gameTwo = item(game({ key: 'movement-2' }), 'Alex', 'Blair');
+  gameTwo.score = {
+    status: 'In Progress',
+    away: { team: 'Away', score: 24 },
+    home: { team: 'Home', score: 10 },
+    time: '04:11',
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [gameOne, gameTwo],
+    liveGames: [gameTwo],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(insights.some((insight) => insight.text === 'Biggest gain: Alex (+2 wins)'));
+  assert.ok(insights.some((insight) => insight.text === 'Biggest drop: Blair (-2)'));
+});
+
+test('deriveLeagueInsights movement signals require minimum two games per owner', () => {
+  const singleResult = item(game({ key: 'movement-single' }), 'Alex', 'Blair');
+  singleResult.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 28 },
+    home: { team: 'Home', score: 14 },
+    time: null,
+  };
+
+  const insights = deriveLeagueInsights({
+    standings,
+    recentResults: [singleResult],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain:')));
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
+});
+
+test('deriveOverviewHighlightSignals picks deterministic top matchup and upset watch', () => {
+  const topMatchup = item(game({ key: 'top-matchup' }), 'Alex', 'Blair');
+  topMatchup.score = {
+    status: 'In Progress',
+    away: { team: 'Away', score: 24 },
+    home: { team: 'Home', score: 20 },
+    time: '03:20',
+  };
+  const upsetWatch = item(
+    game({
+      key: 'upset-watch',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'favorite-away',
+          displayName: 'Favorite Away',
+          canonicalName: 'Favorite Away',
+          rawName: 'Favorite Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'home-underdog',
+          displayName: 'Home Underdog',
+          canonicalName: 'Home Underdog',
+          rawName: 'Home Underdog',
+        },
+      },
+    }),
+    'Casey',
+    'Drew'
+  );
+  upsetWatch.score = {
+    status: 'In Progress',
+    away: { team: 'Favorite Away', score: 10 },
+    home: { team: 'Home Underdog', score: 24 },
+    time: '07:44',
+  };
+  const rankedSpotlight = item(
+    game({
+      key: 'ranked-spotlight',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'ranked-away',
+          displayName: 'Ranked Away',
+          canonicalName: 'Ranked Away',
+          rawName: 'Ranked Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'unranked-home',
+          displayName: 'Unranked Home',
+          canonicalName: 'Unranked Home',
+          rawName: 'Unranked Home',
+        },
+      },
+    }),
+    'Evan',
+    'Fran'
+  );
+
+  const signals = deriveOverviewHighlightSignals({
+    keyMatchups: [rankedSpotlight, topMatchup, upsetWatch],
+    liveItems: [topMatchup, upsetWatch],
+    rankingsByTeamId: new Map([
+      ['favorite-away', { rank: 20, rankSource: 'ap' }],
+      ['ranked-away', { rank: 7, rankSource: 'ap' }],
+    ]),
+  });
+
+  assert.equal(signals.topMatchupKey, 'top-matchup');
+  assert.deepEqual(signals.upsetWatchKeys, ['upset-watch']);
+  assert.equal(signals.rankedHighlightKey, 'ranked-spotlight');
 });
 
 test('deriveLeagueInsights shows top-two result only for final top-two head-to-head', () => {

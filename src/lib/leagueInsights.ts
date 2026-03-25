@@ -19,6 +19,12 @@ export type GameHighlightTag = {
   priority: number;
 };
 
+export type OverviewHighlightSignals = {
+  topMatchupKey: string | null;
+  upsetWatchKeys: string[];
+  rankedHighlightKey: string | null;
+};
+
 type LeagueInsightsInput = {
   standings: OwnerStandingsRow[];
   previousStandings?: OwnerStandingsRow[] | null;
@@ -29,6 +35,15 @@ type LeagueInsightsInput = {
 
 const TOP_INSIGHT_LIMIT = 3;
 const TOP_BADGE_LIMIT = 2;
+const MOVEMENT_MIN_GAME_COUNT = 2;
+
+type OwnerMovementRecord = {
+  games: number;
+  wins: number;
+  losses: number;
+  pointDiff: number;
+  liveGames: number;
+};
 
 function teamRankForGameSide(
   item: OverviewGameItem,
@@ -74,6 +89,128 @@ function leaderGap(rows: OwnerStandingsRow[]): number | null {
   return Math.max(0, rows[0].winPct - rows[1].winPct);
 }
 
+function rankingPairForItem(
+  item: OverviewGameItem,
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>
+): { awayRank: number | null; homeRank: number | null } {
+  return {
+    awayRank: teamRankForGameSide(item, 'away', rankingsByTeamId),
+    homeRank: teamRankForGameSide(item, 'home', rankingsByTeamId),
+  };
+}
+
+function deriveMovementOutcomes(params: {
+  recentResults: OverviewGameItem[];
+  liveGames: OverviewGameItem[];
+}): Map<string, OwnerMovementRecord> {
+  const records = new Map<string, OwnerMovementRecord>();
+  const itemsByKey = new Map<string, OverviewGameItem>();
+  [...params.recentResults, ...params.liveGames].forEach((item) => {
+    itemsByKey.set(item.bucket.game.key, item);
+  });
+
+  const getRecord = (owner: string): OwnerMovementRecord => {
+    let record = records.get(owner);
+    if (!record) {
+      record = { games: 0, wins: 0, losses: 0, pointDiff: 0, liveGames: 0 };
+      records.set(owner, record);
+    }
+    return record;
+  };
+
+  for (const item of itemsByKey.values()) {
+    const state = gameStateFromScore(item.score);
+    if (state !== 'final' && state !== 'inprogress') continue;
+
+    const awayScore = item.score?.away.score;
+    const homeScore = item.score?.home.score;
+    if (awayScore == null || homeScore == null) continue;
+
+    const sideResults = [
+      {
+        owner: item.bucket.awayOwner,
+        score: awayScore,
+        opponentScore: homeScore,
+      },
+      {
+        owner: item.bucket.homeOwner,
+        score: homeScore,
+        opponentScore: awayScore,
+      },
+    ];
+
+    for (const result of sideResults) {
+      if (!result.owner) continue;
+      const record = getRecord(result.owner);
+      record.games += 1;
+      record.pointDiff += result.score - result.opponentScore;
+      if (state === 'inprogress') record.liveGames += 1;
+      if (result.score > result.opponentScore) record.wins += 1;
+      if (result.score < result.opponentScore) record.losses += 1;
+    }
+  }
+
+  return records;
+}
+
+function deriveMovementInsights(params: {
+  recentResults: OverviewGameItem[];
+  liveGames: OverviewGameItem[];
+}): Insight[] {
+  const records = deriveMovementOutcomes(params);
+  const eligible = Array.from(records.entries()).filter(
+    ([, record]) => record.games >= MOVEMENT_MIN_GAME_COUNT
+  );
+  if (eligible.length === 0) return [];
+
+  const biggestGain = eligible
+    .filter(([, record]) => record.wins > 0)
+    .sort((left, right) => {
+      const [leftOwner, leftRecord] = left;
+      const [rightOwner, rightRecord] = right;
+      if (rightRecord.wins !== leftRecord.wins) return rightRecord.wins - leftRecord.wins;
+      if (rightRecord.pointDiff !== leftRecord.pointDiff)
+        return rightRecord.pointDiff - leftRecord.pointDiff;
+      if (rightRecord.liveGames !== leftRecord.liveGames)
+        return rightRecord.liveGames - leftRecord.liveGames;
+      return leftOwner.localeCompare(rightOwner);
+    })[0];
+
+  const biggestDrop = eligible
+    .filter(([, record]) => record.losses > 0)
+    .sort((left, right) => {
+      const [leftOwner, leftRecord] = left;
+      const [rightOwner, rightRecord] = right;
+      if (rightRecord.losses !== leftRecord.losses) return rightRecord.losses - leftRecord.losses;
+      if (leftRecord.pointDiff !== rightRecord.pointDiff)
+        return leftRecord.pointDiff - rightRecord.pointDiff;
+      if (rightRecord.liveGames !== leftRecord.liveGames)
+        return rightRecord.liveGames - leftRecord.liveGames;
+      return leftOwner.localeCompare(rightOwner);
+    })[0];
+
+  const insights: Insight[] = [];
+  if (biggestGain) {
+    const [owner, record] = biggestGain;
+    insights.push({
+      id: `biggest-gain-${owner}`,
+      text: `Biggest gain: ${owner} (+${record.wins} wins)`,
+      priority: 99,
+    });
+  }
+
+  if (biggestDrop) {
+    const [owner, record] = biggestDrop;
+    insights.push({
+      id: `biggest-drop-${owner}`,
+      text: `Biggest drop: ${owner} (-${record.losses})`,
+      priority: 97,
+    });
+  }
+
+  return insights;
+}
+
 export function deriveLeagueInsights({
   standings,
   previousStandings,
@@ -84,6 +221,8 @@ export function deriveLeagueInsights({
   const insights: Insight[] = [];
   const leader = standings[0];
   const runnerUp = standings[1];
+
+  insights.push(...deriveMovementInsights({ recentResults, liveGames }));
 
   if (leader && runnerUp) {
     const gap = leaderGap(standings) ?? 0;
@@ -222,6 +361,100 @@ export function deriveLeagueInsights({
   }
 
   return insights.sort((a, b) => b.priority - a.priority).slice(0, TOP_INSIGHT_LIMIT);
+}
+
+export function deriveOverviewHighlightSignals(params: {
+  keyMatchups: OverviewGameItem[];
+  liveItems: OverviewGameItem[];
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): OverviewHighlightSignals {
+  const { keyMatchups, liveItems, rankingsByTeamId } = params;
+  const dedupedByKey = new Map<string, OverviewGameItem>();
+  [...keyMatchups, ...liveItems].forEach((item) => {
+    dedupedByKey.set(item.bucket.game.key, item);
+  });
+  const items = Array.from(dedupedByKey.values());
+
+  const topMatchup = items
+    .map((item) => {
+      const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
+      const margin = gameMargin(item);
+      const ownedVsOwned = Boolean(
+        item.bucket.awayOwner &&
+          item.bucket.homeOwner &&
+          item.bucket.awayOwner !== item.bucket.homeOwner
+      );
+      const closeGame = margin != null && margin <= 7;
+      const isLive = gameStateFromScore(item.score) === 'inprogress';
+      const rankedBonus =
+        awayRank != null && homeRank != null ? 2 : awayRank != null || homeRank != null ? 1 : 0;
+
+      return {
+        item,
+        ownedVsOwned,
+        closeGame,
+        isLive,
+        rankedBonus,
+        kickoff: new Date(item.bucket.game.date ?? '').getTime(),
+      };
+    })
+    .sort((left, right) => {
+      if (left.ownedVsOwned !== right.ownedVsOwned) return left.ownedVsOwned ? -1 : 1;
+      if (left.closeGame !== right.closeGame) return left.closeGame ? -1 : 1;
+      if (left.isLive !== right.isLive) return left.isLive ? -1 : 1;
+      if (left.rankedBonus !== right.rankedBonus) return right.rankedBonus - left.rankedBonus;
+      if (Number.isFinite(left.kickoff) && Number.isFinite(right.kickoff) && left.kickoff !== right.kickoff) {
+        return left.kickoff - right.kickoff;
+      }
+      return left.item.bucket.game.key.localeCompare(right.item.bucket.game.key);
+    })[0];
+
+  const upsetWatch = liveItems
+    .filter((item) => {
+      const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
+      if (awayRank == null && homeRank == null) return false;
+      const awayScore = item.score?.away.score;
+      const homeScore = item.score?.home.score;
+      if (awayScore == null || homeScore == null || awayScore === homeScore) return false;
+
+      const awayFavorite =
+        awayRank != null && (homeRank == null || awayRank < homeRank);
+      const homeFavorite =
+        homeRank != null && (awayRank == null || homeRank < awayRank);
+      if (!awayFavorite && !homeFavorite) return false;
+
+      return (awayFavorite && awayScore < homeScore) || (homeFavorite && homeScore < awayScore);
+    })
+    .sort((left, right) => {
+      const leftMargin = gameMargin(left) ?? 0;
+      const rightMargin = gameMargin(right) ?? 0;
+      if (rightMargin !== leftMargin) return rightMargin - leftMargin;
+      return left.bucket.game.key.localeCompare(right.bucket.game.key);
+    })
+    .slice(0, 2)
+    .map((item) => item.bucket.game.key);
+
+  const rankedHighlight = items
+    .map((item) => {
+      const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
+      const ranks = [awayRank, homeRank].filter((rank): rank is number => rank != null);
+      if (ranks.length === 0) return null;
+      const bestRank = Math.min(...ranks);
+      const hasTwoRanked = ranks.length === 2;
+      return { item, bestRank, hasTwoRanked };
+    })
+    .filter((value): value is { item: OverviewGameItem; bestRank: number; hasTwoRanked: boolean } => value !== null)
+    .sort((left, right) => {
+      if (left.hasTwoRanked !== right.hasTwoRanked) return left.hasTwoRanked ? -1 : 1;
+      if (left.bestRank !== right.bestRank) return left.bestRank - right.bestRank;
+      return left.item.bucket.game.key.localeCompare(right.item.bucket.game.key);
+    })[0];
+
+  return {
+    topMatchupKey: topMatchup?.item.bucket.game.key ?? null,
+    upsetWatchKeys: upsetWatch,
+    rankedHighlightKey: rankedHighlight?.item.bucket.game.key ?? null,
+  };
 }
 
 export function deriveGameHighlightTags(params: {
