@@ -304,7 +304,7 @@ test('deriveLeagueInsights same-owner matchups cannot emit both biggest gain and
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(insights.some((insight) => insight.text === 'Biggest gain: Alex (+2 wins)'));
+  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain: Alex')));
   assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop: Alex')));
 });
 
@@ -371,7 +371,6 @@ test('deriveOverviewHighlightSignals picks deterministic top matchup and upset w
 
   const signals = deriveOverviewHighlightSignals({
     keyMatchups: [rankedSpotlight, topMatchup, upsetWatch],
-    liveItems: [topMatchup, upsetWatch],
     rankingsByTeamId: new Map([
       ['favorite-away', { rank: 20, rankSource: 'ap' }],
       ['ranked-away', { rank: 7, rankSource: 'ap' }],
@@ -393,11 +392,54 @@ test('deriveOverviewHighlightSignals returns null top matchup when no distinct o
 
   const signals = deriveOverviewHighlightSignals({
     keyMatchups: [sameOwner, singleOwned, unowned],
-    liveItems: [],
     rankingsByTeamId: new Map(),
   });
 
   assert.equal(signals.topMatchupKey, null);
+});
+
+test('deriveOverviewHighlightSignals ignores non-rendered live items for top/ranked selection', () => {
+  const displayedMatchup = item(
+    game({
+      key: 'displayed-matchup',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'displayed-away',
+          displayName: 'Displayed Away',
+          canonicalName: 'Displayed Away',
+          rawName: 'Displayed Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'displayed-home',
+          displayName: 'Displayed Home',
+          canonicalName: 'Displayed Home',
+          rawName: 'Displayed Home',
+        },
+      },
+    }),
+    'Alex',
+    'Blair'
+  );
+  displayedMatchup.score = {
+    status: 'In Progress',
+    away: { team: 'Displayed Away', score: 14 },
+    home: { team: 'Displayed Home', score: 10 },
+    time: '03:30',
+  };
+
+  const signals = deriveOverviewHighlightSignals({
+    keyMatchups: [displayedMatchup],
+    rankingsByTeamId: new Map([
+      ['displayed-away', { rank: 12, rankSource: 'ap' }],
+      ['displayed-home', { rank: 19, rankSource: 'ap' }],
+      ['offscope-away', { rank: 1, rankSource: 'ap' }],
+    ]),
+  });
+
+  assert.equal(signals.topMatchupKey, 'displayed-matchup');
+  assert.equal(signals.rankedHighlightKey, 'displayed-matchup');
 });
 
 test('deriveLeagueInsights shows top-two result only for final top-two head-to-head', () => {

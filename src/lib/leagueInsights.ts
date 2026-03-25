@@ -126,29 +126,26 @@ function deriveMovementOutcomes(params: {
     const homeScore = item.score?.home.score;
     if (awayScore == null || homeScore == null) continue;
 
-    const sideResults =
+    if (
       item.bucket.awayOwner &&
       item.bucket.homeOwner &&
       item.bucket.awayOwner === item.bucket.homeOwner
-        ? [
-            {
-              owner: item.bucket.awayOwner,
-              score: Math.max(awayScore, homeScore),
-              opponentScore: Math.min(awayScore, homeScore),
-            },
-          ]
-        : [
-            {
-              owner: item.bucket.awayOwner,
-              score: awayScore,
-              opponentScore: homeScore,
-            },
-            {
-              owner: item.bucket.homeOwner,
-              score: homeScore,
-              opponentScore: awayScore,
-            },
-          ];
+    ) {
+      continue;
+    }
+
+    const sideResults = [
+      {
+        owner: item.bucket.awayOwner,
+        score: awayScore,
+        opponentScore: homeScore,
+      },
+      {
+        owner: item.bucket.homeOwner,
+        score: homeScore,
+        opponentScore: awayScore,
+      },
+    ];
 
     for (const result of sideResults) {
       if (!result.owner) continue;
@@ -376,17 +373,16 @@ export function deriveLeagueInsights({
 
 export function deriveOverviewHighlightSignals(params: {
   keyMatchups: OverviewGameItem[];
-  liveItems: OverviewGameItem[];
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): OverviewHighlightSignals {
-  const { keyMatchups, liveItems, rankingsByTeamId } = params;
+  const { keyMatchups, rankingsByTeamId } = params;
   const dedupedByKey = new Map<string, OverviewGameItem>();
-  [...keyMatchups, ...liveItems].forEach((item) => {
+  keyMatchups.forEach((item) => {
     dedupedByKey.set(item.bucket.game.key, item);
   });
-  const items = Array.from(dedupedByKey.values());
+  const displayedItems = Array.from(dedupedByKey.values());
 
-  const topMatchup = items
+  const topMatchup = displayedItems
     .filter((item) =>
       Boolean(
         item.bucket.awayOwner &&
@@ -431,8 +427,9 @@ export function deriveOverviewHighlightSignals(params: {
       return left.item.bucket.game.key.localeCompare(right.item.bucket.game.key);
     })[0];
 
-  const upsetWatch = liveItems
+  const upsetWatch = displayedItems
     .filter((item) => {
+      if (gameStateFromScore(item.score) !== 'inprogress') return false;
       const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
       if (awayRank == null && homeRank == null) return false;
       const awayScore = item.score?.away.score;
@@ -454,7 +451,7 @@ export function deriveOverviewHighlightSignals(params: {
     .slice(0, 2)
     .map((item) => item.bucket.game.key);
 
-  const rankedHighlight = items
+  const rankedHighlight = displayedItems
     .map((item) => {
       const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
       const ranks = [awayRank, homeRank].filter((rank): rank is number => rank != null);

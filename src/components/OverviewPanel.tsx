@@ -736,10 +736,9 @@ export default function OverviewPanel({
     () =>
       deriveOverviewHighlightSignals({
         keyMatchups,
-        liveItems,
         rankingsByTeamId,
       }),
-    [keyMatchups, liveItems, rankingsByTeamId]
+    [keyMatchups, rankingsByTeamId]
   );
   const standingsContext = React.useMemo(() => {
     if (standingsLeaders.length < 2) return null;
