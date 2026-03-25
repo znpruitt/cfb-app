@@ -127,7 +127,9 @@ function deriveMovementOutcomes(params: {
     if (awayScore == null || homeScore == null) continue;
 
     const sideResults =
-      item.bucket.awayOwner && item.bucket.homeOwner && item.bucket.awayOwner === item.bucket.homeOwner
+      item.bucket.awayOwner &&
+      item.bucket.homeOwner &&
+      item.bucket.awayOwner === item.bucket.homeOwner
         ? [
             {
               owner: item.bucket.awayOwner,
@@ -385,13 +387,12 @@ export function deriveOverviewHighlightSignals(params: {
   const items = Array.from(dedupedByKey.values());
 
   const topMatchup = items
-    .filter(
-      (item) =>
-        Boolean(
-          item.bucket.awayOwner &&
-            item.bucket.homeOwner &&
-            item.bucket.awayOwner !== item.bucket.homeOwner
-        )
+    .filter((item) =>
+      Boolean(
+        item.bucket.awayOwner &&
+          item.bucket.homeOwner &&
+          item.bucket.awayOwner !== item.bucket.homeOwner
+      )
     )
     .map((item) => {
       const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
@@ -420,7 +421,11 @@ export function deriveOverviewHighlightSignals(params: {
       if (left.closeGame !== right.closeGame) return left.closeGame ? -1 : 1;
       if (left.isLive !== right.isLive) return left.isLive ? -1 : 1;
       if (left.rankedBonus !== right.rankedBonus) return right.rankedBonus - left.rankedBonus;
-      if (Number.isFinite(left.kickoff) && Number.isFinite(right.kickoff) && left.kickoff !== right.kickoff) {
+      if (
+        Number.isFinite(left.kickoff) &&
+        Number.isFinite(right.kickoff) &&
+        left.kickoff !== right.kickoff
+      ) {
         return left.kickoff - right.kickoff;
       }
       return left.item.bucket.game.key.localeCompare(right.item.bucket.game.key);
@@ -434,10 +439,8 @@ export function deriveOverviewHighlightSignals(params: {
       const homeScore = item.score?.home.score;
       if (awayScore == null || homeScore == null || awayScore === homeScore) return false;
 
-      const awayFavorite =
-        awayRank != null && (homeRank == null || awayRank < homeRank);
-      const homeFavorite =
-        homeRank != null && (awayRank == null || homeRank < awayRank);
+      const awayFavorite = awayRank != null && (homeRank == null || awayRank < homeRank);
+      const homeFavorite = homeRank != null && (awayRank == null || homeRank < awayRank);
       if (!awayFavorite && !homeFavorite) return false;
 
       return (awayFavorite && awayScore < homeScore) || (homeFavorite && homeScore < awayScore);
@@ -460,7 +463,10 @@ export function deriveOverviewHighlightSignals(params: {
       const hasTwoRanked = ranks.length === 2;
       return { item, bestRank, hasTwoRanked };
     })
-    .filter((value): value is { item: OverviewGameItem; bestRank: number; hasTwoRanked: boolean } => value !== null)
+    .filter(
+      (value): value is { item: OverviewGameItem; bestRank: number; hasTwoRanked: boolean } =>
+        value !== null
+    )
     .sort((left, right) => {
       if (left.hasTwoRanked !== right.hasTwoRanked) return left.hasTwoRanked ? -1 : 1;
       if (left.bestRank !== right.bestRank) return left.bestRank - right.bestRank;

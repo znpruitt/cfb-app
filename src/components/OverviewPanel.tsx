@@ -259,8 +259,7 @@ function LeagueSummaryHero({
       : phase === 'postseason'
         ? 'Championship race'
         : `League leader: ${leader.owner}`;
-  const supportingCopy =
-    placementSummary.length > 0 ? placementSummary : progressSignal;
+  const supportingCopy = placementSummary.length > 0 ? placementSummary : progressSignal;
   return (
     <section
       className={`rounded-2xl border bg-gradient-to-r via-white to-white px-4 py-4 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5 ${toneClasses}`}

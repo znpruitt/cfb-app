@@ -937,10 +937,10 @@ test('overview highlights prioritize top matchup and conditionally render upset 
           rawName: 'Unranked Home',
         },
       },
-    }),
-    'Erin',
-    'Frank'
+    })
   );
+  rankedSpotlight.bucket.awayOwner = 'Erin';
+  rankedSpotlight.bucket.homeOwner = 'Frank';
 
   const html = renderToStaticMarkup(
     <OverviewPanel
