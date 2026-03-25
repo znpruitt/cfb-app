@@ -115,7 +115,10 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
     html,
     /Kickoff Sat, Aug 30, 4:00 PM<\/span><span>•<\/span><span>Georgia -3.5/
   );
-  assert.match(html, /rounded-xl border p-4 shadow-sm sm:p-5 border-amber-300\/70 bg-amber-500\/5/);
+  assert.match(
+    html,
+    /rounded-xl border p-3\.5 shadow-sm sm:p-4 border-amber-300\/70 bg-amber-500\/5/
+  );
   assert.doesNotMatch(html, /border-l-4 border-l-emerald-600 bg-emerald-50 text-gray-900/);
   assert.doesNotMatch(html, /Faces Bob/);
   assert.doesNotMatch(html, /vs owner Bob/);

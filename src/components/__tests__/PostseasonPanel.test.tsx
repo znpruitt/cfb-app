@@ -79,9 +79,9 @@ test('postseason panel threads team catalog through to game cards', () => {
     />
   );
 
-  assert.match(html, /data-card-team-accent="away"/);
-  assert.match(html, /data-card-team-accent="home"/);
-  assert.match(html, /rgba\(170, 89, 21, 0\.28\)/);
-  assert.match(html, /rgba\(176, 22, 53, 0\.28\)/);
+  assert.match(html, /data-card-team-accent-top="away"/);
+  assert.match(html, /data-card-team-accent-bottom="home"/);
+  assert.match(html, /rgba\(170, 89, 21, 0\.38\)/);
+  assert.match(html, /rgba\(176, 22, 53, 0\.38\)/);
   assert.doesNotMatch(html, /rgba\(5, 150, 105, 0\.28\)/);
 });

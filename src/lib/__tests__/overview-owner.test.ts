@@ -168,9 +168,11 @@ test('deriveOwnerRoster calculates team records and matchup labels per owned tea
 
   assert.deepEqual(roster, [
     {
+      teamId: 'home',
       teamName: 'Michigan',
       record: '0–0',
       nextOpponent: 'USC',
+      nextOpponentTeamId: 'away',
       nextGameLabel: 'vs USC',
       ownerTeamSide: 'home',
       isNeutralSite: false,
@@ -180,9 +182,11 @@ test('deriveOwnerRoster calculates team records and matchup labels per owned tea
       liveGameKey: null,
     },
     {
+      teamId: 'home',
       teamName: 'Texas',
       record: '1–1',
       nextOpponent: 'LSU',
+      nextOpponentTeamId: 'home',
       nextGameLabel: 'at LSU',
       ownerTeamSide: 'away',
       isNeutralSite: false,
@@ -243,9 +247,11 @@ test('deriveOwnerRoster prefers live game context over the next scheduled game',
   const texas = roster.find((row) => row.teamName === 'Texas');
 
   assert.deepEqual(texas, {
+    teamId: 'away',
     teamName: 'Texas',
     record: '0–0',
     nextOpponent: 'Georgia',
+    nextOpponentTeamId: 'home',
     nextGameLabel: 'at Georgia',
     ownerTeamSide: 'away',
     isNeutralSite: false,
@@ -333,9 +339,11 @@ test('deriveOwnerRoster keeps multi-team owners to one row per team and marks se
 
   assert.deepEqual(roster, [
     {
+      teamId: 'home',
       teamName: 'Michigan',
       record: '0–1',
       nextOpponent: null,
+      nextOpponentTeamId: null,
       nextGameLabel: null,
       ownerTeamSide: 'home',
       isNeutralSite: false,
@@ -345,9 +353,11 @@ test('deriveOwnerRoster keeps multi-team owners to one row per team and marks se
       liveGameKey: null,
     },
     {
+      teamId: 'away',
       teamName: 'Texas',
       record: '1–0',
       nextOpponent: null,
+      nextOpponentTeamId: null,
       nextGameLabel: null,
       ownerTeamSide: 'home',
       isNeutralSite: false,

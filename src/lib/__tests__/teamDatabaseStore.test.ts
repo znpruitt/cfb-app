@@ -48,22 +48,19 @@ test('persists and reloads durable team database store', async () => {
   assert.match(__getTeamDatabaseStoreFilePathForTests(), /data\/team-database\.json$/);
 });
 
-test('write queue recovers after a failed persistence attempt', async () => {
+test('write implementation override hook is a no-op in app-state durability mode', async () => {
   let attempt = 0;
   __setTeamDatabaseWriteImplForTests(async () => {
     attempt += 1;
-    if (attempt === 1) {
-      throw new Error('disk full');
-    }
+    throw new Error('disk full');
   });
 
-  await assert.rejects(
+  await assert.doesNotReject(
     setTeamDatabaseFile({
       source: 'cfbd',
       updatedAt: '2026-03-24T00:00:00.000Z',
       items: [{ id: 'rice', school: 'Rice', alts: [] }],
-    }),
-    /disk full/
+    })
   );
 
   await assert.doesNotReject(
@@ -75,39 +72,41 @@ test('write queue recovers after a failed persistence attempt', async () => {
   );
 
   const loaded = await getTeamDatabaseFile();
-  assert.equal(attempt, 2);
+  assert.equal(attempt, 0);
   assert.equal(loaded.items[0]?.id, 'baylor');
 });
 
-test('memory store only updates after persistence succeeds', async () => {
+test('memory store updates on successive successful writes', async () => {
   await setTeamDatabaseFile(persistedFile);
 
-  let shouldFail = true;
+  let attempt = 0;
   __setTeamDatabaseWriteImplForTests(async () => {
-    if (shouldFail) throw new Error('permissions');
+    attempt += 1;
+    throw new Error('permissions');
   });
 
-  await assert.rejects(
+  await assert.doesNotReject(
     setTeamDatabaseFile({
       source: 'cfbd',
       updatedAt: '2026-03-24T05:00:00.000Z',
       items: [{ id: 'rice', school: 'Rice', alts: [] }],
-    }),
-    /permissions/
+    })
   );
 
-  const afterFailure = await getTeamDatabaseFile();
-  assert.equal(afterFailure.items[0]?.id, 'texas');
-  assert.equal(afterFailure.updatedAt, persistedFile.updatedAt);
+  const afterFirstWrite = await getTeamDatabaseFile();
+  assert.equal(afterFirstWrite.items[0]?.id, 'rice');
+  assert.equal(afterFirstWrite.updatedAt, '2026-03-24T05:00:00.000Z');
 
-  shouldFail = false;
-  await setTeamDatabaseFile({
-    source: 'cfbd',
-    updatedAt: '2026-03-24T06:00:00.000Z',
-    items: [{ id: 'rice', school: 'Rice', alts: [] }],
-  });
+  await assert.doesNotReject(
+    setTeamDatabaseFile({
+      source: 'cfbd',
+      updatedAt: '2026-03-24T06:00:00.000Z',
+      items: [{ id: 'rice', school: 'Rice', alts: [] }],
+    })
+  );
 
   const afterSuccess = await getTeamDatabaseFile();
+  assert.equal(attempt, 0);
   assert.equal(afterSuccess.items[0]?.id, 'rice');
   assert.equal(afterSuccess.updatedAt, '2026-03-24T06:00:00.000Z');
 });
