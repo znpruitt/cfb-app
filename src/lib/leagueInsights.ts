@@ -376,6 +376,7 @@ function favoriteSideFromOdds(game: AppGame, odds?: CombinedOdds): 'away' | 'hom
   if (typeof odds.homeSpread === 'number' && typeof odds.awaySpread === 'number') {
     if (odds.homeSpread < odds.awaySpread) return 'home';
     if (odds.awaySpread < odds.homeSpread) return 'away';
+    return null;
   }
 
   if (odds.favorite) {
@@ -497,7 +498,7 @@ export function computeWeeklyInsights(
     const hasOwnedAway = Boolean(awayOwner);
     const hasOwnedHome = Boolean(homeOwner);
     if (hasOwnedAway || hasOwnedHome) totalOwnedGames += 1;
-    if (hasOwnedAway && hasOwnedHome) ownedVsOwnedGames += 1;
+    if (awayOwner && homeOwner && awayOwner !== homeOwner) ownedVsOwnedGames += 1;
 
     addOwnerCount(ownerGameCounts, awayOwner);
     addOwnerCount(ownerGameCounts, homeOwner);

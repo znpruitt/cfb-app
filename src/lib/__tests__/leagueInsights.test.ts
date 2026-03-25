@@ -356,6 +356,30 @@ test('computeWeeklyInsights returns owner activity and owned game totals', () =>
   assert.equal(insights.leaderThisWeek, 'Alex');
 });
 
+test('computeWeeklyInsights excludes same-owner matchups from owner-vs-owner totals', () => {
+  const gamesList = [game({ key: 'same-owner', csvAway: 'A-Team', csvHome: 'B-Team' })];
+  const ownership = new Map([
+    ['A-Team', 'Alex'],
+    ['B-Team', 'Alex'],
+  ]);
+
+  const insights = computeWeeklyInsights(gamesList, {}, ownership);
+  assert.equal(insights.totalOwnedGames, 1);
+  assert.equal(insights.ownedVsOwnedGames, 0);
+});
+
+test('computeWeeklyInsights counts owner-vs-owner games when owners differ', () => {
+  const gamesList = [game({ key: 'different-owner', csvAway: 'A-Team', csvHome: 'B-Team' })];
+  const ownership = new Map([
+    ['A-Team', 'Alex'],
+    ['B-Team', 'Blair'],
+  ]);
+
+  const insights = computeWeeklyInsights(gamesList, {}, ownership);
+  assert.equal(insights.totalOwnedGames, 1);
+  assert.equal(insights.ownedVsOwnedGames, 1);
+});
+
 test('computeGameTags marks swing, upset, and even scenarios', () => {
   const taggedGame = game({ key: 't1', csvAway: 'Dogs', csvHome: 'Cats' });
   const ownership = new Map([
@@ -499,6 +523,105 @@ test('computeGameTags keeps deterministic behavior when odds are missing', () =>
   };
 
   assert.deepEqual(computeGameTags(taggedGame, score, undefined, ownership), ['swing']);
+});
+
+test('computeGameTags does not label upset when side spreads are equal non-zero', () => {
+  const taggedGame = game({ key: 'equal-spreads', csvAway: 'A-Team', csvHome: 'B-Team' });
+  const ownership = new Map([
+    ['A-Team', 'Alex'],
+    ['B-Team', 'Blair'],
+  ]);
+  const score = {
+    status: 'In Progress',
+    away: { team: 'A-Team', score: 14 },
+    home: { team: 'B-Team', score: 10 },
+    time: '08:00',
+  };
+  const odds = {
+    favorite: 'B-Team',
+    spread: 0,
+    homeSpread: -3,
+    awaySpread: -3,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 49.5,
+    mlHome: -110,
+    mlAway: -110,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-01T17:00:00.000Z',
+    lineSourceStatus: 'latest' as const,
+  };
+
+  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['swing', 'even']);
+});
+
+test("computeGameTags does not label upset on pick'em side spreads", () => {
+  const taggedGame = game({ key: 'pickem-spreads', csvAway: 'A-Team', csvHome: 'B-Team' });
+  const ownership = new Map([
+    ['A-Team', 'Alex'],
+    ['B-Team', 'Blair'],
+  ]);
+  const score = {
+    status: 'In Progress',
+    away: { team: 'A-Team', score: 21 },
+    home: { team: 'B-Team', score: 17 },
+    time: '05:30',
+  };
+  const odds = {
+    favorite: 'B-Team',
+    spread: 0,
+    homeSpread: 0,
+    awaySpread: 0,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 51.5,
+    mlHome: -110,
+    mlAway: -110,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-01T17:00:00.000Z',
+    lineSourceStatus: 'latest' as const,
+  };
+
+  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['swing', 'even']);
+});
+
+test('computeGameTags falls back to odds.favorite when side spreads are incomplete', () => {
+  const taggedGame = game({ key: 'favorite-fallback', csvAway: 'A-Team', csvHome: 'B-Team' });
+  const ownership = new Map([
+    ['A-Team', 'Alex'],
+    ['B-Team', 'Blair'],
+  ]);
+  const score = {
+    status: 'In Progress',
+    away: { team: 'A-Team', score: 17 },
+    home: { team: 'B-Team', score: 10 },
+    time: '03:41',
+  };
+  const odds = {
+    favorite: 'B-Team',
+    spread: -4.5,
+    homeSpread: -4.5,
+    awaySpread: null,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 54.5,
+    mlHome: -180,
+    mlAway: 160,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-01T17:00:00.000Z',
+    lineSourceStatus: 'latest' as const,
+  };
+
+  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['swing', 'upset']);
 });
 
 test('computeWeeklyInsights reports no live leader when games are not live', () => {
