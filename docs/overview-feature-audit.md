@@ -1,4 +1,6 @@
 # PROMPT_ID: P2B-OVERVIEW-FEATURE-AUDIT-v1
+# PURPOSE: Audit the current Overview page to identify overlapping versus uniquely valuable modules before UI redesign work. Provide planning guidance that improves coherence without changing runtime behavior.
+# SCOPE: OverviewPanel and directly related helper usage only; no API, ingestion/model, or implementation changes. Analysis and planning output only.
 
 ## Concise summary
 
