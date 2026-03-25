@@ -73,7 +73,7 @@ test('league surface keeps admin tooling off the landing page when a schedule ca
   const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} />);
 
   assert.match(html, /CFB League Dashboard/);
-  assert.match(html, /League Overview/);
+  assert.match(html, /League overview/);
   assert.match(html, /Overview/);
   assert.match(html, /Admin \/ Debug/);
   assert.doesNotMatch(html, /League-first/);
@@ -87,8 +87,12 @@ test('league surface shows compact orientation and partial data availability cop
   const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} />);
 
   assert.match(html, /Track owner matchups, scores, and odds for the selected league view\./);
-  assert.match(html, /Scores available for 0\/1 games\./);
-  assert.match(html, /Odds unavailable in this view\./);
+  assert.match(
+    html,
+    /Start with the current league picture, then drill into weekly schedule and matchup detail as needed\./
+  );
+  assert.doesNotMatch(html, /Scores available for 0\/1 games\./);
+  assert.doesNotMatch(html, /Odds unavailable in this view\./);
 });
 
 test('owner surface remains reachable with owner data even when no week is selected', () => {

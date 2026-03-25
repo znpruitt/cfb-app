@@ -239,7 +239,7 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
-  assert.match(html, /League snapshot/);
+  assert.doesNotMatch(html, /League snapshot/);
 });
 
 test('overview standings emphasize leader row and show live count when available', () => {
@@ -545,6 +545,39 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
   assert.ok(html.indexOf('No live games right now.') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
+});
+
+test('overview panel keeps standings as the only condensed ranking table', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        ...standingsLeaders,
+        {
+          owner: 'Bob',
+          wins: 3,
+          losses: 2,
+          winPct: 0.6,
+          pointsFor: 110,
+          pointsAgainst: 101,
+          pointDifferential: 9,
+          gamesBack: 1,
+          finalGames: 5,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(game({ key: 'what-matters' }))]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const standingsHeaderOccurrences = html.match(/Owner · Record · Metrics/g) ?? [];
+  assert.equal(standingsHeaderOccurrences.length, 1);
+  assert.doesNotMatch(html, /League snapshot/);
+  assert.ok(html.indexOf('League summary') < html.indexOf('League standings'));
+  assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
 });
 
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
