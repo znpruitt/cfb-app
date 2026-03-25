@@ -318,6 +318,26 @@ PROMPT_ID: <ID>
 Then follow the required technical response structure from Section 2.
 ```
 
+## 3.12 Final Response First-Line PROMPT_ID Requirement
+
+Every Codex implementation prompt MUST require the final response to begin with the exact PROMPT_ID from the prompt header.
+
+Required first line of the final response:
+
+    PROMPT_ID: <exact PROMPT_ID from this prompt>
+
+This PROMPT_ID line MUST appear before `Summary` or any other section.
+
+Omitting the line, altering its value/label/format, or placing it lower in the response is noncompliant.
+
+Required final response structure example:
+
+    PROMPT_ID: DOCS-CODEX-RESPONSE-PROMPT-ID-v1
+    Summary
+    Files Changed
+    Testing
+    Notes
+
 ---
 
 # 4. Division of Responsibilities
