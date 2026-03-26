@@ -1172,6 +1172,8 @@ export default function CFBScheduleApp({
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
                   }}
+                  onViewStandings={() => setWeekViewMode('standings')}
+                  onViewMatchups={() => setWeekViewMode('matchups')}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel

@@ -8,6 +8,7 @@ import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
+import MatchupInsightsCard from './MatchupInsightsCard';
 import RankedTeamName from './RankedTeamName';
 
 function formatWinPct(value: number): string {
@@ -321,78 +322,6 @@ function CondensedStandingsTable({
   );
 }
 
-function TeamMatchupMatrixTable({ matrix }: { matrix: OwnerMatchupMatrix }): React.ReactElement {
-  if (matrix.owners.length === 0) {
-    return <EmptyState message="Upload surnames to map weekly head-to-head game counts." compact />;
-  }
-
-  return (
-    <div className="-mx-1 overflow-x-auto px-1">
-      <div className="mb-2 text-xs text-gray-500 dark:text-zinc-400 sm:hidden">
-        Scroll sideways to compare every surname.
-      </div>
-      <table className="min-w-max border-separate border-spacing-0 text-center text-sm">
-        <thead>
-          <tr className="text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-            <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-200 bg-white px-2 py-1.5 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
-              Team
-            </th>
-            {matrix.owners.map((owner) => (
-              <th
-                key={owner}
-                className="w-10 whitespace-nowrap border-b border-gray-200 px-2 py-1.5 font-semibold dark:border-zinc-700"
-              >
-                {owner}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {matrix.rows.map((row) => (
-            <tr
-              key={row.owner}
-              className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
-            >
-              <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-100 bg-inherit px-2 py-1.5 text-left font-semibold leading-tight text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
-                {row.owner}
-              </th>
-              {row.cells.map((cell) => {
-                const isDiagonal = cell.owner === row.owner;
-                const hasGames = cell.gameCount > 0;
-                return (
-                  <td
-                    key={`${row.owner}-${cell.owner}`}
-                    className={`w-10 border-b border-gray-100 px-2 py-1.5 align-middle leading-tight dark:border-zinc-800 ${
-                      isDiagonal
-                        ? 'bg-gray-100/80 dark:bg-zinc-800/70'
-                        : hasGames
-                          ? 'bg-blue-50/70 font-semibold text-gray-900 dark:bg-blue-950/20 dark:text-zinc-100'
-                          : 'text-gray-400 dark:text-zinc-600'
-                    }`}
-                  >
-                    {hasGames ? (
-                      <div className="flex flex-col items-center leading-tight">
-                        <span>{cell.gameCount}</span>
-                        {cell.record ? (
-                          <span className="text-[11px] font-medium text-gray-500 dark:text-zinc-400">
-                            {cell.record}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <span>{isDiagonal ? '—' : ''}</span>
-                    )}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function GameCardList({
   items,
   timeZone,
@@ -448,18 +377,20 @@ function GameSummaryList({
   emptyMessage,
   timeZone,
   rankingsByTeamId,
+  density = 'compact',
 }: {
   prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
   timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  density?: 'compact' | 'featured';
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
     return <EmptyState message={emptyMessage} compact />;
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className={density === 'featured' ? 'space-y-2.5' : 'space-y-1.5'}>
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const score = item.score;
@@ -477,11 +408,11 @@ function GameSummaryList({
         return (
           <article
             key={item.bucket.game.key}
-            className={`rounded-lg border p-3 ${
+            className={`rounded-lg border ${
               prioritized.hasPriorityHighlight
                 ? 'border-blue-300/80 bg-blue-50/40 dark:border-blue-900/70 dark:bg-blue-950/15'
                 : 'border-gray-200 bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/70'
-            }`}
+            } ${density === 'featured' ? 'p-3.5 sm:p-4' : 'p-2.5 sm:p-3'}`}
           >
             <div className="grid grid-cols-[minmax(0,1fr)_3.8rem] gap-x-2 sm:grid-cols-[minmax(0,1fr)_4rem]">
               <div className="min-w-0 space-y-1 leading-tight">
@@ -541,13 +472,17 @@ function InsightStrip({
   if (insights.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-gray-200/80 bg-gray-50/70 px-2.5 py-1.5 text-xs text-gray-600 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-300">
-      {insights.map((insight, index) => (
-        <React.Fragment key={insight.id}>
-          {index > 0 ? <span aria-hidden="true">•</span> : null}
-          <span className="font-medium">{insight.text}</span>
-        </React.Fragment>
-      ))}
+    <div className="rounded-xl border border-gray-200/80 bg-gray-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-700 dark:text-zinc-200">
+        {insights.map((insight) => (
+          <span
+            key={insight.id}
+            className="inline-flex rounded-full border border-gray-300 bg-white/90 px-2 py-0.5 font-medium dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {insight.text}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -564,6 +499,8 @@ type OverviewPanelProps = {
   context: OverviewContext;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
+  onViewStandings?: () => void;
+  onViewMatchups?: () => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   previousStandingsLeaders?: OwnerStandingsRow[] | null;
 };
@@ -580,10 +517,11 @@ export default function OverviewPanel({
   context,
   displayTimeZone,
   onOwnerSelect,
+  onViewStandings,
+  onViewMatchups,
   rankingsByTeamId = new Map(),
   previousStandingsLeaders = null,
 }: OverviewPanelProps): React.ReactElement {
-  const [isMobileMatrixExpanded, setIsMobileMatrixExpanded] = React.useState(false);
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const liveTitle = liveItems.length === 0 ? 'Live · none' : `Live · ${liveItems.length}`;
   const liveCountByOwner = React.useMemo(() => {
@@ -626,12 +564,13 @@ export default function OverviewPanel({
     <div className="space-y-3">
       <LeagueSummaryHero summary={viewModel.championSummary} leader={standingsLeaders[0]} />
       <InsightStrip insights={viewModel.keyMovements} />
-      <SectionCard title="Featured matchups" tone="weekly" compact>
+      <SectionCard title="Featured matchups" tone="weekly">
         <GameSummaryList
           prioritizedItems={viewModel.featuredMatchups}
-          emptyMessage="No featured matchups right now."
+          emptyMessage="No featured matchups yet for this slate."
           timeZone={timeZone}
           rankingsByTeamId={rankingsByTeamId}
+          density="featured"
         />
       </SectionCard>
 
@@ -663,18 +602,20 @@ export default function OverviewPanel({
               liveCountByOwner={liveCountByOwner}
             />
           )}
-          {viewModel.standingsHasMore ? (
-            <p className="mt-2 text-xs font-medium text-gray-500 dark:text-zinc-400">
-              View full standings in the Standings tab.
-            </p>
-          ) : null}
+          <button
+            type="button"
+            className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+            onClick={onViewStandings}
+          >
+            View full standings
+          </button>
         </SectionCard>
 
         <div className="space-y-3">
           <SectionCard title="Recent results" tone="secondary" compact>
             <GameSummaryList
               prioritizedItems={viewModel.recentResults}
-              emptyMessage="No results yet."
+              emptyMessage="No recent results yet—completed games will appear here."
               timeZone={timeZone}
               rankingsByTeamId={rankingsByTeamId}
             />
@@ -696,33 +637,18 @@ export default function OverviewPanel({
         </div>
       </div>
 
-      <SectionCard
-        title="Head-to-head matrix"
-        tone="secondary"
-        headingClassName="text-sm sm:text-base"
-        compact
-      >
+      <SectionCard title="Matchup insights" tone="secondary" compact>
         {viewModel.matrixPreview ? (
           <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
             {viewModel.matrixPreview.matchupCount} owner matchups across{' '}
-            {viewModel.matrixPreview.ownerCount} teams. View full matchup matrix below.
+            {viewModel.matrixPreview.ownerCount} teams.
           </p>
-        ) : null}
-        <details
-          className="group sm:hidden"
-          data-testid="head-to-head-details"
-          onToggle={(event) => {
-            setIsMobileMatrixExpanded((event.currentTarget as HTMLDetailsElement).open);
-          }}
-        >
-          <summary className="cursor-pointer list-none text-xs font-medium text-gray-500 group-open:mb-2 dark:text-zinc-400">
-            Head-to-head (tap to expand)
-          </summary>
-          {isMobileMatrixExpanded ? <TeamMatchupMatrixTable matrix={matchupMatrix} /> : null}
-        </details>
-        <div className="hidden sm:block">
-          <TeamMatchupMatrixTable matrix={matchupMatrix} />
-        </div>
+        ) : (
+          <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
+            No games yet—matchup insights will populate once the season slate has owner pairings.
+          </p>
+        )}
+        <MatchupInsightsCard insights={viewModel.matchupInsights} onViewMatrix={onViewMatchups} />
       </SectionCard>
     </div>
   );
