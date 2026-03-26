@@ -701,31 +701,15 @@ export default function CFBScheduleApp({
                 };
 
   const openMatrixView = useCallback(() => {
-    if (selectedTab === 'postseason') {
-      const fallbackWeek = selectedWeek ?? weeks[0] ?? null;
-      if (fallbackWeek != null) {
-        setSelectedWeek(fallbackWeek);
-        setSelectedTab(fallbackWeek);
-      }
-    }
     setWeekViewMode('matrix');
-  }, [selectedTab, selectedWeek, weeks]);
-
-  useEffect(() => {
-    if (weekViewMode !== 'matrix') return;
-    if (selectedTab !== 'postseason') return;
-    const fallbackWeek = selectedWeek ?? weeks[0] ?? null;
-    if (fallbackWeek == null) return;
-    setSelectedWeek(fallbackWeek);
-    setSelectedTab(fallbackWeek);
-  }, [selectedTab, selectedWeek, weekViewMode, weeks]);
+  }, []);
 
   const matrixSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
         standingsRows: standingsSnapshot.rows,
         standingsCoverage,
-        weekGames: filteredWeekGames,
+        weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
         allGames: games,
         rosterByTeam,
         scoresByKey,
@@ -735,8 +719,10 @@ export default function CFBScheduleApp({
       activeWeekLabel,
       filteredWeekGames,
       games,
+      postseasonGames,
       rosterByTeam,
       scoresByKey,
+      selectedTab,
       standingsCoverage,
       standingsSnapshot.rows,
     ]
