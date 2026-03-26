@@ -5,7 +5,9 @@ import {
   deriveLeagueSummaryViewModel,
   deriveStandingsContextLabel,
   prioritizeOverviewItems,
+  selectOverviewViewModel,
 } from '../selectors/overview';
+import type { OverviewContext } from '../overview';
 import type { OverviewGameItem } from '../overview';
 import type { AppGame } from '../schedule';
 import type { StandingsCoverage } from '../standings';
@@ -189,4 +191,170 @@ test('deriveStandingsContextLabel returns null when leader gap is not tight', ()
     ]),
     null
   );
+});
+
+test('selectOverviewViewModel truncates standings and splits featured vs recent', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'A',
+        wins: 5,
+        losses: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 20,
+        gamesBack: 0,
+        finalGames: 5,
+      },
+      {
+        owner: 'B',
+        wins: 4,
+        losses: 1,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 10,
+        gamesBack: 1,
+        finalGames: 5,
+      },
+      {
+        owner: 'C',
+        wins: 3,
+        losses: 2,
+        winPct: 0.6,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: 2,
+        finalGames: 5,
+      },
+      {
+        owner: 'D',
+        wins: 2,
+        losses: 3,
+        winPct: 0.4,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -2,
+        gamesBack: 3,
+        finalGames: 5,
+      },
+      {
+        owner: 'E',
+        wins: 1,
+        losses: 4,
+        winPct: 0.2,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -5,
+        gamesBack: 4,
+        finalGames: 5,
+      },
+      {
+        owner: 'F',
+        wins: 0,
+        losses: 5,
+        winPct: 0,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -10,
+        gamesBack: 5,
+        finalGames: 5,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('scheduled'),
+        score: {
+          status: 'Scheduled',
+          time: null,
+          away: { team: 'Away', score: null },
+          home: { team: 'Home', score: null },
+        },
+      },
+      {
+        ...item('final'),
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 20 },
+          home: { team: 'Home', score: 10 },
+        },
+      },
+    ],
+    matchupMatrix: {
+      owners: ['A', 'B'],
+      rows: [
+        {
+          owner: 'A',
+          cells: [
+            { owner: 'A', gameCount: 0 },
+            { owner: 'B', gameCount: 2 },
+          ],
+        },
+        {
+          owner: 'B',
+          cells: [
+            { owner: 'A', gameCount: 2 },
+            { owner: 'B', gameCount: 0 },
+          ],
+        },
+      ],
+    },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.standingsTopN.length, 5);
+  assert.equal(model.standingsHasMore, true);
+  assert.equal(model.featuredMatchups.length, 1);
+  assert.equal(model.featuredMatchups[0]?.item.bucket.game.key, 'scheduled');
+  assert.equal(model.recentResults.length, 1);
+  assert.equal(model.recentResults[0]?.item.bucket.game.key, 'final');
+  assert.equal(model.matrixPreview?.matchupCount, 2);
+});
+
+test('selectOverviewViewModel is stable for identical inputs', () => {
+  const params = {
+    standingsLeaders: [
+      {
+        owner: 'A',
+        wins: 1,
+        losses: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 1,
+        gamesBack: 0,
+        finalGames: 1,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null } as const,
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    } satisfies OverviewContext,
+    liveItems: [] as OverviewGameItem[],
+    keyMatchups: [] as OverviewGameItem[],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map<string, never>(),
+  };
+
+  assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
 });

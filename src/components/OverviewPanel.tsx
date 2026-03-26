@@ -1,16 +1,7 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
-import {
-  computeStandings,
-  deriveOverviewHighlightSignals,
-  deriveLeagueInsights,
-} from '../lib/leagueInsights';
-import {
-  deriveLeagueSummaryViewModel,
-  deriveStandingsContextLabel,
-  prioritizeOverviewItems,
-} from '../lib/selectors/overview';
+import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
@@ -167,20 +158,12 @@ function EmptyState({
 }
 
 function LeagueSummaryHero({
-  standingsLeaders,
-  context,
-  liveItems,
-  keyMatchups,
-  standingsCoverage,
+  summary,
+  leader,
 }: {
-  standingsLeaders: OwnerStandingsRow[];
-  context: OverviewContext;
-  liveItems: OverviewGameItem[];
-  keyMatchups: OverviewGameItem[];
-  standingsCoverage: StandingsCoverage;
+  summary: ReturnType<typeof selectOverviewViewModel>['championSummary'];
+  leader: OwnerStandingsRow | undefined;
 }): React.ReactElement {
-  const leader = standingsLeaders[0];
-
   if (!leader) {
     return (
       <section className="rounded-2xl border border-gray-200 bg-gray-50/90 px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60 sm:px-6">
@@ -194,13 +177,6 @@ function LeagueSummaryHero({
     );
   }
 
-  const summary = deriveLeagueSummaryViewModel({
-    standingsLeaders,
-    context,
-    liveItems,
-    keyMatchups,
-    standingsCoverage,
-  });
   if (!summary) return <></>;
 
   const toneClasses =
@@ -468,34 +444,19 @@ function GameCardList({
 }
 
 function GameSummaryList({
-  items,
+  prioritizedItems,
   emptyMessage,
   timeZone,
   rankingsByTeamId,
-  topOwnerNames,
-  highlightSignals,
 }: {
-  items: OverviewGameItem[];
+  prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
   timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
-  topOwnerNames: Set<string>;
-  highlightSignals: {
-    topMatchupKey: string | null;
-    upsetWatchKeys: string[];
-    rankedHighlightKey: string | null;
-  };
 }): React.ReactElement {
-  if (items.length === 0) {
+  if (prioritizedItems.length === 0) {
     return <EmptyState message={emptyMessage} compact />;
   }
-
-  const prioritizedItems = prioritizeOverviewItems({
-    items,
-    highlightSignals,
-    rankingsByTeamId,
-    topOwnerNames,
-  });
 
   return (
     <div className="space-y-1.5">
@@ -625,58 +586,60 @@ export default function OverviewPanel({
   const [isMobileMatrixExpanded, setIsMobileMatrixExpanded] = React.useState(false);
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const liveTitle = liveItems.length === 0 ? 'Live · none' : `Live · ${liveItems.length}`;
-  const topOwnerNames = React.useMemo(
-    () => new Set(standingsLeaders.slice(0, 3).map((row) => row.owner)),
-    [standingsLeaders]
-  );
-  const insights = React.useMemo(
+  const liveCountByOwner = React.useMemo(() => {
+    const standings = new Map<string, number>();
+    for (const game of games) {
+      const score = scoresByKey[game.key];
+      if (gameStateFromScore(score) !== 'inprogress') continue;
+      const awayOwner = rosterByTeam.get(game.csvAway);
+      const homeOwner = rosterByTeam.get(game.csvHome);
+      if (awayOwner) standings.set(awayOwner, (standings.get(awayOwner) ?? 0) + 1);
+      if (homeOwner) standings.set(homeOwner, (standings.get(homeOwner) ?? 0) + 1);
+    }
+    return standings;
+  }, [games, scoresByKey, rosterByTeam]);
+  const viewModel = React.useMemo(
     () =>
-      deriveLeagueInsights({
-        standings: standingsLeaders,
-        previousStandings: previousStandingsLeaders,
-        recentResults: keyMatchups,
-        liveGames: liveItems,
-        rankingsByTeamId,
-      }),
-    [standingsLeaders, previousStandingsLeaders, keyMatchups, liveItems, rankingsByTeamId]
-  );
-  const leagueStandings = React.useMemo(
-    () => computeStandings(games, scoresByKey, rosterByTeam),
-    [games, scoresByKey, rosterByTeam]
-  );
-  const liveCountByOwner = React.useMemo(
-    () => new Map(leagueStandings.map((row) => [row.owner, row.liveGames] as const)),
-    [leagueStandings]
-  );
-  const highlightSignals = React.useMemo(
-    () =>
-      deriveOverviewHighlightSignals({
+      selectOverviewViewModel({
+        standingsLeaders,
+        previousStandingsLeaders,
+        standingsCoverage,
+        context,
+        liveItems,
         keyMatchups,
+        matchupMatrix,
         rankingsByTeamId,
       }),
-    [keyMatchups, rankingsByTeamId]
-  );
-  const standingsContext = React.useMemo(
-    () => deriveStandingsContextLabel(standingsLeaders),
-    [standingsLeaders]
+    [
+      standingsLeaders,
+      previousStandingsLeaders,
+      standingsCoverage,
+      context,
+      liveItems,
+      keyMatchups,
+      matchupMatrix,
+      rankingsByTeamId,
+    ]
   );
 
   return (
     <div className="space-y-3">
-      <LeagueSummaryHero
-        standingsLeaders={standingsLeaders}
-        context={context}
-        liveItems={liveItems}
-        keyMatchups={keyMatchups}
-        standingsCoverage={standingsCoverage}
-      />
-      <InsightStrip insights={insights} />
+      <LeagueSummaryHero summary={viewModel.championSummary} leader={standingsLeaders[0]} />
+      <InsightStrip insights={viewModel.keyMovements} />
+      <SectionCard title="Featured matchups" tone="weekly" compact>
+        <GameSummaryList
+          prioritizedItems={viewModel.featuredMatchups}
+          emptyMessage="No featured matchups right now."
+          timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
+        />
+      </SectionCard>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-        <SectionCard title="League standings" headingClassName="text-lg sm:text-xl" compact>
-          {standingsContext ? (
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+        <SectionCard title="League standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
+          {viewModel.standingsContext ? (
             <p className="mb-2 text-xs font-medium text-gray-600 dark:text-zinc-300">
-              {standingsContext}
+              {viewModel.standingsContext}
             </p>
           ) : null}
           {standingsCoverage.message ? (
@@ -690,27 +653,30 @@ export default function OverviewPanel({
               {standingsCoverage.message}
             </p>
           ) : null}
-          {standingsLeaders.length === 0 ? (
+          {viewModel.standingsTopN.length === 0 ? (
             <EmptyState message="Upload surnames to populate league standings." compact />
           ) : (
             <CondensedStandingsTable
-              rows={standingsLeaders}
+              rows={viewModel.standingsTopN}
               onOwnerSelect={onOwnerSelect}
               previousRows={previousStandingsLeaders}
               liveCountByOwner={liveCountByOwner}
             />
           )}
+          {viewModel.standingsHasMore ? (
+            <p className="mt-2 text-xs font-medium text-gray-500 dark:text-zinc-400">
+              View full standings in the Standings tab.
+            </p>
+          ) : null}
         </SectionCard>
 
         <div className="space-y-3">
-          <SectionCard title={context.highlightsTitle} tone="weekly" compact>
+          <SectionCard title="Recent results" tone="secondary" compact>
             <GameSummaryList
-              items={keyMatchups}
-              emptyMessage="No league-relevant games are scheduled for this view."
+              prioritizedItems={viewModel.recentResults}
+              emptyMessage="No results yet."
               timeZone={timeZone}
               rankingsByTeamId={rankingsByTeamId}
-              topOwnerNames={topOwnerNames}
-              highlightSignals={highlightSignals}
             />
           </SectionCard>
 
@@ -736,6 +702,12 @@ export default function OverviewPanel({
         headingClassName="text-sm sm:text-base"
         compact
       >
+        {viewModel.matrixPreview ? (
+          <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
+            {viewModel.matrixPreview.matchupCount} owner matchups across{' '}
+            {viewModel.matrixPreview.ownerCount} teams. View full matchup matrix below.
+          </p>
+        ) : null}
         <details
           className="group sm:hidden"
           data-testid="head-to-head-details"

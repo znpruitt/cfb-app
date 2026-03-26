@@ -526,7 +526,7 @@ test('overview panel summary does not render season-complete framing when standi
   assert.match(html, /Championship race/);
 });
 
-test('overview panel keeps league-home ordering with standings ahead of highlights', () => {
+test('overview panel keeps league-home ordering with featured matchups before standings and results', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -539,9 +539,10 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
     />
   );
 
-  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings'));
-  assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
-  assert.ok(html.indexOf('What matters next') < html.indexOf('No live games right now.'));
+  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('Featured matchups'));
+  assert.ok(html.indexOf('Featured matchups') < html.indexOf('League standings (Top 5)'));
+  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
+  assert.ok(html.indexOf('Recent results') < html.indexOf('No live games right now.'));
   assert.ok(html.indexOf('No live games right now.') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
@@ -576,8 +577,8 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
   const standingsHeaderOccurrences = html.match(/Owner · Record · Metrics/g) ?? [];
   assert.equal(standingsHeaderOccurrences.length, 1);
   assert.doesNotMatch(html, /League snapshot/);
-  assert.ok(html.indexOf('League summary') < html.indexOf('League standings'));
-  assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
+  assert.ok(html.indexOf('League summary') < html.indexOf('League standings (Top 5)'));
+  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
 });
 
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
