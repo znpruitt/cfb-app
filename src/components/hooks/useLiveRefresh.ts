@@ -51,6 +51,17 @@ type UseLiveRefreshParams = {
   isDebug: boolean;
 };
 
+export function nextBootstrapGuardState(params: {
+  current: boolean;
+  scheduleLoaded: boolean;
+  didBootstrapThisPass?: boolean;
+}): boolean {
+  const { current, scheduleLoaded, didBootstrapThisPass = false } = params;
+  if (!scheduleLoaded) return false;
+  if (didBootstrapThisPass) return true;
+  return current;
+}
+
 export function useLiveRefresh(params: UseLiveRefreshParams): {
   refreshLiveData: (options?: {
     manual?: boolean;
@@ -90,6 +101,13 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   const lastAutoScoresRefreshMsRef = useRef<number>(0);
   const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
   const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    hasAutoBootstrappedLiveRef.current = nextBootstrapGuardState({
+      current: hasAutoBootstrappedLiveRef.current,
+      scheduleLoaded,
+    });
+  }, [scheduleLoaded]);
 
   const refreshLiveData = useCallback(
     async (options?: {
@@ -299,7 +317,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
 
     if (bootstrapScoreGames.length === 0) return;
 
-    hasAutoBootstrappedLiveRef.current = true;
+    hasAutoBootstrappedLiveRef.current = nextBootstrapGuardState({
+      current: hasAutoBootstrappedLiveRef.current,
+      scheduleLoaded,
+      didBootstrapThisPass: true,
+    });
     void refreshLiveData({
       manual: false,
       includeOdds: refreshPlan.odds.fetchOnStartup,
