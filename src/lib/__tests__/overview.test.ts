@@ -459,7 +459,7 @@ test('autonomous overview scope does not let unknown stale slates outrank truste
   );
 });
 
-test('recent-results mode shows the latest completed finals first before truncation', () => {
+test('recent-results mode keeps latest completed finals ordered in the uncapped overview pool', () => {
   const rosterByTeam = new Map([
     ['Texas', 'Alice'],
     ['Oklahoma', 'Bob'],
@@ -534,6 +534,6 @@ test('recent-results mode shows the latest completed finals first before truncat
   assert.equal(snapshot.context.emphasis, 'recent');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
-    ['final-5', 'final-4', 'final-3', 'final-2']
+    ['final-5', 'final-4', 'final-3', 'final-2', 'final-1']
   );
 });

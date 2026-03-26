@@ -50,7 +50,6 @@ export type OverviewSnapshot = {
 };
 
 const DEFAULT_LIVE_ITEM_COUNT = 6;
-const DEFAULT_KEY_MATCHUP_COUNT = 4;
 
 function kickoffTimeValue(date: string | null): number {
   if (!date) return Number.POSITIVE_INFINITY;
@@ -440,8 +439,7 @@ export function deriveOverviewSnapshot(params: {
     !activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming && activeSlateStatus.hasFinal;
   const keyMatchups = [...activeSlateItems]
     .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
-    .sort(recentMode ? compareRecentOverviewItems : compareOverviewItems)
-    .slice(0, options?.keyMatchupsLimit ?? DEFAULT_KEY_MATCHUP_COUNT);
+    .sort(recentMode ? compareRecentOverviewItems : compareOverviewItems);
 
   const context = deriveOverviewContext({
     weekGames,

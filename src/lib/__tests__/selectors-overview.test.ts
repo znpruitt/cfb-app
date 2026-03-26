@@ -358,3 +358,60 @@ test('selectOverviewViewModel is stable for identical inputs', () => {
 
   assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
 });
+
+test('selectOverviewViewModel keeps featured games when finals dominate early candidates', () => {
+  const finals = [1, 2, 3, 4].map((value) => ({
+    ...item(`final-${value}`),
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 20 + value },
+      home: { team: 'Home', score: 10 },
+    },
+    sortDate: value,
+  }));
+  const featuredLater = {
+    ...item('scheduled-late'),
+    score: {
+      status: 'Scheduled',
+      time: null,
+      away: { team: 'Away', score: null },
+      home: { team: 'Home', score: null },
+    },
+    sortDate: 10,
+  };
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alex',
+        wins: 4,
+        losses: 1,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 10,
+        gamesBack: 0,
+        finalGames: 5,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 8',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [...finals, featuredLater],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(
+    model.featuredMatchups.some((entry) => entry.item.bucket.game.key === 'scheduled-late')
+  );
+  assert.equal(model.recentResults.length, 4);
+});

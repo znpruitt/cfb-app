@@ -48,6 +48,10 @@ export type OverviewViewModel = {
   } | null;
 };
 
+const OVERVIEW_STANDINGS_LIMIT = 5;
+const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
+const OVERVIEW_RECENT_RESULTS_LIMIT = 5;
+
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
@@ -242,28 +246,36 @@ export function selectOverviewViewModel(params: {
     keyMatchups,
     matchupMatrix,
     rankingsByTeamId,
-    standingsLimit = 5,
-    featuredLimit = 4,
-    resultsLimit = 5,
+    standingsLimit = OVERVIEW_STANDINGS_LIMIT,
+    featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
+    resultsLimit = OVERVIEW_RECENT_RESULTS_LIMIT,
   } = params;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
-  const highlightSignals = deriveOverviewHighlightSignals({ keyMatchups, rankingsByTeamId });
-  const prioritizedAll = prioritizeOverviewItems({
-    items: keyMatchups,
+  const overviewMatchupCandidates = keyMatchups;
+  const featuredCandidates = overviewMatchupCandidates.filter(
+    (item) => gameStateFromScore(item.score) !== 'final'
+  );
+  const resultCandidates = overviewMatchupCandidates.filter(
+    (item) => gameStateFromScore(item.score) === 'final'
+  );
+  const highlightSignals = deriveOverviewHighlightSignals({
+    keyMatchups: overviewMatchupCandidates,
+    rankingsByTeamId,
+  });
+  const prioritizedFeatured = prioritizeOverviewItems({
+    items: featuredCandidates,
     highlightSignals,
     rankingsByTeamId,
     topOwnerNames,
   });
-  const featuredMatchups = prioritizedAll
-    .filter((entry) => {
-      return gameStateFromScore(entry.item.score) !== 'final';
-    })
-    .slice(0, featuredLimit);
-  const recentResults = prioritizedAll
-    .filter((entry) => {
-      return gameStateFromScore(entry.item.score) === 'final';
-    })
-    .slice(0, resultsLimit);
+  const prioritizedResults = prioritizeOverviewItems({
+    items: resultCandidates,
+    highlightSignals,
+    rankingsByTeamId,
+    topOwnerNames,
+  });
+  const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
+  const recentResults = prioritizedResults.slice(0, resultsLimit);
 
   return {
     championSummary: deriveLeagueSummaryViewModel({

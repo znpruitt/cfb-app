@@ -581,6 +581,54 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
   assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
 });
 
+test('overview panel does not show featured empty state when non-final games exist beyond early finals', () => {
+  const finals = [1, 2, 3, 4].map((value) =>
+    itemWithScore(
+      game({
+        key: `final-${value}`,
+        csvAway: `Final Away ${value}`,
+        csvHome: `Final Home ${value}`,
+        date: `2026-10-0${value}T16:00:00.000Z`,
+      }),
+      {
+        status: 'Final',
+        away: { team: `Final Away ${value}`, score: 24 + value },
+        home: { team: `Final Home ${value}`, score: 14 },
+        time: null,
+      }
+    )
+  );
+  const featuredScheduled = itemWithScore(
+    game({
+      key: 'scheduled-late',
+      csvAway: 'Georgia',
+      csvHome: 'Florida',
+      date: '2026-10-20T22:00:00.000Z',
+    }),
+    {
+      status: 'Scheduled',
+      away: { team: 'Georgia', score: null },
+      home: { team: 'Florida', score: null },
+      time: null,
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[...finals, featuredScheduled]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /No featured matchups right now\./);
+  assert.match(html, /Georgia<\/span> @ <span>Florida/);
+});
+
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
