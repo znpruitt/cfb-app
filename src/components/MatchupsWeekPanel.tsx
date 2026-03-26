@@ -1,7 +1,8 @@
 import React from 'react';
 
+import { classifyScorePackStatus, formatCompactGameStatus } from '../lib/gameStatus';
 import type { CombinedOdds } from '../lib/odds';
-import { gameStateFromScore, pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
+import { pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
 import {
   computeGameTags,
   computeStandings,
@@ -73,11 +74,7 @@ function performanceClasses(tone: 'scheduled' | 'inprogress' | 'final' | 'neutra
 }
 
 function formatGameStatus(score?: ScorePack): string {
-  const state = gameStateFromScore(score);
-  if (state === 'final') return 'Final';
-  if (state === 'inprogress') return score?.status ?? 'In Progress';
-  if (state === 'scheduled') return score?.status ?? 'Scheduled';
-  return 'Scheduled';
+  return formatCompactGameStatus(score);
 }
 
 function isFcsConference(conference: string | null | undefined): boolean {
@@ -165,8 +162,8 @@ function formatOwnedScore(
   slateGame: OwnerSlateGame,
   score?: ScorePack
 ): { summary: string; tone: GameOutcomeTone; detail?: string } {
-  const rawState = gameStateFromScore(score);
-  const state = rawState === 'unknown' ? 'scheduled' : rawState;
+  const stateBucket = classifyScorePackStatus(score);
+  const state = stateBucket === 'disrupted' ? 'scheduled' : stateBucket;
   if (!score) {
     return { summary: 'Scheduled', tone: 'scheduled' };
   }
@@ -296,8 +293,8 @@ function GameRow({
     computeGameTags(slateGame.game, score, odds, rosterByTeam)
   );
   const ownerOutcome = formatOwnedScore(slateGame, score);
-  const rawStatusTone = gameStateFromScore(score);
-  const statusTone = rawStatusTone === 'unknown' ? 'scheduled' : rawStatusTone;
+  const rawStatusBucket = classifyScorePackStatus(score);
+  const statusTone = rawStatusBucket === 'disrupted' ? 'scheduled' : rawStatusBucket;
   const opponentDescriptor = getOpponentDescriptor(slateGame);
   const rowClasses = ownerOutcomeRowClasses(ownerOutcome.tone);
   const awayTeamName = slateGame.game.csvAway;

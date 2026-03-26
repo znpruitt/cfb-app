@@ -1,3 +1,4 @@
+import { classifyScorePackStatus } from './gameStatus.ts';
 import type { CombinedOdds } from './odds.ts';
 import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
@@ -103,19 +104,9 @@ export function deriveWeekMatchupSections(
 }
 
 function getStateFromScore(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'neutral' {
-  const status = score?.status?.toLowerCase() ?? '';
-
-  if (!score || !status) return 'scheduled';
-  if (status.includes('final')) return 'final';
-  if (
-    status.includes('progress') ||
-    status.includes('quarter') ||
-    status.includes('half') ||
-    status.includes('ot')
-  ) {
-    return 'inprogress';
-  }
-
+  const bucket = classifyScorePackStatus(score);
+  if (bucket === 'final') return 'final';
+  if (bucket === 'inprogress') return 'inprogress';
   return 'scheduled';
 }
 

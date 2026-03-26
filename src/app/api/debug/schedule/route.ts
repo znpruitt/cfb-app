@@ -1,41 +1,22 @@
 import { NextResponse } from 'next/server';
 
-import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
-import type { CfbdConferenceRecord } from '@/lib/conferenceSubdivision';
+import { loadDebugSeasonContext, parseDebugYear } from '../_lib/loadDebugSeasonContext';
+import { buildScheduleFromApi } from '@/lib/schedule';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const year = Number(url.searchParams.get('year') ?? new Date().getFullYear());
+  const year = parseDebugYear(url);
   const origin = `${url.protocol}//${url.host}`;
-
-  const [scheduleRes, teamsRes, aliasesRes, conferencesRes] = await Promise.all([
-    fetch(`${origin}/api/schedule?year=${year}`, { cache: 'no-store' }),
-    fetch(`${origin}/api/teams`, { cache: 'no-store' }),
-    fetch(`${origin}/api/aliases?year=${year}`, { cache: 'no-store' }),
-    fetch(`${origin}/api/conferences`, { cache: 'no-store' }),
-  ]);
-
-  const scheduleJson = (await scheduleRes.json().catch(() => ({ items: [] }))) as {
-    items?: ScheduleWireItem[];
-  };
-  const teamsJson = (await teamsRes.json().catch(() => ({ items: [] }))) as {
-    items?: Array<Record<string, unknown>>;
-  };
-  const aliasesJson = (await aliasesRes.json().catch(() => ({ map: {} }))) as {
-    map?: Record<string, string>;
-  };
-  const conferencesJson = (await conferencesRes.json().catch(() => ({ items: [] }))) as {
-    items?: CfbdConferenceRecord[];
-  };
+  const context = await loadDebugSeasonContext({ year, origin });
 
   const built = buildScheduleFromApi({
-    scheduleItems: scheduleJson.items ?? [],
-    teams: (teamsJson.items ?? []) as never[],
-    aliasMap: aliasesJson.map ?? {},
+    scheduleItems: context.scheduleItems,
+    teams: context.teamItems as never[],
+    aliasMap: context.aliasMap,
     season: year,
-    conferenceRecords: conferencesJson.items ?? [],
+    conferenceRecords: context.conferenceItems,
   });
 
   return NextResponse.json({

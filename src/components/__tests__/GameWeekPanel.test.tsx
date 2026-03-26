@@ -1402,3 +1402,33 @@ test('schedule panel shows empty-state copy when no games match selected scope',
 
   assert.match(html, /No games match the current filters\./);
 });
+
+test('pregame provider statuses containing "ot" letters do not render as live summary chips', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'not-started-regression',
+          csvAway: 'Texas',
+          csvHome: 'Baylor',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'not-started-regression': {
+          away: { team: 'Texas', score: null },
+          home: { team: 'Baylor', score: null },
+          status: 'NOT_STARTED',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+    />
+  );
+
+  assert.match(html, /data-summary-state[^>]*>NOT_STARTED<\/div>/);
+  assert.match(html, /border-sky-200[^>]*data-summary-state="true">NOT_STARTED<\/div>/);
+  assert.doesNotMatch(html, /border-amber-200[^>]*data-summary-state="true">NOT_STARTED<\/div>/);
+});
