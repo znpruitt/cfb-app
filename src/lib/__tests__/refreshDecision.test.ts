@@ -7,7 +7,6 @@ test('skip when manual cooldown is active', () => {
   assert.deepEqual(
     decideRefresh({
       hasGames: true,
-      manual: true,
       manualCooldownActive: true,
       includeOddsRequested: true,
       oddsAutoDisabledByQuota: false,
@@ -20,7 +19,6 @@ test('skip when no games are loaded', () => {
   assert.deepEqual(
     decideRefresh({
       hasGames: false,
-      manual: false,
       manualCooldownActive: false,
       includeOddsRequested: true,
       oddsAutoDisabledByQuota: false,
@@ -33,7 +31,6 @@ test('scores only when odds disabled by plan or quota', () => {
   assert.equal(
     decideRefresh({
       hasGames: true,
-      manual: false,
       manualCooldownActive: false,
       includeOddsRequested: false,
       oddsAutoDisabledByQuota: false,
@@ -44,7 +41,6 @@ test('scores only when odds disabled by plan or quota', () => {
   assert.deepEqual(
     decideRefresh({
       hasGames: true,
-      manual: false,
       manualCooldownActive: false,
       includeOddsRequested: true,
       oddsAutoDisabledByQuota: true,
@@ -57,7 +53,6 @@ test('scores and odds when eligible', () => {
   assert.deepEqual(
     decideRefresh({
       hasGames: true,
-      manual: false,
       manualCooldownActive: false,
       includeOddsRequested: true,
       oddsAutoDisabledByQuota: false,

@@ -126,7 +126,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
       const refreshDecision = decideRefresh({
         hasGames: games.length > 0,
-        manual,
         manualCooldownActive:
           manual && nowMs - lastManualLiveRefreshMsRef.current < LIVE_MANUAL_COOLDOWN_MS,
         includeOddsRequested: shouldFetchOdds,

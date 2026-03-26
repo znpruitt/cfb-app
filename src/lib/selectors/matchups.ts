@@ -167,7 +167,10 @@ export function deriveExcludedGamesSummary(sections: WeekMatchupSections): strin
     return 'All games this week appear on a surname card.';
   }
 
-  return `${sections.otherGames.length} excluded game${sections.otherGames.length === 1 ? '' : 's'} do not involve owned teams.`;
+  const gameCount = sections.otherGames.length;
+  const noun = gameCount === 1 ? 'game' : 'games';
+  const verb = gameCount === 1 ? 'does' : 'do';
+  return `${gameCount} excluded ${noun} ${verb} not involve owned teams.`;
 }
 
 export function getDefaultVisibleOpponentsCount(): number {

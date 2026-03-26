@@ -12,7 +12,6 @@ export type RefreshDecision =
 
 export function decideRefresh(params: {
   hasGames: boolean;
-  manual: boolean;
   manualCooldownActive: boolean;
   includeOddsRequested: boolean;
   oddsAutoDisabledByQuota: boolean;
