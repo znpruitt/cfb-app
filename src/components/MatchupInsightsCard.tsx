@@ -10,10 +10,10 @@ function ownersLabel(owners: [string, string]): string {
 
 export default function MatchupInsightsCard({
   insights,
-  onViewMatchups,
+  onViewMatrix,
 }: {
   insights: MatchupInsights;
-  onViewMatchups?: () => void;
+  onViewMatrix?: () => void;
 }): React.ReactElement {
   const rows = [
     insights.mostFrequent
@@ -70,9 +70,9 @@ export default function MatchupInsightsCard({
       <button
         type="button"
         className="mt-3 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-        onClick={onViewMatchups}
+        onClick={onViewMatrix}
       >
-        View weekly matchups
+        View full matchup matrix
       </button>
     </div>
   );

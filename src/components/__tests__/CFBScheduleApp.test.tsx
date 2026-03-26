@@ -264,6 +264,53 @@ test('matchups keeps week context controls visible', () => {
   assert.match(html, /Browse weeks, postseason, and team filters\./);
 });
 
+test('matrix mode renders dedicated matchup matrix surface and not weekly matchups cards', () => {
+  const html = renderToStaticMarkup(
+    <CFBScheduleApp
+      initialWeekViewMode="matrix"
+      initialGames={[
+        game({ key: 'g-1', week: 1, csvAway: 'Texas', csvHome: 'Oklahoma' }),
+        game({ key: 'g-2', week: 1, csvAway: 'USC', csvHome: 'Notre Dame' }),
+      ]}
+      initialRoster={[
+        { owner: 'Alice', team: 'Texas' },
+        { owner: 'Bob', team: 'Oklahoma' },
+        { owner: 'Cara', team: 'USC' },
+      ]}
+    />
+  );
+
+  assert.match(html, /Matchup matrix/);
+  assert.match(html, /owner-vs-owner/);
+  assert.doesNotMatch(html, /Surname-based weekly cards and team context for the selected tab\./);
+});
+
+test('matrix mode remains available in postseason contexts', () => {
+  const html = renderToStaticMarkup(
+    <CFBScheduleApp
+      initialWeekViewMode="matrix"
+      initialGames={[
+        game({
+          key: 'bowl-1',
+          week: 16,
+          stage: 'bowl',
+          postseasonRole: 'bowl',
+          csvAway: 'Texas',
+          csvHome: 'Oklahoma',
+        }),
+      ]}
+      initialRoster={[
+        { owner: 'Alice', team: 'Texas' },
+        { owner: 'Bob', team: 'Oklahoma' },
+      ]}
+    />
+  );
+
+  assert.match(html, /Matchup matrix/);
+  assert.match(html, /Matrix/);
+  assert.doesNotMatch(html, /Postseason overview/);
+});
+
 test('standings hides week context controls and keeps season-level framing', () => {
   const html = renderToStaticMarkup(
     <CFBScheduleApp

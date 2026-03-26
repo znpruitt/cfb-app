@@ -4,7 +4,13 @@ import { deriveRegularWeeks, filterGamesForWeek } from './weekSelection.ts';
 
 export type ActiveScheduleTab = number | 'postseason' | null;
 
-export type PrimaryViewMode = 'overview' | 'schedule' | 'matchups' | 'standings' | 'owner';
+export type PrimaryViewMode =
+  | 'overview'
+  | 'schedule'
+  | 'matchups'
+  | 'matrix'
+  | 'standings'
+  | 'owner';
 
 export function shouldRenderPrimaryViewSection(params: {
   selectedTab: ActiveScheduleTab;
@@ -15,6 +21,7 @@ export function shouldRenderPrimaryViewSection(params: {
   return (
     viewMode === 'overview' ||
     viewMode === 'standings' ||
+    viewMode === 'matrix' ||
     viewMode === 'owner' ||
     selectedTab === 'postseason' ||
     selectedWeek != null
@@ -27,6 +34,7 @@ export type PrimarySurfaceKind =
   | 'owner'
   | 'schedule'
   | 'matchups'
+  | 'matrix'
   | 'postseason';
 
 export function derivePrimarySurfaceKind(params: {
@@ -38,6 +46,7 @@ export function derivePrimarySurfaceKind(params: {
   if (viewMode === 'overview') return 'overview';
   if (viewMode === 'standings') return 'standings';
   if (viewMode === 'owner') return 'owner';
+  if (viewMode === 'matrix') return 'matrix';
   if (selectedTab === 'postseason') return 'postseason';
   return viewMode;
 }

@@ -236,8 +236,8 @@ test('overview panel renders standings and matchup insights instead of matrix ta
 
   assert.match(html, /League standings/);
   assert.match(html, /Matchup insights/);
-  assert.match(html, /View weekly matchups/);
-  assert.doesNotMatch(html, /View full matchup matrix/);
+  assert.match(html, /View full matchup matrix/);
+  assert.doesNotMatch(html, /View weekly matchups/);
   assert.doesNotMatch(html, /Head-to-head matrix/);
   assert.doesNotMatch(html, /<table/);
   assert.match(html, /Alice/);
@@ -415,8 +415,8 @@ test('overview panel summary uses postseason in-progress championship language',
 
   assert.match(html, />Championship race</);
   assert.doesNotMatch(html, /League leader/);
-  assert.match(html, /View weekly matchups/);
-  assert.doesNotMatch(html, /View full matchup matrix/);
+  assert.match(html, /View full matchup matrix/);
+  assert.doesNotMatch(html, /View weekly matchups/);
 });
 
 test('overview panel summary shows season-complete champion, second, and third', () => {
@@ -716,7 +716,7 @@ test('overview panel uses compact live empty state copy', () => {
   assert.doesNotMatch(html, /Postseason focus/);
   assert.match(html, /Matchup insights/);
   assert.match(html, /View full standings/);
-  assert.match(html, /View weekly matchups/);
+  assert.match(html, /View full matchup matrix/);
 });
 
 test('overview panel shows explicit empty states for featured, results, and matchup insights', () => {

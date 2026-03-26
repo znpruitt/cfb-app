@@ -500,7 +500,7 @@ type OverviewPanelProps = {
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
   onViewStandings?: () => void;
-  onViewMatchups?: () => void;
+  onViewMatrix?: () => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   previousStandingsLeaders?: OwnerStandingsRow[] | null;
 };
@@ -518,7 +518,7 @@ export default function OverviewPanel({
   displayTimeZone,
   onOwnerSelect,
   onViewStandings,
-  onViewMatchups,
+  onViewMatrix,
   rankingsByTeamId = new Map(),
   previousStandingsLeaders = null,
 }: OverviewPanelProps): React.ReactElement {
@@ -648,7 +648,7 @@ export default function OverviewPanel({
             No games yet—matchup insights will populate once the season slate has owner pairings.
           </p>
         )}
-        <MatchupInsightsCard insights={viewModel.matchupInsights} onViewMatchups={onViewMatchups} />
+        <MatchupInsightsCard insights={viewModel.matchupInsights} onViewMatrix={onViewMatrix} />
       </SectionCard>
     </div>
   );
