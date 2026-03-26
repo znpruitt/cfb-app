@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { classifyScorePackStatus, formatCompactGameStatus } from '../lib/gameStatus';
+import { classifyScorePackStatus } from '../lib/gameStatus';
 import type { CombinedOdds } from '../lib/odds';
 import { pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
 import {
@@ -16,6 +16,16 @@ import {
   type OwnerWeekSlate,
   type WeekMatchupSections,
 } from '../lib/matchups';
+import {
+  deriveExcludedGamesSummary,
+  deriveMatchupsHeaderCopy,
+  deriveOpponentDescriptor,
+  deriveOwnerOutcome,
+  formatSlateSummaryText,
+  getDefaultVisibleOpponentsCount,
+  summarizeSlateOpponents,
+  type GameOutcomeTone,
+} from '../lib/selectors/matchups';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
@@ -32,20 +42,7 @@ type MatchupsWeekPanelProps = {
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 };
 
-type OpponentSummaryEntry = {
-  label: string;
-  count: number;
-};
-
-type GameOutcomeTone =
-  | 'scheduled'
-  | 'inprogress'
-  | 'finalWin'
-  | 'finalLoss'
-  | 'finalSelf'
-  | 'neutral';
-
-const DEFAULT_VISIBLE_OPPONENTS = 3;
+const DEFAULT_VISIBLE_OPPONENTS = getDefaultVisibleOpponentsCount();
 function formatKickoff(date: string | null, timeZone: string): string {
   if (!date) return 'TBD';
   const kickoff = new Date(date);
@@ -73,43 +70,6 @@ function performanceClasses(tone: 'scheduled' | 'inprogress' | 'final' | 'neutra
   return 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
 }
 
-function formatGameStatus(score?: ScorePack): string {
-  return formatCompactGameStatus(score);
-}
-
-function isFcsConference(conference: string | null | undefined): boolean {
-  return /\bfcs\b/i.test(conference ?? '');
-}
-
-function getOpponentDescriptor(slateGame: OwnerSlateGame): string {
-  if (slateGame.opponentOwner) {
-    return slateGame.opponentOwner === slateGame.owner ? 'Self' : `vs ${slateGame.opponentOwner}`;
-  }
-
-  const opponentConference =
-    slateGame.ownerTeamSide === 'away' ? slateGame.game.homeConf : slateGame.game.awayConf;
-  const opponentParticipant =
-    slateGame.ownerTeamSide === 'away'
-      ? slateGame.game.participants.home
-      : slateGame.game.participants.away;
-
-  if (opponentParticipant.kind === 'placeholder' || opponentParticipant.kind === 'derived') {
-    return opponentParticipant.displayName;
-  }
-
-  if (opponentParticipant.kind !== 'team' || isFcsConference(opponentConference)) {
-    return 'FCS';
-  }
-
-  return 'NoClaim (FBS)';
-}
-
-function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
-  const descriptor = getOpponentDescriptor(slateGame);
-  if (descriptor.startsWith('vs ')) return descriptor.slice(3);
-  return descriptor;
-}
-
 function getOpponentBadgeClasses(descriptor: string): string {
   if (descriptor === 'Self') {
     return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300';
@@ -121,96 +81,6 @@ function getOpponentBadgeClasses(descriptor: string): string {
     return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-300';
   }
   return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-300';
-}
-
-function summarizeOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
-  const counts = new Map<string, number>();
-  const order: string[] = [];
-
-  for (const game of slate.games) {
-    const label = getSummaryOpponentLabel(game);
-    if (!counts.has(label)) order.push(label);
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-
-  return order.map((label) => ({ label, count: counts.get(label) ?? 0 }));
-}
-
-function formatOpponentSummaryEntry(entry: OpponentSummaryEntry): string {
-  return entry.count > 1 ? `${entry.label} (x${entry.count})` : entry.label;
-}
-
-function formatSlateSummaryText(
-  entries: OpponentSummaryEntry[],
-  totalGames: number,
-  expanded: boolean
-): string {
-  const visibleEntries = expanded ? entries : entries.slice(0, DEFAULT_VISIBLE_OPPONENTS);
-  const hiddenCount = Math.max(entries.length - visibleEntries.length, 0);
-  const baseSummary = visibleEntries.length
-    ? visibleEntries.map(formatOpponentSummaryEntry).join(', ')
-    : '—';
-  const suffix = hiddenCount > 0 && !expanded ? ` +${hiddenCount}` : '';
-  return `${totalGames} game${totalGames === 1 ? '' : 's'} · vs ${baseSummary}${suffix}`;
-}
-
-function isSelfGame(slateGame: OwnerSlateGame): boolean {
-  return slateGame.opponentOwner === slateGame.owner;
-}
-
-function formatOwnedScore(
-  slateGame: OwnerSlateGame,
-  score?: ScorePack
-): { summary: string; tone: GameOutcomeTone; detail?: string } {
-  const stateBucket = classifyScorePackStatus(score);
-  const state = stateBucket === 'disrupted' ? 'scheduled' : stateBucket;
-  if (!score) {
-    return { summary: 'Scheduled', tone: 'scheduled' };
-  }
-
-  const ownerScore = slateGame.ownerTeamSide === 'away' ? score.away.score : score.home.score;
-  const opponentScore = slateGame.ownerTeamSide === 'away' ? score.home.score : score.away.score;
-  const selfGame = isSelfGame(slateGame);
-
-  if (ownerScore == null || opponentScore == null || state === 'scheduled') {
-    return {
-      summary: formatGameStatus(score),
-      tone: state === 'final' ? 'neutral' : state,
-    };
-  }
-
-  if (selfGame) {
-    const symmetricSummary = `${slateGame.ownerTeamName} ${ownerScore} • ${slateGame.opponentTeamName} ${opponentScore}`;
-
-    if (state === 'final' && ownerScore === opponentScore) {
-      return {
-        summary: symmetricSummary,
-        tone: 'neutral',
-        detail: 'Unexpected final tie',
-      };
-    }
-
-    return {
-      summary: symmetricSummary,
-      tone: state === 'final' ? 'finalSelf' : state,
-      detail: state === 'final' ? 'Counts as 1W / 1L' : undefined,
-    };
-  }
-
-  const base = `${ownerScore}-${opponentScore}`;
-  if (ownerScore === opponentScore) {
-    return { summary: state === 'final' ? `${base} (final)` : `Tied ${base}`, tone: 'neutral' };
-  }
-
-  if (state === 'final') {
-    return {
-      summary: `${base} (final)`,
-      tone: ownerScore > opponentScore ? 'finalWin' : 'finalLoss',
-    };
-  }
-
-  const verdict = ownerScore > opponentScore ? 'Leading' : 'Trailing';
-  return { summary: `${verdict} ${base}`, tone: state };
 }
 
 function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
@@ -292,10 +162,10 @@ function GameRow({
   const { primary, secondary } = prioritizeGameTags(
     computeGameTags(slateGame.game, score, odds, rosterByTeam)
   );
-  const ownerOutcome = formatOwnedScore(slateGame, score);
+  const ownerOutcome = deriveOwnerOutcome({ slateGame, score });
   const rawStatusBucket = classifyScorePackStatus(score);
   const statusTone = rawStatusBucket === 'disrupted' ? 'scheduled' : rawStatusBucket;
-  const opponentDescriptor = getOpponentDescriptor(slateGame);
+  const opponentDescriptor = deriveOpponentDescriptor(slateGame);
   const rowClasses = ownerOutcomeRowClasses(ownerOutcome.tone);
   const awayTeamName = slateGame.game.csvAway;
   const homeTeamName = slateGame.game.csvHome;
@@ -433,7 +303,7 @@ function OwnerCard({
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const opponentSummaryEntries = React.useMemo(() => summarizeOpponents(slate), [slate]);
+  const opponentSummaryEntries = React.useMemo(() => summarizeSlateOpponents(slate), [slate]);
   const hasHiddenOpponents = opponentSummaryEntries.length > DEFAULT_VISIBLE_OPPONENTS;
 
   return (
@@ -453,7 +323,11 @@ function OwnerCard({
         </div>
         <p className="text-sm leading-5 text-gray-600 dark:text-zinc-400 break-words">
           <span>
-            {formatSlateSummaryText(opponentSummaryEntries, slate.totalGames, isExpanded)}
+            {formatSlateSummaryText({
+              entries: opponentSummaryEntries,
+              totalGames: slate.totalGames,
+              expanded: isExpanded,
+            })}
           </span>
           <span className="mx-1 text-gray-300 dark:text-zinc-600">•</span>
           <span>
@@ -514,6 +388,10 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
       ),
     [games, scoresByKey, rosterByTeam]
   );
+  const oddsSummaryCopy = deriveMatchupsHeaderCopy({
+    gamesCount: games.length,
+    oddsAvailableCount,
+  });
 
   return (
     <div className="space-y-3">
@@ -526,13 +404,8 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
           <p className="text-[11px] text-gray-500 dark:text-zinc-400">
             Live games and primary tags are highlighted.
           </p>
-          {games.length > 0 && oddsAvailableCount === 0 ? (
-            <p className="text-[11px] text-gray-500 dark:text-zinc-400">Odds are unavailable.</p>
-          ) : null}
-          {games.length > 0 && oddsAvailableCount > 0 && oddsAvailableCount < games.length ? (
-            <p className="text-[11px] text-gray-500 dark:text-zinc-400">
-              Odds available for {oddsAvailableCount}/{games.length} games.
-            </p>
+          {oddsSummaryCopy ? (
+            <p className="text-[11px] text-gray-500 dark:text-zinc-400">{oddsSummaryCopy}</p>
           ) : null}
         </div>
 
@@ -559,9 +432,7 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
       <section className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 sm:px-4 dark:border-zinc-700 dark:bg-zinc-900">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Excluded games</h2>
         <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
-          {derivedSections.otherGames.length === 0
-            ? 'All games this week appear on a surname card.'
-            : `${derivedSections.otherGames.length} excluded game${derivedSections.otherGames.length === 1 ? '' : 's'} do not involve owned teams.`}
+          {deriveExcludedGamesSummary(derivedSections)}{' '}
         </p>
       </section>
     </div>

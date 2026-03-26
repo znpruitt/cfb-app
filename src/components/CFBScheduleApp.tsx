@@ -14,15 +14,10 @@ import OwnerPanel from './OwnerPanel';
 import WeekControls from './WeekControls';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
-import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../lib/odds';
+import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
-import { fetchScoresByGame, type ScorePack } from '../lib/scores';
-import {
-  getRefreshPlan,
-  LIVE_MANUAL_COOLDOWN_MS,
-  SCORES_AUTO_REFRESH_MS,
-} from '../lib/refreshPolicy';
-import { decideRefresh } from '../lib/refreshDecision';
+import { type ScorePack } from '../lib/scores';
+import { getRefreshPlan } from '../lib/refreshPolicy';
 import { type AliasMap } from '../lib/teamNames';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
 import { saveServerAliases } from '../lib/aliasesApi';
@@ -42,10 +37,8 @@ import type { TeamCatalogItem } from '../lib/teamIdentity';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
-import { requireAdminAuthHeaders } from '../lib/adminAuth';
 import { saveServerOwnersCsv } from '../lib/ownersApi';
 import { saveServerPostseasonOverrides } from '../lib/postseasonOverridesApi';
-import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
 import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import {
@@ -56,16 +49,11 @@ import {
 } from '../lib/activeView';
 import {
   EMPTY_SCORE_HYDRATION_STATE,
-  getBootstrapScoreHydrationGames,
   getCanonicalPostseasonGames,
-  getHydrationSeasonTypes,
-  getLazyScoreHydrationGames,
-  markScoreHydrationLoaded,
   type ScoreHydrationState,
 } from '../lib/scoreHydration';
 import {
   dedupeIssues,
-  isLiveIssue,
   isScheduleIssue,
   isTransientScheduleIssue,
   summarizeGames,
@@ -80,6 +68,7 @@ import {
 } from '../lib/rankings';
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
+import { useLiveRefresh } from './hooks/useLiveRefresh';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -150,12 +139,7 @@ export default function CFBScheduleApp({
     EMPTY_SCORE_HYDRATION_STATE
   );
 
-  const liveRefreshInFlightRef = useRef<boolean>(false);
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
-  const lastManualLiveRefreshMsRef = useRef<number>(0);
-  const lastAutoScoresRefreshMsRef = useRef<number>(0);
-  const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
-  const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
 
   const applySavedAliasMap = useCallback(
@@ -203,8 +187,6 @@ export default function CFBScheduleApp({
     setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
-    hasAutoBootstrappedLiveRef.current = false;
-    hasAttemptedLazyPostseasonHydrationRef.current = false;
   }, []);
 
   const clearOwnersDerivedState = useCallback(() => {
@@ -729,194 +711,32 @@ export default function CFBScheduleApp({
     [scoresByKey, selectedSeason, visibleGames]
   );
 
-  const refreshLiveData = useCallback(
-    async (options?: {
-      manual?: boolean;
-      includeOdds?: boolean;
-      scoreScopeGamesOverride?: AppGame[];
-    }): Promise<void> => {
-      const manual = options?.manual ?? false;
-      if (liveRefreshInFlightRef.current) return;
-
-      const nowMs = Date.now();
-      const shouldFetchOdds = options?.includeOdds ?? refreshPlan.odds.fetchOnStartup;
-      const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
-      const refreshDecision = decideRefresh({
-        hasGames: games.length > 0,
-        manual,
-        manualCooldownActive:
-          manual && nowMs - lastManualLiveRefreshMsRef.current < LIVE_MANUAL_COOLDOWN_MS,
-        includeOddsRequested: shouldFetchOdds,
-        oddsAutoDisabledByQuota: !manual && quota.disableAutoRefresh,
-      });
-      if (refreshDecision.kind === 'skip') {
-        if (refreshDecision.reason === 'no-games') {
-          setIssues((p) => [...p, 'No games loaded. CFBD schedule load may have failed.']);
-        }
-        return;
-      }
-
-      setIssues((prev) => prev.filter((issue) => !isLiveIssue(issue)));
-      setDiag([]);
-
-      liveRefreshInFlightRef.current = true;
-      setLoadingLive(true);
-      if (manual) {
-        lastManualLiveRefreshMsRef.current = nowMs;
-      }
-
-      try {
-        const teams = await fetchTeamsCatalog().catch(() => []);
-
-        if (refreshDecision.reason === 'odds-disabled-by-quota') {
-          setIssues((p) => [
-            ...p,
-            `Odds auto-refresh skipped: low remaining quota (${oddsUsage?.remaining ?? 'unknown'}).`,
-          ]);
-        }
-
-        if (refreshDecision.kind === 'scores_and_odds') {
-          if (manual && quota.manualWarningOnly) {
-            setIssues((p) => [
-              ...p,
-              `Odds refresh warning: remaining quota critically low (${oddsUsage?.remaining ?? 'unknown'}).`,
-            ]);
-          }
-          try {
-            const oddsRes = await fetch(
-              `/api/odds?year=${selectedSeason}${manual ? '&refresh=1' : ''}`,
-              {
-                cache: 'no-store',
-                headers: manual ? requireAdminAuthHeaders() : undefined,
-              }
-            );
-            if (oddsRes.ok) {
-              const oddsPayload = (await oddsRes.json()) as {
-                items?: CanonicalOddsItem[];
-                meta?: {
-                  cache?: 'hit' | 'miss';
-                  usage?: OddsUsageSnapshot | null;
-                };
-              };
-
-              const canonicalItems = oddsPayload.items ?? [];
-              const cacheState = oddsPayload.meta?.cache ?? 'unknown';
-
-              setOddsCacheState(cacheState);
-              setOddsUsage(oddsPayload.meta?.usage ?? null);
-              setOddsByKey(buildOddsLookup(canonicalItems));
-              setLastOddsRefreshAt(new Date().toLocaleString());
-            } else {
-              const t = await oddsRes.text().catch(() => '');
-              setIssues((p) => [
-                ...p,
-                oddsRes.status === 402 || oddsRes.status === 429
-                  ? `Odds quota error ${oddsRes.status}: ${t}`
-                  : `Odds error ${oddsRes.status}: ${t}`,
-              ]);
-            }
-          } catch (err) {
-            setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
-          }
-        }
-
-        try {
-          const scoreScopeForRequest = options?.scoreScopeGamesOverride ?? scoreScopeGames;
-
-          const {
-            scoresByKey: nextScores,
-            issues: scoreIssues,
-            diag: scoreDiag,
-            debugSnapshot,
-          } = await fetchScoresByGame({
-            games,
-            fallbackScopeGames: scoreScopeForRequest,
-            aliasMap,
-            season: selectedSeason,
-            teams,
-            debugTrace: IS_DEBUG,
-          });
-
-          if (IS_DEBUG) {
-            console.log('scores refresh scope', {
-              selectedTab,
-              selectedWeek,
-              regularWeeks: weeks,
-              visibleGamesCount: visibleGames.length,
-              visibleGamesSample: visibleGames.slice(0, 5).map((game) => game.key),
-              visibleSeasonTypes: Array.from(
-                new Set(
-                  visibleGames.map((game) => (game.stage === 'regular' ? 'regular' : 'postseason'))
-                )
-              ),
-              visibleWeeks: Array.from(new Set(visibleGames.map((game) => game.week))).sort(
-                (a, b) => a - b
-              ),
-              scoreScopeCount: scoreScopeForRequest.length,
-              scoreScopeSample: scoreScopeForRequest.slice(0, 5).map((game) => game.key),
-              scoreScopeSeasonTypes: Array.from(
-                new Set(
-                  scoreScopeForRequest.map((game) =>
-                    game.stage === 'regular' ? 'regular' : 'postseason'
-                  )
-                )
-              ),
-              scoreScopeWeeks: Array.from(
-                new Set(scoreScopeForRequest.map((game) => game.week))
-              ).sort((a, b) => a - b),
-              emptyScopeEarlyReturn: scoreScopeForRequest.length === 0,
-              providerRowCount: debugSnapshot?.providerRowCount ?? null,
-              attachedScoreCount: debugSnapshot?.attachedCount ?? null,
-              scoreRequests: debugSnapshot?.requestUrls ?? [],
-            });
-          }
-
-          if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
-          if (scoreDiag.length) setDiag((p) => [...p, ...scoreDiag]);
-          setScoresByKey((prev) => {
-            const retained: Record<string, ScorePack> = {};
-            for (const game of games) {
-              const nextScore = nextScores[game.key];
-              if (nextScore) {
-                retained[game.key] = nextScore;
-                continue;
-              }
-              const prevScore = prev[game.key];
-              if (prevScore) {
-                retained[game.key] = prevScore;
-              }
-            }
-            return retained;
-          });
-          setLastScoresRefreshAt(new Date().toLocaleString());
-          const loadedSeasonTypes = getHydrationSeasonTypes(scoreScopeForRequest);
-          if (loadedSeasonTypes.length > 0) {
-            setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
-          }
-          if (!manual) {
-            lastAutoScoresRefreshMsRef.current = Date.now();
-          }
-        } catch (err) {
-          setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
-        }
-      } finally {
-        liveRefreshInFlightRef.current = false;
-        setLoadingLive(false);
-      }
-    },
-    [
-      aliasMap,
-      games,
-      oddsUsage,
-      refreshPlan.odds.fetchOnStartup,
-      scoreScopeGames,
-      selectedSeason,
-      selectedTab,
-      selectedWeek,
-      visibleGames,
-      weeks,
-    ]
-  );
+  const { refreshLiveData } = useLiveRefresh({
+    selectedSeason,
+    selectedTab,
+    selectedWeek,
+    weeks,
+    scheduleLoaded,
+    games,
+    visibleGames,
+    scoreScopeGames,
+    aliasMap,
+    oddsUsage,
+    refreshPlan,
+    scoreHydrationState,
+    setScoreHydrationState,
+    setIssues,
+    setDiag,
+    setOddsByKey,
+    setScoresByKey,
+    setOddsCacheState,
+    setOddsUsage,
+    setLastOddsRefreshAt,
+    setLastScoresRefreshAt,
+    loadingLive,
+    setLoadingLive,
+    isDebug: IS_DEBUG,
+  });
 
   useEffect(() => {
     void fetchLatestOddsUsageSnapshot()
@@ -927,69 +747,6 @@ export default function CFBScheduleApp({
         // non-fatal diagnostics fetch
       });
   }, []);
-
-  useEffect(() => {
-    if (!scheduleLoaded || hasAutoBootstrappedLiveRef.current) return;
-    const bootstrapScoreGames = getBootstrapScoreHydrationGames({
-      games,
-      selectedTab,
-    });
-
-    if (bootstrapScoreGames.length === 0) return;
-
-    hasAutoBootstrappedLiveRef.current = true;
-    void refreshLiveData({
-      manual: false,
-      includeOdds: refreshPlan.odds.fetchOnStartup,
-      scoreScopeGamesOverride: bootstrapScoreGames,
-    });
-  }, [games, refreshLiveData, refreshPlan.odds.fetchOnStartup, scheduleLoaded, selectedTab]);
-
-  useEffect(() => {
-    if (!scheduleLoaded || !refreshPlan.scores.allowAutoOnFocus) return;
-
-    const tryRefresh = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (Date.now() - lastAutoScoresRefreshMsRef.current < SCORES_AUTO_REFRESH_MS) return;
-      void refreshLiveData({ manual: false, includeOdds: false });
-    };
-
-    const onFocus = () => {
-      tryRefresh();
-    };
-
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
-    };
-  }, [refreshLiveData, refreshPlan.scores.allowAutoOnFocus, scheduleLoaded]);
-
-  useEffect(() => {
-    if (selectedTab !== 'postseason') {
-      hasAttemptedLazyPostseasonHydrationRef.current = false;
-      return;
-    }
-
-    if (!scheduleLoaded || loadingLive) return;
-
-    const lazyPostseasonGames = getLazyScoreHydrationGames({
-      games,
-      selectedTab,
-      hydrationState: scoreHydrationState,
-      hasAttemptedPostseasonHydration: hasAttemptedLazyPostseasonHydrationRef.current,
-    });
-
-    if (lazyPostseasonGames.length === 0) return;
-
-    hasAttemptedLazyPostseasonHydrationRef.current = true;
-    void refreshLiveData({
-      manual: false,
-      includeOdds: false,
-      scoreScopeGamesOverride: lazyPostseasonGames,
-    });
-  }, [games, loadingLive, refreshLiveData, scheduleLoaded, scoreHydrationState, selectedTab]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
