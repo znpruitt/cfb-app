@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
-import type { CfbdConferenceRecord } from '@/lib/conferenceSubdivision';
-import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '@/lib/schedule';
+import { loadDebugSeasonContext, parseDebugYear } from '../_lib/loadDebugSeasonContext';
+import { buildScheduleFromApi, type AppGame } from '@/lib/schedule';
 import {
   buildScheduleIndex,
   matchScoreRowToSchedule,
@@ -116,42 +116,26 @@ function closestCandidate(params: {
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const year = Number(url.searchParams.get('year') ?? new Date().getFullYear());
+  const year = parseDebugYear(url);
   const origin = `${url.protocol}//${url.host}`;
 
-  const [scheduleRes, teamsRes, aliasesRes, conferencesRes, scoresRes] = await Promise.all([
-    fetch(`${origin}/api/schedule?year=${year}`, { cache: 'no-store' }),
-    fetch(`${origin}/api/teams`, { cache: 'no-store' }),
-    fetch(`${origin}/api/aliases?year=${year}`, { cache: 'no-store' }),
-    fetch(`${origin}/api/conferences`, { cache: 'no-store' }),
+  const [context, scoresRes] = await Promise.all([
+    loadDebugSeasonContext({ year, origin }),
     fetch(`${origin}/api/scores?year=${year}&seasonType=postseason`, { cache: 'no-store' }),
   ]);
 
-  const scheduleJson = (await scheduleRes.json().catch(() => ({ items: [] }))) as {
-    items?: ScheduleWireItem[];
-  };
-  const teamsJson = (await teamsRes.json().catch(() => ({ items: [] }))) as {
-    items?: Array<Record<string, unknown>>;
-  };
-  const aliasesJson = (await aliasesRes.json().catch(() => ({ map: {} }))) as {
-    map?: Record<string, string>;
-  };
-  const conferencesJson = (await conferencesRes.json().catch(() => ({ items: [] }))) as {
-    items?: CfbdConferenceRecord[];
-  };
-
   const built = buildScheduleFromApi({
-    scheduleItems: scheduleJson.items ?? [],
-    teams: (teamsJson.items ?? []) as never[],
-    aliasMap: aliasesJson.map ?? {},
+    scheduleItems: context.scheduleItems,
+    teams: context.teamItems as never[],
+    aliasMap: context.aliasMap,
     season: year,
-    conferenceRecords: conferencesJson.items ?? [],
+    conferenceRecords: context.conferenceItems,
   });
 
   const postseasonGames = built.games.filter((game) => game.stage !== 'regular');
   const resolver = createTeamIdentityResolver({
-    aliasMap: aliasesJson.map ?? {},
-    teams: (teamsJson.items ?? []) as never[],
+    aliasMap: context.aliasMap,
+    teams: context.teamItems as never[],
     observedNames: Array.from(
       new Set(postseasonGames.flatMap((g) => [g.csvHome, g.csvAway, g.canHome, g.canAway]))
     ),

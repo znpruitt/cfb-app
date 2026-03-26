@@ -1,3 +1,4 @@
+import { classifyScorePackStatus } from './gameStatus.ts';
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
 
@@ -38,23 +39,6 @@ export type StandingsCoverage = {
   message: string | null;
 };
 
-function getScoreState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' {
-  const status = score?.status?.toLowerCase() ?? '';
-
-  if (!score || !status) return 'scheduled';
-  if (status.includes('final')) return 'final';
-  if (
-    status.includes('progress') ||
-    status.includes('quarter') ||
-    status.includes('half') ||
-    status.includes('ot')
-  ) {
-    return 'inprogress';
-  }
-
-  return 'scheduled';
-}
-
 function hasOwnedTeam(game: AppGame, rosterByTeam: Map<string, string>): boolean {
   return rosterByTeam.has(game.csvAway) || rosterByTeam.has(game.csvHome);
 }
@@ -74,7 +58,7 @@ export function deriveStandingsCoverage(
 
   const hasMissingFinalScores = relevantFinalGames.some((game) => {
     const score = scoresByKey[game.key];
-    if (getScoreState(score) !== 'final') return true;
+    if (classifyScorePackStatus(score) !== 'final') return true;
 
     return score?.away.score == null || score.home.score == null;
   });
@@ -124,7 +108,7 @@ export function deriveFinalOwnedParticipations(
 
   for (const game of games) {
     const score = scoresByKey[game.key];
-    if (getScoreState(score) !== 'final') continue;
+    if (classifyScorePackStatus(score) !== 'final') continue;
 
     const awayScore = score.away.score;
     const homeScore = score.home.score;

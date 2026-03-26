@@ -1,12 +1,14 @@
 import React from 'react';
 
 import { deriveDisplayEventName } from '../lib/gameEventName';
-import type { CombinedOdds } from '../lib/odds';
 import {
-  formatGameMatchupLabel,
-  gameStateFromScore,
-  usesNeutralSiteSemantics,
-} from '../lib/gameUi';
+  classifyStatusLabel,
+  formatScheduleStatusLabel,
+  formatScoreSummaryLabel,
+  isDisruptedStatusLabel,
+} from '../lib/gameStatus';
+import type { CombinedOdds } from '../lib/odds';
+import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import {
   computeGameTags,
   LEAGUE_TAG_LABELS,
@@ -51,39 +53,16 @@ function formatKickoff(date: string | null, timeZone: string): string {
   });
 }
 
-function summaryStateLabel(score: ScorePack | undefined): string | null {
-  if (!score) return null;
-  const trimmed = score.status.trim();
-  if (/\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(trimmed)) return trimmed;
-  const state = gameStateFromScore(score);
-  if (state === 'final') return 'FINAL';
-  if (state === 'inprogress') return trimmed.toUpperCase();
-  return trimmed;
-}
-
-function scheduleStateLabel(
-  status: string | null | undefined,
-  isPlaceholder: boolean
-): string | null {
-  const trimmed = status?.trim();
-  if (!trimmed) return isPlaceholder ? 'Placeholder' : null;
-  if (trimmed === 'scheduled') return isPlaceholder ? 'Placeholder' : 'Scheduled';
-  if (trimmed === 'final') return 'FINAL';
-  if (trimmed === 'in_progress') return 'IN PROGRESS';
-  if (trimmed === 'matchup_set') return 'Scheduled';
-  return trimmed.replace(/_/g, ' ');
-}
-
 function resolveSummaryStateLabel(
   game: AppGame,
   score: ScorePack | undefined,
   isPlaceholder: boolean
 ): string {
-  return summaryStateLabel(score) ?? scheduleStateLabel(game.status, isPlaceholder) ?? 'Scheduled';
-}
-
-function isDisruptedSummaryState(summaryState: string): boolean {
-  return /\b(postponed|canceled|cancelled|suspended|delayed)\b/i.test(summaryState);
+  return (
+    formatScoreSummaryLabel(score) ??
+    formatScheduleStatusLabel(game.status, { isPlaceholder }) ??
+    'Scheduled'
+  );
 }
 
 function summaryStateChipBucket(
@@ -93,14 +72,9 @@ function summaryStateChipBucket(
   const normalized = trimmed.toUpperCase();
 
   if (normalized === 'FINAL') return 'final';
-  if (isDisruptedSummaryState(trimmed)) return 'disrupted';
+  if (isDisruptedStatusLabel(trimmed)) return 'disrupted';
 
-  const inferredState = gameStateFromScore({
-    status: trimmed,
-    away: { team: '', score: null },
-    home: { team: '', score: null },
-    time: null,
-  });
+  const inferredState = classifyStatusLabel(trimmed);
   if (inferredState === 'inprogress') return 'live';
 
   return 'scheduled';

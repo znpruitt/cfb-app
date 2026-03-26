@@ -22,10 +22,10 @@ import {
   LIVE_MANUAL_COOLDOWN_MS,
   SCORES_AUTO_REFRESH_MS,
 } from '../lib/refreshPolicy';
-import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
+import { decideRefresh } from '../lib/refreshDecision';
+import { type AliasMap } from '../lib/teamNames';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
 import { saveServerAliases } from '../lib/aliasesApi';
-import { bootstrapAliasesAndCaches } from '../lib/bootstrap';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
@@ -79,6 +79,7 @@ import {
   type RankingsResponse,
 } from '../lib/rankings';
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
+import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -359,36 +360,17 @@ export default function CFBScheduleApp({
     setTimeout(() => setAliasToast(null), timeoutMs);
   }, []);
 
-  useEffect(() => {
-    if (hasBootstrappedRef.current) return;
-    hasBootstrappedRef.current = true;
-
-    (async () => {
-      const {
-        aliasMap: bootAliasMap,
-        aliasLoadIssue,
-        ownersCsvText,
-        ownersLoadIssue,
-        postseasonOverrides: loadedOverrides,
-        postseasonOverridesLoadIssue,
-      } = await bootstrapAliasesAndCaches({ season: selectedSeason, seedAliases: SEED_ALIASES });
-
-      setAliasMap(bootAliasMap);
-      if (aliasLoadIssue) setIssues((p) => [...p, aliasLoadIssue]);
-      if (ownersLoadIssue) setIssues((p) => [...p, ownersLoadIssue]);
-      if (postseasonOverridesLoadIssue) setIssues((p) => [...p, postseasonOverridesLoadIssue]);
-
-      setHasCachedOwners(Boolean(ownersCsvText));
-      setManualPostseasonOverrides(loadedOverrides);
-
-      await loadScheduleFromApi(bootAliasMap, loadedOverrides);
-
-      if (ownersCsvText) {
-        setOwnersLoadedFromCache(true);
-        tryParseOwnersCSV(ownersCsvText);
-      }
-    })();
-  }, [loadScheduleFromApi, selectedSeason, storageKeys.postseasonOverrides, tryParseOwnersCSV]);
+  useScheduleBootstrap({
+    hasBootstrappedRef,
+    selectedSeason,
+    setAliasMap,
+    setIssues,
+    setHasCachedOwners,
+    setManualPostseasonOverrides,
+    loadScheduleFromApi,
+    setOwnersLoadedFromCache,
+    tryParseOwnersCSV,
+  });
 
   const onOwnersFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -757,16 +739,25 @@ export default function CFBScheduleApp({
       if (liveRefreshInFlightRef.current) return;
 
       const nowMs = Date.now();
-      if (manual && nowMs - lastManualLiveRefreshMsRef.current < LIVE_MANUAL_COOLDOWN_MS) {
+      const shouldFetchOdds = options?.includeOdds ?? refreshPlan.odds.fetchOnStartup;
+      const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
+      const refreshDecision = decideRefresh({
+        hasGames: games.length > 0,
+        manual,
+        manualCooldownActive:
+          manual && nowMs - lastManualLiveRefreshMsRef.current < LIVE_MANUAL_COOLDOWN_MS,
+        includeOddsRequested: shouldFetchOdds,
+        oddsAutoDisabledByQuota: !manual && quota.disableAutoRefresh,
+      });
+      if (refreshDecision.kind === 'skip') {
+        if (refreshDecision.reason === 'no-games') {
+          setIssues((p) => [...p, 'No games loaded. CFBD schedule load may have failed.']);
+        }
         return;
       }
 
       setIssues((prev) => prev.filter((issue) => !isLiveIssue(issue)));
       setDiag([]);
-      if (!games.length) {
-        setIssues((p) => [...p, 'No games loaded. CFBD schedule load may have failed.']);
-        return;
-      }
 
       liveRefreshInFlightRef.current = true;
       setLoadingLive(true);
@@ -776,58 +767,56 @@ export default function CFBScheduleApp({
 
       try {
         const teams = await fetchTeamsCatalog().catch(() => []);
-        const shouldFetchOdds = options?.includeOdds ?? refreshPlan.odds.fetchOnStartup;
 
-        if (shouldFetchOdds) {
-          const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
-          if (!manual && quota.disableAutoRefresh) {
+        if (refreshDecision.reason === 'odds-disabled-by-quota') {
+          setIssues((p) => [
+            ...p,
+            `Odds auto-refresh skipped: low remaining quota (${oddsUsage?.remaining ?? 'unknown'}).`,
+          ]);
+        }
+
+        if (refreshDecision.kind === 'scores_and_odds') {
+          if (manual && quota.manualWarningOnly) {
             setIssues((p) => [
               ...p,
-              `Odds auto-refresh skipped: low remaining quota (${oddsUsage?.remaining ?? 'unknown'}).`,
+              `Odds refresh warning: remaining quota critically low (${oddsUsage?.remaining ?? 'unknown'}).`,
             ]);
-          } else {
-            if (manual && quota.manualWarningOnly) {
+          }
+          try {
+            const oddsRes = await fetch(
+              `/api/odds?year=${selectedSeason}${manual ? '&refresh=1' : ''}`,
+              {
+                cache: 'no-store',
+                headers: manual ? requireAdminAuthHeaders() : undefined,
+              }
+            );
+            if (oddsRes.ok) {
+              const oddsPayload = (await oddsRes.json()) as {
+                items?: CanonicalOddsItem[];
+                meta?: {
+                  cache?: 'hit' | 'miss';
+                  usage?: OddsUsageSnapshot | null;
+                };
+              };
+
+              const canonicalItems = oddsPayload.items ?? [];
+              const cacheState = oddsPayload.meta?.cache ?? 'unknown';
+
+              setOddsCacheState(cacheState);
+              setOddsUsage(oddsPayload.meta?.usage ?? null);
+              setOddsByKey(buildOddsLookup(canonicalItems));
+              setLastOddsRefreshAt(new Date().toLocaleString());
+            } else {
+              const t = await oddsRes.text().catch(() => '');
               setIssues((p) => [
                 ...p,
-                `Odds refresh warning: remaining quota critically low (${oddsUsage?.remaining ?? 'unknown'}).`,
+                oddsRes.status === 402 || oddsRes.status === 429
+                  ? `Odds quota error ${oddsRes.status}: ${t}`
+                  : `Odds error ${oddsRes.status}: ${t}`,
               ]);
             }
-            try {
-              const oddsRes = await fetch(
-                `/api/odds?year=${selectedSeason}${manual ? '&refresh=1' : ''}`,
-                {
-                  cache: 'no-store',
-                  headers: manual ? requireAdminAuthHeaders() : undefined,
-                }
-              );
-              if (oddsRes.ok) {
-                const oddsPayload = (await oddsRes.json()) as {
-                  items?: CanonicalOddsItem[];
-                  meta?: {
-                    cache?: 'hit' | 'miss';
-                    usage?: OddsUsageSnapshot | null;
-                  };
-                };
-
-                const canonicalItems = oddsPayload.items ?? [];
-                const cacheState = oddsPayload.meta?.cache ?? 'unknown';
-
-                setOddsCacheState(cacheState);
-                setOddsUsage(oddsPayload.meta?.usage ?? null);
-                setOddsByKey(buildOddsLookup(canonicalItems));
-                setLastOddsRefreshAt(new Date().toLocaleString());
-              } else {
-                const t = await oddsRes.text().catch(() => '');
-                setIssues((p) => [
-                  ...p,
-                  oddsRes.status === 402 || oddsRes.status === 429
-                    ? `Odds quota error ${oddsRes.status}: ${t}`
-                    : `Odds error ${oddsRes.status}: ${t}`,
-                ]);
-              }
-            } catch (err) {
-              setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
-            }
+          } catch (err) {
+            setIssues((p) => [...p, `Odds fetch failed: ${(err as Error).message}`]);
           }
         }
 
