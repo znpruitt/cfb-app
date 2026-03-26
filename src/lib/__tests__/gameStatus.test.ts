@@ -37,6 +37,32 @@ test('classifies in-progress variants as live', () => {
   assert.equal(classifyStatusLabel('Q3 5:23'), 'inprogress');
   assert.equal(classifyStatusLabel('Half'), 'inprogress');
   assert.equal(classifyStatusLabel('In OT'), 'inprogress');
+  assert.equal(classifyStatusLabel('OT'), 'inprogress');
+  assert.equal(classifyStatusLabel('2OT'), 'inprogress');
+  assert.equal(classifyStatusLabel('End 2OT'), 'inprogress');
+});
+
+test('pregame labels are not misclassified as live via overtime substring collisions', () => {
+  assert.equal(classifyStatusLabel('Not Started'), 'scheduled');
+  assert.equal(classifyStatusLabel('NOT_STARTED'), 'scheduled');
+  assert.equal(
+    formatScoreSummaryLabel({
+      status: 'Not Started',
+      away: { team: 'A', score: null },
+      home: { team: 'B', score: null },
+      time: null,
+    }),
+    'Not Started'
+  );
+  assert.equal(
+    formatCompactGameStatus({
+      status: 'NOT_STARTED',
+      away: { team: 'A', score: null },
+      home: { team: 'B', score: null },
+      time: null,
+    }),
+    'NOT_STARTED'
+  );
 });
 
 test('classifies disrupted statuses and preserves display labels', () => {

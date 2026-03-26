@@ -3,6 +3,7 @@ import type { ScorePack } from './scores.ts';
 export type GameStatusBucket = 'scheduled' | 'inprogress' | 'final' | 'disrupted';
 
 const DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/i;
+const LIVE_OT_RE = /\b(?:\d+ot|ot)\b/i;
 
 function normalizeStatus(status: string | null | undefined): string {
   return (status ?? '').trim();
@@ -23,7 +24,7 @@ export function classifyStatusLabel(status: string | null | undefined): GameStat
     lower.includes('progress') ||
     lower.includes('quarter') ||
     lower.includes('half') ||
-    lower.includes('ot') ||
+    LIVE_OT_RE.test(trimmed) ||
     lower.includes('live') ||
     /\bq\d\b/.test(lower)
   ) {
