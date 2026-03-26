@@ -375,7 +375,10 @@ export function selectOverviewViewModel(params: {
   keyMatchups: OverviewGameItem[];
   matchupMatrix: {
     owners: string[];
-    rows: { owner: string; cells: { owner: string; gameCount: number; record?: string | null }[] }[];
+    rows: {
+      owner: string;
+      cells: { owner: string; gameCount: number; record?: string | null }[];
+    }[];
   };
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   standingsLimit?: number;

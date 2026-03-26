@@ -648,7 +648,7 @@ export default function OverviewPanel({
             No games yet—matchup insights will populate once the season slate has owner pairings.
           </p>
         )}
-        <MatchupInsightsCard insights={viewModel.matchupInsights} onViewMatrix={onViewMatchups} />
+        <MatchupInsightsCard insights={viewModel.matchupInsights} onViewMatchups={onViewMatchups} />
       </SectionCard>
     </div>
   );

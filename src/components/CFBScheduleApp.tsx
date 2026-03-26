@@ -691,6 +691,17 @@ export default function CFBScheduleApp({
                   'Full game list and live details for the selected week or postseason slate.',
               };
 
+  const openWeeklyMatchupsView = useCallback(() => {
+    if (selectedTab === 'postseason') {
+      const fallbackWeek = selectedWeek ?? weeks[0] ?? null;
+      if (fallbackWeek != null) {
+        setSelectedTab(fallbackWeek);
+        setSelectedWeek(fallbackWeek);
+      }
+    }
+    setWeekViewMode('matchups');
+  }, [selectedTab, selectedWeek, weeks]);
+
   const scoreScopeGames = useMemo(() => {
     // Scope invariant: live score fetch scope remains schedule-derived even when a
     // filtered view produces zero visible rows, preventing accidental empty fetches.
@@ -1173,7 +1184,7 @@ export default function CFBScheduleApp({
                     setWeekViewMode('owner');
                   }}
                   onViewStandings={() => setWeekViewMode('standings')}
-                  onViewMatchups={() => setWeekViewMode('matchups')}
+                  onViewMatchups={openWeeklyMatchupsView}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
