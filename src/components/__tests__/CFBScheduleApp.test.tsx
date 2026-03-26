@@ -282,6 +282,7 @@ test('matrix mode renders dedicated matchup matrix surface and not weekly matchu
 
   assert.match(html, /Matchup matrix/);
   assert.match(html, /owner-vs-owner/);
+  assert.match(html, /Week context/);
   assert.doesNotMatch(html, /Surname-based weekly cards and team context for the selected tab\./);
 });
 

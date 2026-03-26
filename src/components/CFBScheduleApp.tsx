@@ -656,6 +656,7 @@ export default function CFBScheduleApp({
   const shouldShowWeekControls =
     primarySurfaceKind === 'schedule' ||
     primarySurfaceKind === 'matchups' ||
+    primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'postseason';
   const activeSurfaceCopy =
     weekViewMode === 'overview'
@@ -698,6 +699,48 @@ export default function CFBScheduleApp({
                   description:
                     'Full game list and live details for the selected week or postseason slate.',
                 };
+
+  const openMatrixView = useCallback(() => {
+    if (selectedTab === 'postseason') {
+      const fallbackWeek = selectedWeek ?? weeks[0] ?? null;
+      if (fallbackWeek != null) {
+        setSelectedWeek(fallbackWeek);
+        setSelectedTab(fallbackWeek);
+      }
+    }
+    setWeekViewMode('matrix');
+  }, [selectedTab, selectedWeek, weeks]);
+
+  useEffect(() => {
+    if (weekViewMode !== 'matrix') return;
+    if (selectedTab !== 'postseason') return;
+    const fallbackWeek = selectedWeek ?? weeks[0] ?? null;
+    if (fallbackWeek == null) return;
+    setSelectedWeek(fallbackWeek);
+    setSelectedTab(fallbackWeek);
+  }, [selectedTab, selectedWeek, weekViewMode, weeks]);
+
+  const matrixSnapshot = useMemo(
+    () =>
+      deriveOverviewSnapshot({
+        standingsRows: standingsSnapshot.rows,
+        standingsCoverage,
+        weekGames: filteredWeekGames,
+        allGames: games,
+        rosterByTeam,
+        scoresByKey,
+        selectedWeekLabel: activeWeekLabel,
+      }),
+    [
+      activeWeekLabel,
+      filteredWeekGames,
+      games,
+      rosterByTeam,
+      scoresByKey,
+      standingsCoverage,
+      standingsSnapshot.rows,
+    ]
+  );
 
   const scoreScopeGames = useMemo(() => {
     // Scope invariant: live score fetch scope remains schedule-derived even when a
@@ -1181,7 +1224,7 @@ export default function CFBScheduleApp({
                     setWeekViewMode('owner');
                   }}
                   onViewStandings={() => setWeekViewMode('standings')}
-                  onViewMatrix={() => setWeekViewMode('matrix')}
+                  onViewMatrix={openMatrixView}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
@@ -1222,7 +1265,7 @@ export default function CFBScheduleApp({
                   rankingsByTeamId={rankingsByTeamId}
                 />
               ) : weekViewMode === 'matrix' ? (
-                <MatchupMatrixView matrix={overviewSnapshot.matchupMatrix} />
+                <MatchupMatrixView matrix={matrixSnapshot.matchupMatrix} />
               ) : (
                 <GameWeekPanel
                   games={filteredWeekGames}
