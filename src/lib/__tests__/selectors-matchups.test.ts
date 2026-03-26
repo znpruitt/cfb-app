@@ -130,7 +130,18 @@ test('selector summarizes header and exclusions deterministically', () => {
       secondaryGames: [],
       otherGames: [{ game: game({}), awayIsLeagueTeam: false, homeIsLeagueTeam: false }],
     }),
-    '1 excluded game do not involve owned teams.'
+    '1 excluded game does not involve owned teams.'
+  );
+  assert.equal(
+    deriveExcludedGamesSummary({
+      ownerMatchups: [],
+      secondaryGames: [],
+      otherGames: [
+        { game: game({ key: 'o1' }), awayIsLeagueTeam: false, homeIsLeagueTeam: false },
+        { game: game({ key: 'o2' }), awayIsLeagueTeam: false, homeIsLeagueTeam: false },
+      ],
+    }),
+    '2 excluded games do not involve owned teams.'
   );
 });
 

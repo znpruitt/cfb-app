@@ -26,6 +26,7 @@ export type PrioritizedOverviewItem = {
   isRankedSpotlight: boolean;
   hasPriorityHighlight: boolean;
   highlightLabel: string | null;
+  highlightTags: ReturnType<typeof deriveGameHighlightTags>;
 };
 
 function formatDiff(value: number): string {
@@ -163,6 +164,7 @@ export function prioritizeOverviewItems(params: {
       hasPriorityHighlight: highlightTags.some(
         (tag) => tag.id === 'top25' || tag.id === 'topMatchup'
       ),
+      highlightTags,
       highlightLabel: isUpsetWatch
         ? 'Upset watch'
         : isRankedSpotlight

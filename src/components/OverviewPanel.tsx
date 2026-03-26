@@ -3,7 +3,6 @@ import React from 'react';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import {
   computeStandings,
-  deriveGameHighlightTags,
   deriveOverviewHighlightSignals,
   deriveLeagueInsights,
 } from '../lib/leagueInsights';
@@ -512,11 +511,7 @@ function GameSummaryList({
           item.bucket.awayOwner && item.bucket.homeOwner
             ? `${item.bucket.awayOwner} vs ${item.bucket.homeOwner}`
             : summarizeLeagueAngle(item, rankingsByTeamId);
-        const highlightTags = deriveGameHighlightTags({
-          item,
-          rankingsByTeamId,
-          topOwners: topOwnerNames,
-        });
+        const highlightTags = prioritized.highlightTags;
 
         return (
           <article

@@ -93,6 +93,7 @@ test('prioritizeOverviewItems keeps highlight order and avoids duplicate labels'
   );
   assert.equal(ordered[0]?.highlightLabel, 'Upset watch');
   assert.equal(ordered[1]?.highlightLabel, 'Upset watch');
+  assert.ok(Array.isArray(ordered[0]?.highlightTags));
 });
 
 test('deriveLeagueSummaryViewModel reports complete season champion copy', () => {
