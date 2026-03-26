@@ -526,7 +526,7 @@ test('overview panel summary does not render season-complete framing when standi
   assert.match(html, /Championship race/);
 });
 
-test('overview panel keeps league-home ordering with standings ahead of highlights', () => {
+test('overview panel keeps league-home ordering with featured matchups before standings and results', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -539,9 +539,10 @@ test('overview panel keeps league-home ordering with standings ahead of highligh
     />
   );
 
-  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings'));
-  assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
-  assert.ok(html.indexOf('What matters next') < html.indexOf('No live games right now.'));
+  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('Featured matchups'));
+  assert.ok(html.indexOf('Featured matchups') < html.indexOf('League standings (Top 5)'));
+  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
+  assert.ok(html.indexOf('Recent results') < html.indexOf('No live games right now.'));
   assert.ok(html.indexOf('No live games right now.') < html.indexOf('Head-to-head matrix'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
@@ -576,8 +577,56 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
   const standingsHeaderOccurrences = html.match(/Owner · Record · Metrics/g) ?? [];
   assert.equal(standingsHeaderOccurrences.length, 1);
   assert.doesNotMatch(html, /League snapshot/);
-  assert.ok(html.indexOf('League summary') < html.indexOf('League standings'));
-  assert.ok(html.indexOf('League standings') < html.indexOf('What matters next'));
+  assert.ok(html.indexOf('League summary') < html.indexOf('League standings (Top 5)'));
+  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
+});
+
+test('overview panel does not show featured empty state when non-final games exist beyond early finals', () => {
+  const finals = [1, 2, 3, 4].map((value) =>
+    itemWithScore(
+      game({
+        key: `final-${value}`,
+        csvAway: `Final Away ${value}`,
+        csvHome: `Final Home ${value}`,
+        date: `2026-10-0${value}T16:00:00.000Z`,
+      }),
+      {
+        status: 'Final',
+        away: { team: `Final Away ${value}`, score: 24 + value },
+        home: { team: `Final Home ${value}`, score: 14 },
+        time: null,
+      }
+    )
+  );
+  const featuredScheduled = itemWithScore(
+    game({
+      key: 'scheduled-late',
+      csvAway: 'Georgia',
+      csvHome: 'Florida',
+      date: '2026-10-20T22:00:00.000Z',
+    }),
+    {
+      status: 'Scheduled',
+      away: { team: 'Georgia', score: null },
+      home: { team: 'Florida', score: null },
+      time: null,
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[...finals, featuredScheduled]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /No featured matchups right now\./);
+  assert.match(html, /Georgia<\/span> @ <span>Florida/);
 });
 
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {

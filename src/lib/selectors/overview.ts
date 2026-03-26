@@ -1,4 +1,9 @@
-import { deriveGameHighlightTags, type OverviewHighlightSignals } from '../leagueInsights';
+import {
+  deriveGameHighlightTags,
+  deriveLeagueInsights,
+  deriveOverviewHighlightSignals,
+  type OverviewHighlightSignals,
+} from '../leagueInsights';
 import { gameStateFromScore } from '../gameUi';
 import { isTruePostseasonGame } from '../postseason-display';
 import type { TeamRankingEnrichment } from '../rankings';
@@ -28,6 +33,24 @@ export type PrioritizedOverviewItem = {
   highlightLabel: string | null;
   highlightTags: ReturnType<typeof deriveGameHighlightTags>;
 };
+
+export type OverviewViewModel = {
+  championSummary: LeagueSummaryViewModel | null;
+  standingsTopN: OwnerStandingsRow[];
+  standingsHasMore: boolean;
+  standingsContext: string | null;
+  keyMovements: { id: string; text: string }[];
+  featuredMatchups: PrioritizedOverviewItem[];
+  recentResults: PrioritizedOverviewItem[];
+  matrixPreview: {
+    ownerCount: number;
+    matchupCount: number;
+  } | null;
+};
+
+const OVERVIEW_STANDINGS_LIMIT = 5;
+const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
+const OVERVIEW_RECENT_RESULTS_LIMIT = 5;
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
@@ -183,4 +206,105 @@ export function deriveStandingsContextLabel(standingsLeaders: OwnerStandingsRow[
   const gap = Math.max(0, leader.winPct - runnerUp.winPct);
   if (gap > 0.03) return null;
   return `Tight race: ${leader.owner} and ${runnerUp.owner} are separated by ${formatPctGap(gap)} win%.`;
+}
+
+function matrixMatchupCount(matrix: {
+  rows: { owner: string; cells: { owner: string; gameCount: number }[] }[];
+}): number {
+  let total = 0;
+  for (const row of matrix.rows) {
+    for (const cell of row.cells) {
+      if (row.owner === cell.owner) continue;
+      total += cell.gameCount;
+    }
+  }
+  return Math.floor(total / 2);
+}
+
+export function selectOverviewViewModel(params: {
+  standingsLeaders: OwnerStandingsRow[];
+  previousStandingsLeaders?: OwnerStandingsRow[] | null;
+  standingsCoverage: StandingsCoverage;
+  context: OverviewContext;
+  liveItems: OverviewGameItem[];
+  keyMatchups: OverviewGameItem[];
+  matchupMatrix: {
+    owners: string[];
+    rows: { owner: string; cells: { owner: string; gameCount: number }[] }[];
+  };
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  standingsLimit?: number;
+  featuredLimit?: number;
+  resultsLimit?: number;
+}): OverviewViewModel {
+  const {
+    standingsLeaders,
+    previousStandingsLeaders = null,
+    standingsCoverage,
+    context,
+    liveItems,
+    keyMatchups,
+    matchupMatrix,
+    rankingsByTeamId,
+    standingsLimit = OVERVIEW_STANDINGS_LIMIT,
+    featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
+    resultsLimit = OVERVIEW_RECENT_RESULTS_LIMIT,
+  } = params;
+  const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
+  const overviewMatchupCandidates = keyMatchups;
+  const featuredCandidates = overviewMatchupCandidates.filter(
+    (item) => gameStateFromScore(item.score) !== 'final'
+  );
+  const resultCandidates = overviewMatchupCandidates.filter(
+    (item) => gameStateFromScore(item.score) === 'final'
+  );
+  const highlightSignals = deriveOverviewHighlightSignals({
+    keyMatchups: overviewMatchupCandidates,
+    rankingsByTeamId,
+  });
+  const prioritizedFeatured = prioritizeOverviewItems({
+    items: featuredCandidates,
+    highlightSignals,
+    rankingsByTeamId,
+    topOwnerNames,
+  });
+  const prioritizedResults = prioritizeOverviewItems({
+    items: resultCandidates,
+    highlightSignals,
+    rankingsByTeamId,
+    topOwnerNames,
+  });
+  const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
+  const recentResults = prioritizedResults.slice(0, resultsLimit);
+
+  return {
+    championSummary: deriveLeagueSummaryViewModel({
+      standingsLeaders,
+      context,
+      liveItems,
+      keyMatchups,
+      standingsCoverage,
+    }),
+    standingsTopN: standingsLeaders.slice(0, standingsLimit),
+    standingsHasMore: standingsLeaders.length > standingsLimit,
+    standingsContext: deriveStandingsContextLabel(standingsLeaders),
+    keyMovements: deriveLeagueInsights({
+      standings: standingsLeaders,
+      previousStandings: previousStandingsLeaders,
+      recentResults: keyMatchups,
+      liveGames: liveItems,
+      rankingsByTeamId,
+    })
+      .slice(0, 3)
+      .map((insight) => ({ id: insight.id, text: insight.text })),
+    featuredMatchups,
+    recentResults,
+    matrixPreview:
+      matchupMatrix.owners.length === 0
+        ? null
+        : {
+            ownerCount: matchupMatrix.owners.length,
+            matchupCount: matrixMatchupCount(matchupMatrix),
+          },
+  };
 }
