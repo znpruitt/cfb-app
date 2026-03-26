@@ -3,6 +3,7 @@ import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../mat
 import type { ScorePack } from '../scores';
 
 const DEFAULT_VISIBLE_OPPONENTS = 3;
+// Selector invariant: this module emits deterministic derived copy/tokens only.
 
 function isFcsConference(conference: string | null | undefined): boolean {
   return /\bfcs\b/i.test(conference ?? '');
@@ -145,6 +146,13 @@ export function deriveOwnerOutcome(params: { slateGame: OwnerSlateGame; score?: 
 }
 
 export function deriveMatchupsHeaderCopy(params: {
+  gamesCount: number;
+  oddsAvailableCount: number;
+}): string | null {
+  return deriveOddsAvailabilitySummary(params);
+}
+
+export function deriveOddsAvailabilitySummary(params: {
   gamesCount: number;
   oddsAvailableCount: number;
 }): string | null {

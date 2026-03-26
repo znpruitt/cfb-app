@@ -56,6 +56,8 @@ export function nextBootstrapGuardState(params: {
   scheduleLoaded: boolean;
   didBootstrapThisPass?: boolean;
 }): boolean {
+  // Lifecycle invariant: bootstrap guard is scoped to a loaded schedule lifecycle.
+  // When schedule unloads (rebuild/reset), bootstrap must re-arm for the next load.
   const { current, scheduleLoaded, didBootstrapThisPass = false } = params;
   if (!scheduleLoaded) return false;
   if (didBootstrapThisPass) return true;
@@ -103,6 +105,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
 
   useEffect(() => {
+    // Keep the bootstrap gate tied to scheduleLoaded transitions only.
     hasAutoBootstrappedLiveRef.current = nextBootstrapGuardState({
       current: hasAutoBootstrappedLiveRef.current,
       scheduleLoaded,
@@ -201,6 +204,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
         }
 
         try {
+          // Attachment invariant: scores are always requested against schedule-derived game scope.
           const scoreScopeForRequest = options?.scoreScopeGamesOverride ?? scoreScopeGames;
 
           const {

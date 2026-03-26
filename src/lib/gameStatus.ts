@@ -5,6 +5,9 @@ export type GameStatusBucket = 'scheduled' | 'inprogress' | 'final' | 'disrupted
 const DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/i;
 const LIVE_OT_RE = /\b(?:\d+ot|ot)\b/i;
 
+// Status semantics invariant: this module is the single classifier for UI-facing
+// schedule/score state buckets so surfaces do not drift on status interpretation.
+
 function normalizeStatus(status: string | null | undefined): string {
   return (status ?? '').trim();
 }

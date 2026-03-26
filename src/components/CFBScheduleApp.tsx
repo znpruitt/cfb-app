@@ -26,6 +26,7 @@ import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/mat
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
 import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../lib/overview';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
+import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -215,7 +216,8 @@ export default function CFBScheduleApp({
     [selectedSeason]
   );
 
-  // API-first schedule loader. CFBD now defines the game universe for normal operation.
+  // Canonical-data invariant: CFBD-backed schedule load defines the game universe.
+  // All odds/scores attachment and downstream selectors operate against this schedule.
   const loadScheduleFromApi = useCallback(
     async (
       overrideAliasMap?: AliasMap,
@@ -690,6 +692,8 @@ export default function CFBScheduleApp({
               };
 
   const scoreScopeGames = useMemo(() => {
+    // Scope invariant: live score fetch scope remains schedule-derived even when a
+    // filtered view produces zero visible rows, preventing accidental empty fetches.
     if (visibleGames.length > 0 || hasActiveViewFilters) {
       return visibleGames;
     }
@@ -874,6 +878,14 @@ export default function CFBScheduleApp({
     () => visibleGames.filter((game) => Boolean(oddsByKey[game.key])).length,
     [oddsByKey, visibleGames]
   );
+  const oddsAvailabilitySummary = useMemo(
+    () =>
+      deriveOddsAvailabilitySummary({
+        gamesCount: visibleGames.length,
+        oddsAvailableCount: visibleOddsCount,
+      }),
+    [visibleGames.length, visibleOddsCount]
+  );
   const userFacingLiveIssues = useMemo(
     () =>
       issues.filter(
@@ -1046,17 +1058,9 @@ export default function CFBScheduleApp({
                     Scores available for {visibleScoresCount}/{visibleGames.length} games.
                   </span>
                 ) : null}
-                {!loadingLive && visibleGames.length > 0 && visibleOddsCount === 0 ? (
+                {!loadingLive && oddsAvailabilitySummary ? (
                   <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                    Odds unavailable in this view.
-                  </span>
-                ) : null}
-                {!loadingLive &&
-                visibleGames.length > 0 &&
-                visibleOddsCount > 0 &&
-                visibleOddsCount < visibleGames.length ? (
-                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                    Odds available for {visibleOddsCount}/{visibleGames.length} games.
+                    {oddsAvailabilitySummary}
                   </span>
                 ) : null}
               </div>

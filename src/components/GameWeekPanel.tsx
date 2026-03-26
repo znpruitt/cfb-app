@@ -5,6 +5,7 @@ import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/leagueInsights';
 import { deriveGameWeekPanelViewModel } from '../lib/selectors/gameWeek';
+import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
@@ -15,6 +16,40 @@ import GameScoreboard from './GameScoreboard';
 import RankedTeamName from './RankedTeamName';
 
 type Game = AppGame;
+
+function summaryChipClasses(
+  tone: 'final' | 'live' | 'disrupted' | 'placeholder' | 'scheduled'
+): string {
+  if (tone === 'final') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200';
+  }
+  if (tone === 'live') {
+    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200';
+  }
+  if (tone === 'disrupted') {
+    return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-200';
+  }
+  if (tone === 'placeholder') {
+    return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
+  }
+  return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
+}
+
+function cardEmphasisClasses(tone: 'swing' | 'upset' | 'even' | 'ranked' | 'none'): string {
+  if (tone === 'swing') {
+    return 'border-indigo-300/80 bg-indigo-50/35 dark:border-indigo-900/70 dark:bg-indigo-950/20';
+  }
+  if (tone === 'upset') {
+    return 'border-amber-300/80 bg-amber-50/35 dark:border-amber-900/70 dark:bg-amber-950/20';
+  }
+  if (tone === 'even') {
+    return 'border-sky-300/80 bg-sky-50/30 dark:border-sky-900/70 dark:bg-sky-950/20';
+  }
+  if (tone === 'ranked') {
+    return 'border-blue-300/70 bg-blue-50/20 dark:border-blue-900/70 dark:bg-blue-950/15';
+  }
+  return '';
+}
 
 function participantDisplayInfo(game: AppGame, side: 'home' | 'away'): TeamDisplayInfo {
   const participant = game.participants[side];
@@ -96,6 +131,10 @@ export default function GameWeekPanel({
     rankingsByTeamId,
     displayTimeZone,
   });
+  const oddsSummary = deriveOddsAvailabilitySummary({
+    gamesCount: viewModel.totalGames,
+    oddsAvailableCount: viewModel.oddsAvailableCount,
+  });
 
   return (
     <>
@@ -125,13 +164,9 @@ export default function GameWeekPanel({
               Scores: {viewModel.scoresAvailableCount}/{viewModel.totalGames}
             </span>
           ) : null}
-          {viewModel.oddsAvailableCount === 0 ? (
+          {oddsSummary ? (
             <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
-              Odds unavailable
-            </span>
-          ) : viewModel.oddsAvailableCount < viewModel.totalGames ? (
-            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
-              Odds: {viewModel.oddsAvailableCount}/{viewModel.totalGames}
+              {oddsSummary}
             </span>
           ) : null}
         </div>
@@ -168,7 +203,9 @@ export default function GameWeekPanel({
                 return (
                   <details
                     key={g.key}
-                    className={`group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${card.liveCardAccentClassName} ${card.emphasisClassName}`}
+                    className={`group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${
+                      card.isLiveState ? 'ring-1 ring-amber-300/70 dark:ring-amber-800/60' : ''
+                    } ${cardEmphasisClasses(card.emphasisTone)}`}
                     style={{
                       boxShadow: `inset 0 2px 0 ${awayColorTreatment.borderAccent}, inset 0 -2px 0 ${homeColorTreatment.borderAccent}`,
                     }}
@@ -218,7 +255,7 @@ export default function GameWeekPanel({
                           ) : null}
                         </div>
                         <div
-                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] group-open:hidden ${card.summaryChipClassName}`}
+                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(card.summaryStateTone)}`}
                           data-summary-state
                         >
                           {card.summaryState}
