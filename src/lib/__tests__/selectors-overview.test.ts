@@ -323,6 +323,10 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
   assert.equal(model.recentResults.length, 1);
   assert.equal(model.recentResults[0]?.item.bucket.game.key, 'final');
   assert.equal(model.matrixPreview?.matchupCount, 2);
+  assert.deepEqual(model.matchupInsights.mostFrequent, {
+    owners: ['A', 'B'],
+    gameCount: 2,
+  });
 });
 
 test('selectOverviewViewModel is stable for identical inputs', () => {
@@ -357,6 +361,115 @@ test('selectOverviewViewModel is stable for identical inputs', () => {
   };
 
   assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
+});
+
+test('selectOverviewViewModel derives matchup insights from matrix rows', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: {
+      owners: ['A', 'B', 'C'],
+      rows: [
+        {
+          owner: 'A',
+          cells: [
+            { owner: 'A', gameCount: 0, record: null },
+            { owner: 'B', gameCount: 5, record: '4–1' },
+            { owner: 'C', gameCount: 3, record: '1–1' },
+          ],
+        },
+        {
+          owner: 'B',
+          cells: [
+            { owner: 'A', gameCount: 5, record: '1–4' },
+            { owner: 'B', gameCount: 0, record: null },
+            { owner: 'C', gameCount: 4, record: '2–2' },
+          ],
+        },
+        {
+          owner: 'C',
+          cells: [
+            { owner: 'A', gameCount: 3, record: '1–1' },
+            { owner: 'B', gameCount: 4, record: '2–2' },
+            { owner: 'C', gameCount: 0, record: null },
+          ],
+        },
+      ],
+    },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.deepEqual(model.matchupInsights.mostFrequent, {
+    owners: ['A', 'B'],
+    gameCount: 5,
+  });
+  assert.deepEqual(model.matchupInsights.mostUnbalanced, {
+    owners: ['A', 'B'],
+    record: '4–1',
+  });
+  assert.deepEqual(model.matchupInsights.mostCompetitive, {
+    owners: ['A', 'C'],
+    record: '1–1',
+    remainingGames: 1,
+  });
+  assert.deepEqual(model.matchupInsights.mostActiveOwner, {
+    owner: 'B',
+    totalMatchups: 9,
+  });
+});
+
+test('selectOverviewViewModel skips invalid matchup insights safely', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: {
+      owners: ['A', 'B'],
+      rows: [
+        {
+          owner: 'A',
+          cells: [
+            { owner: 'A', gameCount: 0, record: null },
+            { owner: 'B', gameCount: 0, record: 'bad-record' },
+          ],
+        },
+        {
+          owner: 'B',
+          cells: [
+            { owner: 'A', gameCount: 0, record: 'also bad' },
+            { owner: 'B', gameCount: 0, record: null },
+          ],
+        },
+      ],
+    },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.matchupInsights.mostFrequent, undefined);
+  assert.equal(model.matchupInsights.mostUnbalanced, undefined);
+  assert.equal(model.matchupInsights.mostCompetitive, undefined);
+  assert.equal(model.matchupInsights.mostActiveOwner, undefined);
 });
 
 test('selectOverviewViewModel keeps featured games when finals dominate early candidates', () => {

@@ -208,7 +208,7 @@ test('overview highlights keep canonical neutral matchup separator with compact 
   assert.match(html, /grid-cols-\[minmax\(0,1fr\)_3\.8rem\]/);
 });
 
-test('overview panel renders full condensed standings and weekly owner matrix', () => {
+test('overview panel renders standings and matchup insights instead of matrix table', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[
@@ -235,7 +235,11 @@ test('overview panel renders full condensed standings and weekly owner matrix', 
   );
 
   assert.match(html, /League standings/);
-  assert.match(html, /Head-to-head matrix/);
+  assert.match(html, /Matchup insights/);
+  assert.match(html, /View full matchup matrix/);
+  assert.doesNotMatch(html, /View weekly matchups/);
+  assert.doesNotMatch(html, /Head-to-head matrix/);
+  assert.doesNotMatch(html, /<table/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
@@ -411,6 +415,8 @@ test('overview panel summary uses postseason in-progress championship language',
 
   assert.match(html, />Championship race</);
   assert.doesNotMatch(html, /League leader/);
+  assert.match(html, /View full matchup matrix/);
+  assert.doesNotMatch(html, /View weekly matchups/);
 });
 
 test('overview panel summary shows season-complete champion, second, and third', () => {
@@ -543,7 +549,7 @@ test('overview panel keeps league-home ordering with featured matchups before st
   assert.ok(html.indexOf('Featured matchups') < html.indexOf('League standings (Top 5)'));
   assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
   assert.ok(html.indexOf('Recent results') < html.indexOf('No live games right now.'));
-  assert.ok(html.indexOf('No live games right now.') < html.indexOf('Head-to-head matrix'));
+  assert.ok(html.indexOf('No live games right now.') < html.indexOf('Matchup insights'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
 });
@@ -625,7 +631,7 @@ test('overview panel does not show featured empty state when non-final games exi
     />
   );
 
-  assert.doesNotMatch(html, /No featured matchups right now\./);
+  assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
   assert.match(html, /Georgia<\/span> @ <span>Florida/);
 });
 
@@ -708,7 +714,31 @@ test('overview panel uses compact live empty state copy', () => {
 
   assert.match(html, /No live games right now\./);
   assert.doesNotMatch(html, /Postseason focus/);
-  assert.match(html, /Head-to-head \(tap to expand\)/);
+  assert.match(html, /Matchup insights/);
+  assert.match(html, /View full standings/);
+  assert.match(html, /View full matchup matrix/);
+});
+
+test('overview panel shows explicit empty states for featured, results, and matchup insights', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[]}
+      standingsCoverage={coverage}
+      matchupMatrix={{ owners: [], rows: [] }}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /No featured matchups yet for this slate\./);
+  assert.match(html, /No recent results yet—completed games will appear here\./);
+  assert.match(
+    html,
+    /No games yet—matchup insights will populate once the season slate has owner pairings\./
+  );
+  assert.match(html, /Matchup insights will appear once owner-vs-owner games are in the slate\./);
 });
 
 test('overview panel renders insight strip with prioritized ranked matchup signal', () => {

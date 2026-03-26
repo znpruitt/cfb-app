@@ -42,15 +42,34 @@ export type OverviewViewModel = {
   keyMovements: { id: string; text: string }[];
   featuredMatchups: PrioritizedOverviewItem[];
   recentResults: PrioritizedOverviewItem[];
+  matchupInsights: {
+    mostFrequent?: {
+      owners: [string, string];
+      gameCount: number;
+    };
+    mostUnbalanced?: {
+      owners: [string, string];
+      record: string;
+    };
+    mostCompetitive?: {
+      owners: [string, string];
+      record: string;
+      remainingGames: number;
+    };
+    mostActiveOwner?: {
+      owner: string;
+      totalMatchups: number;
+    };
+  };
   matrixPreview: {
     ownerCount: number;
     matchupCount: number;
   } | null;
 };
 
-const OVERVIEW_STANDINGS_LIMIT = 5;
-const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
-const OVERVIEW_RECENT_RESULTS_LIMIT = 5;
+export const OVERVIEW_STANDINGS_LIMIT = 5;
+export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
+export const OVERVIEW_RESULTS_LIMIT = 5;
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
@@ -221,6 +240,132 @@ function matrixMatchupCount(matrix: {
   return Math.floor(total / 2);
 }
 
+function parseRecord(record: string): { leftWins: number; rightWins: number } | null {
+  const match = record.match(/^\s*(\d+)\D+(\d+)\s*$/u);
+  if (!match) return null;
+  return {
+    leftWins: Number(match[1]),
+    rightWins: Number(match[2]),
+  };
+}
+
+function compareOwnerPair(left: [string, string], right: [string, string]): number {
+  return left[0] === right[0] ? left[1].localeCompare(right[1]) : left[0].localeCompare(right[0]);
+}
+
+function deriveMatchupInsights(matrix: {
+  owners: string[];
+  rows: { owner: string; cells: { owner: string; gameCount: number; record?: string | null }[] }[];
+}): OverviewViewModel['matchupInsights'] {
+  const pairRows: { owners: [string, string]; gameCount: number; record: string | null }[] = [];
+  const activeOwnerCounts = new Map<string, number>();
+
+  for (const row of matrix.rows) {
+    for (const cell of row.cells) {
+      if (cell.owner === row.owner) continue;
+      if (row.owner.localeCompare(cell.owner) >= 0) continue;
+      const owners: [string, string] = [row.owner, cell.owner];
+      pairRows.push({
+        owners,
+        gameCount: cell.gameCount,
+        record: cell.record ?? null,
+      });
+
+      if (cell.gameCount > 0) {
+        activeOwnerCounts.set(row.owner, (activeOwnerCounts.get(row.owner) ?? 0) + cell.gameCount);
+        activeOwnerCounts.set(
+          cell.owner,
+          (activeOwnerCounts.get(cell.owner) ?? 0) + cell.gameCount
+        );
+      }
+    }
+  }
+
+  const mostFrequent = pairRows
+    .filter((pair) => pair.gameCount > 0)
+    .sort((left, right) => {
+      if (right.gameCount !== left.gameCount) return right.gameCount - left.gameCount;
+      return compareOwnerPair(left.owners, right.owners);
+    })[0];
+
+  const parsedRecords = pairRows
+    .map((pair) => {
+      const parsed = pair.record ? parseRecord(pair.record) : null;
+      if (!parsed) return null;
+      return { ...pair, parsed };
+    })
+    .filter(
+      (
+        value
+      ): value is {
+        owners: [string, string];
+        gameCount: number;
+        record: string;
+        parsed: { leftWins: number; rightWins: number };
+      } => value !== null
+    );
+
+  const mostUnbalanced = parsedRecords
+    .filter((pair) => pair.gameCount > 0)
+    .sort((left, right) => {
+      const leftGap = Math.abs(left.parsed.leftWins - left.parsed.rightWins);
+      const rightGap = Math.abs(right.parsed.leftWins - right.parsed.rightWins);
+      if (rightGap !== leftGap) return rightGap - leftGap;
+      if (right.gameCount !== left.gameCount) return right.gameCount - left.gameCount;
+      return compareOwnerPair(left.owners, right.owners);
+    })[0];
+
+  const mostCompetitive = parsedRecords
+    .filter((pair) => pair.gameCount > 0)
+    .sort((left, right) => {
+      const leftGap = Math.abs(left.parsed.leftWins - left.parsed.rightWins);
+      const rightGap = Math.abs(right.parsed.leftWins - right.parsed.rightWins);
+      if (leftGap !== rightGap) return leftGap - rightGap;
+      const leftRemaining = Math.max(
+        0,
+        left.gameCount - left.parsed.leftWins - left.parsed.rightWins
+      );
+      const rightRemaining = Math.max(
+        0,
+        right.gameCount - right.parsed.leftWins - right.parsed.rightWins
+      );
+      if (rightRemaining !== leftRemaining) return rightRemaining - leftRemaining;
+      if (right.gameCount !== left.gameCount) return right.gameCount - left.gameCount;
+      return compareOwnerPair(left.owners, right.owners);
+    })[0];
+
+  const mostActiveOwner = Array.from(activeOwnerCounts.entries())
+    .sort((left, right) => {
+      if (right[1] !== left[1]) return right[1] - left[1];
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([owner, totalMatchups]) => ({ owner, totalMatchups }))[0];
+
+  return {
+    ...(mostFrequent
+      ? { mostFrequent: { owners: mostFrequent.owners, gameCount: mostFrequent.gameCount } }
+      : {}),
+    ...(mostUnbalanced
+      ? { mostUnbalanced: { owners: mostUnbalanced.owners, record: mostUnbalanced.record } }
+      : {}),
+    ...(mostCompetitive
+      ? {
+          mostCompetitive: {
+            owners: mostCompetitive.owners,
+            record: mostCompetitive.record,
+            remainingGames: Math.max(
+              0,
+              mostCompetitive.gameCount -
+                mostCompetitive.parsed.leftWins -
+                mostCompetitive.parsed.rightWins
+            ),
+          },
+        }
+      : {}),
+    ...(mostActiveOwner ? { mostActiveOwner } : {}),
+  };
+}
+
 export function selectOverviewViewModel(params: {
   standingsLeaders: OwnerStandingsRow[];
   previousStandingsLeaders?: OwnerStandingsRow[] | null;
@@ -230,7 +375,10 @@ export function selectOverviewViewModel(params: {
   keyMatchups: OverviewGameItem[];
   matchupMatrix: {
     owners: string[];
-    rows: { owner: string; cells: { owner: string; gameCount: number }[] }[];
+    rows: {
+      owner: string;
+      cells: { owner: string; gameCount: number; record?: string | null }[];
+    }[];
   };
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   standingsLimit?: number;
@@ -248,7 +396,7 @@ export function selectOverviewViewModel(params: {
     rankingsByTeamId,
     standingsLimit = OVERVIEW_STANDINGS_LIMIT,
     featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
-    resultsLimit = OVERVIEW_RECENT_RESULTS_LIMIT,
+    resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
@@ -299,6 +447,7 @@ export function selectOverviewViewModel(params: {
       .map((insight) => ({ id: insight.id, text: insight.text })),
     featuredMatchups,
     recentResults,
+    matchupInsights: deriveMatchupInsights(matchupMatrix),
     matrixPreview:
       matchupMatrix.owners.length === 0
         ? null

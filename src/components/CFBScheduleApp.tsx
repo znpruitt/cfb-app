@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import AdminDebugSurface from './AdminDebugSurface';
 import GameWeekPanel from './GameWeekPanel';
+import MatchupMatrixView from './MatchupMatrixView';
 import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
@@ -655,6 +656,7 @@ export default function CFBScheduleApp({
   const shouldShowWeekControls =
     primarySurfaceKind === 'schedule' ||
     primarySurfaceKind === 'matchups' ||
+    primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'postseason';
   const activeSurfaceCopy =
     weekViewMode === 'overview'
@@ -684,12 +686,47 @@ export default function CFBScheduleApp({
                 title: 'Matchups',
                 description: 'Surname-based weekly cards and team context for the selected tab.',
               }
-            : {
-                eyebrow: 'Week view',
-                title: 'Schedule',
-                description:
-                  'Full game list and live details for the selected week or postseason slate.',
-              };
+            : weekViewMode === 'matrix'
+              ? {
+                  eyebrow: 'Week view',
+                  title: 'Matrix',
+                  description:
+                    'Full owner-vs-owner matrix from the canonical schedule-derived slate.',
+                }
+              : {
+                  eyebrow: 'Week view',
+                  title: 'Schedule',
+                  description:
+                    'Full game list and live details for the selected week or postseason slate.',
+                };
+
+  const openMatrixView = useCallback(() => {
+    setWeekViewMode('matrix');
+  }, []);
+
+  const matrixSnapshot = useMemo(
+    () =>
+      deriveOverviewSnapshot({
+        standingsRows: standingsSnapshot.rows,
+        standingsCoverage,
+        weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
+        allGames: games,
+        rosterByTeam,
+        scoresByKey,
+        selectedWeekLabel: activeWeekLabel,
+      }),
+    [
+      activeWeekLabel,
+      filteredWeekGames,
+      games,
+      postseasonGames,
+      rosterByTeam,
+      scoresByKey,
+      selectedTab,
+      standingsCoverage,
+      standingsSnapshot.rows,
+    ]
+  );
 
   const scoreScopeGames = useMemo(() => {
     // Scope invariant: live score fetch scope remains schedule-derived even when a
@@ -1172,6 +1209,8 @@ export default function CFBScheduleApp({
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
                   }}
+                  onViewStandings={() => setWeekViewMode('standings')}
+                  onViewMatrix={openMatrixView}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
@@ -1211,6 +1250,8 @@ export default function CFBScheduleApp({
                   sections={matchupSections}
                   rankingsByTeamId={rankingsByTeamId}
                 />
+              ) : weekViewMode === 'matrix' ? (
+                <MatchupMatrixView matrix={matrixSnapshot.matchupMatrix} />
               ) : (
                 <GameWeekPanel
                   games={filteredWeekGames}
