@@ -42,26 +42,16 @@ function summaryStateChipBucket(
   return 'scheduled';
 }
 
-function summaryChipClasses(summaryState: string, isPlaceholder: boolean): string {
+function summaryStateTone(
+  summaryState: string,
+  isPlaceholder: boolean
+): 'final' | 'live' | 'disrupted' | 'placeholder' | 'scheduled' {
   const bucket = summaryStateChipBucket(summaryState);
-
-  if (bucket === 'final') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200';
-  }
-
-  if (bucket === 'live') {
-    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200';
-  }
-
-  if (bucket === 'disrupted') {
-    return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-200';
-  }
-
-  if (isPlaceholder) {
-    return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
-  }
-
-  return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
+  if (bucket === 'final') return 'final';
+  if (bucket === 'live') return 'live';
+  if (bucket === 'disrupted') return 'disrupted';
+  if (isPlaceholder) return 'placeholder';
+  return 'scheduled';
 }
 
 function shouldShowCollapsedCanonicalLabel(game: AppGame, isPlaceholder: boolean): boolean {
@@ -77,30 +67,14 @@ function shouldShowCollapsedCanonicalLabel(game: AppGame, isPlaceholder: boolean
   return hasTemplateParticipant || game.stage !== 'regular';
 }
 
-function primaryTagCardClasses(primaryTag: LeagueGameTag | null, hasRankedTeam: boolean): string {
-  if (primaryTag === 'swing') {
-    return 'border-indigo-300/80 bg-indigo-50/35 dark:border-indigo-900/70 dark:bg-indigo-950/20';
-  }
-  if (primaryTag === 'upset') {
-    return 'border-amber-300/80 bg-amber-50/35 dark:border-amber-900/70 dark:bg-amber-950/20';
-  }
-  if (primaryTag === 'even') {
-    return 'border-sky-300/80 bg-sky-50/30 dark:border-sky-900/70 dark:bg-sky-950/20';
-  }
-  if (hasRankedTeam) {
-    return 'border-blue-300/70 bg-blue-50/20 dark:border-blue-900/70 dark:bg-blue-950/15';
-  }
-  return '';
-}
-
 export type GameWeekCardViewModel = {
   game: AppGame;
   score?: ScorePack;
   odds?: CombinedOdds;
   isPlaceholder: boolean;
   summaryState: string;
-  summaryChipClassName: string;
-  liveCardAccentClassName: string;
+  summaryStateTone: 'final' | 'live' | 'disrupted' | 'placeholder' | 'scheduled';
+  isLiveState: boolean;
   showCollapsedCanonicalLabel: boolean;
   homeOwner?: string;
   awayOwner?: string;
@@ -110,7 +84,7 @@ export type GameWeekCardViewModel = {
   hasRankedTeam: boolean;
   tagPrimary: LeagueGameTag | null;
   tagSecondary: LeagueGameTag[];
-  emphasisClassName: string;
+  emphasisTone: 'swing' | 'upset' | 'even' | 'ranked' | 'none';
 };
 
 export type GameWeekPanelViewModel = {
@@ -133,6 +107,8 @@ export function deriveGameWeekPanelViewModel(params: {
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   displayTimeZone: string;
 }): GameWeekPanelViewModel {
+  // Selector boundary invariant: this module returns canonical-derived tokens only,
+  // while presentation-layer class names stay in React components.
   const { games, oddsByKey, scoresByKey, rosterByTeam, rankingsByTeamId, displayTimeZone } = params;
 
   const groupedGames = groupGamesByDisplayDate(games, displayTimeZone).map((group) => ({
@@ -158,6 +134,7 @@ export function deriveGameWeekPanelViewModel(params: {
         (rankingsByTeamId.get(homeTeamId)?.rank ?? null) != null ||
         (rankingsByTeamId.get(awayTeamId)?.rank ?? null) != null;
       const tagState = prioritizeGameTags(computeGameTags(game, score, odds, rosterByTeam));
+      const bucket = summaryStateChipBucket(summaryState);
 
       return {
         game,
@@ -165,11 +142,8 @@ export function deriveGameWeekPanelViewModel(params: {
         odds,
         isPlaceholder,
         summaryState,
-        summaryChipClassName: summaryChipClasses(summaryState, isPlaceholder),
-        liveCardAccentClassName:
-          summaryStateChipBucket(summaryState) === 'live'
-            ? 'ring-1 ring-amber-300/70 dark:ring-amber-800/60'
-            : '',
+        summaryStateTone: summaryStateTone(summaryState, isPlaceholder),
+        isLiveState: bucket === 'live',
         showCollapsedCanonicalLabel: shouldShowCollapsedCanonicalLabel(game, isPlaceholder),
         homeOwner,
         awayOwner,
@@ -180,7 +154,7 @@ export function deriveGameWeekPanelViewModel(params: {
         hasRankedTeam,
         tagPrimary: tagState.primary,
         tagSecondary: tagState.secondary,
-        emphasisClassName: primaryTagCardClasses(tagState.primary, hasRankedTeam),
+        emphasisTone: tagState.primary ?? (hasRankedTeam ? 'ranked' : 'none'),
       };
     }),
   }));

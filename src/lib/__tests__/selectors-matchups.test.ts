@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   deriveExcludedGamesSummary,
   deriveMatchupsHeaderCopy,
+  deriveOddsAvailabilitySummary,
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
   formatSlateSummaryText,
@@ -117,6 +118,10 @@ test('selector summarizes header and exclusions deterministically', () => {
   );
   assert.equal(
     deriveMatchupsHeaderCopy({ gamesCount: 3, oddsAvailableCount: 2 }),
+    'Odds available for 2/3 games.'
+  );
+  assert.equal(
+    deriveOddsAvailabilitySummary({ gamesCount: 3, oddsAvailableCount: 2 }),
     'Odds available for 2/3 games.'
   );
   assert.equal(

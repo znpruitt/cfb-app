@@ -7,7 +7,11 @@ import {
   deriveOverviewHighlightSignals,
   deriveLeagueInsights,
 } from '../lib/leagueInsights';
-import { isTruePostseasonGame } from '../lib/postseason-display';
+import {
+  deriveLeagueSummaryViewModel,
+  deriveStandingsContextLabel,
+  prioritizeOverviewItems,
+} from '../lib/selectors/overview';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
@@ -22,10 +26,6 @@ function formatWinPct(value: number): string {
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
-}
-
-function formatPctGap(value: number): string {
-  return value.toFixed(3);
 }
 
 function formatKickoff(date: string | null, timeZone: string): string {
@@ -167,42 +167,6 @@ function EmptyState({
   );
 }
 
-type LeagueSummaryPhase = 'inSeason' | 'postseason' | 'complete';
-
-function deriveLeagueSummaryPhase(params: {
-  liveItems: OverviewGameItem[];
-  keyMatchups: OverviewGameItem[];
-  standingsCoverage: StandingsCoverage;
-}): LeagueSummaryPhase {
-  const allItems = [...params.liveItems, ...params.keyMatchups];
-  const hasPostseasonGames = allItems.some((item) => isTruePostseasonGame(item.bucket.game));
-  if (!hasPostseasonGames) return 'inSeason';
-
-  const hasActiveOrUpcomingPostseasonGame = allItems.some((item) => {
-    if (!isTruePostseasonGame(item.bucket.game)) return false;
-    const state = gameStateFromScore(item.score);
-    return state === 'inprogress' || state === 'scheduled' || state === 'unknown';
-  });
-
-  if (hasActiveOrUpcomingPostseasonGame) return 'postseason';
-  return params.standingsCoverage.state === 'complete' ? 'complete' : 'postseason';
-}
-
-function deriveLeagueSummaryStatusLabel(
-  phase: LeagueSummaryPhase,
-  context: OverviewContext
-): string {
-  if (phase === 'complete') return 'Season complete';
-  if (phase === 'postseason') return 'Postseason';
-
-  const scopeDetail = context.scopeDetail?.trim();
-  if (scopeDetail && /^week\s+\d+/i.test(scopeDetail)) {
-    return scopeDetail.replace(/^week/i, 'Week');
-  }
-
-  return 'Regular season';
-}
-
 function LeagueSummaryHero({
   standingsLeaders,
   context,
@@ -217,8 +181,6 @@ function LeagueSummaryHero({
   standingsCoverage: StandingsCoverage;
 }): React.ReactElement {
   const leader = standingsLeaders[0];
-  const runnerUp = standingsLeaders[1];
-  const thirdPlace = standingsLeaders[2];
 
   if (!leader) {
     return (
@@ -233,33 +195,20 @@ function LeagueSummaryHero({
     );
   }
 
-  const phase = deriveLeagueSummaryPhase({ liveItems, keyMatchups, standingsCoverage });
-  const hasTieAtTop = runnerUp ? runnerUp.winPct === leader.winPct : false;
-  const winPctGap = runnerUp ? Math.max(0, leader.winPct - runnerUp.winPct) : 0;
-  const progressSignal = deriveLeagueSummaryStatusLabel(phase, context);
-  const placementSummary = [runnerUp, thirdPlace]
-    .map((row, index) => (row ? `#${index + 2} ${row.owner} ${row.wins}–${row.losses}` : null))
-    .filter((value): value is string => value !== null)
-    .join(' · ');
+  const summary = deriveLeagueSummaryViewModel({
+    standingsLeaders,
+    context,
+    liveItems,
+    keyMatchups,
+    standingsCoverage,
+  });
+  if (!summary) return <></>;
+
   const toneClasses =
-    phase === 'complete'
+    summary.phase === 'complete'
       ? 'border-emerald-300/80 from-emerald-100/80 dark:border-emerald-900/70 dark:from-emerald-950/30'
       : 'border-blue-200 dark:border-blue-900/70 from-blue-100/90 dark:from-blue-950/35';
-  const metricSignal =
-    phase === 'inSeason'
-      ? runnerUp
-        ? hasTieAtTop
-          ? 'Gap tied'
-          : `Gap #2 ${formatPctGap(winPctGap)}`
-        : 'Gap #2 —'
-      : `Diff ${formatDiff(leader.pointDifferential)}`;
-  const headline =
-    phase === 'complete'
-      ? `Champion: ${leader.owner}`
-      : phase === 'postseason'
-        ? 'Championship race'
-        : `League leader: ${leader.owner}`;
-  const supportingCopy = placementSummary.length > 0 ? placementSummary : progressSignal;
+
   return (
     <section
       className={`rounded-2xl border bg-gradient-to-r via-white to-white px-4 py-4 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5 ${toneClasses}`}
@@ -268,7 +217,7 @@ function LeagueSummaryHero({
         League summary
       </p>
       <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
-        {headline}
+        {summary.headline}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-gray-700 dark:text-zinc-200">
         <span className="rounded-full border border-gray-300 bg-white/85 px-2 py-0.5 font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
@@ -276,14 +225,14 @@ function LeagueSummaryHero({
         </span>
         <span className="font-medium">Win% {formatWinPct(leader.winPct)}</span>
         <span className="text-gray-500 dark:text-zinc-400">•</span>
-        <span className="font-medium">{metricSignal}</span>
+        <span className="font-medium">{summary.metricSignal}</span>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-zinc-300">
-        <span>{supportingCopy}</span>
-        {placementSummary ? (
+        <span>{summary.supportingCopy}</span>
+        {summary.placementSummary ? (
           <>
             <span className="text-gray-500 dark:text-zinc-400">•</span>
-            <span>{progressSignal}</span>
+            <span>{summary.progressSignal}</span>
           </>
         ) : null}
       </div>
@@ -542,28 +491,17 @@ function GameSummaryList({
     return <EmptyState message={emptyMessage} compact />;
   }
 
-  const upsetWatchSet = new Set(highlightSignals.upsetWatchKeys);
-  const consumed = new Set<string>();
-  const prioritizedItems: OverviewGameItem[] = [];
-  const pushByKey = (key: string | null): void => {
-    if (!key || consumed.has(key)) return;
-    const match = items.find((item) => item.bucket.game.key === key);
-    if (!match) return;
-    consumed.add(key);
-    prioritizedItems.push(match);
-  };
-
-  pushByKey(highlightSignals.topMatchupKey);
-  highlightSignals.upsetWatchKeys.forEach((key) => pushByKey(key));
-  pushByKey(highlightSignals.rankedHighlightKey);
-  items.forEach((item) => {
-    if (consumed.has(item.bucket.game.key)) return;
-    prioritizedItems.push(item);
+  const prioritizedItems = prioritizeOverviewItems({
+    items,
+    highlightSignals,
+    rankingsByTeamId,
+    topOwnerNames,
   });
 
   return (
     <div className="space-y-1.5">
-      {prioritizedItems.map((item) => {
+      {prioritizedItems.map((prioritized) => {
+        const item = prioritized.item;
         const score = item.score;
         const awayScore = score?.away.score ?? '—';
         const homeScore = score?.home.score ?? '—';
@@ -579,29 +517,12 @@ function GameSummaryList({
           rankingsByTeamId,
           topOwners: topOwnerNames,
         });
-        const hasPriorityHighlight = highlightTags.some(
-          (tag) => tag.id === 'top25' || tag.id === 'topMatchup'
-        );
-        const isTopMatchup = highlightSignals.topMatchupKey === item.bucket.game.key;
-        const isUpsetWatch = upsetWatchSet.has(item.bucket.game.key);
-        const isRankedSpotlight =
-          highlightSignals.rankedHighlightKey === item.bucket.game.key &&
-          !isTopMatchup &&
-          !isUpsetWatch;
-        const hasTopMatchupTag = highlightTags.some((tag) => tag.id === 'topMatchup');
-        const highlightLabel = isUpsetWatch
-          ? 'Upset watch'
-          : isRankedSpotlight
-            ? 'Ranked spotlight'
-            : isTopMatchup && !hasTopMatchupTag
-              ? 'Top matchup'
-              : null;
 
         return (
           <article
             key={item.bucket.game.key}
             className={`rounded-lg border p-3 ${
-              hasPriorityHighlight
+              prioritized.hasPriorityHighlight
                 ? 'border-blue-300/80 bg-blue-50/40 dark:border-blue-900/70 dark:bg-blue-950/15'
                 : 'border-gray-200 bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/70'
             }`}
@@ -628,9 +549,9 @@ function GameSummaryList({
                 <p className="text-xs leading-snug text-gray-600 dark:text-zinc-300">
                   {ownerLabel}
                 </p>
-                {highlightLabel ? (
+                {prioritized.highlightLabel ? (
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
-                    {highlightLabel}
+                    {prioritized.highlightLabel}
                   </p>
                 ) : null}
                 <div className="mt-0.5 flex items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
@@ -740,14 +661,10 @@ export default function OverviewPanel({
       }),
     [keyMatchups, rankingsByTeamId]
   );
-  const standingsContext = React.useMemo(() => {
-    if (standingsLeaders.length < 2) return null;
-    const leader = standingsLeaders[0];
-    const runnerUp = standingsLeaders[1];
-    const gap = Math.max(0, leader.winPct - runnerUp.winPct);
-    if (gap > 0.03) return null;
-    return `Tight race: ${leader.owner} and ${runnerUp.owner} are separated by ${formatPctGap(gap)} win%.`;
-  }, [standingsLeaders]);
+  const standingsContext = React.useMemo(
+    () => deriveStandingsContextLabel(standingsLeaders),
+    [standingsLeaders]
+  );
 
   return (
     <div className="space-y-3">
