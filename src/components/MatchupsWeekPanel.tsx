@@ -44,6 +44,24 @@ type MatchupsWeekPanelProps = {
   focusedOwnerPair?: [string, string] | null;
 };
 
+type FocusableElement = {
+  scrollIntoView: (options?: ScrollIntoViewOptions) => void;
+};
+
+export function scrollFocusedOwnerIntoView(params: {
+  focusedOwner: string | null;
+  focusedOwnerPair: [string, string] | null;
+  refsByOwner: Map<string, FocusableElement>;
+}): boolean {
+  const { focusedOwner, focusedOwnerPair, refsByOwner } = params;
+  const targetOwner = focusedOwner ?? focusedOwnerPair?.[0] ?? null;
+  if (!targetOwner) return false;
+  const element = refsByOwner.get(targetOwner);
+  if (!element) return false;
+  element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  return true;
+}
+
 const DEFAULT_VISIBLE_OPPONENTS = getDefaultVisibleOpponentsCount();
 function formatKickoff(date: string | null, timeZone: string): string {
   if (!date) return 'TBD';
@@ -296,6 +314,7 @@ function OwnerCard({
   displayTimeZone,
   rankingsByTeamId,
   isFocused = false,
+  onRegisterRef,
 }: {
   slate: OwnerWeekSlate;
   ownerStanding?: ReturnType<typeof computeStandings>[number];
@@ -305,6 +324,7 @@ function OwnerCard({
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   isFocused?: boolean;
+  onRegisterRef?: (element: HTMLElement | null) => void;
 }): React.ReactElement {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const opponentSummaryEntries = React.useMemo(() => summarizeSlateOpponents(slate), [slate]);
@@ -312,9 +332,11 @@ function OwnerCard({
 
   return (
     <article
+      ref={onRegisterRef}
       className={`space-y-2.5 rounded-xl border p-3.5 shadow-sm sm:p-4 ${ownerCardSurfaceClasses(
         slate.performance.tone
       )} ${isFocused ? 'ring-1 ring-blue-400 dark:ring-blue-600' : ''}`}
+      data-owner-card={slate.owner}
     >
       <div className="space-y-2">
         <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3 sm:gap-y-1">
@@ -400,6 +422,15 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     gamesCount: games.length,
     oddsAvailableCount,
   });
+  const ownerCardRefs = React.useRef<Map<string, HTMLElement>>(new Map());
+
+  React.useEffect(() => {
+    scrollFocusedOwnerIntoView({
+      focusedOwner,
+      focusedOwnerPair,
+      refsByOwner: ownerCardRefs.current,
+    });
+  }, [focusedOwner, focusedOwnerPair]);
 
   return (
     <div className="space-y-3">
@@ -429,6 +460,13 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
                 rosterByTeam={rosterByTeam}
                 displayTimeZone={displayTimeZone}
                 rankingsByTeamId={rankingsByTeamId}
+                onRegisterRef={(element) => {
+                  if (!element) {
+                    ownerCardRefs.current.delete(slate.owner);
+                    return;
+                  }
+                  ownerCardRefs.current.set(slate.owner, element);
+                }}
                 isFocused={
                   focusedOwner === slate.owner ||
                   (focusedOwnerPair != null &&

@@ -383,7 +383,7 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
           cells: [
             { owner: 'A', gameCount: 0, record: null },
             { owner: 'B', gameCount: 5, record: '4–1' },
-            { owner: 'C', gameCount: 3, record: '1–1' },
+            { owner: 'C', gameCount: 8, record: '4–4' },
           ],
         },
         {
@@ -397,7 +397,7 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
         {
           owner: 'C',
           cells: [
-            { owner: 'A', gameCount: 3, record: '1–1' },
+            { owner: 'A', gameCount: 8, record: '4–4' },
             { owner: 'B', gameCount: 4, record: '2–2' },
             { owner: 'C', gameCount: 0, record: null },
           ],
@@ -411,9 +411,10 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
     (entry) => entry.label === 'Split owner matchup'
   );
   assert.ok(matrixHighlight);
-  assert.equal(matrixHighlight?.ctaLabel, 'Open matrix');
+  assert.equal(matrixHighlight?.ctaLabel, 'View matrix');
   assert.equal(matrixHighlight?.drilldownTarget.destination, 'matrix');
   assert.equal(matrixHighlight?.drilldownTarget.kind, 'owner_pair');
+  assert.match(matrixHighlight?.text ?? '', /dead even/);
 });
 
 test('selectOverviewViewModel emits typed game highlight drilldowns with truthful CTA copy', () => {
@@ -448,7 +449,7 @@ test('selectOverviewViewModel emits typed game highlight drilldowns with truthfu
     (entry) => entry.drilldownTarget.kind === 'game'
   );
   assert.ok(gameHighlight);
-  assert.notEqual(gameHighlight?.ctaLabel, 'View details');
+  assert.equal(gameHighlight?.ctaLabel, 'View game');
   assert.equal(gameHighlight?.drilldownTarget.destination, 'schedule');
   assert.equal(gameHighlight?.drilldownTarget.seasonTab, 'week');
   assert.equal(gameHighlight?.drilldownTarget.week, 1);
@@ -493,6 +494,148 @@ test('selectOverviewViewModel suppresses weak owner-vs-owner highlights', () => 
 
   assert.ok(model.leagueHighlights.every((entry) => entry.label !== 'Split owner matchup'));
   assert.ok(model.leagueHighlights.every((entry) => entry.label !== 'Heavy owner collision'));
+});
+
+test('selectOverviewViewModel uses unified CTA verbs for league highlights', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 7',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('cta-game'),
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 28 },
+          home: { team: 'Home', score: 24 },
+        },
+      },
+    ],
+    matchupMatrix: {
+      owners: ['A', 'B'],
+      rows: [
+        {
+          owner: 'A',
+          cells: [
+            { owner: 'A', gameCount: 0, record: null },
+            { owner: 'B', gameCount: 6, record: '3-3' },
+          ],
+        },
+        {
+          owner: 'B',
+          cells: [
+            { owner: 'A', gameCount: 6, record: '3-3' },
+            { owner: 'B', gameCount: 0, record: null },
+          ],
+        },
+      ],
+    },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(
+    model.leagueHighlights.every((entry) =>
+      ['View game', 'View standings', 'View matchup', 'View matrix'].includes(entry.ctaLabel)
+    )
+  );
+  assert.ok(model.leagueHighlights.every((entry) => !entry.ctaLabel.startsWith('Open ')));
+});
+
+test('selectOverviewViewModel removes noisy scope suffix and duplicated movement prefixes', () => {
+  const final = {
+    ...item('prefix-cleanup'),
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 42 },
+      home: { team: 'Home', score: 10 },
+    },
+  };
+  final.bucket.awayOwner = 'Alice';
+  final.bucket.homeOwner = 'Bob';
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alice',
+        wins: 4,
+        losses: 1,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 10,
+        gamesBack: 0,
+        finalGames: 5,
+      },
+      {
+        owner: 'Bob',
+        wins: 2,
+        losses: 3,
+        winPct: 0.4,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -8,
+        gamesBack: 2,
+        finalGames: 5,
+      },
+    ],
+    previousStandingsLeaders: [
+      {
+        owner: 'Alice',
+        wins: 2,
+        losses: 3,
+        winPct: 0.4,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -3,
+        gamesBack: 2,
+        finalGames: 5,
+      },
+      {
+        owner: 'Bob',
+        wins: 4,
+        losses: 1,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 4,
+        gamesBack: 0,
+        finalGames: 5,
+      },
+    ],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'Postseason',
+      scopeDetail: 'This postseason slate',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [final],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  const gainHighlight = model.leagueHighlights.find((entry) => entry.type === 'biggest_gain');
+  if (gainHighlight) {
+    assert.doesNotMatch(gainHighlight.text, /Biggest gain:/);
+  }
+  assert.ok(
+    model.leagueHighlights.every((entry) => !/\(this postseason slate\)/i.test(entry.text))
+  );
 });
 
 test('selectOverviewViewModel keeps featured games when finals dominate early candidates', () => {

@@ -2,6 +2,27 @@ import React from 'react';
 
 import type { OwnerMatchupMatrix } from '../lib/overview';
 
+type FocusableElement = {
+  scrollIntoView: (options?: ScrollIntoViewOptions) => void;
+};
+
+function ownerPairKey(owners: [string, string]): string {
+  const [left, right] = owners;
+  return left.localeCompare(right) <= 0 ? `${left}::${right}` : `${right}::${left}`;
+}
+
+export function scrollFocusedOwnerPairIntoView(params: {
+  focusedOwnerPair: [string, string] | null;
+  refsByOwnerPair: Map<string, FocusableElement>;
+}): boolean {
+  const { focusedOwnerPair, refsByOwnerPair } = params;
+  if (!focusedOwnerPair) return false;
+  const cell = refsByOwnerPair.get(ownerPairKey(focusedOwnerPair));
+  if (!cell) return false;
+  cell.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  return true;
+}
+
 export default function MatchupMatrixView({
   matrix,
   focusedOwnerPair = null,
@@ -9,6 +30,15 @@ export default function MatchupMatrixView({
   matrix: OwnerMatchupMatrix;
   focusedOwnerPair?: [string, string] | null;
 }): React.ReactElement {
+  const ownerPairRefs = React.useRef<Map<string, HTMLTableCellElement>>(new Map());
+
+  React.useEffect(() => {
+    scrollFocusedOwnerPairIntoView({
+      focusedOwnerPair,
+      refsByOwnerPair: ownerPairRefs.current,
+    });
+  }, [focusedOwnerPair]);
+
   if (matrix.owners.length === 0) {
     return (
       <section className="rounded-xl border border-gray-200 bg-gray-50/80 p-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
@@ -68,6 +98,14 @@ export default function MatchupMatrixView({
                   return (
                     <td
                       key={`${row.owner}-${cell.owner}`}
+                      ref={(element) => {
+                        const key = ownerPairKey([row.owner, cell.owner]);
+                        if (!element) {
+                          ownerPairRefs.current.delete(key);
+                          return;
+                        }
+                        ownerPairRefs.current.set(key, element);
+                      }}
                       className={`w-14 border-b border-gray-100 px-2 py-1.5 align-middle leading-tight dark:border-zinc-800 ${
                         isDiagonal
                           ? 'bg-gray-100/80 dark:bg-zinc-800/70'
@@ -75,6 +113,7 @@ export default function MatchupMatrixView({
                             ? 'bg-blue-50/70 font-semibold text-gray-900 dark:bg-blue-950/20 dark:text-zinc-100'
                             : 'text-gray-400 dark:text-zinc-600'
                       } ${isFocusedPair ? 'ring-1 ring-inset ring-blue-500 dark:ring-blue-500' : ''}`}
+                      data-owner-pair-cell={ownerPairKey([row.owner, cell.owner])}
                     >
                       {hasGames ? (
                         <div className="flex flex-col items-center leading-tight">

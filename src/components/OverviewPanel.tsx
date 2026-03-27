@@ -489,9 +489,11 @@ function InsightStrip({
 
 function HighlightList({
   highlights,
+  scopeDetail,
   onOpenHighlightTarget,
 }: {
   highlights: ReturnType<typeof selectOverviewViewModel>['leagueHighlights'];
+  scopeDetail?: string | null;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
 }): React.ReactElement {
   if (highlights.length === 0) {
@@ -505,13 +507,21 @@ function HighlightList({
 
   return (
     <div className="space-y-2">
+      {scopeDetail ? (
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
+          {scopeDetail}
+        </p>
+      ) : null}
       {highlights.map((highlight) => (
         <div
           key={highlight.id}
           className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white/80 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/70"
         >
           <p className="min-w-0 text-sm text-gray-800 dark:text-zinc-100">
-            <span className="font-semibold">{highlight.label}:</span> {highlight.text}
+            <span className="mr-1.5 inline-flex rounded-full border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              {highlight.label}
+            </span>
+            {highlight.text}
           </p>
           <button
             type="button"
@@ -627,6 +637,7 @@ export default function OverviewPanel({
       <SectionCard title="League highlights" tone="secondary" compact>
         <HighlightList
           highlights={viewModel.leagueHighlights}
+          scopeDetail={context.scopeDetail}
           onOpenHighlightTarget={onOpenHighlightTarget}
         />
       </SectionCard>
