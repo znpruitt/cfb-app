@@ -609,18 +609,106 @@ function LeaguePulse({
   items: ReturnType<typeof selectOverviewViewModel>['leaguePulse'];
 }): React.ReactElement | null {
   if (items.length === 0) return null;
+  const rowSpacingClass = items.length <= 2 ? 'space-y-2' : 'space-y-2.5';
+
+  const derivePulsePresentation = (
+    item: (typeof items)[number]
+  ): {
+    icon: string;
+    label: string;
+    text: string;
+  } => {
+    const id = item.id.toLowerCase();
+
+    if (id === 'season-complete') {
+      return {
+        icon: '🏁',
+        label: 'Season',
+        text: item.text.replace(/^Season complete:\s*/i, ''),
+      };
+    }
+
+    if (id.startsWith('leader-gap')) {
+      return {
+        icon: '🏆',
+        label: 'Leader',
+        text: item.text,
+      };
+    }
+
+    if (id.startsWith('biggest-gain')) {
+      return {
+        icon: '📈',
+        label: 'Biggest Gain',
+        text: item.text,
+      };
+    }
+
+    if (id.startsWith('biggest-drop')) {
+      return {
+        icon: '📉',
+        label: 'Biggest Drop',
+        text: item.text,
+      };
+    }
+
+    if (id.startsWith('standings-context')) {
+      return {
+        icon: '📊',
+        label: 'Standings',
+        text: item.text.replace(/^Closest race:\s*/i, ''),
+      };
+    }
+
+    if (id.includes('most-games') || /most games/i.test(item.text)) {
+      return {
+        icon: '🧠',
+        label: 'Most Games',
+        text: item.text.replace(/^Most games(?: this week)?:\s*/i, ''),
+      };
+    }
+
+    if (id.startsWith('rank-movement')) {
+      return {
+        icon: '🔄',
+        label: 'Rank Move',
+        text: item.text,
+      };
+    }
+
+    return {
+      icon: '📌',
+      label: 'Pulse',
+      text: item.text,
+    };
+  };
+
   return (
     <SectionCard title="League pulse" tone="secondary" compact>
-      <ul className="space-y-2">
-        {items.map((item) => (
-          <li
-            key={item.id}
-            className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2 text-sm text-gray-800 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-100"
-          >
-            {item.text}
-          </li>
-        ))}
-      </ul>
+      <div className={rowSpacingClass}>
+        {items.map((item) => {
+          const presentation = derivePulsePresentation(item);
+          return (
+            <article
+              key={item.id}
+              className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/70"
+            >
+              <p className="min-w-0 text-sm text-gray-800 dark:text-zinc-100">
+                <span
+                  className="mr-1.5 inline-block align-middle text-[15px] leading-none"
+                  aria-hidden="true"
+                >
+                  {presentation.icon}
+                </span>
+                <span className="mr-1.5 inline-flex rounded-full border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                  {presentation.label}
+                </span>
+                {presentation.text}
+              </p>
+            </article>
+          );
+        })}
+      </div>
     </SectionCard>
   );
 }
