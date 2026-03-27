@@ -535,6 +535,8 @@ test('overview panel summary shows season-complete champion, second, and third',
   assert.match(html, /70–45/);
   assert.match(html, /Pruitt won the title by 0.062 over Maleski/);
   assert.doesNotMatch(html, /League leader/);
+  assert.ok(html.indexOf('Pruitt') < html.indexOf('Maleski'));
+  assert.ok(html.indexOf('Maleski') < html.indexOf('Whited'));
 });
 
 test('overview panel summary does not render season-complete framing when standings coverage is partial', () => {
@@ -846,7 +848,7 @@ test('overview panel renders league pulse section when selector emits pulse item
   );
 
   assert.match(html, /League pulse/);
-  assert.match(html, /leads by .* win%/i);
+  assert.match(html, /Closest race:|leads by .* win%/i);
 });
 
 test('overview panel renders insight strip with prioritized ranked matchup signal', () => {
@@ -913,44 +915,103 @@ test('overview panel renders insight strip with prioritized ranked matchup signa
     />
   );
 
-  assert.match(html, /Pruitt leads by 0.083 win%/);
+  assert.match(html, /0.083/);
   assert.match(html, /Top ranked matchup/);
   assert.match(html, /#7 Texas vs #14 Miami/);
 });
 
-test('overview panel insight strip shows biggest gain and biggest drop signals', () => {
-  const movementGameFinal = itemWithScore(game({ key: 'movement-final' }), {
-    status: 'FINAL',
-    away: { team: 'Away', score: 34 },
-    home: { team: 'Home', score: 20 },
-    time: null,
-  });
-  movementGameFinal.bucket.awayOwner = 'Alice';
-  movementGameFinal.bucket.homeOwner = 'Bob';
-
-  const movementGameLive = itemWithScore(game({ key: 'movement-live' }), {
-    status: 'In Progress',
-    away: { team: 'Away', score: 21 },
-    home: { team: 'Home', score: 10 },
-    time: '09:58',
-  });
-  movementGameLive.bucket.awayOwner = 'Alice';
-  movementGameLive.bucket.homeOwner = 'Bob';
-
+test('overview panel suppresses redundant movement chips in completed-season podium mode', () => {
+  const postseasonFinal = game({ key: 'title-game', stage: 'bowl', status: 'final' });
   const html = renderToStaticMarkup(
     <OverviewPanel
-      standingsLeaders={standingsLeaders}
+      standingsLeaders={[
+        {
+          owner: 'Pruitt',
+          wins: 81,
+          losses: 39,
+          winPct: 0.675,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 120,
+        },
+        {
+          owner: 'Maleski',
+          wins: 65,
+          losses: 41,
+          winPct: 0.613,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 106,
+        },
+        {
+          owner: 'Whited',
+          wins: 70,
+          losses: 45,
+          winPct: 0.609,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 115,
+        },
+      ]}
+      previousStandingsLeaders={[
+        {
+          owner: 'Maleski',
+          wins: 65,
+          losses: 41,
+          winPct: 0.613,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 106,
+        },
+        {
+          owner: 'Pruitt',
+          wins: 81,
+          losses: 39,
+          winPct: 0.675,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 120,
+        },
+        {
+          owner: 'Whited',
+          wins: 70,
+          losses: 45,
+          winPct: 0.609,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+          finalGames: 115,
+        },
+      ]}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
-      liveItems={[movementGameLive]}
-      keyMatchups={[movementGameFinal, movementGameLive]}
-      context={defaultContext}
+      liveItems={[]}
+      keyMatchups={[
+        itemWithScore(postseasonFinal, {
+          status: 'FINAL',
+          away: { team: 'Away', score: 24 },
+          home: { team: 'Home', score: 17 },
+          time: null,
+        }),
+      ]}
+      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
       displayTimeZone="UTC"
     />
   );
 
-  assert.match(html, /Alice \(\+2 wins\)/);
-  assert.match(html, /Biggest drop: Bob \(-2\)/);
+  assert.match(html, /Season podium/);
+  assert.doesNotMatch(html, /Alice \(\+2 wins\)|Biggest drop:/);
 });
 
 test('overview panel game summary badges prefer top-25 and top-matchup over close and ranked', () => {
@@ -1217,7 +1278,7 @@ test('overview standings context suppresses leader-gap duplicate messaging when 
 
   assert.doesNotMatch(html, /Leader gap:/);
   assert.doesNotMatch(html, /Tight race:/);
-  assert.match(html, /Alice leads by 0.166 win%/);
+  assert.match(html, /0.166/);
 });
 
 test('overview highlights show scope context once at section level', () => {

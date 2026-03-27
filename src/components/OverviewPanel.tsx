@@ -190,16 +190,16 @@ function LeagueSummaryHero({
     const [first, second, third] = podiumLeaders;
     const cards: Array<{ rank: 1 | 2 | 3; row: OwnerStandingsRow; className: string }> = [
       {
-        rank: 2,
-        row: second,
-        className:
-          'border-slate-300/90 bg-gradient-to-b from-slate-100/85 to-white dark:border-slate-700 dark:from-slate-900/70 dark:to-zinc-900',
-      },
-      {
         rank: 1,
         row: first,
         className:
           'border-amber-300/90 bg-gradient-to-b from-amber-100/85 to-white ring-1 ring-amber-300/60 dark:border-amber-700 dark:from-amber-900/40 dark:to-zinc-900 dark:ring-amber-700/60',
+      },
+      {
+        rank: 2,
+        row: second,
+        className:
+          'border-slate-300/90 bg-gradient-to-b from-slate-100/85 to-white dark:border-slate-700 dark:from-slate-900/70 dark:to-zinc-900',
       },
       {
         rank: 3,
@@ -222,7 +222,7 @@ function LeagueSummaryHero({
             <article
               key={card.rank}
               className={`rounded-xl border px-3 py-3 shadow-sm ${card.className} ${
-                card.rank === 1 ? 'sm:-translate-y-1.5' : ''
+                card.rank === 1 ? 'sm:-translate-y-1.5 sm:py-4' : ''
               }`}
             >
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-600 dark:text-zinc-300">
@@ -246,7 +246,7 @@ function LeagueSummaryHero({
           ))}
         </div>
         {narrative ? (
-          <p className="mt-3 text-sm text-gray-600 dark:text-zinc-300">{narrative}</p>
+          <p className="mt-2.5 text-sm text-gray-600 dark:text-zinc-300">{narrative}</p>
         ) : null}
       </section>
     );
@@ -541,29 +541,6 @@ function GameSummaryList({
   );
 }
 
-function InsightStrip({
-  insights,
-}: {
-  insights: { id: string; text: string }[];
-}): React.ReactElement | null {
-  if (insights.length === 0) return null;
-
-  return (
-    <div className="rounded-xl border border-gray-200/80 bg-gray-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-950/60">
-      <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-700 dark:text-zinc-200">
-        {insights.map((insight) => (
-          <span
-            key={insight.id}
-            className="inline-flex rounded-full border border-gray-300 bg-white/90 px-2 py-0.5 font-medium dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            {insight.text}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function HighlightList({
   highlights,
   scopeDetail,
@@ -734,7 +711,6 @@ export default function OverviewPanel({
         podiumLeaders={viewModel.podiumLeaders}
         leader={standingsLeaders[0]}
       />
-      <InsightStrip insights={viewModel.keyMovements} />
       {viewModel.shouldShowFeaturedMatchups ? (
         <SectionCard title="Featured matchups" tone="weekly">
           <GameSummaryList

@@ -144,11 +144,14 @@ function deriveLeaguePulse(params: {
     pulse.push({ id, text });
   };
 
-  if (params.championSummary?.phase === 'complete') {
+  const phase = params.championSummary?.phase ?? 'inSeason';
+  const isComplete = phase === 'complete';
+
+  if (isComplete) {
     push('season-complete', 'Season complete: final standings locked.');
   }
 
-  if (params.standingsContext) {
+  if (!isComplete && params.standingsContext) {
     push(
       'standings-context',
       params.standingsContext.replace(/^Tight race:\s*/i, 'Closest race: ')
@@ -156,16 +159,67 @@ function deriveLeaguePulse(params: {
   }
 
   params.movementInsights
-    .filter(
-      (insight) => insight.id.startsWith('biggest-gain-') || insight.id.startsWith('leader-gap')
-    )
+    .filter((insight) => {
+      if (isComplete) {
+        return (
+          insight.id.startsWith('biggest-gain-') ||
+          insight.id.startsWith('biggest-drop-') ||
+          insight.id.startsWith('rank-movement-')
+        );
+      }
+      return (
+        insight.id.startsWith('leader-gap') ||
+        insight.id.startsWith('biggest-gain-') ||
+        insight.id.startsWith('biggest-drop-') ||
+        insight.id.startsWith('rank-movement-')
+      );
+    })
     .forEach((insight) => push(insight.id, stripLeadingLabel(insight.text)));
 
-  params.leagueHighlights.slice(0, 2).forEach((highlight) => {
-    push(`pulse-${highlight.id}`, `${highlight.label}: ${highlight.text}`);
-  });
+  params.leagueHighlights
+    .filter((highlight) => (isComplete ? highlight.type === 'most_games_owner' : true))
+    .slice(0, isComplete ? 1 : 2)
+    .forEach((highlight) => {
+      push(`pulse-${highlight.id}`, `${highlight.label}: ${highlight.text}`);
+    });
 
   return pulse.slice(0, 4);
+}
+
+function selectMovementInsightsForPulse(
+  insights: { id: string; text: string }[]
+): { id: string; text: string }[] {
+  const selected: { id: string; text: string }[] = [];
+  const seen = new Set<string>();
+  const pushFirst = (predicate: (insight: { id: string; text: string }) => boolean): void => {
+    const match = insights.find(predicate);
+    if (!match || seen.has(match.id)) return;
+    seen.add(match.id);
+    selected.push(match);
+  };
+
+  pushFirst((insight) => insight.id.startsWith('leader-gap'));
+  pushFirst((insight) => insight.id.startsWith('biggest-gain-'));
+  pushFirst((insight) => insight.id.startsWith('biggest-drop-'));
+
+  insights
+    .filter((insight) => insight.id.startsWith('rank-movement-'))
+    .forEach((insight) => {
+      if (selected.length >= 4 || seen.has(insight.id)) return;
+      seen.add(insight.id);
+      selected.push(insight);
+    });
+
+  return selected.slice(0, 4);
+}
+
+function deriveShouldShowLeaguePulse(params: {
+  championSummary: LeagueSummaryViewModel | null;
+  leaguePulse: { id: string; text: string }[];
+}): boolean {
+  if (params.leaguePulse.length === 0) return false;
+  if (params.championSummary?.phase !== 'complete') return true;
+  return params.leaguePulse.some((item) => item.id !== 'season-complete');
 }
 
 function formatPctGap(value: number): string {
@@ -496,8 +550,7 @@ function winnerText(item: OverviewGameItem): string | null {
   const winner = awayScore > homeScore ? item.bucket.game.csvAway : item.bucket.game.csvHome;
   const loser = awayScore > homeScore ? item.bucket.game.csvHome : item.bucket.game.csvAway;
   const margin = Math.abs(awayScore - homeScore);
-  if (margin >= 17) return `${winner} dominated ${loser} by ${margin}`;
-  if (margin <= 3) return `${winner} edged ${loser} by ${margin}`;
+  if (margin <= 3) return `${winner} clipped ${loser} by ${margin}`;
   return `${winner} beat ${loser} by ${margin}`;
 }
 
@@ -674,7 +727,7 @@ function deriveLeagueHighlights(params: {
       id: `most-games-${mostGamesOwner[0]}`,
       type: 'most_games_owner',
       label: 'Most games this week',
-      text: `${mostGamesOwner[0]} has the busiest slate with ${mostGamesOwner[1]} teams playing`,
+      text: `${mostGamesOwner[0]}: ${mostGamesOwner[1]} teams playing`,
       ctaLabel: 'View matchup',
       drilldownTarget: {
         kind: 'owner',
@@ -789,22 +842,23 @@ export function selectOverviewViewModel(params: {
   });
   const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
   const recentResults = prioritizedResults.slice(0, resultsLimit);
-  const movementInsights = deriveLeagueInsights({
-    standings: standingsLeaders,
-    previousStandings: previousStandingsLeaders,
-    recentResults: keyMatchups,
-    liveGames: liveItems,
-    rankingsByTeamId,
-  })
-    .filter(
-      (insight) =>
-        insight.id.startsWith('leader-gap') ||
-        insight.id.startsWith('biggest-gain-') ||
-        insight.id.startsWith('biggest-drop-') ||
-        insight.id.startsWith('rank-movement-')
-    )
-    .slice(0, 3)
-    .map((insight) => ({ id: insight.id, text: insight.text }));
+  const movementInsights = selectMovementInsightsForPulse(
+    deriveLeagueInsights({
+      standings: standingsLeaders,
+      previousStandings: previousStandingsLeaders,
+      recentResults: keyMatchups,
+      liveGames: liveItems,
+      rankingsByTeamId,
+    })
+      .filter(
+        (insight) =>
+          insight.id.startsWith('leader-gap') ||
+          insight.id.startsWith('biggest-gain-') ||
+          insight.id.startsWith('biggest-drop-') ||
+          insight.id.startsWith('rank-movement-')
+      )
+      .map((insight) => ({ id: insight.id, text: insight.text }))
+  );
   const championSummary = deriveLeagueSummaryViewModel({
     standingsLeaders,
     context,
@@ -850,7 +904,7 @@ export function selectOverviewViewModel(params: {
     standingsContext,
     keyMovements: movementInsights,
     leaguePulse,
-    shouldShowLeaguePulse: leaguePulse.length > 0,
+    shouldShowLeaguePulse: deriveShouldShowLeaguePulse({ championSummary, leaguePulse }),
     featuredMatchups,
     shouldShowFeaturedMatchups: featuredMatchups.length > 0,
     recentResults,

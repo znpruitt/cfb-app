@@ -1044,3 +1044,314 @@ test('selectOverviewViewModel is deterministic for identical highlight inputs', 
 
   assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
 });
+
+test('selectOverviewViewModel keeps live-competition pulse wording during active season', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alex',
+        wins: 8,
+        losses: 2,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 12,
+        gamesBack: 0,
+        finalGames: 10,
+      },
+      {
+        owner: 'Blake',
+        wins: 7,
+        losses: 3,
+        winPct: 0.7,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 6,
+        gamesBack: 1,
+        finalGames: 10,
+      },
+    ],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 9',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [item('active-pulse')],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(model.leaguePulse.some((entry) => /leads by|closest race/i.test(entry.text)));
+});
+
+test('selectOverviewViewModel removes live-competition pulse wording after season completes', () => {
+  const postseasonFinal = {
+    ...item('postseason-final'),
+    bucket: {
+      ...item('postseason-final').bucket,
+      game: game({ key: 'postseason-final', stage: 'bowl', postseasonRole: 'bowl' }),
+    },
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 27 },
+      home: { team: 'Home', score: 20 },
+    },
+  };
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alex',
+        wins: 10,
+        losses: 2,
+        winPct: 0.833,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 30,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Blake',
+        wins: 9,
+        losses: 3,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 10,
+        gamesBack: 1,
+        finalGames: 12,
+      },
+      {
+        owner: 'Casey',
+        wins: 8,
+        losses: 4,
+        winPct: 0.667,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: 2,
+        finalGames: 12,
+      },
+    ],
+    previousStandingsLeaders: [
+      {
+        owner: 'Blake',
+        wins: 9,
+        losses: 3,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 10,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Alex',
+        wins: 10,
+        losses: 2,
+        winPct: 0.833,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 30,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Casey',
+        wins: 8,
+        losses: 4,
+        winPct: 0.667,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: 2,
+        finalGames: 12,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'Postseason',
+      scopeDetail: 'Postseason',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [postseasonFinal],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(model.leaguePulse.some((entry) => /Season complete/i.test(entry.text)));
+  assert.ok(model.leaguePulse.every((entry) => !/leads by|closest race/i.test(entry.text)));
+});
+
+test('selectOverviewViewModel suppresses league pulse when completed season only emits season-complete filler', () => {
+  const postseasonFinal = {
+    ...item('postseason-final-thin-pulse'),
+    bucket: {
+      ...item('postseason-final-thin-pulse').bucket,
+      game: game({ key: 'postseason-final-thin-pulse', stage: 'bowl', postseasonRole: 'bowl' }),
+    },
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 17 },
+      home: { team: 'Home', score: 14 },
+    },
+  };
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alex',
+        wins: 10,
+        losses: 2,
+        winPct: 0.833,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 25,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Blake',
+        wins: 9,
+        losses: 3,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 12,
+        gamesBack: 1,
+        finalGames: 12,
+      },
+      {
+        owner: 'Casey',
+        wins: 8,
+        losses: 4,
+        winPct: 0.667,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 4,
+        gamesBack: 2,
+        finalGames: 12,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'Postseason',
+      scopeDetail: 'Postseason',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [postseasonFinal],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.deepEqual(model.leaguePulse, [
+    { id: 'season-complete', text: 'Season complete: final standings locked.' },
+  ]);
+  assert.equal(model.shouldShowLeaguePulse, false);
+});
+
+test('selectOverviewViewModel active-season pulse keeps biggest gain and biggest drop movement insights', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alex',
+        wins: 8,
+        losses: 2,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 15,
+        gamesBack: 0,
+        finalGames: 10,
+      },
+      {
+        owner: 'Blake',
+        wins: 6,
+        losses: 4,
+        winPct: 0.6,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 5,
+        gamesBack: 2,
+        finalGames: 10,
+      },
+      {
+        owner: 'Casey',
+        wins: 5,
+        losses: 5,
+        winPct: 0.5,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -3,
+        gamesBack: 3,
+        finalGames: 10,
+      },
+    ],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 9',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('active-movement-pulse-1'),
+        bucket: {
+          ...item('active-movement-pulse-1').bucket,
+          awayOwner: 'Alex',
+          homeOwner: 'Blake',
+        },
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 31 },
+          home: { team: 'Home', score: 17 },
+        },
+      },
+      {
+        ...item('active-movement-pulse-2'),
+        bucket: {
+          ...item('active-movement-pulse-2').bucket,
+          awayOwner: 'Alex',
+          homeOwner: 'Blake',
+        },
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 24 },
+          home: { team: 'Home', score: 20 },
+        },
+      },
+    ],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(model.leaguePulse.some((entry) => entry.id.startsWith('biggest-gain-')));
+  assert.ok(model.leaguePulse.some((entry) => entry.id.startsWith('biggest-drop-')));
+  assert.equal(model.shouldShowLeaguePulse, true);
+});
