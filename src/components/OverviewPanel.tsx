@@ -166,7 +166,7 @@ function LeagueSummaryHero({
   leader,
 }: {
   summary: ReturnType<typeof selectOverviewViewModel>['championSummary'];
-  narrative: ReturnType<typeof selectOverviewViewModel>['leagueNarrative'];
+  narrative: ReturnType<typeof selectOverviewViewModel>['heroNarrative'];
   heroMode: ReturnType<typeof selectOverviewViewModel>['heroMode'];
   podiumLeaders: ReturnType<typeof selectOverviewViewModel>['podiumLeaders'];
   leader: OwnerStandingsRow | undefined;
@@ -729,7 +729,7 @@ export default function OverviewPanel({
     <div className="space-y-4">
       <LeagueSummaryHero
         summary={viewModel.championSummary}
-        narrative={viewModel.leagueNarrative}
+        narrative={viewModel.heroNarrative}
         heroMode={viewModel.heroMode}
         podiumLeaders={viewModel.podiumLeaders}
         leader={standingsLeaders[0]}

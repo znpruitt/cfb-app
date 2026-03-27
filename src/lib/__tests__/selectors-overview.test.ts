@@ -323,7 +323,7 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
   assert.equal(model.featuredMatchups[0]?.item.bucket.game.key, 'scheduled');
   assert.equal(model.recentResults.length, 1);
   assert.equal(model.recentResults[0]?.item.bucket.game.key, 'final');
-  assert.equal(typeof model.leagueNarrative, 'string');
+  assert.equal(typeof model.heroNarrative, 'string');
   assert.equal(model.shouldShowLeaguePulse, true);
   assert.ok(model.leaguePulse.length > 0);
   assert.equal(model.heroMode, 'leader');
@@ -446,7 +446,202 @@ test('selectOverviewViewModel switches hero to podium for complete season with t
 
   assert.equal(model.heroMode, 'podium');
   assert.equal(model.podiumLeaders.length, 3);
-  assert.match(model.leagueNarrative ?? '', /won the title by 0.062 over Maleski/);
+  assert.match(model.heroNarrative ?? '', /won the title by 0.062 over Maleski/);
+});
+
+test('selectOverviewViewModel hero narrative handles two-way top tie', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alice',
+        wins: 8,
+        losses: 2,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 30,
+        gamesBack: 0,
+        finalGames: 10,
+      },
+      {
+        owner: 'Bob',
+        wins: 8,
+        losses: 2,
+        winPct: 0.8,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 20,
+        gamesBack: 0,
+        finalGames: 10,
+      },
+      {
+        owner: 'Chris',
+        wins: 7,
+        losses: 3,
+        winPct: 0.7,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 10,
+        gamesBack: 1,
+        finalGames: 10,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 10',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.isTopTie, true);
+  assert.equal(model.topTierLeaders.length, 2);
+  assert.deepEqual(
+    model.topTierLeaders.map((row) => row.owner),
+    ['Alice', 'Bob']
+  );
+  assert.match(model.heroNarrative ?? '', /Alice and Bob are tied for first at 8–2 \(0.800\)/);
+});
+
+test('selectOverviewViewModel hero narrative handles three-way top tie in complete season', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alice',
+        wins: 9,
+        losses: 3,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 50,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Bob',
+        wins: 9,
+        losses: 3,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 25,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Chris',
+        wins: 9,
+        losses: 3,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 15,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'Postseason',
+      scopeDetail: 'Postseason',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('post-final-3way'),
+        bucket: {
+          ...item('post-final-3way').bucket,
+          game: game({ key: 'post-final-3way', stage: 'bowl', postseasonRole: 'bowl' }),
+        },
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 28 },
+          home: { team: 'Home', score: 21 },
+        },
+      },
+    ],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.isTopTie, true);
+  assert.equal(model.topTierLeaders.length, 3);
+  assert.match(model.heroNarrative ?? '', /Alice, Bob, and Chris finished tied for first at 9–3/);
+});
+
+test('selectOverviewViewModel hero narrative keeps non-tie winner phrasing', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alice',
+        wins: 10,
+        losses: 2,
+        winPct: 0.833,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 70,
+        gamesBack: 0,
+        finalGames: 12,
+      },
+      {
+        owner: 'Bob',
+        wins: 9,
+        losses: 3,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 40,
+        gamesBack: 1,
+        finalGames: 12,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'Postseason',
+      scopeDetail: 'Postseason',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('post-final-non-tie'),
+        bucket: {
+          ...item('post-final-non-tie').bucket,
+          game: game({ key: 'post-final-non-tie', stage: 'bowl', postseasonRole: 'bowl' }),
+        },
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 24 },
+          home: { team: 'Home', score: 17 },
+        },
+      },
+    ],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.isTopTie, false);
+  assert.equal(model.topTierLeaders.length, 1);
+  assert.match(model.heroNarrative ?? '', /Alice won the title by 0.083 over Bob/);
 });
 
 test('selectOverviewViewModel is stable for identical inputs', () => {

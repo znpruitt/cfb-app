@@ -386,6 +386,57 @@ test('overview panel summary shows tie copy when top win percentages match', () 
   );
 
   assert.match(html, /Gap tied/);
+  assert.match(html, /Alice and Bob are tied for first at 6–2 \(0.750\)/);
+});
+
+test('overview panel summary narrative lists all owners in a three-way tie', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 9,
+          losses: 3,
+          winPct: 0.75,
+          pointsFor: 200,
+          pointsAgainst: 180,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+        {
+          owner: 'Bob',
+          wins: 9,
+          losses: 3,
+          winPct: 0.75,
+          pointsFor: 190,
+          pointsAgainst: 170,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+        {
+          owner: 'Chris',
+          wins: 9,
+          losses: 3,
+          winPct: 0.75,
+          pointsFor: 180,
+          pointsAgainst: 160,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 12,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Alice, Bob, and Chris are tied for first at 9–3 \(0.750\)/);
 });
 
 test('overview panel summary uses postseason in-progress championship language', () => {

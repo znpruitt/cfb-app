@@ -38,9 +38,11 @@ export type PrioritizedOverviewItem = {
 
 export type OverviewViewModel = {
   championSummary: LeagueSummaryViewModel | null;
-  leagueNarrative: string | null;
+  heroNarrative: string | null;
   heroMode: 'leader' | 'podium';
   podiumLeaders: OwnerStandingsRow[];
+  topTierLeaders: OwnerStandingsRow[];
+  isTopTie: boolean;
   standingsTopN: OwnerStandingsRow[];
   standingsHasMore: boolean;
   standingsContext: string | null;
@@ -75,13 +77,37 @@ function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function deriveLeagueNarrative(
-  summary: LeagueSummaryViewModel | null,
-  standingsLeaders: OwnerStandingsRow[]
-): string | null {
+function formatNameList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
+function deriveTopTierLeaders(standingsLeaders: OwnerStandingsRow[]): OwnerStandingsRow[] {
+  const leaderWinPct = standingsLeaders[0]?.winPct;
+  if (leaderWinPct == null) return [];
+  return standingsLeaders.filter((row) => row.winPct === leaderWinPct);
+}
+
+function deriveHeroNarrative(params: {
+  summary: LeagueSummaryViewModel | null;
+  standingsLeaders: OwnerStandingsRow[];
+  topTierLeaders: OwnerStandingsRow[];
+  isTopTie: boolean;
+}): string | null {
+  const { summary, standingsLeaders, topTierLeaders, isTopTie } = params;
   if (!summary) return null;
   const leader = standingsLeaders[0];
   if (!leader) return null;
+  const leaderRecord = `${leader.wins}–${leader.losses}`;
+  const leaderRecordWithPct = `${leaderRecord} (${formatPctGap(leader.winPct)})`;
+  if (isTopTie) {
+    const tiedOwners = formatNameList(topTierLeaders.map((row) => row.owner));
+    return summary.phase === 'complete'
+      ? `${tiedOwners} finished tied for first at ${leaderRecord}`
+      : `${tiedOwners} are tied for first at ${leaderRecordWithPct}`;
+  }
+
   const runnerUp = standingsLeaders[1];
   const recordAndDiff = `${leader.wins}–${leader.losses} (${formatPctGap(leader.winPct)}), ${formatDiff(leader.pointDifferential)} diff`;
   if (!runnerUp) {
@@ -91,12 +117,6 @@ function deriveLeagueNarrative(
   }
 
   const gap = Math.max(0, leader.winPct - runnerUp.winPct);
-  if (summary.hasTieAtTop || gap === 0) {
-    return summary.phase === 'complete'
-      ? `${leader.owner} and ${runnerUp.owner} finished tied at ${formatPctGap(leader.winPct)}.`
-      : `Tied with ${runnerUp.owner} at ${recordAndDiff}.`;
-  }
-
   return summary.phase === 'complete'
     ? `${leader.owner} won the title by ${formatPctGap(gap)} over ${runnerUp.owner}`
     : `Leads at ${recordAndDiff} • Ahead of ${runnerUp.owner} by ${formatPctGap(gap)}`;
@@ -809,12 +829,22 @@ export function selectOverviewViewModel(params: {
   });
   const heroMode = deriveHeroMode(championSummary, standingsLeaders);
   const podiumLeaders = heroMode === 'podium' ? standingsLeaders.slice(0, 3) : [];
+  const topTierLeaders = deriveTopTierLeaders(standingsLeaders);
+  const isTopTie = topTierLeaders.length > 1;
+  const heroNarrative = deriveHeroNarrative({
+    summary: championSummary,
+    standingsLeaders,
+    topTierLeaders,
+    isTopTie,
+  });
 
   return {
     championSummary,
-    leagueNarrative: deriveLeagueNarrative(championSummary, standingsLeaders),
+    heroNarrative,
     heroMode,
     podiumLeaders,
+    topTierLeaders,
+    isTopTie,
     standingsTopN: standingsLeaders.slice(0, standingsLimit),
     standingsHasMore: standingsLeaders.length > standingsLimit,
     standingsContext,
