@@ -180,7 +180,7 @@ function GameRow({
   const score = scoresByKey[slateGame.game.key];
   const odds = oddsByKey[slateGame.game.key];
   const { primary, secondary } = prioritizeGameTags(
-    computeGameTags(slateGame.game, score, odds, rosterByTeam)
+    computeGameTags(slateGame.game, score, odds, rosterByTeam, rankingsByTeamId)
   );
   const ownerOutcome = deriveOwnerOutcome({ slateGame, score });
   const rawStatusBucket = classifyScorePackStatus(score);

@@ -543,16 +543,16 @@ export type WeeklyInsights = {
   leaderProjectedWins: number;
 };
 
-export type LeagueGameTag = 'swing' | 'upset' | 'even';
+export type LeagueGameTag = 'upset' | 'upset_watch' | 'top_25_matchup';
 export const LEAGUE_TAG_PRIORITY: Record<LeagueGameTag, number> = {
-  swing: 3,
-  upset: 2,
-  even: 1,
+  upset: 3,
+  upset_watch: 2,
+  top_25_matchup: 1,
 };
 export const LEAGUE_TAG_LABELS: Record<LeagueGameTag, string> = {
-  swing: 'Swing',
-  upset: 'Upset alert',
-  even: 'Even spread',
+  upset: 'Upset',
+  upset_watch: 'Upset watch',
+  top_25_matchup: 'Top 25',
 };
 
 function getState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'unknown' {
@@ -851,38 +851,102 @@ export function computeWeeklyInsights(
   };
 }
 
+function rankForSide(
+  game: AppGame,
+  side: 'away' | 'home',
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>
+): number | null {
+  if (!rankingsByTeamId) return null;
+  const teamId = getGameParticipantTeamId(game, side);
+  const fallback = side === 'away' ? game.canAway : game.canHome;
+  const rank = rankingsByTeamId.get(teamId ?? fallback)?.rank ?? null;
+  return typeof rank === 'number' ? rank : null;
+}
+
+function winnerSide(score: ScorePack): 'away' | 'home' | null {
+  const awayScore = score.away.score;
+  const homeScore = score.home.score;
+  if (awayScore == null || homeScore == null || awayScore === homeScore) return null;
+  return awayScore > homeScore ? 'away' : 'home';
+}
+
+function isRankedTop25(rank: number | null): rank is number {
+  return rank != null && rank <= 25;
+}
+
+function isRankUpset(params: { winnerRank: number | null; loserRank: number | null }): boolean {
+  const { winnerRank, loserRank } = params;
+  if (loserRank == null) return false;
+  if (winnerRank == null) return true;
+  return winnerRank > loserRank;
+}
+
 export function computeGameTags(
   game: AppGame,
   score: ScorePack | undefined,
   odds: CombinedOdds | undefined,
   ownershipMap: Map<string, string>,
-  spreadThreshold = 3
+  rankingsByTeamId?: Map<string, TeamRankingEnrichment>,
+  upsetSpreadThreshold = 6
 ): LeagueGameTag[] {
   const tags: LeagueGameTag[] = [];
-  const { awayOwner, homeOwner } = ownerTeamSides(game, ownershipMap);
 
-  if (awayOwner && homeOwner && awayOwner !== homeOwner) {
-    tags.push('swing');
-  }
+  const awayRank = rankForSide(game, 'away', rankingsByTeamId);
+  const homeRank = rankForSide(game, 'home', rankingsByTeamId);
+  const hasTop25Matchup = isRankedTop25(awayRank) && isRankedTop25(homeRank);
 
   const state = getState(score);
-  if (score && state === 'inprogress') {
-    const awayScore = score.away.score;
-    const homeScore = score.home.score;
-    const favoriteSide = favoriteSideFromOdds(game, odds);
+  const favoriteSide = favoriteSideFromOdds(game, odds);
+  const spread = spreadMagnitude(odds);
 
-    if (awayScore != null && homeScore != null && favoriteSide) {
-      const underdogLeading =
-        (favoriteSide === 'home' && awayScore > homeScore) ||
-        (favoriteSide === 'away' && homeScore > awayScore);
-      if (underdogLeading) tags.push('upset');
+  if (score && state === 'final') {
+    const winningSide = winnerSide(score);
+    if (winningSide) {
+      const losingSide = winningSide === 'away' ? 'home' : 'away';
+      const winningRank = winningSide === 'away' ? awayRank : homeRank;
+      const losingRank = losingSide === 'away' ? awayRank : homeRank;
+      const rankUpset = isRankUpset({ winnerRank: winningRank, loserRank: losingRank });
+      const oddsUpset =
+        favoriteSide != null &&
+        favoriteSide !== winningSide &&
+        spread != null &&
+        spread >= upsetSpreadThreshold;
+
+      if (rankUpset || oddsUpset) {
+        tags.push('upset');
+      }
     }
   }
 
-  const spread = spreadMagnitude(odds);
-  if (spread != null && spread <= spreadThreshold) {
-    tags.push('even');
+  if (
+    state !== 'final' &&
+    favoriteSide != null &&
+    spread != null &&
+    spread >= upsetSpreadThreshold
+  ) {
+    const underdogSide = favoriteSide === 'away' ? 'home' : 'away';
+    const favoriteRank = favoriteSide === 'away' ? awayRank : homeRank;
+    const underdogRank = underdogSide === 'away' ? awayRank : homeRank;
+
+    const rankingTension =
+      underdogRank != null && (favoriteRank == null || favoriteRank > underdogRank);
+
+    let liveUnderdogLead = false;
+    if (score && state === 'inprogress') {
+      const leadingSide = winnerSide(score);
+      liveUnderdogLead = leadingSide != null && leadingSide === underdogSide;
+    }
+
+    if (rankingTension || liveUnderdogLead) {
+      tags.push('upset_watch');
+    }
   }
+
+  if (hasTop25Matchup) {
+    tags.push('top_25_matchup');
+  }
+
+  void ownershipMap;
 
   return tags;
 }

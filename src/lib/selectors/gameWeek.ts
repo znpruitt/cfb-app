@@ -84,7 +84,7 @@ export type GameWeekCardViewModel = {
   hasRankedTeam: boolean;
   tagPrimary: LeagueGameTag | null;
   tagSecondary: LeagueGameTag[];
-  emphasisTone: 'swing' | 'upset' | 'even' | 'ranked' | 'none';
+  emphasisTone: 'upset' | 'upset_watch' | 'top_25_matchup' | 'ranked' | 'none';
 };
 
 export type GameWeekPanelViewModel = {
@@ -133,7 +133,9 @@ export function deriveGameWeekPanelViewModel(params: {
       const hasRankedTeam =
         (rankingsByTeamId.get(homeTeamId)?.rank ?? null) != null ||
         (rankingsByTeamId.get(awayTeamId)?.rank ?? null) != null;
-      const tagState = prioritizeGameTags(computeGameTags(game, score, odds, rosterByTeam));
+      const tagState = prioritizeGameTags(
+        computeGameTags(game, score, odds, rosterByTeam, rankingsByTeamId)
+      );
       const bucket = summaryStateChipBucket(summaryState);
 
       return {

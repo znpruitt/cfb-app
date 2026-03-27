@@ -699,3 +699,38 @@ test('unexpected final ties do not surface as supported matchup record semantics
   assert.doesNotMatch(html, /Counts as 1W \/ 1L/);
   assert.doesNotMatch(html, /1–1–1/);
 });
+
+test('postseason matchups render owner-first cards and preserve neutral-site metadata', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'rose-bowl',
+          stage: 'bowl',
+          postseasonRole: 'bowl',
+          label: 'Rose Bowl',
+          neutral: true,
+          csvAway: 'Oregon',
+          csvHome: 'Ohio State',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Oregon', 'Alice'],
+          ['Ohio State', 'Bob'],
+        ])
+      }
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Weekly Slates/);
+  assert.match(html, /Owner-first weekly cards\./);
+  assert.match(html, /Alice/);
+  assert.match(html, /Bob/);
+  assert.match(html, /Rose Bowl/);
+  assert.match(html, /Neutral site/);
+  assert.doesNotMatch(html, /Date TBD/);
+});
