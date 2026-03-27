@@ -160,9 +160,15 @@ function EmptyState({
 
 function LeagueSummaryHero({
   summary,
+  narrative,
+  heroMode,
+  podiumLeaders,
   leader,
 }: {
   summary: ReturnType<typeof selectOverviewViewModel>['championSummary'];
+  narrative: ReturnType<typeof selectOverviewViewModel>['heroNarrative'];
+  heroMode: ReturnType<typeof selectOverviewViewModel>['heroMode'];
+  podiumLeaders: ReturnType<typeof selectOverviewViewModel>['podiumLeaders'];
   leader: OwnerStandingsRow | undefined;
 }): React.ReactElement {
   if (!leader) {
@@ -180,14 +186,80 @@ function LeagueSummaryHero({
 
   if (!summary) return <></>;
 
+  if (heroMode === 'podium' && podiumLeaders.length === 3) {
+    const [first, second, third] = podiumLeaders;
+    const cards: Array<{ rank: 1 | 2 | 3; row: OwnerStandingsRow; className: string }> = [
+      {
+        rank: 2,
+        row: second,
+        className:
+          'border-slate-300/90 bg-gradient-to-b from-slate-100/85 to-white dark:border-slate-700 dark:from-slate-900/70 dark:to-zinc-900',
+      },
+      {
+        rank: 1,
+        row: first,
+        className:
+          'border-amber-300/90 bg-gradient-to-b from-amber-100/85 to-white ring-1 ring-amber-300/60 dark:border-amber-700 dark:from-amber-900/40 dark:to-zinc-900 dark:ring-amber-700/60',
+      },
+      {
+        rank: 3,
+        row: third,
+        className:
+          'border-orange-300/80 bg-gradient-to-b from-orange-100/70 to-white dark:border-orange-800 dark:from-orange-950/30 dark:to-zinc-900',
+      },
+    ];
+
+    return (
+      <section className="rounded-2xl border border-amber-200/80 bg-gradient-to-r from-amber-50/85 via-white to-white px-4 py-5 shadow-sm dark:border-amber-900/50 dark:from-amber-950/20 dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-300">
+          Final standings
+        </p>
+        <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
+          Season podium
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {cards.map((card) => (
+            <article
+              key={card.rank}
+              className={`rounded-xl border px-3 py-3 shadow-sm ${card.className} ${
+                card.rank === 1 ? 'sm:-translate-y-1.5' : ''
+              }`}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-600 dark:text-zinc-300">
+                #{card.rank}
+              </p>
+              <p
+                className={`mt-1 text-base ${
+                  card.rank === 1 ? 'font-extrabold' : 'font-bold'
+                } text-gray-950 dark:text-zinc-50`}
+              >
+                {card.row.owner}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                {card.row.wins}–{card.row.losses}{' '}
+                <span className="font-bold">({formatWinPct(card.row.winPct)})</span>
+              </p>
+              <p className="text-xs text-gray-600 dark:text-zinc-300">
+                Diff {formatDiff(card.row.pointDifferential)}
+              </p>
+            </article>
+          ))}
+        </div>
+        {narrative ? (
+          <p className="mt-3 text-sm text-gray-600 dark:text-zinc-300">{narrative}</p>
+        ) : null}
+      </section>
+    );
+  }
+
   const toneClasses =
     summary.phase === 'complete'
       ? 'border-emerald-300/80 from-emerald-100/80 dark:border-emerald-900/70 dark:from-emerald-950/30'
-      : 'border-blue-200 dark:border-blue-900/70 from-blue-100/90 dark:from-blue-950/35';
+      : 'border-blue-300 dark:border-blue-900/70 from-blue-200/95 dark:from-blue-950/45';
 
   return (
     <section
-      className={`rounded-2xl border bg-gradient-to-r via-white to-white px-4 py-4 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-6 sm:py-5 ${toneClasses}`}
+      className={`rounded-2xl border bg-gradient-to-r via-white to-white px-4 py-5 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6 ${toneClasses}`}
     >
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-300">
         League summary
@@ -199,10 +271,13 @@ function LeagueSummaryHero({
         <span className="rounded-full border border-gray-300 bg-white/85 px-2 py-0.5 font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
           {leader.wins}–{leader.losses}
         </span>
-        <span className="font-medium">Win% {formatWinPct(leader.winPct)}</span>
+        <span className="font-bold">Win% {formatWinPct(leader.winPct)}</span>
         <span className="text-gray-500 dark:text-zinc-400">•</span>
         <span className="font-medium">{summary.metricSignal}</span>
       </div>
+      {narrative ? (
+        <p className="mt-2 text-sm text-gray-600 dark:text-zinc-300">{narrative}</p>
+      ) : null}
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-zinc-300">
         <span>{summary.supportingCopy}</span>
         {summary.placementSummary ? (
@@ -244,7 +319,7 @@ function CondensedStandingsTable({
           return (
             <div
               key={row.owner}
-              className={`grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-100 px-2 py-2 dark:border-zinc-800 ${
+              className={`grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-100 px-2 py-2.5 dark:border-zinc-800 ${
                 index === 0
                   ? 'bg-blue-100/90 ring-1 ring-inset ring-blue-300 dark:bg-blue-950/40 dark:ring-blue-800'
                   : isTopThree
@@ -306,7 +381,9 @@ function CondensedStandingsTable({
                 </div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
                   <span>Win% {formatWinPct(row.winPct)}</span>
-                  <span>Diff {formatDiff(row.pointDifferential)}</span>
+                  <span className="text-gray-400 dark:text-zinc-500">
+                    Diff {formatDiff(row.pointDifferential)}
+                  </span>
                   {liveCount > 0 ? (
                     <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                       {liveCount} live
@@ -496,6 +573,16 @@ function HighlightList({
   scopeDetail?: string | null;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
 }): React.ReactElement {
+  const iconByType: Record<(typeof highlights)[number]['type'], string> = {
+    biggest_blowout: '🔥',
+    closest_finish: '😬',
+    top_ranked_matchup: '🏆',
+    biggest_gain: '📈',
+    most_games_owner: '🧠',
+    split_owner_matchup: '🤝',
+    heavy_owner_collision: '⚔️',
+  };
+
   if (highlights.length === 0) {
     return (
       <EmptyState
@@ -506,7 +593,7 @@ function HighlightList({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {scopeDetail ? (
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
           {scopeDetail}
@@ -515,9 +602,12 @@ function HighlightList({
       {highlights.map((highlight) => (
         <div
           key={highlight.id}
-          className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white/80 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/70"
+          className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/70"
         >
           <p className="min-w-0 text-sm text-gray-800 dark:text-zinc-100">
+            <span className="mr-1.5" aria-hidden="true">
+              {iconByType[highlight.type]}
+            </span>
             <span className="mr-1.5 inline-flex rounded-full border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
               {highlight.label}
             </span>
@@ -533,6 +623,28 @@ function HighlightList({
         </div>
       ))}
     </div>
+  );
+}
+
+function LeaguePulse({
+  items,
+}: {
+  items: ReturnType<typeof selectOverviewViewModel>['leaguePulse'];
+}): React.ReactElement | null {
+  if (items.length === 0) return null;
+  return (
+    <SectionCard title="League pulse" tone="secondary" compact>
+      <ul className="space-y-2">
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2 text-sm text-gray-800 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-100"
+          >
+            {item.text}
+          </li>
+        ))}
+      </ul>
+    </SectionCard>
   );
 }
 
@@ -614,25 +726,33 @@ export default function OverviewPanel({
   );
 
   return (
-    <div className="space-y-3">
-      <LeagueSummaryHero summary={viewModel.championSummary} leader={standingsLeaders[0]} />
+    <div className="space-y-4">
+      <LeagueSummaryHero
+        summary={viewModel.championSummary}
+        narrative={viewModel.heroNarrative}
+        heroMode={viewModel.heroMode}
+        podiumLeaders={viewModel.podiumLeaders}
+        leader={standingsLeaders[0]}
+      />
       <InsightStrip insights={viewModel.keyMovements} />
-      <SectionCard title="Featured matchups" tone="weekly">
-        <GameSummaryList
-          prioritizedItems={viewModel.featuredMatchups}
-          emptyMessage="No featured matchups yet for this slate."
-          timeZone={timeZone}
-          rankingsByTeamId={rankingsByTeamId}
-          density="featured"
-        />
-        <button
-          type="button"
-          className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-          onClick={onViewMatchups}
-        >
-          View weekly matchups
-        </button>
-      </SectionCard>
+      {viewModel.shouldShowFeaturedMatchups ? (
+        <SectionCard title="Featured matchups" tone="weekly">
+          <GameSummaryList
+            prioritizedItems={viewModel.featuredMatchups}
+            emptyMessage="No featured matchups yet for this slate."
+            timeZone={timeZone}
+            rankingsByTeamId={rankingsByTeamId}
+            density="featured"
+          />
+          <button
+            type="button"
+            className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+            onClick={onViewMatchups}
+          >
+            View weekly matchups
+          </button>
+        </SectionCard>
+      ) : null}
 
       <SectionCard title="League highlights" tone="secondary" compact>
         <HighlightList
@@ -641,8 +761,9 @@ export default function OverviewPanel({
           onOpenHighlightTarget={onOpenHighlightTarget}
         />
       </SectionCard>
+      {viewModel.shouldShowLeaguePulse ? <LeaguePulse items={viewModel.leaguePulse} /> : null}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <SectionCard title="League standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
           {viewModel.standingsContext ? (
             <p className="mb-2 text-xs font-medium text-gray-600 dark:text-zinc-300">
@@ -679,7 +800,7 @@ export default function OverviewPanel({
           </button>
         </SectionCard>
 
-        <div className="space-y-3">
+        <div className="space-y-4">
           <SectionCard title="Recent results" tone="secondary" compact>
             <GameSummaryList
               prioritizedItems={viewModel.recentResults}
