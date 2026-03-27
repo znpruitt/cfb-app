@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { deriveScoreOutcomePresentation } from '../lib/gameCardPresentation';
 import { gameStateFromScore } from '../lib/gameUi';
 import type { CombinedOdds } from '../lib/odds';
 import type { TeamRankingEnrichment } from '../lib/rankings';
@@ -19,13 +20,6 @@ type TeamRow = {
   colorTreatment?: ScoreboardTeamColorTreatment;
 };
 
-type VenueDetails = {
-  stadium?: string | null;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-};
-
 type GameScoreboardProps = {
   score?: ScorePack;
   awayTeam: TeamDisplayInfo;
@@ -38,7 +32,6 @@ type GameScoreboardProps = {
   awayOwner?: string;
   awayColorTreatment?: ScoreboardTeamColorTreatment;
   homeColorTreatment?: ScoreboardTeamColorTreatment;
-  venue?: VenueDetails | string | null;
   odds?: CombinedOdds;
   isPlaceholder?: boolean;
 };
@@ -96,29 +89,6 @@ function formatMoneyline(value: number | null): string | null {
   return value > 0 ? `+${value}` : `${value}`;
 }
 
-function cleanVenuePart(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function formatVenueLabel(venue: VenueDetails | string | null | undefined): string | null {
-  if (!venue) return null;
-  if (typeof venue === 'string') return cleanVenuePart(venue);
-
-  const stadium = cleanVenuePart(venue.stadium);
-  const city = cleanVenuePart(venue.city);
-  const state = cleanVenuePart(venue.state);
-  const country = cleanVenuePart(venue.country);
-
-  const stateOrCountry = state ?? country;
-  const location = city ? [city, stateOrCountry].filter(Boolean).join(', ') : null;
-
-  if (stadium && location) return `${stadium} • ${location}`;
-  if (stadium) return stadium;
-  return location;
-}
-
 function buildOddsSummary(params: {
   odds?: CombinedOdds;
   awayTeam: TeamDisplayInfo;
@@ -172,7 +142,6 @@ export default function GameScoreboard({
   awayOwner,
   awayColorTreatment,
   homeColorTreatment,
-  venue,
   odds,
   isPlaceholder = false,
 }: GameScoreboardProps): React.ReactElement {
@@ -198,16 +167,16 @@ export default function GameScoreboard({
   ];
 
   const oddsSummary = buildOddsSummary({ odds, awayTeam, homeTeam });
-  const venueLabel = formatVenueLabel(venue);
   const statusText = score
     ? formatScoreStatus(score.status)
     : isPlaceholder
       ? 'PENDING MATCHUP'
       : 'NO SCORE';
   const statusChipClasses = scoreboardStatusChipClasses(score, isPlaceholder);
+  const outcomePresentation = deriveScoreOutcomePresentation(score);
 
   return (
-    <div className="space-y-1.5" aria-label="Game scoreboard">
+    <div className="space-y-2" aria-label="Game scoreboard">
       <div className="flex justify-end">
         <div
           className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] ${statusChipClasses}`}
@@ -219,10 +188,9 @@ export default function GameScoreboard({
 
       <div className="px-1">
         {rows.map((team, index) => {
-          const opponentScore = rows[index === 0 ? 1 : 0]?.score ?? null;
           const teamContext = buildTeamContext(team.conference, team.owner);
           const isWinner =
-            team.score != null && opponentScore != null && team.score > opponentScore;
+            outcomePresentation.shouldEmphasize && outcomePresentation.winner === team.key;
           const rowStyle = {
             borderLeftColor: isWinner
               ? team.colorTreatment?.winnerAccentColor
@@ -239,6 +207,7 @@ export default function GameScoreboard({
               style={rowStyle}
               data-scoreboard-row={team.key}
               data-scoreboard-winner={isWinner}
+              data-scoreboard-outcome-emphasis={outcomePresentation.shouldEmphasize}
               data-scoreboard-accent-source={team.colorTreatment?.source ?? 'fallback'}
             >
               <div className="min-w-0 flex-1 pr-3">
@@ -269,13 +238,6 @@ export default function GameScoreboard({
           );
         })}
       </div>
-
-      {venueLabel && (
-        <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-zinc-500">
-          <span aria-hidden="true">📍</span>
-          <span className="min-w-0 truncate">{venueLabel}</span>
-        </div>
-      )}
 
       {oddsSummary && (
         <div className="border-t border-gray-200/60 pt-1.5 text-sm text-gray-500 dark:border-zinc-800/80 dark:text-zinc-400">

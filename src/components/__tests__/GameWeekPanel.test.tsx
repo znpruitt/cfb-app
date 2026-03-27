@@ -592,7 +592,7 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.match(html, /data-scoreboard-score="home">19<\/span>/);
   assert.match(
     html,
-    /data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="primary"/
+    /data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-outcome-emphasis="true" data-scoreboard-accent-source="primary"/
   );
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });
@@ -611,7 +611,12 @@ test('score block preserves live and pregame status labels', () => {
           time: null,
         },
       }}
-      rosterByTeam={new Map()}
+      rosterByTeam={
+        new Map([
+          ['Away Team', 'Alice'],
+          ['Home Team', 'Bob'],
+        ])
+      }
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
@@ -959,7 +964,7 @@ test('odds row stays hidden only when no displayable odds markets exist', () => 
   assert.doesNotMatch(html, /No odds/);
 });
 
-test('expanded scoreboard venue includes city and state context when available', () => {
+test('expanded metadata renders kickoff/site line and venue as a secondary line', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -986,10 +991,14 @@ test('expanded scoreboard venue includes city and state context when available',
     />
   );
 
+  assert.match(html, /data-expanded-metadata/);
+  assert.match(html, /class="metadata-primary flex flex-wrap items-center gap-x-2 gap-y-1"/);
+  assert.match(html, /class="metadata-secondary"/);
+  assert.match(html, /Mon, Sep 1, 5:00 PM/);
   assert.match(html, /Boone Pickens Stadium • Stillwater, OK/);
 });
 
-test('expanded scoreboard venue falls back to stadium-only label', () => {
+test('expanded metadata venue falls back to stadium-only label', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -1013,6 +1022,43 @@ test('expanded scoreboard venue falls back to stadium-only label', () => {
 
   assert.match(html, /Aviva Stadium/);
   assert.doesNotMatch(html, /Aviva Stadium •/);
+});
+
+test('expanded metadata omits secondary line when venue is missing and preserves non-neutral line-1 format', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'metadata-no-venue',
+          csvAway: 'Texas',
+          csvHome: 'Baylor',
+          date: '2025-09-01T17:00:00.000Z',
+          neutral: false,
+          venue: null,
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'metadata-no-venue': {
+          away: { team: 'Texas', score: null },
+          home: { team: 'Baylor', score: null },
+          status: 'Postponed',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /class="metadata-primary flex flex-wrap items-center gap-x-2 gap-y-1"/);
+  assert.doesNotMatch(html, /class="metadata-secondary"/);
+  assert.match(html, /Mon, Sep 1, 5:00 PM/);
+  assert.doesNotMatch(html, /Neutral Site/);
+  assert.match(html, /data-scoreboard-status[^>]*>Postponed<\/div>/);
 });
 
 test('expanded scoreboard removes inner duplicate matchup title and renders event subtitle from canonical label', () => {
@@ -1296,6 +1342,115 @@ test('schedule cards use primary tag priority (swing over upset/even) with subor
   assert.match(html, /Swing/);
   assert.match(html, /Upset alert/);
   assert.match(html, /Even spread/);
+  assert.match(
+    html,
+    /rounded-full border border-blue-300 bg-blue-100[\s\S]*Swing[\s\S]*rounded-full border border-gray-200\/70 bg-gray-50\/70[\s\S]*Upset alert/
+  );
+});
+
+test('single-tag cards render only a primary tag without any secondary tag chips', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'single-tag', csvAway: 'Away Team', csvHome: 'Home Team' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Away Team', 'Alice'],
+          ['Home Team', 'Bob'],
+        ])
+      }
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-primary-tag="swing"/);
+  assert.match(html, /Swing/);
+  assert.doesNotMatch(
+    html,
+    /data-game-card-id="single-tag"[\s\S]*rounded-full border border-gray-200\/70 bg-gray-50\/70/
+  );
+});
+
+test('cards without qualifying tags render no expanded tag chips', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'zero-tag', csvAway: 'Away Team', csvHome: 'Home Team' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-game-card-id="zero-tag"/);
+  assert.match(html, /data-primary-tag=""/);
+  assert.doesNotMatch(
+    html,
+    /data-game-card-id="zero-tag"[\s\S]*rounded-full border border-blue-300 bg-blue-100/
+  );
+  assert.doesNotMatch(
+    html,
+    /data-game-card-id="zero-tag"[\s\S]*rounded-full border border-gray-200\/70 bg-gray-50\/70/
+  );
+});
+
+test('collapsed and expanded tag presentation stay aligned to the same primary tag', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'tag-consistency', csvAway: 'Away Team', csvHome: 'Home Team' })]}
+      byes={[]}
+      oddsByKey={{
+        'tag-consistency': {
+          favorite: 'Home Team',
+          spread: -2.5,
+          homeSpread: -2.5,
+          awaySpread: 2.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 51.5,
+          mlHome: -140,
+          mlAway: 118,
+          overPrice: -110,
+          underPrice: -110,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2026-09-01T17:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{
+        'tag-consistency': {
+          away: { team: 'Away Team', score: 17 },
+          home: { team: 'Home Team', score: 10 },
+          status: 'In Progress',
+          time: '05:32',
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Away Team', 'Alice'],
+          ['Home Team', 'Bob'],
+        ])
+      }
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-game-card-id="tag-consistency"/);
+  assert.match(html, /data-primary-tag="swing"/);
+  assert.match(
+    html,
+    /data-game-card-id="tag-consistency"[\s\S]*rounded-full border border-blue-300 bg-blue-100[\s\S]*Swing/
+  );
 });
 
 test('important games get emphasis classes while unrelated rows remain neutral', () => {
