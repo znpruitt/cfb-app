@@ -26,6 +26,7 @@ import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
 import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../lib/overview';
+import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import {
@@ -107,6 +108,85 @@ export function deriveWeeklyMatchupsDrilldownState(params: {
   return { nextTab: fallbackWeek, nextWeek: fallbackWeek };
 }
 
+type HighlightNavigationState = {
+  nextTab: number | 'postseason' | null;
+  nextWeek: number | null;
+  nextViewMode: WeekViewMode;
+  focusedGameId: string | null;
+  focusedOwner: string | null;
+  focusedOwnerPair: [string, string] | null;
+};
+
+export function resolveHighlightDrilldownNavigation(params: {
+  target: HighlightDrilldownTarget;
+  selectedWeek: number | null;
+  regularWeeks: number[];
+}): HighlightNavigationState {
+  const { target, selectedWeek, regularWeeks } = params;
+  const targetWeek =
+    target.seasonTab === 'week' && target.week != null
+      ? target.week
+      : target.seasonTab === 'week'
+        ? (selectedWeek ?? regularWeeks[0] ?? null)
+        : null;
+
+  let nextTab: number | 'postseason' | null =
+    target.seasonTab === 'postseason' ? 'postseason' : targetWeek;
+  let nextWeek = targetWeek;
+
+  if (target.destination === 'matchups') {
+    const weeklyDrilldown = deriveWeeklyMatchupsDrilldownState({
+      selectedTab: nextTab,
+      selectedWeek: nextWeek,
+      regularWeeks,
+    });
+    nextTab = weeklyDrilldown.nextTab;
+    nextWeek = weeklyDrilldown.nextWeek;
+  }
+
+  if (target.destination === 'schedule') {
+    return {
+      nextTab,
+      nextWeek,
+      nextViewMode: 'schedule',
+      focusedGameId: target.gameId,
+      focusedOwner: null,
+      focusedOwnerPair: null,
+    };
+  }
+
+  if (target.destination === 'standings') {
+    return {
+      nextTab,
+      nextWeek,
+      nextViewMode: 'standings',
+      focusedGameId: null,
+      focusedOwner: target.owner,
+      focusedOwnerPair: null,
+    };
+  }
+
+  if (target.destination === 'matchups') {
+    return {
+      nextTab,
+      nextWeek,
+      nextViewMode: 'matchups',
+      focusedGameId: null,
+      focusedOwner: target.kind === 'owner' ? target.owner : null,
+      focusedOwnerPair: target.kind === 'owner_pair' ? target.owners : null,
+    };
+  }
+
+  return {
+    nextTab,
+    nextWeek,
+    nextViewMode: 'matrix',
+    focusedGameId: null,
+    focusedOwner: null,
+    focusedOwnerPair: target.kind === 'owner_pair' ? target.owners : null,
+  };
+}
+
 export default function CFBScheduleApp({
   surface = 'league',
   initialGames = [],
@@ -130,6 +210,9 @@ export default function CFBScheduleApp({
   const [selectedTab, setSelectedTab] = useState<number | 'postseason' | null>(null);
   const [weekViewMode, setWeekViewMode] = useState<WeekViewMode>(initialWeekViewMode);
   const [selectedOwner, setSelectedOwner] = useState<string | null>(null);
+  const [focusedGameId, setFocusedGameId] = useState<string | null>(null);
+  const [focusedOwner, setFocusedOwner] = useState<string | null>(null);
+  const [focusedOwnerPair, setFocusedOwnerPair] = useState<[string, string] | null>(null);
 
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
@@ -197,6 +280,9 @@ export default function CFBScheduleApp({
     setTeamFilter('');
     setWeekViewMode('overview');
     setSelectedOwner(null);
+    setFocusedGameId(null);
+    setFocusedOwner(null);
+    setFocusedOwnerPair(null);
     setOddsByKey({});
     setScoresByKey({});
     setIssues([]);
@@ -721,10 +807,6 @@ export default function CFBScheduleApp({
                     'Full game list and live details for the selected week or postseason slate.',
                 };
 
-  const openMatrixView = useCallback(() => {
-    setWeekViewMode('matrix');
-  }, []);
-
   const openWeeklyMatchupsView = useCallback(() => {
     const nextDrilldownState = deriveWeeklyMatchupsDrilldownState({
       selectedTab,
@@ -737,8 +819,31 @@ export default function CFBScheduleApp({
     if (nextDrilldownState.nextTab !== selectedTab) {
       setSelectedTab(nextDrilldownState.nextTab);
     }
+    setFocusedGameId(null);
+    setFocusedOwnerPair(null);
     setWeekViewMode('matchups');
   }, [selectedTab, selectedWeek, weeks]);
+
+  const onOpenHighlightTarget = useCallback(
+    (target: HighlightDrilldownTarget) => {
+      const nextState = resolveHighlightDrilldownNavigation({
+        target,
+        selectedWeek,
+        regularWeeks: weeks,
+      });
+      if (nextState.nextWeek !== selectedWeek) {
+        setSelectedWeek(nextState.nextWeek);
+      }
+      if (nextState.nextTab !== selectedTab) {
+        setSelectedTab(nextState.nextTab);
+      }
+      setFocusedGameId(nextState.focusedGameId);
+      setFocusedOwner(nextState.focusedOwner);
+      setFocusedOwnerPair(nextState.focusedOwnerPair);
+      setWeekViewMode(nextState.nextViewMode);
+    },
+    [selectedTab, selectedWeek, weeks]
+  );
 
   const matrixSnapshot = useMemo(
     () =>
@@ -1246,15 +1351,19 @@ export default function CFBScheduleApp({
                     setWeekViewMode('owner');
                   }}
                   onViewStandings={() => setWeekViewMode('standings')}
-                  onViewSchedule={() => setWeekViewMode('schedule')}
+                  onViewSchedule={() => {
+                    setFocusedGameId(null);
+                    setWeekViewMode('schedule');
+                  }}
                   onViewMatchups={openWeeklyMatchupsView}
-                  onViewMatrix={openMatrixView}
+                  onOpenHighlightTarget={onOpenHighlightTarget}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
                   rows={standingsSnapshot.rows}
                   season={selectedSeason}
                   coverage={standingsCoverage}
+                  focusedOwner={focusedOwner}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
@@ -1287,9 +1396,14 @@ export default function CFBScheduleApp({
                   displayTimeZone={presentationTimeZone}
                   sections={matchupSections}
                   rankingsByTeamId={rankingsByTeamId}
+                  focusedOwner={focusedOwner}
+                  focusedOwnerPair={focusedOwnerPair}
                 />
               ) : weekViewMode === 'matrix' ? (
-                <MatchupMatrixView matrix={matrixSnapshot.matchupMatrix} />
+                <MatchupMatrixView
+                  matrix={matrixSnapshot.matchupMatrix}
+                  focusedOwnerPair={focusedOwnerPair}
+                />
               ) : (
                 <GameWeekPanel
                   games={filteredWeekGames}
@@ -1302,6 +1416,7 @@ export default function CFBScheduleApp({
                   onSavePostseasonOverride={savePostseasonOverride}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={rankingsByTeamId}
+                  focusedGameId={focusedGameId}
                 />
               )}
             </section>

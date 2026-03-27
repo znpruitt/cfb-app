@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
+import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
@@ -488,16 +489,10 @@ function InsightStrip({
 
 function HighlightList({
   highlights,
-  onOpenSchedule,
-  onOpenMatchups,
-  onOpenMatrix,
-  onOpenStandings,
+  onOpenHighlightTarget,
 }: {
   highlights: ReturnType<typeof selectOverviewViewModel>['leagueHighlights'];
-  onOpenSchedule?: () => void;
-  onOpenMatchups?: () => void;
-  onOpenMatrix?: () => void;
-  onOpenStandings?: () => void;
+  onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
 }): React.ReactElement {
   if (highlights.length === 0) {
     return (
@@ -507,13 +502,6 @@ function HighlightList({
       />
     );
   }
-
-  const resolveClick = (target: (typeof highlights)[number]['linkTarget']) => (): void => {
-    if (target === 'schedule') onOpenSchedule?.();
-    if (target === 'matchups') onOpenMatchups?.();
-    if (target === 'matrix') onOpenMatrix?.();
-    if (target === 'standings') onOpenStandings?.();
-  };
 
   return (
     <div className="space-y-2">
@@ -528,9 +516,9 @@ function HighlightList({
           <button
             type="button"
             className="shrink-0 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-            onClick={resolveClick(highlight.linkTarget)}
+            onClick={() => onOpenHighlightTarget?.(highlight.drilldownTarget)}
           >
-            View details
+            {highlight.ctaLabel}
           </button>
         </div>
       ))}
@@ -553,7 +541,7 @@ type OverviewPanelProps = {
   onViewStandings?: () => void;
   onViewSchedule?: () => void;
   onViewMatchups?: () => void;
-  onViewMatrix?: () => void;
+  onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   previousStandingsLeaders?: OwnerStandingsRow[] | null;
 };
@@ -573,7 +561,7 @@ export default function OverviewPanel({
   onViewStandings,
   onViewSchedule,
   onViewMatchups,
-  onViewMatrix,
+  onOpenHighlightTarget,
   rankingsByTeamId = new Map(),
   previousStandingsLeaders = null,
 }: OverviewPanelProps): React.ReactElement {
@@ -639,10 +627,7 @@ export default function OverviewPanel({
       <SectionCard title="League highlights" tone="secondary" compact>
         <HighlightList
           highlights={viewModel.leagueHighlights}
-          onOpenSchedule={onViewSchedule}
-          onOpenMatchups={onViewMatchups}
-          onOpenMatrix={onViewMatrix}
-          onOpenStandings={onViewStandings}
+          onOpenHighlightTarget={onOpenHighlightTarget}
         />
       </SectionCard>
 

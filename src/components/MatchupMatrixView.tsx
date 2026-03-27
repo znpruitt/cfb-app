@@ -4,8 +4,10 @@ import type { OwnerMatchupMatrix } from '../lib/overview';
 
 export default function MatchupMatrixView({
   matrix,
+  focusedOwnerPair = null,
 }: {
   matrix: OwnerMatchupMatrix;
+  focusedOwnerPair?: [string, string] | null;
 }): React.ReactElement {
   if (matrix.owners.length === 0) {
     return (
@@ -58,6 +60,10 @@ export default function MatchupMatrixView({
                 {row.cells.map((cell) => {
                   const isDiagonal = cell.owner === row.owner;
                   const hasGames = cell.gameCount > 0;
+                  const isFocusedPair =
+                    focusedOwnerPair != null &&
+                    ((focusedOwnerPair[0] === row.owner && focusedOwnerPair[1] === cell.owner) ||
+                      (focusedOwnerPair[1] === row.owner && focusedOwnerPair[0] === cell.owner));
 
                   return (
                     <td
@@ -68,7 +74,7 @@ export default function MatchupMatrixView({
                           : hasGames
                             ? 'bg-blue-50/70 font-semibold text-gray-900 dark:bg-blue-950/20 dark:text-zinc-100'
                             : 'text-gray-400 dark:text-zinc-600'
-                      }`}
+                      } ${isFocusedPair ? 'ring-1 ring-inset ring-blue-500 dark:ring-blue-500' : ''}`}
                     >
                       {hasGames ? (
                         <div className="flex flex-col items-center leading-tight">

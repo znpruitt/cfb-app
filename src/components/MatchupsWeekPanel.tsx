@@ -40,6 +40,8 @@ type MatchupsWeekPanelProps = {
   displayTimeZone?: string;
   sections?: WeekMatchupSections;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  focusedOwner?: string | null;
+  focusedOwnerPair?: [string, string] | null;
 };
 
 const DEFAULT_VISIBLE_OPPONENTS = getDefaultVisibleOpponentsCount();
@@ -293,6 +295,7 @@ function OwnerCard({
   rosterByTeam,
   displayTimeZone,
   rankingsByTeamId,
+  isFocused = false,
 }: {
   slate: OwnerWeekSlate;
   ownerStanding?: ReturnType<typeof computeStandings>[number];
@@ -301,6 +304,7 @@ function OwnerCard({
   rosterByTeam: Map<string, string>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  isFocused?: boolean;
 }): React.ReactElement {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const opponentSummaryEntries = React.useMemo(() => summarizeSlateOpponents(slate), [slate]);
@@ -308,7 +312,9 @@ function OwnerCard({
 
   return (
     <article
-      className={`space-y-2.5 rounded-xl border p-3.5 shadow-sm sm:p-4 ${ownerCardSurfaceClasses(slate.performance.tone)}`}
+      className={`space-y-2.5 rounded-xl border p-3.5 shadow-sm sm:p-4 ${ownerCardSurfaceClasses(
+        slate.performance.tone
+      )} ${isFocused ? 'ring-1 ring-blue-400 dark:ring-blue-600' : ''}`}
     >
       <div className="space-y-2">
         <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3 sm:gap-y-1">
@@ -374,6 +380,8 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     displayTimeZone = getPresentationTimeZone(),
     sections,
     rankingsByTeamId = new Map(),
+    focusedOwner = null,
+    focusedOwnerPair = null,
   } = props;
   const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
   const ownerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
@@ -421,6 +429,11 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
                 rosterByTeam={rosterByTeam}
                 displayTimeZone={displayTimeZone}
                 rankingsByTeamId={rankingsByTeamId}
+                isFocused={
+                  focusedOwner === slate.owner ||
+                  (focusedOwnerPair != null &&
+                    (focusedOwnerPair[0] === slate.owner || focusedOwnerPair[1] === slate.owner))
+                }
               />
             ))}
           </div>

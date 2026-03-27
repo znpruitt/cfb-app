@@ -109,6 +109,7 @@ type GameWeekPanelProps = {
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   hideByes?: boolean;
   displayTimeZone?: string;
+  focusedGameId?: string | null;
 };
 
 export default function GameWeekPanel({
@@ -122,6 +123,7 @@ export default function GameWeekPanel({
   onSavePostseasonOverride,
   hideByes = false,
   displayTimeZone = getPresentationTimeZone(),
+  focusedGameId = null,
 }: GameWeekPanelProps): React.ReactElement {
   const viewModel = deriveGameWeekPanelViewModel({
     games,
@@ -205,7 +207,9 @@ export default function GameWeekPanel({
                     key={g.key}
                     className={`group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${
                       card.isLiveState ? 'ring-1 ring-amber-300/70 dark:ring-amber-800/60' : ''
-                    } ${cardEmphasisClasses(card.emphasisTone)}`}
+                    } ${cardEmphasisClasses(card.emphasisTone)} ${
+                      focusedGameId === g.key ? 'ring-1 ring-blue-500 dark:ring-blue-500' : ''
+                    }`}
                     style={{
                       boxShadow: `inset 0 2px 0 ${awayColorTreatment.borderAccent}, inset 0 -2px 0 ${homeColorTreatment.borderAccent}`,
                     }}
@@ -213,6 +217,8 @@ export default function GameWeekPanel({
                     data-card-team-accent-bottom="home"
                     data-primary-tag={card.tagPrimary ?? ''}
                     data-ranked-game={card.hasRankedTeam ? 'true' : 'false'}
+                    data-focused-game={focusedGameId === g.key ? 'true' : 'false'}
+                    open={focusedGameId === g.key ? true : undefined}
                   >
                     <summary className="cursor-pointer list-none px-2.5 py-1.5">
                       <div className="flex items-start justify-between gap-3">

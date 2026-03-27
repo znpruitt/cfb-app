@@ -237,6 +237,7 @@ test('overview panel renders league highlights and standings without matrix tabl
   assert.match(html, /League standings/);
   assert.match(html, /League highlights/);
   assert.match(html, /View weekly matchups/);
+  assert.doesNotMatch(html, /View details/);
   assert.match(html, /View all results/);
   assert.doesNotMatch(html, /Head-to-head matrix/);
   assert.doesNotMatch(html, /<table/);

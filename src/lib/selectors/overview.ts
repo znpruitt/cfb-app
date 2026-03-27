@@ -5,6 +5,7 @@ import {
   type OverviewHighlightSignals,
 } from '../leagueInsights';
 import { gameStateFromScore } from '../gameUi';
+import type { HighlightDrilldownTarget } from '../highlightDrilldown';
 import { isTruePostseasonGame } from '../postseason-display';
 import type { TeamRankingEnrichment } from '../rankings';
 import { getGameParticipantTeamId } from '../schedule';
@@ -45,9 +46,18 @@ export type OverviewViewModel = {
   recentResults: PrioritizedOverviewItem[];
   leagueHighlights: {
     id: string;
+    type:
+      | 'biggest_blowout'
+      | 'closest_finish'
+      | 'top_ranked_matchup'
+      | 'biggest_gain'
+      | 'most_games_owner'
+      | 'split_owner_matchup'
+      | 'heavy_owner_collision';
     label: string;
     text: string;
-    linkTarget: 'schedule' | 'matchups' | 'matrix' | 'standings';
+    ctaLabel: string;
+    drilldownTarget: HighlightDrilldownTarget;
   }[];
 };
 
@@ -364,6 +374,23 @@ function deriveScopePhrase(context: OverviewContext): string {
   return detail.toLowerCase();
 }
 
+function deriveDrilldownScope(
+  context: OverviewContext,
+  fallbackWeek: number | null
+): {
+  seasonTab: 'week' | 'postseason';
+  week: number | null;
+} {
+  if (/postseason/i.test(context.scopeLabel) || /postseason/i.test(context.scopeDetail ?? '')) {
+    return { seasonTab: 'postseason', week: null };
+  }
+  const weekMatch = context.scopeDetail?.match(/week\s+(\d+)/i);
+  if (weekMatch) {
+    return { seasonTab: 'week', week: Number(weekMatch[1]) };
+  }
+  return { seasonTab: 'week', week: fallbackWeek };
+}
+
 function scoreMargin(item: OverviewGameItem): number | null {
   const away = item.score?.away.score;
   const home = item.score?.home.score;
@@ -397,6 +424,8 @@ function deriveLeagueHighlights(params: {
   context: OverviewContext;
 }): OverviewViewModel['leagueHighlights'] {
   const scopePhrase = deriveScopePhrase(params.context);
+  const fallbackWeek = params.allMatchups[0]?.bucket.game.week ?? null;
+  const drilldownScope = deriveDrilldownScope(params.context, fallbackWeek);
   const highlights: OverviewViewModel['leagueHighlights'] = [];
   const finals = params.finalItems.map((entry) => entry.item);
   const seen = new Set<string>();
@@ -414,11 +443,22 @@ function deriveLeagueHighlights(params: {
       return left.bucket.game.key.localeCompare(right.bucket.game.key);
     })[0];
   if (blowout) {
+    const isPostseason = isTruePostseasonGame(blowout.bucket.game);
     push({
       id: `blowout-${blowout.bucket.game.key}`,
+      type: 'biggest_blowout',
       label: 'Biggest win',
       text: `${winnerText(blowout)} (${scopePhrase})`,
-      linkTarget: 'schedule',
+      ctaLabel: 'View game',
+      drilldownTarget: {
+        kind: 'game',
+        destination: 'schedule',
+        gameId: blowout.bucket.game.key,
+        seasonTab: isPostseason ? 'postseason' : 'week',
+        week: isPostseason ? null : blowout.bucket.game.week,
+        expand: true,
+        focus: true,
+      },
     });
   }
 
@@ -433,11 +473,22 @@ function deriveLeagueHighlights(params: {
       return left.bucket.game.key.localeCompare(right.bucket.game.key);
     })[0];
   if (closestFinish) {
+    const isPostseason = isTruePostseasonGame(closestFinish.bucket.game);
     push({
       id: `close-${closestFinish.bucket.game.key}`,
+      type: 'closest_finish',
       label: 'Closest finish',
       text: `${winnerText(closestFinish)} (${scopePhrase})`,
-      linkTarget: 'schedule',
+      ctaLabel: 'Open result',
+      drilldownTarget: {
+        kind: 'game',
+        destination: 'schedule',
+        gameId: closestFinish.bucket.game.key,
+        seasonTab: isPostseason ? 'postseason' : 'week',
+        week: isPostseason ? null : closestFinish.bucket.game.week,
+        expand: true,
+        focus: true,
+      },
     });
   }
 
@@ -460,11 +511,22 @@ function deriveLeagueHighlights(params: {
       return left.item.bucket.game.key.localeCompare(right.item.bucket.game.key);
     })[0];
   if (rankedMatchup) {
+    const isPostseason = isTruePostseasonGame(rankedMatchup.item.bucket.game);
     push({
       id: `ranked-${rankedMatchup.item.bucket.game.key}`,
+      type: 'top_ranked_matchup',
       label: 'Top ranked matchup',
       text: `#${rankedMatchup.awayRank} ${rankedMatchup.item.bucket.game.csvAway} vs #${rankedMatchup.homeRank} ${rankedMatchup.item.bucket.game.csvHome} (${scopePhrase})`,
-      linkTarget: 'matchups',
+      ctaLabel: 'View game',
+      drilldownTarget: {
+        kind: 'game',
+        destination: 'schedule',
+        gameId: rankedMatchup.item.bucket.game.key,
+        seasonTab: isPostseason ? 'postseason' : 'week',
+        week: isPostseason ? null : rankedMatchup.item.bucket.game.week,
+        expand: true,
+        focus: true,
+      },
     });
   }
 
@@ -472,11 +534,21 @@ function deriveLeagueHighlights(params: {
     insight.id.startsWith('biggest-gain-')
   );
   if (biggestGain) {
+    const owner = biggestGain.id.replace(/^biggest-gain-/, '').trim();
     push({
       id: biggestGain.id,
+      type: 'biggest_gain',
       label: 'Biggest gain',
       text: `${biggestGain.text} (${scopePhrase})`,
-      linkTarget: 'standings',
+      ctaLabel: 'View standings',
+      drilldownTarget: {
+        kind: 'owner',
+        owner,
+        destination: 'standings',
+        seasonTab: drilldownScope.seasonTab,
+        week: drilldownScope.week,
+        focus: true,
+      },
     });
   }
 
@@ -498,9 +570,18 @@ function deriveLeagueHighlights(params: {
   if (mostGamesOwner) {
     push({
       id: `most-games-${mostGamesOwner[0]}`,
+      type: 'most_games_owner',
       label: 'Most games this week',
       text: `${mostGamesOwner[0]} has ${mostGamesOwner[1]} teams playing (${scopePhrase})`,
-      linkTarget: 'matchups',
+      ctaLabel: 'Open matchup',
+      drilldownTarget: {
+        kind: 'owner',
+        owner: mostGamesOwner[0],
+        destination: 'matchups',
+        seasonTab: drilldownScope.seasonTab,
+        week: drilldownScope.week,
+        focus: true,
+      },
     });
   }
 
@@ -511,17 +592,35 @@ function deriveLeagueHighlights(params: {
     if (totalGames >= 2 && parsed && parsed.leftWins === parsed.rightWins) {
       push({
         id: `split-${matrixInsights.mostCompetitive.owners.join('-')}`,
+        type: 'split_owner_matchup',
         label: 'Split owner matchup',
         text: `${matrixInsights.mostCompetitive.owners[0]} vs ${matrixInsights.mostCompetitive.owners[1]} (${matrixInsights.mostCompetitive.record})`,
-        linkTarget: 'matrix',
+        ctaLabel: 'Open matrix',
+        drilldownTarget: {
+          kind: 'owner_pair',
+          owners: matrixInsights.mostCompetitive.owners,
+          destination: 'matrix',
+          seasonTab: drilldownScope.seasonTab,
+          week: drilldownScope.week,
+          focus: true,
+        },
       });
     }
   } else if (matrixInsights.mostFrequent && matrixInsights.mostFrequent.gameCount >= 4) {
     push({
       id: `collision-${matrixInsights.mostFrequent.owners.join('-')}`,
+      type: 'heavy_owner_collision',
       label: 'Heavy owner collision',
       text: `${matrixInsights.mostFrequent.owners[0]} vs ${matrixInsights.mostFrequent.owners[1]} has ${matrixInsights.mostFrequent.gameCount} head-to-head games`,
-      linkTarget: 'matrix',
+      ctaLabel: 'Open matrix',
+      drilldownTarget: {
+        kind: 'owner_pair',
+        owners: matrixInsights.mostFrequent.owners,
+        destination: 'matrix',
+        seasonTab: drilldownScope.seasonTab,
+        week: drilldownScope.week,
+        focus: true,
+      },
     });
   }
 
