@@ -92,20 +92,9 @@ export function deriveWeeklyMatchupsDrilldownState(params: {
   selectedWeek: number | null;
   regularWeeks: number[];
 }): { nextTab: number | 'postseason' | null; nextWeek: number | null } {
-  const { selectedTab, selectedWeek, regularWeeks } = params;
-  if (selectedTab !== 'postseason') {
-    return { nextTab: selectedTab, nextWeek: selectedWeek };
-  }
-
-  const fallbackWeek =
-    selectedWeek != null && regularWeeks.includes(selectedWeek)
-      ? selectedWeek
-      : (regularWeeks[0] ?? null);
-  if (fallbackWeek == null) {
-    return { nextTab: selectedTab, nextWeek: selectedWeek };
-  }
-
-  return { nextTab: fallbackWeek, nextWeek: fallbackWeek };
+  const { selectedTab, selectedWeek } = params;
+  void params.regularWeeks;
+  return { nextTab: selectedTab, nextWeek: selectedWeek };
 }
 
 type HighlightNavigationState = {
