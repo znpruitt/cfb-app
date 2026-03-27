@@ -236,7 +236,7 @@ test('overview panel renders league highlights and standings without matrix tabl
 
   assert.match(html, /League standings/);
   assert.match(html, /League highlights/);
-  assert.match(html, /View weekly matchups/);
+  assert.doesNotMatch(html, /Featured matchups/);
   assert.doesNotMatch(html, /View details/);
   assert.match(html, /View all results/);
   assert.doesNotMatch(html, /Head-to-head matrix/);
@@ -306,6 +306,7 @@ test('overview panel summary shows in-season leader, record, and win percentage'
   assert.match(html, /Alice/);
   assert.match(html, /4–1/);
   assert.match(html, /Win% 0.800/);
+  assert.match(html, /Leads at 4–1 \(0.800\), \+20 diff/);
 });
 
 test('overview panel summary uses standings win% gap over #2 during in-season state', () => {
@@ -471,10 +472,17 @@ test('overview panel summary shows season-complete champion, second, and third',
     />
   );
 
-  assert.match(html, /Champion: Pruitt/);
+  assert.match(html, /Season podium/);
+  assert.match(html, /#1/);
+  assert.match(html, /#2/);
+  assert.match(html, /#3/);
+  assert.match(html, /Pruitt/);
+  assert.match(html, /Maleski/);
+  assert.match(html, /Whited/);
   assert.match(html, /81–39/);
-  assert.match(html, /#2 Maleski 65–41/);
-  assert.match(html, /#3 Whited 70–45/);
+  assert.match(html, /65–41/);
+  assert.match(html, /70–45/);
+  assert.match(html, /Pruitt won the title by 0.062 over Maleski/);
   assert.doesNotMatch(html, /League leader/);
 });
 
@@ -544,7 +552,7 @@ test('overview panel keeps league-home ordering with featured matchups before st
 
   assert.ok(html.indexOf('League leader: Alice') < html.indexOf('Featured matchups'));
   assert.ok(html.indexOf('Featured matchups') < html.indexOf('League highlights'));
-  assert.ok(html.indexOf('League highlights') < html.indexOf('League standings (Top 5)'));
+  assert.doesNotMatch(html, /League pulse/);
   assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
   assert.ok(html.indexOf('Recent results') < html.indexOf('No live games right now.'));
   assert.ok(html.includes('Gap #2 —'));
@@ -713,7 +721,7 @@ test('overview panel uses compact live empty state copy', () => {
   assert.doesNotMatch(html, /Postseason focus/);
   assert.match(html, /League highlights/);
   assert.match(html, /View full standings/);
-  assert.match(html, /View weekly matchups/);
+  assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
 });
 
 test('overview panel shows explicit empty states for featured, highlights, and results', () => {
@@ -729,12 +737,65 @@ test('overview panel shows explicit empty states for featured, highlights, and r
     />
   );
 
-  assert.match(html, /No featured matchups yet for this slate\./);
+  assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
   assert.match(
     html,
     /Highlights will appear once this slate has meaningful outcomes or matchup signals\./
   );
   assert.match(html, /No recent results yet—completed games will appear here\./);
+});
+
+test('overview panel keeps featured matchups hidden when none are meaningful for current phase', () => {
+  const finalOnly = itemWithScore(game({ key: 'final-only' }), {
+    status: 'FINAL',
+    away: { team: 'Away', score: 30 },
+    home: { team: 'Home', score: 20 },
+    time: null,
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[finalOnly]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /Featured matchups/);
+  assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
+});
+
+test('overview panel renders league pulse section when selector emits pulse items', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        ...standingsLeaders,
+        {
+          owner: 'Bob',
+          wins: 3,
+          losses: 2,
+          winPct: 0.6,
+          pointsFor: 110,
+          pointsAgainst: 101,
+          pointDifferential: 9,
+          gamesBack: 1,
+          finalGames: 5,
+        },
+      ]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(game({ key: 'pulse-game' }))]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /League pulse/);
+  assert.match(html, /leads by .* win%/i);
 });
 
 test('overview panel renders insight strip with prioritized ranked matchup signal', () => {

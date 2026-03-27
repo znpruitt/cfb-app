@@ -38,11 +38,17 @@ export type PrioritizedOverviewItem = {
 
 export type OverviewViewModel = {
   championSummary: LeagueSummaryViewModel | null;
+  leagueNarrative: string | null;
+  heroMode: 'leader' | 'podium';
+  podiumLeaders: OwnerStandingsRow[];
   standingsTopN: OwnerStandingsRow[];
   standingsHasMore: boolean;
   standingsContext: string | null;
   keyMovements: { id: string; text: string }[];
+  leaguePulse: { id: string; text: string }[];
+  shouldShowLeaguePulse: boolean;
   featuredMatchups: PrioritizedOverviewItem[];
+  shouldShowFeaturedMatchups: boolean;
   recentResults: PrioritizedOverviewItem[];
   leagueHighlights: {
     id: string;
@@ -67,6 +73,79 @@ export const OVERVIEW_RESULTS_LIMIT = 5;
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
+}
+
+function deriveLeagueNarrative(
+  summary: LeagueSummaryViewModel | null,
+  standingsLeaders: OwnerStandingsRow[]
+): string | null {
+  if (!summary) return null;
+  const leader = standingsLeaders[0];
+  if (!leader) return null;
+  const runnerUp = standingsLeaders[1];
+  const recordAndDiff = `${leader.wins}–${leader.losses} (${formatPctGap(leader.winPct)}), ${formatDiff(leader.pointDifferential)} diff`;
+  if (!runnerUp) {
+    return summary.phase === 'complete'
+      ? `Finished ${recordAndDiff}.`
+      : `Leads at ${recordAndDiff}.`;
+  }
+
+  const gap = Math.max(0, leader.winPct - runnerUp.winPct);
+  if (summary.hasTieAtTop || gap === 0) {
+    return summary.phase === 'complete'
+      ? `${leader.owner} and ${runnerUp.owner} finished tied at ${formatPctGap(leader.winPct)}.`
+      : `Tied with ${runnerUp.owner} at ${recordAndDiff}.`;
+  }
+
+  return summary.phase === 'complete'
+    ? `${leader.owner} won the title by ${formatPctGap(gap)} over ${runnerUp.owner}`
+    : `Leads at ${recordAndDiff} • Ahead of ${runnerUp.owner} by ${formatPctGap(gap)}`;
+}
+
+function deriveHeroMode(
+  championSummary: LeagueSummaryViewModel | null,
+  standingsLeaders: OwnerStandingsRow[]
+): 'leader' | 'podium' {
+  if (championSummary?.phase === 'complete' && standingsLeaders.length >= 3) return 'podium';
+  return 'leader';
+}
+
+function deriveLeaguePulse(params: {
+  championSummary: LeagueSummaryViewModel | null;
+  standingsContext: string | null;
+  movementInsights: { id: string; text: string }[];
+  leagueHighlights: OverviewViewModel['leagueHighlights'];
+}): { id: string; text: string }[] {
+  const pulse: { id: string; text: string }[] = [];
+  const seen = new Set<string>();
+  const push = (id: string, text: string | null): void => {
+    if (!text || seen.has(id)) return;
+    seen.add(id);
+    pulse.push({ id, text });
+  };
+
+  if (params.championSummary?.phase === 'complete') {
+    push('season-complete', 'Season complete: final standings locked.');
+  }
+
+  if (params.standingsContext) {
+    push(
+      'standings-context',
+      params.standingsContext.replace(/^Tight race:\s*/i, 'Closest race: ')
+    );
+  }
+
+  params.movementInsights
+    .filter(
+      (insight) => insight.id.startsWith('biggest-gain-') || insight.id.startsWith('leader-gap')
+    )
+    .forEach((insight) => push(insight.id, stripLeadingLabel(insight.text)));
+
+  params.leagueHighlights.slice(0, 2).forEach((highlight) => {
+    push(`pulse-${highlight.id}`, `${highlight.label}: ${highlight.text}`);
+  });
+
+  return pulse.slice(0, 4);
 }
 
 function formatPctGap(value: number): string {
@@ -706,28 +785,45 @@ export function selectOverviewViewModel(params: {
     )
     .slice(0, 3)
     .map((insight) => ({ id: insight.id, text: insight.text }));
+  const championSummary = deriveLeagueSummaryViewModel({
+    standingsLeaders,
+    context,
+    liveItems,
+    keyMatchups,
+    standingsCoverage,
+  });
+  const standingsContext = deriveStandingsContextLabel(standingsLeaders);
+  const leagueHighlights = deriveLeagueHighlights({
+    finalItems: prioritizedResults,
+    allMatchups: overviewMatchupCandidates,
+    movementInsights,
+    matchupMatrix,
+    rankingsByTeamId,
+    context,
+  });
+  const leaguePulse = deriveLeaguePulse({
+    championSummary,
+    standingsContext,
+    movementInsights,
+    leagueHighlights,
+  });
+  const heroMode = deriveHeroMode(championSummary, standingsLeaders);
+  const podiumLeaders = heroMode === 'podium' ? standingsLeaders.slice(0, 3) : [];
 
   return {
-    championSummary: deriveLeagueSummaryViewModel({
-      standingsLeaders,
-      context,
-      liveItems,
-      keyMatchups,
-      standingsCoverage,
-    }),
+    championSummary,
+    leagueNarrative: deriveLeagueNarrative(championSummary, standingsLeaders),
+    heroMode,
+    podiumLeaders,
     standingsTopN: standingsLeaders.slice(0, standingsLimit),
     standingsHasMore: standingsLeaders.length > standingsLimit,
-    standingsContext: deriveStandingsContextLabel(standingsLeaders),
+    standingsContext,
     keyMovements: movementInsights,
+    leaguePulse,
+    shouldShowLeaguePulse: leaguePulse.length > 0,
     featuredMatchups,
+    shouldShowFeaturedMatchups: featuredMatchups.length > 0,
     recentResults,
-    leagueHighlights: deriveLeagueHighlights({
-      finalItems: prioritizedResults,
-      allMatchups: overviewMatchupCandidates,
-      movementInsights,
-      matchupMatrix,
-      rankingsByTeamId,
-      context,
-    }),
+    leagueHighlights,
   };
 }

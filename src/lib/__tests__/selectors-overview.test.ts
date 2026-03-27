@@ -319,11 +319,134 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
   assert.equal(model.standingsTopN.length, 5);
   assert.equal(model.standingsHasMore, true);
   assert.equal(model.featuredMatchups.length, 1);
+  assert.equal(model.shouldShowFeaturedMatchups, true);
   assert.equal(model.featuredMatchups[0]?.item.bucket.game.key, 'scheduled');
   assert.equal(model.recentResults.length, 1);
   assert.equal(model.recentResults[0]?.item.bucket.game.key, 'final');
+  assert.equal(typeof model.leagueNarrative, 'string');
+  assert.equal(model.shouldShowLeaguePulse, true);
+  assert.ok(model.leaguePulse.length > 0);
+  assert.equal(model.heroMode, 'leader');
+  assert.equal(model.podiumLeaders.length, 0);
   assert.ok(model.keyMovements.every((insight) => !insight.id.startsWith('live-top25')));
   assert.ok(Array.isArray(model.leagueHighlights));
+});
+
+test('selectOverviewViewModel hides featured matchups when slate only has finals', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'A',
+        wins: 5,
+        losses: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 20,
+        gamesBack: 0,
+        finalGames: 5,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('final-only'),
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 17 },
+          home: { team: 'Home', score: 14 },
+        },
+      },
+    ],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.featuredMatchups.length, 0);
+  assert.equal(model.shouldShowFeaturedMatchups, false);
+});
+
+test('selectOverviewViewModel switches hero to podium for complete season with top three', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Pruitt',
+        wins: 81,
+        losses: 39,
+        winPct: 0.675,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 997,
+        gamesBack: 0,
+        finalGames: 120,
+      },
+      {
+        owner: 'Maleski',
+        wins: 65,
+        losses: 41,
+        winPct: 0.613,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 801,
+        gamesBack: 1,
+        finalGames: 106,
+      },
+      {
+        owner: 'Whited',
+        wins: 70,
+        losses: 45,
+        winPct: 0.609,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 744,
+        gamesBack: 2,
+        finalGames: 115,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'Postseason',
+      scopeDetail: 'Postseason',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('post-final'),
+        bucket: {
+          ...item('post-final').bucket,
+          game: game({ key: 'post-final', stage: 'bowl', postseasonRole: 'bowl' }),
+        },
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 31 },
+          home: { team: 'Home', score: 24 },
+        },
+      },
+    ],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.heroMode, 'podium');
+  assert.equal(model.podiumLeaders.length, 3);
+  assert.match(model.leagueNarrative ?? '', /won the title by 0.062 over Maleski/);
 });
 
 test('selectOverviewViewModel is stable for identical inputs', () => {
