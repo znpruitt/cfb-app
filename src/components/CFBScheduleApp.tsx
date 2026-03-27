@@ -1210,6 +1210,8 @@ export default function CFBScheduleApp({
                     setWeekViewMode('owner');
                   }}
                   onViewStandings={() => setWeekViewMode('standings')}
+                  onViewSchedule={() => setWeekViewMode('schedule')}
+                  onViewMatchups={() => setWeekViewMode('matchups')}
                   onViewMatrix={openMatrixView}
                 />
               ) : primarySurfaceKind === 'standings' ? (

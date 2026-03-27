@@ -208,7 +208,7 @@ test('overview highlights keep canonical neutral matchup separator with compact 
   assert.match(html, /grid-cols-\[minmax\(0,1fr\)_3\.8rem\]/);
 });
 
-test('overview panel renders standings and matchup insights instead of matrix table', () => {
+test('overview panel renders league highlights and standings without matrix table', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[
@@ -235,14 +235,11 @@ test('overview panel renders standings and matchup insights instead of matrix ta
   );
 
   assert.match(html, /League standings/);
-  assert.match(html, /Matchup insights/);
-  assert.match(html, /View full matchup matrix/);
-  assert.doesNotMatch(html, /View weekly matchups/);
+  assert.match(html, /League highlights/);
+  assert.match(html, /View weekly matchups/);
+  assert.match(html, /View all results/);
   assert.doesNotMatch(html, /Head-to-head matrix/);
   assert.doesNotMatch(html, /<table/);
-  assert.match(html, /Alice/);
-  assert.match(html, /Bob/);
-  assert.match(html, /1–1/);
   assert.doesNotMatch(html, /League snapshot/);
 });
 
@@ -415,8 +412,7 @@ test('overview panel summary uses postseason in-progress championship language',
 
   assert.match(html, />Championship race</);
   assert.doesNotMatch(html, /League leader/);
-  assert.match(html, /View full matchup matrix/);
-  assert.doesNotMatch(html, /View weekly matchups/);
+  assert.match(html, /View weekly matchups/);
 });
 
 test('overview panel summary shows season-complete champion, second, and third', () => {
@@ -546,10 +542,10 @@ test('overview panel keeps league-home ordering with featured matchups before st
   );
 
   assert.ok(html.indexOf('League leader: Alice') < html.indexOf('Featured matchups'));
-  assert.ok(html.indexOf('Featured matchups') < html.indexOf('League standings (Top 5)'));
+  assert.ok(html.indexOf('Featured matchups') < html.indexOf('League highlights'));
+  assert.ok(html.indexOf('League highlights') < html.indexOf('League standings (Top 5)'));
   assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
   assert.ok(html.indexOf('Recent results') < html.indexOf('No live games right now.'));
-  assert.ok(html.indexOf('No live games right now.') < html.indexOf('Matchup insights'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
 });
@@ -714,12 +710,12 @@ test('overview panel uses compact live empty state copy', () => {
 
   assert.match(html, /No live games right now\./);
   assert.doesNotMatch(html, /Postseason focus/);
-  assert.match(html, /Matchup insights/);
+  assert.match(html, /League highlights/);
   assert.match(html, /View full standings/);
-  assert.match(html, /View full matchup matrix/);
+  assert.match(html, /View weekly matchups/);
 });
 
-test('overview panel shows explicit empty states for featured, results, and matchup insights', () => {
+test('overview panel shows explicit empty states for featured, highlights, and results', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[]}
@@ -733,12 +729,11 @@ test('overview panel shows explicit empty states for featured, results, and matc
   );
 
   assert.match(html, /No featured matchups yet for this slate\./);
-  assert.match(html, /No recent results yet—completed games will appear here\./);
   assert.match(
     html,
-    /No games yet—matchup insights will populate once the season slate has owner pairings\./
+    /Highlights will appear once this slate has meaningful outcomes or matchup signals\./
   );
-  assert.match(html, /Matchup insights will appear once owner-vs-owner games are in the slate\./);
+  assert.match(html, /No recent results yet—completed games will appear here\./);
 });
 
 test('overview panel renders insight strip with prioritized ranked matchup signal', () => {
@@ -806,7 +801,8 @@ test('overview panel renders insight strip with prioritized ranked matchup signa
   );
 
   assert.match(html, /Pruitt leads by 0.083 win%/);
-  assert.match(html, /#7 vs #14 matchup this week/);
+  assert.match(html, /Top ranked matchup:/);
+  assert.match(html, /#7 Texas vs #14 Miami \(this week\)/);
 });
 
 test('overview panel insight strip shows biggest gain and biggest drop signals', () => {
