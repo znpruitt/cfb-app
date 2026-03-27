@@ -3,7 +3,7 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import CFBScheduleApp from '../CFBScheduleApp';
+import CFBScheduleApp, { deriveWeeklyMatchupsDrilldownState } from '../CFBScheduleApp';
 import { getAdminAlertCount } from '../../lib/adminDiagnostics';
 import type { DiagEntry } from '../../lib/diagnostics';
 import type { AppGame } from '../../lib/schedule';
@@ -330,4 +330,37 @@ test('standings hides week context controls and keeps season-level framing', () 
     /Season-long surname results and coverage status stay front-and-center here\./
   );
   assert.doesNotMatch(html, /Week context/);
+});
+
+test('postseason weekly matchups drill-down coerces to a regular week tab', () => {
+  assert.deepEqual(
+    deriveWeeklyMatchupsDrilldownState({
+      selectedTab: 'postseason',
+      selectedWeek: null,
+      regularWeeks: [8, 9, 10],
+    }),
+    { nextTab: 8, nextWeek: 8 }
+  );
+});
+
+test('postseason matchups drill-down preserves selected regular week when available', () => {
+  assert.deepEqual(
+    deriveWeeklyMatchupsDrilldownState({
+      selectedTab: 'postseason',
+      selectedWeek: 9,
+      regularWeeks: [8, 9, 10],
+    }),
+    { nextTab: 9, nextWeek: 9 }
+  );
+});
+
+test('non-postseason weekly matchups drill-down remains unchanged', () => {
+  assert.deepEqual(
+    deriveWeeklyMatchupsDrilldownState({
+      selectedTab: 7,
+      selectedWeek: 7,
+      regularWeeks: [7, 8],
+    }),
+    { nextTab: 7, nextWeek: 7 }
+  );
 });

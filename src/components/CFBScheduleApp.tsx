@@ -86,6 +86,27 @@ type CFBScheduleAppProps = {
   initialWeekViewMode?: WeekViewMode;
 };
 
+export function deriveWeeklyMatchupsDrilldownState(params: {
+  selectedTab: number | 'postseason' | null;
+  selectedWeek: number | null;
+  regularWeeks: number[];
+}): { nextTab: number | 'postseason' | null; nextWeek: number | null } {
+  const { selectedTab, selectedWeek, regularWeeks } = params;
+  if (selectedTab !== 'postseason') {
+    return { nextTab: selectedTab, nextWeek: selectedWeek };
+  }
+
+  const fallbackWeek =
+    selectedWeek != null && regularWeeks.includes(selectedWeek)
+      ? selectedWeek
+      : (regularWeeks[0] ?? null);
+  if (fallbackWeek == null) {
+    return { nextTab: selectedTab, nextWeek: selectedWeek };
+  }
+
+  return { nextTab: fallbackWeek, nextWeek: fallbackWeek };
+}
+
 export default function CFBScheduleApp({
   surface = 'league',
   initialGames = [],
@@ -704,6 +725,21 @@ export default function CFBScheduleApp({
     setWeekViewMode('matrix');
   }, []);
 
+  const openWeeklyMatchupsView = useCallback(() => {
+    const nextDrilldownState = deriveWeeklyMatchupsDrilldownState({
+      selectedTab,
+      selectedWeek,
+      regularWeeks: weeks,
+    });
+    if (nextDrilldownState.nextWeek !== selectedWeek) {
+      setSelectedWeek(nextDrilldownState.nextWeek);
+    }
+    if (nextDrilldownState.nextTab !== selectedTab) {
+      setSelectedTab(nextDrilldownState.nextTab);
+    }
+    setWeekViewMode('matchups');
+  }, [selectedTab, selectedWeek, weeks]);
+
   const matrixSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
@@ -1210,6 +1246,8 @@ export default function CFBScheduleApp({
                     setWeekViewMode('owner');
                   }}
                   onViewStandings={() => setWeekViewMode('standings')}
+                  onViewSchedule={() => setWeekViewMode('schedule')}
+                  onViewMatchups={openWeeklyMatchupsView}
                   onViewMatrix={openMatrixView}
                 />
               ) : primarySurfaceKind === 'standings' ? (

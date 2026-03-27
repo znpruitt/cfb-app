@@ -322,11 +322,8 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
   assert.equal(model.featuredMatchups[0]?.item.bucket.game.key, 'scheduled');
   assert.equal(model.recentResults.length, 1);
   assert.equal(model.recentResults[0]?.item.bucket.game.key, 'final');
-  assert.equal(model.matrixPreview?.matchupCount, 2);
-  assert.deepEqual(model.matchupInsights.mostFrequent, {
-    owners: ['A', 'B'],
-    gameCount: 2,
-  });
+  assert.ok(model.keyMovements.every((insight) => !insight.id.startsWith('live-top25')));
+  assert.ok(Array.isArray(model.leagueHighlights));
 });
 
 test('selectOverviewViewModel is stable for identical inputs', () => {
@@ -363,7 +360,7 @@ test('selectOverviewViewModel is stable for identical inputs', () => {
   assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
 });
 
-test('selectOverviewViewModel derives matchup insights from matrix rows', () => {
+test('selectOverviewViewModel adds meaningful matrix highlight only when notable', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [],
     standingsCoverage: { state: 'partial', message: null },
@@ -410,26 +407,10 @@ test('selectOverviewViewModel derives matchup insights from matrix rows', () => 
     rankingsByTeamId: new Map(),
   });
 
-  assert.deepEqual(model.matchupInsights.mostFrequent, {
-    owners: ['A', 'B'],
-    gameCount: 5,
-  });
-  assert.deepEqual(model.matchupInsights.mostUnbalanced, {
-    owners: ['A', 'B'],
-    record: '4–1',
-  });
-  assert.deepEqual(model.matchupInsights.mostCompetitive, {
-    owners: ['A', 'C'],
-    record: '1–1',
-    remainingGames: 1,
-  });
-  assert.deepEqual(model.matchupInsights.mostActiveOwner, {
-    owner: 'B',
-    totalMatchups: 9,
-  });
+  assert.ok(model.leagueHighlights.some((entry) => entry.label === 'Split owner matchup'));
 });
 
-test('selectOverviewViewModel skips invalid matchup insights safely', () => {
+test('selectOverviewViewModel suppresses weak owner-vs-owner highlights', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [],
     standingsCoverage: { state: 'partial', message: null },
@@ -466,10 +447,8 @@ test('selectOverviewViewModel skips invalid matchup insights safely', () => {
     rankingsByTeamId: new Map(),
   });
 
-  assert.equal(model.matchupInsights.mostFrequent, undefined);
-  assert.equal(model.matchupInsights.mostUnbalanced, undefined);
-  assert.equal(model.matchupInsights.mostCompetitive, undefined);
-  assert.equal(model.matchupInsights.mostActiveOwner, undefined);
+  assert.ok(model.leagueHighlights.every((entry) => entry.label !== 'Split owner matchup'));
+  assert.ok(model.leagueHighlights.every((entry) => entry.label !== 'Heavy owner collision'));
 });
 
 test('selectOverviewViewModel keeps featured games when finals dominate early candidates', () => {
@@ -527,4 +506,36 @@ test('selectOverviewViewModel keeps featured games when finals dominate early ca
     model.featuredMatchups.some((entry) => entry.item.bucket.game.key === 'scheduled-late')
   );
   assert.equal(model.recentResults.length, 4);
+});
+
+test('selectOverviewViewModel is deterministic for identical highlight inputs', () => {
+  const params = {
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null } as const,
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 2',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    } satisfies OverviewContext,
+    liveItems: [] as OverviewGameItem[],
+    keyMatchups: [
+      {
+        ...item('f-1'),
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 35 },
+          home: { team: 'Home', score: 10 },
+        },
+      },
+    ] as OverviewGameItem[],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  };
+
+  assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
 });

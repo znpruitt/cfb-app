@@ -7,6 +7,7 @@ import {
 import { gameStateFromScore } from '../gameUi';
 import { isTruePostseasonGame } from '../postseason-display';
 import type { TeamRankingEnrichment } from '../rankings';
+import { getGameParticipantTeamId } from '../schedule';
 import type { OverviewContext, OverviewGameItem } from '../overview';
 import type { OwnerStandingsRow, StandingsCoverage } from '../standings';
 
@@ -42,29 +43,12 @@ export type OverviewViewModel = {
   keyMovements: { id: string; text: string }[];
   featuredMatchups: PrioritizedOverviewItem[];
   recentResults: PrioritizedOverviewItem[];
-  matchupInsights: {
-    mostFrequent?: {
-      owners: [string, string];
-      gameCount: number;
-    };
-    mostUnbalanced?: {
-      owners: [string, string];
-      record: string;
-    };
-    mostCompetitive?: {
-      owners: [string, string];
-      record: string;
-      remainingGames: number;
-    };
-    mostActiveOwner?: {
-      owner: string;
-      totalMatchups: number;
-    };
-  };
-  matrixPreview: {
-    ownerCount: number;
-    matchupCount: number;
-  } | null;
+  leagueHighlights: {
+    id: string;
+    label: string;
+    text: string;
+    linkTarget: 'schedule' | 'matchups' | 'matrix' | 'standings';
+  }[];
 };
 
 export const OVERVIEW_STANDINGS_LIMIT = 5;
@@ -227,19 +211,6 @@ export function deriveStandingsContextLabel(standingsLeaders: OwnerStandingsRow[
   return `Tight race: ${leader.owner} and ${runnerUp.owner} are separated by ${formatPctGap(gap)} win%.`;
 }
 
-function matrixMatchupCount(matrix: {
-  rows: { owner: string; cells: { owner: string; gameCount: number }[] }[];
-}): number {
-  let total = 0;
-  for (const row of matrix.rows) {
-    for (const cell of row.cells) {
-      if (row.owner === cell.owner) continue;
-      total += cell.gameCount;
-    }
-  }
-  return Math.floor(total / 2);
-}
-
 function parseRecord(record: string): { leftWins: number; rightWins: number } | null {
   const match = record.match(/^\s*(\d+)\D+(\d+)\s*$/u);
   if (!match) return null;
@@ -256,7 +227,25 @@ function compareOwnerPair(left: [string, string], right: [string, string]): numb
 function deriveMatchupInsights(matrix: {
   owners: string[];
   rows: { owner: string; cells: { owner: string; gameCount: number; record?: string | null }[] }[];
-}): OverviewViewModel['matchupInsights'] {
+}): {
+  mostFrequent?: {
+    owners: [string, string];
+    gameCount: number;
+  };
+  mostUnbalanced?: {
+    owners: [string, string];
+    record: string;
+  };
+  mostCompetitive?: {
+    owners: [string, string];
+    record: string;
+    remainingGames: number;
+  };
+  mostActiveOwner?: {
+    owner: string;
+    totalMatchups: number;
+  };
+} {
   const pairRows: { owners: [string, string]; gameCount: number; record: string | null }[] = [];
   const activeOwnerCounts = new Map<string, number>();
 
@@ -366,6 +355,179 @@ function deriveMatchupInsights(matrix: {
   };
 }
 
+function deriveScopePhrase(context: OverviewContext): string {
+  const detail = context.scopeDetail?.trim();
+  if (!detail) return 'this slate';
+  if (/^week\s+\d+/i.test(detail)) return 'this week';
+  if (/postseason/i.test(detail) || /postseason/i.test(context.scopeLabel))
+    return 'this postseason slate';
+  return detail.toLowerCase();
+}
+
+function scoreMargin(item: OverviewGameItem): number | null {
+  const away = item.score?.away.score;
+  const home = item.score?.home.score;
+  if (away == null || home == null) return null;
+  return Math.abs(away - home);
+}
+
+function winnerText(item: OverviewGameItem): string | null {
+  const awayScore = item.score?.away.score;
+  const homeScore = item.score?.home.score;
+  if (awayScore == null || homeScore == null) return null;
+  if (awayScore === homeScore) return null;
+  const winner = awayScore > homeScore ? item.bucket.game.csvAway : item.bucket.game.csvHome;
+  const loser = awayScore > homeScore ? item.bucket.game.csvHome : item.bucket.game.csvAway;
+  const margin = Math.abs(awayScore - homeScore);
+  return `${winner} beat ${loser} by ${margin}`;
+}
+
+function deriveLeagueHighlights(params: {
+  finalItems: PrioritizedOverviewItem[];
+  allMatchups: OverviewGameItem[];
+  movementInsights: { id: string; text: string }[];
+  matchupMatrix: {
+    owners: string[];
+    rows: {
+      owner: string;
+      cells: { owner: string; gameCount: number; record?: string | null }[];
+    }[];
+  };
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  context: OverviewContext;
+}): OverviewViewModel['leagueHighlights'] {
+  const scopePhrase = deriveScopePhrase(params.context);
+  const highlights: OverviewViewModel['leagueHighlights'] = [];
+  const finals = params.finalItems.map((entry) => entry.item);
+  const seen = new Set<string>();
+  const push = (entry: OverviewViewModel['leagueHighlights'][number] | null): void => {
+    if (!entry || seen.has(entry.id)) return;
+    seen.add(entry.id);
+    highlights.push(entry);
+  };
+
+  const blowout = finals
+    .filter((item) => (scoreMargin(item) ?? 0) >= 14)
+    .sort((left, right) => {
+      const marginDiff = (scoreMargin(right) ?? 0) - (scoreMargin(left) ?? 0);
+      if (marginDiff !== 0) return marginDiff;
+      return left.bucket.game.key.localeCompare(right.bucket.game.key);
+    })[0];
+  if (blowout) {
+    push({
+      id: `blowout-${blowout.bucket.game.key}`,
+      label: 'Biggest win',
+      text: `${winnerText(blowout)} (${scopePhrase})`,
+      linkTarget: 'schedule',
+    });
+  }
+
+  const closestFinish = finals
+    .filter((item) => {
+      const margin = scoreMargin(item);
+      return margin != null && margin <= 7;
+    })
+    .sort((left, right) => {
+      const marginDiff = (scoreMargin(left) ?? 99) - (scoreMargin(right) ?? 99);
+      if (marginDiff !== 0) return marginDiff;
+      return left.bucket.game.key.localeCompare(right.bucket.game.key);
+    })[0];
+  if (closestFinish) {
+    push({
+      id: `close-${closestFinish.bucket.game.key}`,
+      label: 'Closest finish',
+      text: `${winnerText(closestFinish)} (${scopePhrase})`,
+      linkTarget: 'schedule',
+    });
+  }
+
+  const rankedMatchup = params.allMatchups
+    .map((item) => {
+      const awayRank =
+        params.rankingsByTeamId.get(
+          getGameParticipantTeamId(item.bucket.game, 'away') ?? item.bucket.game.canAway
+        )?.rank ?? null;
+      const homeRank =
+        params.rankingsByTeamId.get(
+          getGameParticipantTeamId(item.bucket.game, 'home') ?? item.bucket.game.canHome
+        )?.rank ?? null;
+      if (awayRank == null || homeRank == null) return null;
+      return { item, awayRank, homeRank, combinedRank: awayRank + homeRank };
+    })
+    .filter((value): value is NonNullable<typeof value> => value !== null)
+    .sort((left, right) => {
+      if (left.combinedRank !== right.combinedRank) return left.combinedRank - right.combinedRank;
+      return left.item.bucket.game.key.localeCompare(right.item.bucket.game.key);
+    })[0];
+  if (rankedMatchup) {
+    push({
+      id: `ranked-${rankedMatchup.item.bucket.game.key}`,
+      label: 'Top ranked matchup',
+      text: `#${rankedMatchup.awayRank} ${rankedMatchup.item.bucket.game.csvAway} vs #${rankedMatchup.homeRank} ${rankedMatchup.item.bucket.game.csvHome} (${scopePhrase})`,
+      linkTarget: 'matchups',
+    });
+  }
+
+  const biggestGain = params.movementInsights.find((insight) =>
+    insight.id.startsWith('biggest-gain-')
+  );
+  if (biggestGain) {
+    push({
+      id: biggestGain.id,
+      label: 'Biggest gain',
+      text: `${biggestGain.text} (${scopePhrase})`,
+      linkTarget: 'standings',
+    });
+  }
+
+  const ownerCounts = new Map<string, number>();
+  params.allMatchups.forEach((item) => {
+    if (item.bucket.awayOwner) {
+      ownerCounts.set(item.bucket.awayOwner, (ownerCounts.get(item.bucket.awayOwner) ?? 0) + 1);
+    }
+    if (item.bucket.homeOwner) {
+      ownerCounts.set(item.bucket.homeOwner, (ownerCounts.get(item.bucket.homeOwner) ?? 0) + 1);
+    }
+  });
+  const mostGamesOwner = Array.from(ownerCounts.entries())
+    .filter(([, count]) => count >= 3)
+    .sort((left, right) => {
+      if (right[1] !== left[1]) return right[1] - left[1];
+      return left[0].localeCompare(right[0]);
+    })[0];
+  if (mostGamesOwner) {
+    push({
+      id: `most-games-${mostGamesOwner[0]}`,
+      label: 'Most games this week',
+      text: `${mostGamesOwner[0]} has ${mostGamesOwner[1]} teams playing (${scopePhrase})`,
+      linkTarget: 'matchups',
+    });
+  }
+
+  const matrixInsights = deriveMatchupInsights(params.matchupMatrix);
+  if (matrixInsights.mostCompetitive) {
+    const parsed = parseRecord(matrixInsights.mostCompetitive.record);
+    const totalGames = parsed ? parsed.leftWins + parsed.rightWins : 0;
+    if (totalGames >= 2 && parsed && parsed.leftWins === parsed.rightWins) {
+      push({
+        id: `split-${matrixInsights.mostCompetitive.owners.join('-')}`,
+        label: 'Split owner matchup',
+        text: `${matrixInsights.mostCompetitive.owners[0]} vs ${matrixInsights.mostCompetitive.owners[1]} (${matrixInsights.mostCompetitive.record})`,
+        linkTarget: 'matrix',
+      });
+    }
+  } else if (matrixInsights.mostFrequent && matrixInsights.mostFrequent.gameCount >= 4) {
+    push({
+      id: `collision-${matrixInsights.mostFrequent.owners.join('-')}`,
+      label: 'Heavy owner collision',
+      text: `${matrixInsights.mostFrequent.owners[0]} vs ${matrixInsights.mostFrequent.owners[1]} has ${matrixInsights.mostFrequent.gameCount} head-to-head games`,
+      linkTarget: 'matrix',
+    });
+  }
+
+  return highlights.slice(0, 5);
+}
+
 export function selectOverviewViewModel(params: {
   standingsLeaders: OwnerStandingsRow[];
   previousStandingsLeaders?: OwnerStandingsRow[] | null;
@@ -424,6 +586,22 @@ export function selectOverviewViewModel(params: {
   });
   const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
   const recentResults = prioritizedResults.slice(0, resultsLimit);
+  const movementInsights = deriveLeagueInsights({
+    standings: standingsLeaders,
+    previousStandings: previousStandingsLeaders,
+    recentResults: keyMatchups,
+    liveGames: liveItems,
+    rankingsByTeamId,
+  })
+    .filter(
+      (insight) =>
+        insight.id.startsWith('leader-gap') ||
+        insight.id.startsWith('biggest-gain-') ||
+        insight.id.startsWith('biggest-drop-') ||
+        insight.id.startsWith('rank-movement-')
+    )
+    .slice(0, 3)
+    .map((insight) => ({ id: insight.id, text: insight.text }));
 
   return {
     championSummary: deriveLeagueSummaryViewModel({
@@ -436,24 +614,16 @@ export function selectOverviewViewModel(params: {
     standingsTopN: standingsLeaders.slice(0, standingsLimit),
     standingsHasMore: standingsLeaders.length > standingsLimit,
     standingsContext: deriveStandingsContextLabel(standingsLeaders),
-    keyMovements: deriveLeagueInsights({
-      standings: standingsLeaders,
-      previousStandings: previousStandingsLeaders,
-      recentResults: keyMatchups,
-      liveGames: liveItems,
-      rankingsByTeamId,
-    })
-      .slice(0, 3)
-      .map((insight) => ({ id: insight.id, text: insight.text })),
+    keyMovements: movementInsights,
     featuredMatchups,
     recentResults,
-    matchupInsights: deriveMatchupInsights(matchupMatrix),
-    matrixPreview:
-      matchupMatrix.owners.length === 0
-        ? null
-        : {
-            ownerCount: matchupMatrix.owners.length,
-            matchupCount: matrixMatchupCount(matchupMatrix),
-          },
+    leagueHighlights: deriveLeagueHighlights({
+      finalItems: prioritizedResults,
+      allMatchups: overviewMatchupCandidates,
+      movementInsights,
+      matchupMatrix,
+      rankingsByTeamId,
+      context,
+    }),
   };
 }

@@ -8,7 +8,6 @@ import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
-import MatchupInsightsCard from './MatchupInsightsCard';
 import RankedTeamName from './RankedTeamName';
 
 function formatWinPct(value: number): string {
@@ -487,6 +486,58 @@ function InsightStrip({
   );
 }
 
+function HighlightList({
+  highlights,
+  onOpenSchedule,
+  onOpenMatchups,
+  onOpenMatrix,
+  onOpenStandings,
+}: {
+  highlights: ReturnType<typeof selectOverviewViewModel>['leagueHighlights'];
+  onOpenSchedule?: () => void;
+  onOpenMatchups?: () => void;
+  onOpenMatrix?: () => void;
+  onOpenStandings?: () => void;
+}): React.ReactElement {
+  if (highlights.length === 0) {
+    return (
+      <EmptyState
+        message="Highlights will appear once this slate has meaningful outcomes or matchup signals."
+        compact
+      />
+    );
+  }
+
+  const resolveClick = (target: (typeof highlights)[number]['linkTarget']) => (): void => {
+    if (target === 'schedule') onOpenSchedule?.();
+    if (target === 'matchups') onOpenMatchups?.();
+    if (target === 'matrix') onOpenMatrix?.();
+    if (target === 'standings') onOpenStandings?.();
+  };
+
+  return (
+    <div className="space-y-2">
+      {highlights.map((highlight) => (
+        <div
+          key={highlight.id}
+          className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white/80 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950/70"
+        >
+          <p className="min-w-0 text-sm text-gray-800 dark:text-zinc-100">
+            <span className="font-semibold">{highlight.label}:</span> {highlight.text}
+          </p>
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+            onClick={resolveClick(highlight.linkTarget)}
+          >
+            View details
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
@@ -500,6 +551,8 @@ type OverviewPanelProps = {
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
   onViewStandings?: () => void;
+  onViewSchedule?: () => void;
+  onViewMatchups?: () => void;
   onViewMatrix?: () => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   previousStandingsLeaders?: OwnerStandingsRow[] | null;
@@ -518,6 +571,8 @@ export default function OverviewPanel({
   displayTimeZone,
   onOwnerSelect,
   onViewStandings,
+  onViewSchedule,
+  onViewMatchups,
   onViewMatrix,
   rankingsByTeamId = new Map(),
   previousStandingsLeaders = null,
@@ -572,6 +627,23 @@ export default function OverviewPanel({
           rankingsByTeamId={rankingsByTeamId}
           density="featured"
         />
+        <button
+          type="button"
+          className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+          onClick={onViewMatchups}
+        >
+          View weekly matchups
+        </button>
+      </SectionCard>
+
+      <SectionCard title="League highlights" tone="secondary" compact>
+        <HighlightList
+          highlights={viewModel.leagueHighlights}
+          onOpenSchedule={onViewSchedule}
+          onOpenMatchups={onViewMatchups}
+          onOpenMatrix={onViewMatrix}
+          onOpenStandings={onViewStandings}
+        />
       </SectionCard>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
@@ -619,6 +691,13 @@ export default function OverviewPanel({
               timeZone={timeZone}
               rankingsByTeamId={rankingsByTeamId}
             />
+            <button
+              type="button"
+              className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+              onClick={onViewSchedule}
+            >
+              View all results
+            </button>
           </SectionCard>
 
           {liveItems.length > 0 ? (
@@ -636,20 +715,6 @@ export default function OverviewPanel({
           )}
         </div>
       </div>
-
-      <SectionCard title="Matchup insights" tone="secondary" compact>
-        {viewModel.matrixPreview ? (
-          <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
-            {viewModel.matrixPreview.matchupCount} owner matchups across{' '}
-            {viewModel.matrixPreview.ownerCount} teams.
-          </p>
-        ) : (
-          <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
-            No games yet—matchup insights will populate once the season slate has owner pairings.
-          </p>
-        )}
-        <MatchupInsightsCard insights={viewModel.matchupInsights} onViewMatrix={onViewMatrix} />
-      </SectionCard>
     </div>
   );
 }
