@@ -79,13 +79,67 @@ test('both team rows receive team-color identity accents and winner treatment st
 
   assert.match(
     html,
-    /style="border-left-color:rgba\(163, 38, 56, 0.92\)" data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-accent-source="primary"/
+    /style="border-left-color:rgba\(163, 38, 56, 0.92\)" data-scoreboard-row="away" data-scoreboard-winner="true" data-scoreboard-outcome-emphasis="true" data-scoreboard-accent-source="primary"/
   );
   assert.match(
     html,
-    /style="border-left-color:rgba\(27, 111, 58, 0.45\)" data-scoreboard-row="home" data-scoreboard-winner="false" data-scoreboard-accent-source="alt"/
+    /style="border-left-color:rgba\(27, 111, 58, 0.45\)" data-scoreboard-row="home" data-scoreboard-winner="false" data-scoreboard-outcome-emphasis="true" data-scoreboard-accent-source="alt"/
   );
   assert.match(html, /font-extrabold" style="color:#A32638" data-scoreboard-score="away"/);
+  assert.match(
+    html,
+    /font-semibold text-gray-800 dark:text-zinc-200" data-scoreboard-score="home">17<\/span>/
+  );
+  assert.match(html, /data-scoreboard-outcome-emphasis="true"/);
+});
+
+test('live and tied scoreboards keep neutral row emphasis', () => {
+  const liveHtml = renderScoreboard({
+    score: {
+      status: 'Q3 8:14',
+      time: null,
+      away: { team: 'Texas Tech', score: 24 },
+      home: { team: 'Baylor', score: 21 },
+    },
+  });
+  const tiedFinalHtml = renderScoreboard({
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Texas Tech', score: 24 },
+      home: { team: 'Baylor', score: 24 },
+    },
+  });
+
+  assert.match(liveHtml, /data-scoreboard-outcome-emphasis="false"/);
+  assert.match(tiedFinalHtml, /data-scoreboard-outcome-emphasis="false"/);
+  assert.doesNotMatch(liveHtml, /data-scoreboard-winner="true"/);
+  assert.doesNotMatch(tiedFinalHtml, /data-scoreboard-winner="true"/);
+  assert.match(
+    liveHtml,
+    /data-scoreboard-row="away"[\s\S]*font-semibold text-gray-800 dark:text-zinc-200" data-scoreboard-score="away"/
+  );
+  assert.doesNotMatch(liveHtml, /border-l-\[3px\]/);
+});
+
+test('final non-tied games render structural winner emphasis beyond color', () => {
+  const html = renderScoreboard({
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Texas Tech', score: 31 },
+      home: { team: 'Baylor', score: 17 },
+    },
+  });
+
+  assert.match(html, /data-scoreboard-row="away" data-scoreboard-winner="true"/);
+  assert.match(html, /border-l-\[3px\] text-gray-950 dark:text-zinc-50/);
+  assert.match(
+    html,
+    /font-extrabold" style="color:#A32638" data-scoreboard-score="away">31<\/span>/
+  );
+  assert.match(html, /data-scoreboard-row="home" data-scoreboard-winner="false"/);
+  assert.match(html, /border-l-2 text-gray-800 dark:text-zinc-200/);
   assert.match(
     html,
     /font-semibold text-gray-800 dark:text-zinc-200" data-scoreboard-score="home">17<\/span>/

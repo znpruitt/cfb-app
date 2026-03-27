@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { deriveDisplayEventName } from '../lib/gameEventName';
+import { deriveExpandedMetadataLines } from '../lib/gameCardPresentation';
 import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/leagueInsights';
@@ -62,20 +63,6 @@ function participantDisplayInfo(game: AppGame, side: 'home' | 'away'): TeamDispl
     shortDisplayName: participant.displayName,
     scoreboardName: participant.displayName,
   };
-}
-
-function formatKickoff(date: string | null, timeZone: string): string {
-  if (!date) return 'TBD';
-  const kickoff = new Date(date);
-  if (Number.isNaN(kickoff.getTime())) return 'TBD';
-  return kickoff.toLocaleString(undefined, {
-    timeZone,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 }
 
 function renderMatchupLabel(
@@ -222,6 +209,14 @@ export default function GameWeekPanel({
                   card.homeTeamId,
                   teamCatalogById
                 );
+                const metadataLines = deriveExpandedMetadataLines({
+                  date: g.date,
+                  timeZone: displayTimeZone,
+                  useNeutralSemantics,
+                  venue: g.venue,
+                });
+                const primaryTag = card.tagPrimary;
+                const secondaryTags = card.tagSecondary;
 
                 return (
                   <details
@@ -243,7 +238,7 @@ export default function GameWeekPanel({
                     }}
                     data-card-team-accent-top="away"
                     data-card-team-accent-bottom="home"
-                    data-primary-tag={card.tagPrimary ?? ''}
+                    data-primary-tag={primaryTag ?? ''}
                     data-ranked-game={card.hasRankedTeam ? 'true' : 'false'}
                     data-focused-game={focusedGameId === g.key ? 'true' : 'false'}
                     data-game-card-id={g.key}
@@ -273,15 +268,15 @@ export default function GameWeekPanel({
                               card.homeTeamId
                             )}
                           </div>
-                          {card.tagPrimary ? (
-                            <div className="mt-0.5 inline-flex flex-wrap items-center gap-1 text-[10px] uppercase tracking-wide">
+                          {primaryTag ? (
+                            <div className="mt-1 inline-flex flex-wrap items-center gap-1 text-[10px] uppercase tracking-wide">
                               <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
-                                {LEAGUE_TAG_LABELS[card.tagPrimary]}
+                                {LEAGUE_TAG_LABELS[primaryTag]}
                               </span>
-                              {card.tagSecondary.map((tag) => (
+                              {secondaryTags.map((tag) => (
                                 <span
                                   key={`${g.key}:${tag}`}
-                                  className="rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-medium text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                                  className="rounded-full border border-gray-200/70 bg-gray-50/70 px-1.5 py-0.5 font-medium text-gray-500 dark:border-zinc-700/80 dark:bg-zinc-900/70 dark:text-zinc-400"
                                 >
                                   {LEAGUE_TAG_LABELS[tag]}
                                 </span>
@@ -298,8 +293,8 @@ export default function GameWeekPanel({
                       </div>
                     </summary>
 
-                    <div className="space-y-1.5 px-2.5 py-2.5">
-                      <div className="space-y-0.5">
+                    <div className="space-y-2.5 px-2.5 py-2.5">
+                      <div className="space-y-1">
                         {eventName && (
                           <div
                             className="text-sm leading-snug text-gray-400 dark:text-zinc-500"
@@ -309,11 +304,22 @@ export default function GameWeekPanel({
                           </div>
                         )}
                         <div
-                          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400 dark:text-zinc-500"
+                          className="space-y-0.5 text-xs text-gray-400 dark:text-zinc-500"
                           data-expanded-metadata
                         >
-                          <span>{formatKickoff(g.date, displayTimeZone)}</span>
-                          {useNeutralSemantics && <span>Neutral Site</span>}
+                          <div
+                            className="metadata-primary flex flex-wrap items-center gap-x-2 gap-y-1"
+                            data-expanded-metadata-primary
+                          >
+                            {metadataLines.primary.map((part) => (
+                              <span key={`${g.key}:meta-primary:${part}`}>{part}</span>
+                            ))}
+                          </div>
+                          {metadataLines.secondary ? (
+                            <div className="metadata-secondary" data-expanded-metadata-secondary>
+                              {metadataLines.secondary}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
@@ -329,7 +335,6 @@ export default function GameWeekPanel({
                         homeOwner={card.homeOwner}
                         awayColorTreatment={awayColorTreatment}
                         homeColorTreatment={homeColorTreatment}
-                        venue={g.venue}
                         odds={card.odds}
                         isPlaceholder={card.isPlaceholder}
                       />
