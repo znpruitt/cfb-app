@@ -3,7 +3,11 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import CFBScheduleApp, { deriveWeeklyMatchupsDrilldownState } from '../CFBScheduleApp';
+import CFBScheduleApp, {
+  clearDrilldownFocusState,
+  deriveWeeklyMatchupsDrilldownState,
+  resolveHighlightDrilldownNavigation,
+} from '../CFBScheduleApp';
 import { getAdminAlertCount } from '../../lib/adminDiagnostics';
 import type { DiagEntry } from '../../lib/diagnostics';
 import type { AppGame } from '../../lib/schedule';
@@ -363,4 +367,77 @@ test('non-postseason weekly matchups drill-down remains unchanged', () => {
     }),
     { nextTab: 7, nextWeek: 7 }
   );
+});
+
+test('highlight game drill-down routes to schedule with game focus and postseason scope', () => {
+  const next = resolveHighlightDrilldownNavigation({
+    target: {
+      kind: 'game',
+      destination: 'schedule',
+      gameId: 'bowl-1',
+      seasonTab: 'postseason',
+      week: null,
+      expand: true,
+      focus: true,
+    },
+    selectedWeek: 6,
+    regularWeeks: [6, 7, 8],
+  });
+
+  assert.deepEqual(next, {
+    nextTab: 'postseason',
+    nextWeek: null,
+    nextViewMode: 'schedule',
+    focusedGameId: 'bowl-1',
+    focusedOwner: null,
+    focusedOwnerPair: null,
+  });
+});
+
+test('highlight owner drill-down routes to standings with owner focus', () => {
+  const next = resolveHighlightDrilldownNavigation({
+    target: {
+      kind: 'owner',
+      destination: 'standings',
+      owner: 'Alice',
+      seasonTab: 'week',
+      week: 8,
+      focus: true,
+    },
+    selectedWeek: 6,
+    regularWeeks: [6, 7, 8],
+  });
+
+  assert.equal(next.nextTab, 8);
+  assert.equal(next.nextWeek, 8);
+  assert.equal(next.nextViewMode, 'standings');
+  assert.equal(next.focusedOwner, 'Alice');
+});
+
+test('highlight owner-pair drill-down routes to matrix with pair focus', () => {
+  const next = resolveHighlightDrilldownNavigation({
+    target: {
+      kind: 'owner_pair',
+      destination: 'matrix',
+      owners: ['Alice', 'Bob'],
+      seasonTab: 'week',
+      week: 9,
+      focus: true,
+    },
+    selectedWeek: 6,
+    regularWeeks: [6, 7, 8, 9],
+  });
+
+  assert.equal(next.nextTab, 9);
+  assert.equal(next.nextWeek, 9);
+  assert.equal(next.nextViewMode, 'matrix');
+  assert.deepEqual(next.focusedOwnerPair, ['Alice', 'Bob']);
+});
+
+test('generic weekly matchups focus reset clears stale owner, game, and owner-pair focus', () => {
+  assert.deepEqual(clearDrilldownFocusState(), {
+    focusedGameId: null,
+    focusedOwner: null,
+    focusedOwnerPair: null,
+  });
 });

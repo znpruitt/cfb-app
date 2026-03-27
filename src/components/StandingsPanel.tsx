@@ -7,6 +7,7 @@ type StandingsPanelProps = {
   season: number;
   coverage: StandingsCoverage;
   onOwnerSelect?: (owner: string) => void;
+  focusedOwner?: string | null;
 };
 
 function formatWinPct(value: number): string {
@@ -26,6 +27,7 @@ export default function StandingsPanel({
   season,
   coverage,
   onOwnerSelect,
+  focusedOwner = null,
 }: StandingsPanelProps): React.ReactElement {
   return (
     <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -76,7 +78,11 @@ export default function StandingsPanel({
                 {rows.map((row, index) => (
                   <tr
                     key={row.owner}
-                    className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
+                    className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
+                      focusedOwner === row.owner
+                        ? 'ring-1 ring-inset ring-blue-400 dark:ring-blue-600'
+                        : ''
+                    }`}
                   >
                     <td className="border-b border-gray-100 px-2 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
                       {index + 1}

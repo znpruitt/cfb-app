@@ -407,7 +407,51 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(model.leagueHighlights.some((entry) => entry.label === 'Split owner matchup'));
+  const matrixHighlight = model.leagueHighlights.find(
+    (entry) => entry.label === 'Split owner matchup'
+  );
+  assert.ok(matrixHighlight);
+  assert.equal(matrixHighlight?.ctaLabel, 'Open matrix');
+  assert.equal(matrixHighlight?.drilldownTarget.destination, 'matrix');
+  assert.equal(matrixHighlight?.drilldownTarget.kind, 'owner_pair');
+});
+
+test('selectOverviewViewModel emits typed game highlight drilldowns with truthful CTA copy', () => {
+  const final = {
+    ...item('final-typed'),
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 42 },
+      home: { team: 'Home', score: 14 },
+    },
+  };
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 9',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [final],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  const gameHighlight = model.leagueHighlights.find(
+    (entry) => entry.drilldownTarget.kind === 'game'
+  );
+  assert.ok(gameHighlight);
+  assert.notEqual(gameHighlight?.ctaLabel, 'View details');
+  assert.equal(gameHighlight?.drilldownTarget.destination, 'schedule');
+  assert.equal(gameHighlight?.drilldownTarget.seasonTab, 'week');
+  assert.equal(gameHighlight?.drilldownTarget.week, 1);
 });
 
 test('selectOverviewViewModel suppresses weak owner-vs-owner highlights', () => {

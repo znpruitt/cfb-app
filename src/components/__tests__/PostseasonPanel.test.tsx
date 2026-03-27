@@ -85,3 +85,26 @@ test('postseason panel threads team catalog through to game cards', () => {
   assert.match(html, /rgba\(176, 22, 53, 0\.38\)/);
   assert.doesNotMatch(html, /rgba\(5, 150, 105, 0\.28\)/);
 });
+
+test('postseason panel forwards focused game id to grouped game cards', () => {
+  const html = renderToStaticMarkup(
+    <PostseasonPanel
+      games={[
+        postseasonGame({ key: 'orange-bowl', postseasonRole: 'bowl' }),
+        postseasonGame({
+          key: 'title-game',
+          postseasonRole: 'national_championship',
+          stage: 'playoff',
+          label: 'National Championship',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      focusedGameId="title-game"
+    />
+  );
+
+  assert.match(html, /data-focused-game="true"/);
+});
