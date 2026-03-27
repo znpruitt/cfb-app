@@ -36,15 +36,17 @@ function summaryChipClasses(
   return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
 }
 
-function cardEmphasisClasses(tone: 'swing' | 'upset' | 'even' | 'ranked' | 'none'): string {
-  if (tone === 'swing') {
-    return 'border-indigo-300/80 bg-indigo-50/35 dark:border-indigo-900/70 dark:bg-indigo-950/20';
-  }
+function cardEmphasisClasses(
+  tone: 'upset' | 'upset_watch' | 'top_25_matchup' | 'ranked' | 'none'
+): string {
   if (tone === 'upset') {
     return 'border-amber-300/80 bg-amber-50/35 dark:border-amber-900/70 dark:bg-amber-950/20';
   }
-  if (tone === 'even') {
-    return 'border-sky-300/80 bg-sky-50/30 dark:border-sky-900/70 dark:bg-sky-950/20';
+  if (tone === 'upset_watch') {
+    return 'border-orange-300/80 bg-orange-50/30 dark:border-orange-900/70 dark:bg-orange-950/20';
+  }
+  if (tone === 'top_25_matchup') {
+    return 'border-indigo-300/80 bg-indigo-50/35 dark:border-indigo-900/70 dark:bg-indigo-950/20';
   }
   if (tone === 'ranked') {
     return 'border-blue-300/70 bg-blue-50/20 dark:border-blue-900/70 dark:bg-blue-950/15';
@@ -159,7 +161,7 @@ export default function GameWeekPanel({
           Scheduled
         </span>
         <span className="ml-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
-          Tags: Swing &gt; Upset alert &gt; Even spread
+          Tags: Upset &gt; Upset watch &gt; Top 25
         </span>
       </div>
       {viewModel.hasNoGames ? (

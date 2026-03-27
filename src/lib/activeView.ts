@@ -47,7 +47,7 @@ export function derivePrimarySurfaceKind(params: {
   if (viewMode === 'standings') return 'standings';
   if (viewMode === 'owner') return 'owner';
   if (viewMode === 'matrix') return 'matrix';
-  if (selectedTab === 'postseason') return 'postseason';
+  if (selectedTab === 'postseason' && viewMode === 'schedule') return 'postseason';
   return viewMode;
 }
 

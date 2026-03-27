@@ -1294,7 +1294,7 @@ test('collapsed rows use neutral cards with chip-only state styling and outer ca
   assert.doesNotMatch(html, /bg-emerald-50 text-gray-900/);
 });
 
-test('schedule cards use primary tag priority (swing over upset/even) with subordinate secondary tags', () => {
+test('schedule cards use primary tag priority (upset watch over top-25) with subordinate secondary tags', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[game({ key: 'priority', csvAway: 'Away Team', csvHome: 'Home Team' })]}
@@ -1302,9 +1302,9 @@ test('schedule cards use primary tag priority (swing over upset/even) with subor
       oddsByKey={{
         priority: {
           favorite: 'Home Team',
-          spread: -2.5,
-          homeSpread: -2.5,
-          awaySpread: 2.5,
+          spread: -7.5,
+          homeSpread: -7.5,
+          awaySpread: 7.5,
           spreadPriceHome: -110,
           spreadPriceAway: -110,
           total: 51.5,
@@ -1326,25 +1326,25 @@ test('schedule cards use primary tag priority (swing over upset/even) with subor
           time: '05:32',
         },
       }}
-      rosterByTeam={
-        new Map([
-          ['Away Team', 'Alice'],
-          ['Home Team', 'Bob'],
-        ])
-      }
+      rosterByTeam={new Map()}
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 7, rankSource: 'ap' }],
+          ['h', { rank: 12, rankSource: 'ap' }],
+        ])
+      }
     />
   );
 
-  assert.match(html, /data-primary-tag="swing"/);
-  assert.match(html, /Swing/);
-  assert.match(html, /Upset alert/);
-  assert.match(html, /Even spread/);
+  assert.match(html, /data-primary-tag="upset_watch"/);
+  assert.match(html, /Upset watch/);
+  assert.match(html, /Top 25/);
   assert.match(
     html,
-    /rounded-full border border-blue-300 bg-blue-100[\s\S]*Swing[\s\S]*rounded-full border border-gray-200\/70 bg-gray-50\/70[\s\S]*Upset alert/
+    /rounded-full border border-blue-300 bg-blue-100[\s\S]*Upset watch[\s\S]*rounded-full border border-gray-200\/70 bg-gray-50\/70[\s\S]*Top 25/
   );
 });
 
@@ -1355,20 +1355,21 @@ test('single-tag cards render only a primary tag without any secondary tag chips
       byes={[]}
       oddsByKey={{}}
       scoresByKey={{}}
-      rosterByTeam={
-        new Map([
-          ['Away Team', 'Alice'],
-          ['Home Team', 'Bob'],
-        ])
-      }
+      rosterByTeam={new Map()}
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 8, rankSource: 'ap' }],
+          ['h', { rank: 17, rankSource: 'ap' }],
+        ])
+      }
     />
   );
 
-  assert.match(html, /data-primary-tag="swing"/);
-  assert.match(html, /Swing/);
+  assert.match(html, /data-primary-tag="top_25_matchup"/);
+  assert.match(html, /Top 25/);
   assert.doesNotMatch(
     html,
     /data-game-card-id="single-tag"[\s\S]*rounded-full border border-gray-200\/70 bg-gray-50\/70/
@@ -1409,9 +1410,9 @@ test('collapsed and expanded tag presentation stay aligned to the same primary t
       oddsByKey={{
         'tag-consistency': {
           favorite: 'Home Team',
-          spread: -2.5,
-          homeSpread: -2.5,
-          awaySpread: 2.5,
+          spread: -7.5,
+          homeSpread: -7.5,
+          awaySpread: 7.5,
           spreadPriceHome: -110,
           spreadPriceAway: -110,
           total: 51.5,
@@ -1433,23 +1434,24 @@ test('collapsed and expanded tag presentation stay aligned to the same primary t
           time: '05:32',
         },
       }}
-      rosterByTeam={
-        new Map([
-          ['Away Team', 'Alice'],
-          ['Home Team', 'Bob'],
-        ])
-      }
+      rosterByTeam={new Map()}
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 7, rankSource: 'ap' }],
+          ['h', { rank: 10, rankSource: 'ap' }],
+        ])
+      }
     />
   );
 
   assert.match(html, /data-game-card-id="tag-consistency"/);
-  assert.match(html, /data-primary-tag="swing"/);
+  assert.match(html, /data-primary-tag="upset_watch"/);
   assert.match(
     html,
-    /data-game-card-id="tag-consistency"[\s\S]*rounded-full border border-blue-300 bg-blue-100[\s\S]*Swing/
+    /data-game-card-id="tag-consistency"[\s\S]*rounded-full border border-blue-300 bg-blue-100[\s\S]*Upset watch/
   );
 });
 
@@ -1457,25 +1459,46 @@ test('important games get emphasis classes while unrelated rows remain neutral',
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
-        game({ key: 'swing-game', csvAway: 'A', csvHome: 'B' }),
-        game({ key: 'neutral-game', csvAway: 'C', csvHome: 'D' }),
+        game({ key: 'featured-game', csvAway: 'A', csvHome: 'B' }),
+        game({
+          key: 'neutral-game',
+          csvAway: 'C',
+          csvHome: 'D',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'x',
+              displayName: 'C',
+              canonicalName: 'C',
+              rawName: 'C',
+            },
+            home: {
+              kind: 'team',
+              teamId: 'y',
+              displayName: 'D',
+              canonicalName: 'D',
+              rawName: 'D',
+            },
+          },
+        }),
       ]}
       byes={[]}
       oddsByKey={{}}
       scoresByKey={{}}
-      rosterByTeam={
-        new Map([
-          ['A', 'Owner A'],
-          ['B', 'Owner B'],
-        ])
-      }
+      rosterByTeam={new Map()}
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 5, rankSource: 'ap' }],
+          ['h', { rank: 18, rankSource: 'ap' }],
+        ])
+      }
     />
   );
 
-  assert.match(html, /data-primary-tag="swing"/);
+  assert.match(html, /data-primary-tag="top_25_matchup"/);
   assert.match(html, /border-indigo-300\/80 bg-indigo-50\/35/);
   assert.match(html, /data-primary-tag=""/);
 });
@@ -1513,7 +1536,7 @@ test('schedule header shows compact tag priority legend', () => {
     />
   );
 
-  assert.match(html, /Tags: Swing &gt; Upset alert &gt; Even spread/);
+  assert.match(html, /Tags: Upset &gt; Upset watch &gt; Top 25/);
 });
 
 test('live schedule cards keep live summary state and add subtle live ring accent', () => {

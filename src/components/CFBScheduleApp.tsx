@@ -92,20 +92,9 @@ export function deriveWeeklyMatchupsDrilldownState(params: {
   selectedWeek: number | null;
   regularWeeks: number[];
 }): { nextTab: number | 'postseason' | null; nextWeek: number | null } {
-  const { selectedTab, selectedWeek, regularWeeks } = params;
-  if (selectedTab !== 'postseason') {
-    return { nextTab: selectedTab, nextWeek: selectedWeek };
-  }
-
-  const fallbackWeek =
-    selectedWeek != null && regularWeeks.includes(selectedWeek)
-      ? selectedWeek
-      : (regularWeeks[0] ?? null);
-  if (fallbackWeek == null) {
-    return { nextTab: selectedTab, nextWeek: selectedWeek };
-  }
-
-  return { nextTab: fallbackWeek, nextWeek: fallbackWeek };
+  const { selectedTab, selectedWeek } = params;
+  void params.regularWeeks;
+  return { nextTab: selectedTab, nextWeek: selectedWeek };
 }
 
 type HighlightNavigationState = {
@@ -553,15 +542,6 @@ export default function CFBScheduleApp({
     return next;
   }, [games, selectedConference, selectedWeek, teamFilter]);
 
-  const matchupSections = useMemo(
-    () => deriveWeekMatchupSections(filteredWeekGames, rosterByTeam),
-    [filteredWeekGames, rosterByTeam]
-  );
-  const renderedMatchupCardCount = useMemo(
-    () => countRenderedMatchupCards(matchupSections),
-    [matchupSections]
-  );
-
   const postseasonGames = useMemo(() => {
     const tf = teamFilter.toLowerCase();
     return games.filter(isTruePostseasonGame).filter((g) => {
@@ -577,6 +557,19 @@ export default function CFBScheduleApp({
       return confOk && teamOk;
     });
   }, [games, selectedConference, teamFilter]);
+
+  const matchupSections = useMemo(
+    () => deriveWeekMatchupSections(filteredWeekGames, rosterByTeam),
+    [filteredWeekGames, rosterByTeam]
+  );
+  const postseasonMatchupSections = useMemo(
+    () => deriveWeekMatchupSections(postseasonGames, rosterByTeam),
+    [postseasonGames, rosterByTeam]
+  );
+  const renderedMatchupCardCount = useMemo(
+    () => countRenderedMatchupCards(matchupSections),
+    [matchupSections]
+  );
 
   const canonicalPostseasonGames = useMemo(() => getCanonicalPostseasonGames(games), [games]);
 
@@ -1405,12 +1398,14 @@ export default function CFBScheduleApp({
                 />
               ) : weekViewMode === 'matchups' ? (
                 <MatchupsWeekPanel
-                  games={filteredWeekGames}
+                  games={selectedTab === 'postseason' ? postseasonGames : filteredWeekGames}
                   oddsByKey={oddsByKey}
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   displayTimeZone={presentationTimeZone}
-                  sections={matchupSections}
+                  sections={
+                    selectedTab === 'postseason' ? postseasonMatchupSections : matchupSections
+                  }
                   rankingsByTeamId={rankingsByTeamId}
                   focusedOwner={focusedOwner}
                   focusedOwnerPair={focusedOwnerPair}

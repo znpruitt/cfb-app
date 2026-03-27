@@ -149,7 +149,7 @@ test('overview remains the only primary surface on the postseason tab', () => {
   );
 });
 
-test('detailed postseason surface remains reachable for non-overview postseason views', () => {
+test('postseason schedule stays on dedicated postseason surface while matchup surfaces remain available', () => {
   assert.equal(
     derivePrimarySurfaceKind({
       selectedTab: 'postseason',
@@ -162,6 +162,6 @@ test('detailed postseason surface remains reachable for non-overview postseason 
       selectedTab: 'postseason',
       viewMode: 'matchups',
     }),
-    'postseason'
+    'matchups'
   );
 });

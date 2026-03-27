@@ -609,12 +609,22 @@ test('computeWeeklyInsights counts owner-vs-owner games when owners differ', () 
   assert.equal(insights.ownedVsOwnedGames, 1);
 });
 
-test('computeGameTags marks swing, upset, and even scenarios', () => {
-  const taggedGame = game({ key: 't1', csvAway: 'Dogs', csvHome: 'Cats' });
-  const ownership = new Map([
-    ['Dogs', 'Dana'],
-    ['Cats', 'Eli'],
+test('computeGameTags marks Top 25 when both teams are ranked', () => {
+  const taggedGame = game({ key: 'top-25', csvAway: 'Dogs', csvHome: 'Cats' });
+  const ownership = new Map<string, string>();
+  const rankingsByTeamId = new Map([
+    ['a', { rank: 8, rankSource: 'ap' as const }],
+    ['h', { rank: 19, rankSource: 'ap' as const }],
   ]);
+
+  assert.deepEqual(computeGameTags(taggedGame, undefined, undefined, ownership, rankingsByTeamId), [
+    'top_25_matchup',
+  ]);
+});
+
+test('computeGameTags marks upset watch for live underdog lead when favored by odds', () => {
+  const taggedGame = game({ key: 'upset-watch-live', csvAway: 'Dogs', csvHome: 'Cats' });
+  const ownership = new Map<string, string>();
   const score = {
     status: 'In Progress',
     away: { team: 'Dogs', score: 24 },
@@ -623,9 +633,9 @@ test('computeGameTags marks swing, upset, and even scenarios', () => {
   };
   const odds = {
     favorite: 'Cats',
-    spread: -2.5,
-    homeSpread: -2.5,
-    awaySpread: 2.5,
+    spread: -7.5,
+    homeSpread: -7.5,
+    awaySpread: 7.5,
     spreadPriceHome: -110,
     spreadPriceAway: -110,
     total: 52.5,
@@ -639,38 +649,28 @@ test('computeGameTags marks swing, upset, and even scenarios', () => {
     lineSourceStatus: 'latest' as const,
   };
 
-  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['swing', 'upset', 'even']);
+  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['upset_watch']);
 });
 
-test('computeGameTags marks swing for owned-vs-owned even without odds', () => {
-  const taggedGame = game({ key: 't-swing', csvAway: 'A', csvHome: 'B' });
-  const ownership = new Map([
-    ['A', 'Owner A'],
-    ['B', 'Owner B'],
-  ]);
-
-  assert.deepEqual(computeGameTags(taggedGame, undefined, undefined, ownership), ['swing']);
-});
-
-test('computeGameTags applies even tag on spread threshold boundary', () => {
-  const taggedGame = game({ key: 't-even-boundary', csvAway: 'A', csvHome: 'B' });
-  const ownership = new Map([['A', 'Owner A']]);
+test('computeGameTags marks upset for final underdog win', () => {
+  const taggedGame = game({ key: 'upset-final', csvAway: 'A', csvHome: 'B' });
+  const ownership = new Map<string, string>();
   const score = {
-    status: 'Scheduled',
-    away: { team: 'A', score: null },
-    home: { team: 'B', score: null },
+    status: 'Final',
+    away: { team: 'A', score: 31 },
+    home: { team: 'B', score: 27 },
     time: null,
   };
   const odds = {
-    favorite: 'A',
-    spread: -3,
-    homeSpread: 3,
-    awaySpread: -3,
+    favorite: 'B',
+    spread: -7.5,
+    homeSpread: -7.5,
+    awaySpread: 7.5,
     spreadPriceHome: -110,
     spreadPriceAway: -110,
     total: 49.5,
-    mlHome: 120,
-    mlAway: -140,
+    mlHome: -260,
+    mlAway: 210,
     overPrice: -110,
     underPrice: -110,
     source: 'DraftKings',
@@ -679,164 +679,27 @@ test('computeGameTags applies even tag on spread threshold boundary', () => {
     lineSourceStatus: 'latest' as const,
   };
 
-  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['even']);
+  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['upset']);
 });
 
-test('computeGameTags detects neutral-site live upset using team identity fields', () => {
-  const neutralGame = game({
-    key: 't-neutral-upset',
-    neutral: true,
-    csvAway: 'Ole Miss',
-    canAway: 'OleMiss',
-    csvHome: 'LSU',
-    canHome: 'LSU',
-    participants: {
-      away: {
-        kind: 'team',
-        teamId: 'olemiss',
-        displayName: 'Mississippi',
-        canonicalName: 'Mississippi',
-        rawName: 'Ole Miss',
-      },
-      home: {
-        kind: 'team',
-        teamId: 'lsu',
-        displayName: 'LSU',
-        canonicalName: 'LSU',
-        rawName: 'LSU',
-      },
-    },
-  });
-  const ownership = new Map([
-    ['olemiss', 'Dana'],
-    ['lsu', 'Eli'],
+test('computeGameTags applies priority ordering when multiple tags apply', () => {
+  const taggedGame = game({ key: 'tag-priority', csvAway: 'A-Team', csvHome: 'B-Team' });
+  const ownership = new Map<string, string>();
+  const rankingsByTeamId = new Map([
+    ['a', { rank: 15, rankSource: 'ap' as const }],
+    ['h', { rank: 6, rankSource: 'ap' as const }],
   ]);
   const score = {
-    status: 'In Progress',
-    away: { team: 'Ole Miss', score: 17 },
-    home: { team: 'LSU', score: 10 },
-    time: '04:44',
-  };
-  const odds = {
-    favorite: 'LSU',
-    spread: -4.5,
-    homeSpread: -4.5,
-    awaySpread: 4.5,
-    spreadPriceHome: -110,
-    spreadPriceAway: -110,
-    total: 56.5,
-    mlHome: -180,
-    mlAway: 155,
-    overPrice: -110,
-    underPrice: -110,
-    source: 'DraftKings',
-    bookmakerKey: 'draftkings',
-    capturedAt: '2026-09-01T17:00:00.000Z',
-    lineSourceStatus: 'latest' as const,
-  };
-
-  assert.deepEqual(computeGameTags(neutralGame, score, odds, ownership), ['swing', 'upset']);
-});
-
-test('computeGameTags keeps deterministic behavior when odds are missing', () => {
-  const taggedGame = game({ key: 't-no-odds', csvAway: 'A-Team', csvHome: 'B-Team' });
-  const ownership = new Map([
-    ['A-Team', 'Alex'],
-    ['B-Team', 'Blair'],
-  ]);
-  const score = {
-    status: 'In Progress',
-    away: { team: 'A-Team', score: 7 },
-    home: { team: 'B-Team', score: 3 },
-    time: '12:00',
-  };
-
-  assert.deepEqual(computeGameTags(taggedGame, score, undefined, ownership), ['swing']);
-});
-
-test('computeGameTags does not label upset when side spreads are equal non-zero', () => {
-  const taggedGame = game({ key: 'equal-spreads', csvAway: 'A-Team', csvHome: 'B-Team' });
-  const ownership = new Map([
-    ['A-Team', 'Alex'],
-    ['B-Team', 'Blair'],
-  ]);
-  const score = {
-    status: 'In Progress',
-    away: { team: 'A-Team', score: 14 },
-    home: { team: 'B-Team', score: 10 },
-    time: '08:00',
+    status: 'FINAL',
+    away: { team: 'A-Team', score: 34 },
+    home: { team: 'B-Team', score: 31 },
+    time: null,
   };
   const odds = {
     favorite: 'B-Team',
-    spread: 0,
-    homeSpread: -3,
-    awaySpread: -3,
-    spreadPriceHome: -110,
-    spreadPriceAway: -110,
-    total: 49.5,
-    mlHome: -110,
-    mlAway: -110,
-    overPrice: -110,
-    underPrice: -110,
-    source: 'DraftKings',
-    bookmakerKey: 'draftkings',
-    capturedAt: '2026-09-01T17:00:00.000Z',
-    lineSourceStatus: 'latest' as const,
-  };
-
-  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['swing', 'even']);
-});
-
-test("computeGameTags does not label upset on pick'em side spreads", () => {
-  const taggedGame = game({ key: 'pickem-spreads', csvAway: 'A-Team', csvHome: 'B-Team' });
-  const ownership = new Map([
-    ['A-Team', 'Alex'],
-    ['B-Team', 'Blair'],
-  ]);
-  const score = {
-    status: 'In Progress',
-    away: { team: 'A-Team', score: 21 },
-    home: { team: 'B-Team', score: 17 },
-    time: '05:30',
-  };
-  const odds = {
-    favorite: 'B-Team',
-    spread: 0,
-    homeSpread: 0,
-    awaySpread: 0,
-    spreadPriceHome: -110,
-    spreadPriceAway: -110,
-    total: 51.5,
-    mlHome: -110,
-    mlAway: -110,
-    overPrice: -110,
-    underPrice: -110,
-    source: 'DraftKings',
-    bookmakerKey: 'draftkings',
-    capturedAt: '2026-09-01T17:00:00.000Z',
-    lineSourceStatus: 'latest' as const,
-  };
-
-  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['swing', 'even']);
-});
-
-test('computeGameTags falls back to odds.favorite when side spreads are incomplete', () => {
-  const taggedGame = game({ key: 'favorite-fallback', csvAway: 'A-Team', csvHome: 'B-Team' });
-  const ownership = new Map([
-    ['A-Team', 'Alex'],
-    ['B-Team', 'Blair'],
-  ]);
-  const score = {
-    status: 'In Progress',
-    away: { team: 'A-Team', score: 17 },
-    home: { team: 'B-Team', score: 10 },
-    time: '03:41',
-  };
-  const odds = {
-    favorite: 'B-Team',
-    spread: -4.5,
-    homeSpread: -4.5,
-    awaySpread: null,
+    spread: -6.5,
+    homeSpread: -6.5,
+    awaySpread: 6.5,
     spreadPriceHome: -110,
     spreadPriceAway: -110,
     total: 54.5,
@@ -850,7 +713,53 @@ test('computeGameTags falls back to odds.favorite when side spreads are incomple
     lineSourceStatus: 'latest' as const,
   };
 
-  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['swing', 'upset']);
+  const prioritized = prioritizeGameTags(
+    computeGameTags(taggedGame, score, odds, ownership, rankingsByTeamId)
+  );
+  assert.equal(prioritized.primary, 'upset');
+  assert.deepEqual(prioritized.secondary, ['top_25_matchup']);
+});
+
+test('computeGameTags returns no tags when data is insufficient', () => {
+  const taggedGame = game({ key: 'insufficient', csvAway: 'A-Team', csvHome: 'B-Team' });
+  const ownership = new Map<string, string>();
+  const score = {
+    status: 'Scheduled',
+    away: { team: 'A-Team', score: null },
+    home: { team: 'B-Team', score: null },
+    time: null,
+  };
+  assert.deepEqual(computeGameTags(taggedGame, score, undefined, ownership), []);
+});
+
+test('computeGameTags does not emit Top 25 when rankings are unavailable', () => {
+  const taggedGame = game({ key: 'no-rankings-top25', csvAway: 'A-Team', csvHome: 'B-Team' });
+  const ownership = new Map<string, string>();
+  const odds = {
+    favorite: 'B-Team',
+    spread: -7,
+    homeSpread: -7,
+    awaySpread: 7,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 49.5,
+    mlHome: -180,
+    mlAway: 160,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-01T17:00:00.000Z',
+    lineSourceStatus: 'latest' as const,
+  };
+  const score = {
+    status: 'In Progress',
+    away: { team: 'A-Team', score: 10 },
+    home: { team: 'B-Team', score: 17 },
+    time: '09:11',
+  };
+
+  assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), []);
 });
 
 test('computeWeeklyInsights reports no live leader when games are not live', () => {
@@ -874,10 +783,10 @@ test('computeWeeklyInsights reports no live leader when games are not live', () 
   assert.equal(insights.mostLiveOwner, null);
 });
 
-test('prioritizeGameTags applies swing > upset > even ordering with dedupe', () => {
-  const prioritized = prioritizeGameTags(['even', 'swing', 'upset', 'swing']);
-  assert.equal(prioritized.primary, 'swing');
-  assert.deepEqual(prioritized.secondary, ['upset', 'even']);
+test('prioritizeGameTags applies upset > upset_watch > top_25_matchup ordering with dedupe', () => {
+  const prioritized = prioritizeGameTags(['top_25_matchup', 'upset_watch', 'upset', 'upset_watch']);
+  assert.equal(prioritized.primary, 'upset');
+  assert.deepEqual(prioritized.secondary, ['upset_watch', 'top_25_matchup']);
 });
 
 test('deriveGameHighlightTags prioritizes top-25 then top-matchup badges and caps tag count', () => {

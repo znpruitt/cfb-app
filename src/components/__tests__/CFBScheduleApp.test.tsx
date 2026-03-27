@@ -340,25 +340,25 @@ test('standings hides week context controls and keeps season-level framing', () 
   assert.doesNotMatch(html, /Week context/);
 });
 
-test('postseason weekly matchups drill-down coerces to a regular week tab', () => {
+test('postseason weekly matchups drill-down preserves postseason scope when no week is selected', () => {
   assert.deepEqual(
     deriveWeeklyMatchupsDrilldownState({
       selectedTab: 'postseason',
       selectedWeek: null,
       regularWeeks: [8, 9, 10],
     }),
-    { nextTab: 8, nextWeek: 8 }
+    { nextTab: 'postseason', nextWeek: null }
   );
 });
 
-test('postseason matchups drill-down preserves selected regular week when available', () => {
+test('postseason matchups drill-down does not coerce to regular week even when selectedWeek exists', () => {
   assert.deepEqual(
     deriveWeeklyMatchupsDrilldownState({
       selectedTab: 'postseason',
       selectedWeek: 9,
       regularWeeks: [8, 9, 10],
     }),
-    { nextTab: 9, nextWeek: 9 }
+    { nextTab: 'postseason', nextWeek: 9 }
   );
 });
 
@@ -436,6 +436,30 @@ test('highlight owner-pair drill-down routes to matrix with pair focus', () => {
   assert.equal(next.nextWeek, 9);
   assert.equal(next.nextViewMode, 'matrix');
   assert.deepEqual(next.focusedOwnerPair, ['Alice', 'Bob']);
+});
+
+test('highlight owner drill-down routes postseason matchups without regular-week coercion', () => {
+  const next = resolveHighlightDrilldownNavigation({
+    target: {
+      kind: 'owner',
+      destination: 'matchups',
+      owner: 'Alice',
+      seasonTab: 'postseason',
+      week: null,
+      focus: true,
+    },
+    selectedWeek: 6,
+    regularWeeks: [6, 7, 8],
+  });
+
+  assert.deepEqual(next, {
+    nextTab: 'postseason',
+    nextWeek: null,
+    nextViewMode: 'matchups',
+    focusedGameId: null,
+    focusedOwner: 'Alice',
+    focusedOwnerPair: null,
+  });
 });
 
 test('generic weekly matchups focus reset clears stale owner, game, and owner-pair focus', () => {
