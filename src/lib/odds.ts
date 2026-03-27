@@ -1,5 +1,6 @@
 import { attachOddsEventsToSchedule } from './oddsAttachment.ts';
 import {
+  areTeamNamesEquivalent,
   createTeamIdentityResolver,
   type TeamCatalogItem,
   type TeamIdentityResolver,
@@ -91,12 +92,6 @@ function eventHomeTeam(ev: OddsEvent): string {
 
 function eventAwayTeam(ev: OddsEvent): string {
   return ev.awayTeam ?? ev.away_team ?? '';
-}
-
-function teamMatches(resolver: TeamIdentityResolver, left: string, right: string): boolean {
-  const l = resolver.resolveName(left);
-  const r = resolver.resolveName(right);
-  return (l.identityKey ?? l.normalizedInput) === (r.identityKey ?? r.normalizedInput);
 }
 
 export function pickPreferredBook(ev: OddsEvent): OddsBookmaker | undefined {
@@ -303,10 +298,10 @@ export function buildDurableOddsSnapshot(params: {
   if (h2h?.outcomes) {
     for (const outcome of h2h.outcomes) {
       const side = outcome.name || '';
-      if (teamMatches(resolver, side, game.canHome)) {
+      if (areTeamNamesEquivalent(resolver, side, game.canHome)) {
         moneylineHome = typeof outcome.price === 'number' ? outcome.price : null;
       }
-      if (teamMatches(resolver, side, game.canAway)) {
+      if (areTeamNamesEquivalent(resolver, side, game.canAway)) {
         moneylineAway = typeof outcome.price === 'number' ? outcome.price : null;
       }
     }
@@ -314,10 +309,10 @@ export function buildDurableOddsSnapshot(params: {
 
   if (spreads?.outcomes) {
     const homeOutcome = spreads.outcomes.find((outcome) =>
-      teamMatches(resolver, outcome.name || '', game.canHome)
+      areTeamNamesEquivalent(resolver, outcome.name || '', game.canHome)
     );
     const awayOutcome = spreads.outcomes.find((outcome) =>
-      teamMatches(resolver, outcome.name || '', game.canAway)
+      areTeamNamesEquivalent(resolver, outcome.name || '', game.canAway)
     );
 
     homeSpread = typeof homeOutcome?.point === 'number' ? homeOutcome.point : null;

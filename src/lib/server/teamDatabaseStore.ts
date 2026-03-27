@@ -37,6 +37,8 @@ function toStringArray(value: unknown): string[] {
 }
 
 function deriveCanonicalTeamId(school: string): string | null {
+  // Storage-key normalization for catalog persistence only.
+  // Team equivalence/matching should go through teamIdentity resolver helpers.
   return normalizeTeamName(school);
 }
 

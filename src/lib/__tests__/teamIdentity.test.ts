@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { normalizeTeamName } from '../teamNormalization.ts';
-import { createTeamIdentityResolver, getTeamDisplayLabel } from '../teamIdentity.ts';
+import {
+  areTeamNamesEquivalent,
+  createTeamIdentityResolver,
+  getTeamDisplayLabel,
+  hasEquivalentTeamName,
+  toTeamIdentityKey,
+} from '../teamIdentity.ts';
 import { buildScheduleFromApi } from '../schedule.ts';
 import { classifyScheduleRow } from '../postseason-classify.ts';
 
@@ -12,6 +18,29 @@ test('normalization cases', () => {
   assert.equal(normalizeTeamName('Miami (FL)'), 'miamifl');
   assert.equal(normalizeTeamName('Texas A&M'), 'texasam');
   assert.equal(normalizeTeamName('Ole Miss'), 'olemiss');
+});
+
+test('team identity helpers normalize equivalent labels consistently', () => {
+  assert.equal(toTeamIdentityKey(' Miami (OH) '), 'miamioh');
+  assert.equal(hasEquivalentTeamName('Wash St', ['Washington State', 'Oregon State']), false);
+  assert.equal(hasEquivalentTeamName(' Texas A&M ', ['Texas A&M']), true);
+});
+
+test('resolver-backed team equality respects aliases and keeps distinct teams separate', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: { 'wash st': 'Washington State' },
+    teams: [
+      { school: 'Washington State', level: 'FBS' },
+      { school: 'Washington', level: 'FBS' },
+    ],
+  });
+
+  assert.equal(areTeamNamesEquivalent(resolver, 'Wash St', 'Washington State'), true);
+  assert.equal(areTeamNamesEquivalent(resolver, 'Wash St', 'Washington'), false);
+  assert.equal(
+    hasEquivalentTeamName('Wash St', ['Washington', 'Washington State'], resolver),
+    true
+  );
 });
 
 test('canonical resolution includes observed FCS opponents', () => {

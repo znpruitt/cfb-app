@@ -75,6 +75,47 @@ export type TeamIdentityResolver = {
   getRegistry: () => Map<string, TeamIdentity>;
 };
 
+export function toTeamIdentityKey(raw: string): string {
+  return normalizeTeamName(raw.trim());
+}
+
+export function resolveTeamIdentityKey(resolver: TeamIdentityResolver, raw: string): string {
+  const resolved = resolver.resolveName(raw);
+  return resolved.identityKey ?? resolved.normalizedInput;
+}
+
+export function areTeamNamesEquivalent(
+  resolver: TeamIdentityResolver,
+  left: string,
+  right: string
+): boolean {
+  const leftKey = resolveTeamIdentityKey(resolver, left);
+  const rightKey = resolveTeamIdentityKey(resolver, right);
+  return leftKey.length > 0 && leftKey === rightKey;
+}
+
+export function hasEquivalentTeamName(
+  rawName: string,
+  candidates: Iterable<string>,
+  resolver?: TeamIdentityResolver
+): boolean {
+  if (resolver) {
+    const identityKey = resolveTeamIdentityKey(resolver, rawName);
+    if (!identityKey) return false;
+    for (const candidate of candidates) {
+      if (resolveTeamIdentityKey(resolver, candidate) === identityKey) return true;
+    }
+    return false;
+  }
+
+  const normalized = toTeamIdentityKey(rawName);
+  if (!normalized) return false;
+  for (const candidate of candidates) {
+    if (toTeamIdentityKey(candidate) === normalized) return true;
+  }
+  return false;
+}
+
 function toSubdivision(level?: string | null): TeamSubdivision {
   const raw = (level ?? '').trim().toUpperCase();
   if (!raw) return 'UNKNOWN';

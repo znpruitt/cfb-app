@@ -5,7 +5,7 @@ import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
 import type { CombinedOdds } from './odds.ts';
 import type { OwnerStandingsRow } from './standings.ts';
-import { normalizeTeamName } from './teamNormalization.ts';
+import { hasEquivalentTeamName } from './teamIdentity.ts';
 
 export type Insight = {
   id: string;
@@ -633,15 +633,8 @@ function favoriteSideFromOdds(game: AppGame, odds?: CombinedOdds): 'away' | 'hom
   }
 
   if (odds.favorite) {
-    const favoriteKey = normalizeTeamName(odds.favorite);
-    const homeKeys = new Set(
-      sideIdentityCandidates(game, 'home').map((value) => normalizeTeamName(value))
-    );
-    const awayKeys = new Set(
-      sideIdentityCandidates(game, 'away').map((value) => normalizeTeamName(value))
-    );
-    if (homeKeys.has(favoriteKey)) return 'home';
-    if (awayKeys.has(favoriteKey)) return 'away';
+    if (hasEquivalentTeamName(odds.favorite, sideIdentityCandidates(game, 'home'))) return 'home';
+    if (hasEquivalentTeamName(odds.favorite, sideIdentityCandidates(game, 'away'))) return 'away';
   }
 
   return null;
