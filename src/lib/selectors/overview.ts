@@ -365,15 +365,6 @@ function deriveMatchupInsights(matrix: {
   };
 }
 
-function deriveScopePhrase(context: OverviewContext): string {
-  const detail = context.scopeDetail?.trim();
-  if (!detail) return 'this slate';
-  if (/^week\s+\d+/i.test(detail)) return 'this week';
-  if (/postseason/i.test(detail) || /postseason/i.test(context.scopeLabel))
-    return 'this postseason slate';
-  return detail.toLowerCase();
-}
-
 function deriveDrilldownScope(
   context: OverviewContext,
   fallbackWeek: number | null
@@ -406,7 +397,17 @@ function winnerText(item: OverviewGameItem): string | null {
   const winner = awayScore > homeScore ? item.bucket.game.csvAway : item.bucket.game.csvHome;
   const loser = awayScore > homeScore ? item.bucket.game.csvHome : item.bucket.game.csvAway;
   const margin = Math.abs(awayScore - homeScore);
+  if (margin >= 17) return `${winner} dominated ${loser} by ${margin}`;
+  if (margin <= 3) return `${winner} edged ${loser} by ${margin}`;
   return `${winner} beat ${loser} by ${margin}`;
+}
+
+function stripLeadingLabel(text: string): string {
+  const firstColon = text.indexOf(':');
+  if (firstColon === -1) return text.trim();
+  const prefix = text.slice(0, firstColon).trim();
+  if (prefix.length === 0 || prefix.length > 30) return text.trim();
+  return text.slice(firstColon + 1).trim();
 }
 
 function deriveLeagueHighlights(params: {
@@ -423,7 +424,6 @@ function deriveLeagueHighlights(params: {
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   context: OverviewContext;
 }): OverviewViewModel['leagueHighlights'] {
-  const scopePhrase = deriveScopePhrase(params.context);
   const fallbackWeek = params.allMatchups[0]?.bucket.game.week ?? null;
   const drilldownScope = deriveDrilldownScope(params.context, fallbackWeek);
   const highlights: OverviewViewModel['leagueHighlights'] = [];
@@ -448,7 +448,8 @@ function deriveLeagueHighlights(params: {
       id: `blowout-${blowout.bucket.game.key}`,
       type: 'biggest_blowout',
       label: 'Biggest win',
-      text: `${winnerText(blowout)} (${scopePhrase})`,
+      text:
+        winnerText(blowout) ?? `${blowout.bucket.game.csvAway} vs ${blowout.bucket.game.csvHome}`,
       ctaLabel: 'View game',
       drilldownTarget: {
         kind: 'game',
@@ -478,8 +479,10 @@ function deriveLeagueHighlights(params: {
       id: `close-${closestFinish.bucket.game.key}`,
       type: 'closest_finish',
       label: 'Closest finish',
-      text: `${winnerText(closestFinish)} (${scopePhrase})`,
-      ctaLabel: 'Open result',
+      text:
+        winnerText(closestFinish) ??
+        `${closestFinish.bucket.game.csvAway} vs ${closestFinish.bucket.game.csvHome}`,
+      ctaLabel: 'View game',
       drilldownTarget: {
         kind: 'game',
         destination: 'schedule',
@@ -516,7 +519,7 @@ function deriveLeagueHighlights(params: {
       id: `ranked-${rankedMatchup.item.bucket.game.key}`,
       type: 'top_ranked_matchup',
       label: 'Top ranked matchup',
-      text: `#${rankedMatchup.awayRank} ${rankedMatchup.item.bucket.game.csvAway} vs #${rankedMatchup.homeRank} ${rankedMatchup.item.bucket.game.csvHome} (${scopePhrase})`,
+      text: `#${rankedMatchup.awayRank} ${rankedMatchup.item.bucket.game.csvAway} vs #${rankedMatchup.homeRank} ${rankedMatchup.item.bucket.game.csvHome}`,
       ctaLabel: 'View game',
       drilldownTarget: {
         kind: 'game',
@@ -539,7 +542,7 @@ function deriveLeagueHighlights(params: {
       id: biggestGain.id,
       type: 'biggest_gain',
       label: 'Biggest gain',
-      text: `${biggestGain.text} (${scopePhrase})`,
+      text: stripLeadingLabel(biggestGain.text),
       ctaLabel: 'View standings',
       drilldownTarget: {
         kind: 'owner',
@@ -572,8 +575,8 @@ function deriveLeagueHighlights(params: {
       id: `most-games-${mostGamesOwner[0]}`,
       type: 'most_games_owner',
       label: 'Most games this week',
-      text: `${mostGamesOwner[0]} has ${mostGamesOwner[1]} teams playing (${scopePhrase})`,
-      ctaLabel: 'Open matchup',
+      text: `${mostGamesOwner[0]} has the busiest slate with ${mostGamesOwner[1]} teams playing`,
+      ctaLabel: 'View matchup',
       drilldownTarget: {
         kind: 'owner',
         owner: mostGamesOwner[0],
@@ -589,13 +592,15 @@ function deriveLeagueHighlights(params: {
   if (matrixInsights.mostCompetitive) {
     const parsed = parseRecord(matrixInsights.mostCompetitive.record);
     const totalGames = parsed ? parsed.leftWins + parsed.rightWins : 0;
-    if (totalGames >= 2 && parsed && parsed.leftWins === parsed.rightWins) {
+    const hasTiedRecord = parsed && parsed.leftWins === parsed.rightWins;
+    const hasMeaningfulVolume = totalGames >= 4;
+    if (hasMeaningfulVolume && hasTiedRecord) {
       push({
         id: `split-${matrixInsights.mostCompetitive.owners.join('-')}`,
         type: 'split_owner_matchup',
         label: 'Split owner matchup',
-        text: `${matrixInsights.mostCompetitive.owners[0]} vs ${matrixInsights.mostCompetitive.owners[1]} (${matrixInsights.mostCompetitive.record})`,
-        ctaLabel: 'Open matrix',
+        text: `${matrixInsights.mostCompetitive.owners[0]} and ${matrixInsights.mostCompetitive.owners[1]} are dead even at ${matrixInsights.mostCompetitive.record}`,
+        ctaLabel: 'View matrix',
         drilldownTarget: {
           kind: 'owner_pair',
           owners: matrixInsights.mostCompetitive.owners,
@@ -606,13 +611,13 @@ function deriveLeagueHighlights(params: {
         },
       });
     }
-  } else if (matrixInsights.mostFrequent && matrixInsights.mostFrequent.gameCount >= 4) {
+  } else if (matrixInsights.mostFrequent && matrixInsights.mostFrequent.gameCount >= 5) {
     push({
       id: `collision-${matrixInsights.mostFrequent.owners.join('-')}`,
       type: 'heavy_owner_collision',
       label: 'Heavy owner collision',
       text: `${matrixInsights.mostFrequent.owners[0]} vs ${matrixInsights.mostFrequent.owners[1]} has ${matrixInsights.mostFrequent.gameCount} head-to-head games`,
-      ctaLabel: 'Open matrix',
+      ctaLabel: 'View matrix',
       drilldownTarget: {
         kind: 'owner_pair',
         owners: matrixInsights.mostFrequent.owners,

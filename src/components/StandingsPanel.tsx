@@ -10,6 +10,22 @@ type StandingsPanelProps = {
   focusedOwner?: string | null;
 };
 
+type FocusableElement = {
+  scrollIntoView: (options?: ScrollIntoViewOptions) => void;
+};
+
+export function scrollFocusedStandingsOwnerIntoView(params: {
+  focusedOwner: string | null;
+  refsByOwner: Map<string, FocusableElement>;
+}): boolean {
+  const { focusedOwner, refsByOwner } = params;
+  if (!focusedOwner) return false;
+  const row = refsByOwner.get(focusedOwner);
+  if (!row) return false;
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  return true;
+}
+
 function formatWinPct(value: number): string {
   return value.toFixed(3);
 }
@@ -29,6 +45,15 @@ export default function StandingsPanel({
   onOwnerSelect,
   focusedOwner = null,
 }: StandingsPanelProps): React.ReactElement {
+  const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
+
+  React.useEffect(() => {
+    scrollFocusedStandingsOwnerIntoView({
+      focusedOwner,
+      refsByOwner: ownerRowRefs.current,
+    });
+  }, [focusedOwner]);
+
   return (
     <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       <div className="space-y-1">
@@ -78,11 +103,19 @@ export default function StandingsPanel({
                 {rows.map((row, index) => (
                   <tr
                     key={row.owner}
+                    ref={(element) => {
+                      if (!element) {
+                        ownerRowRefs.current.delete(row.owner);
+                        return;
+                      }
+                      ownerRowRefs.current.set(row.owner, element);
+                    }}
                     className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
                       focusedOwner === row.owner
                         ? 'ring-1 ring-inset ring-blue-400 dark:ring-blue-600'
                         : ''
                     }`}
+                    data-standings-owner={row.owner}
                   >
                     <td className="border-b border-gray-100 px-2 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
                       {index + 1}

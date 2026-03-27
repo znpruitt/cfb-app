@@ -8,6 +8,10 @@ import CFBScheduleApp, {
   deriveWeeklyMatchupsDrilldownState,
   resolveHighlightDrilldownNavigation,
 } from '../CFBScheduleApp';
+import { scrollFocusedGameIntoView } from '../GameWeekPanel';
+import { scrollFocusedOwnerPairIntoView } from '../MatchupMatrixView';
+import { scrollFocusedOwnerIntoView } from '../MatchupsWeekPanel';
+import { scrollFocusedStandingsOwnerIntoView } from '../StandingsPanel';
 import { getAdminAlertCount } from '../../lib/adminDiagnostics';
 import type { DiagEntry } from '../../lib/diagnostics';
 import type { AppGame } from '../../lib/schedule';
@@ -440,4 +444,85 @@ test('generic weekly matchups focus reset clears stale owner, game, and owner-pa
     focusedOwner: null,
     focusedOwnerPair: null,
   });
+});
+
+test('game drill-down focus helper scrolls the targeted game card', () => {
+  let called = false;
+  const didScroll = scrollFocusedGameIntoView({
+    gameId: 'game-1',
+    refsByGameId: new Map([
+      [
+        'game-1',
+        {
+          scrollIntoView: () => {
+            called = true;
+          },
+        },
+      ],
+    ]),
+  });
+
+  assert.equal(didScroll, true);
+  assert.equal(called, true);
+});
+
+test('owner drill-down focus helper scrolls matchup owner card', () => {
+  let called = false;
+  const didScroll = scrollFocusedOwnerIntoView({
+    focusedOwner: 'Alice',
+    focusedOwnerPair: null,
+    refsByOwner: new Map([
+      [
+        'Alice',
+        {
+          scrollIntoView: () => {
+            called = true;
+          },
+        },
+      ],
+    ]),
+  });
+
+  assert.equal(didScroll, true);
+  assert.equal(called, true);
+});
+
+test('owner-pair drill-down focus helper scrolls matrix intersection', () => {
+  let called = false;
+  const didScroll = scrollFocusedOwnerPairIntoView({
+    focusedOwnerPair: ['Bob', 'Alice'],
+    refsByOwnerPair: new Map([
+      [
+        'Alice::Bob',
+        {
+          scrollIntoView: () => {
+            called = true;
+          },
+        },
+      ],
+    ]),
+  });
+
+  assert.equal(didScroll, true);
+  assert.equal(called, true);
+});
+
+test('standings drill-down focus helper scrolls focused owner row', () => {
+  let called = false;
+  const didScroll = scrollFocusedStandingsOwnerIntoView({
+    focusedOwner: 'Alice',
+    refsByOwner: new Map([
+      [
+        'Alice',
+        {
+          scrollIntoView: () => {
+            called = true;
+          },
+        },
+      ],
+    ]),
+  });
+
+  assert.equal(didScroll, true);
+  assert.equal(called, true);
 });

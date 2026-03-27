@@ -802,8 +802,8 @@ test('overview panel renders insight strip with prioritized ranked matchup signa
   );
 
   assert.match(html, /Pruitt leads by 0.083 win%/);
-  assert.match(html, /Top ranked matchup:/);
-  assert.match(html, /#7 Texas vs #14 Miami \(this week\)/);
+  assert.match(html, /Top ranked matchup/);
+  assert.match(html, /#7 Texas vs #14 Miami/);
 });
 
 test('overview panel insight strip shows biggest gain and biggest drop signals', () => {
@@ -837,7 +837,7 @@ test('overview panel insight strip shows biggest gain and biggest drop signals',
     />
   );
 
-  assert.match(html, /Biggest gain: Alice \(\+2 wins\)/);
+  assert.match(html, /Alice \(\+2 wins\)/);
   assert.match(html, /Biggest drop: Bob \(-2\)/);
 });
 
@@ -1106,4 +1106,29 @@ test('overview standings context suppresses leader-gap duplicate messaging when 
   assert.doesNotMatch(html, /Leader gap:/);
   assert.doesNotMatch(html, /Tight race:/);
   assert.match(html, /Alice leads by 0.166 win%/);
+});
+
+test('overview highlights show scope context once at section level', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[
+        itemWithScore(game({ key: 'scope-check' }), {
+          status: 'Final',
+          away: { team: 'Away Team', score: 35 },
+          home: { team: 'Home Team', score: 14 },
+          time: null,
+        }),
+      ]}
+      context={{ ...defaultContext, scopeDetail: 'Postseason' }}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /League highlights/);
+  assert.match(html, />Postseason</);
+  assert.doesNotMatch(html, /\(this postseason slate\)/i);
 });

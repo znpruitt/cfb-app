@@ -112,6 +112,22 @@ type GameWeekPanelProps = {
   focusedGameId?: string | null;
 };
 
+type FocusableElement = {
+  scrollIntoView: (options?: ScrollIntoViewOptions) => void;
+};
+
+export function scrollFocusedGameIntoView(params: {
+  gameId: string | null;
+  refsByGameId: Map<string, FocusableElement>;
+}): boolean {
+  const { gameId, refsByGameId } = params;
+  if (!gameId) return false;
+  const element = refsByGameId.get(gameId);
+  if (!element) return false;
+  element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  return true;
+}
+
 export default function GameWeekPanel({
   games,
   byes,
@@ -125,6 +141,7 @@ export default function GameWeekPanel({
   displayTimeZone = getPresentationTimeZone(),
   focusedGameId = null,
 }: GameWeekPanelProps): React.ReactElement {
+  const gameCardRefs = React.useRef<Map<string, HTMLDetailsElement>>(new Map());
   const viewModel = deriveGameWeekPanelViewModel({
     games,
     oddsByKey,
@@ -137,6 +154,10 @@ export default function GameWeekPanel({
     gamesCount: viewModel.totalGames,
     oddsAvailableCount: viewModel.oddsAvailableCount,
   });
+
+  React.useEffect(() => {
+    scrollFocusedGameIntoView({ gameId: focusedGameId, refsByGameId: gameCardRefs.current });
+  }, [focusedGameId]);
 
   return (
     <>
@@ -205,6 +226,13 @@ export default function GameWeekPanel({
                 return (
                   <details
                     key={g.key}
+                    ref={(element) => {
+                      if (!element) {
+                        gameCardRefs.current.delete(g.key);
+                        return;
+                      }
+                      gameCardRefs.current.set(g.key, element);
+                    }}
                     className={`group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${
                       card.isLiveState ? 'ring-1 ring-amber-300/70 dark:ring-amber-800/60' : ''
                     } ${cardEmphasisClasses(card.emphasisTone)} ${
@@ -218,6 +246,7 @@ export default function GameWeekPanel({
                     data-primary-tag={card.tagPrimary ?? ''}
                     data-ranked-game={card.hasRankedTeam ? 'true' : 'false'}
                     data-focused-game={focusedGameId === g.key ? 'true' : 'false'}
+                    data-game-card-id={g.key}
                     open={focusedGameId === g.key ? true : undefined}
                   >
                     <summary className="cursor-pointer list-none px-2.5 py-1.5">
