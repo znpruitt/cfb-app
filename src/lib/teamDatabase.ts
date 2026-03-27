@@ -169,6 +169,7 @@ export function normalizeCfbdTeamRecord(record: CfbdTeamRecord): {
     return { item: null, error: 'missing school name' };
   }
 
+  // Stable persisted team-catalog identifier generation (not runtime team equivalence).
   const canonicalId = normalizeTeamName(school);
   if (!canonicalId) {
     return { item: null, error: `unable to normalize team id for ${school}` };

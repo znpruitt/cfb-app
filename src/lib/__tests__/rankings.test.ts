@@ -6,6 +6,7 @@ import teamsCatalog from '../../data/teams.json';
 import {
   buildRankingsLookup,
   getDefaultRankingsSeason,
+  getTeamRanking,
   normalizePollSource,
   selectPrimaryRankSource,
   selectRankingsWeek,
@@ -140,4 +141,10 @@ test('default rankings season uses football-season logic during the offseason', 
 
 test('dashboard/page offseason defaults stay aligned through shared season fallback', () => {
   assert.equal(getDefaultRankingsSeason(null, new Date('2026-03-21T12:00:00.000Z')), 2025);
+});
+
+test('getTeamRanking uses centralized team identity key normalization for lookups', () => {
+  const lookup = new Map([['texasam', { rank: 22, rankSource: 'ap' as const }]]);
+  assert.deepEqual(getTeamRanking(lookup, 'Texas A&M'), { rank: 22, rankSource: 'ap' });
+  assert.deepEqual(getTeamRanking(lookup, 'Texas'), { rank: null, rankSource: null });
 });

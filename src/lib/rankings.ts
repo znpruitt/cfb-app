@@ -1,5 +1,5 @@
 import { seasonYearForToday } from './scores/normalizers.ts';
-import { normalizeTeamName } from './teamNormalization.ts';
+import { toTeamIdentityKey } from './teamIdentity.ts';
 import { requireAdminAuthHeaders } from './adminAuth.ts';
 
 export type RankSource = 'cfp' | 'ap' | 'coaches';
@@ -95,7 +95,7 @@ export function getTeamRanking(
   const exact = lookup.get(teamIdOrName);
   if (exact) return exact;
 
-  const normalized = normalizeTeamName(teamIdOrName);
+  const normalized = toTeamIdentityKey(teamIdOrName);
   return lookup.get(normalized) ?? { rank: null, rankSource: null };
 }
 

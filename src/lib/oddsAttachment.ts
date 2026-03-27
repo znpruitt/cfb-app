@@ -1,5 +1,5 @@
 import { buildSchedulePairIndex, type ScheduleAttachmentGame } from './gameAttachment.ts';
-import type { TeamIdentityResolver } from './teamIdentity.ts';
+import { areTeamNamesEquivalent, type TeamIdentityResolver } from './teamIdentity.ts';
 
 export type OddsAttachmentEventBase = {
   homeTeam: string;
@@ -10,12 +10,6 @@ export type AttachedOddsEvent<TEvent extends OddsAttachmentEventBase> = {
   gameKey: string;
   event: TEvent;
 };
-
-function teamMatches(resolver: TeamIdentityResolver, left: string, right: string): boolean {
-  const l = resolver.resolveName(left);
-  const r = resolver.resolveName(right);
-  return (l.identityKey ?? l.normalizedInput) === (r.identityKey ?? r.normalizedInput);
-}
 
 export function attachOddsEventsToSchedule<TEvent extends OddsAttachmentEventBase>(params: {
   games: ScheduleAttachmentGame[];
@@ -64,10 +58,10 @@ export function attachOddsEventsToSchedule<TEvent extends OddsAttachmentEventBas
 
     if (
       !(
-        (teamMatches(resolver, game.canHome, match.homeTeam) &&
-          teamMatches(resolver, game.canAway, match.awayTeam)) ||
-        (teamMatches(resolver, game.canHome, match.awayTeam) &&
-          teamMatches(resolver, game.canAway, match.homeTeam))
+        (areTeamNamesEquivalent(resolver, game.canHome, match.homeTeam) &&
+          areTeamNamesEquivalent(resolver, game.canAway, match.awayTeam)) ||
+        (areTeamNamesEquivalent(resolver, game.canHome, match.awayTeam) &&
+          areTeamNamesEquivalent(resolver, game.canAway, match.homeTeam))
       )
     ) {
       continue;
