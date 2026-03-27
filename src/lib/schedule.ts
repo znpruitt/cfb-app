@@ -20,6 +20,7 @@ import {
 } from './schedulePostseasonHelpers.ts';
 import { buildByes, isTrackedGame, resolveRegularSeasonRow } from './scheduleTracking.ts';
 import { isFbsTeam } from './scheduleEligibility.ts';
+import { deriveConferenceOptionsFromTrackedGames } from './selectors/conferences.ts';
 import {
   buildRegularSeasonWeekCalendar,
   deriveCanonicalRegularSeasonWeek,
@@ -635,11 +636,10 @@ export function buildScheduleFromApi(params: {
     isTrackedGame(game, canonicalTeamMetadataByName, resolver)
   );
 
-  const conferenceSet = new Set<string>();
-  for (const game of trackedGames) {
-    if (game.awayConf) conferenceSet.add(game.awayConf);
-    if (game.homeConf) conferenceSet.add(game.homeConf);
-  }
+  const conferences = deriveConferenceOptionsFromTrackedGames({
+    games: trackedGames,
+    isFbsTeamName: (name) => isFbsTeam(name, canonicalTeamMetadataByName, resolver),
+  });
 
   const trackedFbsTeams = Array.from(
     new Set(
@@ -674,14 +674,14 @@ export function buildScheduleFromApi(params: {
 
     console.log('combinedWeeks', weeks);
 
-    console.log('conferenceCount', conferenceSet.size);
+    console.log('conferenceCount', Math.max(conferences.length - 1, 0));
   }
 
   return {
     games,
     weeks,
     byes,
-    conferences: ['ALL', ...Array.from(conferenceSet).sort((a, b) => a.localeCompare(b))],
+    conferences,
     issues,
     hydrationDiagnostics: [] as HydrationDiagnostic[],
   };
