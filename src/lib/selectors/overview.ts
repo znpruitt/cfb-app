@@ -170,6 +170,7 @@ function deriveLeaguePulse(params: {
       return (
         insight.id.startsWith('leader-gap') ||
         insight.id.startsWith('biggest-gain-') ||
+        insight.id.startsWith('biggest-drop-') ||
         insight.id.startsWith('rank-movement-')
       );
     })
@@ -183,6 +184,33 @@ function deriveLeaguePulse(params: {
     });
 
   return pulse.slice(0, 4);
+}
+
+function selectMovementInsightsForPulse(
+  insights: { id: string; text: string }[]
+): { id: string; text: string }[] {
+  const selected: { id: string; text: string }[] = [];
+  const seen = new Set<string>();
+  const pushFirst = (predicate: (insight: { id: string; text: string }) => boolean): void => {
+    const match = insights.find(predicate);
+    if (!match || seen.has(match.id)) return;
+    seen.add(match.id);
+    selected.push(match);
+  };
+
+  pushFirst((insight) => insight.id.startsWith('leader-gap'));
+  pushFirst((insight) => insight.id.startsWith('biggest-gain-'));
+  pushFirst((insight) => insight.id.startsWith('biggest-drop-'));
+
+  insights
+    .filter((insight) => insight.id.startsWith('rank-movement-'))
+    .forEach((insight) => {
+      if (selected.length >= 4 || seen.has(insight.id)) return;
+      seen.add(insight.id);
+      selected.push(insight);
+    });
+
+  return selected.slice(0, 4);
 }
 
 function deriveShouldShowLeaguePulse(params: {
@@ -814,22 +842,23 @@ export function selectOverviewViewModel(params: {
   });
   const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
   const recentResults = prioritizedResults.slice(0, resultsLimit);
-  const movementInsights = deriveLeagueInsights({
-    standings: standingsLeaders,
-    previousStandings: previousStandingsLeaders,
-    recentResults: keyMatchups,
-    liveGames: liveItems,
-    rankingsByTeamId,
-  })
-    .filter(
-      (insight) =>
-        insight.id.startsWith('leader-gap') ||
-        insight.id.startsWith('biggest-gain-') ||
-        insight.id.startsWith('biggest-drop-') ||
-        insight.id.startsWith('rank-movement-')
-    )
-    .slice(0, 3)
-    .map((insight) => ({ id: insight.id, text: insight.text }));
+  const movementInsights = selectMovementInsightsForPulse(
+    deriveLeagueInsights({
+      standings: standingsLeaders,
+      previousStandings: previousStandingsLeaders,
+      recentResults: keyMatchups,
+      liveGames: liveItems,
+      rankingsByTeamId,
+    })
+      .filter(
+        (insight) =>
+          insight.id.startsWith('leader-gap') ||
+          insight.id.startsWith('biggest-gain-') ||
+          insight.id.startsWith('biggest-drop-') ||
+          insight.id.startsWith('rank-movement-')
+      )
+      .map((insight) => ({ id: insight.id, text: insight.text }))
+  );
   const championSummary = deriveLeagueSummaryViewModel({
     standingsLeaders,
     context,
