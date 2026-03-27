@@ -29,6 +29,7 @@ import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../lib/ov
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
+import { deriveActiveSurfaceCopy } from '../lib/presentationCopy';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -771,47 +772,7 @@ export default function CFBScheduleApp({
     primarySurfaceKind === 'matchups' ||
     primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'postseason';
-  const activeSurfaceCopy =
-    weekViewMode === 'overview'
-      ? {
-          eyebrow: 'League overview',
-          title: 'Overview',
-          description:
-            'Start with the current league picture, then drill into weekly schedule and matchup detail as needed.',
-        }
-      : weekViewMode === 'standings'
-        ? {
-            eyebrow: 'Season view',
-            title: 'Standings',
-            description:
-              'Season-long surname results and coverage status stay front-and-center here.',
-          }
-        : weekViewMode === 'owner'
-          ? {
-              eyebrow: 'Team view',
-              title: 'Teams',
-              description:
-                'Focus on one surname’s roster, live games, and active-week slate in one place.',
-            }
-          : weekViewMode === 'matchups'
-            ? {
-                eyebrow: 'Week view',
-                title: 'Matchups',
-                description: 'Surname-based weekly cards and team context for the selected tab.',
-              }
-            : weekViewMode === 'matrix'
-              ? {
-                  eyebrow: 'Week view',
-                  title: 'Matrix',
-                  description:
-                    'Full owner-vs-owner matrix from the canonical schedule-derived slate.',
-                }
-              : {
-                  eyebrow: 'Week view',
-                  title: 'Schedule',
-                  description:
-                    'Full game list and live details for the selected week or postseason slate.',
-                };
+  const activeSurfaceCopy = deriveActiveSurfaceCopy(weekViewMode);
 
   const openWeeklyMatchupsView = useCallback(() => {
     const nextDrilldownState = deriveWeeklyMatchupsDrilldownState({
@@ -1267,9 +1228,14 @@ export default function CFBScheduleApp({
                 <h2 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
                   {activeSurfaceCopy.title}
                 </h2>
-                <p className="text-sm text-gray-600 dark:text-zinc-300">
-                  {activeSurfaceCopy.description}
-                </p>
+                {activeSurfaceCopy.subtitle ? (
+                  <p
+                    className="text-sm text-gray-600 dark:text-zinc-300"
+                    data-active-surface-subtitle="true"
+                  >
+                    {activeSurfaceCopy.subtitle}
+                  </p>
+                ) : null}
               </div>
               <div className="w-full space-y-2 xl:max-w-2xl">
                 <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">

@@ -1522,7 +1522,7 @@ test('ranked games receive subtle emphasis without requiring league tags', () =>
   assert.match(html, /border-blue-300\/70 bg-blue-50\/20/);
 });
 
-test('schedule header shows compact tag priority legend', () => {
+test('schedule header suppresses raw tag-chain legend copy', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[game({ key: 'legend', csvAway: 'Away', csvHome: 'Home' })]}
@@ -1536,7 +1536,31 @@ test('schedule header shows compact tag priority legend', () => {
     />
   );
 
-  assert.match(html, /Tags: Upset &gt; Upset watch &gt; Top 25/);
+  assert.doesNotMatch(html, /Tags: Upset &gt; Upset watch &gt; Top 25/);
+});
+
+test('schedule header omits summary row when scores and odds have no actionable copy', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'summary-none', csvAway: 'Away', csvHome: 'Home' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'summary-none': {
+          away: { team: 'Away', score: 10 },
+          home: { team: 'Home', score: 7 },
+          status: 'Final',
+          time: 'Final',
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /data-game-summary-row="true"/);
 });
 
 test('live schedule cards keep live summary state and add subtle live ring accent', () => {

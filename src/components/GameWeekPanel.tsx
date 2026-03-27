@@ -143,6 +143,8 @@ export default function GameWeekPanel({
     gamesCount: viewModel.totalGames,
     oddsAvailableCount: viewModel.oddsAvailableCount,
   });
+  const showSummaryRow =
+    viewModel.scoresAvailableCount < viewModel.totalGames || Boolean(oddsSummary);
 
   React.useEffect(() => {
     scrollFocusedGameIntoView({ gameId: focusedGameId, refsByGameId: gameCardRefs.current });
@@ -160,17 +162,17 @@ export default function GameWeekPanel({
         <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
           Scheduled
         </span>
-        <span className="ml-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
-          Tags: Upset &gt; Upset watch &gt; Top 25
-        </span>
       </div>
       {viewModel.hasNoGames ? (
         <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
           No games match the current filters.
         </div>
       ) : null}
-      {!viewModel.hasNoGames ? (
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600 dark:text-zinc-400">
+      {!viewModel.hasNoGames && showSummaryRow ? (
+        <div
+          className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600 dark:text-zinc-400"
+          data-game-summary-row="true"
+        >
           {viewModel.scoresAvailableCount < viewModel.totalGames ? (
             <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
               Scores: {viewModel.scoresAvailableCount}/{viewModel.totalGames}

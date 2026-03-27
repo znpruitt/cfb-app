@@ -1,5 +1,6 @@
 import { classifyScorePackStatus, formatCompactGameStatus } from '../gameStatus';
 import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../matchups';
+import { deriveOddsSummaryCopy } from '../presentationCopy';
 import type { ScorePack } from '../scores';
 
 const DEFAULT_VISIBLE_OPPONENTS = 3;
@@ -156,10 +157,7 @@ export function deriveOddsAvailabilitySummary(params: {
   gamesCount: number;
   oddsAvailableCount: number;
 }): string | null {
-  const { gamesCount, oddsAvailableCount } = params;
-  if (gamesCount === 0 || oddsAvailableCount === gamesCount) return null;
-  if (oddsAvailableCount === 0) return 'Odds are unavailable.';
-  return `Odds available for ${oddsAvailableCount}/${gamesCount} games.`;
+  return deriveOddsSummaryCopy(params);
 }
 
 export function deriveExcludedGamesSummary(sections: WeekMatchupSections): string {

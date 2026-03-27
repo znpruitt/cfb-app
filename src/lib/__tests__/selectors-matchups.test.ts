@@ -112,8 +112,10 @@ test('selector derives summary and outcome including self-game edge case', () =>
 });
 
 test('selector summarizes header and exclusions deterministically', () => {
-  assert.equal(
-    deriveMatchupsHeaderCopy({ gamesCount: 3, oddsAvailableCount: 0 }),
+  assert.equal(deriveMatchupsHeaderCopy({ gamesCount: 3, oddsAvailableCount: 0 }), null);
+  assert.equal(deriveOddsAvailabilitySummary({ gamesCount: 3, oddsAvailableCount: 0 }), null);
+  assert.notEqual(
+    deriveOddsAvailabilitySummary({ gamesCount: 3, oddsAvailableCount: 2 }),
     'Odds are unavailable.'
   );
   assert.equal(

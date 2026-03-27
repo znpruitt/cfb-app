@@ -95,10 +95,7 @@ test('league surface shows compact orientation and partial data availability cop
   const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} />);
 
   assert.match(html, /Track owner matchups, scores, and odds for the selected league view\./);
-  assert.match(
-    html,
-    /Start with the current league picture, then drill into weekly schedule and matchup detail as needed\./
-  );
+  assert.doesNotMatch(html, /data-active-surface-subtitle="true"/);
   assert.doesNotMatch(html, /Scores available for 0\/1 games\./);
   assert.doesNotMatch(html, /Odds unavailable in this view\./);
 });
@@ -257,7 +254,6 @@ test('schedule keeps week context controls visible', () => {
   );
 
   assert.match(html, /Week context/);
-  assert.match(html, /Browse weeks, postseason, and team filters\./);
 });
 
 test('matchups keeps week context controls visible', () => {
@@ -269,7 +265,6 @@ test('matchups keeps week context controls visible', () => {
   );
 
   assert.match(html, /Week context/);
-  assert.match(html, /Browse weeks, postseason, and team filters\./);
 });
 
 test('matrix mode renders dedicated matchup matrix surface and not weekly matchups cards', () => {
@@ -333,10 +328,6 @@ test('standings hides week context controls and keeps season-level framing', () 
   );
 
   assert.match(html, /Standings/);
-  assert.match(
-    html,
-    /Season-long surname results and coverage status stay front-and-center here\./
-  );
   assert.doesNotMatch(html, /Week context/);
 });
 

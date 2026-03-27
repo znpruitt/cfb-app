@@ -44,9 +44,6 @@ export default function WeekControls({
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
             Week context
           </p>
-          <div className="text-sm text-gray-700 dark:text-zinc-200">
-            Browse weeks, postseason, and team filters.
-          </div>
           {isSeasonViewActive ? (
             <p className="text-xs text-gray-500 dark:text-zinc-400">
               Supporting context while <span className="font-semibold">{activeViewLabel}</span> is
