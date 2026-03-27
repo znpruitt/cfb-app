@@ -15,6 +15,7 @@ type PostseasonPanelProps = {
   isDebug: boolean;
   teamCatalogById?: Map<string, TeamCatalogItem>;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
+  focusedGameId?: string | null;
 };
 
 const GROUP_ORDER = ['bowl', 'playoff', 'national_championship'] as const;
@@ -42,6 +43,7 @@ export default function PostseasonPanel({
   isDebug,
   teamCatalogById = new Map(),
   onSavePostseasonOverride,
+  focusedGameId = null,
 }: PostseasonPanelProps): React.ReactElement {
   const postseason = games.filter(isTruePostseasonGame);
 
@@ -83,6 +85,7 @@ export default function PostseasonPanel({
               isDebug={isDebug}
               teamCatalogById={teamCatalogById}
               onSavePostseasonOverride={onSavePostseasonOverride}
+              focusedGameId={focusedGameId}
             />
           </div>
         ))

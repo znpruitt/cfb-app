@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import CFBScheduleApp, {
+  clearDrilldownFocusState,
   deriveWeeklyMatchupsDrilldownState,
   resolveHighlightDrilldownNavigation,
 } from '../CFBScheduleApp';
@@ -431,4 +432,12 @@ test('highlight owner-pair drill-down routes to matrix with pair focus', () => {
   assert.equal(next.nextWeek, 9);
   assert.equal(next.nextViewMode, 'matrix');
   assert.deepEqual(next.focusedOwnerPair, ['Alice', 'Bob']);
+});
+
+test('generic weekly matchups focus reset clears stale owner, game, and owner-pair focus', () => {
+  assert.deepEqual(clearDrilldownFocusState(), {
+    focusedGameId: null,
+    focusedOwner: null,
+    focusedOwnerPair: null,
+  });
 });

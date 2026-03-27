@@ -117,6 +117,19 @@ type HighlightNavigationState = {
   focusedOwnerPair: [string, string] | null;
 };
 
+type DrilldownFocusState = Pick<
+  HighlightNavigationState,
+  'focusedGameId' | 'focusedOwner' | 'focusedOwnerPair'
+>;
+
+export function clearDrilldownFocusState(): DrilldownFocusState {
+  return {
+    focusedGameId: null,
+    focusedOwner: null,
+    focusedOwnerPair: null,
+  };
+}
+
 export function resolveHighlightDrilldownNavigation(params: {
   target: HighlightDrilldownTarget;
   selectedWeek: number | null;
@@ -819,8 +832,10 @@ export default function CFBScheduleApp({
     if (nextDrilldownState.nextTab !== selectedTab) {
       setSelectedTab(nextDrilldownState.nextTab);
     }
-    setFocusedGameId(null);
-    setFocusedOwnerPair(null);
+    const clearedFocus = clearDrilldownFocusState();
+    setFocusedGameId(clearedFocus.focusedGameId);
+    setFocusedOwner(clearedFocus.focusedOwner);
+    setFocusedOwnerPair(clearedFocus.focusedOwnerPair);
     setWeekViewMode('matchups');
   }, [selectedTab, selectedWeek, weeks]);
 
@@ -1386,6 +1401,7 @@ export default function CFBScheduleApp({
                   isDebug={IS_DEBUG}
                   teamCatalogById={teamCatalogById}
                   onSavePostseasonOverride={savePostseasonOverride}
+                  focusedGameId={focusedGameId}
                 />
               ) : weekViewMode === 'matchups' ? (
                 <MatchupsWeekPanel
