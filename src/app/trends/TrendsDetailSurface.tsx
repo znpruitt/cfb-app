@@ -6,12 +6,11 @@ import { selectOwnerMomentum } from '../../lib/selectors/momentum';
 import { type SeasonContext } from '../../lib/selectors/seasonContext';
 import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../../lib/selectors/trends';
 import type { StandingsHistory } from '../../lib/standingsHistory';
+import { deriveFocusedOwners, deriveWeekTicks, type FocusMode } from '../../lib/trendsFocus';
 import { getOwnerTrendColor } from './presentationColors';
 
 type MetricKind = 'games-back' | 'win-pct';
 type LayoutMode = 'standalone' | 'embedded';
-type FocusMode = 'all' | 'top' | 'selected';
-
 const TOP_FOCUS_COUNT = 5;
 
 type TrendRowData = {
@@ -122,15 +121,18 @@ function buildSeriesPath(params: {
   geometry: { weekMin: number; weekMax: number; valueMin: number; valueMax: number };
   width: number;
   height: number;
+  invertYAxis?: boolean;
 }): string {
-  const { points, geometry, width, height } = params;
+  const { points, geometry, width, height, invertYAxis = false } = params;
   const weekSpread = Math.max(1, geometry.weekMax - geometry.weekMin);
   const valueSpread = Math.max(0.0001, geometry.valueMax - geometry.valueMin);
 
   return points
     .map((point, index) => {
       const x = ((point.week - geometry.weekMin) / weekSpread) * width;
-      const y = height - ((point.value - geometry.valueMin) / valueSpread) * height;
+      const y = invertYAxis
+        ? ((point.value - geometry.valueMin) / valueSpread) * height
+        : height - ((point.value - geometry.valueMin) / valueSpread) * height;
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(' ');
@@ -141,12 +143,15 @@ function pointPosition(params: {
   geometry: { weekMin: number; weekMax: number; valueMin: number; valueMax: number };
   width: number;
   height: number;
+  invertYAxis?: boolean;
 }): { x: number; y: number } {
-  const { point, geometry, width, height } = params;
+  const { point, geometry, width, height, invertYAxis = false } = params;
   const weekSpread = Math.max(1, geometry.weekMax - geometry.weekMin);
   const valueSpread = Math.max(0.0001, geometry.valueMax - geometry.valueMin);
   const x = ((point.week - geometry.weekMin) / weekSpread) * width;
-  const y = height - ((point.value - geometry.valueMin) / valueSpread) * height;
+  const y = invertYAxis
+    ? ((point.value - geometry.valueMin) / valueSpread) * height
+    : height - ((point.value - geometry.valueMin) / valueSpread) * height;
   return { x, y };
 }
 
@@ -173,16 +178,23 @@ function resolveLatestLabelOffsets(
     weekMax: number;
     valueMin: number;
     valueMax: number;
-  }
+  },
+  invertYAxis: boolean
 ): Map<string, number> {
-  const chartHeight = 232;
+  const chartHeight = 360;
   const entries = rows
     .map((row) => {
       const latestPoint = row.points[row.points.length - 1];
       if (!latestPoint) return null;
       return {
         ownerId: row.ownerId,
-        y: pointPosition({ point: latestPoint, geometry, width: 640, height: chartHeight }).y,
+        y: pointPosition({
+          point: latestPoint,
+          geometry,
+          width: 640,
+          height: chartHeight,
+          invertYAxis,
+        }).y,
       };
     })
     .filter((entry): entry is { ownerId: string; y: number } => entry != null)
@@ -259,9 +271,8 @@ function SharedTrendChart({
   title,
   metric,
   rows,
+  focusedOwnerIds,
   selectedOwnerId,
-  focusMode,
-  topOwnerIds,
   onSelectOwner,
   onHover,
   onHoverLeave,
@@ -269,9 +280,8 @@ function SharedTrendChart({
   title: string;
   metric: MetricKind;
   rows: TrendRowData[];
+  focusedOwnerIds: Set<string>;
   selectedOwnerId: string | null;
-  focusMode: FocusMode;
-  topOwnerIds: Set<string>;
   onSelectOwner: (ownerId: string) => void;
   onHover: (payload: HoverState) => void;
   onHoverLeave: () => void;
@@ -290,13 +300,18 @@ function SharedTrendChart({
   }
 
   const geometry = buildSharedChartGeometry(rows);
+  const invertYAxis = metric === 'games-back';
   const chartWidth = 640;
-  const chartHeight = 232;
+  const chartHeight = 360;
   const labelLaneWidth = 212;
   const leaderIds = resolveLeaderIds(metric, rows);
   const labelOffsets = geometry
-    ? resolveLatestLabelOffsets(rows, geometry)
+    ? resolveLatestLabelOffsets(rows, geometry, invertYAxis)
     : new Map<string, number>();
+  const weeks = Array.from(
+    new Set(rows.flatMap((row) => row.points.map((point) => point.week)))
+  ).sort((left, right) => left - right);
+  const weekTicks = deriveWeekTicks(weeks);
   const rankByOwnerId = new Map(rows.map((row, index) => [row.ownerId, index + 1]));
 
   return (
@@ -309,17 +324,47 @@ function SharedTrendChart({
         {geometry ? (
           <svg
             viewBox={`0 0 ${chartWidth + labelLaneWidth} ${chartHeight}`}
-            className="h-56 min-w-[760px] w-full"
+            className="h-[420px] w-full"
             role="img"
             aria-label={`${title} shared trend chart`}
+            data-y-domain={invertYAxis ? JSON.stringify([geometry.valueMax, 0]) : 'auto'}
           >
+            {weekTicks.map((tick) => {
+              const x =
+                ((tick.value - geometry.weekMin) /
+                  Math.max(1, geometry.weekMax - geometry.weekMin)) *
+                chartWidth;
+              return (
+                <g key={`${metric}-tick-${tick.value}`} data-week-tick={tick.label}>
+                  <line
+                    x1={x}
+                    y1={chartHeight - 24}
+                    x2={x}
+                    y2={chartHeight - 18}
+                    stroke="currentColor"
+                    opacity={0.5}
+                  />
+                  <text
+                    x={x}
+                    y={chartHeight - 6}
+                    textAnchor="middle"
+                    fontSize="10"
+                    fill="currentColor"
+                    opacity={0.7}
+                  >
+                    {tick.label}
+                  </text>
+                </g>
+              );
+            })}
             {rows.map((row) => {
-              const visualState = resolveOwnerVisualState({
-                ownerId: row.ownerId,
-                selectedOwnerId,
-                focusMode,
-                topOwnerIds,
-              });
+              const isFocused = focusedOwnerIds.has(row.ownerId);
+              if (!isFocused) return null;
+              const visualState = {
+                selected: selectedOwnerId === row.ownerId,
+                muted: false,
+                emphasized: true,
+              };
               const isLeader = leaderIds.has(row.ownerId);
               return (
                 <path
@@ -328,11 +373,12 @@ function SharedTrendChart({
                     points: row.points,
                     geometry,
                     width: chartWidth,
-                    height: chartHeight,
+                    height: chartHeight - 28,
+                    invertYAxis,
                   })}
                   fill="none"
                   stroke={getOwnerTrendColor(row.ownerId)}
-                  strokeWidth={visualState.selected ? 4.4 : isLeader ? 3.4 : 2}
+                  strokeWidth={visualState.selected ? 4 : isLeader ? 3.2 : 2.5}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   className={
@@ -347,18 +393,20 @@ function SharedTrendChart({
               );
             })}
             {rows.flatMap((row) => {
-              const visualState = resolveOwnerVisualState({
-                ownerId: row.ownerId,
-                selectedOwnerId,
-                focusMode,
-                topOwnerIds,
-              });
+              const isFocused = focusedOwnerIds.has(row.ownerId);
+              if (!isFocused) return [];
+              const visualState = {
+                selected: selectedOwnerId === row.ownerId,
+                muted: false,
+                emphasized: true,
+              };
               return row.points.map((point) => {
                 const pos = pointPosition({
                   point,
                   geometry,
                   width: chartWidth,
-                  height: chartHeight,
+                  height: chartHeight - 28,
+                  invertYAxis,
                 });
                 return (
                   <circle
@@ -384,19 +432,20 @@ function SharedTrendChart({
             })}
 
             {rows.map((row) => {
+              if (!focusedOwnerIds.has(row.ownerId)) return null;
               const latestPoint = row.points[row.points.length - 1];
               if (!latestPoint) return null;
-              const visualState = resolveOwnerVisualState({
-                ownerId: row.ownerId,
-                selectedOwnerId,
-                focusMode,
-                topOwnerIds,
-              });
+              const visualState = {
+                selected: selectedOwnerId === row.ownerId,
+                muted: false,
+                emphasized: true,
+              };
               const latestPos = pointPosition({
                 point: latestPoint,
                 geometry,
                 width: chartWidth,
-                height: chartHeight,
+                height: chartHeight - 28,
+                invertYAxis,
               });
               const y = latestPos.y + (labelOffsets.get(row.ownerId) ?? 0);
               return (
@@ -448,11 +497,12 @@ function SharedTrendChart({
 
       <ul className="mt-3 grid gap-1.5 text-xs text-gray-700 dark:text-zinc-300 sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((row) => {
+          if (!focusedOwnerIds.has(row.ownerId)) return null;
           const visualState = resolveOwnerVisualState({
             ownerId: row.ownerId,
             selectedOwnerId,
-            focusMode,
-            topOwnerIds,
+            focusMode: 'all',
+            topOwnerIds: new Set(),
           });
           return (
             <li
@@ -501,7 +551,8 @@ export default function TrendsDetailSurface({
 }): React.ReactElement {
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
-  const [focusMode, setFocusMode] = React.useState<FocusMode>('all');
+  const [focusMode, setFocusMode] = React.useState<FocusMode>('top');
+  const [selectedOwners, setSelectedOwners] = React.useState<Set<string>>(new Set());
 
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
   const winPctTrend = standingsHistory ? selectWinPctTrend({ standingsHistory }) : [];
@@ -561,6 +612,18 @@ export default function TrendsDetailSurface({
     () => new Set(winBars.slice(0, TOP_FOCUS_COUNT).map((row) => row.ownerId)),
     [winBars]
   );
+  const orderedOwners = React.useMemo(() => winBars.map((row) => row.ownerId), [winBars]);
+  const focusedOwners = React.useMemo(
+    () =>
+      deriveFocusedOwners({
+        focusMode,
+        selectedOwners,
+        orderedOwners,
+        topN: TOP_FOCUS_COUNT,
+      }),
+    [focusMode, orderedOwners, selectedOwners]
+  );
+  const focusedOwnerIdSet = React.useMemo(() => new Set(focusedOwners), [focusedOwners]);
 
   const WrapperTag = layoutMode === 'standalone' ? 'main' : 'div';
 
@@ -655,7 +718,10 @@ export default function TrendsDetailSurface({
             [
               { mode: 'all', label: 'All' },
               { mode: 'top', label: `Top ${TOP_FOCUS_COUNT}` },
-              { mode: 'selected', label: 'Selected' },
+              {
+                mode: 'selected',
+                label: selectedOwners.size > 0 ? `Selected (${selectedOwners.size})` : 'Selected',
+              },
             ] as const
           ).map(({ mode, label }) => (
             <button
@@ -676,13 +742,16 @@ export default function TrendsDetailSurface({
         </div>
       </section>
 
+      <p className="text-xs text-gray-500 dark:text-zinc-400">
+        Top 5 shown — click bars to compare
+      </p>
+
       <SharedTrendChart
         title="Games Back"
         metric="games-back"
         rows={gamesBackRows}
+        focusedOwnerIds={focusedOwnerIdSet}
         selectedOwnerId={selectedOwnerId}
-        focusMode={focusMode}
-        topOwnerIds={topOwnerIds}
         onSelectOwner={(ownerId) =>
           setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId))
         }
@@ -694,9 +763,8 @@ export default function TrendsDetailSurface({
         title="Win %"
         metric="win-pct"
         rows={winPctRows}
+        focusedOwnerIds={focusedOwnerIdSet}
         selectedOwnerId={selectedOwnerId}
-        focusMode={focusMode}
-        topOwnerIds={topOwnerIds}
         onSelectOwner={(ownerId) =>
           setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId))
         }
@@ -827,29 +895,33 @@ export default function TrendsDetailSurface({
         ) : (
           <ul className="mt-2 space-y-1.5 text-sm">
             {winBars.map((row) => {
-              const visualState = resolveOwnerVisualState({
-                ownerId: row.ownerId,
-                selectedOwnerId,
-                focusMode,
-                topOwnerIds,
-              });
+              const isSelected = selectedOwners.has(row.ownerId);
+              const isFocused = focusedOwnerIdSet.has(row.ownerId);
               return (
                 <li
                   key={row.ownerId}
-                  className={`rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 ${
-                    visualState.selected ? 'ring-1 ring-blue-400 dark:ring-blue-500' : ''
-                  } ${visualState.muted ? 'opacity-45' : ''}`}
+                  className={`rounded-md border px-2.5 py-1.5 text-gray-800 transition-opacity dark:text-zinc-100 ${
+                    isSelected
+                      ? 'border-blue-300 bg-blue-100/60 hover:opacity-100 dark:border-blue-700 dark:bg-blue-900/30'
+                      : 'border-gray-200 bg-white opacity-70 hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900'
+                  } ${isFocused ? '' : 'opacity-55'}`}
                   data-winbar-owner={row.ownerId}
-                  data-selected={visualState.selected ? 'true' : 'false'}
-                  data-muted={visualState.muted ? 'true' : 'false'}
-                  data-emphasized={visualState.emphasized ? 'true' : 'false'}
+                  data-selected={isSelected ? 'true' : 'false'}
+                  data-focused={isFocused ? 'true' : 'false'}
                 >
                   <button
                     type="button"
-                    className="w-full text-left"
-                    onClick={() =>
-                      setSelectedOwnerId((current) => toggleSelectedOwner(current, row.ownerId))
-                    }
+                    className="w-full cursor-pointer text-left"
+                    onClick={() => {
+                      setFocusMode('selected');
+                      setSelectedOwnerId((current) => toggleSelectedOwner(current, row.ownerId));
+                      setSelectedOwners((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(row.ownerId)) next.delete(row.ownerId);
+                        else next.add(row.ownerId);
+                        return next;
+                      });
+                    }}
                   >
                     <span className="font-medium">{row.ownerName}</span>: {row.wins}-{row.losses}
                     {row.ties > 0 ? `-${row.ties}` : ''} ({formatWinPct(row.winPct)})
