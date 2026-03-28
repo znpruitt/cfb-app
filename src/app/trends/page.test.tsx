@@ -12,6 +12,7 @@ import TrendsDetailSurface, {
 } from './TrendsDetailSurface';
 import TrendsPage from './page';
 import type { StandingsHistory } from '../../lib/standingsHistory';
+import { deriveWeekTicks } from '../../lib/trendsFocus';
 
 const history: StandingsHistory = {
   weeks: [1, 2],
@@ -455,7 +456,7 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
     />
   );
 
-  const rightEdgeLabels = Array.from(
+  const rightEdgeLabels: SVGTextElement[] = Array.from(
     rendered.container.querySelectorAll<SVGTextElement>(
       '[aria-label="Games Back shared trend chart"] text[data-right-edge-label]'
     )
@@ -473,11 +474,11 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
   const bobGamesBackLine = rendered.container.querySelector(
     '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
   );
-  const aliceGamesBackLine = rendered.container.querySelector(
-    '[aria-label="Games Back shared trend chart"] [data-owner-id="Alice"][data-muted="true"]'
+  const frankGamesBackLine = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
   );
   assert.ok(bobGamesBackLine);
-  assert.ok(aliceGamesBackLine);
+  assert.equal(frankGamesBackLine, null);
 
   const bobWinPctLine = rendered.container.querySelector(
     '[aria-label="Win % shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
@@ -498,9 +499,8 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
   assert.ok(bobWinBar);
   assert.ok(bobMomentum);
 
-  const momentumOwners = Array.from(
-    rendered.container.querySelectorAll<HTMLElement>('[data-momentum-owner]')
-  ).map((node) => node.getAttribute('data-momentum-owner'));
+  const momentumNodes = rendered.container.querySelectorAll<HTMLElement>('[data-momentum-owner]');
+  const momentumOwners = [...momentumNodes].map((node) => node.getAttribute('data-momentum-owner'));
   assert.equal(momentumOwners.length, new Set(momentumOwners).size);
 
   const ownerFocus = rendered.container.querySelector('[data-owner-focus="true"]');
@@ -531,7 +531,7 @@ test('clicking same owner toggles selection off and removes owner focus summary'
   assert.equal(rendered.container.querySelector('[data-owner-focus="true"]'), null);
   assert.ok(
     rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"][data-muted="false"]'
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"]'
     )
   );
 });
@@ -579,31 +579,55 @@ test('focus mode controls switch between all, top 5, and selected rendering stat
   assert.ok(allControl);
   assert.ok(topControl);
   assert.ok(selectedControl);
-  assert.equal(allControl.getAttribute('aria-pressed'), 'true');
-
-  await user.click(topControl);
   assert.equal(topControl.getAttribute('aria-pressed'), 'true');
-  assert.ok(
+  assert.equal(
     rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"][data-muted="true"]'
-    )
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
+    ),
+    null
   );
+
+  await user.click(allControl);
+  assert.equal(allControl.getAttribute('aria-pressed'), 'true');
   assert.ok(
     rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Eve"][data-muted="false"]'
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
     )
   );
 
   await user.click(selectedControl);
   assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
-  assert.ok(
+  assert.equal(
     rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"][data-muted="false"]'
-    )
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
+    ),
+    null
   );
 });
 
-test('selected mode emphasizes selected owner and mutes all others across chart, labels, win bars, and momentum', async () => {
+test('default focus renders only top 5 series and excludes non-focused owners from DOM', () => {
+  const rendered = render(
+    <TrendsDetailSurface
+      standingsHistory={history}
+      season={2026}
+      seasonContext="final"
+      issues={[]}
+    />
+  );
+
+  const gamesBackSeries = rendered.container.querySelectorAll(
+    '[aria-label="Games Back shared trend chart"] path[data-owner-id]'
+  );
+  assert.equal(gamesBackSeries.length, 5);
+  assert.equal(
+    rendered.container.querySelector(
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
+    ),
+    null
+  );
+});
+
+test('clicking win bars toggles selected mode and falls back to top 5 when empty', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
     <TrendsDetailSurface
@@ -614,70 +638,32 @@ test('selected mode emphasizes selected owner and mutes all others across chart,
     />
   );
 
+  const bobWinBar = rendered.container.querySelector('[data-winbar-owner="Bob"] button');
+  assert.ok(bobWinBar);
+
+  await user.click(bobWinBar);
   const selectedControl = rendered.container.querySelector('[data-focus-mode-control="selected"]');
-  const legendBob = rendered.container.querySelector('[data-legend-owner="Bob"]');
   assert.ok(selectedControl);
-  assert.ok(legendBob);
-
-  await user.click(selectedControl);
-  await user.click(legendBob);
+  assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
 
   assert.ok(
     rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"][data-selected="true"][data-muted="false"]'
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
     )
   );
-  assert.ok(
+  assert.equal(
+    rendered.container.querySelectorAll(
+      '[aria-label="Games Back shared trend chart"] [data-owner-id]'
+    ).length,
+    2
+  );
+  await user.click(bobWinBar);
+  assert.equal(
     rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Alice"][data-muted="true"]'
-    )
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
+    ),
+    null
   );
-  assert.ok(
-    rendered.container
-      .querySelector('[aria-label="Games Back shared trend chart"] [data-right-edge-label="Alice"]')
-      ?.closest('[data-muted="true"]')
-  );
-  assert.ok(rendered.container.querySelector('[data-winbar-owner="Alice"][data-muted="true"]'));
-  assert.ok(rendered.container.querySelector('[data-momentum-owner="Bob"][data-selected="true"]'));
-});
-
-test('top mode keeps selected owner emphasized even when owner is outside top 5', async () => {
-  const user = userEvent.setup({ document: dom.window.document });
-  const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
-  );
-
-  const topControl = rendered.container.querySelector('[data-focus-mode-control="top"]');
-  const legendFrank = rendered.container.querySelector('[data-legend-owner="Frank"]');
-  assert.ok(topControl);
-  assert.ok(legendFrank);
-
-  await user.click(topControl);
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Win % shared trend chart"] [data-owner-id="Frank"][data-muted="true"]'
-    )
-  );
-
-  await user.click(legendFrank);
-
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Win % shared trend chart"] [data-owner-id="Frank"][data-selected="true"][data-muted="false"]'
-    )
-  );
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Win % shared trend chart"] [data-owner-id="Grace"][data-muted="true"]'
-    )
-  );
-  assert.ok(rendered.container.querySelector('[data-owner-focus="true"]'));
-  assert.match(rendered.container.textContent ?? '', /Recent Momentum/);
 });
 
 test('right-edge labels include truncated owner names, formatted values, and connectors', () => {
@@ -689,6 +675,9 @@ test('right-edge labels include truncated owner names, formatted values, and con
       issues={[]}
     />
   );
+  const allControl = rendered.container.querySelector('[data-focus-mode-control="all"]');
+  assert.ok(allControl);
+  fireEvent.click(allControl);
 
   const gamesBackLabel = rendered.container.querySelector(
     '[aria-label="Games Back shared trend chart"] [data-right-edge-label="VeryLongOwnerDisplayName"]'
@@ -717,6 +706,41 @@ test('selection helper toggles selected owner deterministically', () => {
   assert.equal(toggleSelectedOwner(null, 'Alice'), 'Alice');
   assert.equal(toggleSelectedOwner('Alice', 'Alice'), null);
   assert.equal(toggleSelectedOwner('Alice', 'Bob'), 'Bob');
+});
+
+test('games back chart includes inverted axis domain marker and week ticks', () => {
+  const rendered = render(
+    <TrendsDetailSurface
+      standingsHistory={history}
+      season={2026}
+      seasonContext="final"
+      issues={[]}
+    />
+  );
+  const gamesBackChart = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"]'
+  );
+  assert.ok(gamesBackChart);
+  assert.equal(gamesBackChart.getAttribute('data-y-domain'), '[4,0]');
+  assert.ok(
+    rendered.container.querySelector(
+      '[aria-label="Games Back shared trend chart"] [data-week-tick="W1"]'
+    )
+  );
+  assert.ok(
+    rendered.container.querySelector(
+      '[aria-label="Games Back shared trend chart"] [data-week-tick="W2"]'
+    )
+  );
+});
+
+test('deriveWeekTicks increases density for long seasons and preserves first/last weeks', () => {
+  const weeks = Array.from({ length: 15 }, (_, i) => i + 1);
+  const ticks = deriveWeekTicks(weeks);
+  assert.equal(ticks[0]?.value, 1);
+  assert.equal(ticks[ticks.length - 1]?.value, 15);
+  assert.ok(ticks.some((tick) => tick.value === 3));
+  assert.ok(!ticks.some((tick) => tick.value === 4));
 });
 
 test('hover summary helper returns expected value payload text', () => {
