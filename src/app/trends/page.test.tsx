@@ -3,7 +3,10 @@ import React from 'react';
 import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { TrendsDetailSurface, formatHoverSummary, toggleSelectedOwner } from './page';
+import TrendsDetailSurface, {
+  formatHoverSummary,
+  toggleSelectedOwner,
+} from './TrendsDetailSurface';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 
 const history: StandingsHistory = {
