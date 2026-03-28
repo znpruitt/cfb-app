@@ -13,7 +13,14 @@ import type { OverviewContext, OverviewGameItem } from '../overview';
 import type { StandingsHistory } from '../standingsHistory';
 import type { OwnerStandingsRow, StandingsCoverage } from '../standings';
 import { selectResolvedStandingsWeeks } from './historyResolution';
-import { selectGamesBackTrend, type GamesBackSeries } from './trends';
+import {
+  selectGamesBackTrend,
+  selectWinBars,
+  selectWinPctTrend,
+  type GamesBackSeries,
+  type WinBarsRow,
+  type WinPctSeries,
+} from './trends';
 
 // Canonical → Derived invariant: overview selectors consume canonical snapshot inputs
 // and return pure, presentation-agnostic derived data.
@@ -57,6 +64,8 @@ export type OverviewViewModel = {
   shouldShowFeaturedMatchups: boolean;
   recentResults: PrioritizedOverviewItem[];
   gamesBackTrend: GamesBackSeries[];
+  winPctTrend: WinPctSeries[];
+  winBars: WinBarsRow[];
   leagueHighlights: {
     id: string;
     type:
@@ -949,6 +958,8 @@ export function selectOverviewViewModel(params: {
     }),
     recentResults,
     gamesBackTrend: standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [],
+    winPctTrend: standingsHistory ? selectWinPctTrend({ standingsHistory }) : [],
+    winBars: standingsHistory ? selectWinBars({ standingsHistory }) : [],
     leagueHighlights,
   };
 }

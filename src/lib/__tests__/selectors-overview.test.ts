@@ -1874,3 +1874,187 @@ test('selectOverviewViewModel movement snapshots ignore unresolved future weeks 
   assert.ok(model.keyMovements.some((entry) => entry.id === 'biggest-gain-Alex'));
   assert.ok(!model.keyMovements.some((entry) => entry.id === 'biggest-gain-Blake'));
 });
+
+test('selectOverviewViewModel includes winPctTrend derived from resolved standings history', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alex',
+        wins: 2,
+        losses: 0,
+        winPct: 1,
+        pointsFor: 20,
+        pointsAgainst: 5,
+        pointDifferential: 15,
+        gamesBack: 0,
+        finalGames: 2,
+      },
+      {
+        owner: 'Blake',
+        wins: 1,
+        losses: 1,
+        winPct: 0.5,
+        pointsFor: 10,
+        pointsAgainst: 10,
+        pointDifferential: 0,
+        gamesBack: 1,
+        finalGames: 2,
+      },
+    ],
+    standingsHistory: {
+      weeks: [1, 2, 3],
+      byWeek: {
+        1: {
+          week: 1,
+          standings: [
+            {
+              owner: 'Alex',
+              wins: 1,
+              losses: 0,
+              ties: 0,
+              winPct: 1,
+              pointsFor: 10,
+              pointsAgainst: 2,
+              pointDifferential: 8,
+              gamesBack: 0,
+              finalGames: 1,
+            },
+            {
+              owner: 'Blake',
+              wins: 0,
+              losses: 1,
+              ties: 0,
+              winPct: 0,
+              pointsFor: 2,
+              pointsAgainst: 10,
+              pointDifferential: -8,
+              gamesBack: 1,
+              finalGames: 1,
+            },
+          ],
+          coverage: { state: 'complete', message: null },
+        },
+        2: {
+          week: 2,
+          standings: [
+            {
+              owner: 'Alex',
+              wins: 2,
+              losses: 0,
+              ties: 0,
+              winPct: 1,
+              pointsFor: 20,
+              pointsAgainst: 5,
+              pointDifferential: 15,
+              gamesBack: 0,
+              finalGames: 2,
+            },
+            {
+              owner: 'Blake',
+              wins: 1,
+              losses: 1,
+              ties: 0,
+              winPct: 0.5,
+              pointsFor: 10,
+              pointsAgainst: 10,
+              pointDifferential: 0,
+              gamesBack: 1,
+              finalGames: 2,
+            },
+          ],
+          coverage: { state: 'complete', message: null },
+        },
+        3: {
+          week: 3,
+          standings: [],
+          coverage: { state: 'partial', message: null },
+        },
+      },
+      byOwner: {
+        Alex: [
+          {
+            week: 1,
+            wins: 1,
+            losses: 0,
+            ties: 0,
+            winPct: 1,
+            pointsFor: 10,
+            pointsAgainst: 2,
+            pointDifferential: 8,
+            gamesBack: 0,
+          },
+          {
+            week: 2,
+            wins: 2,
+            losses: 0,
+            ties: 0,
+            winPct: 1,
+            pointsFor: 20,
+            pointsAgainst: 5,
+            pointDifferential: 15,
+            gamesBack: 0,
+          },
+        ],
+        Blake: [
+          {
+            week: 1,
+            wins: 0,
+            losses: 1,
+            ties: 0,
+            winPct: 0,
+            pointsFor: 2,
+            pointsAgainst: 10,
+            pointDifferential: -8,
+            gamesBack: 1,
+          },
+          {
+            week: 2,
+            wins: 1,
+            losses: 1,
+            ties: 0,
+            winPct: 0.5,
+            pointsFor: 10,
+            pointsAgainst: 10,
+            pointDifferential: 0,
+            gamesBack: 1,
+          },
+        ],
+      },
+    },
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 2',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.deepEqual(model.winPctTrend.find((series) => series.ownerName === 'Blake')?.points, [
+    { week: 1, value: 0 },
+    { week: 2, value: 0.5 },
+  ]);
+  assert.deepEqual(
+    model.winBars.map((row) => row.ownerName),
+    ['Alex', 'Blake']
+  );
+  assert.deepEqual(
+    model.winBars.find((row) => row.ownerName === 'Blake'),
+    {
+      ownerId: 'Blake',
+      ownerName: 'Blake',
+      wins: 1,
+      losses: 1,
+      ties: 0,
+      winPct: 0.5,
+      gamesBack: 1,
+    }
+  );
+});
