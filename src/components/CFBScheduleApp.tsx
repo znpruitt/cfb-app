@@ -30,6 +30,7 @@ import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../lib/ov
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
+import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { deriveActiveSurfaceCopy } from '../lib/presentationCopy';
 import {
   buildScheduleFromApi,
@@ -607,6 +608,11 @@ export default function CFBScheduleApp({
       }),
     [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
   );
+  const seasonContext = useMemo(
+    () => selectSeasonContext({ standingsHistory }),
+    [standingsHistory]
+  );
+
   const activeWeekForDisplay = selectedWeek ?? 0;
   const activeWeekLabel =
     selectedTab === 'postseason'
@@ -1349,6 +1355,9 @@ export default function CFBScheduleApp({
                   season={selectedSeason}
                   coverage={standingsCoverage}
                   focusedOwner={focusedOwner}
+                  standingsHistory={standingsHistory}
+                  seasonContext={seasonContext}
+                  trendIssues={issues}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
