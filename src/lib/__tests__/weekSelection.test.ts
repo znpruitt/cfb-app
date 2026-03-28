@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { AppGame } from '../schedule.ts';
-import { chooseDefaultWeek, deriveRegularWeeks, filterGamesForWeek } from '../weekSelection.ts';
+import {
+  chooseDefaultWeek,
+  derivePostLoadDefaultWeekTabSelection,
+  deriveRegularWeeks,
+  filterGamesForWeek,
+} from '../weekSelection.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -76,4 +81,49 @@ test('chooseDefaultWeek can return week 0 when it is the active started week', (
   });
 
   assert.equal(selected, 0);
+});
+
+test('derivePostLoadDefaultWeekTabSelection preserves existing selection', () => {
+  const decision = derivePostLoadDefaultWeekTabSelection({
+    games: [game({ key: 'week-2', week: 2, date: '2025-09-06T12:00:00.000Z' })],
+    regularWeeks: [2],
+    selectedWeek: 2,
+    selectedTab: 2,
+  });
+
+  assert.deepEqual(decision, {
+    shouldApplyDefaultSelection: false,
+    nextSelectedWeek: 2,
+    nextSelectedTab: 2,
+  });
+});
+
+test('derivePostLoadDefaultWeekTabSelection preserves tab when no regular weeks are available', () => {
+  const decision = derivePostLoadDefaultWeekTabSelection({
+    games: [],
+    regularWeeks: [],
+    selectedWeek: null,
+    selectedTab: 'postseason',
+  });
+
+  assert.deepEqual(decision, {
+    shouldApplyDefaultSelection: false,
+    nextSelectedWeek: null,
+    nextSelectedTab: 'postseason',
+  });
+});
+
+test('derivePostLoadDefaultWeekTabSelection applies default week and tab when week is unset', () => {
+  const decision = derivePostLoadDefaultWeekTabSelection({
+    games: [game({ key: 'w3', week: 3, date: null }), game({ key: 'w5', week: 5, date: null })],
+    regularWeeks: [3, 5],
+    selectedWeek: null,
+    selectedTab: 'postseason',
+  });
+
+  assert.deepEqual(decision, {
+    shouldApplyDefaultSelection: true,
+    nextSelectedWeek: 3,
+    nextSelectedTab: 3,
+  });
 });

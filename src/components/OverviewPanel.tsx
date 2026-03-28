@@ -799,32 +799,6 @@ export default function OverviewPanel({
         podiumLeaders={viewModel.podiumLeaders}
         leader={standingsLeaders[0]}
       />
-      {viewModel.shouldShowFeaturedMatchups ? (
-        <SectionCard title="Featured matchups" tone="weekly">
-          <GameSummaryList
-            prioritizedItems={viewModel.featuredMatchups}
-            emptyMessage="No featured matchups yet for this slate."
-            timeZone={timeZone}
-            rankingsByTeamId={rankingsByTeamId}
-            density="featured"
-          />
-          <button
-            type="button"
-            className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-            onClick={onViewMatchups}
-          >
-            View weekly matchups
-          </button>
-        </SectionCard>
-      ) : null}
-
-      <SectionCard title="League highlights" tone="secondary" compact>
-        <HighlightList
-          highlights={viewModel.leagueHighlights}
-          scopeDetail={context.scopeDetail}
-          onOpenHighlightTarget={onOpenHighlightTarget}
-        />
-      </SectionCard>
       {viewModel.shouldShowLeaguePulse ? <LeaguePulse items={viewModel.leaguePulse} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
@@ -865,6 +839,14 @@ export default function OverviewPanel({
         </SectionCard>
 
         <div className="space-y-4">
+          <SectionCard title="League highlights" tone="secondary" compact>
+            <HighlightList
+              highlights={viewModel.leagueHighlights}
+              scopeDetail={context.scopeDetail}
+              onOpenHighlightTarget={onOpenHighlightTarget}
+            />
+          </SectionCard>
+
           <SectionCard title="Recent results" tone="secondary" compact>
             <GameSummaryList
               prioritizedItems={viewModel.recentResults}
@@ -880,6 +862,25 @@ export default function OverviewPanel({
               View all results
             </button>
           </SectionCard>
+
+          {viewModel.shouldShowFeaturedMatchups ? (
+            <SectionCard title="Upcoming watchlist" tone="weekly" compact>
+              <GameSummaryList
+                prioritizedItems={viewModel.featuredMatchups}
+                emptyMessage="No featured matchups yet for this slate."
+                timeZone={timeZone}
+                rankingsByTeamId={rankingsByTeamId}
+                density="featured"
+              />
+              <button
+                type="button"
+                className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+                onClick={onViewMatchups}
+              >
+                View weekly matchups
+              </button>
+            </SectionCard>
+          ) : null}
 
           {liveItems.length > 0 ? (
             <SectionCard title={liveTitle} tone="live" compact>
