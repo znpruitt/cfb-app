@@ -922,6 +922,12 @@ test('overview panel renders League Trends games back section when history is pr
   assert.match(html, /Bob/);
   assert.match(html, /Latest: 0.0 GB/);
   assert.match(html, /Latest: 2.0 GB/);
+  assert.match(html, /Win %/);
+  assert.match(html, /Latest: 85.7%/);
+  assert.match(html, /Latest: 57.1%/);
+  assert.match(html, /Win Bars/);
+  assert.match(html, /6W · 85.7%/);
+  assert.match(html, /4W · 57.1%/);
 });
 
 test('overview panel shows explicit empty states for featured, highlights, and results', () => {

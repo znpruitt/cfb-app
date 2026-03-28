@@ -12,6 +12,27 @@ export type GamesBackSeries = {
   points: GamesBackSeriesPoint[];
 };
 
+export type WinPctSeriesPoint = {
+  week: number;
+  value: number;
+};
+
+export type WinPctSeries = {
+  ownerId: string;
+  ownerName: string;
+  points: WinPctSeriesPoint[];
+};
+
+export type WinBarsRow = {
+  ownerId: string;
+  ownerName: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  winPct: number;
+  gamesBack: number;
+};
+
 function deriveOwnerOrderFromLatestStandings(
   standingsHistory: StandingsHistory,
   latestWeek: number | null
@@ -61,5 +82,76 @@ export function selectGamesBackTrend(args: {
       ownerName: owner,
       points,
     };
+  });
+}
+
+/**
+ * Builds chart-ready Win % trend series from canonical standings history.
+ *
+ * Contract:
+ * - Owner ordering: latest standings order; fallback is alphabetical by owner key when latest standings are unavailable.
+ * - Point ordering: follows resolved-week order from `standingsHistory.weeks`.
+ * - Values: taken directly from `standingsHistory.byOwner[].winPct` (no recomputation).
+ */
+export function selectWinPctTrend(args: { standingsHistory: StandingsHistory }): WinPctSeries[] {
+  const { standingsHistory } = args;
+  const { resolvedWeeks: weeks, latestResolvedWeek } =
+    selectResolvedStandingsWeeks(standingsHistory);
+  const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
+
+  return owners.map((owner) => {
+    const ownerSeries = standingsHistory.byOwner[owner] ?? [];
+    const pointByWeek = new Map(ownerSeries.map((point) => [point.week, point]));
+    const points = weeks.flatMap((week) => {
+      const point = pointByWeek.get(week);
+      if (!point) return [];
+      return [{ week, value: point.winPct }];
+    });
+
+    return {
+      ownerId: owner,
+      ownerName: owner,
+      points,
+    };
+  });
+}
+
+export function selectWinBars(args: { standingsHistory: StandingsHistory }): WinBarsRow[] {
+  const { standingsHistory } = args;
+  const { latestResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
+  const latestStandings =
+    latestResolvedWeek != null
+      ? (standingsHistory.byWeek[latestResolvedWeek]?.standings ?? [])
+      : [];
+
+  if (latestStandings.length > 0) {
+    return latestStandings.map((row) => ({
+      ownerId: row.owner,
+      ownerName: row.owner,
+      wins: row.wins,
+      losses: row.losses,
+      ties: row.ties,
+      winPct: row.winPct,
+      gamesBack: row.gamesBack,
+    }));
+  }
+
+  const owners = Object.keys(standingsHistory.byOwner).sort((a, b) => a.localeCompare(b));
+  return owners.flatMap((owner) => {
+    const point = standingsHistory.byOwner[owner]?.find(
+      (entry) => entry.week === latestResolvedWeek
+    );
+    if (!point) return [];
+    return [
+      {
+        ownerId: owner,
+        ownerName: owner,
+        wins: point.wins,
+        losses: point.losses,
+        ties: point.ties,
+        winPct: point.winPct,
+        gamesBack: point.gamesBack,
+      },
+    ];
   });
 }
