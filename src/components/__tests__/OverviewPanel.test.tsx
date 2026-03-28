@@ -1671,5 +1671,5 @@ test('overview panel renders trends detail link in League Trends section', () =>
   );
 
   assert.match(html, /See full trends/);
-  assert.match(html, /href="\/trends"/);
+  assert.match(html, /href="\/standings\?view=trends"/);
 });

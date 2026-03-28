@@ -106,6 +106,8 @@ test('standings panel renders expected columns and metrics', () => {
   assert.match(html, /Standings views/);
   assert.match(html, /Table/);
   assert.match(html, /Trends/);
+  assert.match(html, /data-standings-subview="table"/);
+  assert.match(html, /aria-selected="true"[^>]*data-standings-subview="table"/);
 });
 
 test('standings panel renders secondary coverage warning when standings are partial', () => {
@@ -152,6 +154,8 @@ test('standings trends subview can render shared trend charts and win bars', () 
   );
 
   assert.match(html, /data-standings-subview="trends"/);
+  assert.match(html, /aria-selected="true"[^>]*data-standings-subview="trends"/);
+  assert.match(html, /aria-selected="false"[^>]*data-standings-subview="table"/);
   assert.match(html, /Games Back shared trend chart/);
   assert.match(html, /Win % shared trend chart/);
   assert.match(html, /Win Bars/);

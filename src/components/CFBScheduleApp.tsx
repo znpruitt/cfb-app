@@ -13,6 +13,7 @@ import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
 import WeekControls from './WeekControls';
+import type { StandingsSubview } from './StandingsPanel';
 import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
@@ -88,6 +89,7 @@ type CFBScheduleAppProps = {
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
   initialWeekViewMode?: WeekViewMode;
+  initialStandingsSubview?: StandingsSubview;
 };
 
 export function deriveWeeklyMatchupsDrilldownState(params: {
@@ -198,6 +200,7 @@ export default function CFBScheduleApp({
   initialIssues = [],
   initialRoster = [],
   initialWeekViewMode = 'overview',
+  initialStandingsSubview = 'table',
 }: CFBScheduleAppProps = {}): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
 
@@ -1362,6 +1365,7 @@ export default function CFBScheduleApp({
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
                   }}
+                  initialSubview={initialStandingsSubview}
                 />
               ) : primarySurfaceKind === 'owner' ? (
                 <OwnerPanel

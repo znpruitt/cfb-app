@@ -5,7 +5,7 @@ import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
-type StandingsSubview = 'table' | 'trends';
+export type StandingsSubview = 'table' | 'trends';
 
 type StandingsPanelProps = {
   rows: OwnerStandingsRow[];
