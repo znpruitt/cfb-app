@@ -11,12 +11,13 @@ export function selectSeasonContext(args: {
   const { standingsHistory } = args;
   if (!standingsHistory || standingsHistory.weeks.length === 0) return 'in-season';
 
-  const { resolvedWeeks } = selectResolvedStandingsWeeks(standingsHistory);
+  const { resolvedWeeks, latestResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
+  if (resolvedWeeks.length === 0 || latestResolvedWeek == null) return 'in-season';
+
   const hasUnresolvedWeeks = resolvedWeeks.length < standingsHistory.weeks.length;
   if (!hasUnresolvedWeeks) return 'final';
 
-  const hasPostseasonWeek = standingsHistory.weeks.some((week) => week >= POSTSEASON_START_WEEK);
-  if (hasPostseasonWeek) return 'postseason';
+  if (latestResolvedWeek >= POSTSEASON_START_WEEK) return 'postseason';
 
   return 'in-season';
 }
