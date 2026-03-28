@@ -166,6 +166,17 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
     />
   );
 
+  const rightEdgeLabels = Array.from(
+    rendered.container.querySelectorAll(
+      '[aria-label="Games Back shared trend chart"] text[data-right-edge-label]'
+    )
+  );
+  assert.ok(rightEdgeLabels.length > 0);
+  for (const label of rightEdgeLabels) {
+    const y = Number.parseFloat(label.getAttribute('y') ?? '0');
+    assert.ok(y >= 8 && y <= 220);
+  }
+
   const legendBob = rendered.container.querySelector('[data-legend-owner="Bob"]');
   assert.ok(legendBob);
   await user.click(legendBob);
@@ -197,6 +208,11 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
   );
   assert.ok(bobWinBar);
   assert.ok(bobMomentum);
+
+  const momentumOwners = Array.from(
+    rendered.container.querySelectorAll('[data-momentum-owner]')
+  ).map((node) => node.getAttribute('data-momentum-owner'));
+  assert.equal(momentumOwners.length, new Set(momentumOwners).size);
 
   const ownerFocus = rendered.container.querySelector('[data-owner-focus="true"]');
   assert.ok(ownerFocus);

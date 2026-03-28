@@ -169,13 +169,38 @@ function resolveLatestLabelOffsets(
     .sort((left, right) => left.y - right.y);
 
   const minSpacing = 14;
-  const offsets = new Map<string, number>();
-  let previousY = Number.NEGATIVE_INFINITY;
+  const minY = 8;
+  const maxY = chartHeight - 8;
+  const adjusted = entries.map((entry) => ({ ...entry, adjustedY: entry.y }));
 
-  for (const entry of entries) {
-    const adjustedY = Math.max(entry.y, previousY + minSpacing);
-    offsets.set(entry.ownerId, adjustedY - entry.y);
-    previousY = adjustedY;
+  for (let index = 0; index < adjusted.length; index += 1) {
+    const previous = adjusted[index - 1];
+    const nextY = previous
+      ? Math.max(adjusted[index].y, previous.adjustedY + minSpacing)
+      : adjusted[index].y;
+    adjusted[index].adjustedY = nextY;
+  }
+
+  const last = adjusted[adjusted.length - 1];
+  if (last && last.adjustedY > maxY) {
+    const overflow = last.adjustedY - maxY;
+    for (const entry of adjusted) {
+      entry.adjustedY -= overflow;
+    }
+  }
+
+  const first = adjusted[0];
+  if (first && first.adjustedY < minY) {
+    const underflow = minY - first.adjustedY;
+    for (const entry of adjusted) {
+      entry.adjustedY += underflow;
+    }
+  }
+
+  const offsets = new Map<string, number>();
+  for (const entry of adjusted) {
+    const clampedY = Math.min(maxY, Math.max(minY, entry.adjustedY));
+    offsets.set(entry.ownerId, clampedY - entry.y);
   }
 
   return offsets;
@@ -425,7 +450,11 @@ export default function TrendsDetailSurface({
     });
 
   const topMomentum = momentum.slice(0, 3);
-  const bottomMomentum = [...momentum].reverse().slice(0, 3);
+  const topMomentumOwnerIds = new Set(topMomentum.map((entry) => entry.ownerId));
+  const bottomMomentum = [...momentum]
+    .filter((entry) => !topMomentumOwnerIds.has(entry.ownerId))
+    .reverse()
+    .slice(0, 3);
   const selectedWinBar = selectedOwnerId
     ? winBars.find((row) => row.ownerId === selectedOwnerId)
     : null;
