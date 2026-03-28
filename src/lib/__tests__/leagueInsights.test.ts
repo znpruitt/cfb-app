@@ -214,45 +214,126 @@ test('deriveLeagueInsights includes close-game count', () => {
   assert.ok(insights.some((insight) => insight.text === '1 close game this week'));
 });
 
-test('deriveLeagueInsights includes biggest gain and biggest drop movement signals', () => {
-  const gameOne = item(game({ key: 'movement-1' }), 'Alex', 'Blair');
-  gameOne.score = {
-    status: 'FINAL',
-    away: { team: 'Away', score: 31 },
-    home: { team: 'Home', score: 21 },
-    time: null,
-  };
-  const gameTwo = item(game({ key: 'movement-2' }), 'Alex', 'Blair');
-  gameTwo.score = {
-    status: 'In Progress',
-    away: { team: 'Away', score: 24 },
-    home: { team: 'Home', score: 10 },
-    time: '04:11',
-  };
-
+test('deriveLeagueInsights includes biggest gain movement signal from standings deltas', () => {
   const insights = deriveLeagueInsights({
-    standings,
-    recentResults: [gameOne, gameTwo],
-    liveGames: [gameTwo],
+    standings: [
+      {
+        owner: 'Alex',
+        wins: 6,
+        losses: 1,
+        winPct: 0.857,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 22,
+        gamesBack: 0,
+        finalGames: 7,
+      },
+      {
+        owner: 'Blair',
+        wins: 3,
+        losses: 4,
+        winPct: 0.429,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -14,
+        gamesBack: 3,
+        finalGames: 7,
+      },
+    ],
+    previousStandings: [
+      {
+        owner: 'Alex',
+        wins: 5,
+        losses: 2,
+        winPct: 0.714,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 5,
+        gamesBack: 0,
+        finalGames: 7,
+      },
+      {
+        owner: 'Blair',
+        wins: 2,
+        losses: 5,
+        winPct: 0.286,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -2,
+        gamesBack: 3,
+        finalGames: 7,
+      },
+    ],
+    recentResults: [],
+    liveGames: [],
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(insights.some((insight) => insight.text === 'Biggest gain: Alex (+2 wins)'));
+  assert.ok(insights.some((insight) => insight.text === 'Biggest gain: Alex (+1 wins)'));
+});
+
+test('deriveLeagueInsights includes biggest drop movement signal from standings deltas', () => {
+  const insights = deriveLeagueInsights({
+    standings: [
+      {
+        owner: 'Alex',
+        wins: 6,
+        losses: 2,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 22,
+        gamesBack: 0,
+        finalGames: 8,
+      },
+      {
+        owner: 'Blair',
+        wins: 4,
+        losses: 4,
+        winPct: 0.5,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -14,
+        gamesBack: 2,
+        finalGames: 8,
+      },
+    ],
+    previousStandings: [
+      {
+        owner: 'Alex',
+        wins: 6,
+        losses: 2,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 20,
+        gamesBack: 0,
+        finalGames: 8,
+      },
+      {
+        owner: 'Blair',
+        wins: 4,
+        losses: 2,
+        winPct: 0.667,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: -4,
+        gamesBack: 1,
+        finalGames: 6,
+      },
+    ],
+    recentResults: [],
+    liveGames: [],
+    rankingsByTeamId: new Map(),
+  });
+
   assert.ok(insights.some((insight) => insight.text === 'Biggest drop: Blair (-2)'));
 });
 
-test('deriveLeagueInsights movement signals require minimum two games per owner', () => {
-  const singleResult = item(game({ key: 'movement-single' }), 'Alex', 'Blair');
-  singleResult.score = {
-    status: 'FINAL',
-    away: { team: 'Away', score: 28 },
-    home: { team: 'Home', score: 14 },
-    time: null,
-  };
-
+test('deriveLeagueInsights movement signals are absent when no prior standings snapshot exists', () => {
   const insights = deriveLeagueInsights({
     standings,
-    recentResults: [singleResult],
+    recentResults: [],
     liveGames: [],
     rankingsByTeamId: new Map(),
   });
@@ -261,51 +342,84 @@ test('deriveLeagueInsights movement signals require minimum two games per owner'
   assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
 });
 
-test('deriveLeagueInsights does not double-count same-owner matchup sides for movement qualification', () => {
-  const selfOwned = item(game({ key: 'self-owned-single' }), 'Alex', 'Alex');
-  selfOwned.score = {
-    status: 'FINAL',
-    away: { team: 'Away', score: 35 },
-    home: { team: 'Home', score: 21 },
-    time: null,
-  };
-
+test('deriveLeagueInsights uses previous standings snapshot for top-rank movement', () => {
   const insights = deriveLeagueInsights({
-    standings,
-    recentResults: [selfOwned],
+    standings: [
+      {
+        owner: 'Alex',
+        wins: 6,
+        losses: 2,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 19,
+        gamesBack: 0,
+        finalGames: 8,
+      },
+      {
+        owner: 'Blair',
+        wins: 6,
+        losses: 2,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 10,
+        gamesBack: 0,
+        finalGames: 8,
+      },
+      {
+        owner: 'Casey',
+        wins: 5,
+        losses: 3,
+        winPct: 0.625,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: 1,
+        finalGames: 8,
+      },
+    ],
+    previousStandings: [
+      {
+        owner: 'Blair',
+        wins: 6,
+        losses: 2,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 15,
+        gamesBack: 0,
+        finalGames: 8,
+      },
+      {
+        owner: 'Alex',
+        wins: 6,
+        losses: 2,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 8,
+        gamesBack: 0,
+        finalGames: 8,
+      },
+      {
+        owner: 'Casey',
+        wins: 5,
+        losses: 3,
+        winPct: 0.625,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: 1,
+        finalGames: 8,
+      },
+    ],
+    recentResults: [],
     liveGames: [],
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain:')));
-  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
-});
-
-test('deriveLeagueInsights same-owner matchups cannot emit both biggest gain and biggest drop', () => {
-  const selfOwnedOne = item(game({ key: 'self-owned-1' }), 'Alex', 'Alex');
-  selfOwnedOne.score = {
-    status: 'FINAL',
-    away: { team: 'Away', score: 31 },
-    home: { team: 'Home', score: 24 },
-    time: null,
-  };
-  const selfOwnedTwo = item(game({ key: 'self-owned-2' }), 'Alex', 'Alex');
-  selfOwnedTwo.score = {
-    status: 'FINAL',
-    away: { team: 'Away', score: 17 },
-    home: { team: 'Home', score: 14 },
-    time: null,
-  };
-
-  const insights = deriveLeagueInsights({
-    standings,
-    recentResults: [selfOwnedOne, selfOwnedTwo],
-    liveGames: [],
-    rankingsByTeamId: new Map(),
-  });
-
-  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest gain: Alex')));
-  assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop: Alex')));
+  assert.ok(insights.some((insight) => insight.id === 'rank-movement-Alex'));
 });
 
 test('deriveOverviewHighlightSignals picks deterministic top matchup and upset watch', () => {

@@ -10,7 +10,10 @@ import { isTruePostseasonGame } from '../postseason-display';
 import type { TeamRankingEnrichment } from '../rankings';
 import { getGameParticipantTeamId } from '../schedule';
 import type { OverviewContext, OverviewGameItem } from '../overview';
+import type { StandingsHistory } from '../standingsHistory';
 import type { OwnerStandingsRow, StandingsCoverage } from '../standings';
+import { selectResolvedStandingsWeeks } from './historyResolution';
+import { selectGamesBackTrend, type GamesBackSeries } from './trends';
 
 // Canonical → Derived invariant: overview selectors consume canonical snapshot inputs
 // and return pure, presentation-agnostic derived data.
@@ -44,6 +47,7 @@ export type OverviewViewModel = {
   topTierLeaders: OwnerStandingsRow[];
   isTopTie: boolean;
   standingsTopN: OwnerStandingsRow[];
+  previousStandingsLeaders: OwnerStandingsRow[];
   standingsHasMore: boolean;
   standingsContext: string | null;
   keyMovements: { id: string; text: string }[];
@@ -52,6 +56,7 @@ export type OverviewViewModel = {
   featuredMatchups: PrioritizedOverviewItem[];
   shouldShowFeaturedMatchups: boolean;
   recentResults: PrioritizedOverviewItem[];
+  gamesBackTrend: GamesBackSeries[];
   leagueHighlights: {
     id: string;
     type:
@@ -80,6 +85,27 @@ function deriveShouldShowFeaturedMatchups(params: {
 export const OVERVIEW_STANDINGS_LIMIT = 5;
 export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
 export const OVERVIEW_RESULTS_LIMIT = 5;
+
+function deriveTemporalStandingsFromHistory(standingsHistory?: StandingsHistory | null): {
+  current: OwnerStandingsRow[] | null;
+  previous: OwnerStandingsRow[] | null;
+} {
+  if (!standingsHistory || standingsHistory.weeks.length === 0) {
+    return { current: null, previous: null };
+  }
+
+  const { latestResolvedWeek, previousResolvedWeek } =
+    selectResolvedStandingsWeeks(standingsHistory);
+  if (latestResolvedWeek == null) return { current: null, previous: null };
+
+  return {
+    current: standingsHistory.byWeek[latestResolvedWeek]?.standings ?? null,
+    previous:
+      previousResolvedWeek != null
+        ? (standingsHistory.byWeek[previousResolvedWeek]?.standings ?? null)
+        : null,
+  };
+}
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
@@ -794,7 +820,7 @@ function deriveLeagueHighlights(params: {
 
 export function selectOverviewViewModel(params: {
   standingsLeaders: OwnerStandingsRow[];
-  previousStandingsLeaders?: OwnerStandingsRow[] | null;
+  standingsHistory?: StandingsHistory | null;
   standingsCoverage: StandingsCoverage;
   context: OverviewContext;
   liveItems: OverviewGameItem[];
@@ -813,7 +839,7 @@ export function selectOverviewViewModel(params: {
 }): OverviewViewModel {
   const {
     standingsLeaders,
-    previousStandingsLeaders = null,
+    standingsHistory = null,
     standingsCoverage,
     context,
     liveItems,
@@ -824,6 +850,8 @@ export function selectOverviewViewModel(params: {
     featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
+  const temporalStandings = deriveTemporalStandingsFromHistory(standingsHistory);
+  const currentStandings = temporalStandings.current ?? standingsLeaders;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter(
@@ -852,8 +880,8 @@ export function selectOverviewViewModel(params: {
   const recentResults = prioritizedResults.slice(0, resultsLimit);
   const movementInsights = selectMovementInsightsForPulse(
     deriveLeagueInsights({
-      standings: standingsLeaders,
-      previousStandings: previousStandingsLeaders,
+      standings: currentStandings,
+      previousStandings: temporalStandings.previous,
       recentResults: keyMatchups,
       liveGames: liveItems,
       rankingsByTeamId,
@@ -908,6 +936,7 @@ export function selectOverviewViewModel(params: {
     topTierLeaders,
     isTopTie,
     standingsTopN: standingsLeaders.slice(0, standingsLimit),
+    previousStandingsLeaders: temporalStandings.previous ?? [],
     standingsHasMore: standingsLeaders.length > standingsLimit,
     standingsContext,
     keyMovements: movementInsights,
@@ -919,6 +948,7 @@ export function selectOverviewViewModel(params: {
       leagueHighlights,
     }),
     recentResults,
+    gamesBackTrend: standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [],
     leagueHighlights,
   };
 }

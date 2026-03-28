@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
+import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
 
@@ -76,6 +77,43 @@ function itemWithScore(gameValue: AppGame, score: ScorePack): OverviewGameItem {
   return {
     ...item(gameValue),
     score,
+  };
+}
+
+function standingsHistoryFromSnapshots(
+  snapshots: Array<{ week: number; standings: OwnerStandingsRow[] }>
+): StandingsHistory {
+  const byOwner = snapshots.reduce<StandingsHistory['byOwner']>((acc, snapshot) => {
+    snapshot.standings.forEach((row) => {
+      if (!acc[row.owner]) acc[row.owner] = [];
+      acc[row.owner]!.push({
+        week: snapshot.week,
+        wins: row.wins,
+        losses: row.losses,
+        ties: 0,
+        winPct: row.winPct,
+        pointsFor: row.pointsFor,
+        pointsAgainst: row.pointsAgainst,
+        pointDifferential: row.pointDifferential,
+        gamesBack: row.gamesBack,
+      });
+    });
+    return acc;
+  }, {});
+
+  return {
+    weeks: snapshots.map((snapshot) => snapshot.week),
+    byWeek: Object.fromEntries(
+      snapshots.map((snapshot) => [
+        snapshot.week,
+        {
+          week: snapshot.week,
+          standings: snapshot.standings.map((row) => ({ ...row, ties: 0 })),
+          coverage: { state: 'complete', message: null as string | null },
+        },
+      ])
+    ),
+    byOwner,
   };
 }
 
@@ -721,30 +759,62 @@ test('overview panel renders subtle standings movement indicator when prior stan
           finalGames: 8,
         },
       ]}
-      previousStandingsLeaders={[
+      standingsHistory={standingsHistoryFromSnapshots([
         {
-          owner: 'Bob',
-          wins: 5,
-          losses: 3,
-          winPct: 0.625,
-          pointsFor: 0,
-          pointsAgainst: 0,
-          pointDifferential: 5,
-          gamesBack: 0,
-          finalGames: 8,
+          week: 1,
+          standings: [
+            {
+              owner: 'Bob',
+              wins: 5,
+              losses: 3,
+              winPct: 0.625,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 5,
+              gamesBack: 0,
+              finalGames: 8,
+            },
+            {
+              owner: 'Alice',
+              wins: 6,
+              losses: 2,
+              winPct: 0.75,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 8,
+              gamesBack: 1,
+              finalGames: 8,
+            },
+          ],
         },
         {
-          owner: 'Alice',
-          wins: 6,
-          losses: 2,
-          winPct: 0.75,
-          pointsFor: 0,
-          pointsAgainst: 0,
-          pointDifferential: 8,
-          gamesBack: 1,
-          finalGames: 8,
+          week: 2,
+          standings: [
+            {
+              owner: 'Alice',
+              wins: 6,
+              losses: 2,
+              winPct: 0.75,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 8,
+              gamesBack: 0,
+              finalGames: 8,
+            },
+            {
+              owner: 'Bob',
+              wins: 5,
+              losses: 3,
+              winPct: 0.625,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 5,
+              gamesBack: 1,
+              finalGames: 8,
+            },
+          ],
         },
-      ]}
+      ])}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
@@ -776,6 +846,82 @@ test('overview panel uses compact live empty state copy', () => {
   assert.match(html, /League highlights/);
   assert.match(html, /View full standings/);
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
+});
+
+test('overview panel renders League Trends games back section when history is provided', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsHistory={standingsHistoryFromSnapshots([
+        {
+          week: 1,
+          standings: [
+            {
+              owner: 'Alice',
+              wins: 5,
+              losses: 1,
+              winPct: 0.833,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 10,
+              gamesBack: 0,
+              finalGames: 6,
+            },
+            {
+              owner: 'Bob',
+              wins: 3,
+              losses: 3,
+              winPct: 0.5,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 2,
+              finalGames: 6,
+            },
+          ],
+        },
+        {
+          week: 2,
+          standings: [
+            {
+              owner: 'Alice',
+              wins: 6,
+              losses: 1,
+              winPct: 0.857,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 12,
+              gamesBack: 0,
+              finalGames: 7,
+            },
+            {
+              owner: 'Bob',
+              wins: 4,
+              losses: 3,
+              winPct: 0.571,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 2,
+              gamesBack: 2,
+              finalGames: 7,
+            },
+          ],
+        },
+      ])}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /League Trends/);
+  assert.match(html, /Alice/);
+  assert.match(html, /Bob/);
+  assert.match(html, /Latest: 0.0 GB/);
+  assert.match(html, /Latest: 2.0 GB/);
 });
 
 test('overview panel shows explicit empty states for featured, highlights, and results', () => {
@@ -960,41 +1106,84 @@ test('overview panel suppresses redundant movement chips in completed-season pod
           finalGames: 115,
         },
       ]}
-      previousStandingsLeaders={[
+      standingsHistory={standingsHistoryFromSnapshots([
         {
-          owner: 'Maleski',
-          wins: 65,
-          losses: 41,
-          winPct: 0.613,
-          pointsFor: 0,
-          pointsAgainst: 0,
-          pointDifferential: 0,
-          gamesBack: 0,
-          finalGames: 106,
+          week: 14,
+          standings: [
+            {
+              owner: 'Maleski',
+              wins: 65,
+              losses: 41,
+              winPct: 0.613,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 0,
+              finalGames: 106,
+            },
+            {
+              owner: 'Pruitt',
+              wins: 81,
+              losses: 39,
+              winPct: 0.675,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 0,
+              finalGames: 120,
+            },
+            {
+              owner: 'Whited',
+              wins: 70,
+              losses: 45,
+              winPct: 0.609,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 0,
+              finalGames: 115,
+            },
+          ],
         },
         {
-          owner: 'Pruitt',
-          wins: 81,
-          losses: 39,
-          winPct: 0.675,
-          pointsFor: 0,
-          pointsAgainst: 0,
-          pointDifferential: 0,
-          gamesBack: 0,
-          finalGames: 120,
+          week: 15,
+          standings: [
+            {
+              owner: 'Pruitt',
+              wins: 81,
+              losses: 39,
+              winPct: 0.675,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 0,
+              finalGames: 120,
+            },
+            {
+              owner: 'Maleski',
+              wins: 65,
+              losses: 41,
+              winPct: 0.613,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 0,
+              finalGames: 106,
+            },
+            {
+              owner: 'Whited',
+              wins: 70,
+              losses: 45,
+              winPct: 0.609,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 0,
+              finalGames: 115,
+            },
+          ],
         },
-        {
-          owner: 'Whited',
-          wins: 70,
-          losses: 45,
-          winPct: 0.609,
-          pointsFor: 0,
-          pointsAgainst: 0,
-          pointDifferential: 0,
-          gamesBack: 0,
-          finalGames: 115,
-        },
-      ]}
+      ])}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}

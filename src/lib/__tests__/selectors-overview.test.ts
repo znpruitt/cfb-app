@@ -10,6 +10,7 @@ import {
 import type { OverviewContext } from '../overview';
 import type { OverviewGameItem } from '../overview';
 import type { AppGame } from '../schedule';
+import type { StandingsHistory } from '../standingsHistory';
 import type { StandingsCoverage } from '../standings';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -73,6 +74,28 @@ function item(key: string): OverviewGameItem {
     score: undefined,
     priority: 2,
     sortDate: 0,
+  };
+}
+
+function historyFromSnapshots(
+  snapshots: Array<{
+    week: number;
+    standings: Parameters<typeof selectOverviewViewModel>[0]['standingsLeaders'];
+  }>
+): StandingsHistory {
+  return {
+    weeks: snapshots.map((snapshot) => snapshot.week),
+    byWeek: Object.fromEntries(
+      snapshots.map((snapshot) => [
+        snapshot.week,
+        {
+          week: snapshot.week,
+          standings: snapshot.standings.map((row) => ({ ...row, ties: 0 })),
+          coverage: { state: 'complete', message: null as string | null },
+        },
+      ])
+    ),
+    byOwner: {},
   };
 }
 
@@ -783,6 +806,84 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
   const model = selectOverviewViewModel({
     standingsLeaders: [],
     standingsCoverage: { state: 'partial', message: null },
+    standingsHistory: historyFromSnapshots([
+      {
+        week: 8,
+        standings: [
+          {
+            owner: 'Alex',
+            wins: 4,
+            losses: 4,
+            winPct: 0.5,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 2,
+            gamesBack: 1,
+            finalGames: 8,
+          },
+          {
+            owner: 'Blake',
+            wins: 6,
+            losses: 2,
+            winPct: 0.75,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 10,
+            gamesBack: 0,
+            finalGames: 8,
+          },
+          {
+            owner: 'Casey',
+            wins: 4,
+            losses: 4,
+            winPct: 0.5,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: -1,
+            gamesBack: 2,
+            finalGames: 8,
+          },
+        ],
+      },
+      {
+        week: 9,
+        standings: [
+          {
+            owner: 'Alex',
+            wins: 8,
+            losses: 2,
+            winPct: 0.8,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 15,
+            gamesBack: 0,
+            finalGames: 10,
+          },
+          {
+            owner: 'Blake',
+            wins: 6,
+            losses: 4,
+            winPct: 0.6,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 5,
+            gamesBack: 2,
+            finalGames: 10,
+          },
+          {
+            owner: 'Casey',
+            wins: 5,
+            losses: 5,
+            winPct: 0.5,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: -3,
+            gamesBack: 3,
+            finalGames: 10,
+          },
+        ],
+      },
+    ]),
     context: {
       scopeLabel: 'League',
       scopeDetail: 'Week 1',
@@ -1008,30 +1109,62 @@ test('selectOverviewViewModel removes noisy scope suffix and duplicated movement
         finalGames: 5,
       },
     ],
-    previousStandingsLeaders: [
+    standingsHistory: historyFromSnapshots([
       {
-        owner: 'Alice',
-        wins: 2,
-        losses: 3,
-        winPct: 0.4,
-        pointsFor: 0,
-        pointsAgainst: 0,
-        pointDifferential: -3,
-        gamesBack: 2,
-        finalGames: 5,
+        week: 1,
+        standings: [
+          {
+            owner: 'Alice',
+            wins: 2,
+            losses: 3,
+            winPct: 0.4,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: -3,
+            gamesBack: 2,
+            finalGames: 5,
+          },
+          {
+            owner: 'Bob',
+            wins: 4,
+            losses: 1,
+            winPct: 0.8,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 4,
+            gamesBack: 0,
+            finalGames: 5,
+          },
+        ],
       },
       {
-        owner: 'Bob',
-        wins: 4,
-        losses: 1,
-        winPct: 0.8,
-        pointsFor: 0,
-        pointsAgainst: 0,
-        pointDifferential: 4,
-        gamesBack: 0,
-        finalGames: 5,
+        week: 2,
+        standings: [
+          {
+            owner: 'Alice',
+            wins: 4,
+            losses: 1,
+            winPct: 0.8,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 10,
+            gamesBack: 0,
+            finalGames: 5,
+          },
+          {
+            owner: 'Bob',
+            wins: 2,
+            losses: 3,
+            winPct: 0.4,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: -8,
+            gamesBack: 2,
+            finalGames: 5,
+          },
+        ],
       },
-    ],
+    ]),
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeLabel: 'Postseason',
@@ -1242,41 +1375,84 @@ test('selectOverviewViewModel removes live-competition pulse wording after seaso
         finalGames: 12,
       },
     ],
-    previousStandingsLeaders: [
+    standingsHistory: historyFromSnapshots([
       {
-        owner: 'Blake',
-        wins: 9,
-        losses: 3,
-        winPct: 0.75,
-        pointsFor: 0,
-        pointsAgainst: 0,
-        pointDifferential: 10,
-        gamesBack: 0,
-        finalGames: 12,
+        week: 11,
+        standings: [
+          {
+            owner: 'Blake',
+            wins: 9,
+            losses: 3,
+            winPct: 0.75,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 10,
+            gamesBack: 0,
+            finalGames: 12,
+          },
+          {
+            owner: 'Alex',
+            wins: 10,
+            losses: 2,
+            winPct: 0.833,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 30,
+            gamesBack: 0,
+            finalGames: 12,
+          },
+          {
+            owner: 'Casey',
+            wins: 8,
+            losses: 4,
+            winPct: 0.667,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: 2,
+            finalGames: 12,
+          },
+        ],
       },
       {
-        owner: 'Alex',
-        wins: 10,
-        losses: 2,
-        winPct: 0.833,
-        pointsFor: 0,
-        pointsAgainst: 0,
-        pointDifferential: 30,
-        gamesBack: 0,
-        finalGames: 12,
+        week: 12,
+        standings: [
+          {
+            owner: 'Alex',
+            wins: 10,
+            losses: 2,
+            winPct: 0.833,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 30,
+            gamesBack: 0,
+            finalGames: 12,
+          },
+          {
+            owner: 'Blake',
+            wins: 9,
+            losses: 3,
+            winPct: 0.75,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 10,
+            gamesBack: 1,
+            finalGames: 12,
+          },
+          {
+            owner: 'Casey',
+            wins: 8,
+            losses: 4,
+            winPct: 0.667,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: 2,
+            finalGames: 12,
+          },
+        ],
       },
-      {
-        owner: 'Casey',
-        wins: 8,
-        losses: 4,
-        winPct: 0.667,
-        pointsFor: 0,
-        pointsAgainst: 0,
-        pointDifferential: 0,
-        gamesBack: 2,
-        finalGames: 12,
-      },
-    ],
+    ]),
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeLabel: 'Postseason',
@@ -1370,7 +1546,7 @@ test('selectOverviewViewModel suppresses league pulse when completed season only
   assert.equal(model.shouldShowLeaguePulse, false);
 });
 
-test('selectOverviewViewModel active-season pulse keeps biggest gain and biggest drop movement insights', () => {
+test('selectOverviewViewModel active-season pulse keeps history-derived temporal signals', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [
       {
@@ -1452,7 +1628,249 @@ test('selectOverviewViewModel active-season pulse keeps biggest gain and biggest
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(model.leaguePulse.some((entry) => entry.id.startsWith('biggest-gain-')));
-  assert.ok(model.leaguePulse.some((entry) => entry.id.startsWith('biggest-drop-')));
+  assert.ok(model.keyMovements.some((entry) => entry.id.startsWith('leader-gap')));
   assert.equal(model.shouldShowLeaguePulse, true);
+});
+
+test('selectOverviewViewModel movement snapshots ignore unresolved future weeks in standingsHistory', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'Alex',
+        wins: 6,
+        losses: 2,
+        winPct: 0.75,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 14,
+        gamesBack: 0,
+        finalGames: 8,
+      },
+      {
+        owner: 'Blake',
+        wins: 4,
+        losses: 4,
+        winPct: 0.5,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 2,
+        gamesBack: 2,
+        finalGames: 8,
+      },
+    ],
+    standingsHistory: {
+      weeks: [1, 2, 3, 4],
+      byWeek: {
+        1: {
+          week: 1,
+          standings: [
+            {
+              owner: 'Alex',
+              wins: 4,
+              losses: 2,
+              ties: 0,
+              winPct: 0.667,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 6,
+              gamesBack: 0,
+              finalGames: 6,
+            },
+            {
+              owner: 'Blake',
+              wins: 4,
+              losses: 2,
+              ties: 0,
+              winPct: 0.667,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 4,
+              gamesBack: 0,
+              finalGames: 6,
+            },
+          ],
+          coverage: { state: 'complete', message: null },
+        },
+        2: {
+          week: 2,
+          standings: [
+            {
+              owner: 'Alex',
+              wins: 6,
+              losses: 2,
+              ties: 0,
+              winPct: 0.75,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 14,
+              gamesBack: 0,
+              finalGames: 8,
+            },
+            {
+              owner: 'Blake',
+              wins: 4,
+              losses: 4,
+              ties: 0,
+              winPct: 0.5,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 2,
+              gamesBack: 2,
+              finalGames: 8,
+            },
+          ],
+          coverage: { state: 'complete', message: null },
+        },
+        3: {
+          week: 3,
+          standings: [
+            {
+              owner: 'Alex',
+              wins: 6,
+              losses: 2,
+              ties: 0,
+              winPct: 0.75,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 14,
+              gamesBack: 0,
+              finalGames: 8,
+            },
+            {
+              owner: 'Blake',
+              wins: 4,
+              losses: 4,
+              ties: 0,
+              winPct: 0.5,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 2,
+              gamesBack: 2,
+              finalGames: 8,
+            },
+          ],
+          coverage: { state: 'partial', message: null },
+        },
+        4: {
+          week: 4,
+          standings: [
+            {
+              owner: 'Alex',
+              wins: 6,
+              losses: 2,
+              ties: 0,
+              winPct: 0.75,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 14,
+              gamesBack: 0,
+              finalGames: 8,
+            },
+            {
+              owner: 'Blake',
+              wins: 4,
+              losses: 4,
+              ties: 0,
+              winPct: 0.5,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 2,
+              gamesBack: 2,
+              finalGames: 8,
+            },
+          ],
+          coverage: { state: 'partial', message: null },
+        },
+      },
+      byOwner: {
+        Alex: [
+          {
+            week: 1,
+            wins: 4,
+            losses: 2,
+            ties: 0,
+            winPct: 0.667,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 6,
+            gamesBack: 0,
+          },
+          {
+            week: 2,
+            wins: 6,
+            losses: 2,
+            ties: 0,
+            winPct: 0.75,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 14,
+            gamesBack: 0,
+          },
+          {
+            week: 3,
+            wins: 6,
+            losses: 2,
+            ties: 0,
+            winPct: 0.75,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 14,
+            gamesBack: 0,
+          },
+        ],
+        Blake: [
+          {
+            week: 1,
+            wins: 4,
+            losses: 2,
+            ties: 0,
+            winPct: 0.667,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 4,
+            gamesBack: 0,
+          },
+          {
+            week: 2,
+            wins: 4,
+            losses: 4,
+            ties: 0,
+            winPct: 0.5,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 2,
+            gamesBack: 2,
+          },
+          {
+            week: 3,
+            wins: 4,
+            losses: 4,
+            ties: 0,
+            winPct: 0.5,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 2,
+            gamesBack: 2,
+          },
+        ],
+      },
+    },
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 4',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.ok(model.keyMovements.some((entry) => entry.id === 'biggest-gain-Alex'));
+  assert.ok(!model.keyMovements.some((entry) => entry.id === 'biggest-gain-Blake'));
 });
