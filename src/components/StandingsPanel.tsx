@@ -5,7 +5,7 @@ import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
-type StandingsSubview = 'table' | 'trends';
+export type StandingsSubview = 'table' | 'trends';
 
 type StandingsPanelProps = {
   rows: OwnerStandingsRow[];
@@ -60,6 +60,10 @@ export default function StandingsPanel({
 }: StandingsPanelProps): React.ReactElement {
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
   const [activeSubview, setActiveSubview] = React.useState<StandingsSubview>(initialSubview);
+
+  React.useEffect(() => {
+    setActiveSubview(initialSubview);
+  }, [initialSubview]);
 
   React.useEffect(() => {
     if (activeSubview !== 'table') return;
