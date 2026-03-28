@@ -21,6 +21,7 @@ import {
   type WinBarsRow,
   type WinPctSeries,
 } from './trends';
+import { selectLeagueStorylines, type LeagueStoryline } from './storylines';
 
 // Canonical → Derived invariant: overview selectors consume canonical snapshot inputs
 // and return pure, presentation-agnostic derived data.
@@ -66,6 +67,7 @@ export type OverviewViewModel = {
   gamesBackTrend: GamesBackSeries[];
   winPctTrend: WinPctSeries[];
   winBars: WinBarsRow[];
+  storylines: LeagueStoryline[];
   leagueHighlights: {
     id: string;
     type:
@@ -887,6 +889,15 @@ export function selectOverviewViewModel(params: {
   });
   const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
   const recentResults = prioritizedResults.slice(0, resultsLimit);
+  const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
+  const winPctTrend = standingsHistory ? selectWinPctTrend({ standingsHistory }) : [];
+  const winBars = standingsHistory ? selectWinBars({ standingsHistory }) : [];
+  const storylines = selectLeagueStorylines({
+    standingsHistory,
+    gamesBackTrend,
+    winPctTrend,
+    winBars,
+  });
   const movementInsights = selectMovementInsightsForPulse(
     deriveLeagueInsights({
       standings: currentStandings,
@@ -957,9 +968,10 @@ export function selectOverviewViewModel(params: {
       leagueHighlights,
     }),
     recentResults,
-    gamesBackTrend: standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [],
-    winPctTrend: standingsHistory ? selectWinPctTrend({ standingsHistory }) : [],
-    winBars: standingsHistory ? selectWinBars({ standingsHistory }) : [],
+    gamesBackTrend,
+    winPctTrend,
+    winBars,
+    storylines,
     leagueHighlights,
   };
 }
