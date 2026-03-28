@@ -1542,3 +1542,117 @@ test('overview highlights show scope context once at section level', () => {
   assert.match(html, />Postseason</);
   assert.doesNotMatch(html, /\(this postseason slate\)/i);
 });
+
+test('overview panel renders League Storylines section when selector emits storylines', () => {
+  const standingsHistory = standingsHistoryFromSnapshots([
+    {
+      week: 1,
+      standings: [
+        {
+          owner: 'Alice',
+          wins: 4,
+          losses: 1,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 10,
+          gamesBack: 0,
+          finalGames: 5,
+        },
+        {
+          owner: 'Bob',
+          wins: 2,
+          losses: 3,
+          winPct: 0.4,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -5,
+          gamesBack: 2,
+          finalGames: 5,
+        },
+      ],
+    },
+    {
+      week: 2,
+      standings: [
+        {
+          owner: 'Alice',
+          wins: 5,
+          losses: 1,
+          winPct: 0.833,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 12,
+          gamesBack: 0,
+          finalGames: 6,
+        },
+        {
+          owner: 'Bob',
+          wins: 2,
+          losses: 4,
+          winPct: 0.333,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -6,
+          gamesBack: 3,
+          finalGames: 6,
+        },
+      ],
+    },
+  ]);
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 5,
+          losses: 1,
+          winPct: 0.833,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 12,
+          gamesBack: 0,
+          finalGames: 6,
+        },
+        {
+          owner: 'Bob',
+          wins: 2,
+          losses: 4,
+          winPct: 0.333,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -6,
+          gamesBack: 3,
+          finalGames: 6,
+        },
+      ]}
+      standingsHistory={standingsHistory}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /League Storylines/);
+  assert.match(html, /Alice leads by 3 games/);
+});
+
+test('overview panel omits League Storylines section when no storylines are available', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /League Storylines/);
+});

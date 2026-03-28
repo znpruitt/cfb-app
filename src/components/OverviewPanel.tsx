@@ -608,6 +608,26 @@ function HighlightList({
   );
 }
 
+function LeagueStorylines({
+  items,
+}: {
+  items: ReturnType<typeof selectOverviewViewModel>['storylines'];
+}): React.ReactElement | null {
+  if (items.length === 0) return null;
+
+  return (
+    <SectionCard title="League Storylines" tone="secondary" compact>
+      <ul className="space-y-1.5 text-sm text-gray-800 dark:text-zinc-100">
+        {items.slice(0, 3).map((item) => (
+          <li key={item.id} className="list-inside list-disc leading-snug">
+            {item.text}
+          </li>
+        ))}
+      </ul>
+    </SectionCard>
+  );
+}
+
 function LeaguePulse({
   items,
 }: {
@@ -996,6 +1016,7 @@ export default function OverviewPanel({
         podiumLeaders={viewModel.podiumLeaders}
         leader={standingsLeaders[0]}
       />
+      <LeagueStorylines items={viewModel.storylines} />
       {viewModel.shouldShowLeaguePulse ? <LeaguePulse items={viewModel.leaguePulse} /> : null}
       <SectionCard title="League Trends" tone="secondary" compact>
         <div className="grid gap-3 lg:grid-cols-3">

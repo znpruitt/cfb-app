@@ -2058,3 +2058,194 @@ test('selectOverviewViewModel includes winPctTrend derived from resolved standin
     }
   );
 });
+
+test('selectOverviewViewModel emits capped storylines sorted by priority', () => {
+  const week5Standings = [
+    {
+      owner: 'Leader',
+      wins: 8,
+      losses: 2,
+      winPct: 0.8,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 20,
+      gamesBack: 0,
+      finalGames: 10,
+    },
+    {
+      owner: 'Second',
+      wins: 6,
+      losses: 4,
+      winPct: 0.6,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 5,
+      gamesBack: 2,
+      finalGames: 10,
+    },
+    {
+      owner: 'PctLeader',
+      wins: 5,
+      losses: 1,
+      winPct: 0.833,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 12,
+      gamesBack: 4,
+      finalGames: 6,
+    },
+  ];
+
+  const week6Standings = [
+    {
+      owner: 'Leader',
+      wins: 9,
+      losses: 2,
+      winPct: 0.818,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 24,
+      gamesBack: 0,
+      finalGames: 11,
+    },
+    {
+      owner: 'Second',
+      wins: 6,
+      losses: 5,
+      winPct: 0.545,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 2,
+      gamesBack: 3,
+      finalGames: 11,
+    },
+    {
+      owner: 'PctLeader',
+      wins: 8,
+      losses: 1,
+      winPct: 0.889,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 15,
+      gamesBack: 4,
+      finalGames: 9,
+    },
+  ];
+
+  const standingsHistory: StandingsHistory = {
+    weeks: [5, 6],
+    byWeek: {
+      5: {
+        week: 5,
+        standings: week5Standings.map((row) => ({ ...row, ties: 0 })),
+        coverage: { state: 'complete', message: null },
+      },
+      6: {
+        week: 6,
+        standings: week6Standings.map((row) => ({ ...row, ties: 0 })),
+        coverage: { state: 'complete', message: null },
+      },
+    },
+    byOwner: {
+      Leader: [
+        {
+          week: 5,
+          wins: 8,
+          losses: 2,
+          ties: 0,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 20,
+          gamesBack: 0,
+        },
+        {
+          week: 6,
+          wins: 9,
+          losses: 2,
+          ties: 0,
+          winPct: 0.818,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 24,
+          gamesBack: 0,
+        },
+      ],
+      Second: [
+        {
+          week: 5,
+          wins: 6,
+          losses: 4,
+          ties: 0,
+          winPct: 0.6,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 5,
+          gamesBack: 4,
+        },
+        {
+          week: 6,
+          wins: 6,
+          losses: 5,
+          ties: 0,
+          winPct: 0.545,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 2,
+          gamesBack: 3,
+        },
+      ],
+      PctLeader: [
+        {
+          week: 5,
+          wins: 5,
+          losses: 1,
+          ties: 0,
+          winPct: 0.833,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 12,
+          gamesBack: 2,
+        },
+        {
+          week: 6,
+          wins: 8,
+          losses: 1,
+          ties: 0,
+          winPct: 0.889,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 15,
+          gamesBack: 4,
+        },
+      ],
+    },
+  };
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: week6Standings,
+    standingsHistory,
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 6',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.storylines.length, 3);
+  assert.deepEqual(
+    model.storylines.map((entry) => entry.type),
+    ['leader-gap', 'movement', 'win-pct']
+  );
+  assert.ok(model.storylines[0].priority >= model.storylines[1].priority);
+  assert.ok(model.storylines[1].priority >= model.storylines[2].priority);
+});
