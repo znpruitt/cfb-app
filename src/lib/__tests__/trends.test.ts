@@ -352,6 +352,45 @@ test('selectWinPctTrend truncates unresolved weeks and keeps canonical winPct va
   );
 });
 
+test('selectWinPctTrend returns empty array when no resolved standings weeks exist', () => {
+  const history = buildHistory();
+  history.weeks = [2];
+  history.byWeek = {
+    2: {
+      week: 2,
+      standings: [],
+      coverage: { state: 'partial', message: null },
+    },
+  };
+
+  const trend = selectWinPctTrend({ standingsHistory: history });
+  assert.deepEqual(trend, []);
+});
+
+test('selectWinPctTrend excludes owners with no resolved week points', () => {
+  const history = buildHistory();
+  history.byOwner['Casey'] = [
+    {
+      week: 2,
+      wins: 1,
+      losses: 1,
+      ties: 0,
+      winPct: 0.5,
+      pointsFor: 18,
+      pointsAgainst: 18,
+      pointDifferential: 0,
+      gamesBack: 1.5,
+    },
+  ];
+
+  const trend = selectWinPctTrend({ standingsHistory: history });
+  assert.deepEqual(
+    trend.map((series) => series.ownerName),
+    ['Alex', 'Blake']
+  );
+  assert.ok(!trend.some((series) => series.ownerName === 'Casey'));
+});
+
 test('selectWinBars uses latest resolved standings snapshot values and order', () => {
   const history = buildHistory();
   history.byWeek[2] = {

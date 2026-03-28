@@ -99,21 +99,23 @@ export function selectWinPctTrend(args: { standingsHistory: StandingsHistory }):
     selectResolvedStandingsWeeks(standingsHistory);
   const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
 
-  return owners.map((owner) => {
-    const ownerSeries = standingsHistory.byOwner[owner] ?? [];
-    const pointByWeek = new Map(ownerSeries.map((point) => [point.week, point]));
-    const points = weeks.flatMap((week) => {
-      const point = pointByWeek.get(week);
-      if (!point) return [];
-      return [{ week, value: point.winPct }];
-    });
+  return owners
+    .map((owner) => {
+      const ownerSeries = standingsHistory.byOwner[owner] ?? [];
+      const pointByWeek = new Map(ownerSeries.map((point) => [point.week, point]));
+      const points = weeks.flatMap((week) => {
+        const point = pointByWeek.get(week);
+        if (!point) return [];
+        return [{ week, value: point.winPct }];
+      });
 
-    return {
-      ownerId: owner,
-      ownerName: owner,
-      points,
-    };
-  });
+      return {
+        ownerId: owner,
+        ownerName: owner,
+        points,
+      };
+    })
+    .filter((series) => series.points.length > 0);
 }
 
 export function selectWinBars(args: { standingsHistory: StandingsHistory }): WinBarsRow[] {

@@ -930,6 +930,48 @@ test('overview panel renders League Trends games back section when history is pr
   assert.match(html, /4W · 57.1%/);
 });
 
+test('overview panel shows win percent empty-state copy when no resolved standings history exists', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsHistory={{
+        weeks: [3],
+        byWeek: {
+          3: {
+            week: 3,
+            standings: [],
+            coverage: { state: 'partial', message: null },
+          },
+        },
+        byOwner: {
+          Alice: [
+            {
+              week: 3,
+              wins: 2,
+              losses: 1,
+              ties: 0,
+              winPct: 0.667,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 0,
+            },
+          ],
+        },
+      }}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Win % trend will appear after standings history is available\./);
+  assert.doesNotMatch(html, /Latest: 0\.0%/);
+});
+
 test('overview panel shows explicit empty states for featured, highlights, and results', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
