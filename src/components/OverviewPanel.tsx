@@ -1019,6 +1019,14 @@ export default function OverviewPanel({
       <LeagueStorylines items={viewModel.storylines} />
       {viewModel.shouldShowLeaguePulse ? <LeaguePulse items={viewModel.leaguePulse} /> : null}
       <SectionCard title="League Trends" tone="secondary" compact>
+        <div className="mb-2 flex justify-end">
+          <a
+            href="/trends"
+            className="inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+          >
+            See full trends
+          </a>
+        </div>
         <div className="grid gap-3 lg:grid-cols-3">
           <div className="space-y-1">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
