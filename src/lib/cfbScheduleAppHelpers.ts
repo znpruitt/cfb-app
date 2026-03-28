@@ -1,3 +1,9 @@
+import { deriveRegularWeekTabs } from './activeView.ts';
+import type { BuiltSchedule } from './schedule.ts';
+import {
+  derivePostLoadDefaultWeekTabSelection,
+  type PostLoadDefaultWeekTabSelectionDecision,
+} from './weekSelection.ts';
 import type { AppGame } from './schedule.ts';
 
 export function dedupeIssues(items: string[]): string[] {
@@ -53,4 +59,53 @@ export function summarizeGames(label: string, games: AppGame[]): void {
       postseason: g.stage !== 'regular',
     })),
   });
+}
+
+export type ScheduleLoadApplicationResult = {
+  nextScheduleIssues: string[];
+  hasGames: boolean;
+  regularWeeks: number[];
+  postLoadSelection: PostLoadDefaultWeekTabSelectionDecision;
+};
+
+export function deriveScheduleLoadApplicationResult(params: {
+  built: BuiltSchedule;
+  selectedWeek: number | null;
+  selectedTab: number | 'postseason' | null;
+  isDebug: boolean;
+}): ScheduleLoadApplicationResult {
+  const { built, selectedWeek, selectedTab, isDebug } = params;
+  const nextScheduleIssues = built.issues.filter((issue) => !isTransientScheduleIssue(issue));
+
+  if (isDebug && built.hydrationDiagnostics.length) {
+    const actionableDiagnostics = built.hydrationDiagnostics.filter(
+      (diagnostic) => diagnostic.action !== 'template-preserved'
+    );
+    if (actionableDiagnostics.length) {
+      nextScheduleIssues.push(
+        ...actionableDiagnostics
+          .slice(0, 8)
+          .map(
+            (diagnostic) =>
+              `hydrate:${diagnostic.action}:${diagnostic.eventId}:${diagnostic.reason}`
+          )
+      );
+    }
+  }
+
+  const hasGames = built.games.length > 0;
+  const regularWeeks = hasGames ? deriveRegularWeekTabs(built.games) : [];
+  const postLoadSelection = derivePostLoadDefaultWeekTabSelection({
+    games: built.games,
+    regularWeeks,
+    selectedWeek,
+    selectedTab,
+  });
+
+  return {
+    nextScheduleIssues,
+    hasGames,
+    regularWeeks,
+    postLoadSelection,
+  };
 }

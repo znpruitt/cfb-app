@@ -332,6 +332,107 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
   assert.ok(Array.isArray(model.leagueHighlights));
 });
 
+test('selectOverviewViewModel shows featured matchups when no highlight cards are available', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'A',
+        wins: 2,
+        losses: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 8,
+        gamesBack: 0,
+        finalGames: 2,
+      },
+    ],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('scheduled-only'),
+        score: {
+          status: 'Scheduled',
+          time: null,
+          away: { team: 'Away', score: null },
+          home: { team: 'Home', score: null },
+        },
+      },
+    ],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.featuredMatchups.length, 1);
+  assert.equal(model.leagueHighlights.length, 0);
+  assert.equal(model.shouldShowFeaturedMatchups, true);
+});
+
+test('selectOverviewViewModel hides featured matchups when highlight cards exist', () => {
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      {
+        owner: 'A',
+        wins: 3,
+        losses: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 12,
+        gamesBack: 0,
+        finalGames: 3,
+      },
+    ],
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [
+      {
+        ...item('scheduled-watch'),
+        score: {
+          status: 'Scheduled',
+          time: null,
+          away: { team: 'Away', score: null },
+          home: { team: 'Home', score: null },
+        },
+      },
+      {
+        ...item('final-blowout'),
+        score: {
+          status: 'Final',
+          time: null,
+          away: { team: 'Away', score: 38 },
+          home: { team: 'Home', score: 10 },
+        },
+      },
+    ],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.featuredMatchups.length, 1);
+  assert.ok(model.leagueHighlights.length > 0);
+  assert.equal(model.shouldShowFeaturedMatchups, false);
+});
+
 test('selectOverviewViewModel hides featured matchups when slate only has finals', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [

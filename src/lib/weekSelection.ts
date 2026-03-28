@@ -23,6 +23,19 @@ type DefaultWeekArgs = {
   nowMs?: number;
 };
 
+type PostLoadDefaultWeekTabSelectionArgs = {
+  games: AppGame[];
+  regularWeeks: number[];
+  selectedWeek: number | null;
+  selectedTab: number | 'postseason' | null;
+};
+
+export type PostLoadDefaultWeekTabSelectionDecision = {
+  shouldApplyDefaultSelection: boolean;
+  nextSelectedWeek: number | null;
+  nextSelectedTab: number | 'postseason' | null;
+};
+
 const OFFSEASON_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
 
 function parseKickoffMs(date: string | null): number | null {
@@ -70,4 +83,25 @@ export function chooseDefaultWeek({
     .sort((a, b) => a - b);
 
   return startedWeeks[startedWeeks.length - 1] ?? fallbackWeek;
+}
+
+export function derivePostLoadDefaultWeekTabSelection(
+  params: PostLoadDefaultWeekTabSelectionArgs
+): PostLoadDefaultWeekTabSelectionDecision {
+  const { games, regularWeeks, selectedWeek, selectedTab } = params;
+
+  if (selectedWeek != null || regularWeeks.length === 0) {
+    return {
+      shouldApplyDefaultSelection: false,
+      nextSelectedWeek: selectedWeek,
+      nextSelectedTab: selectedTab,
+    };
+  }
+
+  const nextDefaultWeek = chooseDefaultWeek({ games, regularWeeks });
+  return {
+    shouldApplyDefaultSelection: true,
+    nextSelectedWeek: nextDefaultWeek,
+    nextSelectedTab: nextDefaultWeek,
+  };
 }

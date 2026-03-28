@@ -43,7 +43,7 @@ import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
 import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
 import { saveServerOwnersCsv } from '../lib/ownersApi';
 import { saveServerPostseasonOverrides } from '../lib/postseasonOverridesApi';
-import { chooseDefaultWeek, filterGamesForWeek } from '../lib/weekSelection';
+import { filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import {
   deriveCanonicalActiveViewGames,
@@ -57,9 +57,9 @@ import {
   type ScoreHydrationState,
 } from '../lib/scoreHydration';
 import {
+  deriveScheduleLoadApplicationResult,
   dedupeIssues,
   isScheduleIssue,
-  isTransientScheduleIssue,
   summarizeGames,
 } from '../lib/cfbScheduleAppHelpers';
 import { getAdminAlertCount } from '../lib/adminDiagnostics';
@@ -384,41 +384,36 @@ export default function CFBScheduleApp({
           conferenceRecords,
         });
 
-        const nextScheduleIssues = built.issues.filter((issue) => !isTransientScheduleIssue(issue));
-        if (IS_DEBUG && built.hydrationDiagnostics.length) {
-          const actionableDiagnostics = built.hydrationDiagnostics.filter(
-            (d) => d.action !== 'template-preserved'
-          );
-          if (actionableDiagnostics.length) {
-            nextScheduleIssues.push(
-              ...actionableDiagnostics
-                .slice(0, 8)
-                .map((d) => `hydrate:${d.action}:${d.eventId}:${d.reason}`)
-            );
-          }
-        }
+        const application = deriveScheduleLoadApplicationResult({
+          built,
+          selectedWeek,
+          selectedTab,
+          isDebug: IS_DEBUG,
+        });
 
         setIssues((prev) =>
-          dedupeIssues([...prev.filter((issue) => !isScheduleIssue(issue)), ...nextScheduleIssues])
+          dedupeIssues([
+            ...prev.filter((issue) => !isScheduleIssue(issue)),
+            ...application.nextScheduleIssues,
+          ])
         );
 
-        if (!built.games.length) {
+        if (!application.hasGames) {
           clearScheduleDerivedState();
           return false;
         }
 
         setGames(built.games);
-        const regularWeeks = deriveRegularWeekTabs(built.games);
         setByes(built.byes);
         setConferences(built.conferences);
         setScheduleLoaded(true);
         if (options?.bypassCache) {
           await loadRankings({ bypassCache: true });
         }
-        if (selectedWeek == null && regularWeeks.length) {
-          const nextDefaultWeek = chooseDefaultWeek({ games: built.games, regularWeeks });
-          setSelectedWeek(nextDefaultWeek);
-          setSelectedTab(nextDefaultWeek);
+        const postLoadSelection = application.postLoadSelection;
+        if (postLoadSelection.shouldApplyDefaultSelection) {
+          setSelectedWeek(postLoadSelection.nextSelectedWeek);
+          setSelectedTab(postLoadSelection.nextSelectedTab);
         }
         return true;
       } catch (error) {
@@ -438,6 +433,7 @@ export default function CFBScheduleApp({
       loadRankings,
       manualPostseasonOverrides,
       selectedSeason,
+      selectedTab,
       selectedWeek,
     ]
   );

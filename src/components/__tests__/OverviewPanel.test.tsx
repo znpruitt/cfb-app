@@ -590,7 +590,7 @@ test('overview panel summary does not render season-complete framing when standi
   assert.match(html, /Championship race/);
 });
 
-test('overview panel keeps league-home ordering with featured matchups before standings and results', () => {
+test('overview panel keeps league-home ordering with standings and highlights ahead of results', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -603,11 +603,12 @@ test('overview panel keeps league-home ordering with featured matchups before st
     />
   );
 
-  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('Featured matchups'));
-  assert.ok(html.indexOf('Featured matchups') < html.indexOf('League highlights'));
+  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings (Top 5)'));
+  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('League highlights'));
+  assert.ok(html.indexOf('League highlights') < html.indexOf('Recent results'));
+  assert.ok(html.indexOf('Recent results') < html.indexOf('Upcoming watchlist'));
   assert.doesNotMatch(html, /League pulse/);
-  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
-  assert.ok(html.indexOf('Recent results') < html.indexOf('No live games right now.'));
+  assert.ok(html.indexOf('Upcoming watchlist') < html.indexOf('No live games right now.'));
   assert.ok(html.includes('Gap #2 —'));
   assert.ok(html.includes('Week 1'));
 });
@@ -645,7 +646,7 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
   assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
 });
 
-test('overview panel does not show featured empty state when non-final games exist beyond early finals', () => {
+test('overview panel hides watchlist when highlight cards already summarize the slate', () => {
   const finals = [1, 2, 3, 4].map((value) =>
     itemWithScore(
       game({
@@ -689,8 +690,8 @@ test('overview panel does not show featured empty state when non-final games exi
     />
   );
 
-  assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
-  assert.match(html, /Georgia<\/span> @ <span>Florida/);
+  assert.doesNotMatch(html, /Upcoming watchlist/);
+  assert.match(html, /League highlights/);
 });
 
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
@@ -1234,8 +1235,7 @@ test('overview highlights prioritize top matchup and conditionally render upset 
     />
   );
 
-  assert.ok(html.indexOf('Top matchup') < html.indexOf('Upset watch'));
-  assert.match(html, /Upset watch/);
+  assert.match(html, /Top ranked matchup/);
   assert.doesNotMatch(html, /Ranked spotlight/);
   assert.match(html, /Tight race: Alice and Bob are separated by 0.000 win%/);
 });

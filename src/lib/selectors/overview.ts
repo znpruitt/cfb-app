@@ -69,6 +69,14 @@ export type OverviewViewModel = {
   }[];
 };
 
+function deriveShouldShowFeaturedMatchups(params: {
+  featuredMatchups: PrioritizedOverviewItem[];
+  leagueHighlights: OverviewViewModel['leagueHighlights'];
+}): boolean {
+  if (params.featuredMatchups.length === 0) return false;
+  return params.leagueHighlights.length === 0;
+}
+
 export const OVERVIEW_STANDINGS_LIMIT = 5;
 export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
 export const OVERVIEW_RESULTS_LIMIT = 5;
@@ -906,7 +914,10 @@ export function selectOverviewViewModel(params: {
     leaguePulse,
     shouldShowLeaguePulse: deriveShouldShowLeaguePulse({ championSummary, leaguePulse }),
     featuredMatchups,
-    shouldShowFeaturedMatchups: featuredMatchups.length > 0,
+    shouldShowFeaturedMatchups: deriveShouldShowFeaturedMatchups({
+      featuredMatchups,
+      leagueHighlights,
+    }),
     recentResults,
     leagueHighlights,
   };
