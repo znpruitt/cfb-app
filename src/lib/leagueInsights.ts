@@ -35,14 +35,11 @@ type LeagueInsightsInput = {
 
 const TOP_INSIGHT_LIMIT = 3;
 const TOP_BADGE_LIMIT = 2;
-const MOVEMENT_MIN_GAME_COUNT = 2;
-
-type OwnerMovementRecord = {
-  games: number;
-  wins: number;
-  losses: number;
-  pointDiff: number;
-  liveGames: number;
+type OwnerMovementDelta = {
+  owner: string;
+  winsDelta: number;
+  lossesDelta: number;
+  pointDiffDelta: number;
 };
 
 function teamRankForGameSide(
@@ -99,119 +96,57 @@ function rankingPairForItem(
   };
 }
 
-function deriveMovementOutcomes(params: {
-  recentResults: OverviewGameItem[];
-  liveGames: OverviewGameItem[];
-}): Map<string, OwnerMovementRecord> {
-  const records = new Map<string, OwnerMovementRecord>();
-  const itemsByKey = new Map<string, OverviewGameItem>();
-  [...params.recentResults, ...params.liveGames].forEach((item) => {
-    itemsByKey.set(item.bucket.game.key, item);
+function deriveMovementInsights(params: {
+  standings: OwnerStandingsRow[];
+  previousStandings?: OwnerStandingsRow[] | null;
+}): Insight[] {
+  const { standings, previousStandings } = params;
+  if (!previousStandings?.length) return [];
+
+  const previousByOwner = new Map(previousStandings.map((row) => [row.owner, row]));
+  const deltas: OwnerMovementDelta[] = standings.map((row) => {
+    const previous = previousByOwner.get(row.owner);
+    return {
+      owner: row.owner,
+      winsDelta: row.wins - (previous?.wins ?? 0),
+      lossesDelta: row.losses - (previous?.losses ?? 0),
+      pointDiffDelta: row.pointDifferential - (previous?.pointDifferential ?? 0),
+    };
   });
 
-  const getRecord = (owner: string): OwnerMovementRecord => {
-    let record = records.get(owner);
-    if (!record) {
-      record = { games: 0, wins: 0, losses: 0, pointDiff: 0, liveGames: 0 };
-      records.set(owner, record);
-    }
-    return record;
-  };
-
-  for (const item of itemsByKey.values()) {
-    const state = gameStateFromScore(item.score);
-    if (state !== 'final' && state !== 'inprogress') continue;
-
-    const awayScore = item.score?.away.score;
-    const homeScore = item.score?.home.score;
-    if (awayScore == null || homeScore == null) continue;
-
-    if (
-      item.bucket.awayOwner &&
-      item.bucket.homeOwner &&
-      item.bucket.awayOwner === item.bucket.homeOwner
-    ) {
-      continue;
-    }
-
-    const sideResults = [
-      {
-        owner: item.bucket.awayOwner,
-        score: awayScore,
-        opponentScore: homeScore,
-      },
-      {
-        owner: item.bucket.homeOwner,
-        score: homeScore,
-        opponentScore: awayScore,
-      },
-    ];
-
-    for (const result of sideResults) {
-      if (!result.owner) continue;
-      const record = getRecord(result.owner);
-      record.games += 1;
-      record.pointDiff += result.score - result.opponentScore;
-      if (state === 'inprogress') record.liveGames += 1;
-      if (result.score > result.opponentScore) record.wins += 1;
-      if (result.score < result.opponentScore) record.losses += 1;
-    }
-  }
-
-  return records;
-}
-
-function deriveMovementInsights(params: {
-  recentResults: OverviewGameItem[];
-  liveGames: OverviewGameItem[];
-}): Insight[] {
-  const records = deriveMovementOutcomes(params);
-  const eligible = Array.from(records.entries()).filter(
-    ([, record]) => record.games >= MOVEMENT_MIN_GAME_COUNT
-  );
-  if (eligible.length === 0) return [];
-
-  const biggestGain = eligible
-    .filter(([, record]) => record.wins > 0)
+  const biggestGain = deltas
+    .filter((delta) => delta.winsDelta > 0)
     .sort((left, right) => {
-      const [leftOwner, leftRecord] = left;
-      const [rightOwner, rightRecord] = right;
-      if (rightRecord.wins !== leftRecord.wins) return rightRecord.wins - leftRecord.wins;
-      if (rightRecord.pointDiff !== leftRecord.pointDiff)
-        return rightRecord.pointDiff - leftRecord.pointDiff;
-      if (rightRecord.liveGames !== leftRecord.liveGames)
-        return rightRecord.liveGames - leftRecord.liveGames;
-      return leftOwner.localeCompare(rightOwner);
+      if (right.winsDelta !== left.winsDelta) return right.winsDelta - left.winsDelta;
+      if (right.pointDiffDelta !== left.pointDiffDelta)
+        return right.pointDiffDelta - left.pointDiffDelta;
+      return left.owner.localeCompare(right.owner);
     })[0];
 
-  const biggestDrop = eligible
-    .filter(([, record]) => record.losses > 0)
+  const biggestDrop = deltas
+    .filter((delta) => delta.lossesDelta > 0)
     .sort((left, right) => {
-      const [leftOwner, leftRecord] = left;
-      const [rightOwner, rightRecord] = right;
-      if (rightRecord.losses !== leftRecord.losses) return rightRecord.losses - leftRecord.losses;
-      if (leftRecord.pointDiff !== rightRecord.pointDiff)
-        return leftRecord.pointDiff - rightRecord.pointDiff;
-      if (rightRecord.liveGames !== leftRecord.liveGames)
-        return rightRecord.liveGames - leftRecord.liveGames;
-      return leftOwner.localeCompare(rightOwner);
+      if (right.lossesDelta !== left.lossesDelta) return right.lossesDelta - left.lossesDelta;
+      if (left.pointDiffDelta !== right.pointDiffDelta)
+        return left.pointDiffDelta - right.pointDiffDelta;
+      return left.owner.localeCompare(right.owner);
     })[0];
 
   const insights: Insight[] = [];
   if (biggestGain) {
-    const [owner, record] = biggestGain;
+    const { owner, winsDelta } = biggestGain;
     insights.push({
       id: `biggest-gain-${owner}`,
-      text: `Biggest gain: ${owner} (+${record.wins} wins)`,
+      text: `Biggest gain: ${owner} (+${winsDelta} wins)`,
       priority: 99,
     });
   }
 
   if (biggestDrop) {
-    const [owner, record] = biggestDrop;
+    const { owner, lossesDelta } = biggestDrop;
     insights.push({
       id: `biggest-drop-${owner}`,
-      text: `Biggest drop: ${owner} (-${record.losses})`,
+      text: `Biggest drop: ${owner} (-${lossesDelta})`,
       priority: 97,
     });
   }
@@ -230,7 +165,7 @@ export function deriveLeagueInsights({
   const leader = standings[0];
   const runnerUp = standings[1];
 
-  insights.push(...deriveMovementInsights({ recentResults, liveGames }));
+  insights.push(...deriveMovementInsights({ standings, previousStandings }));
 
   if (leader && runnerUp) {
     const gap = leaderGap(standings) ?? 0;

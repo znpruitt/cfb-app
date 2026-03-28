@@ -25,6 +25,7 @@ import { saveServerAliases } from '../lib/aliasesApi';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
+import { deriveStandingsHistory } from '../lib/standingsHistory';
 import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../lib/overview';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
@@ -590,6 +591,19 @@ export default function CFBScheduleApp({
       deriveStandingsCoverage(games, rosterByTeam, scoresByKey, {
         isLoadingScores: loadingLive,
         hasScoreLoadError,
+      }),
+    [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
+  );
+  const standingsHistory = useMemo(
+    () =>
+      deriveStandingsHistory({
+        games,
+        rosterByTeam,
+        scoresByKey,
+        coverageOptions: {
+          isLoadingScores: loadingLive,
+          hasScoreLoadError,
+        },
       }),
     [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
   );
@@ -1310,6 +1324,7 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
+                  standingsHistory={standingsHistory}
                   standingsCoverage={standingsCoverage}
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}

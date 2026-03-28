@@ -8,6 +8,7 @@ import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
+import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
 
@@ -713,6 +714,81 @@ function LeaguePulse({
   );
 }
 
+function GamesBackTrend({
+  series,
+}: {
+  series: ReturnType<typeof selectOverviewViewModel>['gamesBackTrend'];
+}): React.ReactElement {
+  if (series.length === 0) {
+    return (
+      <p className="text-xs text-gray-500 dark:text-zinc-400">
+        Games Back trend will appear after standings history is available.
+      </p>
+    );
+  }
+
+  const trendRows = series
+    .map((entry) => ({ ...entry, latest: entry.points[entry.points.length - 1]?.value ?? 0 }))
+    .sort((left, right) => {
+      if (left.latest !== right.latest) return left.latest - right.latest;
+      return left.ownerName.localeCompare(right.ownerName);
+    })
+    .slice(0, 5);
+
+  return (
+    <div className="space-y-2">
+      {trendRows.map((entry) => {
+        const values = entry.points.map((point) => point.value);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const spread = Math.max(1, max - min);
+        const width = 116;
+        const height = 24;
+        const coordinates = entry.points
+          .map((point, index) => {
+            const x =
+              entry.points.length > 1 ? (index / (entry.points.length - 1)) * width : width / 2;
+            const normalized = (point.value - min) / spread;
+            const y = height - normalized * height;
+            return `${x},${y}`;
+          })
+          .join(' ');
+
+        return (
+          <div
+            key={entry.ownerId}
+            className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
+                {entry.ownerName}
+              </p>
+              <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+                Latest: {entry.latest.toFixed(1)} GB
+              </p>
+            </div>
+            <svg
+              viewBox={`0 0 ${width} ${height}`}
+              className="h-6 w-28 shrink-0 text-blue-600 dark:text-blue-300"
+              role="img"
+              aria-label={`${entry.ownerName} games back trend`}
+            >
+              <polyline
+                points={coordinates}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
@@ -730,7 +806,7 @@ type OverviewPanelProps = {
   onViewMatchups?: () => void;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
-  previousStandingsLeaders?: OwnerStandingsRow[] | null;
+  standingsHistory?: StandingsHistory | null;
 };
 
 export default function OverviewPanel({
@@ -750,7 +826,7 @@ export default function OverviewPanel({
   onViewMatchups,
   onOpenHighlightTarget,
   rankingsByTeamId = new Map(),
-  previousStandingsLeaders = null,
+  standingsHistory = null,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const liveTitle = liveItems.length === 0 ? 'Live · none' : `Live · ${liveItems.length}`;
@@ -770,7 +846,7 @@ export default function OverviewPanel({
     () =>
       selectOverviewViewModel({
         standingsLeaders,
-        previousStandingsLeaders,
+        standingsHistory,
         standingsCoverage,
         context,
         liveItems,
@@ -780,7 +856,7 @@ export default function OverviewPanel({
       }),
     [
       standingsLeaders,
-      previousStandingsLeaders,
+      standingsHistory,
       standingsCoverage,
       context,
       liveItems,
@@ -800,6 +876,9 @@ export default function OverviewPanel({
         leader={standingsLeaders[0]}
       />
       {viewModel.shouldShowLeaguePulse ? <LeaguePulse items={viewModel.leaguePulse} /> : null}
+      <SectionCard title="League Trends" tone="secondary" compact>
+        <GamesBackTrend series={viewModel.gamesBackTrend} />
+      </SectionCard>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <SectionCard title="League standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
@@ -825,7 +904,7 @@ export default function OverviewPanel({
             <CondensedStandingsTable
               rows={viewModel.standingsTopN}
               onOwnerSelect={onOwnerSelect}
-              previousRows={previousStandingsLeaders}
+              previousRows={viewModel.previousStandingsLeaders}
               liveCountByOwner={liveCountByOwner}
             />
           )}
