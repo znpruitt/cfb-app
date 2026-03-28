@@ -62,6 +62,10 @@ export default function StandingsPanel({
   const [activeSubview, setActiveSubview] = React.useState<StandingsSubview>(initialSubview);
 
   React.useEffect(() => {
+    setActiveSubview(initialSubview);
+  }, [initialSubview]);
+
+  React.useEffect(() => {
     if (activeSubview !== 'table') return;
     scrollFocusedStandingsOwnerIntoView({
       focusedOwner,
