@@ -2249,3 +2249,171 @@ test('selectOverviewViewModel emits capped storylines sorted by priority', () =>
   assert.ok(model.storylines[0].priority >= model.storylines[1].priority);
   assert.ok(model.storylines[1].priority >= model.storylines[2].priority);
 });
+
+test('selectOverviewViewModel applies final-season storyline phrasing and suppresses tight race', () => {
+  const standingsHistory: StandingsHistory = {
+    weeks: [15, 16],
+    byWeek: {
+      15: {
+        week: 15,
+        standings: [
+          {
+            owner: 'Leader',
+            wins: 9,
+            losses: 1,
+            ties: 0,
+            winPct: 0.9,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: 0,
+            finalGames: 10,
+          },
+          {
+            owner: 'Second',
+            wins: 8,
+            losses: 2,
+            ties: 0,
+            winPct: 0.8,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: 1,
+            finalGames: 10,
+          },
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+      16: {
+        week: 16,
+        standings: [
+          {
+            owner: 'Leader',
+            wins: 12,
+            losses: 2,
+            ties: 0,
+            winPct: 0.857,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: 0,
+            finalGames: 14,
+          },
+          {
+            owner: 'Second',
+            wins: 10,
+            losses: 4,
+            ties: 0,
+            winPct: 0.714,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: 2,
+            finalGames: 14,
+          },
+          {
+            owner: 'Third',
+            wins: 10,
+            losses: 4,
+            ties: 0,
+            winPct: 0.714,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: 2,
+            finalGames: 14,
+          },
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+    },
+    byOwner: {
+      Leader: [
+        {
+          week: 15,
+          wins: 9,
+          losses: 1,
+          ties: 0,
+          winPct: 0.9,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+        },
+        {
+          week: 16,
+          wins: 12,
+          losses: 2,
+          ties: 0,
+          winPct: 0.857,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 0,
+        },
+      ],
+      Second: [
+        {
+          week: 15,
+          wins: 8,
+          losses: 2,
+          ties: 0,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 1,
+        },
+        {
+          week: 16,
+          wins: 10,
+          losses: 4,
+          ties: 0,
+          winPct: 0.714,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 2,
+        },
+      ],
+      Third: [
+        {
+          week: 16,
+          wins: 10,
+          losses: 4,
+          ties: 0,
+          winPct: 0.714,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: 2,
+        },
+      ],
+    },
+  };
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: standingsHistory.byWeek[16]!.standings,
+    standingsHistory,
+    standingsCoverage: { state: 'complete', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Final',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(
+    model.storylines.some((item) => item.type === 'tight-race'),
+    false
+  );
+  assert.match(model.storylines[0]?.text ?? '', /won the title by 2 games/i);
+});

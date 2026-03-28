@@ -73,113 +73,115 @@ function bar(ownerName: string, wins: number, winPct: number): WinBarsRow {
   };
 }
 
-test('emits leader-gap storyline when first place has meaningful separation', () => {
+test('close-finish storyline emits in final context and suppresses leader-gap', () => {
   const storylines = selectLeagueStorylines({
     standingsHistory: null,
-    gamesBackTrend: [gb('Pruitt', 0), gb('Ciprys', 3), gb('Shambaugh', 4)],
+    seasonContext: 'final',
+    gamesBackTrend: [gb('Pruitt', 0), gb('Maleski', 1), gb('Ciprys', 3)],
+    winPctTrend: [],
+    winBars: [],
+  });
+
+  assert.equal(storylines[0]?.type, 'close-finish');
+  assert.match(storylines[0]?.text ?? '', /edged Maleski/i);
+  assert.equal(
+    storylines.some((entry) => entry.type === 'leader-gap'),
+    false
+  );
+});
+
+test('final context avoids in-season leader phrasing', () => {
+  const storylines = selectLeagueStorylines({
+    standingsHistory: null,
+    seasonContext: 'final',
+    gamesBackTrend: [gb('Pruitt', 0), gb('Ciprys', 6), gb('Shambaugh', 7)],
     winPctTrend: [],
     winBars: [],
   });
 
   assert.equal(storylines[0]?.type, 'leader-gap');
-  assert.match(storylines[0]?.text ?? '', /Pruitt leads by 3 games/);
+  assert.doesNotMatch(storylines[0]?.text ?? '', /leads by/i);
+  assert.match(storylines[0]?.text ?? '', /finished first|won the title/i);
 });
 
-test('emits tight-race storyline when top spots are close', () => {
-  const storylines = selectLeagueStorylines({
+test('in-season and postseason leader-gap phrasing varies deterministically by gap size', () => {
+  const moderateGap = selectLeagueStorylines({
     standingsHistory: null,
-    gamesBackTrend: [gb('Pruitt', 0), gb('Ciprys', 1), gb('Shambaugh', 1)],
+    seasonContext: 'in-season',
+    gamesBackTrend: [gb('Pruitt', 0), gb('Ciprys', 2), gb('Shambaugh', 4)],
     winPctTrend: [],
     winBars: [],
   });
 
-  assert.equal(storylines[0]?.type, 'tight-race');
-  assert.match(storylines[0]?.text ?? '', /top 3 are separated by 1 game/i);
-});
-
-test('emits movement storyline when biggest week-over-week move is meaningful', () => {
-  const history = buildHistory([
-    {
-      week: 5,
-      rows: [
-        { owner: 'Pruitt', wins: 10 },
-        { owner: 'Shambaugh', wins: 7 },
-      ],
-    },
-    {
-      week: 6,
-      rows: [
-        { owner: 'Pruitt', wins: 11 },
-        { owner: 'Shambaugh', wins: 10 },
-      ],
-    },
-  ]);
-
-  const storylines = selectLeagueStorylines({
-    standingsHistory: history,
-    gamesBackTrend: [],
+  const wideGap = selectLeagueStorylines({
+    standingsHistory: null,
+    seasonContext: 'in-season',
+    gamesBackTrend: [gb('Pruitt', 0), gb('Ciprys', 5), gb('Shambaugh', 6)],
     winPctTrend: [],
     winBars: [],
   });
 
-  assert.equal(storylines[0]?.type, 'movement');
-  assert.match(
-    storylines[0]?.text ?? '',
-    /Shambaugh made the biggest move this week, gaining 3 wins/i
-  );
-});
-
-test('emits win-pct standout storyline when best win percentage is not first in wins', () => {
-  const storylines = selectLeagueStorylines({
+  const repeatedWideGap = selectLeagueStorylines({
     standingsHistory: null,
-    gamesBackTrend: [],
-    winPctTrend: [wp('Leader', 0.75), wp('Ciprys', 0.81)],
-    winBars: [bar('Leader', 12, 0.75), bar('Ciprys', 11, 0.81)],
+    seasonContext: 'in-season',
+    gamesBackTrend: [gb('Pruitt', 0), gb('Ciprys', 5), gb('Shambaugh', 6)],
+    winPctTrend: [],
+    winBars: [],
   });
 
-  assert.equal(storylines[0]?.type, 'win-pct');
-  assert.match(storylines[0]?.text ?? '', /Ciprys owns the league's best win percentage/i);
+  assert.match(moderateGap[0]?.text ?? '', /ahead by 2 games/i);
+  assert.match(wideGap[0]?.text ?? '', /opened a 5 games gap/i);
+  assert.equal(wideGap[0]?.text, repeatedWideGap[0]?.text);
 });
 
-test('suppresses tight-race storyline when leader-gap storyline already captures top spread', () => {
+test('suppresses competing top-of-table narratives when leader-gap already applies', () => {
   const storylines = selectLeagueStorylines({
     standingsHistory: null,
-    gamesBackTrend: [gb('Leader', 0), gb('Second', 3), gb('Third', 3)],
+    seasonContext: 'in-season',
+    gamesBackTrend: [gb('Leader', 0), gb('Second', 3), gb('Third', 4)],
     winPctTrend: [wp('Leader', 0.7), wp('Second', 0.74)],
     winBars: [bar('Leader', 10, 0.7), bar('Second', 9, 0.74)],
   });
 
   assert.equal(
-    storylines.some((entry) => entry.type === 'tight-race'),
-    false
+    storylines.filter((entry) => ['close-finish', 'leader-gap', 'tight-race'].includes(entry.type))
+      .length,
+    1
   );
-  assert.equal(storylines.length, 2);
+  assert.equal(storylines[0]?.type, 'leader-gap');
 });
 
-test('returns empty output when no meaningful storyline triggers', () => {
+test('movement and win-pct rules still work with cap enforcement', () => {
   const history = buildHistory([
     {
-      week: 1,
+      week: 10,
       rows: [
-        { owner: 'A', wins: 1 },
-        { owner: 'B', wins: 1 },
+        { owner: 'Leader', wins: 10 },
+        { owner: 'Mover', wins: 5 },
+        { owner: 'PctLeader', wins: 6 },
       ],
     },
     {
-      week: 2,
+      week: 11,
       rows: [
-        { owner: 'A', wins: 2 },
-        { owner: 'B', wins: 2 },
+        { owner: 'Leader', wins: 11 },
+        { owner: 'Mover', wins: 8 },
+        { owner: 'PctLeader', wins: 7 },
       ],
     },
   ]);
 
   const storylines = selectLeagueStorylines({
     standingsHistory: history,
-    gamesBackTrend: [],
-    winPctTrend: [wp('A', 0.6), wp('B', 0.6)],
-    winBars: [bar('A', 6, 0.6), bar('B', 6, 0.6)],
+    seasonContext: 'in-season',
+    gamesBackTrend: [gb('Leader', 0), gb('Mover', 3), gb('PctLeader', 4)],
+    winPctTrend: [wp('Leader', 0.7), wp('PctLeader', 0.82), wp('Mover', 0.5)],
+    winBars: [bar('Leader', 11, 0.7), bar('PctLeader', 7, 0.82), bar('Mover', 8, 0.5)],
   });
 
-  assert.deepEqual(storylines, []);
+  assert.equal(storylines.length, 3);
+  assert.deepEqual(
+    storylines.map((entry) => entry.type),
+    ['leader-gap', 'movement', 'win-pct']
+  );
 });

@@ -1638,7 +1638,7 @@ test('overview panel renders League Storylines section when selector emits story
   );
 
   assert.match(html, /League Storylines/);
-  assert.match(html, /Alice leads by 3 games/);
+  assert.match(html, /Alice won the title by 3 games/);
 });
 
 test('overview panel omits League Storylines section when no storylines are available', () => {
@@ -1655,4 +1655,21 @@ test('overview panel omits League Storylines section when no storylines are avai
   );
 
   assert.doesNotMatch(html, /League Storylines/);
+});
+
+test('overview panel renders trends detail link in League Trends section', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /See full trends/);
+  assert.match(html, /href="\/trends"/);
 });

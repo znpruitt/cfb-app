@@ -22,6 +22,7 @@ import {
   type WinPctSeries,
 } from './trends';
 import { selectLeagueStorylines, type LeagueStoryline } from './storylines';
+import { selectSeasonContext } from './seasonContext';
 
 // Canonical → Derived invariant: overview selectors consume canonical snapshot inputs
 // and return pure, presentation-agnostic derived data.
@@ -892,11 +893,13 @@ export function selectOverviewViewModel(params: {
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
   const winPctTrend = standingsHistory ? selectWinPctTrend({ standingsHistory }) : [];
   const winBars = standingsHistory ? selectWinBars({ standingsHistory }) : [];
+  const seasonContext = selectSeasonContext({ standingsHistory });
   const storylines = selectLeagueStorylines({
     standingsHistory,
     gamesBackTrend,
     winPctTrend,
     winBars,
+    seasonContext,
   });
   const movementInsights = selectMovementInsightsForPulse(
     deriveLeagueInsights({

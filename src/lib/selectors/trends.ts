@@ -157,3 +157,19 @@ export function selectWinBars(args: { standingsHistory: StandingsHistory }): Win
     ];
   });
 }
+
+export function selectGamesBackTrendFull(args: {
+  standingsHistory: StandingsHistory;
+}): GamesBackSeries[] {
+  return selectGamesBackTrend(args);
+}
+
+export function selectWinPctTrendFull(args: {
+  standingsHistory: StandingsHistory;
+}): WinPctSeries[] {
+  return selectWinPctTrend(args);
+}
+
+export function selectWinBarsFull(args: { standingsHistory: StandingsHistory }): WinBarsRow[] {
+  return selectWinBars(args);
+}
