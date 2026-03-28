@@ -12,6 +12,7 @@ import { getGameParticipantTeamId } from '../schedule';
 import type { OverviewContext, OverviewGameItem } from '../overview';
 import type { StandingsHistory } from '../standingsHistory';
 import type { OwnerStandingsRow, StandingsCoverage } from '../standings';
+import { selectResolvedStandingsWeeks } from './historyResolution';
 import { selectGamesBackTrend, type GamesBackSeries } from './trends';
 
 // Canonical → Derived invariant: overview selectors consume canonical snapshot inputs
@@ -93,17 +94,16 @@ function deriveTemporalStandingsFromHistory(standingsHistory?: StandingsHistory 
     return { current: null, previous: null };
   }
 
-  const resolvedWeeks = standingsHistory.weeks.filter(
-    (week) => standingsHistory.byWeek[week]?.coverage.state === 'complete'
-  );
-  const currentWeek = resolvedWeeks.at(-1) ?? standingsHistory.weeks.at(-1);
-  const previousWeek = resolvedWeeks.length > 1 ? resolvedWeeks.at(-2) : undefined;
-  if (currentWeek == null) return { current: null, previous: null };
+  const { latestResolvedWeek, previousResolvedWeek } =
+    selectResolvedStandingsWeeks(standingsHistory);
+  if (latestResolvedWeek == null) return { current: null, previous: null };
 
   return {
-    current: standingsHistory.byWeek[currentWeek]?.standings ?? null,
+    current: standingsHistory.byWeek[latestResolvedWeek]?.standings ?? null,
     previous:
-      previousWeek != null ? (standingsHistory.byWeek[previousWeek]?.standings ?? null) : null,
+      previousResolvedWeek != null
+        ? (standingsHistory.byWeek[previousResolvedWeek]?.standings ?? null)
+        : null,
   };
 }
 

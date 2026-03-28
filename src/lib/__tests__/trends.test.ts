@@ -28,7 +28,32 @@ function buildHistory(): StandingsHistory {
       },
       1: {
         week: 1,
-        standings: [],
+        standings: [
+          {
+            owner: 'Alex',
+            wins: 2,
+            losses: 0,
+            ties: 0,
+            winPct: 1,
+            pointsFor: 21,
+            pointsAgainst: 9,
+            pointDifferential: 12,
+            gamesBack: 0,
+            finalGames: 2,
+          },
+          {
+            owner: 'Blake',
+            wins: 1,
+            losses: 1,
+            ties: 0,
+            winPct: 0.5,
+            pointsFor: 17,
+            pointsAgainst: 17,
+            pointDifferential: 0,
+            gamesBack: 1,
+            finalGames: 2,
+          },
+        ],
         coverage: { state: 'complete', message: null },
       },
       2: {
@@ -115,7 +140,6 @@ test('selectGamesBackTrend builds one sorted series per owner from standingsHist
   assert.deepEqual(trend.find((series) => series.ownerName === 'Blake')?.points, [
     { week: 0, value: 1 },
     { week: 1, value: 1 },
-    { week: 2, value: 2 },
   ]);
 });
 
@@ -123,6 +147,7 @@ test('selectGamesBackTrend uses latest standings order with alphabetical fallbac
   const history = buildHistory();
   history.byWeek[2] = {
     ...history.byWeek[2]!,
+    coverage: { state: 'complete', message: null },
     standings: [
       {
         owner: 'Blake',
@@ -183,5 +208,43 @@ test('selectGamesBackTrend falls back to alphabetical owner ordering when latest
   assert.deepEqual(
     trend.map((series) => series.ownerName),
     ['Alex', 'Blake']
+  );
+});
+
+test('selectGamesBackTrend truncates future unresolved weeks and avoids flat carry-forward tails', () => {
+  const history = buildHistory();
+  history.weeks = [0, 1, 2, 3];
+  history.byWeek[3] = {
+    week: 3,
+    standings: [],
+    coverage: { state: 'partial', message: null },
+  };
+  history.byOwner['Alex']!.push({
+    week: 2,
+    wins: 2,
+    losses: 0,
+    ties: 0,
+    winPct: 1,
+    pointsFor: 21,
+    pointsAgainst: 9,
+    pointDifferential: 12,
+    gamesBack: 0,
+  });
+  history.byOwner['Alex']!.push({
+    week: 3,
+    wins: 2,
+    losses: 0,
+    ties: 0,
+    winPct: 1,
+    pointsFor: 21,
+    pointsAgainst: 9,
+    pointDifferential: 12,
+    gamesBack: 0,
+  });
+
+  const trend = selectGamesBackTrend({ standingsHistory: history });
+  assert.deepEqual(
+    trend.find((series) => series.ownerName === 'Alex')?.points.map((point) => point.week),
+    [0, 1]
   );
 });

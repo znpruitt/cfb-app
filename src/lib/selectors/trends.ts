@@ -1,4 +1,5 @@
 import type { StandingsHistory } from '../standingsHistory';
+import { selectResolvedStandingsWeeks } from './historyResolution';
 
 export type GamesBackSeriesPoint = {
   week: number;
@@ -11,8 +12,10 @@ export type GamesBackSeries = {
   points: GamesBackSeriesPoint[];
 };
 
-function deriveOwnerOrderFromLatestStandings(standingsHistory: StandingsHistory): string[] {
-  const latestWeek = standingsHistory.weeks[standingsHistory.weeks.length - 1];
+function deriveOwnerOrderFromLatestStandings(
+  standingsHistory: StandingsHistory,
+  latestWeek: number | null
+): string[] {
   const latestStandings =
     latestWeek != null ? (standingsHistory.byWeek[latestWeek]?.standings ?? []) : [];
   const latestOwners = latestStandings.map((row) => row.owner);
@@ -33,15 +36,16 @@ function deriveOwnerOrderFromLatestStandings(standingsHistory: StandingsHistory)
  *
  * Contract:
  * - Owner ordering: latest standings order; fallback is alphabetical by owner key when latest standings are unavailable.
- * - Point ordering: follows `standingsHistory.weeks` order exactly.
+ * - Point ordering: follows resolved-week order from `standingsHistory.weeks`.
  * - Values: taken directly from `standingsHistory.byOwner[].gamesBack` (no recomputation).
  */
 export function selectGamesBackTrend(args: {
   standingsHistory: StandingsHistory;
 }): GamesBackSeries[] {
   const { standingsHistory } = args;
-  const weeks = standingsHistory.weeks;
-  const owners = deriveOwnerOrderFromLatestStandings(standingsHistory);
+  const { resolvedWeeks: weeks, latestResolvedWeek } =
+    selectResolvedStandingsWeeks(standingsHistory);
+  const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
 
   return owners.map((owner) => {
     const ownerSeries = standingsHistory.byOwner[owner] ?? [];
