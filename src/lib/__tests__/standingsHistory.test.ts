@@ -247,3 +247,49 @@ test('deriveStandingsHistory preserves tie/no-decision semantics and byWeek/byOw
     }
   }
 });
+
+test('deriveStandingsHistory forwards coverage options into each week snapshot', () => {
+  const games = [
+    game({
+      key: 'missing-final-score',
+      week: 1,
+      csvAway: 'A-Team',
+      csvHome: 'B-Team',
+      status: 'final',
+    }),
+  ];
+
+  const rosterByTeam = {
+    'A-Team': 'Alpha',
+    'B-Team': 'Beta',
+  };
+
+  const scoresByKey = {
+    'missing-final-score': {
+      status: 'Scheduled',
+      time: 'Delayed',
+      away: { team: 'A-Team', score: null },
+      home: { team: 'B-Team', score: null },
+    },
+  };
+
+  const errorAwareHistory = deriveStandingsHistory({
+    games,
+    rosterByTeam,
+    scoresByKey,
+    coverageOptions: { hasScoreLoadError: true },
+  });
+  assert.equal(errorAwareHistory.byWeek[1]?.coverage.state, 'error');
+
+  const loadingAwareHistory = deriveStandingsHistory({
+    games,
+    rosterByTeam,
+    scoresByKey,
+    coverageOptions: { isLoadingScores: true },
+  });
+  assert.equal(loadingAwareHistory.byWeek[1]?.coverage.state, 'partial');
+  assert.equal(
+    loadingAwareHistory.byWeek[1]?.coverage.message,
+    'Standings may be incomplete — some completed game scores are still loading.'
+  );
+});

@@ -73,8 +73,12 @@ export function deriveStandingsHistory(args: {
   games: AppGame[];
   rosterByTeam: Map<string, string> | Record<string, string>;
   scoresByKey: Record<string, ScorePack>;
+  coverageOptions?: {
+    isLoadingScores?: boolean;
+    hasScoreLoadError?: boolean;
+  };
 }): StandingsHistory {
-  const { games, scoresByKey } = args;
+  const { games, scoresByKey, coverageOptions } = args;
   const rosterByTeam = normalizeRosterByTeam(args.rosterByTeam);
   const weeks = deriveOrderedWeeks(games);
 
@@ -104,7 +108,12 @@ export function deriveStandingsHistory(args: {
 
     const snapshot = deriveStandings(cumulativeGames, rosterByTeam, scoresByKey);
     const standings = toHistoryStandingsRows(snapshot.rows);
-    const coverage = deriveStandingsCoverage(cumulativeGames, rosterByTeam, scoresByKey);
+    const coverage = deriveStandingsCoverage(
+      cumulativeGames,
+      rosterByTeam,
+      scoresByKey,
+      coverageOptions
+    );
 
     byWeek[week] = {
       week,
