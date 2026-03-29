@@ -122,6 +122,11 @@ test('standings panel renders expected columns and metrics', () => {
   assert.match(html, /data-standings-subview="trends"/);
   assert.match(html, /data-layout="standings-trends-split"/);
   assert.match(html, /lg:grid-cols-\[minmax\(0,1.3fr\)_minmax\(0,1.7fr\)\]/);
+  assert.match(html, /data-standings-layout="tight"/);
+  assert.match(html, /data-standings-column="rank"/);
+  assert.match(html, /data-standings-column="move"/);
+  assert.match(html, /data-standings-column="pf"/);
+  assert.match(html, /text-right tabular-nums/);
   assert.match(html, /data-winbar-background="75.0%"/);
   assert.doesNotMatch(html, /Swipe\/scroll for full standings detail on small screens\./);
   assert.doesNotMatch(
