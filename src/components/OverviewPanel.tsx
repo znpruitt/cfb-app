@@ -1022,7 +1022,7 @@ export default function OverviewPanel({
       <SectionCard title="League Trends" tone="secondary" compact>
         <div className="mb-2 flex justify-end">
           <Link
-            href="/standings?view=trends"
+            href="/standings?view=trends#trends"
             className="inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
           >
             See full trends

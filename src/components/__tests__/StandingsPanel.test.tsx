@@ -4,12 +4,13 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import { cleanup, render } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 
 import StandingsPanel from '../StandingsPanel';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>');
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'https://example.test/',
+});
 (globalThis as { window: Window }).window = dom.window as unknown as Window;
 (globalThis as { document: Document }).document = dom.window.document;
 Object.defineProperty(globalThis, 'navigator', {
@@ -176,6 +177,40 @@ test('standings panel embeds shared trend charts alongside table', () => {
   assert.match(html, /Games Back shared trend chart/);
   assert.match(html, /Win % shared trend chart/);
   assert.doesNotMatch(html, /Win Bars/);
+  assert.match(html, /data-standings-section="recent-momentum"/);
+  assert.doesNotMatch(html, /data-standings-subview="trends"[\s\S]*Recent Momentum/);
+});
+
+test('standings panel renders recent momentum below table in left column', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[
+        {
+          owner: 'Alex',
+          wins: 3,
+          losses: 1,
+          winPct: 0.75,
+          pointsFor: 120,
+          pointsAgainst: 99,
+          pointDifferential: 21,
+          gamesBack: 0,
+          finalGames: 4,
+        },
+      ]}
+      standingsHistory={history}
+      seasonContext="in-season"
+      trendIssues={[]}
+    />
+  );
+
+  const tableIndex = html.indexOf('</table>');
+  const momentumIndex = html.indexOf('data-standings-section="recent-momentum"');
+  const trendsIndex = html.indexOf('data-standings-subview="trends"');
+  assert.ok(tableIndex >= 0);
+  assert.ok(momentumIndex > tableIndex);
+  assert.ok(trendsIndex > momentumIndex);
 });
 
 test('standings panel renders trends section regardless of deep-link initial subview', () => {
@@ -234,7 +269,6 @@ test('standings panel keeps embedded trends rendered when initialSubview prop ch
 });
 
 test('deep-link trends initial subview highlights and anchors embedded trends panel', async () => {
-  const user = userEvent.setup({ document: dom.window.document });
   const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
   let scrollCalls = 0;
   window.HTMLElement.prototype.scrollIntoView = () => {
@@ -270,10 +304,37 @@ test('deep-link trends initial subview highlights and anchors embedded trends pa
   assert.ok(trendsPanel);
   assert.equal((trendsPanel as HTMLElement).id, 'trends');
   assert.ok(scrollCalls > 0);
-
-  await user.click(rendered.container.querySelector('[data-momentum-owner="Alex"] button')!);
-  assert.ok(rendered.container.querySelector('[data-owner-focus="true"]'));
+  assert.ok(rendered.container.querySelector('[data-standings-section="recent-momentum"]'));
+  assert.equal(rendered.container.querySelectorAll('[data-owner-focus="true"]').length, 0);
 
   window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   window.location.hash = '';
+});
+
+test('query param view=trends deep link highlights and scrolls to embedded trends panel', () => {
+  const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+  let scrollCalls = 0;
+  window.HTMLElement.prototype.scrollIntoView = () => {
+    scrollCalls += 1;
+  };
+  window.history.replaceState({}, '', 'https://example.test/standings?view=trends');
+
+  const rendered = render(
+    <StandingsPanel
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[]}
+      initialSubview="table"
+      standingsHistory={history}
+      seasonContext="in-season"
+      trendIssues={[]}
+    />
+  );
+
+  const trendsPanel = rendered.container.querySelector('[data-standings-subview="trends"]');
+  assert.ok(trendsPanel);
+  assert.ok(scrollCalls > 0);
+
+  window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  window.history.replaceState({}, '', 'https://example.test/');
 });
