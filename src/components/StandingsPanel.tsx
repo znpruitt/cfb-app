@@ -1,7 +1,8 @@
 import React from 'react';
+import Link from 'next/link';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
-import { selectOwnerMomentum } from '../lib/selectors/momentum';
+import { deriveLeagueInsights, type Insight, type InsightType } from '../lib/selectors/insights';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -25,6 +26,31 @@ type FocusableElement = {
   scrollIntoView: (options?: ScrollIntoViewOptions) => void;
 };
 
+const STANDINGS_RELEVANT_INSIGHT_TYPES: ReadonlySet<InsightType> = new Set([
+  'toilet_bowl',
+  'collapse',
+  'surge',
+  'race',
+]);
+
+function insightHref(target?: Insight['navigationTarget']): string | null {
+  if (!target) return null;
+  if (target.type === 'standings') return '/standings';
+  if (target.type === 'trends') return '/standings?view=trends#trends';
+  if (target.type === 'matchup') {
+    const week = target.params?.week;
+    if (typeof week === 'number') return `/?view=matchups&week=${week}`;
+    return '/?view=matchups';
+  }
+  return null;
+}
+
+function selectStandingsInsights(insights: Insight[]): Insight[] {
+  return insights
+    .filter((insight) => STANDINGS_RELEVANT_INSIGHT_TYPES.has(insight.type))
+    .slice(0, 2);
+}
+
 export function scrollFocusedStandingsOwnerIntoView(params: {
   focusedOwner: string | null;
   refsByOwner: Map<string, FocusableElement>;
@@ -47,13 +73,6 @@ function formatGamesBack(value: number): string {
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
-}
-
-function formatSignedOneDecimal(value: number): string {
-  const base = Math.abs(value).toFixed(1);
-  if (value > 0) return `+${base}`;
-  if (value < 0) return `-${base}`;
-  return base;
 }
 
 function deriveMovementPresentation(rankDelta: number | null): {
@@ -106,7 +125,6 @@ export default function StandingsPanel({
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
   const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
-  const momentum = standingsHistory ? selectOwnerMomentum({ standingsHistory, windowSize: 3 }) : [];
   const movementByOwner = React.useMemo(
     () =>
       deriveStandingsMovementByOwner({
@@ -115,12 +133,17 @@ export default function StandingsPanel({
       }),
     [rows, standingsHistory]
   );
-  const topMomentum = momentum.slice(0, 3);
-  const topMomentumOwnerIds = new Set(topMomentum.map((entry) => entry.ownerId));
-  const bottomMomentum = [...momentum]
-    .filter((entry) => !topMomentumOwnerIds.has(entry.ownerId))
-    .reverse()
-    .slice(0, 3);
+  const standingsInsights = React.useMemo(
+    () =>
+      selectStandingsInsights(
+        deriveLeagueInsights({
+          rows,
+          standingsHistory,
+          seasonContext,
+        })
+      ),
+    [rows, seasonContext, standingsHistory]
+  );
 
   React.useEffect(() => {
     scrollFocusedStandingsOwnerIntoView({
@@ -282,68 +305,43 @@ export default function StandingsPanel({
             </>
           )}
 
-          <section
-            className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
-            data-standings-section="recent-momentum"
-          >
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-              Recent Momentum
-            </h3>
-            {momentum.length === 0 ? (
-              <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-                No momentum data available yet.
-              </p>
-            ) : (
-              <div className="mt-2 grid gap-3 md:grid-cols-2">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                    Top gainers (last 3 weeks)
-                  </p>
-                  <ul className="mt-1.5 space-y-1.5 text-sm">
-                    {topMomentum.map((entry) => (
-                      <li
-                        key={`momentum-top-${entry.ownerId}`}
-                        className="rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
-                        data-momentum-owner={entry.ownerId}
-                      >
-                        <div className="flex w-full items-center justify-between gap-2 text-left">
-                          <span className="font-medium">{entry.ownerId}</span>
-                          <span>
-                            {entry.deltaWins >= 0 ? '+' : ''}
-                            {entry.deltaWins} wins · GB{' '}
-                            {formatSignedOneDecimal(entry.deltaGamesBack)}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                    Cooldowns (last 3 weeks)
-                  </p>
-                  <ul className="mt-1.5 space-y-1.5 text-sm">
-                    {bottomMomentum.map((entry) => (
-                      <li
-                        key={`momentum-bottom-${entry.ownerId}`}
-                        className="rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
-                        data-momentum-owner={entry.ownerId}
-                      >
-                        <div className="flex w-full items-center justify-between gap-2 text-left">
-                          <span className="font-medium">{entry.ownerId}</span>
-                          <span>
-                            {entry.deltaWins >= 0 ? '+' : ''}
-                            {entry.deltaWins} wins · Win%{' '}
-                            {formatSignedOneDecimal(entry.deltaWinPct * 100)}%
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+          {standingsInsights.length > 0 ? (
+            <section
+              className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+              data-standings-section="contextual-insights"
+            >
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+                Standings context
+              </h3>
+              <div className="mt-2 space-y-2">
+                {standingsInsights.map((insight) => {
+                  const href = insightHref(insight.navigationTarget);
+                  return (
+                    <article
+                      key={insight.id}
+                      className="rounded-md border border-gray-200 bg-white px-2.5 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+                      data-standings-insight-type={insight.type}
+                    >
+                      <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                        {insight.title}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-700 dark:text-zinc-300">
+                        {insight.description}
+                      </p>
+                      {href ? (
+                        <Link
+                          href={href}
+                          className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+                        >
+                          Open insight
+                        </Link>
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
-            )}
-          </section>
+            </section>
+          ) : null}
         </div>
 
         <div
