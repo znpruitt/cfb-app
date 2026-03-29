@@ -7,7 +7,7 @@ import { type SeasonContext } from '../../lib/selectors/seasonContext';
 import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../../lib/selectors/trends';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import { deriveFocusedOwners, type FocusMode } from '../../lib/trendsFocus';
-import { getOwnerTrendColor } from './presentationColors';
+import { buildOwnerColorMap, getOwnerColor } from './presentationColors';
 
 type MetricKind = 'games-back' | 'win-pct';
 type LayoutMode = 'standalone' | 'embedded';
@@ -335,6 +335,7 @@ function SharedTrendChart({
   selectedOwnerId,
   onSelectOwner,
   viewportWidth,
+  getOwnerTrendColor,
 }: {
   title: string;
   metric: MetricKind;
@@ -343,6 +344,7 @@ function SharedTrendChart({
   selectedOwnerId: string | null;
   onSelectOwner: (ownerId: string) => void;
   viewportWidth: number;
+  getOwnerTrendColor: (ownerId: string) => string;
 }): React.ReactElement {
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -469,6 +471,7 @@ function SharedTrendChart({
                   emphasized: true,
                 };
                 const isLeader = leaderIds.has(row.ownerId);
+                const isSeriesHovered = hoverState?.ownerName === row.ownerName;
                 return (
                   <path
                     key={`${metric}-line-${row.ownerId}`}
@@ -481,7 +484,9 @@ function SharedTrendChart({
                     })}
                     fill="none"
                     stroke={getOwnerTrendColor(row.ownerId)}
-                    strokeWidth={visualState.selected ? 4 : isLeader ? 3.2 : 2.5}
+                    strokeWidth={
+                      visualState.selected ? 4 : isSeriesHovered ? 3 : isLeader ? 3.2 : 2.5
+                    }
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     className={
@@ -511,46 +516,60 @@ function SharedTrendChart({
                     height: plotHeight,
                     invertYAxis,
                   });
+                  const isPointHovered =
+                    hoverState?.ownerName === row.ownerName &&
+                    hoverState.week === point.week &&
+                    hoverState.metric === metric;
                   return (
-                    <circle
-                      key={`${metric}-${row.ownerId}-point-${point.week}`}
-                      cx={pos.x}
-                      cy={pos.y}
-                      r={visualState.selected ? 4 : 3}
-                      fill={getOwnerTrendColor(row.ownerId)}
-                      className={visualState.muted ? 'opacity-30' : 'opacity-95'}
-                      onMouseEnter={() =>
-                        setHoverState({
-                          x: pos.x,
-                          y: pos.y,
-                          ownerName: row.ownerName,
-                          metric,
-                          week: point.week,
-                          value: point.value,
-                        })
-                      }
-                      onMouseLeave={() => setHoverState(null)}
-                      onClick={() =>
-                        setHoverState({
-                          x: pos.x,
-                          y: pos.y,
-                          ownerName: row.ownerName,
-                          metric,
-                          week: point.week,
-                          value: point.value,
-                        })
-                      }
-                      onTouchStart={() =>
-                        setHoverState({
-                          x: pos.x,
-                          y: pos.y,
-                          ownerName: row.ownerName,
-                          metric,
-                          week: point.week,
-                          value: point.value,
-                        })
-                      }
-                    />
+                    <g key={`${metric}-${row.ownerId}-point-${point.week}`}>
+                      <circle
+                        cx={pos.x}
+                        cy={pos.y}
+                        r={10}
+                        fill="transparent"
+                        pointerEvents="all"
+                        data-hover-target={`${metric}-${row.ownerId}-${point.week}`}
+                        onMouseEnter={() =>
+                          setHoverState({
+                            x: pos.x,
+                            y: pos.y,
+                            ownerName: row.ownerName,
+                            metric,
+                            week: point.week,
+                            value: point.value,
+                          })
+                        }
+                        onMouseLeave={() => setHoverState(null)}
+                        onClick={() =>
+                          setHoverState({
+                            x: pos.x,
+                            y: pos.y,
+                            ownerName: row.ownerName,
+                            metric,
+                            week: point.week,
+                            value: point.value,
+                          })
+                        }
+                        onTouchStart={() =>
+                          setHoverState({
+                            x: pos.x,
+                            y: pos.y,
+                            ownerName: row.ownerName,
+                            metric,
+                            week: point.week,
+                            value: point.value,
+                          })
+                        }
+                      />
+                      <circle
+                        cx={pos.x}
+                        cy={pos.y}
+                        r={isPointHovered ? 6 : visualState.selected ? 4 : 3}
+                        fill={getOwnerTrendColor(row.ownerId)}
+                        className={visualState.muted ? 'opacity-30' : 'opacity-95'}
+                        pointerEvents="none"
+                      />
+                    </g>
                   );
                 });
               })}
@@ -788,6 +807,19 @@ export default function TrendsDetailSurface({
     [winBars]
   );
   const orderedOwners = React.useMemo(() => winBars.map((row) => row.ownerId), [winBars]);
+  const ownerColorMap = React.useMemo(() => buildOwnerColorMap(orderedOwners), [orderedOwners]);
+  const ownerIndexMap = React.useMemo(
+    () => new Map(orderedOwners.map((owner, index) => [owner, index])),
+    [orderedOwners]
+  );
+  const getOwnerTrendColor = React.useCallback(
+    (ownerId: string) => {
+      const color = ownerColorMap.get(ownerId);
+      if (color) return color;
+      return getOwnerColor(ownerId, ownerIndexMap.get(ownerId) ?? 0, orderedOwners.length || 1);
+    },
+    [orderedOwners.length, ownerColorMap, ownerIndexMap]
+  );
   const focusedOwners = React.useMemo(
     () =>
       deriveFocusedOwners({
@@ -921,6 +953,7 @@ export default function TrendsDetailSurface({
         onSelectOwner={(ownerId) =>
           setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId))
         }
+        getOwnerTrendColor={getOwnerTrendColor}
       />
 
       <SharedTrendChart
@@ -933,6 +966,7 @@ export default function TrendsDetailSurface({
         onSelectOwner={(ownerId) =>
           setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId))
         }
+        getOwnerTrendColor={getOwnerTrendColor}
       />
 
       <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
