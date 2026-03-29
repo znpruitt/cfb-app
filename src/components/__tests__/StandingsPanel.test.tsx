@@ -119,7 +119,14 @@ test('standings panel renders expected columns and metrics', () => {
   assert.match(html, /2025 Standings/);
   assert.match(html, /Trends/);
   assert.match(html, /data-standings-subview="trends"/);
+  assert.match(html, /data-layout="standings-trends-split"/);
+  assert.match(html, /lg:grid-cols-\[minmax\(0,1.3fr\)_minmax\(0,1.7fr\)\]/);
   assert.match(html, /data-winbar-background="75.0%"/);
+  assert.doesNotMatch(html, /Swipe\/scroll for full standings detail on small screens\./);
+  assert.doesNotMatch(
+    html,
+    /PF, PA, Diff, and GB stay available without changing standings logic\./
+  );
 });
 
 test('standings panel renders secondary coverage warning when standings are partial', () => {
