@@ -59,19 +59,31 @@ export default function StandingsPanel({
   initialSubview = 'table',
 }: StandingsPanelProps): React.ReactElement {
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
-  const [activeSubview, setActiveSubview] = React.useState<StandingsSubview>(initialSubview);
+  const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
 
   React.useEffect(() => {
-    setActiveSubview(initialSubview);
-  }, [initialSubview]);
-
-  React.useEffect(() => {
-    if (activeSubview !== 'table') return;
     scrollFocusedStandingsOwnerIntoView({
       focusedOwner,
       refsByOwner: ownerRowRefs.current,
     });
-  }, [focusedOwner, activeSubview]);
+  }, [focusedOwner]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const viewParam = new URLSearchParams(window.location.search).get('view');
+    const shouldFocusTrends =
+      initialSubview === 'trends' ||
+      viewParam === 'trends' ||
+      window.location.hash.toLowerCase() === '#trends';
+    if (!shouldFocusTrends) return;
+    if (typeof trendsPanelRef.current?.scrollIntoView === 'function') {
+      trendsPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    setTrendsHighlighted(true);
+    const timeoutId = window.setTimeout(() => setTrendsHighlighted(false), 1800);
+    return () => window.clearTimeout(timeoutId);
+  }, [initialSubview]);
 
   return (
     <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -92,133 +104,124 @@ export default function StandingsPanel({
         ) : null}
       </div>
 
-      <div
-        className="inline-flex rounded-lg border border-gray-300 bg-gray-50 p-1 dark:border-zinc-700 dark:bg-zinc-950"
-        role="tablist"
-        aria-label="Standings views"
-      >
-        {[
-          { key: 'table', label: 'Table' },
-          { key: 'trends', label: 'Trends' },
-        ].map((tab) => {
-          const isActive = activeSubview === tab.key;
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-white text-gray-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
-                  : 'text-gray-600 hover:text-gray-800 dark:text-zinc-300 dark:hover:text-zinc-100'
-              }`}
-              onClick={() => setActiveSubview(tab.key as StandingsSubview)}
-              data-standings-subview={tab.key}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {activeSubview === 'table' ? (
-        rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-            Upload surnames to populate league standings.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-zinc-400">
-              <span>Swipe/scroll for full standings detail on small screens.</span>
-              <span className="hidden sm:inline">
-                PF, PA, Diff, and GB stay available without changing standings logic.
-              </span>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
+        <div className="space-y-3">
+          {rows.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+              Upload surnames to populate league standings.
             </div>
-            <div className="-mx-1 overflow-x-auto px-1">
-              <table className="min-w-max border-separate border-spacing-0 text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-                    {['Rank', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map((label) => (
-                      <th
-                        key={label}
-                        className={`whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700 ${label === 'PF' || label === 'PA' || label === 'Diff' || label === 'GB' ? 'text-[11px] sm:text-xs text-gray-400 dark:text-zinc-500' : ''}`}
-                      >
-                        {label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, index) => (
-                    <tr
-                      key={row.owner}
-                      ref={(element) => {
-                        if (!element) {
-                          ownerRowRefs.current.delete(row.owner);
-                          return;
-                        }
-                        ownerRowRefs.current.set(row.owner, element);
-                      }}
-                      className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
-                        focusedOwner === row.owner
-                          ? 'ring-1 ring-inset ring-blue-400 dark:ring-blue-600'
-                          : ''
-                      }`}
-                      data-standings-owner={row.owner}
-                    >
-                      <td className="border-b border-gray-100 px-2 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
-                        {index + 1}
-                      </td>
-                      <td className="border-b border-gray-100 px-2 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
-                        <div className="min-w-[8.5rem] truncate sm:min-w-0">
-                          {onOwnerSelect ? (
-                            <button
-                              type="button"
-                              className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                              onClick={() => onOwnerSelect(row.owner)}
-                            >
-                              {row.owner}
-                            </button>
-                          ) : (
-                            row.owner
-                          )}
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
-                        {row.wins}–{row.losses}
-                      </td>
-                      <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-600 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
-                        {formatWinPct(row.winPct)}
-                      </td>
-                      <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
-                        {row.pointsFor}
-                      </td>
-                      <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
-                        {row.pointsAgainst}
-                      </td>
-                      <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
-                        {formatDiff(row.pointDifferential)}
-                      </td>
-                      <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
-                        {formatGamesBack(row.gamesBack)}
-                      </td>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-zinc-400">
+                <span>Swipe/scroll for full standings detail on small screens.</span>
+                <span className="hidden sm:inline">
+                  PF, PA, Diff, and GB stay available without changing standings logic.
+                </span>
+              </div>
+              <div className="-mx-1 overflow-x-auto px-1">
+                <table className="min-w-max border-separate border-spacing-0 text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+                      {['Rank', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
+                        (label) => (
+                          <th
+                            key={label}
+                            className={`whitespace-nowrap border-b border-gray-200 px-2 py-2 font-semibold sm:px-3 dark:border-zinc-700 ${label === 'PF' || label === 'PA' || label === 'Diff' || label === 'GB' ? 'text-[11px] sm:text-xs text-gray-400 dark:text-zinc-500' : ''}`}
+                          >
+                            {label}
+                          </th>
+                        )
+                      )}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      ) : (
-        <TrendsDetailSurface
-          standingsHistory={standingsHistory}
-          season={season}
-          seasonContext={seasonContext}
-          issues={trendIssues}
-          layoutMode="embedded"
-        />
-      )}
+                  </thead>
+                  <tbody>
+                    {rows.map((row, index) => {
+                      const winPctWidth = Math.max(0, Math.min(100, row.winPct * 100)).toFixed(1);
+                      return (
+                        <tr
+                          key={row.owner}
+                          ref={(element) => {
+                            if (!element) {
+                              ownerRowRefs.current.delete(row.owner);
+                              return;
+                            }
+                            ownerRowRefs.current.set(row.owner, element);
+                          }}
+                          className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
+                            focusedOwner === row.owner
+                              ? 'ring-1 ring-inset ring-blue-400 dark:ring-blue-600'
+                              : ''
+                          }`}
+                          style={{
+                            backgroundImage: `linear-gradient(to right, rgba(59, 130, 246, 0.12) ${winPctWidth}%, transparent ${winPctWidth}%)`,
+                          }}
+                          data-standings-owner={row.owner}
+                          data-winbar-background={`${winPctWidth}%`}
+                        >
+                          <td className="border-b border-gray-100 px-2 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
+                            {index + 1}
+                          </td>
+                          <td className="border-b border-gray-100 px-2 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
+                            <div className="min-w-[8.5rem] truncate sm:min-w-0">
+                              {onOwnerSelect ? (
+                                <button
+                                  type="button"
+                                  className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                                  onClick={() => onOwnerSelect(row.owner)}
+                                >
+                                  {row.owner}
+                                </button>
+                              ) : (
+                                row.owner
+                              )}
+                            </div>
+                          </td>
+                          <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
+                            {row.wins}–{row.losses}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-600 sm:px-3 dark:border-zinc-800 dark:text-zinc-300">
+                            {formatWinPct(row.winPct)}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
+                            {row.pointsFor}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
+                            {row.pointsAgainst}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
+                            {formatDiff(row.pointDifferential)}
+                          </td>
+                          <td className="whitespace-nowrap border-b border-gray-100 px-2 py-2 tabular-nums text-gray-500 sm:px-3 dark:border-zinc-800 dark:text-zinc-400">
+                            {formatGamesBack(row.gamesBack)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div
+          id="trends"
+          ref={trendsPanelRef}
+          className={`scroll-mt-20 rounded-lg transition ${
+            trendsHighlighted ? 'ring-2 ring-blue-300 dark:ring-blue-600' : ''
+          }`}
+          data-standings-subview="trends"
+        >
+          <TrendsDetailSurface
+            standingsHistory={standingsHistory}
+            season={season}
+            seasonContext={seasonContext}
+            issues={trendIssues}
+            layoutMode="embedded"
+            compact
+          />
+        </div>
+      </div>
     </section>
   );
 }

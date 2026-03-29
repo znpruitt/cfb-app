@@ -866,16 +866,17 @@ export default function TrendsDetailSurface({
   seasonContext,
   issues,
   layoutMode = 'standalone',
+  compact = false,
 }: {
   standingsHistory: StandingsHistory | null;
   season: number;
   seasonContext: SeasonContext | null;
   issues: string[];
   layoutMode?: LayoutMode;
+  compact?: boolean;
 }): React.ReactElement {
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
   const [focusMode, setFocusMode] = React.useState<FocusMode>('top');
-  const [selectedOwners, setSelectedOwners] = React.useState<Set<string>>(new Set());
   const [viewportWidth, setViewportWidth] = React.useState(() =>
     typeof window === 'undefined' ? 1024 : window.innerWidth
   );
@@ -963,21 +964,28 @@ export default function TrendsDetailSurface({
     () =>
       deriveFocusedOwners({
         focusMode,
-        selectedOwners,
+        selectedOwners: selectedOwnerId ? new Set([selectedOwnerId]) : new Set<string>(),
         orderedOwners,
         topN: TOP_FOCUS_COUNT,
       }),
-    [focusMode, orderedOwners, selectedOwners]
+    [focusMode, orderedOwners, selectedOwnerId]
   );
   const focusedOwnerIdSet = React.useMemo(() => new Set(focusedOwners), [focusedOwners]);
-  const compactWinBars = viewportWidth < 640;
+  const compactWinBars = compact || viewportWidth < 640;
+  const handleOwnerToggle = React.useCallback((ownerId: string) => {
+    setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId));
+  }, []);
 
   const WrapperTag = layoutMode === 'standalone' ? 'main' : 'div';
 
   return (
     <WrapperTag
       className={
-        layoutMode === 'standalone' ? 'mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6' : 'space-y-4'
+        layoutMode === 'standalone'
+          ? `mx-auto w-full max-w-5xl space-y-4 ${compact ? 'p-3 sm:p-4' : 'p-4 sm:p-6'}`
+          : compact
+            ? 'space-y-3'
+            : 'space-y-4'
       }
     >
       {layoutMode === 'standalone' ? (
@@ -1058,7 +1066,7 @@ export default function TrendsDetailSurface({
               { mode: 'top', label: `Top ${TOP_FOCUS_COUNT}` },
               {
                 mode: 'selected',
-                label: selectedOwners.size > 0 ? `Selected (${selectedOwners.size})` : 'Selected',
+                label: selectedOwnerId ? 'Selected (1)' : 'Selected',
               },
             ] as const
           ).map(({ mode, label }) => (
@@ -1089,9 +1097,7 @@ export default function TrendsDetailSurface({
         focusedOwnerIds={focusedOwnerIdSet}
         selectedOwnerId={selectedOwnerId}
         viewportWidth={viewportWidth}
-        onSelectOwner={(ownerId) =>
-          setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId))
-        }
+        onSelectOwner={handleOwnerToggle}
         getOwnerTrendColor={getOwnerTrendColor}
       />
 
@@ -1102,9 +1108,7 @@ export default function TrendsDetailSurface({
         focusedOwnerIds={focusedOwnerIdSet}
         selectedOwnerId={selectedOwnerId}
         viewportWidth={viewportWidth}
-        onSelectOwner={(ownerId) =>
-          setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId))
-        }
+        onSelectOwner={handleOwnerToggle}
         getOwnerTrendColor={getOwnerTrendColor}
       />
 
@@ -1144,11 +1148,7 @@ export default function TrendsDetailSurface({
                       <button
                         type="button"
                         className="flex w-full items-center justify-between gap-2 text-left"
-                        onClick={() =>
-                          setSelectedOwnerId((current) =>
-                            toggleSelectedOwner(current, entry.ownerId)
-                          )
-                        }
+                        onClick={() => handleOwnerToggle(entry.ownerId)}
                       >
                         <span className="flex items-center gap-2">
                           <span
@@ -1193,11 +1193,7 @@ export default function TrendsDetailSurface({
                       <button
                         type="button"
                         className="flex w-full items-center justify-between gap-2 text-left"
-                        onClick={() =>
-                          setSelectedOwnerId((current) =>
-                            toggleSelectedOwner(current, entry.ownerId)
-                          )
-                        }
+                        onClick={() => handleOwnerToggle(entry.ownerId)}
                       >
                         <span className="flex items-center gap-2">
                           <span
@@ -1219,78 +1215,6 @@ export default function TrendsDetailSurface({
               </ul>
             </div>
           </div>
-        )}
-      </section>
-
-      <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-          Win Bars
-        </h2>
-        {winBars.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-            No win bar data available yet.
-          </p>
-        ) : (
-          <ul className={`mt-2 text-sm ${compactWinBars ? 'space-y-0.5' : 'space-y-1'}`}>
-            {winBars.map((row) => {
-              const isSelected = selectedOwners.has(row.ownerId) || selectedOwnerId === row.ownerId;
-              const isFocused = focusedOwnerIdSet.has(row.ownerId);
-              const fillWidth = `${Math.max(0, Math.min(100, row.winPct * 100)).toFixed(1)}%`;
-              return (
-                <li
-                  key={row.ownerId}
-                  className={`rounded-md border text-gray-800 transition-opacity dark:text-zinc-100 ${
-                    isSelected
-                      ? 'border-blue-300 bg-blue-100/75 ring-1 ring-blue-300 hover:opacity-100 dark:border-blue-700 dark:bg-blue-900/30 dark:ring-blue-500'
-                      : 'border-gray-200 bg-white hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900'
-                  } ${isFocused ? '' : 'opacity-50'}`}
-                  data-winbar-owner={row.ownerId}
-                  data-selected={isSelected ? 'true' : 'false'}
-                  data-focused={isFocused ? 'true' : 'false'}
-                  data-compact={compactWinBars ? 'true' : 'false'}
-                >
-                  <button
-                    type="button"
-                    className={`w-full cursor-pointer text-left ${compactWinBars ? 'px-2 py-1' : 'px-2 py-1.5'}`}
-                    onClick={() => {
-                      setFocusMode('selected');
-                      setSelectedOwnerId((current) => toggleSelectedOwner(current, row.ownerId));
-                      setSelectedOwners((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(row.ownerId)) next.delete(row.ownerId);
-                        else next.add(row.ownerId);
-                        return next;
-                      });
-                    }}
-                  >
-                    <span className="flex items-center justify-between gap-1.5">
-                      <span
-                        className={`${compactWinBars ? 'text-[12px]' : 'text-[13px]'} font-medium`}
-                      >
-                        {row.ownerName}
-                      </span>
-                      <span
-                        className={`${compactWinBars ? 'text-[10px]' : 'text-[11px]'} text-gray-600 dark:text-zinc-300`}
-                      >
-                        {row.wins}-{row.losses}
-                        {row.ties > 0 ? `-${row.ties}` : ''} · {formatWinPct(row.winPct)}
-                      </span>
-                    </span>
-                    <span
-                      className={`${compactWinBars ? 'mt-1 h-2' : 'mt-1.5 h-2.5'} block w-full rounded-full bg-gray-200 dark:bg-zinc-800`}
-                      data-winbar-track={row.ownerId}
-                    >
-                      <span
-                        className="block h-full rounded-full bg-blue-500 dark:bg-blue-400"
-                        style={{ width: fillWidth }}
-                        data-winbar-fill={row.ownerId}
-                      />
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
         )}
       </section>
     </WrapperTag>

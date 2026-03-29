@@ -117,11 +117,9 @@ test('standings panel renders expected columns and metrics', () => {
   assert.match(html, /0.750/);
   assert.match(html, /\+21/);
   assert.match(html, /2025 Standings/);
-  assert.match(html, /Standings views/);
-  assert.match(html, /Table/);
   assert.match(html, /Trends/);
-  assert.match(html, /data-standings-subview="table"/);
-  assert.match(html, /aria-selected="true"[^>]*data-standings-subview="table"/);
+  assert.match(html, /data-standings-subview="trends"/);
+  assert.match(html, /data-winbar-background="75.0%"/);
 });
 
 test('standings panel renders secondary coverage warning when standings are partial', () => {
@@ -154,7 +152,7 @@ test('standings panel renders secondary coverage warning when standings are part
   );
 });
 
-test('standings trends subview can render shared trend charts and win bars', () => {
+test('standings panel embeds shared trend charts alongside table', () => {
   const html = renderToStaticMarkup(
     <StandingsPanel
       season={2025}
@@ -163,19 +161,17 @@ test('standings trends subview can render shared trend charts and win bars', () 
       standingsHistory={history}
       seasonContext="in-season"
       trendIssues={[]}
-      initialSubview="trends"
+      initialSubview="table"
     />
   );
 
   assert.match(html, /data-standings-subview="trends"/);
-  assert.match(html, /aria-selected="true"[^>]*data-standings-subview="trends"/);
-  assert.match(html, /aria-selected="false"[^>]*data-standings-subview="table"/);
   assert.match(html, /Games Back shared trend chart/);
   assert.match(html, /Win % shared trend chart/);
-  assert.match(html, /Win Bars/);
+  assert.doesNotMatch(html, /Win Bars/);
 });
 
-test('standings panel honors initialSubview table and trends', () => {
+test('standings panel renders trends section regardless of deep-link initial subview', () => {
   const tableHtml = renderToStaticMarkup(
     <StandingsPanel
       season={2025}
@@ -196,11 +192,11 @@ test('standings panel honors initialSubview table and trends', () => {
     />
   );
 
-  assert.match(tableHtml, /aria-selected="true"[^>]*data-standings-subview="table"/);
-  assert.match(trendsHtml, /aria-selected="true"[^>]*data-standings-subview="trends"/);
+  assert.match(tableHtml, /data-standings-subview="trends"/);
+  assert.match(trendsHtml, /data-standings-subview="trends"/);
 });
 
-test('standings panel syncs active subview when initialSubview prop changes on rerender', () => {
+test('standings panel keeps embedded trends rendered when initialSubview prop changes on rerender', () => {
   const rendered = render(
     <StandingsPanel
       season={2025}
@@ -213,12 +209,7 @@ test('standings panel syncs active subview when initialSubview prop changes on r
     />
   );
 
-  assert.equal(
-    rendered.container
-      .querySelector('[data-standings-subview="table"]')
-      ?.getAttribute('aria-selected'),
-    'true'
-  );
+  assert.ok(rendered.container.querySelector('[data-standings-subview="trends"]'));
 
   rendered.rerender(
     <StandingsPanel
@@ -232,39 +223,50 @@ test('standings panel syncs active subview when initialSubview prop changes on r
     />
   );
 
-  assert.equal(
-    rendered.container
-      .querySelector('[data-standings-subview="trends"]')
-      ?.getAttribute('aria-selected'),
-    'true'
-  );
   assert.ok(rendered.container.querySelector('[aria-label="Games Back shared trend chart"]'));
 });
 
-test('local tab switching still works after prop-sync effect', async () => {
+test('deep-link trends initial subview highlights and anchors embedded trends panel', async () => {
   const user = userEvent.setup({ document: dom.window.document });
+  const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+  let scrollCalls = 0;
+  window.HTMLElement.prototype.scrollIntoView = () => {
+    scrollCalls += 1;
+  };
+  window.location.hash = '#trends';
+
   const rendered = render(
     <StandingsPanel
       season={2025}
       coverage={{ state: 'complete', message: null }}
-      rows={[]}
-      initialSubview="table"
+      rows={[
+        {
+          owner: 'Alex',
+          wins: 3,
+          losses: 1,
+          winPct: 0.75,
+          pointsFor: 120,
+          pointsAgainst: 99,
+          pointDifferential: 21,
+          gamesBack: 0,
+          finalGames: 4,
+        },
+      ]}
+      initialSubview="trends"
       standingsHistory={history}
       seasonContext="in-season"
       trendIssues={[]}
     />
   );
 
-  const trendsTab = rendered.container.querySelector('[data-standings-subview="trends"]');
-  const tableTab = rendered.container.querySelector('[data-standings-subview="table"]');
-  assert.ok(trendsTab);
-  assert.ok(tableTab);
+  const trendsPanel = rendered.container.querySelector('[data-standings-subview="trends"]');
+  assert.ok(trendsPanel);
+  assert.equal((trendsPanel as HTMLElement).id, 'trends');
+  assert.ok(scrollCalls > 0);
 
-  await user.click(trendsTab);
-  assert.equal(trendsTab.getAttribute('aria-selected'), 'true');
-  assert.ok(rendered.container.querySelector('[aria-label="Win % shared trend chart"]'));
+  await user.click(rendered.container.querySelector('[data-momentum-owner="Alex"] button')!);
+  assert.ok(rendered.container.querySelector('[data-owner-focus="true"]'));
 
-  await user.click(tableTab);
-  assert.equal(tableTab.getAttribute('aria-selected'), 'true');
-  assert.equal(rendered.container.querySelector('[aria-label="Win % shared trend chart"]'), null);
+  window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  window.location.hash = '';
 });

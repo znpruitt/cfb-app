@@ -511,11 +511,10 @@ test('trends detail surface renders key sections without crashing', () => {
 
   assert.match(html, /Games Back/);
   assert.match(html, /Win %/);
-  assert.match(html, /Win Bars/);
   assert.match(html, /Recent Momentum/);
 });
 
-test('owner selection propagates emphasis across charts, labels, momentum, win bars, and owner focus summary', async () => {
+test('owner selection propagates emphasis across charts, labels, momentum, and owner focus summary', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
     <TrendsDetailSurface
@@ -563,13 +562,9 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
   );
   assert.ok(bobLabel);
 
-  const bobWinBar = rendered.container.querySelector(
-    '[data-winbar-owner="Bob"][data-selected="true"]'
-  );
   const bobMomentum = rendered.container.querySelector(
     '[data-momentum-owner="Bob"][data-selected="true"]'
   );
-  assert.ok(bobWinBar);
   assert.ok(bobMomentum);
 
   const momentumNodes = rendered.container.querySelectorAll<HTMLElement>('[data-momentum-owner]');
@@ -709,7 +704,7 @@ test('default focus renders only top 5 series and excludes non-focused owners fr
   );
 });
 
-test('clicking win bars toggles selected mode and falls back to top 5 when empty', async () => {
+test('selected focus mode follows active owner selection from chart interactions', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
     <TrendsDetailSurface
@@ -720,14 +715,15 @@ test('clicking win bars toggles selected mode and falls back to top 5 when empty
     />
   );
 
-  const bobWinBar = rendered.container.querySelector('[data-winbar-owner="Bob"] button');
-  assert.ok(bobWinBar);
+  const bobLegend = rendered.container.querySelector('[data-legend-owner="Bob"]');
+  assert.ok(bobLegend);
 
-  await user.click(bobWinBar);
+  await user.click(bobLegend);
   const selectedControl = rendered.container.querySelector('[data-focus-mode-control="selected"]');
   assert.ok(selectedControl);
-  assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
+  await user.click(selectedControl);
 
+  assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
   assert.ok(
     rendered.container.querySelector(
       '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
@@ -739,7 +735,10 @@ test('clicking win bars toggles selected mode and falls back to top 5 when empty
     ).length,
     1
   );
-  await user.click(bobWinBar);
+
+  await user.click(bobLegend);
+  await user.click(selectedControl);
+  assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
   assert.equal(
     rendered.container.querySelector(
       '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
@@ -798,7 +797,8 @@ test('right-edge labels include truncated owner names, formatted values, and con
   assert.match(connector.getAttribute('d') ?? '', /L/);
 });
 
-test('win bars render value-encoded fills using win percentage width', () => {
+test('selected owner summary still uses standings-derived rank and win metrics', async () => {
+  const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
     <TrendsDetailSurface
       standingsHistory={history}
@@ -808,12 +808,13 @@ test('win bars render value-encoded fills using win percentage width', () => {
     />
   );
 
-  const aliceFill = rendered.container.querySelector<HTMLElement>('[data-winbar-fill="Alice"]');
-  const bobFill = rendered.container.querySelector<HTMLElement>('[data-winbar-fill="Bob"]');
-  assert.ok(aliceFill);
-  assert.ok(bobFill);
-  assert.equal(aliceFill.style.width, '100%');
-  assert.equal(bobFill.style.width, '75%');
+  const aliceLegend = rendered.container.querySelector('[data-legend-owner="Alice"]');
+  assert.ok(aliceLegend);
+  await user.click(aliceLegend);
+  const ownerFocus = rendered.container.querySelector('[data-owner-focus="true"]');
+  assert.ok(ownerFocus);
+  assert.match(ownerFocus.textContent ?? '', /Rank: 1st/);
+  assert.match(ownerFocus.textContent ?? '', /Win %: 100.0%/);
 });
 
 test('selection helper toggles selected owner deterministically', () => {
@@ -1047,7 +1048,7 @@ test('getOwnerColor applies deterministic lightness variation by index', () => {
   assert.equal(getLightness(getOwnerColor('Owner', 4, 8)), 52);
 });
 
-test('mobile layout suppresses right-edge labels, tightens win bars, and adapts chart height', () => {
+test('mobile layout suppresses right-edge labels and adapts chart height', () => {
   window.innerWidth = 375;
   fireEvent(window, new window.Event('resize'));
 
@@ -1074,13 +1075,27 @@ test('mobile layout suppresses right-edge labels, tightens win bars, and adapts 
     ),
     null
   );
-  const compactTrack = rendered.container.querySelector('[data-winbar-track="Alice"]');
-  assert.ok(compactTrack);
-  assert.match(compactTrack.getAttribute('class') ?? '', /h-2/);
-  assert.ok(rendered.container.querySelector('[data-winbar-owner="Alice"][data-compact="true"]'));
-
   window.innerWidth = 1024;
   fireEvent(window, new window.Event('resize'));
+});
+
+test('compact mode reduces wrapper padding while preserving shared chart interactions', async () => {
+  const user = userEvent.setup({ document: dom.window.document });
+  const rendered = render(
+    <TrendsDetailSurface
+      standingsHistory={history}
+      season={2026}
+      seasonContext="final"
+      issues={[]}
+      compact
+    />
+  );
+
+  assert.match(rendered.container.firstElementChild?.getAttribute('class') ?? '', /p-3 sm:p-4/);
+  const bobLegend = rendered.container.querySelector('[data-legend-owner="Bob"]');
+  assert.ok(bobLegend);
+  await user.click(bobLegend);
+  assert.ok(rendered.container.querySelector('[data-owner-focus="true"]'));
 });
 
 test('legacy trends page redirects to standings trends subview', () => {
