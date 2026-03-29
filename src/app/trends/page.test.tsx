@@ -15,6 +15,7 @@ import TrendsDetailSurface, {
 import TrendsPage from './page';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import { deriveWeekTicks } from '../../lib/trendsFocus';
+import { buildOwnerColorMap, getOwnerColor } from './presentationColors';
 
 const history: StandingsHistory = {
   weeks: [1, 2],
@@ -574,17 +575,24 @@ test('point hover shows compact chart tooltip content', async () => {
   assert.ok(legendAlice);
   await user.click(legendAlice);
 
-  const firstCircle = rendered.container.querySelector(
-    '[aria-label="Games Back shared trend chart"] circle[data-owner-id], [aria-label="Games Back shared trend chart"] circle'
+  const hoverTarget = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] [data-hover-target="games-back-Alice-1"]'
   );
-  assert.ok(firstCircle);
-  fireEvent.mouseEnter(firstCircle);
+  assert.ok(hoverTarget);
+  assert.equal(hoverTarget.getAttribute('r'), '10');
+  fireEvent.mouseEnter(hoverTarget);
 
   const tooltip = rendered.container.querySelector('[data-trend-tooltip="games-back"]');
   assert.ok(tooltip);
   assert.match(tooltip.textContent ?? '', /W\d+/);
   assert.match(tooltip.textContent ?? '', /Alice|Bob|Carol|Dave|Eve/);
   assert.match(tooltip.textContent ?? '', /GB: \d+\.\d/);
+
+  const activeDot = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] circle[fill^="hsl("]'
+  );
+  assert.ok(activeDot);
+  assert.equal(activeDot.getAttribute('r'), '6');
 });
 
 test('focus mode controls switch between all, top 5, and selected rendering states', async () => {
@@ -849,6 +857,43 @@ test('deriveAdaptiveWeekTicks always keeps first/last and uses adaptive spacing'
   assert.equal(mobileTicks[mobileTicks.length - 1]?.value, 14);
   assert.ok(mobileTicks.some((tick) => tick.value === 5));
   assert.ok(!mobileTicks.some((tick) => tick.value === 6));
+});
+
+test('owner color map is deterministic for ordered owners', () => {
+  const orderedOwners = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
+  const firstMap = buildOwnerColorMap(orderedOwners);
+  const secondMap = buildOwnerColorMap(orderedOwners);
+
+  for (const owner of orderedOwners) {
+    assert.equal(firstMap.get(owner), secondMap.get(owner));
+  }
+});
+
+test('owner color map provides distinct colors for top 5 owners', () => {
+  const orderedOwners = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
+  const colorMap = buildOwnerColorMap(orderedOwners);
+  const topFiveColors = orderedOwners.map((owner) => colorMap.get(owner));
+  const uniqueColors = new Set(topFiveColors);
+
+  assert.equal(uniqueColors.size, orderedOwners.length);
+});
+
+test('getOwnerColor is stable for same owner/index inputs', () => {
+  assert.equal(getOwnerColor('Alice', 2, 8), getOwnerColor('Alice', 2, 8));
+});
+
+test('getOwnerColor applies deterministic lightness variation by index', () => {
+  const getLightness = (color: string): number => {
+    const match = color.match(/, (\d+)%\)$/);
+    assert.ok(match);
+    return Number.parseInt(match[1] ?? '0', 10);
+  };
+
+  const lightnessValues = [0, 1, 2, 3].map((index) =>
+    getLightness(getOwnerColor('Owner', index, 8))
+  );
+  assert.deepEqual(lightnessValues, [52, 58, 64, 70]);
+  assert.equal(getLightness(getOwnerColor('Owner', 4, 8)), 52);
 });
 
 test('mobile layout suppresses right-edge labels, tightens win bars, and adapts chart height', () => {
