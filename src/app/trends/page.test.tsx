@@ -7,7 +7,9 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import TrendsDetailSurface, {
-  formatHoverSummary,
+  deriveAdaptiveWeekTicks,
+  deriveDynamicPlotWidth,
+  deriveResponsiveTrendLayout,
   toggleSelectedOwner,
 } from './TrendsDetailSurface';
 import TrendsPage from './page';
@@ -426,6 +428,27 @@ Object.defineProperty(globalThis, 'navigator', {
   writable: true,
   configurable: true,
 });
+class ResizeObserverMock {
+  callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+  }
+  observe(target: Element): void {
+    this.callback(
+      [{ contentRect: { width: 900 } as DOMRectReadOnly, target } as ResizeObserverEntry],
+      this as unknown as ResizeObserver
+    );
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+}
+(globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver =
+  ResizeObserverMock as unknown as typeof ResizeObserver;
+Object.defineProperty(window, 'innerWidth', {
+  value: 1024,
+  writable: true,
+  configurable: true,
+});
 
 afterEach(() => cleanup());
 
@@ -464,7 +487,7 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
   assert.ok(rightEdgeLabels.length > 0);
   for (const label of rightEdgeLabels) {
     const y = Number.parseFloat(label.getAttribute('y') ?? '0');
-    assert.ok(y >= 12 && y <= 224);
+    assert.ok(y >= 10 && y <= 325);
   }
 
   const legendBob = rendered.container.querySelector('[data-legend-owner="Bob"]');
@@ -536,7 +559,7 @@ test('clicking same owner toggles selection off and removes owner focus summary'
   );
 });
 
-test('hover summary still updates when selection is active', async () => {
+test('point hover shows compact chart tooltip content', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
     <TrendsDetailSurface
@@ -552,14 +575,16 @@ test('hover summary still updates when selection is active', async () => {
   await user.click(legendAlice);
 
   const firstCircle = rendered.container.querySelector(
-    '[aria-label="Games Back shared trend chart"] circle'
+    '[aria-label="Games Back shared trend chart"] circle[data-owner-id], [aria-label="Games Back shared trend chart"] circle'
   );
   assert.ok(firstCircle);
   fireEvent.mouseEnter(firstCircle);
 
-  const hoverSummary = rendered.container.querySelector('[data-hover-summary]');
-  assert.ok(hoverSummary);
-  assert.match(hoverSummary.textContent ?? '', /Week/);
+  const tooltip = rendered.container.querySelector('[data-trend-tooltip="games-back"]');
+  assert.ok(tooltip);
+  assert.match(tooltip.textContent ?? '', /W\d+/);
+  assert.match(tooltip.textContent ?? '', /Alice|Bob|Carol|Dave|Eve/);
+  assert.match(tooltip.textContent ?? '', /GB: \d+\.\d/);
 });
 
 test('focus mode controls switch between all, top 5, and selected rendering states', async () => {
@@ -653,9 +678,9 @@ test('clicking win bars toggles selected mode and falls back to top 5 when empty
   );
   assert.equal(
     rendered.container.querySelectorAll(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id]'
+      '[aria-label="Games Back shared trend chart"] path[data-owner-id]'
     ).length,
-    2
+    1
   );
   await user.click(bobWinBar);
   assert.equal(
@@ -687,8 +712,8 @@ test('right-edge labels include truncated owner names, formatted values, and con
   );
   assert.ok(gamesBackLabel);
   assert.ok(winPctLabel);
-  assert.match(gamesBackLabel.textContent ?? '', /VeryLongOwn… 4\.0/);
-  assert.match(winPctLabel.textContent ?? '', /VeryLongOwn… 0\.0%/);
+  assert.match(gamesBackLabel.textContent ?? '', /VeryLongO… 4\.0/);
+  assert.match(winPctLabel.textContent ?? '', /VeryLongO… 0\.0%/);
 
   assert.ok(
     rendered.container.querySelector(
@@ -700,6 +725,24 @@ test('right-edge labels include truncated owner names, formatted values, and con
       '[aria-label="Win % shared trend chart"] [data-label-anchor-dot="VeryLongOwnerDisplayName"]'
     )
   );
+});
+
+test('win bars render value-encoded fills using win percentage width', () => {
+  const rendered = render(
+    <TrendsDetailSurface
+      standingsHistory={history}
+      season={2026}
+      seasonContext="final"
+      issues={[]}
+    />
+  );
+
+  const aliceFill = rendered.container.querySelector<HTMLElement>('[data-winbar-fill="Alice"]');
+  const bobFill = rendered.container.querySelector<HTMLElement>('[data-winbar-fill="Bob"]');
+  assert.ok(aliceFill);
+  assert.ok(bobFill);
+  assert.equal(aliceFill.style.width, '100%');
+  assert.equal(bobFill.style.width, '75%');
 });
 
 test('selection helper toggles selected owner deterministically', () => {
@@ -722,6 +765,20 @@ test('games back chart includes inverted axis domain marker and week ticks', () 
   );
   assert.ok(gamesBackChart);
   assert.equal(gamesBackChart.getAttribute('data-y-domain'), '[4,0]');
+  assert.equal(gamesBackChart.getAttribute('data-label-lane-width'), '120');
+  const gamesBackPlotWrapper = rendered.container.querySelector<HTMLElement>(
+    '[aria-label="Games Back shared trend chart"]'
+  )?.parentElement;
+  assert.ok(gamesBackPlotWrapper);
+  const dynamicWidth = Number.parseFloat(
+    gamesBackPlotWrapper.getAttribute('data-plot-width') ?? '0'
+  );
+  const containerWidth = Number.parseFloat(
+    gamesBackPlotWrapper.getAttribute('data-container-width') ?? '0'
+  );
+  assert.ok(dynamicWidth >= 320);
+  assert.ok(dynamicWidth >= containerWidth);
+  assert.notEqual(dynamicWidth, 760);
   assert.ok(
     rendered.container.querySelector(
       '[aria-label="Games Back shared trend chart"] [data-week-tick="W1"]'
@@ -743,16 +800,88 @@ test('deriveWeekTicks increases density for long seasons and preserves first/las
   assert.ok(!ticks.some((tick) => tick.value === 4));
 });
 
-test('hover summary helper returns expected value payload text', () => {
-  assert.equal(
-    formatHoverSummary({ ownerName: 'Alice', metric: 'games-back', week: 2, value: 1 }),
-    'Alice · Week 2 · 1.0'
+test('win pct chart tooltip formats percentage values on hover', () => {
+  const rendered = render(
+    <TrendsDetailSurface
+      standingsHistory={history}
+      season={2026}
+      seasonContext="final"
+      issues={[]}
+    />
   );
-  assert.equal(
-    formatHoverSummary({ ownerName: 'Bob', metric: 'win-pct', week: 4, value: 0.625 }),
-    'Bob · Week 4 · 62.5%'
+  const firstWinPctCircle = rendered.container.querySelector(
+    '[aria-label="Win % shared trend chart"] circle'
   );
-  assert.equal(formatHoverSummary(null), null);
+  assert.ok(firstWinPctCircle);
+  fireEvent.mouseEnter(firstWinPctCircle);
+  const tooltip = rendered.container.querySelector('[data-trend-tooltip="win-pct"]');
+  assert.ok(tooltip);
+  assert.match(tooltip.textContent ?? '', /Win %: \d+\.\d%/);
+});
+
+test('deriveDynamicPlotWidth uses container width baseline and expands for long seasons', () => {
+  assert.equal(deriveDynamicPlotWidth({ containerWidth: 900, weekCount: 2, pxPerWeek: 48 }), 900);
+  assert.equal(deriveDynamicPlotWidth({ containerWidth: 500, weekCount: 20, pxPerWeek: 48 }), 960);
+});
+
+test('deriveResponsiveTrendLayout adapts chart settings by breakpoint', () => {
+  const mobile = deriveResponsiveTrendLayout({ viewportWidth: 375, weekCount: 14 });
+  assert.equal(mobile.isMobile, true);
+  assert.equal(mobile.chartHeight, 308);
+  assert.equal(mobile.pxPerWeek, 56);
+  assert.equal(mobile.tickStep, 4);
+  assert.equal(mobile.showRightEdgeLabels, false);
+  assert.equal(mobile.compactWinBars, true);
+
+  const desktop = deriveResponsiveTrendLayout({ viewportWidth: 1024, weekCount: 14 });
+  assert.equal(desktop.isMobile, false);
+  assert.equal(desktop.chartHeight, 420);
+  assert.equal(desktop.pxPerWeek, 48);
+  assert.equal(desktop.tickStep, 2);
+  assert.equal(desktop.showRightEdgeLabels, true);
+  assert.equal(desktop.compactWinBars, false);
+});
+
+test('deriveAdaptiveWeekTicks always keeps first/last and uses adaptive spacing', () => {
+  const weeks = Array.from({ length: 14 }, (_, i) => i + 1);
+  const mobileTicks = deriveAdaptiveWeekTicks(weeks, 4);
+  assert.equal(mobileTicks[0]?.value, 1);
+  assert.equal(mobileTicks[mobileTicks.length - 1]?.value, 14);
+  assert.ok(mobileTicks.some((tick) => tick.value === 5));
+  assert.ok(!mobileTicks.some((tick) => tick.value === 6));
+});
+
+test('mobile layout suppresses right-edge labels, tightens win bars, and adapts chart height', () => {
+  window.innerWidth = 375;
+  fireEvent(window, new window.Event('resize'));
+
+  const rendered = render(
+    <TrendsDetailSurface
+      standingsHistory={history}
+      season={2026}
+      seasonContext="final"
+      issues={[]}
+    />
+  );
+
+  const gamesBackChart = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"]'
+  );
+  assert.ok(gamesBackChart);
+  const plotWrapper = gamesBackChart.parentElement;
+  assert.ok(plotWrapper);
+  assert.equal(plotWrapper.getAttribute('data-chart-height'), '308');
+  assert.equal(plotWrapper.getAttribute('data-show-right-labels'), 'false');
+  assert.equal(
+    rendered.container.querySelector(
+      '[aria-label="Games Back shared trend chart"] [data-right-edge-label]'
+    ),
+    null
+  );
+  assert.ok(rendered.container.querySelector('[data-winbar-owner="Alice"][data-compact="true"]'));
+
+  window.innerWidth = 1024;
+  fireEvent(window, new window.Event('resize'));
 });
 
 test('legacy trends page redirects to standings trends subview', () => {
