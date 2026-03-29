@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
+import { deriveLeagueInsights } from '../../lib/selectors/insights';
+import { selectSeasonContext } from '../../lib/selectors/seasonContext';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
@@ -972,7 +974,7 @@ test('overview panel shows win percent empty-state copy when no resolved standin
   assert.doesNotMatch(html, /Latest: 0\.0%/);
 });
 
-test('overview panel shows explicit empty states for featured, highlights, and results', () => {
+test('overview panel shows explicit empty states for featured and results when no shared insights exist', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[]}
@@ -986,10 +988,8 @@ test('overview panel shows explicit empty states for featured, highlights, and r
   );
 
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
-  assert.match(
-    html,
-    /Highlights will appear once this slate has meaningful outcomes or matchup signals\./
-  );
+  assert.match(html, /League highlights/);
+  assert.doesNotMatch(html, /Open insight/);
   assert.match(html, /No recent results yet—completed games will appear here\./);
 });
 
@@ -1016,7 +1016,7 @@ test('overview panel keeps featured matchups hidden when none are meaningful for
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
 });
 
-test('overview panel renders league pulse section when selector emits pulse items', () => {
+test('overview panel renders shared selector insights instead of league pulse cards', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[
@@ -1042,77 +1042,156 @@ test('overview panel renders league pulse section when selector emits pulse item
     />
   );
 
-  assert.match(html, /League pulse/);
-  assert.match(html, /Closest race:|leads by .* win%/i);
+  assert.doesNotMatch(html, /League pulse/);
+  assert.match(html, /Tight title race/);
+  assert.match(html, /Open insight/);
 });
 
-test('overview panel renders insight strip with prioritized ranked matchup signal', () => {
-  const rankedGame = game({
-    key: 'ranked-game',
-    csvAway: 'Texas',
-    csvHome: 'Miami',
-    participants: {
-      away: {
-        kind: 'team',
-        teamId: 'texas',
-        displayName: 'Texas',
-        canonicalName: 'Texas',
-        rawName: 'Texas',
-      },
-      home: {
-        kind: 'team',
-        teamId: 'miami',
-        displayName: 'Miami',
-        canonicalName: 'Miami',
-        rawName: 'Miami',
-      },
-    },
-  });
-
-  const html = renderToStaticMarkup(
-    <OverviewPanel
-      standingsLeaders={[
+test('overview panel renders top 3 shared insights in selector order without duplicates', () => {
+  const standingsHistory = standingsHistoryFromSnapshots([
+    {
+      week: 1,
+      standings: [
         {
-          owner: 'Pruitt',
-          wins: 10,
-          losses: 2,
-          winPct: 0.833,
+          owner: 'Alice',
+          wins: 2,
+          losses: 1,
+          winPct: 0.667,
           pointsFor: 0,
           pointsAgainst: 0,
-          pointDifferential: 0,
+          pointDifferential: 6,
           gamesBack: 0,
-          finalGames: 12,
+          finalGames: 3,
         },
         {
-          owner: 'Maleski',
-          wins: 9,
+          owner: 'Bob',
+          wins: 1,
+          losses: 2,
+          winPct: 0.333,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -3,
+          gamesBack: 1,
+          finalGames: 3,
+        },
+        {
+          owner: 'Chris',
+          wins: 0,
           losses: 3,
-          winPct: 0.75,
+          winPct: 0,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -7,
+          gamesBack: 2,
+          finalGames: 3,
+        },
+      ],
+    },
+    {
+      week: 2,
+      standings: [
+        {
+          owner: 'Bob',
+          wins: 4,
+          losses: 2,
+          winPct: 0.667,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 4,
+          gamesBack: 0,
+          finalGames: 6,
+        },
+        {
+          owner: 'Alice',
+          wins: 3,
+          losses: 3,
+          winPct: 0.5,
           pointsFor: 0,
           pointsAgainst: 0,
           pointDifferential: 0,
           gamesBack: 1,
-          finalGames: 12,
+          finalGames: 6,
         },
-      ]}
+        {
+          owner: 'Chris',
+          wins: 1,
+          losses: 5,
+          winPct: 0.167,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -8,
+          gamesBack: 3,
+          finalGames: 6,
+        },
+      ],
+    },
+    {
+      week: 3,
+      standings: [
+        {
+          owner: 'Bob',
+          wins: 5,
+          losses: 4,
+          winPct: 0.556,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 2,
+          gamesBack: 0,
+          finalGames: 9,
+        },
+        {
+          owner: 'Alice',
+          wins: 5,
+          losses: 4,
+          winPct: 0.556,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 1,
+          gamesBack: 0,
+          finalGames: 9,
+        },
+        {
+          owner: 'Chris',
+          wins: 2,
+          losses: 7,
+          winPct: 0.222,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -10,
+          gamesBack: 3,
+          finalGames: 9,
+        },
+      ],
+    },
+  ]);
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsHistory.byWeek[3]?.standings ?? []}
+      standingsHistory={standingsHistory}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
-      keyMatchups={[item(rankedGame)]}
-      rankingsByTeamId={
-        new Map([
-          ['texas', { rank: 7, rankSource: 'ap' }],
-          ['miami', { rank: 14, rankSource: 'ap' }],
-        ])
-      }
+      keyMatchups={[]}
       context={defaultContext}
       displayTimeZone="UTC"
     />
   );
 
-  assert.match(html, /0.083/);
-  assert.match(html, /Top ranked matchup/);
-  assert.match(html, /#7 Texas vs #14 Miami/);
+  const insightLinkCount = (html.match(/Open insight/g) ?? []).length;
+  assert.ok(insightLinkCount >= 2 && insightLinkCount <= 3);
+  const rankedInsights = deriveLeagueInsights({
+    rows: standingsHistory.byWeek[3]?.standings ?? [],
+    standingsHistory,
+    seasonContext: selectSeasonContext({ standingsHistory }),
+  }).slice(0, insightLinkCount);
+  assert.ok(rankedInsights.length > 0);
+  for (const insight of rankedInsights) {
+    assert.match(html, new RegExp(insight.title));
+  }
+  if (rankedInsights.length > 1) {
+    assert.ok(html.indexOf(rankedInsights[0]!.title) < html.indexOf(rankedInsights[1]!.title));
+  }
 });
 
 test('overview panel suppresses redundant movement chips in completed-season podium mode', () => {
@@ -1344,7 +1423,7 @@ test('overview panel game summary badges prefer top-25 and top-matchup over clos
   assert.equal(topMatchupOccurrences.length, 1);
 });
 
-test('overview highlights prioritize top matchup and conditionally render upset watch plus standings context', () => {
+test('overview highlights consume shared insights instead of matchup-derived headline copy', () => {
   const topMatchup = itemWithScore(
     game({
       key: 'top-matchup-highlight',
@@ -1472,9 +1551,9 @@ test('overview highlights prioritize top matchup and conditionally render upset 
     />
   );
 
-  assert.match(html, /Top ranked matchup/);
-  assert.doesNotMatch(html, /Ranked spotlight/);
-  assert.match(html, /Tight race: Alice and Bob are separated by 0.000 win%/);
+  assert.match(html, /Title race dead heat/);
+  assert.match(html, /Alice and Bob are tied for first\./);
+  assert.doesNotMatch(html, /Top ranked matchup/);
 });
 
 test('overview standings context suppresses leader-gap duplicate messaging when race is not tight', () => {
@@ -1521,7 +1600,30 @@ test('overview standings context suppresses leader-gap duplicate messaging when 
 test('overview highlights show scope context once at section level', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
-      standingsLeaders={standingsLeaders}
+      standingsLeaders={[
+        {
+          owner: 'Alice',
+          wins: 4,
+          losses: 1,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 6,
+          gamesBack: 0,
+          finalGames: 5,
+        },
+        {
+          owner: 'Bob',
+          wins: 4,
+          losses: 1,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 4,
+          gamesBack: 0,
+          finalGames: 5,
+        },
+      ]}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
