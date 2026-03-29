@@ -168,6 +168,92 @@ Finish league-facing usability and engagement work once hosted stability is in p
    - feedback/report issue entry point
    - commissioner-friendly recovery UX refinements
 
+
+### Shared Insights System (planned, selector-first)
+
+#### Purpose
+Establish a single selector-owned insight catalog so league insights are **derived once and consumed many ways** across Overview and Standings. This aligns narrative/highlight output, reduces duplicated derivation logic, and keeps UI layers focused on presentation.
+
+**Rule:** Insights are selector-owned. UI must not derive insights independently.
+
+#### Architecture (text diagram)
+
+1. Canonical inputs (standings history, current standings, resolved weeks, schedule context)
+2. `deriveLeagueInsights(...)` in `src/lib/selectors/insights.ts`
+3. Shared ranked `Insight[]` catalog (deterministic ordering)
+4. Consumer filters:
+   - Overview: top 2–4 headline insights
+   - Standings: 1–2 contextual insights + movement column context
+
+#### Insight type catalog (initial)
+
+- `movement`
+- `toilet_bowl`
+- `surge`
+- `collapse`
+- `race`
+- `milestone`
+
+Draft model (for implementation phase):
+
+```ts
+type Insight = {
+  id: string
+  type: 'movement' | 'toilet_bowl' | 'surge' | 'collapse' | 'race' | 'milestone'
+  title: string
+  description: string
+  score: number
+  owners: string[]
+  week?: number
+  navigationTarget?: {
+    type: 'standings' | 'matchup' | 'trends'
+    params?: Record<string, string | number>
+  }
+}
+```
+
+#### Responsibility split
+
+- **Selector layer (`deriveLeagueInsights`)**
+  - Owns all insight derivation and ranking.
+  - Includes biggest rise/drop, toilet bowl tracking, streak/surge/collapse detection, and tight-race detection.
+  - Depends only on canonical league inputs (no UI state).
+- **Overview page**
+  - Consumes top-N ranked insights (headline mode).
+  - Keeps copy minimal/high-signal.
+- **Standings page**
+  - Shows movement column plus 1–2 context insights relevant to standings interpretation.
+  - Must not duplicate movement information already visible in table deltas.
+
+#### Phased implementation plan
+
+1. **Phase 1 — Planning + documentation (current)**
+   - Document architecture, responsibilities, and rollout boundaries.
+   - Mark `Recent Momentum` as deprecated as a primary concept.
+2. **Phase 2 — Movement column foundation**
+   - Add week-over-week rank delta column to standings table.
+   - No shared selector yet.
+3. **Phase 3 — Shared selector core engine**
+   - Implement `deriveLeagueInsights(...)` with 3–5 initial insight types.
+   - Add deterministic scoring/ordering rules.
+4. **Phase 4 — Overview integration**
+   - Replace page-owned pulse/highlight derivation with top insights from selector.
+   - Cap to 2–4 items.
+5. **Phase 5 — Standings integration**
+   - Replace/downgrade `Recent Momentum` and add 1–2 context insight cards.
+6. **Phase 6 — Cleanup + convergence**
+   - Remove duplicate legacy insight derivations.
+   - Ensure all insights flow from shared selector.
+7. **Phase 7 — Expansion**
+   - Add optional types (longest streak, volatility, late-season pressure, etc.) after core convergence.
+
+#### Test planning requirements (for implementation phases)
+
+- Deterministic ranking: same inputs must always produce the same sorted insight list.
+- Coverage by type: each insight type emits only under valid conditions.
+- Conflict/duplication guardrails: no duplicate or contradictory insights.
+- Edge cases: early season, completed season, ties/identical records.
+
 ## Phase 3 — Historical analytics (optional)
 
 ### Objective

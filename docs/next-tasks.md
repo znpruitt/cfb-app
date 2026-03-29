@@ -58,6 +58,34 @@ Remaining before full Phase 2A sign-off:
 
 ## Next execution phase (after production hardening): League experience improvements
 
+### Shared Insights System planning + phased rollout
+
+Reference prompt: `P2C-SHARED-INSIGHTS-SYSTEM-PLANNING-AND-PHASING-v1`.
+
+1. **Planning/docs baseline (no production code changes)**
+   - Keep architecture and phased plan in `docs/roadmap.md` as the source of truth.
+   - Document explicit ownership boundary: selector derives insights, UI consumes filtered subsets.
+
+2. **Foundation UI step**
+   - Ship standings movement column before shared catalog integration.
+
+3. **Selector engine step**
+   - Add `src/lib/selectors/insights.ts` and `deriveLeagueInsights(...)`.
+   - Start with movement, toilet-bowl, race, and surge/collapse coverage.
+
+4. **Overview consumer step**
+   - Replace local pulse/highlight derivations with top-ranked selector output.
+   - Limit to 2–4 headline insights.
+
+5. **Standings consumer step**
+   - Remove/downgrade `Recent Momentum` as a standalone concept.
+   - Add 1–2 contextual insight cards fed by shared selector output.
+
+6. **Convergence + cleanup**
+   - Remove duplicate page-specific insight derivations.
+   - Verify all insight rendering paths are sourced from shared selector output.
+
+
 This block starts after the production-safe path above is complete and stable in hosted usage.
 
 1. **Overview hierarchy restructure**
