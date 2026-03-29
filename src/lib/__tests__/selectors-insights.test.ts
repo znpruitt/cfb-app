@@ -728,3 +728,319 @@ test('deriveLeagueInsights omits surge when no candidate qualifies', () => {
     false
   );
 });
+
+test('deriveLeagueInsights uses stable mixed-signal ordering for surge candidates', () => {
+  const standingsHistory: StandingsHistory = {
+    weeks: [1, 2, 3],
+    byWeek: {
+      1: {
+        week: 1,
+        standings: [
+          snapshotRow('WinsOnly', 1, 2, 0),
+          snapshotRow('GamesBackOnly', 2, 1, 2),
+          snapshotRow('Neutral', 3, 1, 2),
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+      2: {
+        week: 2,
+        standings: [
+          snapshotRow('WinsOnly', 1, 3, 0),
+          snapshotRow('GamesBackOnly', 2, 1, 2),
+          snapshotRow('Neutral', 3, 1, 2),
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+      3: {
+        week: 3,
+        standings: [
+          snapshotRow('GamesBackOnly', 1, 1, 1),
+          snapshotRow('WinsOnly', 2, 4, 2),
+          snapshotRow('Neutral', 3, 1, 3),
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+    },
+    byOwner: {
+      WinsOnly: [
+        {
+          week: 1,
+          wins: 2,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 120,
+          pointsAgainst: 100,
+          pointDifferential: 20,
+          gamesBack: 0,
+        },
+        {
+          week: 2,
+          wins: 3,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 130,
+          pointsAgainst: 105,
+          pointDifferential: 25,
+          gamesBack: 0,
+        },
+        {
+          week: 3,
+          wins: 4,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 138,
+          pointsAgainst: 110,
+          pointDifferential: 28,
+          gamesBack: 2,
+        },
+      ],
+      GamesBackOnly: [
+        {
+          week: 1,
+          wins: 1,
+          losses: 1,
+          ties: 0,
+          winPct: 0.5,
+          pointsFor: 108,
+          pointsAgainst: 110,
+          pointDifferential: -2,
+          gamesBack: 2,
+        },
+        {
+          week: 2,
+          wins: 1,
+          losses: 2,
+          ties: 0,
+          winPct: 0.333,
+          pointsFor: 114,
+          pointsAgainst: 123,
+          pointDifferential: -9,
+          gamesBack: 2,
+        },
+        {
+          week: 3,
+          wins: 1,
+          losses: 3,
+          ties: 0,
+          winPct: 0.25,
+          pointsFor: 121,
+          pointsAgainst: 129,
+          pointDifferential: -8,
+          gamesBack: 1,
+        },
+      ],
+      Neutral: [
+        {
+          week: 1,
+          wins: 1,
+          losses: 1,
+          ties: 0,
+          winPct: 0.5,
+          pointsFor: 109,
+          pointsAgainst: 111,
+          pointDifferential: -2,
+          gamesBack: 2,
+        },
+        {
+          week: 2,
+          wins: 1,
+          losses: 2,
+          ties: 0,
+          winPct: 0.333,
+          pointsFor: 115,
+          pointsAgainst: 124,
+          pointDifferential: -9,
+          gamesBack: 2,
+        },
+        {
+          week: 3,
+          wins: 1,
+          losses: 3,
+          ties: 0,
+          winPct: 0.25,
+          pointsFor: 122,
+          pointsAgainst: 130,
+          pointDifferential: -8,
+          gamesBack: 3,
+        },
+      ],
+    },
+  };
+
+  const insights = deriveLeagueInsights({
+    rows: [
+      standingsRow('GamesBackOnly', 1, 3, 0, -8),
+      standingsRow('WinsOnly', 4, 0, 1, 28),
+      standingsRow('Neutral', 1, 3, 3, -8),
+    ],
+    standingsHistory,
+    seasonContext: 'final',
+  });
+
+  const surge = insights.find((entry) => entry.type === 'surge');
+  assert.ok(surge);
+  assert.deepEqual(surge?.owners, ['WinsOnly']);
+});
+
+test('deriveLeagueInsights surge selection is deterministic for identical mixed-signal input', () => {
+  const standingsHistory: StandingsHistory = {
+    weeks: [1, 2, 3],
+    byWeek: {
+      1: {
+        week: 1,
+        standings: [
+          snapshotRow('A', 1, 2, 0),
+          snapshotRow('B', 2, 1, 2),
+          snapshotRow('C', 3, 1, 2),
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+      2: {
+        week: 2,
+        standings: [
+          snapshotRow('A', 1, 3, 0),
+          snapshotRow('B', 2, 1, 2),
+          snapshotRow('C', 3, 1, 2),
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+      3: {
+        week: 3,
+        standings: [
+          snapshotRow('B', 1, 1, 1),
+          snapshotRow('A', 2, 4, 1),
+          snapshotRow('C', 3, 1, 3),
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+    },
+    byOwner: {
+      A: [
+        {
+          week: 1,
+          wins: 2,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 120,
+          pointsAgainst: 100,
+          pointDifferential: 20,
+          gamesBack: 0,
+        },
+        {
+          week: 2,
+          wins: 3,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 130,
+          pointsAgainst: 105,
+          pointDifferential: 25,
+          gamesBack: 0,
+        },
+        {
+          week: 3,
+          wins: 4,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 138,
+          pointsAgainst: 110,
+          pointDifferential: 28,
+          gamesBack: 1,
+        },
+      ],
+      B: [
+        {
+          week: 1,
+          wins: 1,
+          losses: 1,
+          ties: 0,
+          winPct: 0.5,
+          pointsFor: 108,
+          pointsAgainst: 110,
+          pointDifferential: -2,
+          gamesBack: 2,
+        },
+        {
+          week: 2,
+          wins: 1,
+          losses: 2,
+          ties: 0,
+          winPct: 0.333,
+          pointsFor: 114,
+          pointsAgainst: 123,
+          pointDifferential: -9,
+          gamesBack: 2,
+        },
+        {
+          week: 3,
+          wins: 1,
+          losses: 3,
+          ties: 0,
+          winPct: 0.25,
+          pointsFor: 121,
+          pointsAgainst: 129,
+          pointDifferential: -8,
+          gamesBack: 1,
+        },
+      ],
+      C: [
+        {
+          week: 1,
+          wins: 1,
+          losses: 1,
+          ties: 0,
+          winPct: 0.5,
+          pointsFor: 109,
+          pointsAgainst: 111,
+          pointDifferential: -2,
+          gamesBack: 2,
+        },
+        {
+          week: 2,
+          wins: 1,
+          losses: 2,
+          ties: 0,
+          winPct: 0.333,
+          pointsFor: 115,
+          pointsAgainst: 124,
+          pointDifferential: -9,
+          gamesBack: 2,
+        },
+        {
+          week: 3,
+          wins: 1,
+          losses: 3,
+          ties: 0,
+          winPct: 0.25,
+          pointsFor: 122,
+          pointsAgainst: 130,
+          pointDifferential: -8,
+          gamesBack: 3,
+        },
+      ],
+    },
+  };
+
+  const input = {
+    rows: [
+      standingsRow('B', 1, 3, 0, -8),
+      standingsRow('A', 4, 0, 1, 28),
+      standingsRow('C', 1, 3, 3, -8),
+    ],
+    standingsHistory,
+    seasonContext: 'final' as const,
+  };
+
+  const first = deriveLeagueInsights(input);
+  const second = deriveLeagueInsights(input);
+
+  const firstSurge = first.find((entry) => entry.type === 'surge');
+  const secondSurge = second.find((entry) => entry.type === 'surge');
+  assert.deepEqual(firstSurge, secondSurge);
+  assert.deepEqual(first, second);
+});
