@@ -2,7 +2,11 @@ import React from 'react';
 import Link from 'next/link';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
-import { deriveLeagueInsights, type Insight, type InsightType } from '../lib/selectors/insights';
+import {
+  deriveLeagueInsights,
+  deriveStandingsInsights,
+  type Insight,
+} from '../lib/selectors/insights';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -26,13 +30,6 @@ type FocusableElement = {
   scrollIntoView: (options?: ScrollIntoViewOptions) => void;
 };
 
-const STANDINGS_RELEVANT_INSIGHT_TYPES: ReadonlySet<InsightType> = new Set([
-  'toilet_bowl',
-  'collapse',
-  'surge',
-  'race',
-]);
-
 function insightHref(target?: Insight['navigationTarget']): string | null {
   if (!target) return null;
   if (target.type === 'standings') return '/standings';
@@ -43,12 +40,6 @@ function insightHref(target?: Insight['navigationTarget']): string | null {
     return '/?view=matchups';
   }
   return null;
-}
-
-function selectStandingsInsights(insights: Insight[]): Insight[] {
-  return insights
-    .filter((insight) => STANDINGS_RELEVANT_INSIGHT_TYPES.has(insight.type))
-    .slice(0, 2);
 }
 
 export function scrollFocusedStandingsOwnerIntoView(params: {
@@ -135,7 +126,7 @@ export default function StandingsPanel({
   );
   const standingsInsights = React.useMemo(
     () =>
-      selectStandingsInsights(
+      deriveStandingsInsights(
         deriveLeagueInsights({
           rows,
           standingsHistory,
@@ -311,7 +302,7 @@ export default function StandingsPanel({
               data-standings-section="contextual-insights"
             >
               <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-                Standings context
+                Standings insights
               </h3>
               <div className="mt-2 space-y-2">
                 {standingsInsights.map((insight) => {

@@ -3,7 +3,11 @@ import Link from 'next/link';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
-import { deriveLeagueInsights, type Insight } from '../lib/selectors/insights';
+import {
+  deriveLeagueInsights,
+  deriveOverviewInsights,
+  type Insight,
+} from '../lib/selectors/insights';
 import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
@@ -902,21 +906,13 @@ export default function OverviewPanel({
         : standingsLeaders;
     const seasonContext = selectSeasonContext({ standingsHistory });
 
-    const rankedInsights = deriveLeagueInsights({
-      rows: currentStandings,
-      standingsHistory,
-      seasonContext,
-    });
-    const uniqueTopInsights: Insight[] = [];
-    const seenIds = new Set<string>();
-    for (const insight of rankedInsights) {
-      if (seenIds.has(insight.id)) continue;
-      seenIds.add(insight.id);
-      uniqueTopInsights.push(insight);
-      if (uniqueTopInsights.length >= 3) break;
-    }
-
-    return uniqueTopInsights;
+    return deriveOverviewInsights(
+      deriveLeagueInsights({
+        rows: currentStandings,
+        standingsHistory,
+        seasonContext,
+      })
+    );
   }, [standingsHistory, standingsLeaders]);
 
   return (
@@ -998,7 +994,7 @@ export default function OverviewPanel({
         </SectionCard>
 
         <div className="space-y-4">
-          <SectionCard title="League highlights" tone="secondary" compact>
+          <SectionCard title="League insights" tone="secondary" compact>
             <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
           </SectionCard>
 

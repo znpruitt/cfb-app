@@ -3,7 +3,12 @@ import test from 'node:test';
 
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistory, StandingsHistoryStandingRow } from '../standingsHistory';
-import { deriveLeagueInsights } from '../selectors/insights';
+import {
+  deriveLeagueInsights,
+  deriveOverviewInsights,
+  deriveStandingsInsights,
+  type Insight,
+} from '../selectors/insights';
 
 function standingsRow(
   owner: string,
@@ -1043,4 +1048,55 @@ test('deriveLeagueInsights surge selection is deterministic for identical mixed-
   const secondSurge = second.find((entry) => entry.type === 'surge');
   assert.deepEqual(firstSurge, secondSurge);
   assert.deepEqual(first, second);
+});
+
+test('deriveOverviewInsights returns top 3 unique insights in input order', () => {
+  const insights: Insight[] = [
+    { id: 'a', type: 'race', title: 'A', description: 'A', score: 90, owners: ['A'] },
+    { id: 'b', type: 'surge', title: 'B', description: 'B', score: 80, owners: ['B'] },
+    { id: 'b', type: 'surge', title: 'B2', description: 'B2', score: 70, owners: ['B'] },
+    { id: 'c', type: 'collapse', title: 'C', description: 'C', score: 60, owners: ['C'] },
+    { id: 'd', type: 'movement', title: 'D', description: 'D', score: 50, owners: ['D'] },
+  ];
+
+  assert.deepEqual(
+    deriveOverviewInsights(insights).map((entry) => entry.id),
+    ['a', 'b', 'c']
+  );
+});
+
+test('deriveStandingsInsights filters to standings-relevant types and caps at 2 unique insights', () => {
+  const insights: Insight[] = [
+    { id: 'move', type: 'movement', title: 'Move', description: 'Move', score: 90, owners: ['A'] },
+    { id: 'race', type: 'race', title: 'Race', description: 'Race', score: 88, owners: ['A', 'B'] },
+    {
+      id: 'collapse',
+      type: 'collapse',
+      title: 'Collapse',
+      description: 'Collapse',
+      score: 86,
+      owners: ['C'],
+    },
+    {
+      id: 'collapse',
+      type: 'collapse',
+      title: 'Collapse duplicate',
+      description: 'Collapse duplicate',
+      score: 85,
+      owners: ['C'],
+    },
+    {
+      id: 'toilet',
+      type: 'toilet_bowl',
+      title: 'Toilet',
+      description: 'Toilet',
+      score: 84,
+      owners: ['D'],
+    },
+  ];
+
+  assert.deepEqual(
+    deriveStandingsInsights(insights).map((entry) => entry.id),
+    ['race', 'collapse']
+  );
 });
