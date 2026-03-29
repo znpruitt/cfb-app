@@ -110,7 +110,7 @@ test('standings panel renders expected columns and metrics', () => {
     />
   );
 
-  for (const label of ['Rank', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB']) {
+  for (const label of ['Rank', 'Move', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB']) {
     assert.match(html, new RegExp(label.replace('%', '%')));
   }
   assert.match(html, /Alex/);
@@ -128,6 +128,173 @@ test('standings panel renders expected columns and metrics', () => {
     html,
     /PF, PA, Diff, and GB stay available without changing standings logic\./
   );
+});
+
+test('standings panel renders compact rank movement indicators from standings history', () => {
+  const movementHistory: StandingsHistory = {
+    weeks: [1, 2],
+    byWeek: {
+      1: {
+        week: 1,
+        standings: [
+          {
+            owner: 'Alex',
+            wins: 3,
+            losses: 1,
+            ties: 0,
+            winPct: 0.75,
+            pointsFor: 120,
+            pointsAgainst: 100,
+            pointDifferential: 20,
+            gamesBack: 0,
+            finalGames: 4,
+          },
+          {
+            owner: 'Blake',
+            wins: 3,
+            losses: 1,
+            ties: 0,
+            winPct: 0.75,
+            pointsFor: 115,
+            pointsAgainst: 101,
+            pointDifferential: 14,
+            gamesBack: 0,
+            finalGames: 4,
+          },
+          {
+            owner: 'Casey',
+            wins: 2,
+            losses: 2,
+            ties: 0,
+            winPct: 0.5,
+            pointsFor: 100,
+            pointsAgainst: 102,
+            pointDifferential: -2,
+            gamesBack: 1,
+            finalGames: 4,
+          },
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+      2: {
+        week: 2,
+        standings: [
+          {
+            owner: 'Blake',
+            wins: 4,
+            losses: 1,
+            ties: 0,
+            winPct: 0.8,
+            pointsFor: 145,
+            pointsAgainst: 118,
+            pointDifferential: 27,
+            gamesBack: 0,
+            finalGames: 5,
+          },
+          {
+            owner: 'Alex',
+            wins: 4,
+            losses: 1,
+            ties: 0,
+            winPct: 0.8,
+            pointsFor: 142,
+            pointsAgainst: 120,
+            pointDifferential: 22,
+            gamesBack: 0,
+            finalGames: 5,
+          },
+          {
+            owner: 'Casey',
+            wins: 2,
+            losses: 3,
+            ties: 0,
+            winPct: 0.4,
+            pointsFor: 109,
+            pointsAgainst: 122,
+            pointDifferential: -13,
+            gamesBack: 2,
+            finalGames: 5,
+          },
+          {
+            owner: 'Drew',
+            wins: 1,
+            losses: 4,
+            ties: 0,
+            winPct: 0.2,
+            pointsFor: 90,
+            pointsAgainst: 130,
+            pointDifferential: -40,
+            gamesBack: 3,
+            finalGames: 5,
+          },
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+    },
+    byOwner: {},
+  };
+
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      standingsHistory={movementHistory}
+      rows={[
+        {
+          owner: 'Blake',
+          wins: 4,
+          losses: 1,
+          winPct: 0.8,
+          pointsFor: 145,
+          pointsAgainst: 118,
+          pointDifferential: 27,
+          gamesBack: 0,
+          finalGames: 5,
+        },
+        {
+          owner: 'Alex',
+          wins: 4,
+          losses: 1,
+          winPct: 0.8,
+          pointsFor: 142,
+          pointsAgainst: 120,
+          pointDifferential: 22,
+          gamesBack: 0,
+          finalGames: 5,
+        },
+        {
+          owner: 'Casey',
+          wins: 2,
+          losses: 3,
+          winPct: 0.4,
+          pointsFor: 109,
+          pointsAgainst: 122,
+          pointDifferential: -13,
+          gamesBack: 2,
+          finalGames: 5,
+        },
+        {
+          owner: 'Drew',
+          wins: 1,
+          losses: 4,
+          winPct: 0.2,
+          pointsFor: 90,
+          pointsAgainst: 130,
+          pointDifferential: -40,
+          gamesBack: 3,
+          finalGames: 5,
+        },
+      ]}
+    />
+  );
+
+  assert.match(html, /data-standings-move="↑1"/);
+  assert.match(html, /Moved up 1 spot from last week/);
+  assert.match(html, /data-standings-move="↓1"/);
+  assert.match(html, /Moved down 1 spot from last week/);
+  assert.match(html, /data-standings-move="→0"/);
+  assert.match(html, /No change from last week/);
+  assert.match(html, /No prior week comparison available/);
 });
 
 test('standings panel renders secondary coverage warning when standings are partial', () => {

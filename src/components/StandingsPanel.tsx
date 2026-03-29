@@ -3,6 +3,7 @@ import React from 'react';
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
 import { selectOwnerMomentum } from '../lib/selectors/momentum';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
+import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
@@ -55,6 +56,42 @@ function formatSignedOneDecimal(value: number): string {
   return base;
 }
 
+function deriveMovementPresentation(rankDelta: number | null): {
+  text: string;
+  className: string;
+  label: string;
+} {
+  const formatSpotCopy = (value: number) => `${value} spot${value === 1 ? '' : 's'}`;
+
+  if (rankDelta == null) {
+    return {
+      text: '—',
+      className: 'text-gray-400 dark:text-zinc-500',
+      label: 'No prior week comparison available',
+    };
+  }
+  if (rankDelta > 0) {
+    return {
+      text: `↑${rankDelta}`,
+      className: 'text-emerald-700 dark:text-emerald-400',
+      label: `Moved up ${formatSpotCopy(rankDelta)} from last week`,
+    };
+  }
+  if (rankDelta < 0) {
+    const downAmount = Math.abs(rankDelta);
+    return {
+      text: `↓${downAmount}`,
+      className: 'text-rose-700 dark:text-rose-400',
+      label: `Moved down ${formatSpotCopy(downAmount)} from last week`,
+    };
+  }
+  return {
+    text: '→0',
+    className: 'text-gray-500 dark:text-zinc-400',
+    label: 'No change from last week',
+  };
+}
+
 export default function StandingsPanel({
   rows,
   season,
@@ -70,6 +107,14 @@ export default function StandingsPanel({
   const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
   const momentum = standingsHistory ? selectOwnerMomentum({ standingsHistory, windowSize: 3 }) : [];
+  const movementByOwner = React.useMemo(
+    () =>
+      deriveStandingsMovementByOwner({
+        rows,
+        standingsHistory,
+      }),
+    [rows, standingsHistory]
+  );
   const topMomentum = momentum.slice(0, 3);
   const topMomentumOwnerIds = new Set(topMomentum.map((entry) => entry.ownerId));
   const bottomMomentum = [...momentum]
@@ -134,7 +179,7 @@ export default function StandingsPanel({
                 <table className="min-w-max border-separate border-spacing-0 text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
-                      {['Rank', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
+                      {['Rank', 'Move', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
                         (label) => (
                           <th
                             key={label}
@@ -149,6 +194,10 @@ export default function StandingsPanel({
                   <tbody>
                     {rows.map((row, index) => {
                       const winPctWidth = Math.max(0, Math.min(100, row.winPct * 100)).toFixed(1);
+                      const movement = movementByOwner[row.owner];
+                      const movementPresentation = deriveMovementPresentation(
+                        movement?.rankDelta ?? null
+                      );
                       return (
                         <tr
                           key={row.owner}
@@ -172,6 +221,14 @@ export default function StandingsPanel({
                         >
                           <td className="border-b border-gray-100 px-2 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-3 dark:border-zinc-800 dark:text-zinc-100">
                             {index + 1}
+                          </td>
+                          <td
+                            className={`whitespace-nowrap border-b border-gray-100 px-2 py-2 text-xs font-semibold tabular-nums sm:px-3 dark:border-zinc-800 ${movementPresentation.className}`}
+                            title={movementPresentation.label}
+                            aria-label={movementPresentation.label}
+                            data-standings-move={movementPresentation.text}
+                          >
+                            {movementPresentation.text}
                           </td>
                           <td className="border-b border-gray-100 px-2 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-3 dark:border-zinc-800 dark:text-zinc-50">
                             <div className="min-w-[8.5rem] truncate sm:min-w-0">
