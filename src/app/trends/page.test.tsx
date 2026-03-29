@@ -7,10 +7,12 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import TrendsDetailSurface, {
+  deriveEndpointLabelLayout,
   deriveAllWeekTicks,
   deriveAdaptiveWeekTicks,
   deriveDynamicPlotWidth,
   deriveResponsiveTrendLayout,
+  estimateEndpointLabelWidth,
   toggleSelectedOwner,
 } from './TrendsDetailSurface';
 import TrendsPage from './page';
@@ -771,14 +773,23 @@ test('right-edge labels include truncated owner names, formatted values, and con
   assert.match(gamesBackLabel.textContent ?? '', /VeryLongO… 4\.0/);
   assert.match(winPctLabel.textContent ?? '', /VeryLongO… 0\.0%/);
 
-  const leftColumnLabels = rendered.container.querySelectorAll(
-    '[aria-label="Games Back shared trend chart"] [data-label-column="left"]'
+  const laneZeroLabels = rendered.container.querySelectorAll(
+    '[aria-label="Games Back shared trend chart"] [data-endpoint-label-lane="0"]'
   );
-  const rightColumnLabels = rendered.container.querySelectorAll(
-    '[aria-label="Games Back shared trend chart"] [data-label-column="right"]'
+  const laneOneLabels = rendered.container.querySelectorAll(
+    '[aria-label="Games Back shared trend chart"] [data-endpoint-label-lane="1"]'
   );
-  assert.ok(leftColumnLabels.length > 0);
-  assert.ok(rightColumnLabels.length > 0);
+  assert.ok(laneZeroLabels.length > 0);
+  assert.ok(laneOneLabels.length > 0);
+
+  for (const labelGroup of rendered.container.querySelectorAll(
+    '[aria-label="Games Back shared trend chart"] [data-endpoint-label-lane]'
+  )) {
+    const labelX = Number.parseFloat(labelGroup.getAttribute('data-endpoint-label-x') ?? '0');
+    const labelY = Number.parseFloat(labelGroup.getAttribute('data-endpoint-label-y') ?? '0');
+    assert.ok(labelX > 0);
+    assert.ok(labelY >= 10);
+  }
 
   assert.ok(
     rendered.container.querySelector(
@@ -794,7 +805,79 @@ test('right-edge labels include truncated owner names, formatted values, and con
     '[aria-label="Games Back shared trend chart"] [data-label-connector="VeryLongOwnerDisplayName"]'
   );
   assert.ok(connector);
-  assert.match(connector.getAttribute('d') ?? '', /L/);
+  assert.match(connector.getAttribute('d') ?? '', /M .* L .* L /);
+});
+
+test('estimateEndpointLabelWidth scales with text length deterministically', () => {
+  assert.equal(estimateEndpointLabelWidth('A 1.0'), 51);
+  assert.equal(estimateEndpointLabelWidth('VeryLongOwner 100.0%'), 156);
+  assert.ok(estimateEndpointLabelWidth('Long text') > estimateEndpointLabelWidth('Short'));
+});
+
+test('deriveEndpointLabelLayout distributes clustered endpoints across lanes without overlap', () => {
+  const layout = deriveEndpointLabelLayout({
+    entries: [
+      { owner: 'A', text: 'A 1.0', endpointX: 280, endpointY: 40, color: '#111' },
+      { owner: 'B', text: 'B 1.0', endpointX: 280, endpointY: 42, color: '#222' },
+      { owner: 'C', text: 'C 1.0', endpointX: 280, endpointY: 44, color: '#333' },
+      { owner: 'D', text: 'D 1.0', endpointX: 280, endpointY: 46, color: '#444' },
+    ],
+    chartWidth: 280,
+    chartHeight: 320,
+    labelAreaWidth: 180,
+    laneCount: 2,
+    minVerticalSpacing: 14,
+  });
+  assert.equal(layout.length, 4);
+  assert.ok(layout.some((entry) => entry.lane === 0));
+  assert.ok(layout.some((entry) => entry.lane === 1));
+
+  const byLane = new Map<number, number[]>();
+  for (const entry of layout) {
+    const current = byLane.get(entry.lane) ?? [];
+    current.push(entry.labelY);
+    byLane.set(entry.lane, current);
+    assert.equal(entry.connectorPoints.length, 3);
+  }
+  for (const yValues of byLane.values()) {
+    const sorted = [...yValues].sort((a, b) => a - b);
+    for (let index = 1; index < sorted.length; index += 1) {
+      assert.ok(sorted[index] - sorted[index - 1] >= 13.9);
+    }
+  }
+});
+
+test('deriveEndpointLabelLayout is deterministic and supports three-lane width-aware placement', () => {
+  const entries = [
+    { owner: 'Short', text: 'Short 0.4', endpointX: 300, endpointY: 80, color: '#111' },
+    { owner: 'MediumOwner', text: 'MediumOwner 0.5', endpointX: 300, endpointY: 82, color: '#222' },
+    {
+      owner: 'VeryLongOwnerDisplayName',
+      text: 'VeryLongO… 0.6',
+      endpointX: 300,
+      endpointY: 84,
+      color: '#333',
+    },
+    { owner: 'Tiny', text: 'Tiny 0.7', endpointX: 300, endpointY: 86, color: '#444' },
+  ];
+  const first = deriveEndpointLabelLayout({
+    entries,
+    chartWidth: 300,
+    chartHeight: 320,
+    labelAreaWidth: 260,
+    laneCount: 3,
+    minVerticalSpacing: 14,
+  });
+  const second = deriveEndpointLabelLayout({
+    entries,
+    chartWidth: 300,
+    chartHeight: 320,
+    labelAreaWidth: 260,
+    laneCount: 3,
+    minVerticalSpacing: 14,
+  });
+  assert.deepEqual(first, second);
+  assert.ok(first.some((entry) => entry.lane === 2));
 });
 
 test('selected owner summary still uses standings-derived rank and win metrics', async () => {

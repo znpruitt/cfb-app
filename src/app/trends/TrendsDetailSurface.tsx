@@ -35,14 +35,20 @@ type OwnerVisualState = {
   emphasized: boolean;
 };
 
-type EndpointLabelPlacement = {
-  ownerId: string;
-  ownerName: string;
-  latest: number | null;
-  anchorX: number;
-  anchorY: number;
+type EndpointLabelInput = {
+  owner: string;
+  text: string;
+  endpointX: number;
+  endpointY: number;
+  color: string;
+};
+
+type EndpointLabelPlacement = EndpointLabelInput & {
+  lane: number;
+  labelX: number;
   labelY: number;
-  column: 'left' | 'right';
+  estimatedWidth: number;
+  connectorPoints: Array<{ x: number; y: number }>;
 };
 
 export function toggleSelectedOwner(current: string | null, ownerId: string): string | null {
@@ -244,7 +250,7 @@ function resolveLeaderIds(metric: MetricKind, rows: TrendRowData[]): Set<string>
   return new Set(sorted.slice(0, 3).map((row) => row.ownerId));
 }
 
-function resolveColumnLabelOffsets(
+function resolveLaneLabelOffsets(
   entries: Array<{ ownerId: string; y: number }>,
   minSpacing: number,
   minY: number,
@@ -291,37 +297,83 @@ function resolveColumnLabelOffsets(
   return offsets;
 }
 
-function deriveEndpointLabelColumns(
-  entries: Array<{
-    ownerId: string;
-    ownerName: string;
-    latest: number | null;
-    x: number;
-    y: number;
-  }>,
-  chartHeight: number
-): EndpointLabelPlacement[] {
-  const sortedByY = [...entries].sort((left, right) => left.y - right.y);
-  const leftColumn = sortedByY.filter((_, index) => index % 2 === 0);
-  const rightColumn = sortedByY.filter((_, index) => index % 2 === 1);
+export function estimateEndpointLabelWidth(text: string): number {
+  const base = 16;
+  const perChar = 7;
+  return base + text.length * perChar;
+}
+
+export function deriveEndpointLabelLayout(params: {
+  entries: EndpointLabelInput[];
+  chartWidth: number;
+  chartHeight: number;
+  labelAreaWidth: number;
+  laneCount: number;
+  minVerticalSpacing: number;
+}): EndpointLabelPlacement[] {
+  const { entries, chartWidth, chartHeight, labelAreaWidth, laneCount, minVerticalSpacing } =
+    params;
+  if (entries.length === 0) return [];
+  const safeLaneCount = Math.max(1, laneCount);
+  const laneWidth = labelAreaWidth / safeLaneCount;
   const minY = 10;
   const maxY = chartHeight - 10;
-  const columnSpacing = 14;
+  const laneAssignments = new Map<string, number>();
+  const laneOccupancy = new Array(safeLaneCount).fill(0);
+  const sortedByY = [...entries].sort((left, right) => {
+    if (left.endpointY !== right.endpointY) return left.endpointY - right.endpointY;
+    return left.owner.localeCompare(right.owner);
+  });
 
-  const leftOffsets = resolveColumnLabelOffsets(leftColumn, columnSpacing, minY, maxY);
-  const rightOffsets = resolveColumnLabelOffsets(rightColumn, columnSpacing, minY, maxY);
+  for (const entry of sortedByY) {
+    const estimatedWidth = estimateEndpointLabelWidth(entry.text);
+    let bestLane = 0;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (let lane = 0; lane < safeLaneCount; lane += 1) {
+      const overflowPenalty = Math.max(0, estimatedWidth - (laneWidth - 12)) * 2;
+      const occupancyPenalty = laneOccupancy[lane] * minVerticalSpacing;
+      const laneDistancePenalty = lane * 5;
+      const score = overflowPenalty + occupancyPenalty + laneDistancePenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        bestLane = lane;
+      }
+    }
+    laneAssignments.set(entry.owner, bestLane);
+    laneOccupancy[bestLane] += 1;
+  }
 
-  return sortedByY.map((entry, index) => {
-    const column: 'left' | 'right' = index % 2 === 0 ? 'left' : 'right';
-    const offsets = column === 'left' ? leftOffsets : rightOffsets;
+  const laneOffsets = new Map<string, number>();
+  for (let lane = 0; lane < safeLaneCount; lane += 1) {
+    const laneEntries = sortedByY
+      .filter((entry) => laneAssignments.get(entry.owner) === lane)
+      .map((entry) => ({ ownerId: entry.owner, y: entry.endpointY }));
+    const offsets = resolveLaneLabelOffsets(laneEntries, minVerticalSpacing, minY, maxY);
+    for (const [ownerId, offset] of offsets) {
+      laneOffsets.set(ownerId, offset);
+    }
+  }
+
+  return sortedByY.map((entry) => {
+    const lane = laneAssignments.get(entry.owner) ?? 0;
+    const estimatedWidth = estimateEndpointLabelWidth(entry.text);
+    const labelX = chartWidth + 10 + lane * laneWidth;
+    const labelY = Math.min(
+      maxY,
+      Math.max(minY, entry.endpointY + (laneOffsets.get(entry.owner) ?? 0))
+    );
+    const doglegX = labelX - Math.max(8, Math.min(20, laneWidth * 0.22));
     return {
-      ownerId: entry.ownerId,
-      ownerName: entry.ownerName,
-      latest: entry.latest,
-      anchorX: entry.x,
-      anchorY: entry.y,
-      labelY: entry.y + (offsets.get(entry.ownerId) ?? 0),
-      column,
+      ...entry,
+      lane,
+      labelX,
+      labelY,
+      estimatedWidth,
+      connectorPoints: [
+        { x: entry.endpointX + 4, y: entry.endpointY },
+        { x: doglegX, y: labelY },
+        { x: labelX - 2, y: labelY },
+      ],
     };
   });
 }
@@ -431,6 +483,7 @@ function SharedTrendChart({
   const chartHeight = responsiveLayout.chartHeight;
   const plotHeight = chartHeight - 26;
   const labelLaneWidth = responsiveLayout.labelLaneWidth;
+  const endpointLaneCount = labelLaneWidth >= 240 ? 3 : 2;
   const pxPerWeek = responsiveLayout.pxPerWeek;
   const chartWidth = deriveDynamicPlotWidth({
     containerWidth,
@@ -457,8 +510,8 @@ function SharedTrendChart({
     [metric, rows]
   );
   const endpointLabels = geometry
-    ? deriveEndpointLabelColumns(
-        rows
+    ? deriveEndpointLabelLayout({
+        entries: rows
           .filter((row) => focusedOwnerIds.has(row.ownerId))
           .map((row) => {
             const latestPoint = row.points[row.points.length - 1];
@@ -471,26 +524,20 @@ function SharedTrendChart({
               invertYAxis,
             });
             return {
-              ownerId: row.ownerId,
-              ownerName: row.ownerName,
-              latest: row.latest,
-              x: latestPos.x,
-              y: latestPos.y,
+              owner: row.ownerId,
+              text: `${formatLabelOwnerName(row.ownerName)} ${formatMetricLabelValue(metric, row.latest)}`,
+              endpointX: latestPos.x,
+              endpointY: latestPos.y,
+              color: getOwnerTrendColor(row.ownerId),
             };
           })
-          .filter(
-            (
-              entry
-            ): entry is {
-              ownerId: string;
-              ownerName: string;
-              latest: number | null;
-              x: number;
-              y: number;
-            } => entry != null
-          ),
-        plotHeight
-      )
+          .filter((entry): entry is EndpointLabelInput => entry != null),
+        chartWidth,
+        chartHeight: plotHeight,
+        labelAreaWidth: labelLaneWidth,
+        laneCount: endpointLaneCount,
+        minVerticalSpacing: 14,
+      })
     : [];
   const weekTicks = deriveAllWeekTicks(weeks);
 
@@ -718,57 +765,57 @@ function SharedTrendChart({
               {responsiveLayout.showRightEdgeLabels
                 ? endpointLabels.map((labelPlacement) => {
                     const visualState = resolveOwnerVisualState({
-                      ownerId: labelPlacement.ownerId,
+                      ownerId: labelPlacement.owner,
                       selectedOwnerId,
                       focusMode: selectedOwnerId ? 'selected' : 'all',
                       topOwnerIds,
                     });
                     const trendStyle = resolveTrendVisualStyle({
                       visualState,
-                      isLeader: leaderIds.has(labelPlacement.ownerId),
-                      isSeriesHovered: hoverState?.ownerName === labelPlacement.ownerName,
+                      isLeader: leaderIds.has(labelPlacement.owner),
+                      isSeriesHovered: hoverState?.ownerName === labelPlacement.owner,
                     });
-                    const connectorBendX =
-                      labelPlacement.column === 'left' ? chartWidth + 10 : chartWidth + 68;
-                    const labelX =
-                      labelPlacement.column === 'left' ? chartWidth + 20 : chartWidth + 88;
+                    const connectorPath = labelPlacement.connectorPoints
+                      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+                      .join(' ');
                     return (
                       <g
-                        key={`${metric}-label-${labelPlacement.ownerId}`}
+                        key={`${metric}-label-${labelPlacement.owner}`}
                         opacity={visualState.selected ? 1 : visualState.muted ? 0.3 : 0.92}
-                        data-owner-id={labelPlacement.ownerId}
+                        data-owner-id={labelPlacement.owner}
                         data-selected={visualState.selected ? 'true' : 'false'}
                         data-muted={visualState.muted ? 'true' : 'false'}
                         data-emphasized={visualState.emphasized ? 'true' : 'false'}
-                        data-label-column={labelPlacement.column}
+                        data-endpoint-label-lane={labelPlacement.lane}
+                        data-endpoint-label-x={labelPlacement.labelX.toFixed(2)}
+                        data-endpoint-label-y={labelPlacement.labelY.toFixed(2)}
                       >
                         <circle
-                          cx={labelPlacement.anchorX}
-                          cy={labelPlacement.anchorY}
+                          cx={labelPlacement.endpointX}
+                          cy={labelPlacement.endpointY}
                           r={trendStyle.anchorDotRadius}
-                          fill={getOwnerTrendColor(labelPlacement.ownerId)}
+                          fill={getOwnerTrendColor(labelPlacement.owner)}
                           opacity={visualState.selected ? 0.98 : 0.72}
-                          data-label-anchor-dot={labelPlacement.ownerId}
+                          data-label-anchor-dot={labelPlacement.owner}
                         />
                         <path
-                          d={`M ${labelPlacement.anchorX + 4} ${labelPlacement.anchorY} L ${connectorBendX} ${labelPlacement.labelY} L ${labelX - 4} ${labelPlacement.labelY}`}
+                          d={connectorPath}
                           fill="none"
-                          stroke={getOwnerTrendColor(labelPlacement.ownerId)}
+                          stroke={getOwnerTrendColor(labelPlacement.owner)}
                           strokeWidth={visualState.selected ? 2.2 : visualState.muted ? 0.9 : 1.4}
                           strokeDasharray="1.5 2.5"
                           opacity={visualState.selected ? 0.92 : visualState.muted ? 0.32 : 0.65}
-                          data-label-connector={labelPlacement.ownerId}
+                          data-label-connector={labelPlacement.owner}
                         />
                         <text
-                          x={labelX}
+                          x={labelPlacement.labelX}
                           y={labelPlacement.labelY + 3}
-                          fill={getOwnerTrendColor(labelPlacement.ownerId)}
+                          fill={getOwnerTrendColor(labelPlacement.owner)}
                           fontSize="10"
                           fontWeight={visualState.selected ? 800 : visualState.muted ? 500 : 650}
-                          data-right-edge-label={labelPlacement.ownerId}
+                          data-right-edge-label={labelPlacement.owner}
                         >
-                          {formatLabelOwnerName(labelPlacement.ownerName)}{' '}
-                          {formatMetricLabelValue(metric, labelPlacement.latest)}
+                          {labelPlacement.text}
                         </text>
                       </g>
                     );
@@ -867,6 +914,7 @@ export default function TrendsDetailSurface({
   issues,
   layoutMode = 'standalone',
   compact = false,
+  showMomentum = true,
 }: {
   standingsHistory: StandingsHistory | null;
   season: number;
@@ -874,6 +922,7 @@ export default function TrendsDetailSurface({
   issues: string[];
   layoutMode?: LayoutMode;
   compact?: boolean;
+  showMomentum?: boolean;
 }): React.ReactElement {
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
   const [focusMode, setFocusMode] = React.useState<FocusMode>('top');
@@ -1112,111 +1161,113 @@ export default function TrendsDetailSurface({
         getOwnerTrendColor={getOwnerTrendColor}
       />
 
-      <section
-        className={`rounded-xl border border-gray-200 bg-gray-50/70 ${compactWinBars ? 'p-3' : 'p-3.5'} dark:border-zinc-800 dark:bg-zinc-900/60`}
-      >
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-          Recent Momentum
-        </h2>
-        {momentum.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-            No momentum data available yet.
-          </p>
-        ) : (
-          <div className="mt-2 grid gap-3 md:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                Top gainers (last 3 weeks)
-              </p>
-              <ul className="mt-1.5 space-y-1.5 text-sm">
-                {topMomentum.map((entry) => {
-                  const visualState = resolveOwnerVisualState({
-                    ownerId: entry.ownerId,
-                    selectedOwnerId,
-                    focusMode,
-                    topOwnerIds,
-                  });
-                  return (
-                    <li
-                      key={`momentum-top-${entry.ownerId}`}
-                      className={`rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900 ${visualState.muted ? 'opacity-45' : ''} ${visualState.selected ? 'ring-1 ring-blue-400 dark:ring-blue-500' : ''}`}
-                      data-momentum-owner={entry.ownerId}
-                      data-selected={visualState.selected ? 'true' : 'false'}
-                      data-muted={visualState.muted ? 'true' : 'false'}
-                      data-emphasized={visualState.emphasized ? 'true' : 'false'}
-                    >
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-2 text-left"
-                        onClick={() => handleOwnerToggle(entry.ownerId)}
+      {showMomentum ? (
+        <section
+          className={`rounded-xl border border-gray-200 bg-gray-50/70 ${compactWinBars ? 'p-3' : 'p-3.5'} dark:border-zinc-800 dark:bg-zinc-900/60`}
+        >
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+            Recent Momentum
+          </h2>
+          {momentum.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
+              No momentum data available yet.
+            </p>
+          ) : (
+            <div className="mt-2 grid gap-3 md:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                  Top gainers (last 3 weeks)
+                </p>
+                <ul className="mt-1.5 space-y-1.5 text-sm">
+                  {topMomentum.map((entry) => {
+                    const visualState = resolveOwnerVisualState({
+                      ownerId: entry.ownerId,
+                      selectedOwnerId,
+                      focusMode,
+                      topOwnerIds,
+                    });
+                    return (
+                      <li
+                        key={`momentum-top-${entry.ownerId}`}
+                        className={`rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900 ${visualState.muted ? 'opacity-45' : ''} ${visualState.selected ? 'ring-1 ring-blue-400 dark:ring-blue-500' : ''}`}
+                        data-momentum-owner={entry.ownerId}
+                        data-selected={visualState.selected ? 'true' : 'false'}
+                        data-muted={visualState.muted ? 'true' : 'false'}
+                        data-emphasized={visualState.emphasized ? 'true' : 'false'}
                       >
-                        <span className="flex items-center gap-2">
-                          <span
-                            aria-hidden="true"
-                            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: getOwnerTrendColor(entry.ownerId) }}
-                          />
-                          <span className="font-medium">{entry.ownerId}</span>
-                        </span>
-                        <span>
-                          {entry.deltaWins >= 0 ? '+' : ''}
-                          {entry.deltaWins} wins · GB{' '}
-                          {formatSignedMetricValue('games-back', entry.deltaGamesBack)}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                Cooldowns (last 3 weeks)
-              </p>
-              <ul className="mt-1.5 space-y-1.5 text-sm">
-                {bottomMomentum.map((entry) => {
-                  const visualState = resolveOwnerVisualState({
-                    ownerId: entry.ownerId,
-                    selectedOwnerId,
-                    focusMode,
-                    topOwnerIds,
-                  });
-                  return (
-                    <li
-                      key={`momentum-bottom-${entry.ownerId}`}
-                      className={`rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900 ${visualState.muted ? 'opacity-45' : ''} ${visualState.selected ? 'ring-1 ring-blue-400 dark:ring-blue-500' : ''}`}
-                      data-momentum-owner={entry.ownerId}
-                      data-selected={visualState.selected ? 'true' : 'false'}
-                      data-muted={visualState.muted ? 'true' : 'false'}
-                      data-emphasized={visualState.emphasized ? 'true' : 'false'}
-                    >
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-2 text-left"
-                        onClick={() => handleOwnerToggle(entry.ownerId)}
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 text-left"
+                          onClick={() => handleOwnerToggle(entry.ownerId)}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              aria-hidden="true"
+                              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: getOwnerTrendColor(entry.ownerId) }}
+                            />
+                            <span className="font-medium">{entry.ownerId}</span>
+                          </span>
+                          <span>
+                            {entry.deltaWins >= 0 ? '+' : ''}
+                            {entry.deltaWins} wins · GB{' '}
+                            {formatSignedMetricValue('games-back', entry.deltaGamesBack)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                  Cooldowns (last 3 weeks)
+                </p>
+                <ul className="mt-1.5 space-y-1.5 text-sm">
+                  {bottomMomentum.map((entry) => {
+                    const visualState = resolveOwnerVisualState({
+                      ownerId: entry.ownerId,
+                      selectedOwnerId,
+                      focusMode,
+                      topOwnerIds,
+                    });
+                    return (
+                      <li
+                        key={`momentum-bottom-${entry.ownerId}`}
+                        className={`rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900 ${visualState.muted ? 'opacity-45' : ''} ${visualState.selected ? 'ring-1 ring-blue-400 dark:ring-blue-500' : ''}`}
+                        data-momentum-owner={entry.ownerId}
+                        data-selected={visualState.selected ? 'true' : 'false'}
+                        data-muted={visualState.muted ? 'true' : 'false'}
+                        data-emphasized={visualState.emphasized ? 'true' : 'false'}
                       >
-                        <span className="flex items-center gap-2">
-                          <span
-                            aria-hidden="true"
-                            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: getOwnerTrendColor(entry.ownerId) }}
-                          />
-                          <span className="font-medium">{entry.ownerId}</span>
-                        </span>
-                        <span>
-                          {entry.deltaWins >= 0 ? '+' : ''}
-                          {entry.deltaWins} wins · Win%{' '}
-                          {formatSignedMetricValue('win-pct', entry.deltaWinPct)}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 text-left"
+                          onClick={() => handleOwnerToggle(entry.ownerId)}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              aria-hidden="true"
+                              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ backgroundColor: getOwnerTrendColor(entry.ownerId) }}
+                            />
+                            <span className="font-medium">{entry.ownerId}</span>
+                          </span>
+                          <span>
+                            {entry.deltaWins >= 0 ? '+' : ''}
+                            {entry.deltaWins} wins · Win%{' '}
+                            {formatSignedMetricValue('win-pct', entry.deltaWinPct)}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      ) : null}
     </WrapperTag>
   );
 }

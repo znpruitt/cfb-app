@@ -1,6 +1,7 @@
 import React from 'react';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
+import { selectOwnerMomentum } from '../lib/selectors/momentum';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
@@ -47,6 +48,13 @@ function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
+function formatSignedOneDecimal(value: number): string {
+  const base = Math.abs(value).toFixed(1);
+  if (value > 0) return `+${base}`;
+  if (value < 0) return `-${base}`;
+  return base;
+}
+
 export default function StandingsPanel({
   rows,
   season,
@@ -61,6 +69,13 @@ export default function StandingsPanel({
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
   const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
+  const momentum = standingsHistory ? selectOwnerMomentum({ standingsHistory, windowSize: 3 }) : [];
+  const topMomentum = momentum.slice(0, 3);
+  const topMomentumOwnerIds = new Set(topMomentum.map((entry) => entry.ownerId));
+  const bottomMomentum = [...momentum]
+    .filter((entry) => !topMomentumOwnerIds.has(entry.ownerId))
+    .reverse()
+    .slice(0, 3);
 
   React.useEffect(() => {
     scrollFocusedStandingsOwnerIntoView({
@@ -108,7 +123,7 @@ export default function StandingsPanel({
         className="grid grid-cols-1 gap-4 md:gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)]"
         data-layout="standings-trends-split"
       >
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {rows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
               Upload surnames to populate league standings.
@@ -199,6 +214,69 @@ export default function StandingsPanel({
               </div>
             </>
           )}
+
+          <section
+            className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+            data-standings-section="recent-momentum"
+          >
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+              Recent Momentum
+            </h3>
+            {momentum.length === 0 ? (
+              <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
+                No momentum data available yet.
+              </p>
+            ) : (
+              <div className="mt-2 grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                    Top gainers (last 3 weeks)
+                  </p>
+                  <ul className="mt-1.5 space-y-1.5 text-sm">
+                    {topMomentum.map((entry) => (
+                      <li
+                        key={`momentum-top-${entry.ownerId}`}
+                        className="rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
+                        data-momentum-owner={entry.ownerId}
+                      >
+                        <div className="flex w-full items-center justify-between gap-2 text-left">
+                          <span className="font-medium">{entry.ownerId}</span>
+                          <span>
+                            {entry.deltaWins >= 0 ? '+' : ''}
+                            {entry.deltaWins} wins · GB{' '}
+                            {formatSignedOneDecimal(entry.deltaGamesBack)}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+                    Cooldowns (last 3 weeks)
+                  </p>
+                  <ul className="mt-1.5 space-y-1.5 text-sm">
+                    {bottomMomentum.map((entry) => (
+                      <li
+                        key={`momentum-bottom-${entry.ownerId}`}
+                        className="rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
+                        data-momentum-owner={entry.ownerId}
+                      >
+                        <div className="flex w-full items-center justify-between gap-2 text-left">
+                          <span className="font-medium">{entry.ownerId}</span>
+                          <span>
+                            {entry.deltaWins >= 0 ? '+' : ''}
+                            {entry.deltaWins} wins · Win%{' '}
+                            {formatSignedOneDecimal(entry.deltaWinPct * 100)}%
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
 
         <div
@@ -216,6 +294,7 @@ export default function StandingsPanel({
             issues={trendIssues}
             layoutMode="embedded"
             compact
+            showMomentum={false}
           />
         </div>
       </div>
