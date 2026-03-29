@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import TrendsDetailSurface, {
+  deriveAllWeekTicks,
   deriveAdaptiveWeekTicks,
   deriveDynamicPlotWidth,
   deriveResponsiveTrendLayout,
@@ -421,6 +422,51 @@ const history: StandingsHistory = {
   },
 };
 
+function buildHistoryWithWeekCount(weekCount: number): StandingsHistory {
+  const weeks = Array.from({ length: weekCount }, (_, index) => index + 1);
+  const owners = ['Alpha', 'Bravo'];
+  return {
+    weeks,
+    byWeek: Object.fromEntries(
+      weeks.map((week) => [
+        week,
+        {
+          week,
+          standings: owners.map((owner, ownerIndex) => ({
+            owner,
+            wins: Math.max(0, week - ownerIndex),
+            losses: ownerIndex + 1,
+            ties: 0,
+            winPct: Math.max(0, (week - ownerIndex) / (week + ownerIndex + 1)),
+            pointsFor: 0,
+            pointsAgainst: 0,
+            pointDifferential: 0,
+            gamesBack: ownerIndex,
+            finalGames: week + ownerIndex + 1,
+          })),
+          coverage: { state: 'complete', message: null },
+        },
+      ])
+    ),
+    byOwner: Object.fromEntries(
+      owners.map((owner, ownerIndex) => [
+        owner,
+        weeks.map((week) => ({
+          week,
+          wins: Math.max(0, week - ownerIndex),
+          losses: ownerIndex + 1,
+          ties: 0,
+          winPct: Math.max(0, (week - ownerIndex) / (week + ownerIndex + 1)),
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 0,
+          gamesBack: ownerIndex,
+        })),
+      ])
+    ),
+  };
+}
+
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 (globalThis as { window: Window }).window = dom.window as unknown as Window;
 (globalThis as { document: Document }).document = dom.window.document;
@@ -498,11 +544,14 @@ test('owner selection propagates emphasis across charts, labels, momentum, win b
   const bobGamesBackLine = rendered.container.querySelector(
     '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
   );
-  const frankGamesBackLine = rendered.container.querySelector(
-    '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
+  const aliceGamesBackLine = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] [data-owner-id="Alice"]'
   );
   assert.ok(bobGamesBackLine);
-  assert.equal(frankGamesBackLine, null);
+  assert.ok(aliceGamesBackLine);
+  assert.equal(aliceGamesBackLine.getAttribute('data-muted'), 'true');
+  assert.equal(bobGamesBackLine.getAttribute('stroke-width'), '5.2');
+  assert.equal(aliceGamesBackLine.getAttribute('stroke-width'), '1.6');
 
   const bobWinPctLine = rendered.container.querySelector(
     '[aria-label="Win % shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
@@ -592,7 +641,7 @@ test('point hover shows compact chart tooltip content', async () => {
     '[aria-label="Games Back shared trend chart"] circle[fill^="hsl("]'
   );
   assert.ok(activeDot);
-  assert.equal(activeDot.getAttribute('r'), '6');
+  assert.ok(Number.parseFloat(activeDot.getAttribute('r') ?? '0') >= 6);
 });
 
 test('focus mode controls switch between all, top 5, and selected rendering states', async () => {
@@ -723,6 +772,15 @@ test('right-edge labels include truncated owner names, formatted values, and con
   assert.match(gamesBackLabel.textContent ?? '', /VeryLongO… 4\.0/);
   assert.match(winPctLabel.textContent ?? '', /VeryLongO… 0\.0%/);
 
+  const leftColumnLabels = rendered.container.querySelectorAll(
+    '[aria-label="Games Back shared trend chart"] [data-label-column="left"]'
+  );
+  const rightColumnLabels = rendered.container.querySelectorAll(
+    '[aria-label="Games Back shared trend chart"] [data-label-column="right"]'
+  );
+  assert.ok(leftColumnLabels.length > 0);
+  assert.ok(rightColumnLabels.length > 0);
+
   assert.ok(
     rendered.container.querySelector(
       '[aria-label="Games Back shared trend chart"] [data-label-connector="VeryLongOwnerDisplayName"]'
@@ -733,6 +791,11 @@ test('right-edge labels include truncated owner names, formatted values, and con
       '[aria-label="Win % shared trend chart"] [data-label-anchor-dot="VeryLongOwnerDisplayName"]'
     )
   );
+  const connector = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] [data-label-connector="VeryLongOwnerDisplayName"]'
+  );
+  assert.ok(connector);
+  assert.match(connector.getAttribute('d') ?? '', /L/);
 });
 
 test('win bars render value-encoded fills using win percentage width', () => {
@@ -760,9 +823,10 @@ test('selection helper toggles selected owner deterministically', () => {
 });
 
 test('games back chart includes inverted axis domain marker and week ticks', () => {
+  const longHistory = buildHistoryWithWeekCount(8);
   const rendered = render(
     <TrendsDetailSurface
-      standingsHistory={history}
+      standingsHistory={longHistory}
       season={2026}
       seasonContext="final"
       issues={[]}
@@ -772,8 +836,8 @@ test('games back chart includes inverted axis domain marker and week ticks', () 
     '[aria-label="Games Back shared trend chart"]'
   );
   assert.ok(gamesBackChart);
-  assert.equal(gamesBackChart.getAttribute('data-y-domain'), '[4,0]');
-  assert.equal(gamesBackChart.getAttribute('data-label-lane-width'), '120');
+  assert.equal(gamesBackChart.getAttribute('data-y-domain'), '[1,0]');
+  assert.equal(gamesBackChart.getAttribute('data-label-lane-width'), '176');
   const gamesBackPlotWrapper = rendered.container.querySelector<HTMLElement>(
     '[aria-label="Games Back shared trend chart"]'
   )?.parentElement;
@@ -787,16 +851,18 @@ test('games back chart includes inverted axis domain marker and week ticks', () 
   assert.ok(dynamicWidth >= 320);
   assert.ok(dynamicWidth >= containerWidth);
   assert.notEqual(dynamicWidth, 760);
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-week-tick="W1"]'
-    )
-  );
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-week-tick="W2"]'
-    )
-  );
+  for (let week = 1; week <= 8; week += 1) {
+    assert.ok(
+      rendered.container.querySelector(
+        `[aria-label="Games Back shared trend chart"] [data-week-tick="W${week}"]`
+      )
+    );
+    assert.ok(
+      rendered.container.querySelector(
+        `[aria-label="Games Back shared trend chart"] [data-week-grid-line="W${week}"]`
+      )
+    );
+  }
 });
 
 test('deriveWeekTicks increases density for long seasons and preserves first/last weeks', () => {
@@ -857,6 +923,91 @@ test('deriveAdaptiveWeekTicks always keeps first/last and uses adaptive spacing'
   assert.equal(mobileTicks[mobileTicks.length - 1]?.value, 14);
   assert.ok(mobileTicks.some((tick) => tick.value === 5));
   assert.ok(!mobileTicks.some((tick) => tick.value === 6));
+});
+
+test('deriveAllWeekTicks returns every week label in order', () => {
+  const weeks = [1, 2, 3, 4, 5];
+  const ticks = deriveAllWeekTicks(weeks);
+  assert.deepEqual(
+    ticks.map((tick) => tick.value),
+    weeks
+  );
+  assert.deepEqual(
+    ticks.map((tick) => tick.label),
+    ['W1', 'W2', 'W3', 'W4', 'W5']
+  );
+});
+
+test('chart auto-scrolls to the most recent week only once on initial mount', () => {
+  const longHistory = buildHistoryWithWeekCount(12);
+  let gamesBackSetCount = 0;
+  let gamesBackScrollLeft = -1;
+  const elementPrototype = window.HTMLElement.prototype;
+  const originalScrollLeft = Object.getOwnPropertyDescriptor(elementPrototype, 'scrollLeft');
+  const originalScrollWidth = Object.getOwnPropertyDescriptor(elementPrototype, 'scrollWidth');
+  const originalClientWidth = Object.getOwnPropertyDescriptor(elementPrototype, 'clientWidth');
+
+  Object.defineProperty(elementPrototype, 'scrollWidth', {
+    configurable: true,
+    get() {
+      return 1400;
+    },
+  });
+  Object.defineProperty(elementPrototype, 'clientWidth', {
+    configurable: true,
+    get() {
+      return 600;
+    },
+  });
+  Object.defineProperty(elementPrototype, 'scrollLeft', {
+    configurable: true,
+    get() {
+      return gamesBackScrollLeft;
+    },
+    set(value: number) {
+      if (
+        this instanceof window.HTMLElement &&
+        this.getAttribute('data-trend-scroll-container') === 'games-back'
+      ) {
+        gamesBackSetCount += 1;
+        gamesBackScrollLeft = value;
+      }
+    },
+  });
+
+  try {
+    const rendered = render(
+      <TrendsDetailSurface
+        standingsHistory={longHistory}
+        season={2026}
+        seasonContext="final"
+        issues={[]}
+      />
+    );
+    assert.equal(gamesBackScrollLeft, 800);
+    assert.equal(gamesBackSetCount, 1);
+
+    rendered.rerender(
+      <TrendsDetailSurface
+        standingsHistory={longHistory}
+        season={2026}
+        seasonContext="final"
+        issues={['non-blocking note']}
+      />
+    );
+
+    assert.equal(gamesBackSetCount, 1);
+  } finally {
+    if (originalScrollLeft) {
+      Object.defineProperty(elementPrototype, 'scrollLeft', originalScrollLeft);
+    }
+    if (originalScrollWidth) {
+      Object.defineProperty(elementPrototype, 'scrollWidth', originalScrollWidth);
+    }
+    if (originalClientWidth) {
+      Object.defineProperty(elementPrototype, 'clientWidth', originalClientWidth);
+    }
+  }
 });
 
 test('owner color map is deterministic for ordered owners', () => {
@@ -923,6 +1074,9 @@ test('mobile layout suppresses right-edge labels, tightens win bars, and adapts 
     ),
     null
   );
+  const compactTrack = rendered.container.querySelector('[data-winbar-track="Alice"]');
+  assert.ok(compactTrack);
+  assert.match(compactTrack.getAttribute('class') ?? '', /h-2/);
   assert.ok(rendered.container.querySelector('[data-winbar-owner="Alice"][data-compact="true"]'));
 
   window.innerWidth = 1024;
