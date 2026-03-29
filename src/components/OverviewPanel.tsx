@@ -3,7 +3,10 @@ import Link from 'next/link';
 
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
+import { deriveLeagueInsights, type Insight } from '../lib/selectors/insights';
 import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
+import { selectSeasonContext } from '../lib/selectors/seasonContext';
+import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
@@ -547,33 +550,26 @@ function GameSummaryList({
   );
 }
 
-function HighlightList({
-  highlights,
-  scopeDetail,
-  onOpenHighlightTarget,
-}: {
-  highlights: ReturnType<typeof selectOverviewViewModel>['leagueHighlights'];
-  scopeDetail?: string | null;
-  onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
-}): React.ReactElement {
-  const iconByType: Record<(typeof highlights)[number]['type'], string> = {
-    biggest_blowout: '🔥',
-    closest_finish: '😬',
-    top_ranked_matchup: '🏆',
-    biggest_gain: '📈',
-    most_games_owner: '🧠',
-    split_owner_matchup: '🤝',
-    heavy_owner_collision: '⚔️',
-  };
-
-  if (highlights.length === 0) {
-    return (
-      <EmptyState
-        message="Highlights will appear once this slate has meaningful outcomes or matchup signals."
-        compact
-      />
-    );
+function insightHref(target?: Insight['navigationTarget']): string | null {
+  if (!target) return null;
+  if (target.type === 'standings') return '/standings';
+  if (target.type === 'trends') return '/standings?view=trends#trends';
+  if (target.type === 'matchup') {
+    const week = target.params?.week;
+    if (typeof week === 'number') return `/?view=matchups&week=${week}`;
+    return '/?view=matchups';
   }
+  return null;
+}
+
+function HighlightList({
+  insights,
+  scopeDetail,
+}: {
+  insights: Insight[];
+  scopeDetail?: string | null;
+}): React.ReactElement | null {
+  if (insights.length === 0) return null;
 
   return (
     <div className="space-y-2.5">
@@ -582,29 +578,28 @@ function HighlightList({
           {scopeDetail}
         </p>
       ) : null}
-      {highlights.map((highlight) => (
-        <div
-          key={highlight.id}
-          className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/70"
-        >
-          <p className="min-w-0 text-sm text-gray-800 dark:text-zinc-100">
-            <span className="mr-1.5" aria-hidden="true">
-              {iconByType[highlight.type]}
-            </span>
-            <span className="mr-1.5 inline-flex rounded-full border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-              {highlight.label}
-            </span>
-            {highlight.text}
-          </p>
-          <button
-            type="button"
-            className="shrink-0 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-            onClick={() => onOpenHighlightTarget?.(highlight.drilldownTarget)}
+      {insights.map((insight) => {
+        const href = insightHref(insight.navigationTarget);
+        return (
+          <article
+            key={insight.id}
+            className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/70"
           >
-            {highlight.ctaLabel}
-          </button>
-        </div>
-      ))}
+            <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+              {insight.title}
+            </p>
+            <p className="mt-1 text-sm text-gray-700 dark:text-zinc-300">{insight.description}</p>
+            {href ? (
+              <Link
+                href={href}
+                className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+              >
+                Open insight
+              </Link>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -625,116 +620,6 @@ function LeagueStorylines({
           </li>
         ))}
       </ul>
-    </SectionCard>
-  );
-}
-
-function LeaguePulse({
-  items,
-}: {
-  items: ReturnType<typeof selectOverviewViewModel>['leaguePulse'];
-}): React.ReactElement | null {
-  if (items.length === 0) return null;
-  const rowSpacingClass = items.length <= 2 ? 'space-y-2' : 'space-y-2.5';
-
-  const derivePulsePresentation = (
-    item: (typeof items)[number]
-  ): {
-    icon: string;
-    label: string;
-    text: string;
-  } => {
-    const id = item.id.toLowerCase();
-
-    if (id === 'season-complete') {
-      return {
-        icon: '🏁',
-        label: 'Season',
-        text: item.text.replace(/^Season complete:\s*/i, ''),
-      };
-    }
-
-    if (id.startsWith('leader-gap')) {
-      return {
-        icon: '🏆',
-        label: 'Leader',
-        text: item.text,
-      };
-    }
-
-    if (id.startsWith('biggest-gain')) {
-      return {
-        icon: '📈',
-        label: 'Biggest Gain',
-        text: item.text,
-      };
-    }
-
-    if (id.startsWith('biggest-drop')) {
-      return {
-        icon: '📉',
-        label: 'Biggest Drop',
-        text: item.text,
-      };
-    }
-
-    if (id.startsWith('standings-context')) {
-      return {
-        icon: '📊',
-        label: 'Standings',
-        text: item.text.replace(/^Closest race:\s*/i, ''),
-      };
-    }
-
-    if (id.includes('most-games') || /most games/i.test(item.text)) {
-      return {
-        icon: '🧠',
-        label: 'Most Games',
-        text: item.text.replace(/^Most games(?: this week)?:\s*/i, ''),
-      };
-    }
-
-    if (id.startsWith('rank-movement')) {
-      return {
-        icon: '🔄',
-        label: 'Rank Move',
-        text: item.text,
-      };
-    }
-
-    return {
-      icon: '📌',
-      label: 'Pulse',
-      text: item.text,
-    };
-  };
-
-  return (
-    <SectionCard title="League pulse" tone="secondary" compact>
-      <div className={rowSpacingClass}>
-        {items.map((item) => {
-          const presentation = derivePulsePresentation(item);
-          return (
-            <article
-              key={item.id}
-              className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/70"
-            >
-              <p className="min-w-0 text-sm text-gray-800 dark:text-zinc-100">
-                <span
-                  className="mr-1.5 inline-block align-middle text-[15px] leading-none"
-                  aria-hidden="true"
-                >
-                  {presentation.icon}
-                </span>
-                <span className="mr-1.5 inline-flex rounded-full border border-gray-300 bg-gray-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                  {presentation.label}
-                </span>
-                {presentation.text}
-              </p>
-            </article>
-          );
-        })}
-      </div>
     </SectionCard>
   );
 }
@@ -966,7 +851,6 @@ export default function OverviewPanel({
   onViewStandings,
   onViewSchedule,
   onViewMatchups,
-  onOpenHighlightTarget,
   rankingsByTeamId = new Map(),
   standingsHistory = null,
 }: OverviewPanelProps): React.ReactElement {
@@ -1007,6 +891,33 @@ export default function OverviewPanel({
       rankingsByTeamId,
     ]
   );
+  const sharedInsights = React.useMemo(() => {
+    const resolvedWeeks = standingsHistory
+      ? selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks
+      : [];
+    const latestResolvedWeek = resolvedWeeks[resolvedWeeks.length - 1] ?? null;
+    const currentStandings =
+      latestResolvedWeek != null
+        ? (standingsHistory?.byWeek[latestResolvedWeek]?.standings ?? standingsLeaders)
+        : standingsLeaders;
+    const seasonContext = selectSeasonContext({ standingsHistory });
+
+    const rankedInsights = deriveLeagueInsights({
+      rows: currentStandings,
+      standingsHistory,
+      seasonContext,
+    });
+    const uniqueTopInsights: Insight[] = [];
+    const seenIds = new Set<string>();
+    for (const insight of rankedInsights) {
+      if (seenIds.has(insight.id)) continue;
+      seenIds.add(insight.id);
+      uniqueTopInsights.push(insight);
+      if (uniqueTopInsights.length >= 3) break;
+    }
+
+    return uniqueTopInsights;
+  }, [standingsHistory, standingsLeaders]);
 
   return (
     <div className="space-y-4">
@@ -1018,7 +929,6 @@ export default function OverviewPanel({
         leader={standingsLeaders[0]}
       />
       <LeagueStorylines items={viewModel.storylines} />
-      {viewModel.shouldShowLeaguePulse ? <LeaguePulse items={viewModel.leaguePulse} /> : null}
       <SectionCard title="League Trends" tone="secondary" compact>
         <div className="mb-2 flex justify-end">
           <Link
@@ -1089,11 +999,7 @@ export default function OverviewPanel({
 
         <div className="space-y-4">
           <SectionCard title="League highlights" tone="secondary" compact>
-            <HighlightList
-              highlights={viewModel.leagueHighlights}
-              scopeDetail={context.scopeDetail}
-              onOpenHighlightTarget={onOpenHighlightTarget}
-            />
+            <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
           </SectionCard>
 
           <SectionCard title="Recent results" tone="secondary" compact>
