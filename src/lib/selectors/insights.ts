@@ -23,6 +23,14 @@ const MIN_MEANINGFUL_MOVEMENT = 2;
 const MIN_TOILET_BOWL_FINISHES = 2;
 const TIGHT_RACE_GAP_THRESHOLD = 1;
 const MIN_SURGE_WINS = 2;
+const OVERVIEW_INSIGHT_LIMIT = 3;
+const STANDINGS_INSIGHT_LIMIT = 2;
+const STANDINGS_RELEVANT_INSIGHT_TYPES: ReadonlySet<InsightType> = new Set([
+  'toilet_bowl',
+  'collapse',
+  'surge',
+  'race',
+]);
 
 function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
@@ -40,6 +48,17 @@ function pushInsightUnique(
   if (!insight || seenIds.has(insight.id)) return;
   seenIds.add(insight.id);
   insights.push(insight);
+}
+
+function uniqueInsightsById(insights: Insight[]): Insight[] {
+  const seenIds = new Set<string>();
+  const uniqueInsights: Insight[] = [];
+  for (const insight of insights) {
+    if (seenIds.has(insight.id)) continue;
+    seenIds.add(insight.id);
+    uniqueInsights.push(insight);
+  }
+  return uniqueInsights;
 }
 
 function deriveMovementInsights(args: {
@@ -271,9 +290,21 @@ export function deriveLeagueInsights(args: {
 
   pushInsightUnique(insights, seenIds, deriveTightRaceInsight({ rows, seasonContext }));
 
-  return insights.sort((left, right) => {
+  const rankedInsights = insights.sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
     if ((right.week ?? -1) !== (left.week ?? -1)) return (right.week ?? -1) - (left.week ?? -1);
     return left.id.localeCompare(right.id);
   });
+
+  return uniqueInsightsById(rankedInsights);
+}
+
+export function deriveOverviewInsights(insights: Insight[]): Insight[] {
+  return uniqueInsightsById(insights).slice(0, OVERVIEW_INSIGHT_LIMIT);
+}
+
+export function deriveStandingsInsights(insights: Insight[]): Insight[] {
+  return uniqueInsightsById(insights)
+    .filter((insight) => STANDINGS_RELEVANT_INSIGHT_TYPES.has(insight.type))
+    .slice(0, STANDINGS_INSIGHT_LIMIT);
 }

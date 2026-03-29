@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
-import { deriveLeagueInsights } from '../../lib/selectors/insights';
+import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { selectSeasonContext } from '../../lib/selectors/seasonContext';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
@@ -275,7 +275,7 @@ test('overview panel renders league highlights and standings without matrix tabl
   );
 
   assert.match(html, /League standings/);
-  assert.match(html, /League highlights/);
+  assert.match(html, /League insights/);
   assert.doesNotMatch(html, /Featured matchups/);
   assert.doesNotMatch(html, /View details/);
   assert.match(html, /View all results/);
@@ -644,8 +644,8 @@ test('overview panel keeps league-home ordering with standings and highlights ah
   );
 
   assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings (Top 5)'));
-  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('League highlights'));
-  assert.ok(html.indexOf('League highlights') < html.indexOf('Recent results'));
+  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('League insights'));
+  assert.ok(html.indexOf('League insights') < html.indexOf('Recent results'));
   assert.ok(html.indexOf('Recent results') < html.indexOf('Upcoming watchlist'));
   assert.doesNotMatch(html, /League pulse/);
   assert.ok(html.indexOf('Upcoming watchlist') < html.indexOf('No live games right now.'));
@@ -731,7 +731,7 @@ test('overview panel hides watchlist when highlight cards already summarize the 
   );
 
   assert.doesNotMatch(html, /Upcoming watchlist/);
-  assert.match(html, /League highlights/);
+  assert.match(html, /League insights/);
 });
 
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
@@ -845,7 +845,7 @@ test('overview panel uses compact live empty state copy', () => {
 
   assert.match(html, /No live games right now\./);
   assert.doesNotMatch(html, /Postseason focus/);
-  assert.match(html, /League highlights/);
+  assert.match(html, /League insights/);
   assert.match(html, /View full standings/);
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
 });
@@ -988,7 +988,7 @@ test('overview panel shows explicit empty states for featured and results when n
   );
 
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
-  assert.match(html, /League highlights/);
+  assert.match(html, /League insights/);
   assert.doesNotMatch(html, /Open insight/);
   assert.match(html, /No recent results yet—completed games will appear here\./);
 });
@@ -1180,11 +1180,13 @@ test('overview panel renders top 3 shared insights in selector order without dup
 
   const insightLinkCount = (html.match(/Open insight/g) ?? []).length;
   assert.ok(insightLinkCount >= 2 && insightLinkCount <= 3);
-  const rankedInsights = deriveLeagueInsights({
-    rows: standingsHistory.byWeek[3]?.standings ?? [],
-    standingsHistory,
-    seasonContext: selectSeasonContext({ standingsHistory }),
-  }).slice(0, insightLinkCount);
+  const rankedInsights = deriveOverviewInsights(
+    deriveLeagueInsights({
+      rows: standingsHistory.byWeek[3]?.standings ?? [],
+      standingsHistory,
+      seasonContext: selectSeasonContext({ standingsHistory }),
+    })
+  ).slice(0, insightLinkCount);
   assert.ok(rankedInsights.length > 0);
   for (const insight of rankedInsights) {
     assert.match(html, new RegExp(insight.title));
@@ -1640,7 +1642,7 @@ test('overview highlights show scope context once at section level', () => {
     />
   );
 
-  assert.match(html, /League highlights/);
+  assert.match(html, /League insights/);
   assert.match(html, />Postseason</);
   assert.doesNotMatch(html, /\(this postseason slate\)/i);
 });
