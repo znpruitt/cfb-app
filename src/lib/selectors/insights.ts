@@ -3,37 +3,93 @@ import { selectResolvedStandingsWeeks } from './historyResolution';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistory } from '../standingsHistory';
 
-export type InsightType = 'movement' | 'toilet_bowl' | 'surge' | 'collapse' | 'race';
+export type InsightType =
+  | 'movement'
+  | 'toilet_bowl'
+  | 'surge'
+  | 'collapse'
+  | 'race'
+  | 'champion_margin'
+  | 'failed_chase'
+  | 'tight_cluster';
 
 export type Insight = {
   id: string;
   type: InsightType;
   title: string;
   description: string;
-  score: number;
-  owners: string[];
+  owner?: string;
+  relatedOwners?: string[];
+  priorityScore: number;
   week?: number;
-  navigationTarget?: {
-    type: 'standings' | 'matchup' | 'trends';
-    params?: Record<string, string | number>;
-  };
+  navigationTarget?: 'standings' | 'trends' | 'matchup';
+  // Backward-compatible aliases used by existing tests/UI until full migration.
+  score?: number;
+  owners?: string[];
 };
 
+const NO_CLAIM_OWNER = 'NoClaim';
 const MIN_MEANINGFUL_MOVEMENT = 2;
 const MIN_TOILET_BOWL_FINISHES = 2;
 const TIGHT_RACE_GAP_THRESHOLD = 1;
 const MIN_SURGE_WINS = 2;
 const OVERVIEW_INSIGHT_LIMIT = 3;
 const STANDINGS_INSIGHT_LIMIT = 2;
-const STANDINGS_RELEVANT_INSIGHT_TYPES: ReadonlySet<InsightType> = new Set([
-  'toilet_bowl',
-  'collapse',
-  'surge',
-  'race',
-]);
+const FINAL_WEEKS_WINDOW = 3;
+
+const OVERVIEW_TYPE_PRIORITY: Record<InsightType, number> = {
+  champion_margin: 120,
+  failed_chase: 110,
+  collapse: 105,
+  surge: 102,
+  tight_cluster: 98,
+  race: 96,
+  toilet_bowl: 92,
+  movement: 90,
+};
+
+const STANDINGS_TYPE_PRIORITY: Record<InsightType, number> = {
+  toilet_bowl: 120,
+  collapse: 116,
+  surge: 112,
+  tight_cluster: 108,
+  race: 104,
+  failed_chase: 96,
+  movement: 92,
+  champion_margin: 88,
+};
 
 function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
+}
+
+export function isNarrativeEligibleOwner(owner: string): boolean {
+  return owner !== NO_CLAIM_OWNER;
+}
+
+// Reference owners can include synthetic buckets like NoClaim; only the
+// primary narrative subject must pass isNarrativeEligibleOwner.
+function canUseReferenceOwner(): boolean {
+  return true;
+}
+
+function toInsight(params: {
+  id: string;
+  type: InsightType;
+  title: string;
+  description: string;
+  owner?: string;
+  relatedOwners?: string[];
+  priorityScore: number;
+  week?: number;
+  navigationTarget?: 'standings' | 'trends' | 'matchup';
+}): Insight {
+  const { owner, relatedOwners = [], priorityScore } = params;
+  return {
+    ...params,
+    score: priorityScore,
+    owners: [owner, ...relatedOwners].filter((entry): entry is string => Boolean(entry)),
+  };
 }
 
 function rankByOwner(rows: OwnerStandingsRow[]): Map<string, number> {
@@ -52,13 +108,11 @@ function pushInsightUnique(
 
 function uniqueInsightsById(insights: Insight[]): Insight[] {
   const seenIds = new Set<string>();
-  const uniqueInsights: Insight[] = [];
-  for (const insight of insights) {
-    if (seenIds.has(insight.id)) continue;
+  return insights.filter((insight) => {
+    if (seenIds.has(insight.id)) return false;
     seenIds.add(insight.id);
-    uniqueInsights.push(insight);
-  }
-  return uniqueInsights;
+    return true;
+  });
 }
 
 function deriveMovementInsights(args: {
@@ -79,12 +133,10 @@ function deriveMovementInsights(args: {
 
   const movements = Array.from(latestRankByOwner.entries())
     .map(([owner, currentRank]) => {
+      if (!isNarrativeEligibleOwner(owner)) return null;
       const previousRank = previousRankByOwner.get(owner);
       if (previousRank == null) return null;
-      return {
-        owner,
-        rankDelta: previousRank - currentRank,
-      };
+      return { owner, rankDelta: previousRank - currentRank };
     })
     .filter((movement): movement is { owner: string; rankDelta: number } => movement !== null);
 
@@ -105,32 +157,41 @@ function deriveMovementInsights(args: {
     })[0];
 
   const insights: Insight[] = [];
+  const localSeen = new Set<string>();
 
   if (biggestRise) {
-    pushInsightUnique(insights, new Set(), {
-      id: `biggest-rise-${ownerSlug(biggestRise.owner)}-wk${latestWeek}`,
-      type: 'movement',
-      title: 'Biggest rise this week',
-      description: `${biggestRise.owner} climbed ${biggestRise.rankDelta} spots in the standings.`,
-      score: 55 + biggestRise.rankDelta * 10,
-      owners: [biggestRise.owner],
-      week: latestWeek,
-      navigationTarget: { type: 'standings' },
-    });
+    pushInsightUnique(
+      insights,
+      localSeen,
+      toInsight({
+        id: `biggest-rise-${ownerSlug(biggestRise.owner)}-wk${latestWeek}`,
+        type: 'movement',
+        title: 'Biggest rise this week',
+        description: `${biggestRise.owner} climbed ${biggestRise.rankDelta} spots in the standings.`,
+        owner: biggestRise.owner,
+        priorityScore: 55 + biggestRise.rankDelta * 10,
+        week: latestWeek,
+        navigationTarget: 'standings',
+      })
+    );
   }
 
   if (biggestDrop) {
     const dropMagnitude = Math.abs(biggestDrop.rankDelta);
-    pushInsightUnique(insights, new Set(), {
-      id: `biggest-drop-${ownerSlug(biggestDrop.owner)}-wk${latestWeek}`,
-      type: 'collapse',
-      title: 'Biggest drop this week',
-      description: `${biggestDrop.owner} fell ${dropMagnitude} spots in the standings.`,
-      score: 54 + dropMagnitude * 10,
-      owners: [biggestDrop.owner],
-      week: latestWeek,
-      navigationTarget: { type: 'standings' },
-    });
+    pushInsightUnique(
+      insights,
+      localSeen,
+      toInsight({
+        id: `biggest-drop-${ownerSlug(biggestDrop.owner)}-wk${latestWeek}`,
+        type: 'collapse',
+        title: 'Biggest drop this week',
+        description: `${biggestDrop.owner} fell ${dropMagnitude} spots in the standings.`,
+        owner: biggestDrop.owner,
+        priorityScore: 54 + dropMagnitude * 10,
+        week: latestWeek,
+        navigationTarget: 'standings',
+      })
+    );
   }
 
   return insights;
@@ -147,31 +208,28 @@ function deriveToiletBowlInsight(args: {
   for (const week of resolvedWeeks) {
     const snapshot = standingsHistory.byWeek[week];
     const lastRow = snapshot?.standings[snapshot.standings.length - 1];
-    if (!lastRow) continue;
+    if (!lastRow || !isNarrativeEligibleOwner(lastRow.owner)) continue;
     finishesByOwner.set(lastRow.owner, (finishesByOwner.get(lastRow.owner) ?? 0) + 1);
   }
-
-  if (finishesByOwner.size === 0) return null;
 
   const leader = Array.from(finishesByOwner.entries()).sort((left, right) => {
     if (right[1] !== left[1]) return right[1] - left[1];
     return left[0].localeCompare(right[0]);
   })[0];
-
   if (!leader) return null;
 
   const [owner, lastPlaceCount] = leader;
   if (lastPlaceCount < MIN_TOILET_BOWL_FINISHES) return null;
 
-  return {
+  return toInsight({
     id: `toilet-bowl-${ownerSlug(owner)}`,
     type: 'toilet_bowl',
     title: 'Toilet bowl leader',
-    description: `${owner} has ${lastPlaceCount} last-place week${lastPlaceCount === 1 ? '' : 's'} so far.`,
-    score: 50 + lastPlaceCount * 6,
-    owners: [owner],
-    navigationTarget: { type: 'trends', params: { metric: 'gamesBack' } },
-  };
+    description: `${owner} recorded ${lastPlaceCount} last-place week${lastPlaceCount === 1 ? '' : 's'}.`,
+    owner,
+    priorityScore: 50 + lastPlaceCount * 6,
+    navigationTarget: 'trends',
+  });
 }
 
 function deriveTightRaceInsight(args: {
@@ -182,40 +240,45 @@ function deriveTightRaceInsight(args: {
   if (rows.length < 2 || seasonContext === 'final') return null;
 
   const leader = rows[0];
-  const runnerUp = rows[1];
-  if (!leader || !runnerUp) return null;
+  if (!leader || !isNarrativeEligibleOwner(leader.owner)) return null;
+
+  const runnerUp = rows.find(
+    (row, index) => index > 0 && row.gamesBack <= TIGHT_RACE_GAP_THRESHOLD
+  );
+  if (!runnerUp || !canUseReferenceOwner()) return null;
+
   const gap = runnerUp.gamesBack;
-  if (gap > TIGHT_RACE_GAP_THRESHOLD) return null;
-
-  const title = gap === 0 ? 'Title race dead heat' : 'Tight title race';
-  const description =
-    gap === 0
-      ? `${leader.owner} and ${runnerUp.owner} are tied for first.`
-      : `${leader.owner} leads ${runnerUp.owner} by ${gap} game${gap === 1 ? '' : 's'}.`;
-
-  return {
+  return toInsight({
     id: `tight-race-${ownerSlug(leader.owner)}-${ownerSlug(runnerUp.owner)}`,
     type: 'race',
-    title,
-    description,
-    score: 76 - gap * 8,
-    owners: [leader.owner, runnerUp.owner],
-    navigationTarget: { type: 'standings' },
-  };
+    title: gap === 0 ? 'Title race dead heat' : 'Tight title race',
+    description:
+      gap === 0
+        ? `${leader.owner} and ${runnerUp.owner} are tied for first.`
+        : `${leader.owner} leads ${runnerUp.owner} by ${gap} game${gap === 1 ? '' : 's'}.`,
+    owner: leader.owner,
+    relatedOwners: [runnerUp.owner],
+    priorityScore: 76 - gap * 8,
+    navigationTarget: 'standings',
+  });
 }
 
 function deriveRecentSurgeInsight(args: {
   standingsHistory: StandingsHistory;
   resolvedWeeks: number[];
+  rows?: OwnerStandingsRow[];
+  finalOnly?: boolean;
 }): Insight | null {
-  const { standingsHistory, resolvedWeeks } = args;
+  const { standingsHistory, resolvedWeeks, rows = [], finalOnly = false } = args;
   if (resolvedWeeks.length < 3) return null;
 
   const latestWeek = resolvedWeeks[resolvedWeeks.length - 1]!;
-  const baselineWeek = resolvedWeeks[Math.max(0, resolvedWeeks.length - 3)]!;
+  const baselineWeek = resolvedWeeks[Math.max(0, resolvedWeeks.length - FINAL_WEEKS_WINDOW)]!;
+  const rankByOwnerNow = new Map(rows.map((row, index) => [row.owner, index + 1]));
 
   const deltas = Object.entries(standingsHistory.byOwner)
     .map(([owner, series]) => {
+      if (!isNarrativeEligibleOwner(owner)) return null;
       const latestPoint = series.find((point) => point.week === latestWeek);
       const baselinePoint = series.find((point) => point.week === baselineWeek);
       if (!latestPoint || !baselinePoint) return null;
@@ -224,16 +287,18 @@ function deriveRecentSurgeInsight(args: {
         owner,
         deltaWins: latestPoint.wins - baselinePoint.wins,
         deltaGamesBack: baselinePoint.gamesBack - latestPoint.gamesBack,
+        finalRank: rankByOwnerNow.get(owner) ?? Number.POSITIVE_INFINITY,
       };
     })
     .filter(
-      (entry): entry is { owner: string; deltaWins: number; deltaGamesBack: number } =>
+      (
+        entry
+      ): entry is { owner: string; deltaWins: number; deltaGamesBack: number; finalRank: number } =>
         entry !== null
     )
-    .filter((entry) => entry.deltaWins >= MIN_SURGE_WINS || entry.deltaGamesBack > 0);
+    .filter((entry) => entry.deltaWins >= MIN_SURGE_WINS || entry.deltaGamesBack > 0)
+    .filter((entry) => (finalOnly ? entry.finalRank > 1 : true));
 
-  // Qualification must happen before ranking so a non-qualifying high raw deltaWins
-  // candidate cannot block another owner who does satisfy surge conditions.
   if (deltas.length === 0) return null;
 
   deltas.sort((left, right) => {
@@ -246,16 +311,176 @@ function deriveRecentSurgeInsight(args: {
   const top = deltas[0];
   if (!top) return null;
 
-  return {
-    id: `recent-surge-${ownerSlug(top.owner)}-wk${latestWeek}`,
+  const isLateStory = finalOnly;
+  return toInsight({
+    id: `${isLateStory ? 'late-surge-short' : 'recent-surge'}-${ownerSlug(top.owner)}-wk${latestWeek}`,
     type: 'surge',
-    title: 'Recent surge',
-    description: `${top.owner} gained ${top.deltaWins} wins over the last ${latestWeek - baselineWeek} weeks.`,
-    score: 58 + top.deltaWins * 9 + Math.max(0, top.deltaGamesBack) * 4,
-    owners: [top.owner],
+    title: isLateStory ? 'Late surge fell short' : 'Recent surge',
+    description: isLateStory
+      ? `${top.owner} surged late (+${top.deltaWins} wins over the last ${latestWeek - baselineWeek} weeks) but fell short.`
+      : `${top.owner} gained ${top.deltaWins} wins over the last ${latestWeek - baselineWeek} weeks.`,
+    owner: top.owner,
+    priorityScore:
+      (isLateStory ? 96 : 58) + top.deltaWins * 9 + Math.max(0, top.deltaGamesBack) * 4,
     week: latestWeek,
-    navigationTarget: { type: 'trends', params: { metric: 'winPct' } },
-  };
+    navigationTarget: 'trends',
+  });
+}
+
+function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null {
+  if (rows.length < 2) return null;
+  const leader = rows[0];
+  const runnerUp = rows[1];
+  if (
+    !leader ||
+    !runnerUp ||
+    !isNarrativeEligibleOwner(leader.owner) ||
+    !isNarrativeEligibleOwner(runnerUp.owner)
+  ) {
+    return null;
+  }
+
+  const margin = runnerUp.gamesBack;
+  const variant =
+    margin <= 1 ? 'tight finish' : margin <= 3 ? 'comfortable margin' : 'dominant season';
+  return toInsight({
+    id: `champion-margin-${ownerSlug(leader.owner)}-${ownerSlug(runnerUp.owner)}`,
+    type: 'champion_margin',
+    title: 'Champion margin',
+    description: `Title secured by ${leader.owner} over ${runnerUp.owner} by ${margin} game${margin === 1 ? '' : 's'} (${variant}).`,
+    owner: leader.owner,
+    relatedOwners: [runnerUp.owner],
+    priorityScore: 125 + margin * 4,
+    navigationTarget: 'standings',
+  });
+}
+
+function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | null {
+  if (rows.length < 2) return null;
+  const leader = rows[0];
+  if (!leader || !canUseReferenceOwner()) return null;
+
+  const candidates = rows
+    .slice(1, 4)
+    .filter((row) => isNarrativeEligibleOwner(row.owner))
+    .filter((row) => row.gamesBack >= 2)
+    .filter((row) => row.wins >= Math.max(2, leader.wins - 2));
+
+  candidates.sort((left, right) => {
+    if (right.wins !== left.wins) return right.wins - left.wins;
+    if (left.gamesBack !== right.gamesBack) return left.gamesBack - right.gamesBack;
+    return left.owner.localeCompare(right.owner);
+  });
+
+  const top = candidates[0];
+  if (!top) return null;
+
+  return toInsight({
+    id: `failed-chase-${ownerSlug(top.owner)}-${ownerSlug(leader.owner)}`,
+    type: 'failed_chase',
+    title: 'Failed chase',
+    description: `Despite ${top.wins} wins, ${top.owner} couldn't close the gap to ${leader.owner}.`,
+    owner: top.owner,
+    relatedOwners: [leader.owner],
+    priorityScore: 108 + top.wins * 2 + Math.round(top.gamesBack * 2),
+    navigationTarget: 'standings',
+  });
+}
+
+function deriveFinalCollapseInsight(args: {
+  standingsHistory: StandingsHistory;
+  resolvedWeeks: number[];
+  rows: OwnerStandingsRow[];
+}): Insight | null {
+  const { standingsHistory, resolvedWeeks, rows } = args;
+  if (resolvedWeeks.length < 3 || rows.length === 0) return null;
+
+  const latestWeek = resolvedWeeks[resolvedWeeks.length - 1]!;
+  const baselineWeek = resolvedWeeks[Math.max(0, resolvedWeeks.length - FINAL_WEEKS_WINDOW)]!;
+  const baselineSnapshot = standingsHistory.byWeek[baselineWeek];
+  if (!baselineSnapshot) return null;
+
+  const baselineRank = rankByOwner(baselineSnapshot.standings);
+  const finalRank = new Map(rows.map((row, index) => [row.owner, index + 1]));
+
+  const collapses = rows
+    .filter((row) => isNarrativeEligibleOwner(row.owner))
+    .map((row) => {
+      const start = baselineRank.get(row.owner);
+      const finish = finalRank.get(row.owner);
+      if (start == null || finish == null) return null;
+      return { owner: row.owner, dropSpots: finish - start };
+    })
+    .filter((entry): entry is { owner: string; dropSpots: number } =>
+      Boolean(entry && entry.dropSpots >= 2)
+    );
+
+  collapses.sort((left, right) => {
+    if (right.dropSpots !== left.dropSpots) return right.dropSpots - left.dropSpots;
+    return left.owner.localeCompare(right.owner);
+  });
+
+  const top = collapses[0];
+  if (!top) return null;
+
+  const weeks = latestWeek - baselineWeek;
+  return toInsight({
+    id: `final-collapse-${ownerSlug(top.owner)}-wk${latestWeek}`,
+    type: 'collapse',
+    title: 'Late collapse',
+    description: `${top.owner} dropped ${top.dropSpots} spots over the final ${weeks} weeks.`,
+    owner: top.owner,
+    priorityScore: 100 + top.dropSpots * 7,
+    week: latestWeek,
+    navigationTarget: 'trends',
+  });
+}
+
+function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | null {
+  const eligible = rows.filter((row) => isNarrativeEligibleOwner(row.owner));
+  if (eligible.length < 3) return null;
+
+  let bestCluster: { count: number; gap: number; owners: string[] } | null = null;
+  for (let start = 0; start < eligible.length; start += 1) {
+    for (let end = start + 2; end < eligible.length; end += 1) {
+      const subset = eligible.slice(start, end + 1);
+      const gap = subset[subset.length - 1]!.gamesBack - subset[0]!.gamesBack;
+      if (gap > 2) break;
+      const candidate = { count: subset.length, gap, owners: subset.map((row) => row.owner) };
+      if (!bestCluster) {
+        bestCluster = candidate;
+        continue;
+      }
+      if (candidate.count > bestCluster.count) {
+        bestCluster = candidate;
+        continue;
+      }
+      if (candidate.count === bestCluster.count && candidate.gap < bestCluster.gap) {
+        bestCluster = candidate;
+      }
+    }
+  }
+
+  if (!bestCluster) return null;
+
+  return toInsight({
+    id: `tight-cluster-${bestCluster.owners.map(ownerSlug).join('-')}`,
+    type: 'tight_cluster',
+    title: 'Crowded finish',
+    description: `${bestCluster.count} owners finished within ${bestCluster.gap} game${bestCluster.gap === 1 ? '' : 's'}.`,
+    owner: bestCluster.owners[0],
+    relatedOwners: bestCluster.owners.slice(1),
+    priorityScore: 95 + bestCluster.count * 3 - bestCluster.gap,
+    navigationTarget: 'standings',
+  });
+}
+
+function sortByPriority(insights: Insight[]): Insight[] {
+  return insights.sort((left, right) => {
+    if (right.priorityScore !== left.priorityScore) return right.priorityScore - left.priorityScore;
+    if ((right.week ?? -1) !== (left.week ?? -1)) return (right.week ?? -1) - (left.week ?? -1);
+    return left.id.localeCompare(right.id);
+  });
 }
 
 export function deriveLeagueInsights(args: {
@@ -271,40 +496,79 @@ export function deriveLeagueInsights(args: {
     ? selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks
     : [];
 
-  if (standingsHistory && resolvedWeeks.length > 0) {
-    for (const movementInsight of deriveMovementInsights({ standingsHistory, resolvedWeeks })) {
-      pushInsightUnique(insights, seenIds, movementInsight);
-    }
+  if (seasonContext === 'final') {
+    pushInsightUnique(insights, seenIds, deriveChampionMarginInsight(rows));
+    pushInsightUnique(insights, seenIds, deriveFailedChaseInsight(rows));
+    pushInsightUnique(insights, seenIds, deriveTightClusterInsight(rows));
 
-    pushInsightUnique(
-      insights,
-      seenIds,
-      deriveToiletBowlInsight({ standingsHistory, resolvedWeeks })
-    );
-    pushInsightUnique(
-      insights,
-      seenIds,
-      deriveRecentSurgeInsight({ standingsHistory, resolvedWeeks })
-    );
+    if (standingsHistory && resolvedWeeks.length > 0) {
+      pushInsightUnique(
+        insights,
+        seenIds,
+        deriveRecentSurgeInsight({ standingsHistory, resolvedWeeks, rows, finalOnly: true })
+      );
+      pushInsightUnique(
+        insights,
+        seenIds,
+        deriveFinalCollapseInsight({ standingsHistory, resolvedWeeks, rows })
+      );
+      pushInsightUnique(
+        insights,
+        seenIds,
+        deriveToiletBowlInsight({ standingsHistory, resolvedWeeks })
+      );
+    }
+  } else {
+    if (standingsHistory && resolvedWeeks.length > 0) {
+      for (const movementInsight of deriveMovementInsights({ standingsHistory, resolvedWeeks })) {
+        pushInsightUnique(insights, seenIds, movementInsight);
+      }
+      pushInsightUnique(
+        insights,
+        seenIds,
+        deriveRecentSurgeInsight({ standingsHistory, resolvedWeeks, rows })
+      );
+      pushInsightUnique(
+        insights,
+        seenIds,
+        deriveToiletBowlInsight({ standingsHistory, resolvedWeeks })
+      );
+    }
+    pushInsightUnique(insights, seenIds, deriveTightRaceInsight({ rows, seasonContext }));
   }
 
-  pushInsightUnique(insights, seenIds, deriveTightRaceInsight({ rows, seasonContext }));
-
-  const rankedInsights = insights.sort((left, right) => {
-    if (right.score !== left.score) return right.score - left.score;
-    if ((right.week ?? -1) !== (left.week ?? -1)) return (right.week ?? -1) - (left.week ?? -1);
-    return left.id.localeCompare(right.id);
-  });
-
-  return uniqueInsightsById(rankedInsights);
+  return uniqueInsightsById(sortByPriority(insights));
 }
 
 export function deriveOverviewInsights(insights: Insight[]): Insight[] {
-  return uniqueInsightsById(insights).slice(0, OVERVIEW_INSIGHT_LIMIT);
+  const unique = uniqueInsightsById(insights);
+  const ranked = [...unique].sort((left, right) => {
+    const leftScore = left.priorityScore + (OVERVIEW_TYPE_PRIORITY[left.type] ?? 0);
+    const rightScore = right.priorityScore + (OVERVIEW_TYPE_PRIORITY[right.type] ?? 0);
+    if (rightScore !== leftScore) return rightScore - leftScore;
+    return left.id.localeCompare(right.id);
+  });
+  return ranked.slice(0, OVERVIEW_INSIGHT_LIMIT);
 }
 
 export function deriveStandingsInsights(insights: Insight[]): Insight[] {
-  return uniqueInsightsById(insights)
-    .filter((insight) => STANDINGS_RELEVANT_INSIGHT_TYPES.has(insight.type))
-    .slice(0, STANDINGS_INSIGHT_LIMIT);
+  const unique = uniqueInsightsById(insights);
+  const ranked = [...unique].sort((left, right) => {
+    const leftScore = left.priorityScore + (STANDINGS_TYPE_PRIORITY[left.type] ?? 0);
+    const rightScore = right.priorityScore + (STANDINGS_TYPE_PRIORITY[right.type] ?? 0);
+    if (rightScore !== leftScore) return rightScore - leftScore;
+    return left.id.localeCompare(right.id);
+  });
+
+  const contextual = ranked.filter((insight) => {
+    return (
+      insight.type === 'toilet_bowl' ||
+      insight.type === 'collapse' ||
+      insight.type === 'surge' ||
+      insight.type === 'tight_cluster' ||
+      insight.type === 'race'
+    );
+  });
+
+  return contextual.slice(0, STANDINGS_INSIGHT_LIMIT);
 }

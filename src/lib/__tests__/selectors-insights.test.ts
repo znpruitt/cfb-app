@@ -1052,11 +1052,56 @@ test('deriveLeagueInsights surge selection is deterministic for identical mixed-
 
 test('deriveOverviewInsights returns top 3 unique insights in input order', () => {
   const insights: Insight[] = [
-    { id: 'a', type: 'race', title: 'A', description: 'A', score: 90, owners: ['A'] },
-    { id: 'b', type: 'surge', title: 'B', description: 'B', score: 80, owners: ['B'] },
-    { id: 'b', type: 'surge', title: 'B2', description: 'B2', score: 70, owners: ['B'] },
-    { id: 'c', type: 'collapse', title: 'C', description: 'C', score: 60, owners: ['C'] },
-    { id: 'd', type: 'movement', title: 'D', description: 'D', score: 50, owners: ['D'] },
+    {
+      id: 'a',
+      type: 'race',
+      title: 'A',
+      description: 'A',
+      priorityScore: 90,
+      score: 90,
+      owner: 'A',
+      owners: ['A'],
+    },
+    {
+      id: 'b',
+      type: 'surge',
+      title: 'B',
+      description: 'B',
+      priorityScore: 80,
+      score: 80,
+      owner: 'B',
+      owners: ['B'],
+    },
+    {
+      id: 'b',
+      type: 'surge',
+      title: 'B2',
+      description: 'B2',
+      priorityScore: 70,
+      score: 70,
+      owner: 'B',
+      owners: ['B'],
+    },
+    {
+      id: 'c',
+      type: 'collapse',
+      title: 'C',
+      description: 'C',
+      priorityScore: 60,
+      score: 60,
+      owner: 'C',
+      owners: ['C'],
+    },
+    {
+      id: 'd',
+      type: 'movement',
+      title: 'D',
+      description: 'D',
+      priorityScore: 50,
+      score: 50,
+      owner: 'D',
+      owners: ['D'],
+    },
   ];
 
   assert.deepEqual(
@@ -1067,14 +1112,35 @@ test('deriveOverviewInsights returns top 3 unique insights in input order', () =
 
 test('deriveStandingsInsights filters to standings-relevant types and caps at 2 unique insights', () => {
   const insights: Insight[] = [
-    { id: 'move', type: 'movement', title: 'Move', description: 'Move', score: 90, owners: ['A'] },
-    { id: 'race', type: 'race', title: 'Race', description: 'Race', score: 88, owners: ['A', 'B'] },
+    {
+      id: 'move',
+      type: 'movement',
+      title: 'Move',
+      description: 'Move',
+      priorityScore: 90,
+      score: 90,
+      owner: 'A',
+      owners: ['A'],
+    },
+    {
+      id: 'race',
+      type: 'race',
+      title: 'Race',
+      description: 'Race',
+      priorityScore: 88,
+      score: 88,
+      owner: 'A',
+      relatedOwners: ['B'],
+      owners: ['A', 'B'],
+    },
     {
       id: 'collapse',
       type: 'collapse',
       title: 'Collapse',
       description: 'Collapse',
+      priorityScore: 86,
       score: 86,
+      owner: 'C',
       owners: ['C'],
     },
     {
@@ -1082,7 +1148,9 @@ test('deriveStandingsInsights filters to standings-relevant types and caps at 2 
       type: 'collapse',
       title: 'Collapse duplicate',
       description: 'Collapse duplicate',
+      priorityScore: 85,
       score: 85,
+      owner: 'C',
       owners: ['C'],
     },
     {
@@ -1090,13 +1158,295 @@ test('deriveStandingsInsights filters to standings-relevant types and caps at 2 
       type: 'toilet_bowl',
       title: 'Toilet',
       description: 'Toilet',
+      priorityScore: 84,
       score: 84,
+      owner: 'D',
       owners: ['D'],
     },
   ];
 
   assert.deepEqual(
     deriveStandingsInsights(insights).map((entry) => entry.id),
-    ['race', 'collapse']
+    ['toilet', 'collapse']
+  );
+});
+
+test('deriveLeagueInsights excludes NoClaim as primary narrative owner', () => {
+  const standingsHistory: StandingsHistory = {
+    weeks: [1, 2, 3, 4],
+    byWeek: {
+      1: {
+        week: 1,
+        standings: [snapshotRow('NoClaim', 1, 1, 0), snapshotRow('Alex', 2, 0, 1)],
+        coverage: { state: 'complete', message: null },
+      },
+      2: {
+        week: 2,
+        standings: [snapshotRow('NoClaim', 1, 2, 0), snapshotRow('Alex', 2, 1, 1)],
+        coverage: { state: 'complete', message: null },
+      },
+      3: {
+        week: 3,
+        standings: [snapshotRow('NoClaim', 1, 3, 0), snapshotRow('Alex', 2, 1, 2)],
+        coverage: { state: 'complete', message: null },
+      },
+      4: {
+        week: 4,
+        standings: [snapshotRow('Alex', 1, 2, 0), snapshotRow('NoClaim', 2, 3, 1)],
+        coverage: { state: 'complete', message: null },
+      },
+    },
+    byOwner: {
+      Alex: [
+        {
+          week: 1,
+          wins: 0,
+          losses: 1,
+          ties: 0,
+          winPct: 0,
+          pointsFor: 99,
+          pointsAgainst: 100,
+          pointDifferential: -1,
+          gamesBack: 1,
+        },
+        {
+          week: 2,
+          wins: 1,
+          losses: 1,
+          ties: 0,
+          winPct: 0.5,
+          pointsFor: 106,
+          pointsAgainst: 105,
+          pointDifferential: 1,
+          gamesBack: 1,
+        },
+        {
+          week: 3,
+          wins: 1,
+          losses: 2,
+          ties: 0,
+          winPct: 0.333,
+          pointsFor: 112,
+          pointsAgainst: 114,
+          pointDifferential: -2,
+          gamesBack: 2,
+        },
+        {
+          week: 4,
+          wins: 2,
+          losses: 2,
+          ties: 0,
+          winPct: 0.5,
+          pointsFor: 119,
+          pointsAgainst: 120,
+          pointDifferential: -1,
+          gamesBack: 0,
+        },
+      ],
+      NoClaim: [
+        {
+          week: 1,
+          wins: 1,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 100,
+          pointsAgainst: 90,
+          pointDifferential: 10,
+          gamesBack: 0,
+        },
+        {
+          week: 2,
+          wins: 2,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 108,
+          pointsAgainst: 92,
+          pointDifferential: 16,
+          gamesBack: 0,
+        },
+        {
+          week: 3,
+          wins: 3,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 116,
+          pointsAgainst: 94,
+          pointDifferential: 22,
+          gamesBack: 0,
+        },
+        {
+          week: 4,
+          wins: 3,
+          losses: 1,
+          ties: 0,
+          winPct: 0.75,
+          pointsFor: 123,
+          pointsAgainst: 98,
+          pointDifferential: 25,
+          gamesBack: 1,
+        },
+      ],
+    },
+  };
+
+  const insights = deriveLeagueInsights({
+    rows: [standingsRow('Alex', 2, 2, 0, -1), standingsRow('NoClaim', 3, 1, 1, 25)],
+    standingsHistory,
+    seasonContext: 'final',
+  });
+
+  assert.equal(
+    insights.some((entry) => entry.owner === 'NoClaim'),
+    false
+  );
+});
+
+test('deriveLeagueInsights emits completed season narratives', () => {
+  const rows = [
+    standingsRow('Drew', 10, 2, 0, 12),
+    standingsRow('Casey', 8, 4, 2, 8),
+    standingsRow('Blake', 7, 5, 3, 4),
+    standingsRow('Alex', 6, 6, 4, 0),
+  ];
+  const insights = deriveLeagueInsights({
+    rows,
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+
+  assert.ok(insights.some((entry) => entry.type === 'champion_margin'));
+  assert.ok(insights.some((entry) => entry.type === 'failed_chase'));
+  assert.ok(insights.some((entry) => entry.type === 'surge' || entry.type === 'collapse'));
+});
+
+test('overview and standings insights are context differentiated', () => {
+  const rows = [
+    standingsRow('Drew', 10, 2, 0, 12),
+    standingsRow('Casey', 8, 4, 2, 8),
+    standingsRow('Blake', 7, 5, 3, 4),
+    standingsRow('Alex', 6, 6, 4, 0),
+  ];
+  const leagueInsights = deriveLeagueInsights({
+    rows,
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+  const overview = deriveOverviewInsights(leagueInsights);
+  const standings = deriveStandingsInsights(leagueInsights);
+
+  assert.ok(overview.length <= 3);
+  assert.ok(standings.length <= 2);
+  assert.equal(
+    standings.some((entry) => entry.type === 'champion_margin'),
+    false
+  );
+});
+
+test('deriveLeagueInsights remains deterministic for completed season ordering', () => {
+  const input = {
+    rows: [
+      standingsRow('Drew', 10, 2, 0, 12),
+      standingsRow('Casey', 8, 4, 2, 8),
+      standingsRow('Blake', 7, 5, 3, 4),
+      standingsRow('Alex', 6, 6, 4, 0),
+    ],
+    standingsHistory: historyFixture(),
+    seasonContext: 'final' as const,
+  };
+
+  assert.deepEqual(deriveLeagueInsights(input), deriveLeagueInsights(input));
+});
+
+test('deriveLeagueInsights emits tight race when NoClaim is the secondary owner', () => {
+  const insights = deriveLeagueInsights({
+    rows: [standingsRow('Alex', 7, 1, 0, 22), standingsRow('NoClaim', 7, 1, 1, 20)],
+    standingsHistory: historyFixture(),
+    seasonContext: 'in-season',
+  });
+
+  const race = insights.find((entry) => entry.type === 'race');
+  assert.ok(race);
+  assert.equal(race?.owner, 'Alex');
+  assert.deepEqual(race?.relatedOwners, ['NoClaim']);
+});
+
+test('deriveLeagueInsights suppresses tight race when NoClaim would be primary subject', () => {
+  const insights = deriveLeagueInsights({
+    rows: [standingsRow('NoClaim', 7, 1, 0, 22), standingsRow('Alex', 7, 1, 1, 20)],
+    standingsHistory: historyFixture(),
+    seasonContext: 'in-season',
+  });
+
+  assert.equal(
+    insights.some((entry) => entry.type === 'race'),
+    false
+  );
+});
+
+test('deriveLeagueInsights emits failed chase when NoClaim leads and real owner trails', () => {
+  const insights = deriveLeagueInsights({
+    rows: [
+      standingsRow('NoClaim', 10, 2, 0, 20),
+      standingsRow('Alex', 9, 3, 2, 18),
+      standingsRow('Casey', 7, 5, 4, 10),
+    ],
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+
+  const failedChase = insights.find((entry) => entry.type === 'failed_chase');
+  assert.ok(failedChase);
+  assert.equal(failedChase?.owner, 'Alex');
+  assert.deepEqual(failedChase?.relatedOwners, ['NoClaim']);
+});
+
+test('deriveLeagueInsights never emits failed chase with NoClaim as subject', () => {
+  const insights = deriveLeagueInsights({
+    rows: [
+      standingsRow('Alex', 10, 2, 0, 20),
+      standingsRow('NoClaim', 9, 3, 2, 18),
+      standingsRow('Casey', 7, 5, 4, 10),
+    ],
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+
+  const failedChase = insights.find((entry) => entry.type === 'failed_chase');
+  assert.equal(failedChase?.owner === 'NoClaim', false);
+});
+
+test('NoClaim secondary-subject fixes preserve completed season narrative types', () => {
+  const insights = deriveLeagueInsights({
+    rows: [
+      standingsRow('NoClaim', 10, 2, 0, 20),
+      standingsRow('Alex', 9, 3, 2, 18),
+      standingsRow('Casey', 7, 5, 4, 10),
+      standingsRow('Blake', 6, 6, 5, 4),
+    ],
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+
+  assert.ok(insights.some((entry) => entry.type === 'failed_chase'));
+  assert.ok(insights.some((entry) => entry.type === 'surge'));
+  assert.equal(
+    insights.some((entry) => entry.owner === 'NoClaim'),
+    false
+  );
+  assert.deepEqual(
+    deriveLeagueInsights({
+      rows: [
+        standingsRow('NoClaim', 10, 2, 0, 20),
+        standingsRow('Alex', 9, 3, 2, 18),
+        standingsRow('Casey', 7, 5, 4, 10),
+        standingsRow('Blake', 6, 6, 5, 4),
+      ],
+      standingsHistory: historyFixture(),
+      seasonContext: 'final',
+    }),
+    insights
   );
 });

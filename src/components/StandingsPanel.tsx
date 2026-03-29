@@ -32,13 +32,9 @@ type FocusableElement = {
 
 function insightHref(target?: Insight['navigationTarget']): string | null {
   if (!target) return null;
-  if (target.type === 'standings') return '/standings';
-  if (target.type === 'trends') return '/standings?view=trends#trends';
-  if (target.type === 'matchup') {
-    const week = target.params?.week;
-    if (typeof week === 'number') return `/?view=matchups&week=${week}`;
-    return '/?view=matchups';
-  }
+  if (target === 'standings') return '/standings';
+  if (target === 'trends') return '/standings?view=trends#trends';
+  if (target === 'matchup') return '/?view=matchups';
   return null;
 }
 
