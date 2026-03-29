@@ -86,7 +86,7 @@ export default function StandingsPanel({
   }, [initialSubview]);
 
   return (
-    <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+    <section className="space-y-3 rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
       <div className="space-y-1">
         <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
           {season} Standings
@@ -104,20 +104,17 @@ export default function StandingsPanel({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
-        <div className="space-y-3">
+      <div
+        className="grid grid-cols-1 gap-4 md:gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)]"
+        data-layout="standings-trends-split"
+      >
+        <div className="space-y-2.5">
           {rows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
               Upload surnames to populate league standings.
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-zinc-400">
-                <span>Swipe/scroll for full standings detail on small screens.</span>
-                <span className="hidden sm:inline">
-                  PF, PA, Diff, and GB stay available without changing standings logic.
-                </span>
-              </div>
               <div className="-mx-1 overflow-x-auto px-1">
                 <table className="min-w-max border-separate border-spacing-0 text-sm">
                   <thead>
@@ -207,7 +204,7 @@ export default function StandingsPanel({
         <div
           id="trends"
           ref={trendsPanelRef}
-          className={`scroll-mt-20 rounded-lg transition ${
+          className={`w-full scroll-mt-20 rounded-lg transition ${
             trendsHighlighted ? 'ring-2 ring-blue-300 dark:ring-blue-600' : ''
           }`}
           data-standings-subview="trends"
