@@ -211,16 +211,21 @@ function deriveRecentSurgeInsight(args: {
       (entry): entry is { owner: string; deltaWins: number; deltaGamesBack: number } =>
         entry !== null
     )
-    .sort((left, right) => {
-      if (right.deltaWins !== left.deltaWins) return right.deltaWins - left.deltaWins;
-      if (right.deltaGamesBack !== left.deltaGamesBack)
-        return right.deltaGamesBack - left.deltaGamesBack;
-      return left.owner.localeCompare(right.owner);
-    });
+    .filter((entry) => entry.deltaWins >= MIN_SURGE_WINS || entry.deltaGamesBack > 0);
+
+  // Qualification must happen before ranking so a non-qualifying high raw deltaWins
+  // candidate cannot block another owner who does satisfy surge conditions.
+  if (deltas.length === 0) return null;
+
+  deltas.sort((left, right) => {
+    if (right.deltaWins !== left.deltaWins) return right.deltaWins - left.deltaWins;
+    if (right.deltaGamesBack !== left.deltaGamesBack)
+      return right.deltaGamesBack - left.deltaGamesBack;
+    return left.owner.localeCompare(right.owner);
+  });
 
   const top = deltas[0];
   if (!top) return null;
-  if (top.deltaWins < MIN_SURGE_WINS && top.deltaGamesBack <= 0) return null;
 
   return {
     id: `recent-surge-${ownerSlug(top.owner)}-wk${latestWeek}`,
