@@ -67,6 +67,12 @@ export function isNarrativeEligibleOwner(owner: string): boolean {
   return owner !== NO_CLAIM_OWNER;
 }
 
+// Reference owners can include synthetic buckets like NoClaim; only the
+// primary narrative subject must pass isNarrativeEligibleOwner.
+function canUseReferenceOwner(): boolean {
+  return true;
+}
+
 function toInsight(params: {
   id: string;
   type: InsightType;
@@ -234,14 +240,14 @@ function deriveTightRaceInsight(args: {
   if (rows.length < 2 || seasonContext === 'final') return null;
 
   const leader = rows[0];
-  const runnerUp = rows[1];
-  if (!leader || !runnerUp) return null;
-  if (!isNarrativeEligibleOwner(leader.owner) || !isNarrativeEligibleOwner(runnerUp.owner))
-    return null;
+  if (!leader || !isNarrativeEligibleOwner(leader.owner)) return null;
+
+  const runnerUp = rows.find(
+    (row, index) => index > 0 && row.gamesBack <= TIGHT_RACE_GAP_THRESHOLD
+  );
+  if (!runnerUp || !canUseReferenceOwner()) return null;
 
   const gap = runnerUp.gamesBack;
-  if (gap > TIGHT_RACE_GAP_THRESHOLD) return null;
-
   return toInsight({
     id: `tight-race-${ownerSlug(leader.owner)}-${ownerSlug(runnerUp.owner)}`,
     type: 'race',
@@ -352,7 +358,7 @@ function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null 
 function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | null {
   if (rows.length < 2) return null;
   const leader = rows[0];
-  if (!leader || !isNarrativeEligibleOwner(leader.owner)) return null;
+  if (!leader || !canUseReferenceOwner()) return null;
 
   const candidates = rows
     .slice(1, 4)

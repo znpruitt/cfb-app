@@ -1359,3 +1359,94 @@ test('deriveLeagueInsights remains deterministic for completed season ordering',
 
   assert.deepEqual(deriveLeagueInsights(input), deriveLeagueInsights(input));
 });
+
+test('deriveLeagueInsights emits tight race when NoClaim is the secondary owner', () => {
+  const insights = deriveLeagueInsights({
+    rows: [standingsRow('Alex', 7, 1, 0, 22), standingsRow('NoClaim', 7, 1, 1, 20)],
+    standingsHistory: historyFixture(),
+    seasonContext: 'in-season',
+  });
+
+  const race = insights.find((entry) => entry.type === 'race');
+  assert.ok(race);
+  assert.equal(race?.owner, 'Alex');
+  assert.deepEqual(race?.relatedOwners, ['NoClaim']);
+});
+
+test('deriveLeagueInsights suppresses tight race when NoClaim would be primary subject', () => {
+  const insights = deriveLeagueInsights({
+    rows: [standingsRow('NoClaim', 7, 1, 0, 22), standingsRow('Alex', 7, 1, 1, 20)],
+    standingsHistory: historyFixture(),
+    seasonContext: 'in-season',
+  });
+
+  assert.equal(
+    insights.some((entry) => entry.type === 'race'),
+    false
+  );
+});
+
+test('deriveLeagueInsights emits failed chase when NoClaim leads and real owner trails', () => {
+  const insights = deriveLeagueInsights({
+    rows: [
+      standingsRow('NoClaim', 10, 2, 0, 20),
+      standingsRow('Alex', 9, 3, 2, 18),
+      standingsRow('Casey', 7, 5, 4, 10),
+    ],
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+
+  const failedChase = insights.find((entry) => entry.type === 'failed_chase');
+  assert.ok(failedChase);
+  assert.equal(failedChase?.owner, 'Alex');
+  assert.deepEqual(failedChase?.relatedOwners, ['NoClaim']);
+});
+
+test('deriveLeagueInsights never emits failed chase with NoClaim as subject', () => {
+  const insights = deriveLeagueInsights({
+    rows: [
+      standingsRow('Alex', 10, 2, 0, 20),
+      standingsRow('NoClaim', 9, 3, 2, 18),
+      standingsRow('Casey', 7, 5, 4, 10),
+    ],
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+
+  const failedChase = insights.find((entry) => entry.type === 'failed_chase');
+  assert.equal(failedChase?.owner === 'NoClaim', false);
+});
+
+test('NoClaim secondary-subject fixes preserve completed season narrative types', () => {
+  const insights = deriveLeagueInsights({
+    rows: [
+      standingsRow('NoClaim', 10, 2, 0, 20),
+      standingsRow('Alex', 9, 3, 2, 18),
+      standingsRow('Casey', 7, 5, 4, 10),
+      standingsRow('Blake', 6, 6, 5, 4),
+    ],
+    standingsHistory: historyFixture(),
+    seasonContext: 'final',
+  });
+
+  assert.ok(insights.some((entry) => entry.type === 'failed_chase'));
+  assert.ok(insights.some((entry) => entry.type === 'surge'));
+  assert.equal(
+    insights.some((entry) => entry.owner === 'NoClaim'),
+    false
+  );
+  assert.deepEqual(
+    deriveLeagueInsights({
+      rows: [
+        standingsRow('NoClaim', 10, 2, 0, 20),
+        standingsRow('Alex', 9, 3, 2, 18),
+        standingsRow('Casey', 7, 5, 4, 10),
+        standingsRow('Blake', 6, 6, 5, 4),
+      ],
+      standingsHistory: historyFixture(),
+      seasonContext: 'final',
+    }),
+    insights
+  );
+});
