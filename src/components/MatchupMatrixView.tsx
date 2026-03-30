@@ -64,7 +64,7 @@ export default function MatchupMatrixView({
       <div className="mt-3 -mx-1 overflow-x-auto px-1">
         <table className="min-w-max border-separate border-spacing-0 text-center text-sm">
           <thead>
-            <tr className="text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+            <tr className="text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
               <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-200 bg-white px-2 py-1.5 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
                 Owner
               </th>
@@ -119,7 +119,7 @@ export default function MatchupMatrixView({
                         <div className="flex flex-col items-center leading-tight">
                           <span>{cell.gameCount}</span>
                           {cell.record ? (
-                            <span className="text-[11px] font-medium text-gray-500 dark:text-zinc-400">
+                            <span className="text-xs font-medium text-gray-500 dark:text-zinc-400">
                               {cell.record}
                             </span>
                           ) : null}

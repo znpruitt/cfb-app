@@ -130,7 +130,7 @@ function OwnerRosterTable({
       <div className="-mx-1 hidden overflow-x-auto px-1 md:block">
         <table className="min-w-full border-separate border-spacing-0 text-sm">
           <thead>
-            <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+            <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
               {['Team', 'Record', 'Next Game', 'Status'].map((label) => (
                 <th
                   key={label}
@@ -161,7 +161,7 @@ function OwnerRosterTable({
                 </td>
                 <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
                   <span
-                    className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
+                    className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
                   >
                     {row.currentStatus}
                   </span>
@@ -189,7 +189,7 @@ function OwnerRosterTable({
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">Record {row.record}</p>
               </div>
               <span
-                className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
+                className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
               >
                 {row.currentStatus}
               </span>
@@ -315,7 +315,7 @@ function OwnerPicker({
                     >
                       <span>{owner}</span>
                       {isSelected ? (
-                        <span className="text-xs uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">
+                        <span className="text-xs uppercase tracking-widest text-blue-700 dark:text-blue-300">
                           Selected
                         </span>
                       ) : null}

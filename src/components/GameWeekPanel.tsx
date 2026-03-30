@@ -153,13 +153,13 @@ export default function GameWeekPanel({
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200">
+        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold uppercase tracking-widest text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200">
           Final
         </span>
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold uppercase tracking-widest text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
           In Progress
         </span>
-        <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-semibold uppercase tracking-[0.16em] text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
+        <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-semibold uppercase tracking-widest text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
           Scheduled
         </span>
       </div>
@@ -289,7 +289,7 @@ export default function GameWeekPanel({
                           ) : null}
                         </div>
                         <div
-                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[11px] font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(card.summaryStateTone)}`}
+                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-xs font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(card.summaryStateTone)}`}
                           data-summary-state
                         >
                           {card.summaryState}

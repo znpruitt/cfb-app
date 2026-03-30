@@ -191,7 +191,7 @@ export default function StandingsPanel({
                   data-standings-layout="tight"
                 >
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-[0.16em] text-gray-500 dark:text-zinc-500">
+                    <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
                       {['Rank', 'Move', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
                         (label) => {
                           const isNumericMetric =

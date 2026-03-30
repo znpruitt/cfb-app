@@ -41,7 +41,7 @@ export default function WeekControls({
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
             Week context
           </p>
           {isSeasonViewActive ? (
