@@ -132,127 +132,34 @@ Phase 2A is complete when:
 - schedule-first architecture remains intact
 - quota usage is conservative enough for the hobby-scale deployment target
 
-## Phase 2B — League UX / engagement after hardening
+## Phase 2B — League UX / engagement
 
 ### Objective
-Finish league-facing usability and engagement work once hosted stability is in place.
+Tighten league-facing usability based on real product state. The Shared Insights System is complete. The Overview has been partially restructured. Remaining work is hierarchy, copy, and polish.
 
-### Core UX workstreams
+### Resolved items (no further action needed)
 
-1. **Top-level league summary strip**
-   - Add a compact league summary bar at the top of Overview.
-   - Prioritize immediate league-state cues (leader, near-term movement, active week context).
+- **League summary bar** — Satisfied by the existing LeagueSummaryHero component. No separate bar needed.
+- **Head-to-head matrix** — Moved to the week-view matrix tab (`weekViewMode === 'matrix'`). Removed from Overview intentionally.
+- **Shared Insights System** — Fully implemented through Phase 6 convergence. See `docs/completed-work.md` for the full record.
+- **Standings movement column** — Shipped; rank delta arrows visible in StandingsPanel.
 
-2. **Overview hierarchy restructuring**
-   - Reorder Overview to foreground standings context first.
-   - Increase prominence of recent results and live games when relevant.
-   - Keep weekly matchup context visible but secondary to league-state signal.
+### Remaining workstreams
 
-3. **Signal-first copy and layout pass**
-   - Reduce explanatory filler copy in primary league surfaces.
-   - Prefer concise labels, stronger hierarchy, and data-first scanning.
-   - Tune head-to-head/table density so the highest-signal blocks remain dominant.
+1. **Overview hierarchy fix** (highest impact)
+   - Current order: Hero → Storylines → Trends → two-column (Standings + Insights/Results/Live).
+   - Problem: Standings are buried behind two full-width narrative sections. On mobile this requires significant scrolling before core league state is visible.
+   - Fix: Move the two-column grid immediately after Hero. Push Storylines and Trends below as secondary context.
+   - Target order: Hero → two-column → Storylines → Trends.
 
-4. **Mobile-first scanning/readability**
-   - Improve readability and section hierarchy for mobile league checks.
-   - Confirm summary, standings, and recent/live context remain legible without deep scrolling.
+2. **Signal-first copy pass**
+   - Storylines and Trends section labels are narrative-heavy.
+   - Reduce explanatory filler in favor of concise, data-first labels.
+   - No component changes — copy/label edits only.
 
-5. **Lightweight league narrative layer**
-   - Add compact weekly narrative cues:
-     - movement in standings
-     - recent outcomes
-     - notable results/top performers
-   - Keep narrative output lightweight and deterministic (no heavy content system).
-
-6. **Follow-on polish**
-   - feedback/report issue entry point
-   - commissioner-friendly recovery UX refinements
-
-
-### Shared Insights System (planned, selector-first)
-
-#### Purpose
-Establish a single selector-owned insight catalog so league insights are **derived once and consumed many ways** across Overview and Standings. This aligns narrative/highlight output, reduces duplicated derivation logic, and keeps UI layers focused on presentation.
-
-**Rule:** Insights are selector-owned. UI must not derive insights independently.
-
-#### Architecture (text diagram)
-
-1. Canonical inputs (standings history, current standings, resolved weeks, schedule context)
-2. `deriveLeagueInsights(...)` in `src/lib/selectors/insights.ts`
-3. Shared ranked `Insight[]` catalog (deterministic ordering)
-4. Consumer filters:
-   - Overview: top 2–4 headline insights
-   - Standings: 1–2 contextual insights + movement column context
-
-#### Insight type catalog (initial)
-
-- `movement`
-- `toilet_bowl`
-- `surge`
-- `collapse`
-- `race`
-- `milestone`
-
-Draft model (for implementation phase):
-
-```ts
-type Insight = {
-  id: string
-  type: 'movement' | 'toilet_bowl' | 'surge' | 'collapse' | 'race' | 'milestone'
-  title: string
-  description: string
-  score: number
-  owners: string[]
-  week?: number
-  navigationTarget?: {
-    type: 'standings' | 'matchup' | 'trends'
-    params?: Record<string, string | number>
-  }
-}
-```
-
-#### Responsibility split
-
-- **Selector layer (`deriveLeagueInsights`)**
-  - Owns all insight derivation and ranking.
-  - Includes biggest rise/drop, toilet bowl tracking, streak/surge/collapse detection, and tight-race detection.
-  - Depends only on canonical league inputs (no UI state).
-- **Overview page**
-  - Consumes top-N ranked insights (headline mode).
-  - Keeps copy minimal/high-signal.
-- **Standings page**
-  - Shows movement column plus 1–2 context insights relevant to standings interpretation.
-  - Must not duplicate movement information already visible in table deltas.
-
-#### Phased implementation plan
-
-1. **Phase 1 — Planning + documentation (current)**
-   - Document architecture, responsibilities, and rollout boundaries.
-   - Mark `Recent Momentum` as deprecated as a primary concept.
-2. **Phase 2 — Movement column foundation**
-   - Add week-over-week rank delta column to standings table.
-   - No shared selector yet.
-3. **Phase 3 — Shared selector core engine**
-   - Implement `deriveLeagueInsights(...)` with 3–5 initial insight types.
-   - Add deterministic scoring/ordering rules.
-4. **Phase 4 — Overview integration**
-   - Replace page-owned pulse/highlight derivation with top insights from selector.
-   - Cap to 2–4 items.
-5. **Phase 5 — Standings integration**
-   - Replace/downgrade `Recent Momentum` and add 1–2 context insight cards.
-6. **Phase 6 — Cleanup + convergence**
-   - Remove duplicate legacy insight derivations.
-   - Ensure all insights flow from shared selector.
-7. **Phase 7 — Expansion**
-   - Add optional types (longest streak, volatility, late-season pressure, etc.) after core convergence.
-
-#### Test planning requirements (for implementation phases)
-
-- Deterministic ranking: same inputs must always produce the same sorted insight list.
-- Coverage by type: each insight type emits only under valid conditions.
-- Conflict/duplication guardrails: no duplicate or contradictory insights.
-- Edge cases: early season, completed season, ties/identical records.
+3. **Follow-on polish**
+   - Lightweight member-facing feedback/report issue entry point.
+   - Commissioner-friendly recovery UX refinements based on real hosted usage.
 
 ## Phase 3 — Historical analytics (optional)
 

@@ -9,6 +9,27 @@
 
 ## Completed phases / milestones
 
+### Shared Insights System + Overview Restructure (Phase 2B delivery)
+
+- **Status:** Complete through Phase 6 (convergence). Phase 7 expansion items are optional and not scheduled.
+- **Goals completed:**
+  - Built `deriveLeagueInsights()` as the canonical shared selector in `src/lib/selectors/insights.ts` (589 lines).
+  - Implemented 8 deterministic insight types: `movement`, `toilet_bowl`, `surge`, `collapse`, `race`, `champion_margin`, `failed_chase`, `tight_cluster`.
+  - Built filtered consumer selectors: `deriveOverviewInsights()` (top-3 for Overview) and `deriveStandingsInsights()` (1–2 contextual insights for Standings).
+  - Integrated shared selector into both OverviewPanel and StandingsPanel; removed all page-level insight derivation.
+  - Added standings movement (rank delta) column with directional arrow indicators.
+  - Restructured Overview into a two-column grid: standings context left, insights/results/live right.
+  - Moved head-to-head matchup matrix from Overview into a dedicated week-view matrix tab.
+- **Key outcomes:**
+  - All league insights derive from a single source — no duplicate or contradictory derivation across pages.
+  - Insight ranking is deterministic: same inputs always produce the same ordered output.
+  - Overview and Standings both surface the same insight catalog through different filtered lenses.
+  - Head-to-head matrix is accessible without cluttering the primary Overview layout.
+- **Optional follow-up (not scheduled):**
+  - Phase 7 insight type expansion (longest streak, volatility, late-season pressure) — add only if specific member feedback warrants it.
+
+---
+
 ### Phase 2A — Production Hardening Closeout
 
 - **Status:** Complete. Engineering closeout and mobile/device validation sign-off both landed.

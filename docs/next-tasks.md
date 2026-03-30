@@ -32,59 +32,33 @@
 
 ## Active queue: Phase 2B league experience improvements
 
-### Shared Insights System planning + phased rollout
+### Resolved — no further action needed
 
-Reference prompt: `P2C-SHARED-INSIGHTS-SYSTEM-PLANNING-AND-PHASING-v1`.
+- **Shared Insights System** — Complete through Phase 6. See `docs/completed-work.md`.
+- **Standings movement column** — Shipped.
+- **League summary bar** — Satisfied by LeagueSummaryHero; no separate bar needed.
+- **Head-to-head matrix** — Moved to week-view matrix tab; documented in roadmap.
 
-1. **Planning/docs baseline (no production code changes)**
-   - Keep architecture and phased plan in `docs/roadmap.md` as the source of truth.
-   - Document explicit ownership boundary: selector derives insights, UI consumes filtered subsets.
+### Active tasks
 
-2. **Foundation UI step**
-   - Ship standings movement column before shared catalog integration.
+1. **Overview hierarchy fix** ← start here
+   - Move the two-column grid (Standings + Insights/Results/Live) immediately after the Hero.
+   - Push LeagueStorylines and League Trends to secondary position below.
+   - File: `src/components/OverviewPanel.tsx` — JSX block reorder, no logic changes.
+   - Goal: standings visible on mobile without scrolling past narrative sections.
 
-3. **Selector engine step**
-   - Add `src/lib/selectors/insights.ts` and `deriveLeagueInsights(...)`.
-   - Start with movement, toilet-bowl, race, and surge/collapse coverage.
+2. **Signal-first copy pass**
+   - Tighten copy in Storylines card items and Trends section labels.
+   - Reduce narrative filler in favor of data-first scanning.
+   - No component changes — label/copy edits only.
 
-4. **Overview consumer step**
-   - Replace local pulse/highlight derivations with top-ranked selector output.
-   - Limit to 2–4 headline insights.
+3. **Feedback/report issue entry point** (polish tier)
+   - Lightweight member-facing way to report data issues or leave feedback.
+   - Scope TBD — could be a simple link, modal, or external form.
 
-5. **Standings consumer step**
-   - Remove/downgrade `Recent Momentum` as a standalone concept.
-   - Add 1–2 contextual insight cards fed by shared selector output.
-
-6. **Convergence + cleanup**
-   - Remove duplicate page-specific insight derivations.
-   - Verify all insight rendering paths are sourced from shared selector output.
-
-
-This block starts after the production-safe path above is complete and stable in hosted usage.
-
-1. **Overview hierarchy restructure**
-   - Reorder the Overview page so standings/leader context is first.
-   - Keep matchup details present but secondary to league-state signal.
-
-2. **League summary bar**
-   - Add a compact top-level summary strip with immediate league context.
-   - Keep it data-first and scan-friendly on mobile and desktop.
-
-3. **Recent results emphasis**
-   - Increase visibility of recently completed games and their league impact.
-   - Reduce friction to answer “what just happened?” in one pass.
-
-4. **Live-state clarity**
-   - Surface live-game context more clearly when games are in progress.
-   - Keep presentation consistent with quota-safe refresh constraints.
-
-5. **Head-to-head table tuning**
-   - De-emphasize or condense lower-signal table sections that crowd primary league context.
-   - Preserve commissioner/debug utility while reducing member-facing noise.
-
-6. **Mobile-first readability pass**
-   - Tighten spacing, hierarchy, and scan order for small screens.
-   - Validate quick league-state comprehension within seconds on phones.
+4. **Commissioner recovery UX refinements** (polish tier)
+   - Based on real hosted usage feedback.
+   - No specific changes identified yet — leave until production usage patterns emerge.
 
 ## Future-planned note: Multi-league support (scoped)
 
