@@ -440,11 +440,11 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
             Weekly Slates
           </h2>
           <p className="text-xs text-gray-600 dark:text-zinc-400">Owner-first weekly cards.</p>
-          <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+          <p className="text-xs text-gray-500 dark:text-zinc-400">
             Live games and primary tags are highlighted.
           </p>
           {oddsSummaryCopy ? (
-            <p className="text-[11px] text-gray-500 dark:text-zinc-400">{oddsSummaryCopy}</p>
+            <p className="text-xs text-gray-500 dark:text-zinc-400">{oddsSummaryCopy}</p>
           ) : null}
         </div>
 

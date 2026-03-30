@@ -1071,7 +1071,7 @@ export default function CFBScheduleApp({
         <div className="min-w-0 flex-1 space-y-1">
           {isAdminSurface ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              <span className="rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                 Admin / Debug
               </span>
             </div>
@@ -1116,7 +1116,7 @@ export default function CFBScheduleApp({
       {hasFatalLeagueBootstrapFailure ? (
         <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700 dark:text-red-300">
+            <p className="text-xs font-semibold uppercase tracking-widest text-red-700 dark:text-red-300">
               League view unavailable
             </p>
             <h2 className="text-xl font-semibold text-red-950 dark:text-red-100">
@@ -1242,7 +1242,7 @@ export default function CFBScheduleApp({
           <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
             <div className="flex flex-col gap-4 lg:gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl space-y-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
                   {activeSurfaceCopy.eyebrow}
                 </p>
                 <h2 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">

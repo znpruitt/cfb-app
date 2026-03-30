@@ -15,9 +15,9 @@ import type { OwnerRow } from '../lib/parseOwnersCsv';
 import { pillClass } from '../lib/gameUi';
 
 const controlButtonClass =
-  'px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100';
+  'px-3 py-2 rounded border border-gray-300 bg-white text-gray-900 transition-colors hover:bg-gray-50 hover:border-gray-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60';
 const secondaryButtonClass =
-  'px-3 py-2 rounded border border-gray-200 bg-gray-50 text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300';
+  'px-3 py-2 rounded border border-gray-200 bg-gray-50 text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800';
 
 type AdminDebugSurfaceProps = {
   aliasStaging: AliasStaging;
@@ -96,7 +96,7 @@ export default function AdminDebugSurface({
     <section className="space-y-6 rounded-2xl border border-gray-300 bg-gray-50/80 p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
             Admin / Debug
           </p>
           <h2 className="text-xl font-semibold text-gray-950 dark:text-zinc-50">

@@ -180,7 +180,7 @@ export default function ScoreAttachmentDebugPanel({
                       <tr key={`${item.reason}-${idx}`} className="border-t dark:border-zinc-700">
                         <td className="p-2">
                           <div>{item.reason}</div>
-                          <div className="text-[11px] text-red-700 dark:text-red-300">
+                          <div className="text-xs text-red-700 dark:text-red-300">
                             {item.userMessage}
                           </div>
                         </td>
@@ -268,7 +268,7 @@ export default function ScoreAttachmentDebugPanel({
                       >
                         <td className="p-2">
                           <div>{item.reason}</div>
-                          <div className="text-[11px] text-gray-500 dark:text-zinc-400">
+                          <div className="text-xs text-gray-500 dark:text-zinc-400">
                             {item.userMessage}
                           </div>
                         </td>

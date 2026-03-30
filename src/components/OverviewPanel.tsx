@@ -186,8 +186,8 @@ function LeagueSummaryHero({
 }): React.ReactElement {
   if (!leader) {
     return (
-      <section className="rounded-2xl border border-gray-200 bg-gray-50/90 px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60 sm:px-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+      <section className="rounded-xl border border-gray-200 bg-gray-50/90 px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60 sm:px-6">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
           League summary
         </p>
         <p className="mt-2 text-sm text-gray-700 dark:text-zinc-200">
@@ -223,8 +223,8 @@ function LeagueSummaryHero({
     ];
 
     return (
-      <section className="rounded-2xl border border-amber-200/80 bg-gradient-to-r from-amber-50/85 via-white to-white px-4 py-5 shadow-sm dark:border-amber-900/50 dark:from-amber-950/20 dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-300">
+      <section className="rounded-xl border border-amber-200/80 bg-gradient-to-r from-amber-50/85 via-white to-white px-4 py-5 shadow-sm dark:border-amber-900/50 dark:from-amber-950/20 dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-zinc-300">
           Final standings
         </p>
         <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
@@ -238,7 +238,7 @@ function LeagueSummaryHero({
                 card.rank === 1 ? 'sm:-translate-y-1.5 sm:py-4' : ''
               }`}
             >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-600 dark:text-zinc-300">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-zinc-300">
                 #{card.rank}
               </p>
               <p
@@ -272,9 +272,9 @@ function LeagueSummaryHero({
 
   return (
     <section
-      className={`rounded-2xl border bg-gradient-to-r via-white to-white px-4 py-5 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6 ${toneClasses}`}
+      className={`rounded-xl border bg-gradient-to-r via-white to-white px-4 py-5 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6 ${toneClasses}`}
     >
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-zinc-300">
+      <p className="text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-zinc-300">
         League summary
       </p>
       <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
@@ -321,7 +321,7 @@ function CondensedStandingsTable({
   return (
     <div className="-mx-1 overflow-x-auto px-1">
       <div className="min-w-full text-sm sm:text-[0.92rem]">
-        <div className="grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-[0.14em] text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
+        <div className="grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-wider text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
           <span className="font-semibold">Rank</span>
           <span className="font-semibold">Owner · Record · Metrics</span>
         </div>
@@ -348,7 +348,7 @@ function CondensedStandingsTable({
                   const movedUp = previousRank > index + 1;
                   return (
                     <span
-                      className={`ml-1 text-[11px] font-semibold ${
+                      className={`ml-1 text-xs font-semibold ${
                         movedUp
                           ? 'text-emerald-700 dark:text-emerald-300'
                           : 'text-amber-700 dark:text-amber-300'
@@ -384,7 +384,7 @@ function CondensedStandingsTable({
                     )}
                   </span>
                   {index === 0 ? (
-                    <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                    <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
                       Leader
                     </span>
                   ) : null}
@@ -392,7 +392,7 @@ function CondensedStandingsTable({
                     {row.wins}–{row.losses}
                   </span>
                 </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 dark:text-zinc-400">
                   <span>Win% {formatWinPct(row.winPct)}</span>
                   <span className="text-gray-400 dark:text-zinc-500">
                     Diff {formatDiff(row.pointDifferential)}
@@ -444,7 +444,7 @@ function GameCardList({
                 </div>
               </div>
               <span
-                className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
+                className={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
               >
                 {item.score?.status ?? 'Scheduled'}
               </span>
@@ -527,13 +527,13 @@ function GameSummaryList({
                   {ownerLabel}
                 </p>
                 {prioritized.highlightLabel ? (
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
                     {prioritized.highlightLabel}
                   </p>
                 ) : null}
-                <div className="mt-0.5 flex items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
+                <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
                   <span
-                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
+                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
                   >
                     {status}
                   </span>
@@ -574,7 +574,7 @@ function HighlightList({
   return (
     <div className="space-y-2.5">
       {scopeDetail ? (
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
+        <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-400">
           {scopeDetail}
         </p>
       ) : null}
@@ -673,7 +673,7 @@ function GamesBackTrend({
               <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
                 {entry.ownerName}
               </p>
-              <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+              <p className="text-xs text-gray-500 dark:text-zinc-400">
                 Latest: {entry.latest.toFixed(1)} GB
               </p>
             </div>
@@ -744,7 +744,7 @@ function WinPctTrend({
               <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
                 {entry.ownerName}
               </p>
-              <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+              <p className="text-xs text-gray-500 dark:text-zinc-400">
                 Latest: {formatWinPctPercent(entry.latest)}
               </p>
             </div>
@@ -799,7 +799,7 @@ function WinBars({
               <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
                 {row.ownerName}
               </p>
-              <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+              <p className="text-xs text-gray-500 dark:text-zinc-400">
                 {row.wins}W · {formatWinPctPercent(row.winPct)}
               </p>
             </div>
@@ -1025,19 +1025,19 @@ export default function OverviewPanel({
         </div>
         <div className="grid gap-3 lg:grid-cols-3">
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
               Games Back
             </p>
             <GamesBackTrend series={viewModel.gamesBackTrend} />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
               Win %
             </p>
             <WinPctTrend series={viewModel.winPctTrend} />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
               Win Bars
             </p>
             <WinBars rows={viewModel.winBars} />
