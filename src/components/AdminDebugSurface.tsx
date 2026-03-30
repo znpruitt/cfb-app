@@ -1,6 +1,7 @@
 import React from 'react';
 
 import AdminAuthPanel from './AdminAuthPanel';
+import FeedbackPanel from './FeedbackPanel';
 import AdminStorageStatusPanel from './AdminStorageStatusPanel';
 import AdminUsagePanel from './AdminUsagePanel';
 import AdminTeamDatabasePanel from './AdminTeamDatabasePanel';
@@ -153,6 +154,7 @@ export default function AdminDebugSurface({
         for active views, and odds remain policy-gated to protect monthly API quotas.
       </p>
 
+      <FeedbackPanel className="mb-2" />
       <AdminAuthPanel />
       <AdminStorageStatusPanel />
       <AdminUsagePanel />
