@@ -387,7 +387,7 @@ export default function OwnerPanel({
                     Win % {formatWinPct(snapshot.header.winPct)}
                   </span>
                   <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
-                    Diff {formatDiff(snapshot.header.pointDifferential)}
+                    Pt Diff {formatDiff(snapshot.header.pointDifferential)}
                   </span>
                 </div>
               </>

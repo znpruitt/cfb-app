@@ -94,7 +94,7 @@ export default function FeedbackForm(): React.ReactElement {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="text-xs text-gray-400 underline underline-offset-2 hover:text-gray-600 dark:text-zinc-600 dark:hover:text-zinc-400"
+          className="text-sm text-gray-500 underline underline-offset-2 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-300"
         >
           Report an issue
         </button>
