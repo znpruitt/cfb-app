@@ -123,12 +123,14 @@ function SectionCard({
   tone = 'default',
   headingClassName,
   compact = false,
+  action,
 }: {
   title: string;
   children: React.ReactNode;
   tone?: 'default' | 'live' | 'weekly' | 'secondary';
   headingClassName?: string;
   compact?: boolean;
+  action?: React.ReactNode;
 }): React.ReactElement {
   const toneClasses =
     tone === 'live'
@@ -143,11 +145,14 @@ function SectionCard({
     <section
       className={`rounded-xl border shadow-sm ${compact ? 'p-2.5 sm:p-3.5' : 'p-3 sm:p-4.5'} ${toneClasses}`}
     >
-      <h2
-        className={`text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50 ${headingClassName ?? ''}`.trim()}
-      >
-        {title}
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2
+          className={`text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50 ${headingClassName ?? ''}`.trim()}
+        >
+          {title}
+        </h2>
+        {action ?? null}
+      </div>
       <div className={`${compact ? 'mt-2' : 'mt-2.5'}`}>{children}</div>
     </section>
   );
@@ -206,7 +211,7 @@ function LeagueSummaryHero({
         rank: 1,
         row: first,
         className:
-          'border-amber-300/90 bg-gradient-to-b from-amber-100/85 to-white ring-1 ring-amber-300/60 dark:border-amber-700 dark:from-amber-900/40 dark:to-zinc-900 dark:ring-amber-700/60',
+          'border-blue-400/80 bg-gradient-to-b from-blue-100/80 to-white ring-1 ring-blue-300/50 dark:border-blue-700 dark:from-blue-900/40 dark:to-zinc-900 dark:ring-blue-700/50',
       },
       {
         rank: 2,
@@ -223,7 +228,7 @@ function LeagueSummaryHero({
     ];
 
     return (
-      <section className="rounded-xl border border-amber-200/80 bg-gradient-to-r from-amber-50/85 via-white to-white px-4 py-5 shadow-sm dark:border-amber-900/50 dark:from-amber-950/20 dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6">
+      <section className="rounded-xl border border-blue-200/70 bg-gradient-to-r from-blue-50/70 via-white to-white px-4 py-5 shadow-sm dark:border-blue-900/50 dark:from-blue-950/20 dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-zinc-300">
           Final standings
         </p>
@@ -238,9 +243,15 @@ function LeagueSummaryHero({
                 card.rank === 1 ? 'sm:-translate-y-1.5 sm:py-4' : ''
               }`}
             >
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-zinc-300">
-                #{card.rank}
-              </p>
+              {card.rank === 1 ? (
+                <p className="text-xs font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+                  #1 · Champion
+                </p>
+              ) : (
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
+                  #{card.rank}
+                </p>
+              )}
               <p
                 className={`mt-1 text-base ${
                   card.rank === 1 ? 'font-extrabold' : 'font-bold'
@@ -248,19 +259,30 @@ function LeagueSummaryHero({
               >
                 {card.row.owner}
               </p>
-              <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                {card.row.wins}–{card.row.losses}{' '}
-                <span className="font-bold">({formatWinPct(card.row.winPct)})</span>
+              <p
+                className={`mt-1 font-semibold tabular-nums ${
+                  card.rank === 1
+                    ? 'text-xl text-gray-950 dark:text-zinc-50'
+                    : 'text-sm text-gray-900 dark:text-zinc-100'
+                }`}
+              >
+                {card.row.wins}–{card.row.losses}
+                {card.rank === 1 ? null : (
+                  <span className="font-bold"> ({formatWinPct(card.row.winPct)})</span>
+                )}
               </p>
-              <p className="text-xs text-gray-600 dark:text-zinc-300">
-                Diff {formatDiff(card.row.pointDifferential)}
-              </p>
+              {card.rank === 1 ? (
+                <p className="text-sm text-gray-600 dark:text-zinc-300">
+                  {formatWinPct(card.row.winPct)} · Diff {formatDiff(card.row.pointDifferential)}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-600 dark:text-zinc-300">
+                  Diff {formatDiff(card.row.pointDifferential)}
+                </p>
+              )}
             </article>
           ))}
         </div>
-        {narrative ? (
-          <p className="mt-2.5 text-sm text-gray-600 dark:text-zinc-300">{narrative}</p>
-        ) : null}
       </section>
     );
   }
@@ -572,9 +594,9 @@ function HighlightList({
   if (insights.length === 0) return null;
 
   return (
-    <div className="space-y-2.5">
+    <div>
       {scopeDetail ? (
-        <p className="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-400">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-400">
           {scopeDetail}
         </p>
       ) : null}
@@ -583,20 +605,21 @@ function HighlightList({
         return (
           <article
             key={insight.id}
-            className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="border-b border-gray-100 py-2 last:border-b-0 dark:border-zinc-800"
           >
-            <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-              {insight.title}
-            </p>
-            <p className="mt-1 text-sm text-gray-700 dark:text-zinc-300">{insight.description}</p>
             {href ? (
               <Link
                 href={href}
-                className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+                className="text-sm font-semibold text-gray-900 underline-offset-2 hover:underline dark:text-zinc-100"
               >
-                Open insight
+                {insight.title}
               </Link>
-            ) : null}
+            ) : (
+              <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                {insight.title}
+              </p>
+            )}
+            <p className="mt-0.5 text-sm text-gray-600 dark:text-zinc-300">{insight.description}</p>
           </article>
         );
       })}
@@ -613,7 +636,7 @@ function LeagueStorylines({
 
   return (
     <SectionCard title="Storylines" tone="secondary" compact>
-      <ul className="space-y-1.5 text-sm text-gray-800 dark:text-zinc-100">
+      <ul className="space-y-2 text-sm text-gray-800 dark:text-zinc-100">
         {items.slice(0, 3).map((item) => (
           <li key={item.id} className="list-inside list-disc leading-snug">
             {item.text}
@@ -772,8 +795,10 @@ function WinPctTrend({
 
 function WinBars({
   rows,
+  variant = 'full',
 }: {
   rows: ReturnType<typeof selectOverviewViewModel>['winBars'];
+  variant?: 'compact' | 'full';
 }): React.ReactElement {
   if (rows.length === 0) {
     return (
@@ -793,7 +818,11 @@ function WinBars({
         return (
           <div
             key={row.ownerId}
-            className="rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
+            className={
+              variant === 'compact'
+                ? 'py-1'
+                : 'rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900'
+            }
           >
             <div className="mb-1 flex items-center justify-between gap-2">
               <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
@@ -803,9 +832,9 @@ function WinBars({
                 {row.wins}W · {formatWinPctPercent(row.winPct)}
               </p>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-zinc-800">
+            <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-zinc-800">
               <div
-                className="h-full rounded-full bg-violet-500 dark:bg-violet-400"
+                className="h-full rounded-full bg-blue-500 dark:bg-blue-400"
                 style={{ width: `${widthPct}%` }}
               />
             </div>
@@ -855,7 +884,7 @@ export default function OverviewPanel({
   standingsHistory = null,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
-  const liveTitle = liveItems.length === 0 ? 'Live · none' : `Live · ${liveItems.length}`;
+  const liveTitle = `Live · ${liveItems.length}`;
   const liveCountByOwner = React.useMemo(() => {
     const standings = new Map<string, number>();
     for (const game of games) {
@@ -920,7 +949,16 @@ export default function OverviewPanel({
         podiumLeaders={viewModel.podiumLeaders}
         leader={standingsLeaders[0]}
       />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+
+      {viewModel.heroMode === 'podium' && viewModel.heroNarrative ? (
+        <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <p className="text-sm font-medium leading-relaxed text-gray-700 dark:text-zinc-200">
+            {viewModel.heroNarrative}
+          </p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
           {viewModel.standingsContext ? (
             <p className="mb-2 text-xs font-medium text-gray-600 dark:text-zinc-300">
@@ -957,72 +995,85 @@ export default function OverviewPanel({
           </button>
         </SectionCard>
 
-        <div className="space-y-4">
-          <SectionCard title="Insights" tone="secondary" compact>
-            <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
-          </SectionCard>
-
-          <SectionCard title="Recent results" tone="secondary" compact>
-            <GameSummaryList
-              prioritizedItems={viewModel.recentResults}
-              emptyMessage="No recent results yet—completed games will appear here."
-              timeZone={timeZone}
-              rankingsByTeamId={rankingsByTeamId}
-            />
-            <button
-              type="button"
-              className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-              onClick={onViewSchedule}
-            >
-              View all results
-            </button>
-          </SectionCard>
-
-          {viewModel.shouldShowFeaturedMatchups ? (
-            <SectionCard title="Upcoming watchlist" tone="weekly" compact>
-              <GameSummaryList
-                prioritizedItems={viewModel.featuredMatchups}
-                emptyMessage="No featured matchups yet for this slate."
-                timeZone={timeZone}
-                rankingsByTeamId={rankingsByTeamId}
-                density="featured"
-              />
-              <button
-                type="button"
-                className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-                onClick={onViewMatchups}
-              >
-                View weekly matchups
-              </button>
-            </SectionCard>
-          ) : null}
-
-          {liveItems.length > 0 ? (
-            <SectionCard title={liveTitle} tone="live" compact>
-              <GameCardList
-                items={liveItems}
-                timeZone={timeZone}
-                rankingsByTeamId={rankingsByTeamId}
-              />
-            </SectionCard>
-          ) : (
-            <p className="px-1 text-xs text-gray-500 dark:text-zinc-400">
-              No live games right now.
-            </p>
-          )}
-        </div>
+        <SectionCard title="Win % Leaders" tone="secondary" compact>
+          <WinBars rows={viewModel.winBars} variant="compact" />
+        </SectionCard>
       </div>
 
+      {sharedInsights.length > 0 ? (
+        <SectionCard title="Insights" tone="secondary" compact>
+          <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
+        </SectionCard>
+      ) : null}
+
       <LeagueStorylines items={viewModel.storylines} />
-      <SectionCard title="Trends" tone="secondary" compact>
-        <div className="mb-2 flex justify-end">
+
+      <SectionCard
+        title="Recent results"
+        tone="secondary"
+        compact
+        action={
+          <button
+            type="button"
+            className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
+            onClick={onViewSchedule}
+          >
+            All results ↗
+          </button>
+        }
+      >
+        <GameSummaryList
+          prioritizedItems={viewModel.recentResults}
+          emptyMessage="No recent results yet—completed games will appear here."
+          timeZone={timeZone}
+          rankingsByTeamId={rankingsByTeamId}
+        />
+      </SectionCard>
+
+      {viewModel.shouldShowFeaturedMatchups ? (
+        <SectionCard
+          title="Upcoming watchlist"
+          tone="weekly"
+          compact
+          action={
+            <button
+              type="button"
+              className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
+              onClick={onViewMatchups}
+            >
+              All matchups ↗
+            </button>
+          }
+        >
+          <GameSummaryList
+            prioritizedItems={viewModel.featuredMatchups}
+            emptyMessage="No featured matchups yet for this slate."
+            timeZone={timeZone}
+            rankingsByTeamId={rankingsByTeamId}
+            density="featured"
+          />
+        </SectionCard>
+      ) : null}
+
+      {liveItems.length > 0 ? (
+        <SectionCard title={liveTitle} tone="live" compact>
+          <GameCardList items={liveItems} timeZone={timeZone} rankingsByTeamId={rankingsByTeamId} />
+        </SectionCard>
+      ) : null}
+
+      <SectionCard
+        title="Trends"
+        tone="secondary"
+        compact
+        action={
           <Link
             href="/standings?view=trends#trends"
-            className="inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+            className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
           >
-            See full trends
+            See full trends ↗
           </Link>
-        </div>
+        }
+      >
         <div className="grid gap-3 lg:grid-cols-3">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
