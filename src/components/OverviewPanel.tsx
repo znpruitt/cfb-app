@@ -612,7 +612,7 @@ function LeagueStorylines({
   if (items.length === 0) return null;
 
   return (
-    <SectionCard title="League Storylines" tone="secondary" compact>
+    <SectionCard title="Storylines" tone="secondary" compact>
       <ul className="space-y-1.5 text-sm text-gray-800 dark:text-zinc-100">
         {items.slice(0, 3).map((item) => (
           <li key={item.id} className="list-inside list-disc leading-snug">
@@ -921,7 +921,7 @@ export default function OverviewPanel({
         leader={standingsLeaders[0]}
       />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
-        <SectionCard title="League standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
+        <SectionCard title="Standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
           {viewModel.standingsContext ? (
             <p className="mb-2 text-xs font-medium text-gray-600 dark:text-zinc-300">
               {viewModel.standingsContext}
@@ -958,7 +958,7 @@ export default function OverviewPanel({
         </SectionCard>
 
         <div className="space-y-4">
-          <SectionCard title="League insights" tone="secondary" compact>
+          <SectionCard title="Insights" tone="secondary" compact>
             <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
           </SectionCard>
 
@@ -1014,7 +1014,7 @@ export default function OverviewPanel({
       </div>
 
       <LeagueStorylines items={viewModel.storylines} />
-      <SectionCard title="League Trends" tone="secondary" compact>
+      <SectionCard title="Trends" tone="secondary" compact>
         <div className="mb-2 flex justify-end">
           <Link
             href="/standings?view=trends#trends"

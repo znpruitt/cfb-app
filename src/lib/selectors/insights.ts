@@ -170,7 +170,7 @@ function deriveMovementInsights(args: {
       toInsight({
         id: `biggest-rise-${ownerSlug(biggestRise.owner)}-wk${latestWeek}`,
         type: 'movement',
-        title: 'Biggest rise this week',
+        title: 'Biggest rise',
         description: `${biggestRise.owner} climbed ${biggestRise.rankDelta} spots in the standings.`,
         owner: biggestRise.owner,
         priorityScore: 55 + biggestRise.rankDelta * 10,
@@ -188,7 +188,7 @@ function deriveMovementInsights(args: {
       toInsight({
         id: `biggest-drop-${ownerSlug(biggestDrop.owner)}-wk${latestWeek}`,
         type: 'collapse',
-        title: 'Biggest drop this week',
+        title: 'Biggest drop',
         description: `${biggestDrop.owner} fell ${dropMagnitude} spots in the standings.`,
         owner: biggestDrop.owner,
         priorityScore: 54 + dropMagnitude * 10,
@@ -309,7 +309,9 @@ function deriveRecentSurgeInsight(args: {
       ): entry is { owner: string; deltaWins: number; deltaGamesBack: number; finalRank: number } =>
         entry !== null
     )
-    .filter((entry) => entry.deltaWins >= minWinsRequired || entry.deltaGamesBack >= minGamesBackGain)
+    .filter(
+      (entry) => entry.deltaWins >= minWinsRequired || entry.deltaGamesBack >= minGamesBackGain
+    )
     .filter((entry) => (finalOnly ? entry.finalRank > 1 : true));
 
   if (deltas.length === 0) return null;
