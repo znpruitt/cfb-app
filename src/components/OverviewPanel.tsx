@@ -206,29 +206,41 @@ function LeagueSummaryHero({
 
   if (heroMode === 'podium' && podiumLeaders.length === 3) {
     const [first, second, third] = podiumLeaders;
-    const cards: Array<{ rank: 1 | 2 | 3; row: OwnerStandingsRow; className: string }> = [
+    const cards: Array<{
+      rank: 1 | 2 | 3;
+      row: OwnerStandingsRow;
+      className: string;
+      labelClassName: string;
+      rankLabel: string;
+    }> = [
       {
         rank: 1,
         row: first,
         className:
-          'border-blue-400/80 bg-gradient-to-b from-blue-100/80 to-white ring-1 ring-blue-300/50 dark:border-blue-700 dark:from-blue-900/40 dark:to-zinc-900 dark:ring-blue-700/50',
+          'border-amber-400/70 bg-gradient-to-b from-amber-100/80 to-white ring-1 ring-amber-300/50 dark:border-amber-600/50 dark:from-amber-950/40 dark:to-zinc-900 dark:ring-amber-700/40',
+        labelClassName: 'text-amber-700 dark:text-amber-400',
+        rankLabel: '#1 · Champion',
       },
       {
         rank: 2,
         row: second,
         className:
-          'border-slate-300/90 bg-gradient-to-b from-slate-100/85 to-white dark:border-slate-700 dark:from-slate-900/70 dark:to-zinc-900',
+          'border-slate-300/80 bg-gradient-to-b from-slate-100/90 to-white dark:border-slate-600/60 dark:from-slate-800/50 dark:to-zinc-900',
+        labelClassName: 'text-slate-500 dark:text-slate-400',
+        rankLabel: '#2',
       },
       {
         rank: 3,
         row: third,
         className:
-          'border-orange-300/80 bg-gradient-to-b from-orange-100/70 to-white dark:border-orange-800 dark:from-orange-950/30 dark:to-zinc-900',
+          'border-orange-300/70 bg-gradient-to-b from-orange-100/70 to-white dark:border-orange-700/50 dark:from-orange-950/30 dark:to-zinc-900',
+        labelClassName: 'text-orange-700 dark:text-orange-400',
+        rankLabel: '#3',
       },
     ];
 
     return (
-      <section className="rounded-xl border border-blue-200/70 bg-gradient-to-r from-blue-50/70 via-white to-white px-4 py-5 shadow-sm dark:border-blue-900/50 dark:from-blue-950/20 dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6">
+      <section className="rounded-xl border border-gray-200 bg-white px-4 py-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/80 sm:px-7 sm:py-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-zinc-300">
           Final standings
         </p>
@@ -243,15 +255,11 @@ function LeagueSummaryHero({
                 card.rank === 1 ? 'sm:-translate-y-1.5 sm:py-4' : ''
               }`}
             >
-              {card.rank === 1 ? (
-                <p className="text-xs font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                  #1 · Champion
-                </p>
-              ) : (
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
-                  #{card.rank}
-                </p>
-              )}
+              <p
+                className={`text-xs font-semibold uppercase tracking-wider ${card.labelClassName}`}
+              >
+                {card.rankLabel}
+              </p>
               <p
                 className={`mt-1 text-base ${
                   card.rank === 1 ? 'font-extrabold' : 'font-bold'
