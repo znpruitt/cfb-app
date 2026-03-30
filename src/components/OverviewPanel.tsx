@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
+import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -20,12 +21,28 @@ import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
 
-function formatWinPct(value: number): string {
-  return value.toFixed(3);
+function sliceStandingsHistoryToRecentWeeks(
+  history: StandingsHistory,
+  n: number
+): StandingsHistory {
+  const recentWeeks = history.weeks.slice(-n);
+  const weekSet = new Set(recentWeeks);
+  return {
+    weeks: recentWeeks,
+    byWeek: Object.fromEntries(
+      Object.entries(history.byWeek).filter(([w]) => weekSet.has(Number(w)))
+    ),
+    byOwner: Object.fromEntries(
+      Object.entries(history.byOwner).map(([owner, pts]) => [
+        owner,
+        pts.filter((p) => weekSet.has(p.week)),
+      ])
+    ),
+  };
 }
 
-function formatWinPctPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
+function formatWinPct(value: number): string {
+  return value.toFixed(3);
 }
 
 function formatDiff(value: number): string {
@@ -627,152 +644,6 @@ function HighlightList({
   );
 }
 
-function GamesBackTrend({
-  series,
-}: {
-  series: ReturnType<typeof selectOverviewViewModel>['gamesBackTrend'];
-}): React.ReactElement {
-  if (series.length === 0) {
-    return (
-      <p className="text-xs text-gray-500 dark:text-zinc-400">
-        Games Back trend will appear after standings history is available.
-      </p>
-    );
-  }
-
-  const trendRows = series
-    .map((entry) => ({ ...entry, latest: entry.points[entry.points.length - 1]?.value ?? 0 }))
-    .sort((left, right) => {
-      if (left.latest !== right.latest) return left.latest - right.latest;
-      return left.ownerName.localeCompare(right.ownerName);
-    })
-    .slice(0, 5);
-
-  return (
-    <div className="space-y-2">
-      {trendRows.map((entry) => {
-        const values = entry.points.map((point) => point.value);
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        const spread = Math.max(1, max - min);
-        const width = 116;
-        const height = 24;
-        const coordinates = entry.points
-          .map((point, index) => {
-            const x =
-              entry.points.length > 1 ? (index / (entry.points.length - 1)) * width : width / 2;
-            const normalized = (point.value - min) / spread;
-            const y = height - normalized * height;
-            return `${x},${y}`;
-          })
-          .join(' ');
-
-        return (
-          <div
-            key={entry.ownerId}
-            className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
-                {entry.ownerName}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-zinc-400">
-                Latest: {entry.latest.toFixed(1)} GB
-              </p>
-            </div>
-            <svg
-              viewBox={`0 0 ${width} ${height}`}
-              className="h-6 w-28 shrink-0 text-blue-600 dark:text-blue-300"
-              role="img"
-              aria-label={`${entry.ownerName} games back trend`}
-            >
-              <polyline
-                points={coordinates}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function WinPctTrend({
-  series,
-}: {
-  series: ReturnType<typeof selectOverviewViewModel>['winPctTrend'];
-}): React.ReactElement {
-  if (series.length === 0) {
-    return (
-      <p className="text-xs text-gray-500 dark:text-zinc-400">
-        Win % trend will appear after standings history is available.
-      </p>
-    );
-  }
-
-  const trendRows = series
-    .map((entry) => ({ ...entry, latest: entry.points[entry.points.length - 1]?.value ?? 0 }))
-    .slice(0, 5);
-
-  return (
-    <div className="space-y-2">
-      {trendRows.map((entry) => {
-        const values = entry.points.map((point) => point.value);
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        const spread = Math.max(0.0001, max - min);
-        const width = 116;
-        const height = 24;
-        const coordinates = entry.points
-          .map((point, index) => {
-            const x =
-              entry.points.length > 1 ? (index / (entry.points.length - 1)) * width : width / 2;
-            const normalized = (point.value - min) / spread;
-            const y = height - normalized * height;
-            return `${x},${y}`;
-          })
-          .join(' ');
-
-        return (
-          <div
-            key={entry.ownerId}
-            className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
-                {entry.ownerName}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-zinc-400">
-                Latest: {formatWinPctPercent(entry.latest)}
-              </p>
-            </div>
-            <svg
-              viewBox={`0 0 ${width} ${height}`}
-              className="h-6 w-28 shrink-0 text-emerald-600 dark:text-emerald-300"
-              role="img"
-              aria-label={`${entry.ownerName} win percentage trend`}
-            >
-              <polyline
-                points={coordinates}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
@@ -791,6 +662,7 @@ type OverviewPanelProps = {
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   standingsHistory?: StandingsHistory | null;
+  season?: number;
 };
 
 export default function OverviewPanel({
@@ -810,6 +682,7 @@ export default function OverviewPanel({
   onViewMatchups,
   rankingsByTeamId = new Map(),
   standingsHistory = null,
+  season = 0,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const liveTitle = `Live · ${liveItems.length}`;
@@ -976,34 +849,31 @@ export default function OverviewPanel({
         </SectionCard>
       ) : null}
 
-      <SectionCard
-        title="Trends"
-        tone="secondary"
-        compact
-        action={
-          <Link
-            href="/standings?view=trends#trends"
-            className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
-          >
-            See full trends ↗
-          </Link>
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-              Games Back
-            </p>
-            <GamesBackTrend series={viewModel.gamesBackTrend} />
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-              Win %
-            </p>
-            <WinPctTrend series={viewModel.winPctTrend} />
-          </div>
-        </div>
-      </SectionCard>
+      {standingsHistory ? (
+        <SectionCard
+          title="Trends"
+          tone="secondary"
+          compact
+          action={
+            <Link
+              href="/standings?view=trends#trends"
+              className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
+            >
+              See full trends ↗
+            </Link>
+          }
+        >
+          <TrendsDetailSurface
+            standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 4)}
+            season={season}
+            seasonContext={null}
+            issues={[]}
+            layoutMode="embedded"
+            compact
+            showMomentum={false}
+          />
+        </SectionCard>
+      ) : null}
     </div>
   );
 }
