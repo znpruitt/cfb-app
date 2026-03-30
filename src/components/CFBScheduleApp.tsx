@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link';
 
 import AdminDebugSurface from './AdminDebugSurface';
+import FeedbackForm from './FeedbackForm';
 import GameWeekPanel from './GameWeekPanel';
 import MatchupMatrixView from './MatchupMatrixView';
 import MatchupsWeekPanel from './MatchupsWeekPanel';
@@ -1424,6 +1425,7 @@ export default function CFBScheduleApp({
           )}
         </>
       )}
+      {!isAdminSurface ? <FeedbackForm /> : null}
     </div>
   );
 }
