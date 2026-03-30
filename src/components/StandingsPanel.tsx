@@ -307,29 +307,30 @@ export default function StandingsPanel({
               <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
                 Standings insights
               </h3>
-              <div className="mt-2 space-y-2">
+              <div className="mt-2">
                 {standingsInsights.map((insight) => {
                   const href = insightHref(insight.navigationTarget);
                   return (
                     <article
                       key={insight.id}
-                      className="rounded-md border border-gray-200 bg-white px-2.5 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+                      className="border-b border-gray-100 py-2 last:border-b-0 dark:border-zinc-800"
                       data-standings-insight-type={insight.type}
                     >
-                      <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                        {insight.title}
-                      </p>
-                      <p className="mt-1 text-sm text-gray-700 dark:text-zinc-300">
-                        {insight.description}
-                      </p>
                       {href ? (
                         <Link
                           href={href}
-                          className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+                          className="text-sm font-semibold text-gray-900 underline-offset-2 hover:underline dark:text-zinc-100"
                         >
-                          Open insight
+                          {insight.title}
                         </Link>
-                      ) : null}
+                      ) : (
+                        <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                          {insight.title}
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-sm text-gray-700 dark:text-zinc-300">
+                        {insight.description}
+                      </p>
                     </article>
                   );
                 })}

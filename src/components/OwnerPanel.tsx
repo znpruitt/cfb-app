@@ -176,7 +176,7 @@ function OwnerRosterTable({
         {rows.map((row) => (
           <article
             key={row.teamName}
-            className="rounded-lg border border-gray-200 bg-white/80 p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
