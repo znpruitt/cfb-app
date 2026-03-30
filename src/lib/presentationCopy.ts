@@ -25,8 +25,8 @@ export function deriveActiveSurfaceCopy(viewMode: WeekViewMode): ActiveSurfaceCo
 
   if (viewMode === 'owner') {
     return {
-      eyebrow: 'Team view',
-      title: 'Teams',
+      eyebrow: 'Owner view',
+      title: 'Owner',
       subtitle: null,
     };
   }
@@ -41,7 +41,7 @@ export function deriveActiveSurfaceCopy(viewMode: WeekViewMode): ActiveSurfaceCo
 
   if (viewMode === 'matrix') {
     return {
-      eyebrow: 'Week view',
+      eyebrow: 'Season view',
       title: 'Matrix',
       subtitle: null,
     };
