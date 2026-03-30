@@ -85,7 +85,7 @@ export default function WeekControls({
       </div>
 
       <div
-        className={`flex flex-wrap gap-2 transition-opacity ${
+        className={`flex gap-2 overflow-x-auto pb-1 transition-opacity ${
           isSeasonViewActive ? 'opacity-75' : 'opacity-100'
         }`}
       >
@@ -95,7 +95,7 @@ export default function WeekControls({
           return (
             <button
               key={w}
-              className={`flex min-w-[4.75rem] flex-1 flex-col rounded-lg border px-3 py-2.5 text-left text-sm transition-colors sm:min-w-[5.5rem] sm:flex-none ${
+              className={`flex min-w-[4.75rem] flex-none flex-col rounded-lg border px-3 py-2.5 text-left text-sm transition-colors sm:min-w-[5.5rem] ${
                 selectedTab === w
                   ? isSeasonViewActive
                     ? 'border-gray-400 bg-gray-100 text-gray-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
@@ -116,7 +116,7 @@ export default function WeekControls({
 
         {hasPostseason && (
           <button
-            className={`flex min-w-[6.5rem] flex-1 items-center rounded-lg border px-3 py-2.5 text-left text-sm transition-colors sm:flex-none ${
+            className={`flex min-w-[6.5rem] flex-none items-center rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
               selectedTab === 'postseason'
                 ? isSeasonViewActive
                   ? 'border-gray-400 bg-gray-100 text-gray-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'

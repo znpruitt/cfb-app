@@ -185,110 +185,116 @@ export default function StandingsPanel({
             </div>
           ) : (
             <>
-              <div className="-mx-1 overflow-x-auto px-1">
-                <table
-                  className="min-w-max border-separate border-spacing-0 text-sm"
-                  data-standings-layout="tight"
-                >
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-                      {['Rank', 'Move', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
-                        (label) => {
-                          const isNumericMetric =
-                            label === 'PF' || label === 'PA' || label === 'Diff' || label === 'GB';
-                          const isCompact = label === 'Rank' || label === 'Move';
-                          const isTeam = label === 'Team';
-                          const isDeEmphasized = label === 'PA' || label === 'GB';
-                          return (
-                            <th
-                              key={label}
-                              className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${isCompact ? 'w-[2.8rem]' : ''} ${isTeam ? 'min-w-[9.5rem]' : ''} ${isNumericMetric ? 'w-[4.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
-                              data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
-                            >
-                              {label}
-                            </th>
-                          );
-                        }
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row, index) => {
-                      const winPctWidth = Math.max(0, Math.min(100, row.winPct * 100)).toFixed(1);
-                      const movement = movementByOwner[row.owner];
-                      const movementPresentation = deriveMovementPresentation(
-                        movement?.rankDelta ?? null
-                      );
-                      return (
-                        <tr
-                          key={row.owner}
-                          ref={(element) => {
-                            if (!element) {
-                              ownerRowRefs.current.delete(row.owner);
-                              return;
-                            }
-                            ownerRowRefs.current.set(row.owner, element);
-                          }}
-                          className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
-                            focusedOwner === row.owner
-                              ? 'ring-1 ring-inset ring-blue-400 dark:ring-blue-600'
-                              : ''
-                          }`}
-                          style={{
-                            backgroundImage: `linear-gradient(to right, rgba(59, 130, 246, 0.12) ${winPctWidth}%, transparent ${winPctWidth}%)`,
-                          }}
-                          data-standings-owner={row.owner}
-                          data-winbar-background={`${winPctWidth}%`}
-                        >
-                          <td className="w-[2.8rem] border-b border-gray-100 px-1.5 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
-                            {index + 1}
-                          </td>
-                          <td
-                            className={`w-[2.8rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-xs font-semibold tabular-nums sm:px-2 dark:border-zinc-800 ${movementPresentation.className}`}
-                            title={movementPresentation.label}
-                            aria-label={movementPresentation.label}
-                            data-standings-move={movementPresentation.text}
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-900" />
+                <div className="-mx-1 overflow-x-auto px-1">
+                  <table
+                    className="min-w-max border-separate border-spacing-0 text-sm"
+                    data-standings-layout="tight"
+                  >
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
+                        {['Rank', 'Move', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
+                          (label) => {
+                            const isNumericMetric =
+                              label === 'PF' ||
+                              label === 'PA' ||
+                              label === 'Diff' ||
+                              label === 'GB';
+                            const isCompact = label === 'Rank' || label === 'Move';
+                            const isTeam = label === 'Team';
+                            const isDeEmphasized = label === 'PA' || label === 'GB';
+                            return (
+                              <th
+                                key={label}
+                                className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${isCompact ? 'w-[2.8rem]' : ''} ${isTeam ? 'min-w-[9.5rem]' : ''} ${isNumericMetric ? 'w-[4.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
+                                data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
+                              >
+                                {label}
+                              </th>
+                            );
+                          }
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, index) => {
+                        const winPctWidth = Math.max(0, Math.min(100, row.winPct * 100)).toFixed(1);
+                        const movement = movementByOwner[row.owner];
+                        const movementPresentation = deriveMovementPresentation(
+                          movement?.rankDelta ?? null
+                        );
+                        return (
+                          <tr
+                            key={row.owner}
+                            ref={(element) => {
+                              if (!element) {
+                                ownerRowRefs.current.delete(row.owner);
+                                return;
+                              }
+                              ownerRowRefs.current.set(row.owner, element);
+                            }}
+                            className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
+                              focusedOwner === row.owner
+                                ? 'ring-1 ring-inset ring-blue-400 dark:ring-blue-600'
+                                : ''
+                            }`}
+                            style={{
+                              backgroundImage: `linear-gradient(to right, rgba(59, 130, 246, 0.12) ${winPctWidth}%, transparent ${winPctWidth}%)`,
+                            }}
+                            data-standings-owner={row.owner}
+                            data-winbar-background={`${winPctWidth}%`}
                           >
-                            {movementPresentation.text}
-                          </td>
-                          <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-2 dark:border-zinc-800 dark:text-zinc-50">
-                            <div className="min-w-[8rem] truncate sm:min-w-0">
-                              {onOwnerSelect ? (
-                                <button
-                                  type="button"
-                                  className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                                  onClick={() => onOwnerSelect(row.owner)}
-                                >
-                                  {row.owner}
-                                </button>
-                              ) : (
-                                row.owner
-                              )}
-                            </div>
-                          </td>
-                          <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
-                            {row.wins}–{row.losses}
-                          </td>
-                          <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 tabular-nums text-gray-600 sm:px-2 dark:border-zinc-800 dark:text-zinc-300">
-                            {formatWinPct(row.winPct)}
-                          </td>
-                          <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
-                            {row.pointsFor}
-                          </td>
-                          <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
-                            {row.pointsAgainst}
-                          </td>
-                          <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
-                            {formatDiff(row.pointDifferential)}
-                          </td>
-                          <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
-                            {formatGamesBack(row.gamesBack)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <td className="w-[2.8rem] border-b border-gray-100 px-1.5 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
+                              {index + 1}
+                            </td>
+                            <td
+                              className={`w-[2.8rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-xs font-semibold tabular-nums sm:px-2 dark:border-zinc-800 ${movementPresentation.className}`}
+                              title={movementPresentation.label}
+                              aria-label={movementPresentation.label}
+                              data-standings-move={movementPresentation.text}
+                            >
+                              {movementPresentation.text}
+                            </td>
+                            <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-2 dark:border-zinc-800 dark:text-zinc-50">
+                              <div className="min-w-[8rem] truncate sm:min-w-0">
+                                {onOwnerSelect ? (
+                                  <button
+                                    type="button"
+                                    className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                                    onClick={() => onOwnerSelect(row.owner)}
+                                  >
+                                    {row.owner}
+                                  </button>
+                                ) : (
+                                  row.owner
+                                )}
+                              </div>
+                            </td>
+                            <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
+                              {row.wins}–{row.losses}
+                            </td>
+                            <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 tabular-nums text-gray-600 sm:px-2 dark:border-zinc-800 dark:text-zinc-300">
+                              {formatWinPct(row.winPct)}
+                            </td>
+                            <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                              {row.pointsFor}
+                            </td>
+                            <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                              {row.pointsAgainst}
+                            </td>
+                            <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                              {formatDiff(row.pointDifferential)}
+                            </td>
+                            <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                              {formatGamesBack(row.gamesBack)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           )}

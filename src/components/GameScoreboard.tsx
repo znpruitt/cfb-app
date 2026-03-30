@@ -106,7 +106,7 @@ function buildOddsSummary(params: {
   }
 
   if (odds.total != null) {
-    segments.push(`O/U: ${odds.total}`);
+    segments.push(`Over/Under: ${odds.total}`);
   }
 
   const awayMoneyline = formatMoneyline(odds.mlAway);
@@ -118,7 +118,7 @@ function buildOddsSummary(params: {
     ].filter(Boolean);
 
     if (moneylineParts.length) {
-      segments.push(`ML: ${moneylineParts.join(' • ')}`);
+      segments.push(`Moneyline: ${moneylineParts.join(' • ')}`);
     }
   }
 

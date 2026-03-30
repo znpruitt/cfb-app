@@ -785,12 +785,12 @@ export default function CFBScheduleApp({
   });
   const isSeasonScopedView =
     primarySurfaceKind === 'overview' ||
+    primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'standings' ||
     primarySurfaceKind === 'owner';
   const shouldShowWeekControls =
     primarySurfaceKind === 'schedule' ||
     primarySurfaceKind === 'matchups' ||
-    primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'postseason';
   const activeSurfaceCopy = deriveActiveSurfaceCopy(weekViewMode);
 
