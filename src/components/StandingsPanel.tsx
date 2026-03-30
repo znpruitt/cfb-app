@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
-import { selectGamesBackTrend, selectWinPctTrend } from '../lib/selectors/trends';
+import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
 import {
   deriveLeagueInsights,
   deriveStandingsInsights,
@@ -22,6 +22,7 @@ type StandingsPanelProps = {
   focusedOwner?: string | null;
   standingsHistory?: StandingsHistory | null;
   seasonContext?: SeasonContext | null;
+  trendIssues?: string[];
   initialSubview?: StandingsSubview;
 };
 
@@ -55,160 +56,6 @@ function formatWinPct(value: number): string {
 
 function formatGamesBack(value: number): string {
   return value === 0 ? '—' : String(value);
-}
-
-const RECENT_WEEKS = 4;
-
-function MiniTrends({
-  standingsHistory,
-}: {
-  standingsHistory: import('../lib/standingsHistory').StandingsHistory | null;
-}): React.ReactElement {
-  if (!standingsHistory) {
-    return (
-      <p className="text-xs text-gray-500 dark:text-zinc-400">
-        Trends will appear after standings history is available.
-      </p>
-    );
-  }
-
-  const gbSeries = selectGamesBackTrend({ standingsHistory })
-    .map((s) => ({ ...s, points: s.points.slice(-RECENT_WEEKS) }))
-    .sort((a, b) => {
-      const la = a.points[a.points.length - 1]?.value ?? 0;
-      const lb = b.points[b.points.length - 1]?.value ?? 0;
-      return la - lb;
-    })
-    .slice(0, 5);
-
-  const wpSeries = selectWinPctTrend({ standingsHistory })
-    .map((s) => ({ ...s, points: s.points.slice(-RECENT_WEEKS) }))
-    .slice(0, 5);
-
-  function sparkline(points: { week: number; value: number }[], spreadMin: number): string {
-    if (points.length < 2) return '';
-    const values = points.map((p) => p.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const spread = Math.max(spreadMin, max - min);
-    const w = 80;
-    const h = 22;
-    return points
-      .map((p, i) => {
-        const x = (i / (points.length - 1)) * w;
-        const y = h - ((p.value - min) / spread) * h;
-        return `${x},${y}`;
-      })
-      .join(' ');
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
-          Recent trends · last {RECENT_WEEKS} weeks
-        </p>
-        <Link
-          href="/standings?view=trends#trends"
-          className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
-        >
-          Full trends ↗
-        </Link>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        {/* Games Back */}
-        <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-            Games Back
-          </p>
-          <div className="space-y-1">
-            {gbSeries.map((entry) => {
-              const latest = entry.points[entry.points.length - 1]?.value ?? 0;
-              const coords = sparkline(entry.points, 1);
-              return (
-                <div
-                  key={entry.ownerId}
-                  className="flex items-center gap-2 border-b border-gray-100 py-1 last:border-b-0 dark:border-zinc-800"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
-                      {entry.ownerName}
-                    </span>
-                    <span className="ml-1.5 text-xs tabular-nums text-gray-500 dark:text-zinc-400">
-                      {latest.toFixed(1)} GB
-                    </span>
-                  </div>
-                  {coords ? (
-                    <svg
-                      viewBox="0 0 80 22"
-                      className="h-5 w-20 shrink-0 text-blue-500 dark:text-blue-400"
-                      role="img"
-                      aria-label={`${entry.ownerName} games back`}
-                    >
-                      <polyline
-                        points={coords}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Win % */}
-        <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-            Win %
-          </p>
-          <div className="space-y-1">
-            {wpSeries.map((entry) => {
-              const latest = entry.points[entry.points.length - 1]?.value ?? 0;
-              const coords = sparkline(entry.points, 0.0001);
-              return (
-                <div
-                  key={entry.ownerId}
-                  className="flex items-center gap-2 border-b border-gray-100 py-1 last:border-b-0 dark:border-zinc-800"
-                >
-                  <div className="min-w-0 flex-1">
-                    <span className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
-                      {entry.ownerName}
-                    </span>
-                    <span className="ml-1.5 text-xs tabular-nums text-gray-500 dark:text-zinc-400">
-                      {(latest * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  {coords ? (
-                    <svg
-                      viewBox="0 0 80 22"
-                      className="h-5 w-20 shrink-0 text-emerald-500 dark:text-emerald-400"
-                      role="img"
-                      aria-label={`${entry.ownerName} win %`}
-                    >
-                      <polyline
-                        points={coords}
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function formatDiff(value: number): string {
@@ -259,6 +106,7 @@ export default function StandingsPanel({
   focusedOwner = null,
   standingsHistory = null,
   seasonContext = null,
+  trendIssues = [],
   initialSubview = 'table',
 }: StandingsPanelProps): React.ReactElement {
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
@@ -499,7 +347,15 @@ export default function StandingsPanel({
           }`}
           data-standings-subview="trends"
         >
-          <MiniTrends standingsHistory={standingsHistory ?? null} />
+          <TrendsDetailSurface
+            standingsHistory={standingsHistory}
+            season={season}
+            seasonContext={seasonContext}
+            issues={trendIssues}
+            layoutMode="embedded"
+            compact
+            showMomentum={false}
+          />
         </div>
       </div>
     </section>
