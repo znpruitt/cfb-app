@@ -10,7 +10,8 @@ export type PrimaryViewMode =
   | 'matchups'
   | 'matrix'
   | 'standings'
-  | 'owner';
+  | 'owner'
+  | 'rankings';
 
 export function shouldRenderPrimaryViewSection(params: {
   selectedTab: ActiveScheduleTab;
@@ -23,6 +24,7 @@ export function shouldRenderPrimaryViewSection(params: {
     viewMode === 'standings' ||
     viewMode === 'matrix' ||
     viewMode === 'owner' ||
+    viewMode === 'rankings' ||
     selectedTab === 'postseason' ||
     selectedWeek != null
   );
@@ -35,7 +37,8 @@ export type PrimarySurfaceKind =
   | 'schedule'
   | 'matchups'
   | 'matrix'
-  | 'postseason';
+  | 'postseason'
+  | 'rankings';
 
 export function derivePrimarySurfaceKind(params: {
   selectedTab: ActiveScheduleTab;
@@ -47,6 +50,7 @@ export function derivePrimarySurfaceKind(params: {
   if (viewMode === 'standings') return 'standings';
   if (viewMode === 'owner') return 'owner';
   if (viewMode === 'matrix') return 'matrix';
+  if (viewMode === 'rankings') return 'rankings';
   if (selectedTab === 'postseason' && viewMode === 'schedule') return 'postseason';
   return viewMode;
 }

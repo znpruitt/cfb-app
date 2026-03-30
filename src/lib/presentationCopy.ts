@@ -9,8 +9,16 @@ type ActiveSurfaceCopy = {
 export function deriveActiveSurfaceCopy(viewMode: WeekViewMode): ActiveSurfaceCopy {
   if (viewMode === 'overview') {
     return {
-      eyebrow: 'League overview',
+      eyebrow: 'CFB Pool',
       title: 'Overview',
+      subtitle: null,
+    };
+  }
+
+  if (viewMode === 'rankings') {
+    return {
+      eyebrow: 'National polls',
+      title: 'Rankings',
       subtitle: null,
     };
   }

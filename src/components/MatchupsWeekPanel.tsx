@@ -21,7 +21,6 @@ import {
   deriveMatchupsHeaderCopy,
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
-  formatSlateSummaryText,
   getDefaultVisibleOpponentsCount,
   summarizeSlateOpponents,
   type GameOutcomeTone,
@@ -120,28 +119,15 @@ function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
 
 function ownerCardSurfaceClasses(tone: OwnerWeekSlate['performance']['tone']): string {
   if (tone === 'final') {
-    return 'border-emerald-300/70 bg-emerald-500/15 dark:border-emerald-900/70 dark:bg-emerald-950/15';
+    return 'border-emerald-300/70 bg-emerald-500/15 dark:border-emerald-800/70 dark:bg-zinc-800';
   }
   if (tone === 'inprogress') {
-    return 'border-amber-300/70 bg-amber-500/15 dark:border-amber-900/70 dark:bg-amber-950/15';
+    return 'border-amber-300/70 bg-amber-500/15 dark:border-amber-800/70 dark:bg-zinc-800';
   }
   if (tone === 'scheduled') {
-    return 'border-blue-300/70 bg-blue-500/15 dark:border-blue-900/70 dark:bg-blue-950/15';
+    return 'border-blue-300/70 bg-blue-500/15 dark:border-blue-800/70 dark:bg-zinc-800';
   }
-  return 'border-gray-300/90 bg-white dark:border-zinc-700 dark:bg-zinc-900';
-}
-
-function ownerRecordToneClasses(tone: OwnerWeekSlate['performance']['tone']): string {
-  if (tone === 'final') {
-    return 'text-emerald-700 dark:text-emerald-300';
-  }
-  if (tone === 'inprogress') {
-    return 'text-amber-700 dark:text-amber-300';
-  }
-  if (tone === 'scheduled') {
-    return 'text-blue-700 dark:text-blue-300';
-  }
-  return 'text-gray-900 dark:text-zinc-100';
+  return 'border-gray-300/90 bg-white dark:border-zinc-700 dark:bg-zinc-800';
 }
 
 function buildLiveClockLabel(score?: ScorePack): string | null {
@@ -260,7 +246,7 @@ function GameRow({
           <span
             className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
           >
-            {statusTone === 'final' ? 'Final' : statusTone === 'inprogress' ? 'Live' : 'Scheduled'}
+            {statusTone === 'final' ? 'FINAL' : statusTone === 'inprogress' ? 'LIVE' : 'SCH'}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
@@ -329,54 +315,49 @@ function OwnerCard({
   const [isExpanded, setIsExpanded] = React.useState(false);
   const opponentSummaryEntries = React.useMemo(() => summarizeSlateOpponents(slate), [slate]);
   const hasHiddenOpponents = opponentSummaryEntries.length > DEFAULT_VISIBLE_OPPONENTS;
+  const hiddenCount = opponentSummaryEntries.length - DEFAULT_VISIBLE_OPPONENTS;
+  const wins = ownerStanding?.wins ?? 0;
+  const losses = ownerStanding?.losses ?? 0;
+  const winPctDisplay = wins + losses > 0 ? `${((wins / (wins + losses)) * 100).toFixed(1)}%` : '—';
 
   return (
     <article
       ref={onRegisterRef}
-      className={`space-y-2.5 rounded-xl border p-3.5 shadow-sm sm:p-4 ${ownerCardSurfaceClasses(
+      className={`rounded-xl border p-3.5 shadow-sm sm:p-4 ${ownerCardSurfaceClasses(
         slate.performance.tone
       )} ${isFocused ? 'ring-1 ring-blue-400 dark:ring-blue-600' : ''}`}
       data-owner-card={slate.owner}
     >
-      <div className="space-y-2">
-        <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3 sm:gap-y-1">
-          <h3 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-zinc-100">
-            {slate.owner}
-          </h3>
-          <span
-            className={`text-base font-semibold ${ownerRecordToneClasses(slate.performance.tone)}`}
-          >
-            {slate.performance.summary}
-          </span>
-        </div>
-        <p className="text-sm leading-5 text-gray-600 dark:text-zinc-400 break-words">
-          <span>
-            {formatSlateSummaryText({
-              entries: opponentSummaryEntries,
-              totalGames: slate.totalGames,
-              expanded: isExpanded,
-            })}
-          </span>
-          <span className="mx-1 text-gray-300 dark:text-zinc-600">•</span>
-          <span>
-            total {slate.totalGames} · wins {ownerStanding?.wins ?? 0} · live {slate.liveGames}
-          </span>
-          {hasHiddenOpponents ? (
-            <>
-              <span className="mx-1 text-gray-300 dark:text-zinc-600">•</span>
-              <button
-                type="button"
-                className="text-xs font-medium text-gray-500 underline-offset-2 hover:text-gray-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
-                onClick={() => setIsExpanded((current) => !current)}
-              >
-                {isExpanded ? 'Show less' : 'Show all'}
-              </button>
-            </>
-          ) : null}
-        </p>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="text-xl font-bold tracking-tight text-gray-900 dark:text-zinc-50">
+          {slate.owner}
+        </h3>
+        <span className="text-base font-semibold text-blue-600 dark:text-blue-400">
+          {slate.performance.summary}
+        </span>
       </div>
 
-      <ul className="divide-y divide-gray-200 dark:divide-zinc-800">
+      <div className="mb-3 grid grid-cols-4 divide-x divide-gray-200 overflow-hidden rounded-lg border border-gray-200 dark:divide-zinc-700 dark:border-zinc-700">
+        {(
+          [
+            { label: 'GAMES', value: slate.totalGames },
+            { label: 'WINS', value: wins },
+            { label: 'WIN%', value: winPctDisplay },
+            { label: 'LIVE', value: slate.liveGames },
+          ] as const
+        ).map(({ label, value }) => (
+          <div key={label} className="flex flex-col items-center py-2">
+            <span className="text-base font-bold tabular-nums text-gray-900 dark:text-zinc-50">
+              {value}
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-zinc-400">
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <ul className="divide-y divide-gray-200 dark:divide-zinc-700">
         {slate.games.map((slateGame) => (
           <GameRow
             key={`${slate.owner}:${slateGame.game.key}:${slateGame.ownerTeamSide}`}
@@ -389,6 +370,16 @@ function OwnerCard({
           />
         ))}
       </ul>
+
+      {hasHiddenOpponents ? (
+        <button
+          type="button"
+          className="mt-2.5 w-full rounded-md border border-gray-200 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50"
+          onClick={() => setIsExpanded((current) => !current)}
+        >
+          {isExpanded ? 'Show less ↑' : `Show ${hiddenCount} more opponents ↓`}
+        </button>
+      ) : null}
     </article>
   );
 }
@@ -434,15 +425,11 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
 
   return (
     <div className="space-y-3">
-      <section className="space-y-1.5">
-        <div>
+      <section className="space-y-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
             Weekly Slates
           </h2>
-          <p className="text-xs text-gray-600 dark:text-zinc-400">Owner-first weekly cards.</p>
-          <p className="text-xs text-gray-500 dark:text-zinc-400">
-            Live games and primary tags are highlighted.
-          </p>
           {oddsSummaryCopy ? (
             <p className="text-xs text-gray-500 dark:text-zinc-400">{oddsSummaryCopy}</p>
           ) : null}
