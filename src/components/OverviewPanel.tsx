@@ -206,38 +206,6 @@ function LeagueSummaryHero({
 
   if (heroMode === 'podium' && podiumLeaders.length === 3) {
     const [first, second, third] = podiumLeaders;
-    const cards: Array<{
-      rank: 1 | 2 | 3;
-      row: OwnerStandingsRow;
-      className: string;
-      labelClassName: string;
-      rankLabel: string;
-    }> = [
-      {
-        rank: 1,
-        row: first,
-        className:
-          'border-amber-400/70 bg-gradient-to-b from-amber-100/80 to-white ring-1 ring-amber-300/50 dark:border-amber-600/50 dark:from-amber-950/40 dark:to-zinc-900 dark:ring-amber-700/40',
-        labelClassName: 'text-amber-700 dark:text-amber-400',
-        rankLabel: '#1 · Champion',
-      },
-      {
-        rank: 2,
-        row: second,
-        className:
-          'border-slate-300/80 bg-gradient-to-b from-slate-100/90 to-white dark:border-slate-600/60 dark:from-slate-800/50 dark:to-zinc-900',
-        labelClassName: 'text-slate-500 dark:text-slate-400',
-        rankLabel: '#2',
-      },
-      {
-        rank: 3,
-        row: third,
-        className:
-          'border-orange-300/70 bg-gradient-to-b from-orange-100/70 to-white dark:border-orange-700/50 dark:from-orange-950/30 dark:to-zinc-900',
-        labelClassName: 'text-orange-700 dark:text-orange-400',
-        rankLabel: '#3',
-      },
-    ];
 
     return (
       <section className="rounded-xl border border-gray-200 bg-white px-4 py-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/80 sm:px-7 sm:py-6">
@@ -247,47 +215,69 @@ function LeagueSummaryHero({
         <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
           Season podium
         </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          {cards.map((card) => (
+
+        {/* Champion — full width, dominant */}
+        <article className="mt-3 rounded-xl border border-l-4 border-amber-400/60 bg-gradient-to-b from-amber-50/90 to-white px-4 py-4 shadow-sm dark:border-amber-500/60 dark:from-amber-950/35 dark:to-zinc-900">
+          <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+            #1 · Champion
+          </p>
+          <div className="mt-1.5 flex items-start justify-between gap-3">
+            <p className="text-lg font-extrabold text-gray-950 dark:text-zinc-50">{first.owner}</p>
+            <p className="shrink-0 text-xl font-extrabold tabular-nums text-gray-950 dark:text-zinc-50">
+              {first.wins}–{first.losses}
+            </p>
+          </div>
+          <p className="mt-0.5 text-sm text-gray-600 dark:text-zinc-300">
+            Win% {formatWinPct(first.winPct)} · Diff {formatDiff(first.pointDifferential)}
+          </p>
+          {narrative ? (
+            <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">{narrative}</p>
+          ) : null}
+        </article>
+
+        {/* Silver / Bronze — two columns */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          {(
+            [
+              {
+                rank: 2 as const,
+                row: second,
+                className:
+                  'border-slate-300/70 bg-gradient-to-b from-slate-50/90 to-white dark:border-slate-500/50 dark:from-slate-800/40 dark:to-zinc-900',
+                labelClassName: 'text-slate-500 dark:text-slate-400',
+                rankLabel: '#2',
+              },
+              {
+                rank: 3 as const,
+                row: third,
+                className:
+                  'border-orange-300/60 bg-gradient-to-b from-orange-50/80 to-white dark:border-orange-500/40 dark:from-orange-950/25 dark:to-zinc-900',
+                labelClassName: 'text-orange-700 dark:text-orange-400',
+                rankLabel: '#3',
+              },
+            ] as const
+          ).map((card) => (
             <article
               key={card.rank}
-              className={`rounded-xl border px-3 py-3 shadow-sm ${card.className} ${
-                card.rank === 1 ? 'sm:-translate-y-1.5 sm:py-4' : ''
-              }`}
+              className={`rounded-xl border border-l-4 px-3 py-3 shadow-sm ${card.className}`}
             >
               <p
                 className={`text-xs font-semibold uppercase tracking-wider ${card.labelClassName}`}
               >
                 {card.rankLabel}
               </p>
-              <p
-                className={`mt-1 text-base ${
-                  card.rank === 1 ? 'font-extrabold' : 'font-bold'
-                } text-gray-950 dark:text-zinc-50`}
-              >
+              <p className="mt-1 text-base font-bold text-gray-950 dark:text-zinc-50">
                 {card.row.owner}
               </p>
-              <p
-                className={`mt-1 font-semibold tabular-nums ${
-                  card.rank === 1
-                    ? 'text-xl text-gray-950 dark:text-zinc-50'
-                    : 'text-sm text-gray-900 dark:text-zinc-100'
-                }`}
-              >
-                {card.row.wins}–{card.row.losses}
-                {card.rank === 1 ? null : (
-                  <span className="font-bold"> ({formatWinPct(card.row.winPct)})</span>
-                )}
+              <p className="mt-0.5 text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                {card.row.wins}–{card.row.losses}{' '}
+                <span className="font-normal text-gray-600 dark:text-zinc-400">
+                  ({formatWinPct(card.row.winPct)})
+                </span>
               </p>
-              {card.rank === 1 ? (
-                <p className="text-sm text-gray-600 dark:text-zinc-300">
-                  {formatWinPct(card.row.winPct)} · Diff {formatDiff(card.row.pointDifferential)}
-                </p>
-              ) : (
-                <p className="text-xs text-gray-600 dark:text-zinc-300">
-                  Diff {formatDiff(card.row.pointDifferential)}
-                </p>
-              )}
+              <p className="text-xs text-gray-600 dark:text-zinc-300">
+                Diff {formatDiff(card.row.pointDifferential)}
+              </p>
             </article>
           ))}
         </div>
@@ -637,26 +627,6 @@ function HighlightList({
   );
 }
 
-function LeagueStorylines({
-  items,
-}: {
-  items: ReturnType<typeof selectOverviewViewModel>['storylines'];
-}): React.ReactElement | null {
-  if (items.length === 0) return null;
-
-  return (
-    <SectionCard title="Storylines" tone="secondary" compact>
-      <ul className="space-y-2 text-sm text-gray-800 dark:text-zinc-100">
-        {items.slice(0, 3).map((item) => (
-          <li key={item.id} className="list-inside list-disc leading-snug">
-            {item.text}
-          </li>
-        ))}
-      </ul>
-    </SectionCard>
-  );
-}
-
 function GamesBackTrend({
   series,
 }: {
@@ -803,58 +773,6 @@ function WinPctTrend({
   );
 }
 
-function WinBars({
-  rows,
-  variant = 'full',
-}: {
-  rows: ReturnType<typeof selectOverviewViewModel>['winBars'];
-  variant?: 'compact' | 'full';
-}): React.ReactElement {
-  if (rows.length === 0) {
-    return (
-      <p className="text-xs text-gray-500 dark:text-zinc-400">
-        Win bars will appear after standings history is available.
-      </p>
-    );
-  }
-
-  const visibleRows = rows.slice(0, 5);
-  const maxWinPct = Math.max(0.001, ...visibleRows.map((row) => row.winPct));
-
-  return (
-    <div className="space-y-2">
-      {visibleRows.map((row) => {
-        const widthPct = Math.max(8, (row.winPct / maxWinPct) * 100);
-        return (
-          <div
-            key={row.ownerId}
-            className={
-              variant === 'compact'
-                ? 'py-1'
-                : 'rounded-md border border-gray-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900'
-            }
-          >
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <p className="truncate text-xs font-semibold text-gray-800 dark:text-zinc-100">
-                {row.ownerName}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-zinc-400">
-                {row.wins}W · {formatWinPctPercent(row.winPct)}
-              </p>
-            </div>
-            <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-zinc-800">
-              <div
-                className="h-full rounded-full bg-gray-700 dark:bg-zinc-400"
-                style={{ width: `${widthPct}%` }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
@@ -960,14 +878,6 @@ export default function OverviewPanel({
         leader={standingsLeaders[0]}
       />
 
-      {viewModel.heroMode === 'podium' && viewModel.heroNarrative ? (
-        <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-          <p className="text-sm font-medium leading-relaxed text-gray-700 dark:text-zinc-200">
-            {viewModel.heroNarrative}
-          </p>
-        </div>
-      ) : null}
-
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
           {viewModel.standingsContext ? (
@@ -1006,18 +916,12 @@ export default function OverviewPanel({
           </button>
         </SectionCard>
 
-        <SectionCard title="Win % Leaders" tone="secondary" compact>
-          <WinBars rows={viewModel.winBars} variant="compact" />
-        </SectionCard>
+        {sharedInsights.length > 0 ? (
+          <SectionCard title="Insights" tone="secondary" compact>
+            <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
+          </SectionCard>
+        ) : null}
       </div>
-
-      {sharedInsights.length > 0 ? (
-        <SectionCard title="Insights" tone="secondary" compact>
-          <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
-        </SectionCard>
-      ) : null}
-
-      <LeagueStorylines items={viewModel.storylines} />
 
       <SectionCard
         title="Recent results"
