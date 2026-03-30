@@ -1355,7 +1355,6 @@ export default function CFBScheduleApp({
                   focusedOwner={focusedOwner}
                   standingsHistory={standingsHistory}
                   seasonContext={seasonContext}
-                  trendIssues={issues}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
