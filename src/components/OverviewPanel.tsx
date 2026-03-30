@@ -811,12 +811,12 @@ function WinBars({
   }
 
   const visibleRows = rows.slice(0, 5);
-  const maxWins = Math.max(1, ...visibleRows.map((row) => row.wins));
+  const maxWinPct = Math.max(0.001, ...visibleRows.map((row) => row.winPct));
 
   return (
     <div className="space-y-2">
       {visibleRows.map((row) => {
-        const widthPct = Math.max(8, (row.wins / maxWins) * 100);
+        const widthPct = Math.max(8, (row.winPct / maxWinPct) * 100);
         return (
           <div
             key={row.ownerId}
@@ -836,7 +836,7 @@ function WinBars({
             </div>
             <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-zinc-800">
               <div
-                className="h-full rounded-full bg-blue-500 dark:bg-blue-400"
+                className="h-full rounded-full bg-gray-700 dark:bg-zinc-400"
                 style={{ width: `${widthPct}%` }}
               />
             </div>
@@ -1077,7 +1077,7 @@ export default function OverviewPanel({
           </Link>
         }
       >
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
               Games Back
@@ -1089,12 +1089,6 @@ export default function OverviewPanel({
               Win %
             </p>
             <WinPctTrend series={viewModel.winPctTrend} />
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-              Win Bars
-            </p>
-            <WinBars rows={viewModel.winBars} />
           </div>
         </div>
       </SectionCard>
