@@ -179,7 +179,7 @@ export default function GameScoreboard({
     <div className="space-y-2" aria-label="Game scoreboard">
       <div className="flex justify-end">
         <div
-          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] ${statusChipClasses}`}
+          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[11px] font-semibold uppercase tracking-[0.18em] ${statusChipClasses}`}
           data-scoreboard-status
         >
           {statusText}

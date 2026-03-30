@@ -170,7 +170,7 @@ export default function GameWeekPanel({
       ) : null}
       {!viewModel.hasNoGames && showSummaryRow ? (
         <div
-          className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-600 dark:text-zinc-400"
+          className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600 dark:text-zinc-400"
           data-game-summary-row="true"
         >
           {viewModel.scoresAvailableCount < viewModel.totalGames ? (
@@ -273,7 +273,7 @@ export default function GameWeekPanel({
                             )}
                           </div>
                           {primaryTag ? (
-                            <div className="mt-1 inline-flex flex-wrap items-center gap-1 text-[10px] uppercase tracking-wide">
+                            <div className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs uppercase tracking-wide">
                               <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
                                 {LEAGUE_TAG_LABELS[primaryTag]}
                               </span>
@@ -289,7 +289,7 @@ export default function GameWeekPanel({
                           ) : null}
                         </div>
                         <div
-                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[10px] font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(card.summaryStateTone)}`}
+                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-[11px] font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(card.summaryStateTone)}`}
                           data-summary-state
                         >
                           {card.summaryState}

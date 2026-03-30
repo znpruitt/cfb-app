@@ -38,7 +38,7 @@ export default function UploadPanel({
           <div className="mb-2 flex items-center gap-2 text-xs text-gray-600 dark:text-zinc-400">
             <span>Loaded from cache: {ownersLoadedFromCache ? 'Yes' : 'No'}</span>
             <button
-              className="px-2 py-0.5 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+              className="px-3 py-1.5 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
               onClick={onClearCachedOwners}
               disabled={!hasCachedOwners}
               title="Clear cached owners CSV from localStorage"

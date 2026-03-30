@@ -62,7 +62,7 @@ export default function AdminUsagePanel({
         </p>
 
         <button
-          className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
           onClick={() => void loadUsage()}
           disabled={loading}
         >

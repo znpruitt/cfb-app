@@ -266,13 +266,13 @@ function GameRow({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
           {primary ? (
             <span className="inline-flex flex-wrap gap-1">
-              <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
+              <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
                 {LEAGUE_TAG_LABELS[primary]}
               </span>
               {secondary.map((tag) => (
                 <span
                   key={`${slateGame.game.key}:tag:${tag}`}
-                  className="rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                  className="rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                 >
                   {LEAGUE_TAG_LABELS[tag]}
                 </span>

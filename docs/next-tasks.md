@@ -12,16 +12,15 @@
 
 - **Phase 1 (architecture stabilization):** Complete.
 - **Phase 2 (core league surfaces):** Substantially complete foundation.
-- **Active execution focus:** **Phase 2A final closeout + hosted launch validation**.
+- **Phase 2A (production hardening):** Complete.
+- **Active execution focus:** **Phase 2B league UX / engagement**.
 
 ## Hosted deployment runbook
 
 - Use `docs/deployment-runbook.md` for the operator checklist during the real Vercel + Postgres setup and first hosted preview validation.
 - Keep `docs/next-tasks.md` focused on the active engineering queue rather than repeating the step-by-step deployment procedure.
 
-## Phase 2A closeout status (production-safe path)
-
-Completed in codebase:
+## Phase 2A closeout status — complete ✅
 
 1. **Shared durable commissioner data** ✅
 2. **Admin protection for mutating flows** ✅
@@ -29,34 +28,9 @@ Completed in codebase:
 4. **Shared cache for expensive regenerable data** ✅
 5. **Quota-safe live refresh behavior** ✅
 6. **Production recovery + observability basics** ✅
+7. **Mobile / device launch validation** ✅ — targeted fixes shipped; core member surfaces validated.
 
-Remaining before full Phase 2A sign-off:
-
-7. **Mobile / device launch validation** ⏳
-   - Validate core hosted flows on mobile Safari, Android Chrome, and major desktop browsers.
-   - Confirm admin workflows remain usable on smaller screens when needed.
-
-## Active final-closeout queue
-
-1. **Hosted validation execution + evidence capture**
-   - Run the deployment-runbook checklist against hosted preview and production config.
-   - Capture pass/fail notes for schedule load, scores refresh, odds policy behavior, owner upload, alias edits, and admin refresh workflows.
-
-2. **Cross-device validation**
-   - Validate primary member and commissioner flows on mobile Safari, Android Chrome, and desktop browsers.
-   - Record any ergonomics regressions as tightly scoped follow-up tasks.
-
-3. **Phase 2A sign-off update**
-   - Move final closeout summary to `docs/completed-work.md`.
-   - Mark Phase 2A complete in roadmap status once validation evidence is logged.
-
-## Recommended follow-on queue
-
-- Keep tightening production copy in admin/debug surfaces where hosted usage reveals confusion.
-- Add a lightweight member-facing issue/reporting path once hosted stability is in place.
-- Revisit optional decomposition of large files only after the production-safe path is stable.
-
-## Next execution phase (after production hardening): League experience improvements
+## Active queue: Phase 2B league experience improvements
 
 ### Shared Insights System planning + phased rollout
 

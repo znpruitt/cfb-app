@@ -205,7 +205,7 @@ export default function ScoreAttachmentDebugPanel({
                             <div className="flex flex-wrap gap-1">
                               {item.provider.homeTeamRaw ? (
                                 <button
-                                  className="rounded border px-2 py-1"
+                                  className="rounded border px-3 py-1.5"
                                   onClick={() =>
                                     onStageAlias(
                                       item.provider.homeTeamRaw!,
@@ -218,7 +218,7 @@ export default function ScoreAttachmentDebugPanel({
                               ) : null}
                               {item.provider.awayTeamRaw ? (
                                 <button
-                                  className="rounded border px-2 py-1"
+                                  className="rounded border px-3 py-1.5"
                                   onClick={() =>
                                     onStageAlias(
                                       item.provider.awayTeamRaw!,
