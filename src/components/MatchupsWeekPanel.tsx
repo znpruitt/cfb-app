@@ -120,13 +120,13 @@ function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
 
 function ownerCardSurfaceClasses(tone: OwnerWeekSlate['performance']['tone']): string {
   if (tone === 'final') {
-    return 'border-emerald-300/70 bg-emerald-500/5 dark:border-emerald-900/70 dark:bg-emerald-950/15';
+    return 'border-emerald-300/70 bg-emerald-500/15 dark:border-emerald-900/70 dark:bg-emerald-950/15';
   }
   if (tone === 'inprogress') {
-    return 'border-amber-300/70 bg-amber-500/5 dark:border-amber-900/70 dark:bg-amber-950/15';
+    return 'border-amber-300/70 bg-amber-500/15 dark:border-amber-900/70 dark:bg-amber-950/15';
   }
   if (tone === 'scheduled') {
-    return 'border-blue-300/70 bg-blue-500/5 dark:border-blue-900/70 dark:bg-blue-950/15';
+    return 'border-blue-300/70 bg-blue-500/15 dark:border-blue-900/70 dark:bg-blue-950/15';
   }
   return 'border-gray-300/90 bg-white dark:border-zinc-700 dark:bg-zinc-900';
 }
@@ -272,7 +272,7 @@ function GameRow({
               {secondary.map((tag) => (
                 <span
                   key={`${slateGame.game.key}:tag:${tag}`}
-                  className="rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                  className="hidden rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-600 sm:inline-flex dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                 >
                   {LEAGUE_TAG_LABELS[tag]}
                 </span>
