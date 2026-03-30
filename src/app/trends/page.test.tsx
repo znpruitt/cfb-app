@@ -838,6 +838,8 @@ test('deriveEndpointLabelLayout distributes clustered endpoints across lanes wit
     current.push(entry.labelY);
     byLane.set(entry.lane, current);
     assert.equal(entry.connectorPoints.length, 3);
+    assert.ok(entry.connectorPoints[1]!.x > entry.connectorPoints[0]!.x);
+    assert.ok(entry.connectorPoints[2]!.x > entry.connectorPoints[1]!.x);
   }
   for (const yValues of byLane.values()) {
     const sorted = [...yValues].sort((a, b) => a - b);

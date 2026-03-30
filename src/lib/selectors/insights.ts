@@ -34,8 +34,11 @@ const MIN_TOILET_BOWL_FINISHES = 2;
 const TIGHT_RACE_GAP_THRESHOLD = 1;
 const MIN_SURGE_WINS = 2;
 const OVERVIEW_INSIGHT_LIMIT = 3;
-const STANDINGS_INSIGHT_LIMIT = 2;
+const STANDINGS_INSIGHT_LIMIT = 3;
 const FINAL_WEEKS_WINDOW = 3;
+const FINAL_SURGE_MIN_WINS = 3;
+const FINAL_SURGE_MIN_GAMES_BACK_GAIN = 2;
+const STANDINGS_MIN_RACE_PRIORITY = 76;
 
 const OVERVIEW_TYPE_PRIORITY: Record<InsightType, number> = {
   champion_margin: 120,
@@ -69,8 +72,9 @@ export function isNarrativeEligibleOwner(owner: string): boolean {
 
 // Reference owners can include synthetic buckets like NoClaim; only the
 // primary narrative subject must pass isNarrativeEligibleOwner.
-function canUseReferenceOwner(): boolean {
-  return true;
+function canUseReferenceOwner(owner: string | null | undefined): boolean {
+  if (!owner) return false;
+  return owner !== NO_CLAIM_OWNER;
 }
 
 function toInsight(params: {
@@ -245,7 +249,7 @@ function deriveTightRaceInsight(args: {
   const runnerUp = rows.find(
     (row, index) => index > 0 && row.gamesBack <= TIGHT_RACE_GAP_THRESHOLD
   );
-  if (!runnerUp || !canUseReferenceOwner()) return null;
+  if (!runnerUp || !canUseReferenceOwner(runnerUp.owner)) return null;
 
   const gap = runnerUp.gamesBack;
   return toInsight({
@@ -268,8 +272,17 @@ function deriveRecentSurgeInsight(args: {
   resolvedWeeks: number[];
   rows?: OwnerStandingsRow[];
   finalOnly?: boolean;
+  minWinsRequired?: number;
+  minGamesBackGain?: number;
 }): Insight | null {
-  const { standingsHistory, resolvedWeeks, rows = [], finalOnly = false } = args;
+  const {
+    standingsHistory,
+    resolvedWeeks,
+    rows = [],
+    finalOnly = false,
+    minWinsRequired = MIN_SURGE_WINS,
+    minGamesBackGain = 1,
+  } = args;
   if (resolvedWeeks.length < 3) return null;
 
   const latestWeek = resolvedWeeks[resolvedWeeks.length - 1]!;
@@ -296,7 +309,7 @@ function deriveRecentSurgeInsight(args: {
       ): entry is { owner: string; deltaWins: number; deltaGamesBack: number; finalRank: number } =>
         entry !== null
     )
-    .filter((entry) => entry.deltaWins >= MIN_SURGE_WINS || entry.deltaGamesBack > 0)
+    .filter((entry) => entry.deltaWins >= minWinsRequired || entry.deltaGamesBack >= minGamesBackGain)
     .filter((entry) => (finalOnly ? entry.finalRank > 1 : true));
 
   if (deltas.length === 0) return null;
@@ -335,7 +348,7 @@ function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null 
     !leader ||
     !runnerUp ||
     !isNarrativeEligibleOwner(leader.owner) ||
-    !isNarrativeEligibleOwner(runnerUp.owner)
+    !canUseReferenceOwner(runnerUp.owner)
   ) {
     return null;
   }
@@ -358,7 +371,7 @@ function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null 
 function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | null {
   if (rows.length < 2) return null;
   const leader = rows[0];
-  if (!leader || !canUseReferenceOwner()) return null;
+  if (!leader || !canUseReferenceOwner(leader.owner)) return null;
 
   const candidates = rows
     .slice(1, 4)
@@ -505,7 +518,14 @@ export function deriveLeagueInsights(args: {
       pushInsightUnique(
         insights,
         seenIds,
-        deriveRecentSurgeInsight({ standingsHistory, resolvedWeeks, rows, finalOnly: true })
+        deriveRecentSurgeInsight({
+          standingsHistory,
+          resolvedWeeks,
+          rows,
+          finalOnly: true,
+          minWinsRequired: FINAL_SURGE_MIN_WINS,
+          minGamesBackGain: FINAL_SURGE_MIN_GAMES_BACK_GAIN,
+        })
       );
       pushInsightUnique(
         insights,
@@ -561,13 +581,8 @@ export function deriveStandingsInsights(insights: Insight[]): Insight[] {
   });
 
   const contextual = ranked.filter((insight) => {
-    return (
-      insight.type === 'toilet_bowl' ||
-      insight.type === 'collapse' ||
-      insight.type === 'surge' ||
-      insight.type === 'tight_cluster' ||
-      insight.type === 'race'
-    );
+    if (insight.type === 'race') return insight.priorityScore >= STANDINGS_MIN_RACE_PRIORITY;
+    return insight.type !== 'movement';
   });
 
   return contextual.slice(0, STANDINGS_INSIGHT_LIMIT);

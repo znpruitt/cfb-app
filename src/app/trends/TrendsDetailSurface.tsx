@@ -320,6 +320,7 @@ export function deriveEndpointLabelLayout(params: {
   const maxY = chartHeight - 10;
   const laneAssignments = new Map<string, number>();
   const laneOccupancy = new Array(safeLaneCount).fill(0);
+  const laneLastEndpointY = new Array(safeLaneCount).fill(Number.NEGATIVE_INFINITY);
   const sortedByY = [...entries].sort((left, right) => {
     if (left.endpointY !== right.endpointY) return left.endpointY - right.endpointY;
     return left.owner.localeCompare(right.owner);
@@ -332,8 +333,12 @@ export function deriveEndpointLabelLayout(params: {
     for (let lane = 0; lane < safeLaneCount; lane += 1) {
       const overflowPenalty = Math.max(0, estimatedWidth - (laneWidth - 12)) * 2;
       const occupancyPenalty = laneOccupancy[lane] * minVerticalSpacing;
-      const laneDistancePenalty = lane * 5;
-      const score = overflowPenalty + occupancyPenalty + laneDistancePenalty;
+      const localDensityPenalty = Math.max(
+        0,
+        minVerticalSpacing - Math.abs(entry.endpointY - laneLastEndpointY[lane])
+      );
+      const laneDistancePenalty = lane * 4;
+      const score = overflowPenalty + occupancyPenalty + localDensityPenalty * 3 + laneDistancePenalty;
       if (score < bestScore) {
         bestScore = score;
         bestLane = lane;
@@ -341,6 +346,7 @@ export function deriveEndpointLabelLayout(params: {
     }
     laneAssignments.set(entry.owner, bestLane);
     laneOccupancy[bestLane] += 1;
+    laneLastEndpointY[bestLane] = entry.endpointY;
   }
 
   const laneOffsets = new Map<string, number>();
@@ -363,6 +369,7 @@ export function deriveEndpointLabelLayout(params: {
       Math.max(minY, entry.endpointY + (laneOffsets.get(entry.owner) ?? 0))
     );
     const doglegX = labelX - Math.max(8, Math.min(20, laneWidth * 0.22));
+    const connectorStartX = Math.max(0, Math.min(entry.endpointX + 2, doglegX - 2));
     return {
       ...entry,
       lane,
@@ -370,7 +377,7 @@ export function deriveEndpointLabelLayout(params: {
       labelY,
       estimatedWidth,
       connectorPoints: [
-        { x: entry.endpointX + 4, y: entry.endpointY },
+        { x: connectorStartX, y: entry.endpointY },
         { x: doglegX, y: labelY },
         { x: labelX - 2, y: labelY },
       ],
