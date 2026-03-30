@@ -38,7 +38,7 @@ export default function IssuesPanel({
             </div>
             <div className="flex items-center gap-2">
               <button
-                className="px-2 py-1 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
+                className="px-3 py-1.5 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
                 disabled={!hasStagedAliases}
                 onClick={onCommitStagedAliases}
                 title="Save staged aliases and refresh"
@@ -103,14 +103,14 @@ export default function IssuesPanel({
                           <td className="p-2">
                             <div className="flex flex-wrap gap-2">
                               <button
-                                className="px-2 py-1 rounded border"
+                                className="px-3 py-1.5 rounded border"
                                 onClick={() => onStageAlias(d.providerHome, d.providerHome)}
                                 title='Map provider "home" label to its own canonical (fixes diacritics/case/spacing)'
                               >
                                 Map Home→Home
                               </button>
                               <button
-                                className="px-2 py-1 rounded border"
+                                className="px-3 py-1.5 rounded border"
                                 onClick={() => onStageAlias(d.providerAway, d.providerAway)}
                                 title='Map provider "away" label to its own canonical'
                               >
@@ -169,14 +169,14 @@ export default function IssuesPanel({
                               {d.candidates?.slice(0, 4).map((c, idx) => (
                                 <div key={idx} className="flex gap-1">
                                   <button
-                                    className="px-2 py-1 rounded border"
+                                    className="px-3 py-1.5 rounded border"
                                     onClick={() => onStageAlias(d.providerHome, c.csvHome)}
                                     title={`Map provider home → ${c.csvHome}`}
                                   >
                                     Map Home→{c.csvHome}
                                   </button>
                                   <button
-                                    className="px-2 py-1 rounded border"
+                                    className="px-3 py-1.5 rounded border"
                                     onClick={() => onStageAlias(d.providerAway, c.csvAway)}
                                     title={`Map provider away → ${c.csvAway}`}
                                   >

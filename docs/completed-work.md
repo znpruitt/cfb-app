@@ -9,19 +9,21 @@
 
 ## Completed phases / milestones
 
-### Phase 2A — Production Hardening Closeout (engineering implementation)
+### Phase 2A — Production Hardening Closeout
 
-- **Status:** Engineering closeout landed; hosted mobile/device validation remains as operational sign-off.
+- **Status:** Complete. Engineering closeout and mobile/device validation sign-off both landed.
 - **Goals completed:**
   - Hardened shared durable commissioner-managed state for hosted reads.
   - Protected commissioner mutation and refresh flows with lightweight admin authorization.
   - Enforced season-persistent cache-first behavior with admin-only rebuild semantics for schedule/reference refresh.
   - Landed shared cache snapshots for expensive regenerable data and conservative quota-aware refresh behavior.
   - Clarified diagnostics authority by distinguishing shared durable state from ephemeral process-memory counters.
+  - Shipped targeted mobile responsiveness fixes: text size floors, touch target improvements, admin button sizing, and AliasEditorPanel header wrapping.
 - **Key outcomes:**
   - Ordinary member traffic now reads shared cached state without opportunistic upstream rebuilds of schedule/reference data.
   - Commissioner/admin refresh actions are explicit and auditable.
   - Diagnostics are clearer for hosted operators, reducing confusion during production recovery workflows.
+  - Core member surfaces (GameScoreboard, GameWeekPanel, MatchupsWeekPanel, StandingsPanel, OverviewPanel, WeekControls) validated for real-device mobile use.
 - **Optional follow-up debt (non-blocking):**
   - Continue tightening admin/debug copy based on real hosted usage feedback.
   - Optional decomposition of larger files remains available after hosted validation stabilizes.

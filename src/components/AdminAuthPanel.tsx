@@ -46,14 +46,14 @@ export default function AdminAuthPanel(): React.ReactElement {
         />
         <div className="flex flex-wrap items-center gap-2">
           <button
-            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             onClick={handleSave}
             type="button"
           >
             Save token
           </button>
           <button
-            className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+            className="rounded border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
             onClick={handleClear}
             type="button"
           >

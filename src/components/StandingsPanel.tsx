@@ -198,10 +198,11 @@ export default function StandingsPanel({
                             label === 'PF' || label === 'PA' || label === 'Diff' || label === 'GB';
                           const isCompact = label === 'Rank' || label === 'Move';
                           const isTeam = label === 'Team';
+                          const isDeEmphasized = label === 'PA' || label === 'GB';
                           return (
                             <th
                               key={label}
-                              className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${isCompact ? 'w-[2.8rem]' : ''} ${isTeam ? 'min-w-[9.5rem]' : ''} ${isNumericMetric ? 'w-[4.2rem] text-right text-[11px] sm:text-xs text-gray-400 dark:text-zinc-500' : ''}`}
+                              className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${isCompact ? 'w-[2.8rem]' : ''} ${isTeam ? 'min-w-[9.5rem]' : ''} ${isNumericMetric ? 'w-[4.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
                               data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
                             >
                               {label}
@@ -274,13 +275,13 @@ export default function StandingsPanel({
                           <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
                             {row.pointsFor}
                           </td>
-                          <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                          <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
                             {row.pointsAgainst}
                           </td>
                           <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
                             {formatDiff(row.pointDifferential)}
                           </td>
-                          <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                          <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
                             {formatGamesBack(row.gamesBack)}
                           </td>
                         </tr>
@@ -318,7 +319,7 @@ export default function StandingsPanel({
                       {href ? (
                         <Link
                           href={href}
-                          className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+                          className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
                         >
                           Open insight
                         </Link>
