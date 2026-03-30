@@ -920,38 +920,6 @@ export default function OverviewPanel({
         podiumLeaders={viewModel.podiumLeaders}
         leader={standingsLeaders[0]}
       />
-      <LeagueStorylines items={viewModel.storylines} />
-      <SectionCard title="League Trends" tone="secondary" compact>
-        <div className="mb-2 flex justify-end">
-          <Link
-            href="/standings?view=trends#trends"
-            className="inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-          >
-            See full trends
-          </Link>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-3">
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-              Games Back
-            </p>
-            <GamesBackTrend series={viewModel.gamesBackTrend} />
-          </div>
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-              Win %
-            </p>
-            <WinPctTrend series={viewModel.winPctTrend} />
-          </div>
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-              Win Bars
-            </p>
-            <WinBars rows={viewModel.winBars} />
-          </div>
-        </div>
-      </SectionCard>
-
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <SectionCard title="League standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
           {viewModel.standingsContext ? (
@@ -1044,6 +1012,38 @@ export default function OverviewPanel({
           )}
         </div>
       </div>
+
+      <LeagueStorylines items={viewModel.storylines} />
+      <SectionCard title="League Trends" tone="secondary" compact>
+        <div className="mb-2 flex justify-end">
+          <Link
+            href="/standings?view=trends#trends"
+            className="inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
+          >
+            See full trends
+          </Link>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+              Games Back
+            </p>
+            <GamesBackTrend series={viewModel.gamesBackTrend} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+              Win %
+            </p>
+            <WinPctTrend series={viewModel.winPctTrend} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+              Win Bars
+            </p>
+            <WinBars rows={viewModel.winBars} />
+          </div>
+        </div>
+      </SectionCard>
     </div>
   );
 }
