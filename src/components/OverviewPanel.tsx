@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
+import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -19,6 +20,26 @@ import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
+
+function sliceStandingsHistoryToRecentWeeks(
+  history: StandingsHistory,
+  n: number
+): StandingsHistory {
+  const recentWeeks = history.weeks.slice(-n);
+  const weekSet = new Set(recentWeeks);
+  return {
+    weeks: recentWeeks,
+    byWeek: Object.fromEntries(
+      Object.entries(history.byWeek).filter(([w]) => weekSet.has(Number(w)))
+    ),
+    byOwner: Object.fromEntries(
+      Object.entries(history.byOwner).map(([owner, pts]) => [
+        owner,
+        pts.filter((p) => weekSet.has(p.week)),
+      ])
+    ),
+  };
+}
 
 function formatWinPct(value: number): string {
   return value.toFixed(3);
@@ -641,6 +662,7 @@ type OverviewPanelProps = {
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   standingsHistory?: StandingsHistory | null;
+  season?: number;
 };
 
 export default function OverviewPanel({
@@ -660,6 +682,7 @@ export default function OverviewPanel({
   onViewMatchups,
   rankingsByTeamId = new Map(),
   standingsHistory = null,
+  season = 0,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const liveTitle = `Live · ${liveItems.length}`;
@@ -823,6 +846,32 @@ export default function OverviewPanel({
       {liveItems.length > 0 ? (
         <SectionCard title={liveTitle} tone="live" compact>
           <GameCardList items={liveItems} timeZone={timeZone} rankingsByTeamId={rankingsByTeamId} />
+        </SectionCard>
+      ) : null}
+
+      {standingsHistory ? (
+        <SectionCard
+          title="Trends"
+          tone="secondary"
+          compact
+          action={
+            <Link
+              href="/standings?view=trends#trends"
+              className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
+            >
+              See full trends ↗
+            </Link>
+          }
+        >
+          <TrendsDetailSurface
+            standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 4)}
+            season={season}
+            seasonContext={null}
+            issues={[]}
+            layoutMode="embedded"
+            compact
+            showMomentum={false}
+          />
         </SectionCard>
       ) : null}
     </div>
