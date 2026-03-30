@@ -10,6 +10,7 @@ import MatchupMatrixView from './MatchupMatrixView';
 import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
+import RankingsPageContent from './RankingsPageContent';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
@@ -787,7 +788,8 @@ export default function CFBScheduleApp({
     primarySurfaceKind === 'overview' ||
     primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'standings' ||
-    primarySurfaceKind === 'owner';
+    primarySurfaceKind === 'owner' ||
+    primarySurfaceKind === 'rankings';
   const shouldShowWeekControls =
     primarySurfaceKind === 'schedule' ||
     primarySurfaceKind === 'matchups' ||
@@ -1029,14 +1031,14 @@ export default function CFBScheduleApp({
 
   const isAdminSurface = surface === 'admin';
   const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
-  const canRenderPrimarySurface = canRenderLeagueSurface || weekViewMode === 'owner';
+  const canRenderPrimarySurface =
+    canRenderLeagueSurface || weekViewMode === 'owner' || weekViewMode === 'rankings';
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
     !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
   const adminAlertCount = getAdminAlertCount({ issues, diag, aliasStaging });
   const adminHref = '/admin';
   const leagueHref = '/';
-  const rankingsHref = '/rankings';
   const visibleScoresCount = useMemo(
     () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
     [scoresByKey, visibleGames]
@@ -1088,14 +1090,6 @@ export default function CFBScheduleApp({
             <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
               {adminAlertCount} admin item{adminAlertCount === 1 ? '' : 's'} need attention
             </span>
-          ) : null}
-          {!isAdminSurface ? (
-            <Link
-              href={rankingsHref}
-              className="inline-flex w-full items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-            >
-              Rankings
-            </Link>
           ) : null}
           <Link
             href={isAdminSurface ? leagueHref : adminHref}
@@ -1386,6 +1380,17 @@ export default function CFBScheduleApp({
                   teamCatalogById={teamCatalogById}
                   onSavePostseasonOverride={savePostseasonOverride}
                   focusedGameId={focusedGameId}
+                />
+              ) : primarySurfaceKind === 'rankings' ? (
+                <RankingsPageContent
+                  latestWeek={rankings?.latestWeek ?? null}
+                  loading={rankings === null}
+                  error={
+                    issues
+                      .find((issue) => issue.startsWith('CFBD rankings load failed:'))
+                      ?.replace('CFBD rankings load failed: ', '') ?? null
+                  }
+                  season={selectedSeason}
                 />
               ) : weekViewMode === 'matchups' ? (
                 <MatchupsWeekPanel

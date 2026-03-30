@@ -331,11 +331,13 @@ function CondensedStandingsTable({
   onOwnerSelect,
   previousRows,
   liveCountByOwner,
+  leaderLabel = 'Leader',
 }: {
   rows: OwnerStandingsRow[];
   onOwnerSelect?: (owner: string) => void;
   previousRows?: OwnerStandingsRow[] | null;
   liveCountByOwner?: Map<string, number>;
+  leaderLabel?: string;
 }): React.ReactElement {
   const previousRankLookup = new Map(
     (previousRows ?? []).map((row, index) => [row.owner, index + 1] as const)
@@ -407,7 +409,7 @@ function CondensedStandingsTable({
                   </span>
                   {index === 0 ? (
                     <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
-                      Leader
+                      {leaderLabel}
                     </span>
                   ) : null}
                   <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
@@ -984,6 +986,7 @@ export default function OverviewPanel({
               onOwnerSelect={onOwnerSelect}
               previousRows={viewModel.previousStandingsLeaders}
               liveCountByOwner={liveCountByOwner}
+              leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
             />
           )}
           <button
