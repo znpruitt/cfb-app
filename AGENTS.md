@@ -76,6 +76,26 @@ Put shared/non-trivial logic in `src/lib/` (parsing, matching, transforms, diagn
 Schedule-derived game attachment for live scores and odds should be implemented in shared lib helpers,
 not duplicated in route handlers or UI components.
 
+### Selectors (`src/lib/selectors/`)
+
+All derived data — standings, insights, trends, matchup context, storylines — is computed in `src/lib/selectors/`. This is the **single source of derived truth** for the entire app.
+
+Selectors are pure functions: same inputs always produce the same outputs. No side effects, no API calls, no database access.
+
+Key selectors:
+
+| File | Purpose |
+|------|---------|
+| `insights.ts` | League insights (movement, surge, collapse, race, etc.) — shared by Overview and Standings |
+| `overview.ts` | Full Overview page view model (hero, podium, standings context, live items) |
+| `trends.ts` | Games Back trend, week-over-week position deltas, week labels |
+| `matchups.ts` | Head-to-head context per matchup |
+| `storylines.ts` | Contextual narratives |
+| `standingsMovement.ts` | Rank delta per owner |
+| `momentum.ts` | Recent form derivation |
+
+UI components may perform lightweight presentation-layer logic (filtering, sorting already-derived arrays for display). They must not recompute league state inline.
+
 ### API routes
 
 `src/app/api/` routes act as provider adapters:
@@ -137,6 +157,20 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
 7. **Centralized team identity**
    - All team matching must go through `src/lib/teamIdentity.ts`.
    - No duplicate matching logic in route handlers, UI components, or other lib modules.
+
+8. **Postseason canonical week**
+   - Postseason weeks from CFBD restart numbering from 1, colliding with regular-season week numbers.
+   - Canonical week is computed as: `canonicalWeek = maxRegularSeasonWeek + providerWeek`
+   - This prevents Set deduplication from collapsing postseason games into regular-season week slots.
+   - `providerWeek` must be preserved alongside `canonicalWeek` — score attachment traces by `providerWeek`.
+   - **Never revert or bypass this calculation.** Doing so will silently break postseason trend charts and score attachment.
+   - Implementation: `src/lib/schedule.ts` (`buildScheduleFromApi`). Score attachment safety: `src/lib/scoreAttachment.ts` indexes by both `canonicalWeek` and `providerWeek`.
+
+9. **Selector architecture**
+   - All derived league data must be computed in `src/lib/selectors/`. Never inline in UI components.
+   - Selectors are pure functions: same inputs → same outputs. No side effects, no API calls.
+   - Any derivation found outside `src/lib/selectors/` is an architecture violation.
+   - See the Selectors section in Architecture overview for the full catalog.
 
 ---
 
