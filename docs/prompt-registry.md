@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### DOCS-CLAUDE-MD-BOOTSTRAP-v1
+- Purpose: Create CLAUDE.md as a Claude Code-specific companion to AGENTS.md, establishing Claude's role, interaction preferences, and architectural guardrails without duplicating shared project operating content.
+- Scope: `CLAUDE.md` (new file), `docs/prompt-registry.md` update only.
+- Notes: Follow-on to DOCS-PHASE-RECONCILIATION-v1.
+
 ### P2D-TRENDS-FORM-DOTS-v1
 - Purpose: Recent form dots panel — last-5-game W/L indicators using actual game scores, displayed alongside the title chase chart on the Overview Trends card.
 - Scope: `src/components/OverviewPanel.tsx` (RecentFormPanel), `src/lib/selectors/trends.ts` (selectRecentOutcomes).
