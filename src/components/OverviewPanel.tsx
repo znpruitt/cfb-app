@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
+import { selectRecentOutcomes, type WeekOutcome } from '../lib/selectors/trends';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -20,6 +21,109 @@ import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
+
+function sliceStandingsHistoryToRecentWeeks(
+  history: StandingsHistory,
+  n: number
+): StandingsHistory {
+  const recentWeeks = history.weeks.slice(-n);
+  const weekSet = new Set(recentWeeks);
+  return {
+    weeks: recentWeeks,
+    byWeek: Object.fromEntries(
+      Object.entries(history.byWeek).filter(([w]) => weekSet.has(Number(w)))
+    ),
+    byOwner: Object.fromEntries(
+      Object.entries(history.byOwner).map(([owner, pts]) => [
+        owner,
+        pts.filter((p) => weekSet.has(p.week)),
+      ])
+    ),
+  };
+}
+
+function dotColor(result: WeekOutcome): string {
+  if (result === 'W') return 'bg-emerald-500 dark:bg-emerald-400';
+  if (result === 'L') return 'bg-red-500 dark:bg-red-400';
+  return 'bg-gray-400 dark:bg-zinc-500';
+}
+
+const NAME_COL_W = '4.5rem';
+const DOT_COL_W = '1rem';
+
+function RecentFormPanel({
+  standingsHistory,
+  games,
+  scoresByKey,
+  rosterByTeam,
+}: {
+  standingsHistory: StandingsHistory;
+  games: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
+  rosterByTeam: Map<string, string>;
+}): React.ReactElement | null {
+  const { weeks, owners } = React.useMemo(
+    () => selectRecentOutcomes({ standingsHistory, games, scoresByKey, rosterByTeam, maxWeeks: 5 }),
+    [standingsHistory, games, scoresByKey, rosterByTeam]
+  );
+  if (owners.length === 0 || weeks.length === 0) return null;
+
+  return (
+    <div className="border-l border-gray-200 pl-3 dark:border-zinc-700">
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+        Last {weeks.length} weeks
+      </p>
+      {/* Column headers */}
+      <div className="mb-px flex items-center">
+        <span style={{ width: NAME_COL_W, flexShrink: 0 }} />
+        {weeks.map((w) => (
+          <span
+            key={w}
+            className="shrink-0 text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
+            style={{ width: DOT_COL_W }}
+          >
+            W{w}
+          </span>
+        ))}
+      </div>
+      {/* Owner rows */}
+      {owners.map((owner, i) => {
+        const outcomeByWeek = new Map(owner.outcomes.map((o) => [o.week, o.result]));
+        return (
+          <div
+            key={owner.ownerId}
+            className={`flex items-center py-[3px] ${
+              i % 2 !== 0 ? 'rounded-sm bg-gray-50/60 dark:bg-zinc-800/30' : ''
+            }`}
+          >
+            <span
+              className="shrink-0 truncate text-[11px] text-gray-700 dark:text-zinc-300"
+              style={{ width: NAME_COL_W }}
+            >
+              {owner.ownerName}
+            </span>
+            {weeks.map((w) => {
+              const result = outcomeByWeek.get(w);
+              return (
+                <div
+                  key={w}
+                  className="flex shrink-0 items-center justify-center"
+                  style={{ width: DOT_COL_W }}
+                >
+                  {result != null ? (
+                    <span className={`h-2 w-2 rounded-full ${dotColor(result)}`} />
+                  ) : (
+                    <span className="h-[3px] w-[3px] rounded-full bg-gray-200 dark:bg-zinc-700" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function formatWinPct(value: number): string {
   return value.toFixed(3);
@@ -849,7 +953,21 @@ export default function OverviewPanel({
             </Link>
           }
         >
-          <MiniTrendsGrid standingsHistory={standingsHistory} />
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="min-w-0 flex-1">
+              <MiniTrendsGrid
+                standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
+              />
+            </div>
+            <div className="shrink-0">
+              <RecentFormPanel
+                standingsHistory={standingsHistory}
+                games={games}
+                scoresByKey={scoresByKey}
+                rosterByTeam={rosterByTeam}
+              />
+            </div>
+          </div>
         </SectionCard>
       ) : null}
     </div>

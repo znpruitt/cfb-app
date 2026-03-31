@@ -13,7 +13,9 @@
 - **Phase 1 (architecture stabilization):** Complete.
 - **Phase 2 (core league surfaces):** Substantially complete foundation.
 - **Phase 2A (production hardening):** Complete.
-- **Active execution focus:** **Phase 2B league UX / engagement**.
+- **Phase 2B (league UX / engagement):** Complete. See `docs/completed-work.md`.
+- **Phase 3A (overview visual redesign):** Complete. See `docs/completed-work.md`.
+- **Active execution focus:** **Phase 3B overview trends visual sweep** — PR #183 open.
 
 ## Hosted deployment runbook
 
@@ -38,25 +40,23 @@
 - **Standings movement column** — Shipped.
 - **League summary bar** — Satisfied by LeagueSummaryHero; no separate bar needed.
 - **Head-to-head matrix** — Moved to week-view matrix tab; documented in roadmap.
+- **Overview hierarchy fix** ✅ — Shipped in PR #167 (phase-2b-docs-and-overview-hierarchy).
+- **Signal-first copy pass** ✅ — Shipped in PR #168 (phase-2b-signal-first-copy).
+- **Feedback/report issue entry point** ✅ — Shipped in PR #169 (phase-2b-feedback).
+- **UX / information density pass** ✅ — Shipped in PR #170 (phase-2b-ux-density).
+- **App flow improvements** ✅ — Shipped in PR #171 (phase-2b-app-flow).
+- **Visual design language** ✅ — Shipped in PR #172 (phase-2b-visual-polish).
+- **Phase 3A Overview redesign** ✅ — Shipped in PRs #173–#177. See `docs/completed-work.md`.
+- **Phase 3B MiniTrendsGrid + title chase** ✅ — Shipped in PRs #178–#182. See `docs/completed-work.md`.
 
 ### Active tasks
 
-1. **Overview hierarchy fix** ← start here
-   - Move the two-column grid (Standings + Insights/Results/Live) immediately after the Hero.
-   - Push LeagueStorylines and League Trends to secondary position below.
-   - File: `src/components/OverviewPanel.tsx` — JSX block reorder, no logic changes.
-   - Goal: standings visible on mobile without scrolling past narrative sections.
+1. **Phase 3B form dots polish** — PR #183 open on phase-3b-visual-sweep.
+   - Title chase chart, RecentFormPanel, responsive layout.
+   - PROMPT_ID: P3B-TRENDS-FORM-DOTS-v1.
+   - Merge when form dot visual polish is satisfactory.
 
-2. **Signal-first copy pass**
-   - Tighten copy in Storylines card items and Trends section labels.
-   - Reduce narrative filler in favor of data-first scanning.
-   - No component changes — label/copy edits only.
-
-3. **Feedback/report issue entry point** (polish tier)
-   - Lightweight member-facing way to report data issues or leave feedback.
-   - Scope TBD — could be a simple link, modal, or external form.
-
-4. **Commissioner recovery UX refinements** (polish tier)
+2. **Commissioner recovery UX refinements** (polish tier)
    - Based on real hosted usage feedback.
    - No specific changes identified yet — leave until production usage patterns emerge.
 

@@ -9,6 +9,70 @@
 
 ## Completed phases / milestones
 
+### Phase 3B — Overview Trends Visual Sweep
+
+- **Status:** MiniTrendsGrid + title chase complete (PRs #178–#182 merged). Form dots panel open in PR #183.
+- **PROMPT_IDs:** P3B-TRENDS-TITLE-CHASE-v1, P3B-TRENDS-FORM-DOTS-v1
+- **Goals completed:**
+  - Built `MiniTrendsGrid` component — compact SVG line chart embedded in Overview Trends card.
+  - Iterated through viewBox letterboxing fix, inline end labels with push-down deconfliction, and bump chart (all 15 owners).
+  - Pivoted to "title chase" framing: top-5-contenders Games Back chart, last 5 weeks, half-width layout, leader label clamp.
+  - Added `selectGamesBackTrend`, `selectRankTrend` selectors to `src/lib/selectors/trends.ts`.
+  - Added Games Back column to `CondensedStandingsTable` on the Overview standings card.
+  - Added `selectRecentOutcomes` selector — derives per-week W/L from actual game scores (`games + scoresByKey + rosterByTeam`), not inferred cumulative diffs.
+  - Built `RecentFormPanel` — green/red dot grid for last 5 game outcomes, all owners, sorted by current standings rank.
+  - Responsive layout — stacks vertically on mobile, side-by-side on `sm+`.
+- **Key outcomes:**
+  - Overview Trends card conveys the title race narrative at a glance without navigating to the full Trends page.
+  - Form dots reflect verified final game scores, not standing estimates.
+  - Chart and form panel are visually cohesive, compact, and work on mobile.
+- **Optional follow-up (not scheduled):**
+  - Further form dot polish (sizing, legend, win-streak callout).
+  - Magic number / elimination tracker as a third panel candidate.
+
+---
+
+### Phase 3A — Overview Visual Redesign
+
+- **Status:** Complete. PRs #173–#177 merged.
+- **PROMPT_ID:** P3A-OVERVIEW-REDESIGN-v1
+- **Goals completed:**
+  - Redesigned Overview hero into a champion podium with gold/silver/bronze medal accents and a "Champion" badge for the season winner.
+  - Added Win% leaders section and a dedicated Rankings tab surfacing AP/Coaches poll data.
+  - App-wide visual sweep — tab bar styling, matchup card layout, flat insights list.
+  - Design refinements — muted blue palette, corrected win bar rendering, removed duplicate bars from Trends.
+  - Restructured Trends section — removed embedded `TrendsDetailSurface` from Overview; relocated to a compact mini-chart placeholder in Standings sidebar pending Phase 3B build-out.
+- **Key outcomes:**
+  - Overview has a clear visual hierarchy: podium hero → standings/insights grid → results/matchups → trends.
+  - App-wide color and type language is consistent across Overview, Standings, and Matchups surfaces.
+  - Rankings data is surfaced without cluttering primary league views.
+- **Optional follow-up (not scheduled):**
+  - Podium animation or expanded champion celebration for postseason.
+  - Win% bar chart integration into Trends card if space allows.
+
+---
+
+### Phase 2B — UX/Engagement Campaign
+
+- **Status:** Complete. PRs #167–#172 merged.
+- **PROMPT_ID:** P2B-OVERVIEW-UX-CAMPAIGN-v1
+- **Goals completed:**
+  - Overview hierarchy fix — standings + insights grid repositioned immediately after the hero; narrative sections pushed below.
+  - Signal-first copy pass — removed redundant "League" prefixes, filler language, and "this week" suffixes throughout.
+  - Member feedback entry point — lightweight "Report an issue" link added to the page footer.
+  - UX / information density pass — mobile nav improvements, discoverability enhancements, layout clarity.
+  - App flow — tab reorder reflecting usage priority, Matrix season-scope fix, copy alignment across pages.
+  - Visual design language — consistent type size floor, letter-spacing, border-radius, and hover state conventions.
+- **Key outcomes:**
+  - Standings are visible on mobile without scrolling past narrative sections.
+  - Copy is data-first throughout; reduced cognitive overhead for scan-and-leave usage patterns.
+  - Members have a low-friction path to report data issues without leaving the app.
+  - Design language is consistent enough to extend without per-component decisions.
+- **Optional follow-up (not scheduled):**
+  - Commissioner recovery UX refinements — defer until real hosted usage patterns emerge.
+
+---
+
 ### Shared Insights System + Overview Restructure (Phase 2B delivery)
 
 - **Status:** Complete through Phase 6 (convergence). Phase 7 expansion items are optional and not scheduled.
