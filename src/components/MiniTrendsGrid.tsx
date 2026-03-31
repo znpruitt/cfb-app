@@ -16,13 +16,15 @@ const MIN_LABEL_GAP = 10;
 // Curated palette for a small set of lines — warm gold for the leader
 // (connects to the champion card above), then distinct supporting colors.
 const CONTENDER_COLORS = [
-  'hsl(45, 75%, 65%)', // gold — leader
-  'hsl(220, 65%, 68%)', // blue
-  'hsl(150, 55%, 62%)', // green
-  'hsl(300, 50%, 67%)', // purple
-  'hsl(20, 70%, 65%)', // orange
-  'hsl(180, 55%, 62%)', // teal
+  'hsl(45, 85%, 62%)', // gold — leader (echoes champion card)
+  'hsl(220, 75%, 65%)', // blue
+  'hsl(150, 70%, 58%)', // green
+  'hsl(280, 65%, 65%)', // purple
+  'hsl(25, 80%, 62%)', // orange
+  'hsl(180, 70%, 58%)', // teal
 ];
+
+const LABEL_Y_MIN = 6; // prevent labels clipping at SVG top edge
 
 type SeriesPoint = { week: number; value: number };
 type LabelItem = { ownerId: string; y: number; display: string; color: string };
@@ -52,6 +54,8 @@ function buildPath(points: SeriesPoint[], weeks: number[], maxGb: number): strin
 function deconflictLabels(labels: LabelItem[]): LabelItem[] {
   if (labels.length === 0) return [];
   const sorted = [...labels].sort((a, b) => a.y - b.y);
+  // Clamp first label to minimum y so it isn't clipped at the SVG top edge
+  sorted[0] = { ...sorted[0], y: Math.max(sorted[0].y, LABEL_Y_MIN) };
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i].y < sorted[i - 1].y + MIN_LABEL_GAP) {
       sorted[i] = { ...sorted[i], y: sorted[i - 1].y + MIN_LABEL_GAP };
