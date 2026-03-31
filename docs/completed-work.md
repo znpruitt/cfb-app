@@ -9,11 +9,30 @@
 
 ## Completed phases / milestones
 
+### Post-Phase 2D Corrections and Trend Enhancements
+
+- **Status:** Complete. PRs #184–#188 merged on phase-3b-visual-sweep.
+- **PROMPT_IDs:** P2C-STANDINGS-RULE-AND-DOCS-REALIGNMENT-v1, P2-OVR-TRENDS-POSTSEASON-v1, P2-OVR-TRENDS-POLISH-v1, P2-OVR-TRENDS-LABELS-v1
+- **Goals completed:**
+  - **Standings sort rule fix** (PR #184, P2C-STANDINGS-RULE-AND-DOCS-REALIGNMENT-v1): Corrected sort comparator from winPct-first to wins-first per league rules. Added three regression tests covering wins-beats-winPct, winPct tiebreaker, and point differential tiebreaker.
+  - **Postseason week truncation fix** (PR #188, P2-OVR-TRENDS-POSTSEASON-v1): CFBD postseason API restarts week numbers from 1; `buildScheduleFromApi` now computes `postseasonCanonicalWeek = maxRegularSeasonWeek + providerWeek`, making postseason weeks 17+ and preventing Set deduplication from collapsing them into regular-season slots. `providerWeek` preserved for score attachment. `selectPositionDeltas` selector added to `trends.ts` — derives week-over-week standings position delta (positive = moved up) for last N resolved weeks. Replaced `RecentFormPanel` (W/L dots) in Overview with `PositionDeltaPanel` (rank change arrows).
+  - **Chart dead space and week labels** (P2-OVR-TRENDS-POLISH-v1): Removed empty label lane from `MiniTrendsGrid` VIEWBOX when no annotations were present. Added `buildWeekLabelMap` / `formatWeekLabel` utilities in `src/lib/weekLabel.ts` — map postseason game stages to human-readable labels (CFP, Bowl, CCG) driven by actual schedule data; x-axis now shows meaningful postseason week labels instead of W17/W18.
+  - **Endpoint annotations and color coordination** (P2-OVR-TRENDS-LABELS-v1): Restored 90-unit annotation lane in `MiniTrendsGrid` with owner name + GB endpoint labels (collision-detected). Exported `CONTENDER_COLORS` from `MiniTrendsGrid` for shared use. `PositionDeltaPanel` owner name `<span>`s colored to match their corresponding trend line using `CONTENDER_COLORS`.
+- **Key outcomes:**
+  - Standings sort now correctly ranks by wins (primary), then win percentage, then point differential — matching the stated league rules.
+  - Trend charts display the full season arc including postseason weeks; no data truncation at week 16.
+  - Overview Trends card shows position-change momentum alongside the title-race chart, with color continuity between panels.
+  - Postseason x-axis labels (CFP, Bowl, CCG) replace meaningless W17/W18 labels throughout the chart.
+- **Optional follow-up (not scheduled):**
+  - Magic number / elimination tracker as a third panel candidate.
+
+---
+
 ### Phase 2D — Overview Trends Visual Sweep
 
 *Formerly labeled Phase 3B prior to phase numbering reconciliation (DOCS-PHASE-RECONCILIATION-v1).*
 
-- **Status:** MiniTrendsGrid + title chase complete (PRs #178–#182 merged). Form dots panel open in PR #183.
+- **Status:** Complete. PRs #178–#183 merged.
 - **PROMPT_IDs:** P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1
 - **Goals completed:**
   - Built `MiniTrendsGrid` component — compact SVG line chart embedded in Overview Trends card.
@@ -22,7 +41,7 @@
   - Added `selectGamesBackTrend`, `selectRankTrend` selectors to `src/lib/selectors/trends.ts`.
   - Added Games Back column to `CondensedStandingsTable` on the Overview standings card.
   - Added `selectRecentOutcomes` selector — derives per-week W/L from actual game scores (`games + scoresByKey + rosterByTeam`), not inferred cumulative diffs.
-  - Built `RecentFormPanel` — green/red dot grid for last 5 game outcomes, all owners, sorted by current standings rank.
+  - Built `RecentFormPanel` — green/red dot grid for last 5 game outcomes, all owners, sorted by current standings rank (superseded by `PositionDeltaPanel` in post-2D corrections).
   - Responsive layout — stacks vertically on mobile, side-by-side on `sm+`.
 - **Key outcomes:**
   - Overview Trends card conveys the title race narrative at a glance without navigating to the full Trends page.
