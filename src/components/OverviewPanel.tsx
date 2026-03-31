@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
-import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
+import MiniTrendsGrid from './MiniTrendsGrid';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -662,7 +662,6 @@ type OverviewPanelProps = {
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   standingsHistory?: StandingsHistory | null;
-  season?: number;
 };
 
 export default function OverviewPanel({
@@ -682,7 +681,6 @@ export default function OverviewPanel({
   onViewMatchups,
   rankingsByTeamId = new Map(),
   standingsHistory = null,
-  season = 0,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const liveTitle = `Live · ${liveItems.length}`;
@@ -863,14 +861,8 @@ export default function OverviewPanel({
             </Link>
           }
         >
-          <TrendsDetailSurface
+          <MiniTrendsGrid
             standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 4)}
-            season={season}
-            seasonContext={null}
-            issues={[]}
-            layoutMode="embedded"
-            compact
-            showMomentum={false}
           />
         </SectionCard>
       ) : null}
