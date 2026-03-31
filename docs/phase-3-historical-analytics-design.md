@@ -1,6 +1,6 @@
 # Phase 3 — Historical Analytics Design
 
-**Status:** Design draft — for human review before implementation begins.
+**Status:** Design approved — open questions resolved. Ready for implementation prompt.
 **Depends on:** Phase 4 design (see §6 for dependency boundary decisions).
 **No implementation has begun.**
 
@@ -57,7 +57,7 @@ type SeasonArchive = {
 
 - Owner identity is name-based within a season (same as today).
 - Cross-season owner performance is keyed by owner name as it appeared in that season's archived roster.
-- No persistent owner ID is required for the 2026 MVP. If the same person changes their display name between seasons, they appear as two separate owners in historical views. This is acceptable for the MVP.
+- No persistent owner ID is introduced. Owner last names are stable enough for the primary league. If the same person changes their display name between seasons, they appear as two separate owners in historical views. This is a known limitation — revisit only when a concrete cross-season identity problem is demonstrated.
 - A future owner identity system (mapping display names to stable IDs) can be layered on top without changing the archive format.
 
 ### Storage Key Structure
@@ -149,7 +149,9 @@ For a complete historical record, all of the following must be present at archiv
 | Owner roster CSV | appStateStore (`owners:${year}`) | Yes |
 | Alias map | appStateStore (`aliases:${year}`) | Yes — needed to re-run identity resolution |
 
-The archive action must read all of these and compute `StandingsHistory` at archive time. Post-archive, the historical record is immutable.
+The archive action must read all of these and compute `StandingsHistory` at archive time. Post-archive, the historical record is immutable by default.
+
+**Re-archival policy:** Re-archiving a season is allowed but must be an explicit admin action. Before overwriting, the system must present a diff of what changed between the existing archive and the proposed new archive. The admin must confirm before the write commits. Accidental overwrites are not permitted.
 
 ---
 
@@ -157,23 +159,26 @@ The archive action must read all of these and compute `StandingsHistory` at arch
 
 ### New pages and components needed
 
+Historical data lives under a dedicated **`/history/`** route hierarchy — this is a distinct browsing experience from live-season views and warrants its own route, not a `?year=` parameter on existing pages.
+
 **Minimum viable (2026 launch):**
-- **Season picker** — a select/dropdown in the Standings page header and Trends page header, allowing navigation between current season and archived seasons. Previous season data renders the same components with archived data.
-- **Historical Standings view** — the existing `StandingsPanel` with archived `finalStandings` as input. No new component needed if the data contract matches.
-- **Historical Trends view** — the existing `MiniTrendsGrid` with archived `standingsHistory` as input. No new component needed.
+- **`/history/`** — League History landing page listing all archived seasons with winner and final standings per season.
+- **`/history/[year]/`** — Per-season detail: final standings, season arc (trends chart), owner roster for that season.
+- **`/api/history/[year]`** — Server route that reads `SeasonArchive` from appStateStore and returns it.
 
-**Stretch (post-launch, lower priority):**
-- **Owner history summary** — lifetime record, season finish positions, win titles.
-- **Season comparison** — side-by-side current vs. prior season standings.
+**Post-launch additions (not required at launch):**
+- **Owner performance view** — lifetime record, season finish positions, win titles across all archived seasons.
+- **Season comparison** — side-by-side standings from two seasons.
 
-### How does a season picker integrate with existing page architecture?
+### How does the `/history/` route integrate with existing page architecture?
 
-The existing pages are fully client-side rendered against live state. A season picker adds a `selectedYear` control that:
+The existing pages (Standings, Trends) continue to render live-season data only. Historical views at `/history/[year]` are standalone pages that:
 
-1. On current year: uses live in-memory `StandingsHistory` (existing behavior).
-2. On archived year: fetches `SeasonArchive` from a new `/api/history/[year]` route and renders the same components against the archived data.
+1. Fetch `SeasonArchive` from `/api/history/[year]`.
+2. Feed the archived `standingsHistory` and `ownerRosterSnapshot` into the same existing components (`StandingsPanel`, `MiniTrendsGrid`).
+3. Display a prominent "Archived — [Year] Season" banner to distinguish from live views.
 
-The selector inputs (`StandingsHistory`, `rosterByTeam`) are the same shape — archived data feeds the same selectors without new selector variants.
+The selector inputs (`StandingsHistory`, `rosterByTeam`) are the same shape — archived data feeds the same selectors without new selector variants. No season picker is added to live Standings/Trends pages; navigation is via the `/history/` landing page.
 
 ### Which existing selectors need multi-season variants?
 
@@ -205,16 +210,15 @@ Multi-season aggregation selectors (e.g., `selectOwnerLifetimeRecord`) would be 
 
 ---
 
-## 7. Open Questions
+## 7. Resolved Decisions
 
-1. **Owner identity stability.** Should a stable owner ID be introduced now to enable cross-season performance tracking when display names change? Or defer until a concrete need is demonstrated?
+All open questions from the design review have been resolved.
 
-2. **Archive immutability.** If postseason scores are retroactively corrected after archival, should re-archival be allowed? What is the policy for overwriting an existing season archive?
-
-3. **Historical data for pre-2025 seasons.** The 2025 season is the first to be archived programmatically. Prior seasons (2024 and earlier) have no archivable data. Should the app surface a message explaining this, or should historical pages silently hide years without archives?
-
-4. **CFBD data retention.** CFBD returns data for prior seasons if queried with a year parameter. Could the 2025 archive be reconstructed retroactively from the CFBD API, or does the alias/roster state needed for correct identity resolution make retroactive archival unreliable?
-
-5. **Storage size.** A full `StandingsHistory` for a 16-week season with 15 owners is estimated at ~50–100 KB JSON. Ten seasons of archives ≈ 500 KB–1 MB. Is this acceptable in the single Postgres `app_state` table, or does it warrant a separate `season_archives` table at larger scale?
-
-6. **Season picker placement.** Should archived season data be accessible from the current URL structure (`/standings?year=2025`) or require a separate `/history/` route? The former is simpler; the latter is cleaner for sharing.
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Owner identity stability | **Deferred.** No stable owner ID introduced. Owner last names are stable enough for the primary league. Known limitation — revisit only when a concrete cross-season problem is demonstrated. |
+| 2 | Archive immutability | **Re-archival allowed, but admin-gated.** System must present a diff between existing and proposed archive before the write. Admin must confirm. Accidental overwrites not permitted. |
+| 3 | Pre-2025 seasons | **Show a message.** Display "Historical data available from the 2025 season onward." Do not silently hide empty years. |
+| 4 | CFBD retroactive archival | **Not supported.** Alias and roster state at season time cannot be reliably reconstructed. 2025 is the first archived season by design. |
+| 5 | Storage size | **Single `app_state` table is sufficient.** ~500 KB–1 MB over ten seasons is negligible. A separate `season_archives` table is premature optimization and will not be introduced. |
+| 6 | Season picker placement | **Dedicated `/history/` route.** This is a distinct browsing experience from live-season views. `?year=` parameter on existing routes is not used. |

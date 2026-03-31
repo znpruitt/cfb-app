@@ -1,6 +1,6 @@
 # Phase 4 — Multi-League Support Design
 
-**Status:** Design draft — for human review before implementation begins.
+**Status:** Design approved — open questions resolved. Ready for implementation prompt.
 **Affects:** Phase 3 storage key structure (see §7).
 **No implementation has begun.**
 
@@ -39,20 +39,16 @@ Full SaaS multi-tenant, self-serve league creation, or public league discovery a
 /league/:slug/rankings
 ```
 
-Current single-league URL structure (`/`, `/standings`, `/matchups`, etc.) is the implicit default league. Migration options:
+**Decided: Option A — Hard redirect.** The existing root routes (`/standings`, `/overview`, etc.) redirect to `/league/tsc/standings`, etc. All existing bookmarks and shared links continue to work via redirect. Root routes are deprecated after one season.
 
-**Option A — Hard redirect (recommended for MVP):** The existing root routes (`/standings`, `/overview`, etc.) redirect to `/league/default/standings`, etc. The league slug for the existing league is `default` (configurable by commissioner). All bookmarks and shared links continue to work via redirect.
+The primary league slug is **`tsc`**. All primary league URLs will be `/league/tsc/`. Root route redirects point to `/league/tsc/` equivalents.
 
-**Option B — Parallel coexistence:** Root routes continue to serve the existing league. `/league/:slug/` routes serve additional leagues. Avoids redirect complexity but creates two code paths for the same pages.
-
-**Option C — Query parameter:** `/standings?league=slug`. Simpler routing, no path restructuring needed, but less clean for sharing and SEO.
-
-**Recommendation:** Option A. Path-based routing is the cleanest architecture for the long term and is consistent with how Next.js App Router handles dynamic segments. Option C (query params) is acceptable as a transitional first step if Option A's full route refactor is too large for the initial implementation.
+Option B (parallel coexistence) and Option C (query params) are not used.
 
 ### How are league slugs created and managed?
 
-- Slugs are lowercase, alphanumeric, hyphenated strings (e.g., `work-league`, `family-pool`).
-- Created by the commissioner via an admin interface (new, not yet built).
+- Slugs are lowercase, alphanumeric, hyphenated strings (e.g., `tsc`, `work-league`, `family-pool`).
+- Created by the commissioner via the `/admin/leagues/` interface (new, not yet built).
 - The slug is the permanent identifier — changing it would break all existing URLs.
 - Stored in a league registry (see §3).
 
@@ -147,7 +143,7 @@ The resolver itself is pure — it produces a registry from whatever ownership m
 
 1. **App bootstrap context** — `CFBScheduleApp.tsx` (or whatever holds top-level state) needs to know which league is active and hold the league-specific `ownersByTeamId` and `aliasMap`. This is a props/context change, not a type-shape change.
 
-2. **API routes** — all durable-read routes (`/api/owners`, `/api/aliases`, `/api/postseason-overrides`) need a `league` query parameter alongside `year`. Routes currently use `?year=2025`; multi-league adds `?league=default&year=2025`.
+2. **API routes** — all durable-read routes (`/api/owners`, `/api/aliases`, `/api/postseason-overrides`) need a `league` query parameter alongside `year`. Routes currently use `?year=2025`; multi-league adds `?league=tsc&year=2025`.
 
 3. **`SeasonArchive` type** (Phase 3) — should include `leagueSlug: string` so archived data is self-describing.
 
@@ -157,7 +153,7 @@ The resolver itself is pure — it produces a registry from whatever ownership m
 
 ### How are leagues created and configured?
 
-New admin action: "Create league" — commissioner provides display name and slug. The league is added to the registry in appStateStore.
+New admin action: "Create league" — commissioner provides display name and slug. The league is added to the registry in appStateStore. League management lives at **`/admin/leagues/`** — a dedicated admin page separate from single-league admin functions.
 
 No per-league commissioner role is needed for MVP. The single `ADMIN_API_TOKEN` controls all leagues.
 
@@ -184,26 +180,24 @@ type League = {
 
 ### How does existing single-league 2025 data migrate?
 
-**Recommended migration strategy: slug assignment on first access.**
+**Migration strategy: slug assignment on first access.**
 
-1. Define the existing league's slug as `default` (or a commissioner-chosen slug).
-2. On first admin write after Phase 4 deployment, the admin UI writes data to the new `owners:default:2025` scope.
-3. The read path falls back to `owners:2025` if `owners:default:2025` is not found — backward compatibility for a single transition period.
+1. The existing league slug is `tsc`.
+2. On first admin write after Phase 4 deployment, the admin UI writes data to the new `owners:tsc:2025` scope.
+3. The read path falls back to `owners:2025` if `owners:tsc:2025` is not found — backward compatibility for a single transition period.
 4. Once the commissioner confirms migration is complete, the fallback is removed.
 
 This avoids a one-time migration script and handles the transition gracefully.
 
-### What is the default league slug for the existing league?
+### What is the slug for the existing league?
 
-**Recommendation:** `default`. Simple, URL-safe, clearly communicates that it is the original league. The commissioner can configure a display name (`"My Work League"`) independently of the slug.
-
-Alternative: allow the commissioner to choose the slug at first Phase 4 admin login. This avoids `default` appearing in shared URLs, but adds complexity to the migration flow.
+**`tsc`** — the primary league slug. All URLs for the existing league will use `/league/tsc/`. The commissioner can configure a display name independently of the slug.
 
 ### Can both models coexist during a transition period?
 
 **Yes, with a read fallback.** API routes read from `owners:${slug}:${year}` first, then fall back to `owners:${year}` if not found. This allows a phased migration without downtime or data loss.
 
-The fallback should be time-limited — removed in the next deployment cycle after the commissioner confirms all leagues are migrated. Permanent fallback is technical debt.
+The fallback is time-limited — removed in the next deployment cycle after the commissioner confirms all leagues are migrated. Permanent fallback is technical debt.
 
 ---
 
@@ -225,20 +219,17 @@ The Phase 3 API route (`/api/history/[year]`) can be extended to accept `?league
 
 ---
 
-## 8. Open Questions
+## 8. Resolved Decisions
 
-1. **Default slug choice.** Should the existing league use `default` as its slug, or should the commissioner assign a custom slug during Phase 4 setup? `default` is simple but will appear in all URLs for the primary league.
+All open questions from the design review have been resolved.
 
-2. **League selection UI.** How does a member navigate to their league? Options: (a) the app remembers the last league via localStorage, (b) the app root shows a league picker, (c) the commissioner shares a direct `/league/:slug/` URL with members. Which pattern is expected?
-
-3. **URL stability.** If the existing league root URL changes from `/standings` to `/league/default/standings`, all existing bookmarks break unless redirects are implemented. Is the redirect approach (Option A in §2) acceptable, or should the root routes remain for the primary league indefinitely?
-
-4. **Alias isolation.** Should each league have its own alias map, or should aliases be global (shared across leagues)? The current model is global — a single alias map for the entire app. For multi-league, different leagues may have different team-name quirks. Recommendation: per-league alias maps, same as owner rosters.
-
-5. **CFBD ingestion scoping.** Schedule and scores are global (not per-league). Are there any scenarios where different leagues need different schedule years or different postseason filtering? If so, the global schedule assumption breaks.
-
-6. **League deletion.** What happens if a league is deleted? Should its historical archives be deleted, archived, or preserved indefinitely? Is league deletion a supported operation at all?
-
-7. **Season scoping per league.** The current `year` parameter is app-wide. In a multi-league world, could different leagues be in different active seasons? (Unlikely for same-year leagues, but possible if one league runs a different schedule year.) Recommendation: all leagues share the same active season year for MVP.
-
-8. **Commissioner UX for league management.** What does the admin interface look like for managing multiple leagues? Is it a tab switcher, a sidebar, or a separate `/admin/leagues/` page? This is a UX design question, not a data model question, but it affects implementation scope.
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Default slug | **`tsc`** — primary league slug. All primary league URLs use `/league/tsc/`. |
+| 2 | League selection UI | **Commissioner shares direct URL.** No league picker UI at Phase 4. Members bookmark `/league/tsc/`. |
+| 3 | URL stability | **Redirect from root routes.** `/standings` → `/league/tsc/standings`, etc. Root routes deprecated after one season. |
+| 4 | Alias isolation | **Per-league.** Each league has its own alias map scoped to its slug and year. Different leagues may have different team-name quirks. |
+| 5 | CFBD ingestion scoping | **Global.** Schedule and scores are ingested once, shared across all leagues. Per-league owner overlays apply on top of shared game data. |
+| 6 | League deletion | **Not supported at Phase 4 launch.** Add later if a concrete need arises. |
+| 7 | Season scoping per league | **All leagues share the same active season year.** Not supported to run different leagues in different seasons. |
+| 8 | Commissioner UX | **Dedicated `/admin/leagues/` page.** Separate from single-league admin functions. |
