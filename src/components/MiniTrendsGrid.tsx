@@ -98,7 +98,60 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
       fontFamily="inherit"
       aria-hidden="true"
     >
-      {/* Vertical grid line at each week only — horizontal rank lines removed */}
+      {/* Top and bottom bounding lines */}
+      <line
+        x1={0}
+        y1={0}
+        x2={PLOT_W}
+        y2={0}
+        stroke="currentColor"
+        strokeOpacity={0.15}
+        strokeWidth={1}
+      />
+      <line
+        x1={0}
+        y1={CHART_H}
+        x2={PLOT_W}
+        y2={CHART_H}
+        stroke="currentColor"
+        strokeOpacity={0.15}
+        strokeWidth={1}
+      />
+
+      {/* Rank axis labels: 1 at top, N at bottom */}
+      <text
+        x={2}
+        y={yOfRank(1, ownerCount) + 3}
+        fontSize={7}
+        fill="currentColor"
+        fillOpacity={0.35}
+        fontWeight={400}
+      >
+        1
+      </text>
+      <text
+        x={2}
+        y={yOfRank(ownerCount, ownerCount) + 3}
+        fontSize={7}
+        fill="currentColor"
+        fillOpacity={0.35}
+        fontWeight={400}
+      >
+        {ownerCount}
+      </text>
+
+      {/* Vertical separator between chart and label lane */}
+      <line
+        x1={PLOT_W}
+        y1={0}
+        x2={PLOT_W}
+        y2={CHART_H}
+        stroke="currentColor"
+        strokeOpacity={0.12}
+        strokeWidth={1}
+      />
+
+      {/* Vertical grid line at each week only */}
       {weeks.map((week, i) => {
         const x = xOfWeek(i, weeks.length);
         return (
