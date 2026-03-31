@@ -27,7 +27,8 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
   - targeted mobile responsiveness fixes shipped; core member surfaces validated for real-device use
 - Phase 2B league UX / engagement is **complete**.
 - Phase 2C overview visual redesign is **complete**.
-- The active milestone is **Phase 2D overview trends visual sweep** — PR #183 open.
+- Phase 2D overview trends visual sweep is **complete**. All PRs merged. Planning pause in effect — no active implementation tasks.
+- Next campaign to be defined before resuming implementation work.
 
 ## Production data policy
 
@@ -120,10 +121,10 @@ PROMPT_ID: P2B-OVERVIEW-UX-CAMPAIGN-v1
 Complete. See `docs/completed-work.md` for the full record.
 PROMPT_ID: P2C-OVERVIEW-REDESIGN-v1
 
-## Phase 2D — Overview Trends Visual Sweep (complete / PR #183 open)
+## Phase 2D — Overview Trends Visual Sweep (complete)
 
 See `docs/completed-work.md` for the full record.
-PROMPT_IDs: P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1
+PROMPT_IDs: P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1, P2-OVR-TRENDS-POSTSEASON-v1, P2-OVR-TRENDS-POLISH-v1, P2-OVR-TRENDS-LABELS-v1, P2C-STANDINGS-RULE-AND-DOCS-REALIGNMENT-v1
 
 ## Phase 3 — Historical analytics (optional)
 

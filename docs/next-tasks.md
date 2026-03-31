@@ -15,7 +15,8 @@
 - **Phase 2A (production hardening):** Complete.
 - **Phase 2B (league UX / engagement):** Complete. See `docs/completed-work.md`.
 - **Phase 2C (overview visual redesign):** Complete. See `docs/completed-work.md`.
-- **Active execution focus:** **Phase 2D overview trends visual sweep** — PR #183 open.
+- **Phase 2D (overview trends visual sweep):** Complete. All PRs merged. See `docs/completed-work.md`.
+- **Active execution focus:** Planning pause — no active implementation tasks. Next campaign TBD.
 
 ## Hosted deployment runbook
 
@@ -48,21 +49,21 @@
 - **Visual design language** ✅ — Shipped in PR #172 (phase-2b-visual-polish).
 - **Phase 2C Overview redesign** ✅ — Shipped in PRs #173–#177. See `docs/completed-work.md`.
 - **Phase 2D MiniTrendsGrid + title chase** ✅ — Shipped in PRs #178–#182. See `docs/completed-work.md`.
+- **Phase 2D form dots polish** ✅ — Merged PR #183 (phase-3b-visual-sweep). See `docs/completed-work.md`.
+- **Standings sort rule fix** ✅ — Merged PR #184. See `docs/completed-work.md`.
+- **Postseason trend fix + position deltas panel** ✅ — Merged PR #188. See `docs/completed-work.md`.
 
 ### Active tasks
 
-1. **Phase 2D form dots polish** — PR #183 open on phase-3b-visual-sweep.
-   - Title chase chart, RecentFormPanel, responsive layout.
-   - PROMPT_ID: P2D-TRENDS-FORM-DOTS-v1.
-   - Merge when form dot visual polish is satisfactory.
+No active tasks. Planning pause in effect.
 
-2. **Commissioner recovery UX refinements** (polish tier)
+1. **Commissioner recovery UX refinements** (polish tier — parked)
    - Based on real hosted usage feedback.
    - No specific changes identified yet — leave until production usage patterns emerge.
 
 ## Post-Phase 2D planning pause
 
-- Once PR #183 merges, Phase 2D is complete. No active implementation tasks.
+- Phase 2D is complete. No active implementation tasks.
 - Next campaign to be defined before resuming implementation work.
 
 ## Future-planned note: Multi-league support (scoped)
