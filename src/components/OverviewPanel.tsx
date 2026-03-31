@@ -434,6 +434,14 @@ function CondensedStandingsTable({
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 dark:text-zinc-400">
                   <span>Win% {formatWinPct(row.winPct)}</span>
                   <span className="text-gray-400 dark:text-zinc-500">
+                    GB{' '}
+                    {row.gamesBack === 0
+                      ? '—'
+                      : Number.isInteger(row.gamesBack)
+                        ? row.gamesBack
+                        : row.gamesBack.toFixed(1)}
+                  </span>
+                  <span className="text-gray-400 dark:text-zinc-500">
                     Diff {formatDiff(row.pointDifferential)}
                   </span>
                   {liveCount > 0 ? (
