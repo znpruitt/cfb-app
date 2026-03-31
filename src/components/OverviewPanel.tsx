@@ -48,6 +48,9 @@ function dotColor(result: WeekOutcome): string {
   return 'bg-gray-400 dark:bg-zinc-500';
 }
 
+const NAME_COL_W = '5.5rem';
+const DOT_COL_W = '1.35rem';
+
 function RecentFormPanel({
   standingsHistory,
 }: {
@@ -60,41 +63,49 @@ function RecentFormPanel({
   if (owners.length === 0 || weeks.length === 0) return null;
 
   return (
-    <div>
+    <div className="border-l border-gray-200 pl-4 dark:border-zinc-700">
       <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
         Last {weeks.length} weeks
       </p>
-      <div
-        className="mb-0.5 grid items-center gap-x-1"
-        style={{ gridTemplateColumns: `minmax(0,1fr) repeat(${weeks.length}, 1.1rem)` }}
-      >
-        <span />
+      {/* Column headers */}
+      <div className="mb-px flex items-center">
+        <span style={{ width: NAME_COL_W, flexShrink: 0 }} />
         {weeks.map((w) => (
           <span
             key={w}
-            className="text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
+            className="shrink-0 text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
+            style={{ width: DOT_COL_W }}
           >
             W{w}
           </span>
         ))}
       </div>
-      {owners.map((owner) => {
+      {/* Owner rows */}
+      {owners.map((owner, i) => {
         const outcomeByWeek = new Map(owner.outcomes.map((o) => [o.week, o.result]));
         return (
           <div
             key={owner.ownerId}
-            className="grid items-center gap-x-1 py-[3px]"
-            style={{ gridTemplateColumns: `minmax(0,1fr) repeat(${weeks.length}, 1.1rem)` }}
+            className={`flex items-center py-[3px] ${
+              i % 2 !== 0 ? 'rounded-sm bg-gray-50/60 dark:bg-zinc-800/30' : ''
+            }`}
           >
-            <span className="truncate text-[11px] text-gray-700 dark:text-zinc-300">
+            <span
+              className="shrink-0 truncate text-[11px] text-gray-700 dark:text-zinc-300"
+              style={{ width: NAME_COL_W }}
+            >
               {owner.ownerName}
             </span>
             {weeks.map((w) => {
               const result = outcomeByWeek.get(w);
               return (
-                <div key={w} className="flex items-center justify-center">
+                <div
+                  key={w}
+                  className="flex shrink-0 items-center justify-center"
+                  style={{ width: DOT_COL_W }}
+                >
                   {result != null ? (
-                    <span className={`h-[7px] w-[7px] rounded-full ${dotColor(result)}`} />
+                    <span className={`h-2 w-2 rounded-full ${dotColor(result)}`} />
                   ) : (
                     <span className="h-[3px] w-[3px] rounded-full bg-gray-200 dark:bg-zinc-700" />
                   )}
@@ -942,7 +953,7 @@ export default function OverviewPanel({
                 standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
               />
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 shrink-0">
               <RecentFormPanel standingsHistory={standingsHistory} />
             </div>
           </div>
