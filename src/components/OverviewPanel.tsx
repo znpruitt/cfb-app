@@ -21,26 +21,6 @@ import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
 
-function sliceStandingsHistoryToRecentWeeks(
-  history: StandingsHistory,
-  n: number
-): StandingsHistory {
-  const recentWeeks = history.weeks.slice(-n);
-  const weekSet = new Set(recentWeeks);
-  return {
-    weeks: recentWeeks,
-    byWeek: Object.fromEntries(
-      Object.entries(history.byWeek).filter(([w]) => weekSet.has(Number(w)))
-    ),
-    byOwner: Object.fromEntries(
-      Object.entries(history.byOwner).map(([owner, pts]) => [
-        owner,
-        pts.filter((p) => weekSet.has(p.week)),
-      ])
-    ),
-  };
-}
-
 function formatWinPct(value: number): string {
   return value.toFixed(3);
 }
@@ -869,9 +849,7 @@ export default function OverviewPanel({
             </Link>
           }
         >
-          <MiniTrendsGrid
-            standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 4)}
-          />
+          <MiniTrendsGrid standingsHistory={standingsHistory} />
         </SectionCard>
       ) : null}
     </div>
