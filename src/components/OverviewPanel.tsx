@@ -3,6 +3,8 @@ import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
 import { selectRecentOutcomes, type WeekOutcome } from '../lib/selectors/trends';
+import type { AppGame } from '../lib/schedule';
+import type { ScorePack } from '../lib/scores';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -53,12 +55,18 @@ const DOT_COL_W = '1rem';
 
 function RecentFormPanel({
   standingsHistory,
+  games,
+  scoresByKey,
+  rosterByTeam,
 }: {
   standingsHistory: StandingsHistory;
+  games: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
+  rosterByTeam: Map<string, string>;
 }): React.ReactElement | null {
   const { weeks, owners } = React.useMemo(
-    () => selectRecentOutcomes({ standingsHistory, maxWeeks: 5 }),
-    [standingsHistory]
+    () => selectRecentOutcomes({ standingsHistory, games, scoresByKey, rosterByTeam, maxWeeks: 5 }),
+    [standingsHistory, games, scoresByKey, rosterByTeam]
   );
   if (owners.length === 0 || weeks.length === 0) return null;
 
@@ -947,14 +955,19 @@ export default function OverviewPanel({
             </Link>
           }
         >
-          <div className="flex flex-col gap-4 sm:flex-row">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <div className="min-w-0 flex-1">
               <MiniTrendsGrid
                 standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
               />
             </div>
             <div className="shrink-0">
-              <RecentFormPanel standingsHistory={standingsHistory} />
+              <RecentFormPanel
+                standingsHistory={standingsHistory}
+                games={games}
+                scoresByKey={scoresByKey}
+                rosterByTeam={rosterByTeam}
+              />
             </div>
           </div>
         </SectionCard>

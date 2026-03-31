@@ -1,4 +1,7 @@
 import type { StandingsHistory } from '../standingsHistory';
+import type { AppGame } from '../schedule';
+import type { ScorePack } from '../scores';
+import { classifyScorePackStatus } from '../gameStatus';
 import { selectResolvedStandingsWeeks } from './historyResolution';
 
 export type GamesBackSeriesPoint = {
@@ -214,41 +217,50 @@ export type OwnerRecentOutcomes = {
 };
 
 /**
- * Derives per-week W/L/T outcomes for every owner from cumulative standings history.
- * Each week's result is inferred by diffing consecutive cumulative records.
+ * Derives per-week W/L/T outcomes for every owner from actual game scores.
+ * Only weeks with a final score are included; pending/live games produce no dot.
  */
 export function selectRecentOutcomes(args: {
   standingsHistory: StandingsHistory;
+  games: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
+  rosterByTeam: Map<string, string>;
   maxWeeks?: number;
 }): { weeks: number[]; owners: OwnerRecentOutcomes[] } {
-  const { standingsHistory, maxWeeks = 5 } = args;
+  const { standingsHistory, games, scoresByKey, rosterByTeam, maxWeeks = 5 } = args;
   const { resolvedWeeks, latestResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
   const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
   const recentWeeks = resolvedWeeks.slice(-maxWeeks);
-  const weekIndexMap = new Map(resolvedWeeks.map((w, i) => [w, i]));
+
+  // Build a lookup: week → owner → 'W' | 'L' | 'T'
+  const resultByWeekOwner = new Map<number, Map<string, WeekOutcome>>();
+  for (const game of games) {
+    const week = game.week;
+    if (week == null || !recentWeeks.includes(week)) continue;
+    const score = scoresByKey[game.key];
+    if (classifyScorePackStatus(score) !== 'final') continue;
+    const awayScore = score.away.score;
+    const homeScore = score.home.score;
+    if (awayScore == null || homeScore == null) continue;
+
+    const awayOwner = rosterByTeam.get(game.csvAway);
+    const homeOwner = rosterByTeam.get(game.csvHome);
+    if (!resultByWeekOwner.has(week)) resultByWeekOwner.set(week, new Map());
+    const weekMap = resultByWeekOwner.get(week)!;
+
+    if (awayOwner) {
+      weekMap.set(awayOwner, awayScore > homeScore ? 'W' : awayScore < homeScore ? 'L' : 'T');
+    }
+    if (homeOwner) {
+      weekMap.set(homeOwner, homeScore > awayScore ? 'W' : homeScore < awayScore ? 'L' : 'T');
+    }
+  }
 
   const ownerOutcomes: OwnerRecentOutcomes[] = owners.map((owner) => {
-    const series = standingsHistory.byOwner[owner] ?? [];
-    const pointByWeek = new Map(series.map((p) => [p.week, p]));
-
     const outcomes = recentWeeks.flatMap((week): { week: number; result: WeekOutcome }[] => {
-      const curr = pointByWeek.get(week);
-      if (!curr) return [];
-
-      const weekIdx = weekIndexMap.get(week) ?? -1;
-      const prevWeek = weekIdx > 0 ? resolvedWeeks[weekIdx - 1] : null;
-      const prev = prevWeek != null ? pointByWeek.get(prevWeek) : null;
-
-      let result: WeekOutcome;
-      if (!prev) {
-        result = curr.wins > 0 ? 'W' : curr.losses > 0 ? 'L' : 'T';
-      } else {
-        result = curr.wins > prev.wins ? 'W' : curr.losses > prev.losses ? 'L' : 'T';
-      }
-
-      return [{ week, result }];
+      const result = resultByWeekOwner.get(week)?.get(owner);
+      return result != null ? [{ week, result }] : [];
     });
-
     return { ownerId: owner, ownerName: owner, outcomes };
   });
 
