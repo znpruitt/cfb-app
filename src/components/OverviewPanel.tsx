@@ -3,8 +3,6 @@ import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
 import { selectRecentOutcomes, type WeekOutcome } from '../lib/selectors/trends';
-import type { AppGame } from '../lib/schedule';
-import type { ScorePack } from '../lib/scores';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
