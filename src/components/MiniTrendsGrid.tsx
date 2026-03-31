@@ -29,14 +29,22 @@ function xOfWeek(weekIndex: number, totalWeeks: number): number {
 function buildPath(points: SeriesPoint[], weeks: number[], ownerCount: number): string {
   if (points.length === 0) return '';
   const weekIndexMap = new Map(weeks.map((w, i) => [w, i]));
-  return points
-    .map((p, i) => {
-      const xi = weekIndexMap.get(p.week) ?? 0;
-      const x = xOfWeek(xi, weeks.length);
-      const y = yOfRank(p.value, ownerCount);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
+  const coords = points.map((p) => {
+    const xi = weekIndexMap.get(p.week) ?? 0;
+    return { x: xOfWeek(xi, weeks.length), y: yOfRank(p.value, ownerCount) };
+  });
+  if (coords.length === 1) return `M${coords[0].x.toFixed(1)},${coords[0].y.toFixed(1)}`;
+
+  // Cubic bezier S-curves: control points use the horizontal midpoint between
+  // each pair of data points, giving smooth rank transitions.
+  let d = `M${coords[0].x.toFixed(1)},${coords[0].y.toFixed(1)}`;
+  for (let i = 1; i < coords.length; i++) {
+    const p0 = coords[i - 1];
+    const p1 = coords[i];
+    const mx = ((p0.x + p1.x) / 2).toFixed(1);
+    d += ` C${mx},${p0.y.toFixed(1)} ${mx},${p1.y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`;
+  }
+  return d;
 }
 
 function deconflictLabels(labels: LabelItem[]): LabelItem[] {
@@ -139,7 +147,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             d={d}
             fill="none"
             stroke={color}
-            strokeWidth={idx === 0 ? 2 : 1.5}
+            strokeWidth={idx === 0 ? 1.5 : 1}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
@@ -163,9 +171,9 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
           key={`lbl-${label.ownerId}`}
           x={PLOT_W + 6}
           y={label.y + 3.5}
-          fontSize={9}
+          fontSize={8}
           fill={label.color}
-          fontWeight={500}
+          fontWeight={400}
         >
           {label.display}
         </text>
@@ -181,9 +189,9 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             x={x}
             y={CHART_H + LABEL_H - 4}
             textAnchor={anchor}
-            fontSize={9}
+            fontSize={8}
             fill="currentColor"
-            fillOpacity={0.4}
+            fillOpacity={0.35}
           >
             W{week}
           </text>
