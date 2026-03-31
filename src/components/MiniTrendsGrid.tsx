@@ -4,9 +4,9 @@ import { buildOwnerColorMap } from '../app/trends/presentationColors';
 import { selectGamesBackTrend, selectWinPctTrend } from '../lib/selectors/trends';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
-const CHART_H = 150;
+const CHART_H = 120;
 const LABEL_H = 18;
-const VIEWBOX_W = 220;
+const VIEWBOX_W = 500;
 const TOTAL_H = CHART_H + LABEL_H;
 
 type SeriesPoint = { week: number; value: number };
@@ -79,7 +79,7 @@ function MiniChart({
       <svg
         viewBox={`0 0 ${VIEWBOX_W} ${TOTAL_H}`}
         className="w-full"
-        style={{ height: TOTAL_H }}
+        style={{ height: 'auto' }}
         aria-hidden="true"
       >
         {[0.25, 0.5, 0.75].map((t) => {
