@@ -12,12 +12,12 @@ const TOTAL_H = CHART_H + LABEL_H;
 const X_PAD = PLOT_W * 0.015;
 const MIN_LABEL_GAP = 10;
 
-// Muted palette: lower saturation (40%) and higher lightness (62%) than the
-// full-detail trends view, keeping lines distinguishable without being vivid.
+// Colors tuned for dark backgrounds: moderate saturation (58%), higher
+// lightness (65–76%) so lines read clearly without being neon.
 function ownerColor(index: number, total: number): string {
   const hue = ((index / Math.max(1, total)) * 360).toFixed(2);
-  const lightness = 62 + (index % 4) * 5;
-  return `hsl(${hue}, 40%, ${lightness}%)`;
+  const lightness = 65 + (index % 4) * 3;
+  return `hsl(${hue}, 58%, ${lightness}%)`;
 }
 
 type SeriesPoint = { week: number; value: number };
@@ -125,7 +125,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             d={d}
             fill="none"
             stroke={color}
-            strokeOpacity={0.6}
+            strokeOpacity={0.85}
             strokeWidth={idx === 0 ? 1.5 : 1}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -136,13 +136,13 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
       {/* Inline end labels: colored dot + neutral text */}
       {endLabels.map((label) => (
         <g key={`lbl-${label.ownerId}`}>
-          <circle cx={PLOT_W + 5} cy={label.y} r={1.5} fill={label.color} fillOpacity={0.8} />
+          <circle cx={PLOT_W + 5} cy={label.y} r={2} fill={label.color} />
           <text
             x={PLOT_W + 11}
             y={label.y + 3}
             fontSize={8}
             fill="currentColor"
-            fillOpacity={0.55}
+            fillOpacity={0.7}
             fontWeight={400}
           >
             {label.display}
@@ -162,7 +162,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             textAnchor={anchor}
             fontSize={8}
             fill="currentColor"
-            fillOpacity={0.3}
+            fillOpacity={0.4}
           >
             W{week}
           </text>
