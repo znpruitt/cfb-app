@@ -204,3 +204,53 @@ export function selectWinPctTrendFull(args: {
 export function selectWinBarsFull(args: { standingsHistory: StandingsHistory }): WinBarsRow[] {
   return selectWinBars(args);
 }
+
+export type WeekOutcome = 'W' | 'L' | 'T';
+
+export type OwnerRecentOutcomes = {
+  ownerId: string;
+  ownerName: string;
+  outcomes: { week: number; result: WeekOutcome }[];
+};
+
+/**
+ * Derives per-week W/L/T outcomes for every owner from cumulative standings history.
+ * Each week's result is inferred by diffing consecutive cumulative records.
+ */
+export function selectRecentOutcomes(args: {
+  standingsHistory: StandingsHistory;
+  maxWeeks?: number;
+}): { weeks: number[]; owners: OwnerRecentOutcomes[] } {
+  const { standingsHistory, maxWeeks = 5 } = args;
+  const { resolvedWeeks, latestResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
+  const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
+  const recentWeeks = resolvedWeeks.slice(-maxWeeks);
+  const weekIndexMap = new Map(resolvedWeeks.map((w, i) => [w, i]));
+
+  const ownerOutcomes: OwnerRecentOutcomes[] = owners.map((owner) => {
+    const series = standingsHistory.byOwner[owner] ?? [];
+    const pointByWeek = new Map(series.map((p) => [p.week, p]));
+
+    const outcomes = recentWeeks.flatMap((week): { week: number; result: WeekOutcome }[] => {
+      const curr = pointByWeek.get(week);
+      if (!curr) return [];
+
+      const weekIdx = weekIndexMap.get(week) ?? -1;
+      const prevWeek = weekIdx > 0 ? resolvedWeeks[weekIdx - 1] : null;
+      const prev = prevWeek != null ? pointByWeek.get(prevWeek) : null;
+
+      let result: WeekOutcome;
+      if (!prev) {
+        result = curr.wins > 0 ? 'W' : curr.losses > 0 ? 'L' : 'T';
+      } else {
+        result = curr.wins > prev.wins ? 'W' : curr.losses > prev.losses ? 'L' : 'T';
+      }
+
+      return [{ week, result }];
+    });
+
+    return { ownerId: owner, ownerName: owner, outcomes };
+  });
+
+  return { weeks: recentWeeks, owners: ownerOutcomes };
+}

@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
+import { selectRecentOutcomes, type WeekOutcome } from '../lib/selectors/trends';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -39,6 +40,72 @@ function sliceStandingsHistoryToRecentWeeks(
       ])
     ),
   };
+}
+
+function dotColor(result: WeekOutcome): string {
+  if (result === 'W') return 'bg-emerald-500 dark:bg-emerald-400';
+  if (result === 'L') return 'bg-red-500 dark:bg-red-400';
+  return 'bg-gray-400 dark:bg-zinc-500';
+}
+
+function RecentFormPanel({
+  standingsHistory,
+}: {
+  standingsHistory: StandingsHistory;
+}): React.ReactElement | null {
+  const { weeks, owners } = React.useMemo(
+    () => selectRecentOutcomes({ standingsHistory, maxWeeks: 5 }),
+    [standingsHistory]
+  );
+  if (owners.length === 0 || weeks.length === 0) return null;
+
+  return (
+    <div>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
+        Last {weeks.length} weeks
+      </p>
+      <div
+        className="mb-0.5 grid items-center gap-x-1"
+        style={{ gridTemplateColumns: `minmax(0,1fr) repeat(${weeks.length}, 1.1rem)` }}
+      >
+        <span />
+        {weeks.map((w) => (
+          <span
+            key={w}
+            className="text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
+          >
+            W{w}
+          </span>
+        ))}
+      </div>
+      {owners.map((owner) => {
+        const outcomeByWeek = new Map(owner.outcomes.map((o) => [o.week, o.result]));
+        return (
+          <div
+            key={owner.ownerId}
+            className="grid items-center gap-x-1 py-[3px]"
+            style={{ gridTemplateColumns: `minmax(0,1fr) repeat(${weeks.length}, 1.1rem)` }}
+          >
+            <span className="truncate text-[11px] text-gray-700 dark:text-zinc-300">
+              {owner.ownerName}
+            </span>
+            {weeks.map((w) => {
+              const result = outcomeByWeek.get(w);
+              return (
+                <div key={w} className="flex items-center justify-center">
+                  {result != null ? (
+                    <span className={`h-[7px] w-[7px] rounded-full ${dotColor(result)}`} />
+                  ) : (
+                    <span className="h-[3px] w-[3px] rounded-full bg-gray-200 dark:bg-zinc-700" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function formatWinPct(value: number): string {
@@ -869,10 +936,15 @@ export default function OverviewPanel({
             </Link>
           }
         >
-          <div className="w-1/2">
-            <MiniTrendsGrid
-              standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
-            />
+          <div className="flex gap-6">
+            <div className="w-1/2 min-w-0">
+              <MiniTrendsGrid
+                standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <RecentFormPanel standingsHistory={standingsHistory} />
+            </div>
           </div>
         </SectionCard>
       ) : null}
