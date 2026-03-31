@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
 import { selectPositionDeltas } from '../lib/selectors/trends';
+import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -59,14 +60,18 @@ function deltaLabel(delta: number | null): string {
 
 function PositionDeltaPanel({
   standingsHistory,
+  weekLabel,
 }: {
   standingsHistory: StandingsHistory;
+  weekLabel?: (week: number) => string;
 }): React.ReactElement | null {
   const { weeks, owners } = React.useMemo(
     () => selectPositionDeltas({ standingsHistory, maxWeeks: 5 }),
     [standingsHistory]
   );
   if (owners.length === 0 || weeks.length === 0) return null;
+
+  const labelFn = weekLabel ?? ((w: number) => `W${w}`);
 
   return (
     <div className="border-l border-gray-200 pl-3 dark:border-zinc-700">
@@ -82,7 +87,7 @@ function PositionDeltaPanel({
             className="shrink-0 text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
             style={{ width: DELTA_COL_W }}
           >
-            W{w}
+            {labelFn(w)}
           </span>
         ))}
       </div>
@@ -771,6 +776,10 @@ export default function OverviewPanel({
   standingsHistory = null,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
+  const weekLabelFn = React.useMemo(() => {
+    const labelMap = buildWeekLabelMap(games);
+    return (week: number) => formatWeekLabel(week, labelMap);
+  }, [games]);
   const liveTitle = `Live · ${liveItems.length}`;
   const liveCountByOwner = React.useMemo(() => {
     const standings = new Map<string, number>();
@@ -953,10 +962,11 @@ export default function OverviewPanel({
             <div className="min-w-0 flex-1">
               <MiniTrendsGrid
                 standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
+                weekLabel={weekLabelFn}
               />
             </div>
             <div className="shrink-0">
-              <PositionDeltaPanel standingsHistory={standingsHistory} />
+              <PositionDeltaPanel standingsHistory={standingsHistory} weekLabel={weekLabelFn} />
             </div>
           </div>
         </SectionCard>
