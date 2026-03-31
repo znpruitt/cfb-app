@@ -1,46 +1,51 @@
 import React from 'react';
 
-import { selectRankTrend } from '../lib/selectors/trends';
+import { selectGamesBackTrend } from '../lib/selectors/trends';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
-const CHART_H = 220;
+const CHART_H = 160;
 const LABEL_H = 20;
-const LABEL_W = 95;
+const LABEL_W = 105;
 const VIEWBOX_W = 560;
 const PLOT_W = VIEWBOX_W - LABEL_W;
 const TOTAL_H = CHART_H + LABEL_H;
 const X_PAD = PLOT_W * 0.015;
+const CONTENDERS = 5;
 const MIN_LABEL_GAP = 10;
 
-// Colors tuned for dark backgrounds: moderate saturation (58%), higher
-// lightness (65–76%) so lines read clearly without being neon.
-function ownerColor(index: number, total: number): string {
-  const hue = ((index / Math.max(1, total)) * 360).toFixed(2);
-  const lightness = 65 + (index % 4) * 3;
-  return `hsl(${hue}, 58%, ${lightness}%)`;
-}
+// Curated palette for a small set of lines — warm gold for the leader
+// (connects to the champion card above), then distinct supporting colors.
+const CONTENDER_COLORS = [
+  'hsl(45, 75%, 65%)', // gold — leader
+  'hsl(220, 65%, 68%)', // blue
+  'hsl(150, 55%, 62%)', // green
+  'hsl(300, 50%, 67%)', // purple
+  'hsl(20, 70%, 65%)', // orange
+  'hsl(180, 55%, 62%)', // teal
+];
 
 type SeriesPoint = { week: number; value: number };
-type LabelItem = { ownerId: string; ownerName: string; y: number; display: string; color: string };
-
-function yOfRank(rank: number, ownerCount: number): number {
-  return ((rank - 0.5) / ownerCount) * CHART_H;
-}
+type LabelItem = { ownerId: string; y: number; display: string; color: string };
 
 function xOfWeek(weekIndex: number, totalWeeks: number): number {
   const xRange = PLOT_W - 2 * X_PAD;
   return totalWeeks <= 1 ? PLOT_W / 2 : X_PAD + (weekIndex / (totalWeeks - 1)) * xRange;
 }
 
-function buildPath(points: SeriesPoint[], weeks: number[], ownerCount: number): string {
+function yOfGb(gb: number, maxGb: number): number {
+  return (gb / Math.max(0.1, maxGb)) * CHART_H;
+}
+
+function buildPath(points: SeriesPoint[], weeks: number[], maxGb: number): string {
   if (points.length === 0) return '';
   const weekIndexMap = new Map(weeks.map((w, i) => [w, i]));
-  const coords = points.map((p) => {
-    const xi = weekIndexMap.get(p.week) ?? 0;
-    return { x: xOfWeek(xi, weeks.length), y: yOfRank(p.value, ownerCount) };
-  });
-  return coords
-    .map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`)
+  return points
+    .map((p, i) => {
+      const xi = weekIndexMap.get(p.week) ?? 0;
+      const x = xOfWeek(xi, weeks.length);
+      const y = yOfGb(p.value, maxGb);
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
     .join(' ');
 }
 
@@ -63,29 +68,32 @@ function deconflictLabels(labels: LabelItem[]): LabelItem[] {
 type Props = { standingsHistory: StandingsHistory };
 
 export default function MiniTrendsGrid({ standingsHistory }: Props): React.ReactElement | null {
-  const rankSeries = React.useMemo(() => selectRankTrend({ standingsHistory }), [standingsHistory]);
+  const allSeries = React.useMemo(
+    () => selectGamesBackTrend({ standingsHistory }),
+    [standingsHistory]
+  );
+  const series = allSeries.slice(0, CONTENDERS);
 
   const weeks = standingsHistory.weeks;
-  if (weeks.length === 0 || rankSeries.length === 0) return null;
+  if (weeks.length === 0 || series.length === 0) return null;
 
-  const ownerCount = rankSeries.length;
-  const colorMap = new Map(rankSeries.map((s, i) => [s.ownerId, ownerColor(i, ownerCount)]));
+  // Y scale: max GB across contenders + 10% padding
+  const maxGb = Math.max(1, ...series.flatMap((s) => s.points.map((p) => p.value)));
+  const paddedMax = maxGb * 1.1;
 
-  const rawLabels: LabelItem[] = rankSeries.flatMap((series) => {
-    const lastPoint = series.points.at(-1);
+  const rawLabels: LabelItem[] = series.flatMap((s, i) => {
+    const lastPoint = s.points.at(-1);
     if (!lastPoint) return [];
-    const y = yOfRank(lastPoint.value, ownerCount);
-    const name =
-      series.ownerName.length > 8 ? `${series.ownerName.slice(0, 7)}\u2026` : series.ownerName;
-    return [
-      {
-        ownerId: series.ownerId,
-        ownerName: series.ownerName,
-        y,
-        display: `${name} #${lastPoint.value}`,
-        color: colorMap.get(series.ownerId) ?? '#888',
-      },
-    ];
+    const y = yOfGb(lastPoint.value, paddedMax);
+    const color = CONTENDER_COLORS[i] ?? '#888';
+    const name = s.ownerName.length > 9 ? `${s.ownerName.slice(0, 8)}\u2026` : s.ownerName;
+    const gbLabel =
+      lastPoint.value === 0
+        ? 'Leader'
+        : Number.isInteger(lastPoint.value)
+          ? `${lastPoint.value} GB`
+          : `${lastPoint.value.toFixed(1)} GB`;
+    return [{ ownerId: s.ownerId, y, display: `${name}  ${gbLabel}`, color }];
   });
 
   const endLabels = deconflictLabels(rawLabels);
@@ -98,7 +106,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
       fontFamily="inherit"
       aria-hidden="true"
     >
-      {/* Top and bottom bounding lines */}
+      {/* Bounding lines */}
       <line
         x1={0}
         y1={0}
@@ -118,29 +126,15 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
         strokeWidth={1}
       />
 
-      {/* Rank axis labels: 1 at top, N at bottom */}
-      <text
-        x={2}
-        y={yOfRank(1, ownerCount) + 3}
-        fontSize={7}
-        fill="currentColor"
-        fillOpacity={0.35}
-        fontWeight={400}
-      >
-        1
+      {/* Y-axis anchors */}
+      <text x={2} y={11} fontSize={7} fill="currentColor" fillOpacity={0.35}>
+        0 GB
       </text>
-      <text
-        x={2}
-        y={yOfRank(ownerCount, ownerCount) + 3}
-        fontSize={7}
-        fill="currentColor"
-        fillOpacity={0.35}
-        fontWeight={400}
-      >
-        {ownerCount}
+      <text x={2} y={CHART_H - 3} fontSize={7} fill="currentColor" fillOpacity={0.35}>
+        {Math.round(maxGb)} GB
       </text>
 
-      {/* Vertical separator between chart and label lane */}
+      {/* Label lane separator */}
       <line
         x1={PLOT_W}
         y1={0}
@@ -151,7 +145,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
         strokeWidth={1}
       />
 
-      {/* Vertical grid line at each week only */}
+      {/* Vertical grid lines at each week */}
       {weeks.map((week, i) => {
         const x = xOfWeek(i, weeks.length);
         return (
@@ -168,25 +162,25 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
         );
       })}
 
-      {/* Series paths */}
-      {rankSeries.map((series, idx) => {
-        const color = colorMap.get(series.ownerId) ?? '#888';
-        const d = buildPath(series.points, weeks, ownerCount);
+      {/* Series paths — leader slightly thicker */}
+      {series.map((s, i) => {
+        const color = CONTENDER_COLORS[i] ?? '#888';
+        const d = buildPath(s.points, weeks, paddedMax);
         return d ? (
           <path
-            key={series.ownerId}
+            key={s.ownerId}
             d={d}
             fill="none"
             stroke={color}
-            strokeOpacity={0.85}
-            strokeWidth={idx === 0 ? 1.5 : 1}
+            strokeOpacity={0.9}
+            strokeWidth={i === 0 ? 1.75 : 1.25}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
         ) : null;
       })}
 
-      {/* Inline end labels: colored dot + neutral text */}
+      {/* End labels */}
       {endLabels.map((label) => (
         <g key={`lbl-${label.ownerId}`}>
           <circle cx={PLOT_W + 5} cy={label.y} r={2} fill={label.color} />
@@ -195,7 +189,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             y={label.y + 3}
             fontSize={8}
             fill="currentColor"
-            fillOpacity={0.7}
+            fillOpacity={0.75}
             fontWeight={400}
           >
             {label.display}
