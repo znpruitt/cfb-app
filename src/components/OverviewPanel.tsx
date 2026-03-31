@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
-import MiniTrendsGrid from './MiniTrendsGrid';
+import MiniTrendsGrid, { CONTENDER_COLORS } from './MiniTrendsGrid';
 import { selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
@@ -61,9 +61,12 @@ function deltaLabel(delta: number | null): string {
 function PositionDeltaPanel({
   standingsHistory,
   weekLabel,
+  seriesColors,
 }: {
   standingsHistory: StandingsHistory;
   weekLabel?: (week: number) => string;
+  /** Colors indexed by owner position — must match the trend chart's CONTENDER_COLORS order. */
+  seriesColors?: readonly string[];
 }): React.ReactElement | null {
   const { weeks, owners } = React.useMemo(
     () => selectPositionDeltas({ standingsHistory, maxWeeks: 5 }),
@@ -94,6 +97,9 @@ function PositionDeltaPanel({
       {/* Owner rows */}
       {owners.map((owner, i) => {
         const deltaByWeek = new Map(owner.deltas.map((d) => [d.week, d.delta]));
+        // Color the owner name to match their trend line; owners beyond the chart's
+        // contender count (no trend line) fall back to default text styling.
+        const nameColor = seriesColors?.[i];
         return (
           <div
             key={owner.ownerId}
@@ -102,8 +108,8 @@ function PositionDeltaPanel({
             }`}
           >
             <span
-              className="shrink-0 truncate text-[11px] text-gray-700 dark:text-zinc-300"
-              style={{ width: NAME_COL_W }}
+              className="shrink-0 truncate text-[11px] font-medium"
+              style={{ width: NAME_COL_W, color: nameColor ?? undefined }}
             >
               {owner.ownerName}
             </span>
@@ -966,7 +972,11 @@ export default function OverviewPanel({
               />
             </div>
             <div className="shrink-0">
-              <PositionDeltaPanel standingsHistory={standingsHistory} weekLabel={weekLabelFn} />
+              <PositionDeltaPanel
+                standingsHistory={standingsHistory}
+                weekLabel={weekLabelFn}
+                seriesColors={CONTENDER_COLORS}
+              />
             </div>
           </div>
         </SectionCard>

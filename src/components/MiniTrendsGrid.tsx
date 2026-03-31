@@ -5,14 +5,19 @@ import type { StandingsHistory } from '../lib/standingsHistory';
 
 const CHART_H = 160;
 const LABEL_H = 20;
+const LABEL_W = 90;
 const VIEWBOX_W = 560;
+const PLOT_W = VIEWBOX_W - LABEL_W; // 470 — chart lines; remaining 90 is the annotation lane
 const TOTAL_H = CHART_H + LABEL_H;
-const X_PAD = VIEWBOX_W * 0.015;
+const X_PAD = PLOT_W * 0.015;
 const CONTENDERS = 5;
+const MIN_LABEL_GAP = 10;
+const LABEL_Y_MIN = 6;
 
 // Curated palette for a small set of lines — warm gold for the leader
 // (connects to the champion card above), then distinct supporting colors.
-const CONTENDER_COLORS = [
+// Exported so PositionDeltaPanel can apply the same color to owner name text.
+export const CONTENDER_COLORS = [
   'hsl(45, 85%, 62%)', // gold — leader (echoes champion card)
   'hsl(220, 75%, 65%)', // blue
   'hsl(150, 70%, 58%)', // green
@@ -22,10 +27,11 @@ const CONTENDER_COLORS = [
 ];
 
 type SeriesPoint = { week: number; value: number };
+type LabelItem = { ownerId: string; y: number; display: string; color: string };
 
 function xOfWeek(weekIndex: number, totalWeeks: number): number {
-  const xRange = VIEWBOX_W - 2 * X_PAD;
-  return totalWeeks <= 1 ? VIEWBOX_W / 2 : X_PAD + (weekIndex / (totalWeeks - 1)) * xRange;
+  const xRange = PLOT_W - 2 * X_PAD;
+  return totalWeeks <= 1 ? PLOT_W / 2 : X_PAD + (weekIndex / (totalWeeks - 1)) * xRange;
 }
 
 function yOfGb(gb: number, maxGb: number): number {
@@ -43,6 +49,23 @@ function buildPath(points: SeriesPoint[], weeks: number[], maxGb: number): strin
       return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');
+}
+
+function deconflictLabels(labels: LabelItem[]): LabelItem[] {
+  if (labels.length === 0) return [];
+  const sorted = [...labels].sort((a, b) => a.y - b.y);
+  sorted[0] = { ...sorted[0], y: Math.max(sorted[0].y, LABEL_Y_MIN) };
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].y < sorted[i - 1].y + MIN_LABEL_GAP) {
+      sorted[i] = { ...sorted[i], y: sorted[i - 1].y + MIN_LABEL_GAP };
+    }
+  }
+  const lastY = sorted[sorted.length - 1].y;
+  if (lastY > CHART_H) {
+    const shift = lastY - CHART_H;
+    return sorted.map((l) => ({ ...l, y: l.y - shift }));
+  }
+  return sorted;
 }
 
 type Props = {
@@ -71,6 +94,23 @@ export default function MiniTrendsGrid({
   const defaultWeekLabel = (w: number) => `W${w}`;
   const labelFn = weekLabel ?? defaultWeekLabel;
 
+  // Build endpoint annotations (name + GB) at the right terminus of each line
+  const rawLabels: LabelItem[] = series.flatMap((s, i) => {
+    const lastPoint = s.points.at(-1);
+    if (!lastPoint) return [];
+    const y = yOfGb(lastPoint.value, paddedMax);
+    const color = CONTENDER_COLORS[i] ?? '#888';
+    const name = s.ownerName.length > 9 ? `${s.ownerName.slice(0, 8)}\u2026` : s.ownerName;
+    const gbLabel =
+      lastPoint.value === 0
+        ? 'Leader'
+        : Number.isInteger(lastPoint.value)
+          ? `${lastPoint.value} GB`
+          : `${lastPoint.value.toFixed(1)} GB`;
+    return [{ ownerId: s.ownerId, y, display: `${name}  ${gbLabel}`, color }];
+  });
+  const endLabels = deconflictLabels(rawLabels);
+
   return (
     <svg
       viewBox={`0 0 ${VIEWBOX_W} ${TOTAL_H}`}
@@ -79,11 +119,11 @@ export default function MiniTrendsGrid({
       fontFamily="inherit"
       aria-hidden="true"
     >
-      {/* Bounding lines */}
+      {/* Bounding lines (chart area only) */}
       <line
         x1={0}
         y1={0}
-        x2={VIEWBOX_W}
+        x2={PLOT_W}
         y2={0}
         stroke="currentColor"
         strokeOpacity={0.15}
@@ -92,7 +132,7 @@ export default function MiniTrendsGrid({
       <line
         x1={0}
         y1={CHART_H}
-        x2={VIEWBOX_W}
+        x2={PLOT_W}
         y2={CHART_H}
         stroke="currentColor"
         strokeOpacity={0.15}
@@ -106,6 +146,17 @@ export default function MiniTrendsGrid({
       <text x={2} y={CHART_H - 3} fontSize={7} fill="currentColor" fillOpacity={0.35}>
         {Math.round(maxGb)} GB
       </text>
+
+      {/* Annotation lane separator */}
+      <line
+        x1={PLOT_W}
+        y1={0}
+        x2={PLOT_W}
+        y2={CHART_H}
+        stroke="currentColor"
+        strokeOpacity={0.1}
+        strokeWidth={1}
+      />
 
       {/* Vertical grid lines at each week */}
       {weeks.map((week, i) => {
@@ -141,6 +192,23 @@ export default function MiniTrendsGrid({
           />
         ) : null;
       })}
+
+      {/* Endpoint annotations — color-matched, collision-detected */}
+      {endLabels.map((label) => (
+        <g key={`lbl-${label.ownerId}`}>
+          <circle cx={PLOT_W + 4} cy={label.y} r={2} fill={label.color} fillOpacity={0.9} />
+          <text
+            x={PLOT_W + 10}
+            y={label.y + 3}
+            fontSize={8}
+            fill={label.color}
+            fillOpacity={0.9}
+            fontWeight={500}
+          >
+            {label.display}
+          </text>
+        </g>
+      ))}
 
       {/* Week labels on x-axis */}
       {weeks.map((week, i) => {
