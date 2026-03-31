@@ -9,10 +9,12 @@
 
 ## Completed phases / milestones
 
-### Phase 3B — Overview Trends Visual Sweep
+### Phase 2D — Overview Trends Visual Sweep
+
+*Formerly labeled Phase 3B prior to phase numbering reconciliation (DOCS-PHASE-RECONCILIATION-v1).*
 
 - **Status:** MiniTrendsGrid + title chase complete (PRs #178–#182 merged). Form dots panel open in PR #183.
-- **PROMPT_IDs:** P3B-TRENDS-TITLE-CHASE-v1, P3B-TRENDS-FORM-DOTS-v1
+- **PROMPT_IDs:** P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1
 - **Goals completed:**
   - Built `MiniTrendsGrid` component — compact SVG line chart embedded in Overview Trends card.
   - Iterated through viewBox letterboxing fix, inline end labels with push-down deconfliction, and bump chart (all 15 owners).
@@ -32,10 +34,12 @@
 
 ---
 
-### Phase 3A — Overview Visual Redesign
+### Phase 2C — Overview Visual Redesign
+
+*Formerly labeled Phase 3A prior to phase numbering reconciliation (DOCS-PHASE-RECONCILIATION-v1).*
 
 - **Status:** Complete. PRs #173–#177 merged.
-- **PROMPT_ID:** P3A-OVERVIEW-REDESIGN-v1
+- **PROMPT_ID:** P2C-OVERVIEW-REDESIGN-v1
 - **Goals completed:**
   - Redesigned Overview hero into a champion podium with gold/silver/bronze medal accents and a "Champion" badge for the season winner.
   - Added Win% leaders section and a dedicated Rankings tab surfacing AP/Coaches poll data.
@@ -157,6 +161,7 @@
 Use this structure for each new completed phase/milestone:
 
 - **Status:**
+- **PROMPT_ID(s):**
 - **Goals completed:**
 - **Key outcomes:**
 - **Optional follow-up debt (non-blocking):**

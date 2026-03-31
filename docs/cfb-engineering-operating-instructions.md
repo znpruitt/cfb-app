@@ -9,7 +9,7 @@ It establishes:
 - debugging practices  
 - API usage constraints  
 - prompt governance standards  
-- division of labor between **Zach (project lead)** and **Codex (implementation engine)**  
+- division of labor between **Zach (project lead)** and **AI implementation engines**  
 
 The goal is to keep development **structured, predictable, and efficient** across future threads.
 
@@ -332,11 +332,15 @@ Omitting the line, altering its value/label/format, or placing it lower in the r
 
 Required final response structure example:
 
-    PROMPT_ID: DOCS-CODEX-RESPONSE-PROMPT-ID-v1
-    Summary
-    Files Changed
-    Testing
-    Notes
+    PROMPT_ID: DOCS-PHASE-RECONCILIATION-v1
+
+    ## Summary
+
+    ## Diagnosis / Key Considerations
+
+    ## Recommended Approach
+
+    ## Implementation Plan
 
 ---
 
@@ -361,7 +365,7 @@ Responsible for:
 - generating large diffs  
 - implementing defined tasks  
 
-## ChatGPT (Architect / Debug Analyst)
+## AI Architect / Debug Analyst (currently Claude)
 
 Responsible for:
 
