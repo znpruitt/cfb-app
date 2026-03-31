@@ -173,12 +173,13 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
       {/* Week labels on x-axis */}
       {weeks.map((week, i) => {
         const x = xOfWeek(i, weeks.length);
+        const anchor = i === 0 ? 'start' : i === weeks.length - 1 ? 'end' : 'middle';
         return (
           <text
             key={`xl-${week}`}
             x={x}
             y={CHART_H + LABEL_H - 4}
-            textAnchor="middle"
+            textAnchor={anchor}
             fontSize={9}
             fill="currentColor"
             fillOpacity={0.4}
