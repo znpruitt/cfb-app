@@ -293,6 +293,14 @@ export function buildScheduleFromApi(params: {
   const apiPostseasonGames: AppGame[] = [];
   const regularSeasonWeekCalendar = buildRegularSeasonWeekCalendar(scheduleItems);
 
+  // Max regular season canonical week, used below to remap postseason weeks so they
+  // appear AFTER regular season in standingsHistory. CFBD postseason week numbers
+  // restart from 1, which would otherwise collide with regular season week 1, 2, …
+  // in the standings history week buckets (and trend charts would truncate at week 16).
+  const maxRegularSeasonWeek = scheduleItems
+    .filter((i) => i.seasonType !== 'postseason')
+    .reduce((max, i) => Math.max(max, typeof i.week === 'number' ? i.week : 0), 0);
+
   for (const rawItem of scheduleItems) {
     const regularSeasonWeek = deriveCanonicalRegularSeasonWeek(rawItem, regularSeasonWeekCalendar);
     const item: ScheduleWireItem = {
@@ -303,6 +311,13 @@ export function buildScheduleFromApi(params: {
     };
     const canonicalWeek = item.canonicalWeek ?? item.week;
     const providerWeek = item.providerWeek ?? item.week;
+    // Remap postseason canonical week to sit after the regular season in the standings
+    // history timeline. providerWeek is kept as-is so score fetching and attachment
+    // (which index games by both canonicalWeek and providerWeek) still work correctly.
+    const postseasonCanonicalWeek =
+      item.seasonType === 'postseason' && maxRegularSeasonWeek > 0
+        ? maxRegularSeasonWeek + providerWeek
+        : canonicalWeek;
     const hasConferenceChampionshipMetadata =
       item.seasonType !== 'postseason' &&
       (item.gamePhase === 'conference_championship' ||
@@ -389,9 +404,9 @@ export function buildScheduleFromApi(params: {
       apiPostseasonGames.push({
         key: eventId,
         eventId,
-        week: canonicalWeek,
+        week: postseasonCanonicalWeek,
         providerWeek,
-        canonicalWeek,
+        canonicalWeek: postseasonCanonicalWeek,
         weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage,
@@ -483,9 +498,9 @@ export function buildScheduleFromApi(params: {
       apiPostseasonGames.push({
         key: id,
         eventId: id,
-        week: canonicalWeek,
+        week: postseasonCanonicalWeek,
         providerWeek,
-        canonicalWeek,
+        canonicalWeek: postseasonCanonicalWeek,
         weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage: classified.stage,
