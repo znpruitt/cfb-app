@@ -92,6 +92,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
       viewBox={`0 0 ${VIEWBOX_W} ${TOTAL_H}`}
       className="w-full"
       style={{ height: 'auto' }}
+      fontFamily="inherit"
       aria-hidden="true"
     >
       {/* Horizontal grid line at each rank position */}
