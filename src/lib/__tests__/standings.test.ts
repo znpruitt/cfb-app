@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { AppGame } from '../schedule.ts';
+import type { ScorePack } from '../scores.ts';
 import {
   deriveFinalOwnedParticipations,
   deriveStandings,
@@ -132,8 +133,8 @@ test('derive standings includes owned-owned, NoClaim, FCS, and postseason finals
       gamesBack: row.gamesBack,
     })),
     [
-      { owner: 'Casey', wins: 1, losses: 0, pointsFor: 27, pointsAgainst: 20, gamesBack: 1 },
       { owner: 'Avery', wins: 2, losses: 1, pointsFor: 79, pointsAgainst: 58, gamesBack: 0 },
+      { owner: 'Casey', wins: 1, losses: 0, pointsFor: 27, pointsAgainst: 20, gamesBack: 1 },
       { owner: 'Blair', wins: 0, losses: 1, pointsFor: 17, pointsAgainst: 24, gamesBack: 2 },
     ]
   );
@@ -184,7 +185,7 @@ test('self-matchups count as one win and one loss with net-zero differential fro
   });
 });
 
-test('standings sort by win percentage, then wins, then point differential', () => {
+test('standings sort by wins, then win percentage, then point differential', () => {
   const games = [
     game({ key: 'a-win1', csvAway: 'A1', csvHome: 'U1' }),
     game({ key: 'a-win2', csvAway: 'A2', csvHome: 'U2' }),
@@ -344,4 +345,184 @@ test('standings coverage reports error when completed game scores fail to load',
     state: 'error',
     message: 'Standings may be incomplete — some completed game scores could not be loaded.',
   });
+});
+
+// Regression tests for wins-first precedence (league rule enforcement)
+
+test('standings regression: more wins outranks higher win percentage', () => {
+  // Alpha: 9W-3L (winPct=0.75) must outrank Beta: 8W-0L (winPct=1.0)
+  // Win%-first ordering would incorrectly put Beta first.
+  const makeGames = (prefix: string, team: string, wins: number, losses: number): AppGame[] => {
+    const gs: AppGame[] = [];
+    for (let i = 0; i < wins; i++) {
+      gs.push(
+        game({
+          key: `${prefix}-w${i}`,
+          csvAway: team,
+          csvHome: `Opp${prefix}W${i}`,
+          status: 'final',
+        })
+      );
+    }
+    for (let i = 0; i < losses; i++) {
+      gs.push(
+        game({
+          key: `${prefix}-l${i}`,
+          csvAway: `Opp${prefix}L${i}`,
+          csvHome: team,
+          status: 'final',
+        })
+      );
+    }
+    return gs;
+  };
+
+  const alphaGames = makeGames('a', 'ATeam', 9, 3);
+  const betaGames = makeGames('b', 'BTeam', 8, 0);
+  const allGames = [...alphaGames, ...betaGames];
+  const rosterByTeam = new Map([
+    ['ATeam', 'Alpha'],
+    ['BTeam', 'Beta'],
+  ]);
+
+  // Win games: owned team is csvAway. Loss games: opponent is csvAway, owned team is csvHome.
+  // Away always wins → correct W/L for both win and loss games.
+  const scoresByKey: Record<string, ScorePack> = {};
+  for (const g of [...alphaGames, ...betaGames]) {
+    scoresByKey[g.key] = {
+      status: 'final',
+      time: 'Final',
+      away: { team: g.csvAway, score: 28 },
+      home: { team: g.csvHome, score: 14 },
+    };
+  }
+
+  const standings = deriveStandings(allGames, rosterByTeam, scoresByKey);
+  assert.equal(
+    standings.rows[0].owner,
+    'Alpha',
+    'Alpha (9W) must rank above Beta (8W, winPct=1.0)'
+  );
+  assert.equal(standings.rows[0].wins, 9);
+  assert.equal(standings.rows[1].owner, 'Beta');
+  assert.equal(standings.rows[1].wins, 8);
+});
+
+test('standings regression: win percentage breaks equal-wins tie', () => {
+  // Alpha: 8W-2L (winPct=0.80), Beta: 8W-4L (winPct=0.667) — equal wins, Alpha wins on winPct
+  const games = [
+    game({ key: 'a1', csvAway: 'A', csvHome: 'X1' }),
+    game({ key: 'a2', csvAway: 'A', csvHome: 'X2' }),
+    game({ key: 'a3', csvAway: 'A', csvHome: 'X3' }),
+    game({ key: 'a4', csvAway: 'A', csvHome: 'X4' }),
+    game({ key: 'a5', csvAway: 'A', csvHome: 'X5' }),
+    game({ key: 'a6', csvAway: 'A', csvHome: 'X6' }),
+    game({ key: 'a7', csvAway: 'A', csvHome: 'X7' }),
+    game({ key: 'a8', csvAway: 'A', csvHome: 'X8' }),
+    game({ key: 'a9', csvAway: 'X9', csvHome: 'A' }),
+    game({ key: 'a10', csvAway: 'X10', csvHome: 'A' }),
+    game({ key: 'b1', csvAway: 'B', csvHome: 'Y1' }),
+    game({ key: 'b2', csvAway: 'B', csvHome: 'Y2' }),
+    game({ key: 'b3', csvAway: 'B', csvHome: 'Y3' }),
+    game({ key: 'b4', csvAway: 'B', csvHome: 'Y4' }),
+    game({ key: 'b5', csvAway: 'B', csvHome: 'Y5' }),
+    game({ key: 'b6', csvAway: 'B', csvHome: 'Y6' }),
+    game({ key: 'b7', csvAway: 'B', csvHome: 'Y7' }),
+    game({ key: 'b8', csvAway: 'B', csvHome: 'Y8' }),
+    game({ key: 'b9', csvAway: 'Y9', csvHome: 'B' }),
+    game({ key: 'b10', csvAway: 'Y10', csvHome: 'B' }),
+    game({ key: 'b11', csvAway: 'Y11', csvHome: 'B' }),
+    game({ key: 'b12', csvAway: 'Y12', csvHome: 'B' }),
+  ];
+  const rosterByTeam = new Map([
+    ['A', 'Alpha'],
+    ['B', 'Beta'],
+  ]);
+  // Win games: owned team is csvAway. Loss games: opponent is csvAway, owned team is csvHome.
+  // Away always wins → correct W/L for both win and loss games.
+  const scoresByKey: Record<string, ScorePack> = {};
+  for (const g of games) {
+    scoresByKey[g.key] = {
+      status: 'final',
+      time: 'Final',
+      away: { team: g.csvAway, score: 21 },
+      home: { team: g.csvHome, score: 14 },
+    };
+  }
+
+  const standings = deriveStandings(games, rosterByTeam, scoresByKey);
+  assert.equal(
+    standings.rows[0].owner,
+    'Alpha',
+    'Alpha (8W-2L, winPct=0.80) must rank above Beta (8W-4L, winPct=0.667) on equal wins'
+  );
+  assert.equal(standings.rows[0].wins, 8);
+  assert.equal(standings.rows[1].owner, 'Beta');
+});
+
+test('standings regression: point differential breaks equal-wins and equal-winPct tie', () => {
+  // Alpha and Beta both 5W-5L (winPct=0.5), Alpha has higher PD
+  const games = [
+    game({ key: 'a-w', csvAway: 'A', csvHome: 'XA', status: 'final' as const }),
+    game({ key: 'a-w2', csvAway: 'A', csvHome: 'XA2', status: 'final' as const }),
+    game({ key: 'a-w3', csvAway: 'A', csvHome: 'XA3', status: 'final' as const }),
+    game({ key: 'a-w4', csvAway: 'A', csvHome: 'XA4', status: 'final' as const }),
+    game({ key: 'a-w5', csvAway: 'A', csvHome: 'XA5', status: 'final' as const }),
+    game({ key: 'a-l', csvAway: 'XB', csvHome: 'A', status: 'final' as const }),
+    game({ key: 'a-l2', csvAway: 'XB2', csvHome: 'A', status: 'final' as const }),
+    game({ key: 'a-l3', csvAway: 'XB3', csvHome: 'A', status: 'final' as const }),
+    game({ key: 'a-l4', csvAway: 'XB4', csvHome: 'A', status: 'final' as const }),
+    game({ key: 'a-l5', csvAway: 'XB5', csvHome: 'A', status: 'final' as const }),
+    game({ key: 'b-w', csvAway: 'B', csvHome: 'YA', status: 'final' as const }),
+    game({ key: 'b-w2', csvAway: 'B', csvHome: 'YA2', status: 'final' as const }),
+    game({ key: 'b-w3', csvAway: 'B', csvHome: 'YA3', status: 'final' as const }),
+    game({ key: 'b-w4', csvAway: 'B', csvHome: 'YA4', status: 'final' as const }),
+    game({ key: 'b-w5', csvAway: 'B', csvHome: 'YA5', status: 'final' as const }),
+    game({ key: 'b-l', csvAway: 'YB', csvHome: 'B', status: 'final' as const }),
+    game({ key: 'b-l2', csvAway: 'YB2', csvHome: 'B', status: 'final' as const }),
+    game({ key: 'b-l3', csvAway: 'YB3', csvHome: 'B', status: 'final' as const }),
+    game({ key: 'b-l4', csvAway: 'YB4', csvHome: 'B', status: 'final' as const }),
+    game({ key: 'b-l5', csvAway: 'YB5', csvHome: 'B', status: 'final' as const }),
+  ];
+  const rosterByTeam = new Map([
+    ['A', 'Alpha'],
+    ['B', 'Beta'],
+  ]);
+  // Win games: owned team is csvAway (away wins). Loss games: opponent is csvAway (away wins).
+  // Away always wins. Scores vary to produce distinct PD per owner:
+  //   Alpha wins by 20 (30-10), loses by 10 (15-25) → PD = 5*(+20) + 5*(-10) = +50
+  //   Beta wins by 5 (15-10), loses by 10 (15-25)   → PD = 5*(+5)  + 5*(-10) = -25
+  const scoresByKey: Record<string, ScorePack> = {};
+  for (const g of games) {
+    const ownedTeamIsAway = g.csvAway === 'A' || g.csvAway === 'B';
+    const isAlpha = g.csvAway === 'A' || g.csvHome === 'A';
+    if (ownedTeamIsAway) {
+      // Win game: owned team away → away wins
+      scoresByKey[g.key] = {
+        status: 'final',
+        time: 'Final',
+        away: { team: g.csvAway, score: isAlpha ? 30 : 15 },
+        home: { team: g.csvHome, score: 10 },
+      };
+    } else {
+      // Loss game: opponent away → away (opponent) wins, owned team (home) loses
+      scoresByKey[g.key] = {
+        status: 'final',
+        time: 'Final',
+        away: { team: g.csvAway, score: 25 },
+        home: { team: g.csvHome, score: 15 },
+      };
+    }
+  }
+
+  const standings = deriveStandings(games, rosterByTeam, scoresByKey);
+  assert.equal(standings.rows[0].wins, 5);
+  assert.equal(standings.rows[1].wins, 5);
+  assert.equal(standings.rows[0].winPct, 0.5);
+  assert.equal(standings.rows[1].winPct, 0.5);
+  assert.ok(
+    standings.rows[0].pointDifferential > standings.rows[1].pointDifferential,
+    'Owner with higher point differential must rank above equal-wins, equal-winPct opponent'
+  );
+  assert.equal(standings.rows[0].owner, 'Alpha');
 });

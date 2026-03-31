@@ -202,6 +202,13 @@ export function deriveStandings(
 
   const leaderWins = Array.from(totals.values()).reduce((best, row) => Math.max(best, row.wins), 0);
 
+  // League standings precedence (SOURCE OF TRUTH):
+  // 1. Total Wins (primary ranking metric)
+  // 2. Win Percentage (tiebreaker — accounts for unequal games played)
+  // 3. Point Differential (secondary tiebreaker)
+  //
+  // This matches official league rules (confirmed via season-final standings email).
+  // Do NOT reorder without updating league rules documentation.
   const rows = Array.from(totals.values())
     .map((row) => {
       const decisions = row.wins + row.losses;
@@ -214,8 +221,8 @@ export function deriveStandings(
       };
     })
     .sort((a, b) => {
-      if (b.winPct !== a.winPct) return b.winPct - a.winPct;
       if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.winPct !== a.winPct) return b.winPct - a.winPct;
       if (b.pointDifferential !== a.pointDifferential) {
         return b.pointDifferential - a.pointDifferential;
       }
