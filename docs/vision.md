@@ -18,9 +18,9 @@ The product remains **API-first**:
 
 ## Production direction
 
-The app is no longer just a local commissioner tool. The production target is a **low-maintenance hosted deployment** suitable for repeated member access during the season.
+The app is a **low-maintenance hosted deployment** used for repeated member access during the season. Production hardening (Phase 2A) is complete, and the hosted preview is live.
 
-That means the production model should optimize for:
+The production model optimizes for:
 
 - stable league-member access from the web
 - deterministic schedule-first behavior
@@ -47,7 +47,9 @@ Season-long reference/configuration data should be stored durably and refreshed 
 ### 5. Live data stays conservative and quota-aware
 Freshness matters most for scores and selectively for odds, but monthly quotas remain the governing constraint. Avoid wasteful interval polling and prefer shared cache-first reads with conservative refresh policy.
 
-## Production data policy summary
+## Production data policy summary (canonical)
+
+> This is the canonical production data policy. `docs/roadmap.md` references this section rather than maintaining a separate copy.
 
 ### Season-persistent / admin-refresh only
 Stored durably, read by all users, updated only via admin-triggered edit/refresh flows.
@@ -77,7 +79,7 @@ Examples:
 
 ## What success looks like
 
-A successful first hosted launch looks like this:
+The hosted preview is live and meets these criteria:
 
 - league members can open the site and immediately see the shared owner roster, aliases, standings, and matchup context
 - schedule, conferences, rankings, and other reference data come from shared cached snapshots rather than ad hoc per-user rebuilds

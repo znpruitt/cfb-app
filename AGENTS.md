@@ -18,9 +18,9 @@ Changes should favor low-risk, behavior-preserving refactors unless explicitly a
 
 ## Phase status
 
-- Phase 1 (architecture stabilization) is complete after close-out audit.
-- Prior P3 decomposition follow-up for `src/components/CFBScheduleApp.tsx` and `src/lib/scoreAttachment.ts` is **optional technical debt**, not a Phase 1 blocker.
-- Default planning focus should now be Phase 2 user-facing usability work unless a task explicitly re-opens Phase 1 concerns.
+- Phase 1 (architecture stabilization): Complete.
+- Phase 2 (core league surfaces + UX/engagement + visual sweep): Substantially complete. Phase 2D form dots polish in PR #183.
+- Active focus: Phase 2D close-out, then planning pause before Phase 3.
 
 ---
 
@@ -132,7 +132,11 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
    - Bump the version when behavior or scope changes materially.
    - Minor wording-only edits may keep the same version if task intent is unchanged.
    - In follow-up discussion, reference prior prompts by explicit `PROMPT_ID` (avoid vague references like “that earlier prompt”).
-   - See `docs/prompt-registry.md` for template and registry tracking.
+   - See `docs/prompt-registry.md` for the template, registry tracking, and populated prompt list.
+
+7. **Centralized team identity**
+   - All team matching must go through `src/lib/teamIdentity.ts`.
+   - No duplicate matching logic in route handlers, UI components, or other lib modules.
 
 ---
 

@@ -14,8 +14,8 @@
 - **Phase 2 (core league surfaces):** Substantially complete foundation.
 - **Phase 2A (production hardening):** Complete.
 - **Phase 2B (league UX / engagement):** Complete. See `docs/completed-work.md`.
-- **Phase 3A (overview visual redesign):** Complete. See `docs/completed-work.md`.
-- **Active execution focus:** **Phase 3B overview trends visual sweep** — PR #183 open.
+- **Phase 2C (overview visual redesign):** Complete. See `docs/completed-work.md`.
+- **Active execution focus:** **Phase 2D overview trends visual sweep** — PR #183 open.
 
 ## Hosted deployment runbook
 
@@ -46,19 +46,24 @@
 - **UX / information density pass** ✅ — Shipped in PR #170 (phase-2b-ux-density).
 - **App flow improvements** ✅ — Shipped in PR #171 (phase-2b-app-flow).
 - **Visual design language** ✅ — Shipped in PR #172 (phase-2b-visual-polish).
-- **Phase 3A Overview redesign** ✅ — Shipped in PRs #173–#177. See `docs/completed-work.md`.
-- **Phase 3B MiniTrendsGrid + title chase** ✅ — Shipped in PRs #178–#182. See `docs/completed-work.md`.
+- **Phase 2C Overview redesign** ✅ — Shipped in PRs #173–#177. See `docs/completed-work.md`.
+- **Phase 2D MiniTrendsGrid + title chase** ✅ — Shipped in PRs #178–#182. See `docs/completed-work.md`.
 
 ### Active tasks
 
-1. **Phase 3B form dots polish** — PR #183 open on phase-3b-visual-sweep.
+1. **Phase 2D form dots polish** — PR #183 open on phase-3b-visual-sweep.
    - Title chase chart, RecentFormPanel, responsive layout.
-   - PROMPT_ID: P3B-TRENDS-FORM-DOTS-v1.
+   - PROMPT_ID: P2D-TRENDS-FORM-DOTS-v1.
    - Merge when form dot visual polish is satisfactory.
 
 2. **Commissioner recovery UX refinements** (polish tier)
    - Based on real hosted usage feedback.
    - No specific changes identified yet — leave until production usage patterns emerge.
+
+## Post-Phase 2D planning pause
+
+- Once PR #183 merges, Phase 2D is complete. No active implementation tasks.
+- Next campaign to be defined before resuming implementation work.
 
 ## Future-planned note: Multi-league support (scoped)
 

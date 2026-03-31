@@ -25,35 +25,13 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
   - admin-only rebuild semantics enforced for schedule/reference refresh paths
   - diagnostics distinguish shared authoritative state from ephemeral process-memory counters
   - targeted mobile responsiveness fixes shipped; core member surfaces validated for real-device use
-- The active milestone is **Phase 2B league UX / engagement**.
+- Phase 2B league UX / engagement is **complete**.
+- Phase 2C overview visual redesign is **complete**.
+- The active milestone is **Phase 2D overview trends visual sweep** — PR #183 open.
 
 ## Production data policy
 
-### 1. Season-persistent / admin-refresh only
-**Rule:** store durably, read broadly, update only via admin-triggered edit/refresh flows, and never rebuild casually from member traffic.
-
-Examples:
-- owner roster
-- alias map
-- manual postseason overrides
-- team database / team reference snapshot
-- season schedule snapshot when used for hosted stability
-
-### 2. Cached / controlled refresh
-**Rule:** cache shared snapshots to reduce upstream usage. Refresh by admin action and/or conservative TTL rules.
-
-Examples:
-- conference data
-- rankings
-- durable odds snapshots
-- diagnostics / usage snapshots
-
-### 3. Live / freshness-sensitive
-**Rule:** still cache when practical, but allow more frequent controlled refresh than season-persistent data. No wasteful interval polling.
-
-Examples:
-- scores
-- near-window odds behavior if retained
+See `docs/vision.md` for the canonical production data policy.
 
 ## Hosted production target
 
@@ -132,34 +110,20 @@ Phase 2A is complete when:
 - schedule-first architecture remains intact
 - quota usage is conservative enough for the hobby-scale deployment target
 
-## Phase 2B — League UX / engagement
+## Phase 2B — League UX / engagement (complete)
 
-### Objective
-Tighten league-facing usability based on real product state. The Shared Insights System is complete. The Overview has been partially restructured. Remaining work is hierarchy, copy, and polish.
+Complete. See `docs/completed-work.md` for the full record.
+PROMPT_ID: P2B-OVERVIEW-UX-CAMPAIGN-v1
 
-### Resolved items (no further action needed)
+## Phase 2C — Overview Visual Redesign (complete)
 
-- **League summary bar** — Satisfied by the existing LeagueSummaryHero component. No separate bar needed.
-- **Head-to-head matrix** — Moved to the week-view matrix tab (`weekViewMode === 'matrix'`). Removed from Overview intentionally.
-- **Shared Insights System** — Fully implemented through Phase 6 convergence. See `docs/completed-work.md` for the full record.
-- **Standings movement column** — Shipped; rank delta arrows visible in StandingsPanel.
+Complete. See `docs/completed-work.md` for the full record.
+PROMPT_ID: P2C-OVERVIEW-REDESIGN-v1
 
-### Remaining workstreams
+## Phase 2D — Overview Trends Visual Sweep (complete / PR #183 open)
 
-1. **Overview hierarchy fix** (highest impact)
-   - Current order: Hero → Storylines → Trends → two-column (Standings + Insights/Results/Live).
-   - Problem: Standings are buried behind two full-width narrative sections. On mobile this requires significant scrolling before core league state is visible.
-   - Fix: Move the two-column grid immediately after Hero. Push Storylines and Trends below as secondary context.
-   - Target order: Hero → two-column → Storylines → Trends.
-
-2. **Signal-first copy pass**
-   - Storylines and Trends section labels are narrative-heavy.
-   - Reduce explanatory filler in favor of concise, data-first labels.
-   - No component changes — copy/label edits only.
-
-3. **Follow-on polish**
-   - Lightweight member-facing feedback/report issue entry point.
-   - Commissioner-friendly recovery UX refinements based on real hosted usage.
+See `docs/completed-work.md` for the full record.
+PROMPT_IDs: P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1
 
 ## Phase 3 — Historical analytics (optional)
 
@@ -195,9 +159,6 @@ Support multiple private leagues managed by the same commissioner while preservi
 - No broad SaaS/self-serve multi-tenant platform redesign.
 - No change to the small-footprint production model unless scale requirements prove it necessary.
 
-## Architecture rules that remain unchanged
+## Architecture rules
 
-- Schedule-derived games remain the canonical attachment boundary for scores and odds.
-- Do not introduce duplicate matching systems.
-- Keep heavy matching and normalization logic in shared libraries rather than UI components.
-- Prefer explicit diagnostics and manual repair over hidden heuristics.
+See `docs/cfb-engineering-operating-instructions.md` Section 5 for canonical architecture principles.
