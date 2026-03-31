@@ -1,8 +1,9 @@
 import React from 'react';
 import Link from 'next/link';
 
-import MiniTrendsGrid from './MiniTrendsGrid';
-import { selectRecentOutcomes, type WeekOutcome } from '../lib/selectors/trends';
+import MiniTrendsGrid, { CONTENDER_COLORS } from './MiniTrendsGrid';
+import { selectPositionDeltas } from '../lib/selectors/trends';
+import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -42,31 +43,38 @@ function sliceStandingsHistoryToRecentWeeks(
   };
 }
 
-function dotColor(result: WeekOutcome): string {
-  if (result === 'W') return 'bg-emerald-500 dark:bg-emerald-400';
-  if (result === 'L') return 'bg-red-500 dark:bg-red-400';
-  return 'bg-gray-400 dark:bg-zinc-500';
+const NAME_COL_W = '4.5rem';
+const DELTA_COL_W = '1.75rem';
+
+function deltaTextColor(delta: number | null): string {
+  if (delta == null || delta === 0) return 'text-gray-400 dark:text-zinc-500';
+  if (delta > 0) return 'text-emerald-600 dark:text-emerald-400';
+  return 'text-red-500 dark:text-red-400';
 }
 
-const NAME_COL_W = '4.5rem';
-const DOT_COL_W = '1rem';
+function deltaLabel(delta: number | null): string {
+  if (delta == null) return '·';
+  if (delta === 0) return '—';
+  return delta > 0 ? `+${delta}` : String(delta);
+}
 
-function RecentFormPanel({
+function PositionDeltaPanel({
   standingsHistory,
-  games,
-  scoresByKey,
-  rosterByTeam,
+  weekLabel,
+  seriesColors,
 }: {
   standingsHistory: StandingsHistory;
-  games: AppGame[];
-  scoresByKey: Record<string, ScorePack>;
-  rosterByTeam: Map<string, string>;
+  weekLabel?: (week: number) => string;
+  /** Colors indexed by owner position — must match the trend chart's CONTENDER_COLORS order. */
+  seriesColors?: readonly string[];
 }): React.ReactElement | null {
   const { weeks, owners } = React.useMemo(
-    () => selectRecentOutcomes({ standingsHistory, games, scoresByKey, rosterByTeam, maxWeeks: 5 }),
-    [standingsHistory, games, scoresByKey, rosterByTeam]
+    () => selectPositionDeltas({ standingsHistory, maxWeeks: 5 }),
+    [standingsHistory]
   );
   if (owners.length === 0 || weeks.length === 0) return null;
+
+  const labelFn = weekLabel ?? ((w: number) => `W${w}`);
 
   return (
     <div className="border-l border-gray-200 pl-3 dark:border-zinc-700">
@@ -80,15 +88,18 @@ function RecentFormPanel({
           <span
             key={w}
             className="shrink-0 text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
-            style={{ width: DOT_COL_W }}
+            style={{ width: DELTA_COL_W }}
           >
-            W{w}
+            {labelFn(w)}
           </span>
         ))}
       </div>
       {/* Owner rows */}
       {owners.map((owner, i) => {
-        const outcomeByWeek = new Map(owner.outcomes.map((o) => [o.week, o.result]));
+        const deltaByWeek = new Map(owner.deltas.map((d) => [d.week, d.delta]));
+        // Color the owner name to match their trend line; owners beyond the chart's
+        // contender count (no trend line) fall back to default text styling.
+        const nameColor = seriesColors?.[i];
         return (
           <div
             key={owner.ownerId}
@@ -97,25 +108,21 @@ function RecentFormPanel({
             }`}
           >
             <span
-              className="shrink-0 truncate text-[11px] text-gray-700 dark:text-zinc-300"
-              style={{ width: NAME_COL_W }}
+              className="shrink-0 truncate text-[11px] font-medium"
+              style={{ width: NAME_COL_W, color: nameColor ?? undefined }}
             >
               {owner.ownerName}
             </span>
             {weeks.map((w) => {
-              const result = outcomeByWeek.get(w);
+              const delta = deltaByWeek.has(w) ? (deltaByWeek.get(w) ?? null) : null;
               return (
-                <div
+                <span
                   key={w}
-                  className="flex shrink-0 items-center justify-center"
-                  style={{ width: DOT_COL_W }}
+                  className={`shrink-0 text-center text-[11px] font-medium tabular-nums ${deltaTextColor(delta)}`}
+                  style={{ width: DELTA_COL_W }}
                 >
-                  {result != null ? (
-                    <span className={`h-2 w-2 rounded-full ${dotColor(result)}`} />
-                  ) : (
-                    <span className="h-[3px] w-[3px] rounded-full bg-gray-200 dark:bg-zinc-700" />
-                  )}
-                </div>
+                  {deltaLabel(delta)}
+                </span>
               );
             })}
           </div>
@@ -775,6 +782,10 @@ export default function OverviewPanel({
   standingsHistory = null,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
+  const weekLabelFn = React.useMemo(() => {
+    const labelMap = buildWeekLabelMap(games);
+    return (week: number) => formatWeekLabel(week, labelMap);
+  }, [games]);
   const liveTitle = `Live · ${liveItems.length}`;
   const liveCountByOwner = React.useMemo(() => {
     const standings = new Map<string, number>();
@@ -957,14 +968,14 @@ export default function OverviewPanel({
             <div className="min-w-0 flex-1">
               <MiniTrendsGrid
                 standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
+                weekLabel={weekLabelFn}
               />
             </div>
             <div className="shrink-0">
-              <RecentFormPanel
+              <PositionDeltaPanel
                 standingsHistory={standingsHistory}
-                games={games}
-                scoresByKey={scoresByKey}
-                rosterByTeam={rosterByTeam}
+                weekLabel={weekLabelFn}
+                seriesColors={CONTENDER_COLORS}
               />
             </div>
           </div>

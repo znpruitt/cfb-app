@@ -216,6 +216,61 @@ export type OwnerRecentOutcomes = {
   outcomes: { week: number; result: WeekOutcome }[];
 };
 
+export type PositionDelta = {
+  week: number;
+  rank: number;
+  /** Signed integer: positive = moved up, negative = moved down, null = no prior resolved week. */
+  delta: number | null;
+};
+
+export type OwnerPositionDeltas = {
+  ownerId: string;
+  ownerName: string;
+  deltas: PositionDelta[];
+};
+
+/**
+ * Derives week-over-week standings position change for every owner across the
+ * last `maxWeeks` resolved weeks.
+ *
+ * Contract:
+ * - Owner ordering: latest resolved standings order.
+ * - delta = previousRank − currentRank (positive = moved up, negative = moved down).
+ * - The previous resolved week before the display window is used to compute the first delta.
+ * - Owners absent from a week's standings return delta: null for that week.
+ */
+export function selectPositionDeltas(args: {
+  standingsHistory: StandingsHistory;
+  maxWeeks?: number;
+}): { weeks: number[]; owners: OwnerPositionDeltas[] } {
+  const { standingsHistory, maxWeeks = 5 } = args;
+  const { resolvedWeeks, latestResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
+  const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
+  const recentWeeks = resolvedWeeks.slice(-maxWeeks);
+
+  const ownerDeltas: OwnerPositionDeltas[] = owners.map((owner) => {
+    const deltas: PositionDelta[] = recentWeeks.map((week) => {
+      const weekStandings = standingsHistory.byWeek[week]?.standings ?? [];
+      const rank = weekStandings.findIndex((r) => r.owner === owner) + 1;
+      if (rank === 0) return { week, rank: 0, delta: null };
+
+      // Use the resolved week immediately before this one (may be outside the display window)
+      const weekIndexInAll = resolvedWeeks.indexOf(week);
+      const prevResolvedWeek = weekIndexInAll > 0 ? resolvedWeeks[weekIndexInAll - 1] : null;
+      if (prevResolvedWeek == null) return { week, rank, delta: null };
+
+      const prevStandings = standingsHistory.byWeek[prevResolvedWeek]?.standings ?? [];
+      const prevRank = prevStandings.findIndex((r) => r.owner === owner) + 1;
+      if (prevRank === 0) return { week, rank, delta: null };
+
+      return { week, rank, delta: prevRank - rank };
+    });
+    return { ownerId: owner, ownerName: owner, deltas };
+  });
+
+  return { weeks: recentWeeks, owners: ownerDeltas };
+}
+
 /**
  * Derives per-week W/L/T outcomes for every owner from actual game scores.
  * Only weeks with a final score are included; pending/live games produce no dot.

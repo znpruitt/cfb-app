@@ -5,17 +5,19 @@ import type { StandingsHistory } from '../lib/standingsHistory';
 
 const CHART_H = 160;
 const LABEL_H = 20;
-const LABEL_W = 105;
+const LABEL_W = 90;
 const VIEWBOX_W = 560;
-const PLOT_W = VIEWBOX_W - LABEL_W;
+const PLOT_W = VIEWBOX_W - LABEL_W; // 470 — chart lines; remaining 90 is the annotation lane
 const TOTAL_H = CHART_H + LABEL_H;
 const X_PAD = PLOT_W * 0.015;
 const CONTENDERS = 5;
 const MIN_LABEL_GAP = 10;
+const LABEL_Y_MIN = 6;
 
 // Curated palette for a small set of lines — warm gold for the leader
 // (connects to the champion card above), then distinct supporting colors.
-const CONTENDER_COLORS = [
+// Exported so PositionDeltaPanel can apply the same color to owner name text.
+export const CONTENDER_COLORS = [
   'hsl(45, 85%, 62%)', // gold — leader (echoes champion card)
   'hsl(220, 75%, 65%)', // blue
   'hsl(150, 70%, 58%)', // green
@@ -23,8 +25,6 @@ const CONTENDER_COLORS = [
   'hsl(25, 80%, 62%)', // orange
   'hsl(180, 70%, 58%)', // teal
 ];
-
-const LABEL_Y_MIN = 6; // prevent labels clipping at SVG top edge
 
 type SeriesPoint = { week: number; value: number };
 type LabelItem = { ownerId: string; y: number; display: string; color: string };
@@ -54,7 +54,6 @@ function buildPath(points: SeriesPoint[], weeks: number[], maxGb: number): strin
 function deconflictLabels(labels: LabelItem[]): LabelItem[] {
   if (labels.length === 0) return [];
   const sorted = [...labels].sort((a, b) => a.y - b.y);
-  // Clamp first label to minimum y so it isn't clipped at the SVG top edge
   sorted[0] = { ...sorted[0], y: Math.max(sorted[0].y, LABEL_Y_MIN) };
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i].y < sorted[i - 1].y + MIN_LABEL_GAP) {
@@ -69,9 +68,16 @@ function deconflictLabels(labels: LabelItem[]): LabelItem[] {
   return sorted;
 }
 
-type Props = { standingsHistory: StandingsHistory };
+type Props = {
+  standingsHistory: StandingsHistory;
+  /** Optional label override — e.g. "Bowl", "CFP", "CCG" for postseason weeks. */
+  weekLabel?: (week: number) => string;
+};
 
-export default function MiniTrendsGrid({ standingsHistory }: Props): React.ReactElement | null {
+export default function MiniTrendsGrid({
+  standingsHistory,
+  weekLabel,
+}: Props): React.ReactElement | null {
   const allSeries = React.useMemo(
     () => selectGamesBackTrend({ standingsHistory }),
     [standingsHistory]
@@ -85,6 +91,10 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
   const maxGb = Math.max(1, ...series.flatMap((s) => s.points.map((p) => p.value)));
   const paddedMax = maxGb * 1.1;
 
+  const defaultWeekLabel = (w: number) => `W${w}`;
+  const labelFn = weekLabel ?? defaultWeekLabel;
+
+  // Build endpoint annotations (name + GB) at the right terminus of each line
   const rawLabels: LabelItem[] = series.flatMap((s, i) => {
     const lastPoint = s.points.at(-1);
     if (!lastPoint) return [];
@@ -99,7 +109,6 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
           : `${lastPoint.value.toFixed(1)} GB`;
     return [{ ownerId: s.ownerId, y, display: `${name}  ${gbLabel}`, color }];
   });
-
   const endLabels = deconflictLabels(rawLabels);
 
   return (
@@ -110,7 +119,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
       fontFamily="inherit"
       aria-hidden="true"
     >
-      {/* Bounding lines */}
+      {/* Bounding lines (chart area only) */}
       <line
         x1={0}
         y1={0}
@@ -138,14 +147,14 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
         {Math.round(maxGb)} GB
       </text>
 
-      {/* Label lane separator */}
+      {/* Annotation lane separator */}
       <line
         x1={PLOT_W}
         y1={0}
         x2={PLOT_W}
         y2={CHART_H}
         stroke="currentColor"
-        strokeOpacity={0.12}
+        strokeOpacity={0.1}
         strokeWidth={1}
       />
 
@@ -184,17 +193,17 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
         ) : null;
       })}
 
-      {/* End labels */}
+      {/* Endpoint annotations — color-matched, collision-detected */}
       {endLabels.map((label) => (
         <g key={`lbl-${label.ownerId}`}>
-          <circle cx={PLOT_W + 5} cy={label.y} r={2} fill={label.color} />
+          <circle cx={PLOT_W + 4} cy={label.y} r={2} fill={label.color} fillOpacity={0.9} />
           <text
-            x={PLOT_W + 11}
+            x={PLOT_W + 10}
             y={label.y + 3}
             fontSize={8}
-            fill="currentColor"
-            fillOpacity={0.75}
-            fontWeight={400}
+            fill={label.color}
+            fillOpacity={0.9}
+            fontWeight={500}
           >
             {label.display}
           </text>
@@ -215,7 +224,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             fill="currentColor"
             fillOpacity={0.4}
           >
-            W{week}
+            {labelFn(week)}
           </text>
         );
       })}
