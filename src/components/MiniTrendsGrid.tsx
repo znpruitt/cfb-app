@@ -1,22 +1,28 @@
 import React from 'react';
 
-import { buildOwnerColorMap } from '../app/trends/presentationColors';
 import { selectRankTrend } from '../lib/selectors/trends';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
 const CHART_H = 220;
 const LABEL_H = 20;
-const LABEL_W = 95; // right-side lane for inline end labels
+const LABEL_W = 95;
 const VIEWBOX_W = 560;
-const PLOT_W = VIEWBOX_W - LABEL_W; // 465 — actual plot area
+const PLOT_W = VIEWBOX_W - LABEL_W;
 const TOTAL_H = CHART_H + LABEL_H;
 const X_PAD = PLOT_W * 0.015;
 const MIN_LABEL_GAP = 10;
 
+// Muted palette: lower saturation (40%) and higher lightness (62%) than the
+// full-detail trends view, keeping lines distinguishable without being vivid.
+function ownerColor(index: number, total: number): string {
+  const hue = ((index / Math.max(1, total)) * 360).toFixed(2);
+  const lightness = 62 + (index % 4) * 5;
+  return `hsl(${hue}, 40%, ${lightness}%)`;
+}
+
 type SeriesPoint = { week: number; value: number };
 type LabelItem = { ownerId: string; ownerName: string; y: number; display: string; color: string };
 
-/** Map rank 1..N to y coordinate. Rank 1 at top, rank N at bottom. */
 function yOfRank(rank: number, ownerCount: number): number {
   return ((rank - 0.5) / ownerCount) * CHART_H;
 }
@@ -58,14 +64,12 @@ type Props = { standingsHistory: StandingsHistory };
 
 export default function MiniTrendsGrid({ standingsHistory }: Props): React.ReactElement | null {
   const rankSeries = React.useMemo(() => selectRankTrend({ standingsHistory }), [standingsHistory]);
-  const orderedOwners = React.useMemo(() => rankSeries.map((s) => s.ownerId), [rankSeries]);
-  const colorMap = React.useMemo(() => buildOwnerColorMap(orderedOwners), [orderedOwners]);
 
   const weeks = standingsHistory.weeks;
   if (weeks.length === 0 || rankSeries.length === 0) return null;
 
   const ownerCount = rankSeries.length;
-  const weekIndexMap = new Map(weeks.map((w, i) => [w, i]));
+  const colorMap = new Map(rankSeries.map((s, i) => [s.ownerId, ownerColor(i, ownerCount)]));
 
   const rawLabels: LabelItem[] = rankSeries.flatMap((series) => {
     const lastPoint = series.points.at(-1);
@@ -94,24 +98,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
       fontFamily="inherit"
       aria-hidden="true"
     >
-      {/* Horizontal grid line at each rank position */}
-      {Array.from({ length: ownerCount }, (_, i) => i + 1).map((rank) => {
-        const y = yOfRank(rank, ownerCount);
-        return (
-          <line
-            key={`hg-${rank}`}
-            x1={0}
-            y1={y}
-            x2={PLOT_W}
-            y2={y}
-            stroke="currentColor"
-            strokeOpacity={0.06}
-            strokeWidth={1}
-          />
-        );
-      })}
-
-      {/* Vertical grid line at each week */}
+      {/* Vertical grid line at each week only — horizontal rank lines removed */}
       {weeks.map((week, i) => {
         const x = xOfWeek(i, weeks.length);
         return (
@@ -122,7 +109,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             x2={x}
             y2={CHART_H}
             stroke="currentColor"
-            strokeOpacity={0.07}
+            strokeOpacity={0.06}
             strokeWidth={1}
           />
         );
@@ -138,7 +125,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             d={d}
             fill="none"
             stroke={color}
-            strokeOpacity={0.75}
+            strokeOpacity={0.6}
             strokeWidth={idx === 0 ? 1.5 : 1}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -146,27 +133,16 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
         ) : null;
       })}
 
-      {/* Dot at final data point */}
-      {rankSeries.map((series) => {
-        const lastPoint = series.points.at(-1);
-        if (!lastPoint) return null;
-        const xi = weekIndexMap.get(lastPoint.week) ?? 0;
-        const cx = xOfWeek(xi, weeks.length);
-        const cy = yOfRank(lastPoint.value, ownerCount);
-        const color = colorMap.get(series.ownerId) ?? '#888';
-        return <circle key={`dot-${series.ownerId}`} cx={cx} cy={cy} r={2.5} fill={color} />;
-      })}
-
       {/* Inline end labels: colored dot + neutral text */}
       {endLabels.map((label) => (
         <g key={`lbl-${label.ownerId}`}>
-          <circle cx={PLOT_W + 5} cy={label.y} r={2} fill={label.color} />
+          <circle cx={PLOT_W + 5} cy={label.y} r={1.5} fill={label.color} fillOpacity={0.8} />
           <text
             x={PLOT_W + 11}
             y={label.y + 3}
             fontSize={8}
             fill="currentColor"
-            fillOpacity={0.6}
+            fillOpacity={0.55}
             fontWeight={400}
           >
             {label.display}
@@ -186,7 +162,7 @@ export default function MiniTrendsGrid({ standingsHistory }: Props): React.React
             textAnchor={anchor}
             fontSize={8}
             fill="currentColor"
-            fillOpacity={0.35}
+            fillOpacity={0.3}
           >
             W{week}
           </text>
