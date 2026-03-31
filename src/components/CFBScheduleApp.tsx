@@ -1329,7 +1329,6 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsHistory={standingsHistory}
-                  season={selectedSeason}
                   standingsCoverage={standingsCoverage}
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
