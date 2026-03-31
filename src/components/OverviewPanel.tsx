@@ -48,8 +48,8 @@ function dotColor(result: WeekOutcome): string {
   return 'bg-gray-400 dark:bg-zinc-500';
 }
 
-const NAME_COL_W = '5.5rem';
-const DOT_COL_W = '1.35rem';
+const NAME_COL_W = '4.5rem';
+const DOT_COL_W = '1rem';
 
 function RecentFormPanel({
   standingsHistory,
@@ -63,7 +63,7 @@ function RecentFormPanel({
   if (owners.length === 0 || weeks.length === 0) return null;
 
   return (
-    <div className="border-l border-gray-200 pl-4 dark:border-zinc-700">
+    <div className="border-l border-gray-200 pl-3 dark:border-zinc-700">
       <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
         Last {weeks.length} weeks
       </p>
@@ -947,7 +947,7 @@ export default function OverviewPanel({
             </Link>
           }
         >
-          <div className="flex gap-6">
+          <div className="flex gap-4">
             <div className="w-1/2 min-w-0">
               <MiniTrendsGrid
                 standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
