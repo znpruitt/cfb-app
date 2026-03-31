@@ -158,6 +158,37 @@ export function selectWinBars(args: { standingsHistory: StandingsHistory }): Win
   });
 }
 
+export type RankSeries = {
+  ownerId: string;
+  ownerName: string;
+  points: { week: number; value: number }[];
+};
+
+/**
+ * Builds chart-ready standings-position (rank) trend series from canonical standings history.
+ *
+ * Contract:
+ * - Owner ordering: latest standings order.
+ * - Rank value: 1-based index of owner in byWeek[week].standings for each resolved week.
+ * - Owners absent from a week's standings are omitted for that week.
+ */
+export function selectRankTrend(args: { standingsHistory: StandingsHistory }): RankSeries[] {
+  const { standingsHistory } = args;
+  const { resolvedWeeks: weeks, latestResolvedWeek } =
+    selectResolvedStandingsWeeks(standingsHistory);
+  const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
+
+  return owners.map((owner) => {
+    const points = weeks.flatMap((week) => {
+      const weekStandings = standingsHistory.byWeek[week]?.standings ?? [];
+      const rankIndex = weekStandings.findIndex((row) => row.owner === owner);
+      if (rankIndex === -1) return [];
+      return [{ week, value: rankIndex + 1 }];
+    });
+    return { ownerId: owner, ownerName: owner, points };
+  });
+}
+
 export function selectGamesBackTrendFull(args: {
   standingsHistory: StandingsHistory;
 }): GamesBackSeries[] {
