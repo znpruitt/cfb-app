@@ -947,13 +947,13 @@ export default function OverviewPanel({
             </Link>
           }
         >
-          <div className="flex gap-4">
-            <div className="w-1/2 min-w-0">
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <div className="min-w-0 flex-1">
               <MiniTrendsGrid
                 standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
               />
             </div>
-            <div className="min-w-0 shrink-0">
+            <div className="shrink-0">
               <RecentFormPanel standingsHistory={standingsHistory} />
             </div>
           </div>
