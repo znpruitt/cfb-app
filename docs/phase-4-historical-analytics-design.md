@@ -1,7 +1,7 @@
 # Phase 4 — Historical Analytics Design
 
-**Status:** Design approved — open questions resolved. Ready for implementation prompt.
-**Depends on:** Phase 3 design (see §6 for dependency boundary decisions).
+**Status:** Design finalized — planning session complete. Implementation sequence defined. Ready for first implementation prompt.
+**Depends on:** Phase 3 design (see §6 for dependency boundary decisions). Phase 3 is complete.
 **No implementation has begun.**
 
 ---
@@ -18,9 +18,9 @@
 
 ### Minimum viable historical dataset for 2026 season launch
 
-The 2026 MVP requires exactly one historical record: the **2025 completed season archive**. That is sufficient to give the Standings and Trends pages a "previous season" comparison point, which is the primary member-facing value.
+The 2026 MVP requires exactly one historical record: the **2025 completed season archive**. That is sufficient to give the history pages a "previous season" record, which is the primary member-facing value.
 
-The full historical feature is not required at launch — just the ability to archive a season and render its final standings on demand.
+The full historical feature is not required at launch — just the ability to archive a season and render its final standings and season arc on demand.
 
 ---
 
@@ -43,13 +43,16 @@ A complete season archive wraps this with metadata:
 
 ```ts
 type SeasonArchive = {
+  leagueSlug: string;                // which league this archive belongs to
   year: number;
-  archivedAt: string;              // ISO timestamp
-  ownerRosterSnapshot: string;     // raw CSV at time of archival
+  archivedAt: string;                // ISO timestamp
+  ownerRosterSnapshot: string;       // raw CSV at time of archival
   standingsHistory: StandingsHistory;
   finalStandings: StandingsHistoryStandingRow[]; // convenience: last week's snapshot
 };
 ```
+
+**Why include `leagueSlug`:** Archives are self-describing — the leagueSlug field identifies which league the archive belongs to without relying on the storage key. Required for any cross-league administrative tooling.
 
 **Why include `ownerRosterSnapshot`:** Owner names may change between seasons (owner reassignments, nickname edits). Archiving the roster CSV alongside the standings ensures historical data renders correctly even after roster changes. The archived owner names are the source of truth for that season — do not re-derive them from the live roster.
 
@@ -57,7 +60,7 @@ type SeasonArchive = {
 
 - Owner identity is name-based within a season (same as today).
 - Cross-season owner performance is keyed by owner name as it appeared in that season's archived roster.
-- No persistent owner ID is introduced. Owner last names are stable enough for the primary league. If the same person changes their display name between seasons, they appear as two separate owners in historical views. This is a known limitation — revisit only when a concrete cross-season identity problem is demonstrated.
+- No persistent owner ID is introduced. Owner last names are stable enough for the primary league. If the same person changes their display name between seasons, they appear as two separate entries in historical views. This is a known limitation (Decision 1) — revisit only when a concrete cross-season identity problem is demonstrated.
 - A future owner identity system (mapping display names to stable IDs) can be layered on top without changing the archive format.
 
 ### Storage Key Structure
@@ -107,37 +110,29 @@ No schema changes required. The `jsonb` value column holds the full `SeasonArchi
 
 **Recommendation:** Use `appStateStore` key-value for Phase 4. A dedicated table is warranted only if cross-season analytical queries (e.g., "owner performance across all years ranked") become a product requirement. That belongs to a later phase.
 
-### How should the 2025 season be archived?
-
-The 2025 archive is created by:
-
-1. Running all existing season data through `deriveStandingsHistory(games, roster, scores)` one final time.
-2. Taking the last week's `byWeek` entry as `finalStandings`.
-3. Snapshotting the current owner CSV from `getAppState('owners', '2025')`.
-4. Writing the result to `setAppState('standings-archive:tsc', '2025', archive)`.
-
-This can be triggered from the existing admin panel as a one-time action. No automated mechanism is required.
-
 ---
 
 ## 4. Season Rollover Process
 
-### End-of-season archival workflow
+### Season rollover is a global platform admin action
 
-1. Commissioner triggers "Archive Season" from admin panel (new admin action, not yet built).
-2. Admin route fetches current season's games, scores, and owner roster.
-3. `deriveStandingsHistory` is called to produce the full season arc.
-4. `SeasonArchive` object is assembled and written to appStateStore.
-5. Commissioner confirms successful archival in admin UI.
-6. Season year is incremented for the next season's data (separate action).
+Season completion is a global signal — the CFP Final ending is a fact of the CFB calendar that affects all leagues simultaneously. All leagues follow the same game schedule. "Start New Season" is therefore a **site admin function** on `/admin/`, not a per-league or per-commissioner action. It is protected by the existing `ADMIN_API_TOKEN`.
 
-### What triggers archival — manual admin or automatic?
+There is no separate "Archive Season" button. Triggering **"Start New Season"** automatically:
 
-**Manual admin action only.** This is consistent with the admin-only refresh semantics established in Phase 2A. Automatic archival from public traffic violates the quota-conscious, admin-controlled refresh model.
+1. Detects that the CFP Final is marked as final in the shared game schedule.
+2. Loops through all registered leagues in the league registry.
+3. For each league: fetches current season's games, scores, owner roster, aliases, and postseason overrides; calls `deriveStandingsHistory`; assembles a `SeasonArchive`; and writes it to `setAppState('standings-archive:${leagueSlug}', '${year}', archive)`.
+4. Increments the active season year for all leagues.
+5. Confirms successful rollover in the admin UI.
 
-The commissioner decides when the season is final (all postseason scores confirmed, overrides applied) and triggers archival at that point. This prevents archiving before postseason scores are resolved.
+This is a single atomic action. The commissioner does not decide when the season is final on a per-league basis — the game schedule determines this globally.
 
-### Data that must be captured at season close
+### CFP Final detection
+
+The admin page detects when the CFP Final is marked as final in the shared game schedule and surfaces a **"Start New Season" prompt** on `/admin/`. Until that condition is met, the prompt is not shown (or is shown as disabled with a status indicator). The admin may override the detection and force-trigger rollover if needed.
+
+### Data captured at season close
 
 For a complete historical record, all of the following must be present at archive time:
 
@@ -146,69 +141,90 @@ For a complete historical record, all of the following must be present at archiv
 | Final game schedule | CFBD API (cached) | Yes, in-memory/cached |
 | Final score results | CFBD API (cached) | Yes, in-memory/cached |
 | Postseason overrides | appStateStore | Yes |
-| Owner roster CSV | appStateStore (`owners:${year}`) | Yes |
-| Alias map | appStateStore (`aliases:${year}`) | Yes — needed to re-run identity resolution |
+| Owner roster CSV | appStateStore (`owners:${leagueSlug}:${year}`) | Yes |
+| Alias map | appStateStore (`aliases:${leagueSlug}:${year}`) | Yes — needed to re-run identity resolution |
 
-The archive action must read all of these and compute `StandingsHistory` at archive time. Post-archive, the historical record is immutable by default.
+The rollover action reads all of these per-league and computes `StandingsHistory` at archive time. Post-archive, the historical record is immutable by default.
 
-**Re-archival policy:** Re-archiving a season is allowed but must be an explicit admin action. Before overwriting, the system must present a diff of what changed between the existing archive and the proposed new archive. The admin must confirm before the write commits. Accidental overwrites are not permitted.
+### Re-archival policy
+
+Re-archiving a season is allowed but requires explicit admin confirmation. Before overwriting any existing archive, the system must present a **diff in summary form** showing:
+
+1. Number of scores that changed.
+2. Number of outcomes that flipped (win-to-loss or loss-to-win) and which owners were affected.
+3. Final standings order changes — who moved and by how much.
+
+Admin must confirm before any overwrite proceeds. Accidental overwrites are not permitted.
 
 ---
 
 ## 5. UI Surfaces
 
-### New pages and components needed
+### Route hierarchy
 
-Historical data lives under a dedicated **`/history/`** route hierarchy — this is a distinct browsing experience from live-season views and warrants its own route, not a `?year=` parameter on existing pages.
+All history routes are league-scoped within the `/league/[slug]/` hierarchy established in Phase 3. No top-level `/history/` route exists.
 
-**Minimum viable (2026 launch):**
-- **`/history/`** — League History landing page listing all archived seasons with winner and final standings per season.
-- **`/history/[year]/`** — Per-season detail: final standings, season arc (trends chart), owner roster for that season.
-- **`/api/history/[year]`** — Server route that reads `SeasonArchive` from appStateStore and returns it.
+```
+/league/[slug]/history/                   — League history landing (all-time view)
+/league/[slug]/history/[year]/            — Season detail page
+/league/[slug]/history/owner/[name]/      — Owner career page
+/api/history/[year]?league=${slug}        — Server route returning SeasonArchive
+```
 
-**Post-launch additions (not required at launch):**
-- **Owner performance view** — lifetime record, season finish positions, win titles across all archived seasons.
-- **Season comparison** — side-by-side standings from two seasons.
+### League history landing — `/league/[slug]/history/`
 
-### How does the `/history/` route integrate with existing page architecture?
+The league history landing is a **season-spanning all-time view** — not a copy of the live season UI. It is a purpose-built history experience covering all archived seasons for the league. It includes:
 
-The existing pages (Standings, Trends) continue to render live-season data only. Historical views at `/history/[year]` are standalone pages that:
+- **All-time standings table** — total wins, losses, championships, and average finish position per owner across all archived seasons.
+- **Championships banner** — who has won, how many times, and which years.
+- **All-time head-to-head matrix** — head-to-head record between every pair of owners across all seasons combined.
+- **Dynasty and drought tracker** — longest championship winning streak and longest championship drought per owner.
+- **Most improved** — biggest finish position improvement season over season.
+- **Rivalries** — closest head-to-head records across seasons.
+- **Season list** — links to per-season detail pages with the champion and final record highlighted.
 
-1. Fetch `SeasonArchive` from `/api/history/[year]`.
-2. Feed the archived `standingsHistory` and `ownerRosterSnapshot` into the same existing components (`StandingsPanel`, `MiniTrendsGrid`).
-3. Display a prominent "Archived — [Year] Season" banner to distinguish from live views.
+### Season detail page — `/league/[slug]/history/[year]/`
 
-The selector inputs (`StandingsHistory`, `rosterByTeam`) are the same shape — archived data feeds the same selectors without new selector variants. No season picker is added to live Standings/Trends pages; navigation is via the `/history/` landing page.
+The season detail page is a **purpose-built view for a single archived season**. It includes:
 
-### Which existing selectors need multi-season variants?
+- **Final standings** — wins, losses, games back, record, and point differential.
+- **Season arc trends chart** — the GB race week by week for the full season using existing `MiniTrendsGrid` and `StandingsHistory` components.
+- **Owner roster** — who owned which teams that season, from `ownerRosterSnapshot`.
+- **Season superlatives** — highest single-week score, biggest upset, most dominant stretch, closest finish.
+- **Head-to-head results** — each owner's record against every other owner that season. Progressive disclosure: top level shows W-L record per pairing; expanded view shows individual matchup details (week, game, outcome).
+- **Owner cards** — each owner's season summary with record, finish, and notable wins and losses.
+- **"Archived — [Year] Season" banner** — prominent display distinguishing this from live views.
 
-None for the MVP. The existing selectors (`selectGamesBackTrend`, `selectPositionDeltas`, `deriveLeagueInsights`) are pure functions that accept data as parameters — they already work with any `StandingsHistory` snapshot, historical or current.
+### Owner career page — `/league/[slug]/history/owner/[name]/`
 
-Multi-season aggregation selectors (e.g., `selectOwnerLifetimeRecord`) would be new additions, not variants.
+The owner career page is a dedicated view for a single owner's performance across all archived seasons. It includes:
+
+- **Career summary** — all-time record, championships, and average finish position.
+- **Season finish history** — year-by-year finish position and win/loss record.
+- **All-time head-to-head records** — against every other owner across all seasons. Progressive disclosure: top level shows overall W-L record per opponent; expanded view shows per-season breakdown and individual matchup details.
+
+Owner identity is name-based, keyed by owner name as it appeared in each season's archived roster. If an owner's name changes between seasons, they may appear as separate entries. This is a known limitation (Decision 1).
+
+### Existing selectors and components
+
+The existing selectors (`selectGamesBackTrend`, `selectPositionDeltas`, `deriveLeagueInsights`) are pure functions that accept data as parameters — they already work with any `StandingsHistory` snapshot, historical or current. No selector variants are needed.
+
+Multi-season aggregation selectors (e.g., `selectOwnerLifetimeRecord`) are new additions for the history landing and owner career page — not variants of existing selectors.
+
+The existing pages (Standings, Trends, Overview) continue to render live-season data only. No season picker is added to live pages; navigation to history is via the `/league/[slug]/history/` landing.
 
 ---
 
 ## 6. Dependencies on Phase 3 (Multi-League)
 
-### Decisions that must wait for Phase 3 scoping
-
-| Decision | Dependency |
-|----------|-----------|
-| Final storage key structure | Phase 3 establishes `standings-archive:${leagueSlug}:${year}` key pattern; Phase 4 uses it from day one |
-| `/api/history/[year]` route signature | Will need `?league=${slug}` parameter once Phase 3 routing is in place |
-| Commissioner archive trigger | Must be scoped to the correct league slug |
-
-### Decisions that can be built season-scoped now and extended later
-
-**Phase 4 builds after Phase 3, so league-scoped keys are used from the start.** No migration from year-only keys is needed.
+Phase 3 is complete. All sequencing dependencies are satisfied.
 
 | Decision | Phase 4 approach |
 |----------|-----------------|
 | Storage key | `scope='standings-archive:${leagueSlug}', key='${year}'` — league-scoped from day one |
 | API route | `/api/history/[year]?league=${slug}` — uses Phase 3 routing conventions |
-| Season picker | Shows current league's history only (scoped by league context from the URL) |
-
-**Sequence dependency:** Phase 3 (multi-league) must be complete before Phase 4 (historical analytics) is implemented. This ensures archive keys are league-scoped from the first write and no migration is required. The `SeasonArchive` type itself does not change.
+| History route | `/league/[slug]/history/` — within Phase 3 route hierarchy |
+| Season rollover | Loops through all registered leagues in the Phase 3 league registry |
 
 ---
 
@@ -219,8 +235,55 @@ All open questions from the design review have been resolved.
 | # | Question | Decision |
 |---|----------|----------|
 | 1 | Owner identity stability | **Deferred.** No stable owner ID introduced. Owner last names are stable enough for the primary league. Known limitation — revisit only when a concrete cross-season problem is demonstrated. |
-| 2 | Archive immutability | **Re-archival allowed, but admin-gated.** System must present a diff between existing and proposed archive before the write. Admin must confirm. Accidental overwrites not permitted. |
+| 2 | Archive immutability | **Re-archival allowed, but admin-gated.** System must present a diff (score changes, outcome flips, standings order changes) before the write. Admin must confirm. Accidental overwrites not permitted. |
 | 3 | Pre-2025 seasons | **Show a message.** Display "Historical data available from the 2025 season onward." Do not silently hide empty years. |
 | 4 | CFBD retroactive archival | **Not supported.** Alias and roster state at season time cannot be reliably reconstructed. 2025 is the first archived season by design. |
 | 5 | Storage size | **Single `app_state` table is sufficient.** ~500 KB–1 MB over ten seasons is negligible. A separate `season_archives` table is premature optimization and will not be introduced. |
-| 6 | Season picker placement | **Dedicated `/history/` route.** This is a distinct browsing experience from live-season views. `?year=` parameter on existing routes is not used. |
+| 6 | Season picker placement | **Dedicated `/league/[slug]/history/` route.** This is a distinct browsing experience from live-season views. `?year=` parameter on existing routes is not used. |
+| 7 | Season rollover trigger | **Global platform admin action.** "Start New Season" on `/admin/` archives all leagues atomically. CFP Final detection surfaces the prompt. No per-league archive button. |
+| 8 | Archive bundling | **Archival is bundled into rollover.** There is no separate "Archive Season" button. One action rolls over and archives all leagues. |
+
+---
+
+## 8. Implementation Sequence
+
+Phase 4 is implemented in three prompts:
+
+### Prompt 1 — Data layer
+
+- `SeasonArchive` type definition
+- Archive read/write functions (`getSeasonArchive`, `setSeasonArchive`)
+- `/api/history/[year]?league=${slug}` server route returning a `SeasonArchive`
+- `/api/admin/rollover` — global "Start New Season" admin action:
+  - CFP Final detection from shared game schedule
+  - Per-league archive loop reading owners, aliases, overrides, schedule, scores
+  - `deriveStandingsHistory` per league
+  - Write to `standings-archive:${leagueSlug}:${year}`
+  - Active year increment
+- Re-archive diff logic (score changes, outcome flips, standings order changes) — presented before any overwrite
+- Admin UI on `/admin/` — "Start New Season" prompt conditioned on CFP Final detection
+
+### Prompt 2 — Season detail UI
+
+- `/league/[slug]/history/[year]/` page
+- Final standings, season arc trends chart (reusing `MiniTrendsGrid` + `StandingsHistory`)
+- Owner roster from `ownerRosterSnapshot`
+- Season superlatives (highest score, biggest upset, most dominant stretch, closest finish)
+- Expandable head-to-head results (top-level W-L, expanded matchup detail)
+- Owner cards with season summary
+- "Archived — [Year] Season" banner
+
+### Prompt 3 — League history landing and owner career UI
+
+- `/league/[slug]/history/` landing page with all-time stats:
+  - All-time standings table (wins, losses, championships, average finish)
+  - Championships banner
+  - All-time head-to-head matrix
+  - Dynasty and drought tracker
+  - Most improved section
+  - Rivalries section
+  - Season list with champion links
+- `/league/[slug]/history/owner/[name]/` owner career page:
+  - Career summary (record, championships, average finish)
+  - Season finish history (year-by-year)
+  - All-time head-to-head with progressive disclosure
