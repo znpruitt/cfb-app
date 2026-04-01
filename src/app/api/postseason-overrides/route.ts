@@ -22,13 +22,7 @@ export async function GET(req: Request): Promise<Response> {
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
 
-  // Try league-scoped key first; fall back to legacy key for migration
-  // TRANSITION FALLBACK: legacy fallback removed after migration confirmed complete
-  let record = league ? await getAppState<OverridesMap>(overridesScope(year, league), 'map') : null;
-
-  if (!record) {
-    record = await getAppState<OverridesMap>(overridesScope(year), 'map');
-  }
+  const record = await getAppState<OverridesMap>(overridesScope(year, league), 'map');
 
   const map = record?.value;
   return Response.json({

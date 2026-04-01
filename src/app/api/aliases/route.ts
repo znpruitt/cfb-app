@@ -26,14 +26,7 @@ function aliasesScope(year: number, leagueSlug?: string): string {
 }
 
 async function readAliases(year: number, league?: string): Promise<AliasMap> {
-  // Try league-scoped key first; fall back to legacy key for migration
-  // TRANSITION FALLBACK: legacy fallback removed after migration confirmed complete
-  let record = league ? await getAppState<AliasMap>(aliasesScope(year, league), 'map') : null;
-
-  if (!record) {
-    record = await getAppState<AliasMap>(aliasesScope(year), 'map');
-  }
-
+  const record = await getAppState<AliasMap>(aliasesScope(year, league), 'map');
   const map = record?.value;
   return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
