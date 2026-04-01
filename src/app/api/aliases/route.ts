@@ -1,5 +1,6 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
+import { isValidSlug } from '../../../lib/leagueRegistry.ts';
 
 /** Canonical alias map type */
 type AliasMap = Record<string, string>;
@@ -19,25 +20,36 @@ function clampYearMaybe(s: string | null): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function aliasesScope(year: number): string {
+function aliasesScope(year: number, leagueSlug?: string): string {
+  if (leagueSlug) return `aliases:${leagueSlug}:${year}`;
   return `aliases:${year}`;
 }
 
-async function readAliases(year: number): Promise<AliasMap> {
-  const record = await getAppState<AliasMap>(aliasesScope(year), 'map');
+async function readAliases(year: number, league?: string): Promise<AliasMap> {
+  // Try league-scoped key first; fall back to legacy key for migration
+  // TRANSITION FALLBACK: legacy fallback removed after migration confirmed complete
+  let record = league ? await getAppState<AliasMap>(aliasesScope(year, league), 'map') : null;
+
+  if (!record) {
+    record = await getAppState<AliasMap>(aliasesScope(year), 'map');
+  }
+
   const map = record?.value;
   return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
-async function writeAliases(year: number, map: AliasMap): Promise<void> {
-  await setAppState(aliasesScope(year), 'map', map);
+async function writeAliases(year: number, map: AliasMap, league?: string): Promise<void> {
+  await setAppState(aliasesScope(year, league), 'map', map);
 }
 
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const year = clampYearMaybe(url.searchParams.get('year'));
-  const map = await readAliases(year);
-  return Response.json({ year, map });
+  const leagueParam = url.searchParams.get('league') ?? undefined;
+  const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
+
+  const map = await readAliases(year, league);
+  return Response.json({ year, league: league ?? null, map });
 }
 
 export async function PUT(req: Request): Promise<Response> {
@@ -46,6 +58,8 @@ export async function PUT(req: Request): Promise<Response> {
 
   const url = new URL(req.url);
   const year = clampYearMaybe(url.searchParams.get('year'));
+  const leagueParam = url.searchParams.get('league') ?? undefined;
+  const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
 
   let bodyUnknown: unknown;
   try {
@@ -88,7 +102,7 @@ export async function PUT(req: Request): Promise<Response> {
     });
   }
 
-  const current = await readAliases(year);
+  const current = await readAliases(year, league);
 
   let next: AliasMap;
   if ('map' in body) {
@@ -110,6 +124,6 @@ export async function PUT(req: Request): Promise<Response> {
     }
   }
 
-  await writeAliases(year, next);
-  return Response.json({ year, map: next });
+  await writeAliases(year, next, league);
+  return Response.json({ year, league: league ?? null, map: next });
 }

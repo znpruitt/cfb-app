@@ -1,8 +1,13 @@
 # Phase 3 — Multi-League Support Design
 
-**Status:** Design approved — open questions resolved. Ready for implementation prompt.
+**Status:** Implementation in progress — Phase 3 foundation (P3-MULTILEG-FOUNDATION-v1).
 **Affects:** Phase 4 storage key structure (see §7).
-**No implementation has begun.**
+
+### Slugs are runtime data, not configuration
+
+**No slug or league name may be hardcoded anywhere in application code.** Slugs live exclusively in the league registry (appStateStore). Source code treats slugs as opaque strings — it never imports, embeds, or defaults to a specific slug value. The registry is the sole source of truth for what leagues exist and what their slugs are.
+
+This applies without exception to all routes, components, and lib modules.
 
 ---
 
@@ -39,9 +44,9 @@ Full SaaS multi-tenant, self-serve league creation, or public league discovery a
 /league/:slug/rankings
 ```
 
-**Decided: Option A — Hard redirect.** The existing root routes (`/standings`, `/overview`, etc.) redirect to `/league/tsc/standings`, etc. All existing bookmarks and shared links continue to work via redirect. Root routes are deprecated after one season.
+**Decided: Option A — Hard redirect.** The existing root routes (`/standings`, `/overview`, etc.) redirect to `/league/:slug/standings`, etc., where `:slug` is the primary league's slug read from the league registry at request time. All existing bookmarks and shared links continue to work via redirect. Root routes are deprecated after one season.
 
-The primary league slug is **`tsc`**. All primary league URLs will be `/league/tsc/`. Root route redirects point to `/league/tsc/` equivalents.
+The redirect target is not hardcoded — it is derived from the first (or designated primary) league in the registry. If no leagues are registered yet, root routes render normally (single-league fallback behavior).
 
 Option B (parallel coexistence) and Option C (query params) are not used.
 
@@ -143,7 +148,7 @@ The resolver itself is pure — it produces a registry from whatever ownership m
 
 1. **App bootstrap context** — `CFBScheduleApp.tsx` (or whatever holds top-level state) needs to know which league is active and hold the league-specific `ownersByTeamId` and `aliasMap`. This is a props/context change, not a type-shape change.
 
-2. **API routes** — all durable-read routes (`/api/owners`, `/api/aliases`, `/api/postseason-overrides`) need a `league` query parameter alongside `year`. Routes currently use `?year=2025`; multi-league adds `?league=tsc&year=2025`.
+2. **API routes** — all durable-read routes (`/api/owners`, `/api/aliases`, `/api/postseason-overrides`) need a `league` query parameter alongside `year`. Routes currently use `?year=2025`; multi-league adds `?league=${slug}&year=2025`.
 
 3. **`SeasonArchive` type** (Phase 4) — should include `leagueSlug: string` so archived data is self-describing.
 
@@ -180,18 +185,18 @@ type League = {
 
 ### How does existing single-league 2025 data migrate?
 
-**Migration strategy: slug assignment on first access.**
+**Migration strategy: slug assignment via registry seed + first admin write.**
 
-1. The existing league slug is `tsc`.
-2. On first admin write after Phase 3 deployment, the admin UI writes data to the new `owners:tsc:2025` scope.
-3. The read path falls back to `owners:2025` if `owners:tsc:2025` is not found — backward compatibility for a single transition period.
-4. Once the commissioner confirms migration is complete, the fallback is removed.
+1. The commissioner seeds the league registry with the desired slug via the admin API (see §9 Setup). No slug is hardcoded in source code.
+2. On first admin write after Phase 3 deployment, the admin UI writes data to the new `owners:${slug}:${year}` scope.
+3. The read path falls back to `owners:${year}` if `owners:${slug}:${year}` is not found — backward compatibility for a single transition period. This fallback is clearly marked as temporary in code comments and will be removed after migration is confirmed complete.
+4. Once the commissioner confirms migration is complete, the fallback is removed in the next deployment.
 
 This avoids a one-time migration script and handles the transition gracefully.
 
-### What is the slug for the existing league?
+### What slug does the existing league use?
 
-**`tsc`** — the primary league slug. All URLs for the existing league will use `/league/tsc/`. The commissioner can configure a display name independently of the slug.
+The slug is chosen and registered by the commissioner at migration time via the admin seed command in §9. It is stored in the registry as data — not in source code. The commissioner can choose any valid slug (lowercase, alphanumeric, hyphens).
 
 ### Can both models coexist during a transition period?
 
@@ -217,6 +222,31 @@ The `SeasonArchive` type and `deriveStandingsHistory` function do not change —
 - The `/api/history/[year]?league=${slug}` route convention is available when Phase 4 builds its API
 
 Phase 4 (historical analytics) builds directly on Phase 3 infrastructure. No standalone year-only scoping period.
+
+---
+
+## 9. Setup
+
+### Seeding the first league
+
+After Phase 3 is deployed, the commissioner runs a single admin API call to register the primary league. The slug value is data — it lives in the registry, never in source code.
+
+```bash
+curl -X POST https://<your-app>/api/admin/leagues \
+  -H "Content-Type: application/json" \
+  -H "x-admin-token: <ADMIN_API_TOKEN>" \
+  -d '{"slug": "tsc", "displayName": "TSC League", "year": 2026}'
+```
+
+Replace `tsc` with the actual league slug, `TSC League` with the display name, and `2026` with the active season year. The app reads the slug from the registry at runtime — changing it here changes it everywhere.
+
+To add a second league:
+```bash
+curl -X POST https://<your-app>/api/admin/leagues \
+  -H "Content-Type: application/json" \
+  -H "x-admin-token: <ADMIN_API_TOKEN>" \
+  -d '{"slug": "family-league", "displayName": "Family Pool", "year": 2026}'
+```
 
 ---
 
