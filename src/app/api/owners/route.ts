@@ -45,6 +45,13 @@ export async function PUT(req: Request): Promise<Response> {
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
 
+  if (leagueParam && !league) {
+    return new Response(
+      `Invalid league slug format: '${leagueParam}'. Slugs must be lowercase alphanumeric words separated by hyphens.`,
+      { status: 400 }
+    );
+  }
+
   if (league) {
     const registered = await getLeague(league);
     if (!registered)
