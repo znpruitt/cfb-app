@@ -26,28 +26,13 @@ function aliasesScope(year: number, leagueSlug?: string): string {
 }
 
 async function readAliases(year: number, league?: string): Promise<AliasMap> {
-  // Try league-scoped key first; fall back to legacy key for migration
-  // TRANSITION FALLBACK: legacy fallback removed after migration confirmed complete
-  let record = league ? await getAppState<AliasMap>(aliasesScope(year, league), 'map') : null;
-
-  if (!record) {
-    record = await getAppState<AliasMap>(aliasesScope(year), 'map');
-  }
-
+  const record = await getAppState<AliasMap>(aliasesScope(year, league), 'map');
   const map = record?.value;
   return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
 async function writeAliases(year: number, map: AliasMap, league?: string): Promise<void> {
   await setAppState(aliasesScope(year, league), 'map', map);
-}
-
-/** Read only from the league-scoped key — no fallback. Used for write-time merges to
- * prevent inheriting legacy league data into a new league's alias map. */
-async function readAliasesScopedOnly(year: number, league: string): Promise<AliasMap> {
-  const record = await getAppState<AliasMap>(aliasesScope(year, league), 'map');
-  const map = record?.value;
-  return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -123,8 +108,7 @@ export async function PUT(req: Request): Promise<Response> {
     });
   }
 
-  // For write-time merges, never inherit legacy data: read only from the target scope
-  const current = league ? await readAliasesScopedOnly(year, league) : await readAliases(year);
+  const current = await readAliases(year, league);
 
   let next: AliasMap;
   if ('map' in body) {

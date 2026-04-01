@@ -20,13 +20,7 @@ export async function GET(req: Request): Promise<Response> {
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
 
-  // Try league-scoped key first; fall back to legacy key for migration
-  // TRANSITION FALLBACK: legacy fallback removed after migration confirmed complete
-  let record = league ? await getAppState<string>(ownersScope(year, league), 'csv') : null;
-
-  if (!record) {
-    record = await getAppState<string>(ownersScope(year), 'csv');
-  }
+  const record = await getAppState<string>(ownersScope(year, league), 'csv');
 
   return Response.json({
     year,
