@@ -1,5 +1,6 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
+import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
 
 /** Canonical alias map type */
 type AliasMap = Record<string, string>;
@@ -19,25 +20,44 @@ function clampYearMaybe(s: string | null): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function aliasesScope(year: number): string {
+function aliasesScope(year: number, leagueSlug?: string): string {
+  if (leagueSlug) return `aliases:${leagueSlug}:${year}`;
   return `aliases:${year}`;
 }
 
-async function readAliases(year: number): Promise<AliasMap> {
-  const record = await getAppState<AliasMap>(aliasesScope(year), 'map');
+async function readAliases(year: number, league?: string): Promise<AliasMap> {
+  // Try league-scoped key first; fall back to legacy key for migration
+  // TRANSITION FALLBACK: legacy fallback removed after migration confirmed complete
+  let record = league ? await getAppState<AliasMap>(aliasesScope(year, league), 'map') : null;
+
+  if (!record) {
+    record = await getAppState<AliasMap>(aliasesScope(year), 'map');
+  }
+
   const map = record?.value;
   return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
-async function writeAliases(year: number, map: AliasMap): Promise<void> {
-  await setAppState(aliasesScope(year), 'map', map);
+async function writeAliases(year: number, map: AliasMap, league?: string): Promise<void> {
+  await setAppState(aliasesScope(year, league), 'map', map);
+}
+
+/** Read only from the league-scoped key — no fallback. Used for write-time merges to
+ * prevent inheriting legacy league data into a new league's alias map. */
+async function readAliasesScopedOnly(year: number, league: string): Promise<AliasMap> {
+  const record = await getAppState<AliasMap>(aliasesScope(year, league), 'map');
+  const map = record?.value;
+  return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const year = clampYearMaybe(url.searchParams.get('year'));
-  const map = await readAliases(year);
-  return Response.json({ year, map });
+  const leagueParam = url.searchParams.get('league') ?? undefined;
+  const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
+
+  const map = await readAliases(year, league);
+  return Response.json({ year, league: league ?? null, map });
 }
 
 export async function PUT(req: Request): Promise<Response> {
@@ -46,6 +66,21 @@ export async function PUT(req: Request): Promise<Response> {
 
   const url = new URL(req.url);
   const year = clampYearMaybe(url.searchParams.get('year'));
+  const leagueParam = url.searchParams.get('league') ?? undefined;
+  const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
+
+  if (leagueParam && !league) {
+    return new Response(
+      `Invalid league slug format: '${leagueParam}'. Slugs must be lowercase alphanumeric words separated by hyphens.`,
+      { status: 400 }
+    );
+  }
+
+  if (league) {
+    const registered = await getLeague(league);
+    if (!registered)
+      return new Response(`League '${league}' not found in registry`, { status: 404 });
+  }
 
   let bodyUnknown: unknown;
   try {
@@ -88,7 +123,8 @@ export async function PUT(req: Request): Promise<Response> {
     });
   }
 
-  const current = await readAliases(year);
+  // For write-time merges, never inherit legacy data: read only from the target scope
+  const current = league ? await readAliasesScopedOnly(year, league) : await readAliases(year);
 
   let next: AliasMap;
   if ('map' in body) {
@@ -110,6 +146,6 @@ export async function PUT(req: Request): Promise<Response> {
     }
   }
 
-  await writeAliases(year, next);
-  return Response.json({ year, map: next });
+  await writeAliases(year, next, league);
+  return Response.json({ year, league: league ?? null, map: next });
 }
