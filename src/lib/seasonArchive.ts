@@ -43,7 +43,7 @@ export async function listSeasonArchives(leagueSlug: string): Promise<number[]> 
     const keys = await listAppStateKeys(archiveScope(leagueSlug));
     return keys
       .map((k) => Number(k))
-      .filter((n) => Number.isFinite(n) && n > 0)
+      .filter((n) => Number.isFinite(n) && n >= 2000)
       .sort((a, b) => a - b);
   } catch {
     return [];
