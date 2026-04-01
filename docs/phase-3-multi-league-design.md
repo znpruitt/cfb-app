@@ -1,7 +1,7 @@
-# Phase 4 — Multi-League Support Design
+# Phase 3 — Multi-League Support Design
 
 **Status:** Design approved — open questions resolved. Ready for implementation prompt.
-**Affects:** Phase 3 storage key structure (see §7).
+**Affects:** Phase 4 storage key structure (see §7).
 **No implementation has begun.**
 
 ---
@@ -104,7 +104,7 @@ The `appStateStore` API accepts arbitrary `scope` and `key` strings — no datab
 | Owner roster | `scope=owners:${year}` | `scope=owners:${slug}:${year}` |
 | Alias map | `scope=aliases:${year}` | `scope=aliases:${slug}:${year}` |
 | Postseason overrides | `scope=postseason-overrides:${year}` | `scope=postseason-overrides:${slug}:${year}` |
-| Season archive (Phase 3) | `scope=standings-archive, key=${year}` | `scope=standings-archive:${slug}, key=${year}` |
+| Season archive (Phase 4) | — | `scope=standings-archive:${slug}, key=${year}` |
 | League registry | — | `scope=leagues, key=registry` |
 
 No Postgres schema migration needed. Only key naming conventions change.
@@ -145,7 +145,7 @@ The resolver itself is pure — it produces a registry from whatever ownership m
 
 2. **API routes** — all durable-read routes (`/api/owners`, `/api/aliases`, `/api/postseason-overrides`) need a `league` query parameter alongside `year`. Routes currently use `?year=2025`; multi-league adds `?league=tsc&year=2025`.
 
-3. **`SeasonArchive` type** (Phase 3) — should include `leagueSlug: string` so archived data is self-describing.
+3. **`SeasonArchive` type** (Phase 4) — should include `leagueSlug: string` so archived data is self-describing.
 
 ---
 
@@ -183,7 +183,7 @@ type League = {
 **Migration strategy: slug assignment on first access.**
 
 1. The existing league slug is `tsc`.
-2. On first admin write after Phase 4 deployment, the admin UI writes data to the new `owners:tsc:2025` scope.
+2. On first admin write after Phase 3 deployment, the admin UI writes data to the new `owners:tsc:2025` scope.
 3. The read path falls back to `owners:2025` if `owners:tsc:2025` is not found — backward compatibility for a single transition period.
 4. Once the commissioner confirms migration is complete, the fallback is removed.
 
@@ -201,21 +201,22 @@ The fallback is time-limited — removed in the next deployment cycle after the 
 
 ---
 
-## 7. Impact on Phase 3 (Historical Analytics)
+## 7. Impact on Phase 4 (Historical Analytics)
 
 ### How does multi-league scoping change historical storage?
 
-Phase 3 season archives are currently proposed as `scope='standings-archive', key='${year}'`. With multi-league, this becomes `scope='standings-archive:${leagueSlug}', key='${year}'`.
+Phase 4 season archives use `scope='standings-archive:${leagueSlug}', key='${year}'` — league-scoped from the first write. Because Phase 3 (multi-league) is built first, no migration from year-only keys is needed.
 
-The `SeasonArchive` type and `deriveStandingsHistory` function do not change — only the storage key gains a league prefix.
+The `SeasonArchive` type and `deriveStandingsHistory` function do not change — only the storage key includes the league slug.
 
-### Should Phase 3 wait for Phase 4, or build season-scoped first?
+### Sequencing
 
-**Recommended: Build Phase 3 with year-only scoping first.** The 2025 archive is the immediate priority. When Phase 4 is implemented, the storage keys are migrated to include league slug (same pattern as owners/aliases).
+**Phase 3 (multi-league) must complete before Phase 4 (historical analytics) begins.** This ensures:
+- League slugs and the league registry are in place before the first archive is written
+- Archive keys are league-scoped from day one — no migration required
+- The `/api/history/[year]?league=${slug}` route convention is available when Phase 4 builds its API
 
-The Phase 3 API route (`/api/history/[year]`) can be extended to accept `?league=slug` in Phase 4 without breaking existing behavior — same pattern as the existing `/api/owners?year=2025` extension.
-
-**Risk:** If Phase 3 and Phase 4 are built in close sequence, it may be more efficient to implement Phase 4 key scoping from the start. If there will be a multi-month gap between phases, building Phase 3 first is the lower-risk path.
+Phase 4 (historical analytics) builds directly on Phase 3 infrastructure. No standalone year-only scoping period.
 
 ---
 
@@ -226,10 +227,10 @@ All open questions from the design review have been resolved.
 | # | Question | Decision |
 |---|----------|----------|
 | 1 | Default slug | **`tsc`** — primary league slug. All primary league URLs use `/league/tsc/`. |
-| 2 | League selection UI | **Commissioner shares direct URL.** No league picker UI at Phase 4. Members bookmark `/league/tsc/`. |
+| 2 | League selection UI | **Commissioner shares direct URL.** No league picker UI at Phase 3. Members bookmark `/league/tsc/`. |
 | 3 | URL stability | **Redirect from root routes.** `/standings` → `/league/tsc/standings`, etc. Root routes deprecated after one season. |
 | 4 | Alias isolation | **Per-league.** Each league has its own alias map scoped to its slug and year. Different leagues may have different team-name quirks. |
 | 5 | CFBD ingestion scoping | **Global.** Schedule and scores are ingested once, shared across all leagues. Per-league owner overlays apply on top of shared game data. |
-| 6 | League deletion | **Not supported at Phase 4 launch.** Add later if a concrete need arises. |
+| 6 | League deletion | **Not supported at Phase 3 launch.** Add later if a concrete need arises. |
 | 7 | Season scoping per league | **All leagues share the same active season year.** Not supported to run different leagues in different seasons. |
 | 8 | Commissioner UX | **Dedicated `/admin/leagues/` page.** Separate from single-league admin functions. |

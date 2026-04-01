@@ -16,7 +16,7 @@
 - **Phase 2B (league UX / engagement):** Complete. See `docs/completed-work.md`.
 - **Phase 2C (overview visual redesign):** Complete. See `docs/completed-work.md`.
 - **Phase 2D (overview trends visual sweep):** Complete. All PRs merged. See `docs/completed-work.md`.
-- **Active execution focus:** Planning pause — no active implementation tasks. Next campaign TBD.
+- **Active execution focus:** Planning pause — no active implementation tasks. Next campaign: **Phase 3 (Multi-League Support)** — design approved, implementation prompt not yet written.
 
 ## Hosted deployment runbook
 
@@ -66,12 +66,12 @@ No active tasks. Planning pause in effect.
 - Phase 2D is complete. No active implementation tasks.
 - Next campaign to be defined before resuming implementation work.
 
-## Future-planned note: Multi-league support (scoped)
+## Upcoming phases
 
-- Multi-league support is future-planned, not part of the active production-hardening queue.
-- League-specific boundary: owner table / ownership overlay data.
-- Shared global CFB/reference data remains common across leagues (schedule, scores, odds, rankings, conferences).
-- Expected approach: league slug or `leagueId` routing boundary without duplicating CFBD ingestion.
+- **Phase 3 — Multi-League Support:** Design approved. See `docs/phase-3-multi-league-design.md`. Implementation prompt not yet written.
+- **Phase 4 — Historical Analytics:** Design approved. See `docs/phase-4-historical-analytics-design.md`. Requires Phase 3 to be complete first.
+- **Phase 5 — Draft/Owner Assignment Tool:** Planned. See `docs/roadmap.md`.
+- **Phase 6 — Commissioner Self-Service:** Long-term vision. Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
 

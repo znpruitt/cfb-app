@@ -1,7 +1,7 @@
-# Phase 3 — Historical Analytics Design
+# Phase 4 — Historical Analytics Design
 
 **Status:** Design approved — open questions resolved. Ready for implementation prompt.
-**Depends on:** Phase 4 design (see §6 for dependency boundary decisions).
+**Depends on:** Phase 3 design (see §6 for dependency boundary decisions).
 **No implementation has begun.**
 
 ---
@@ -65,14 +65,14 @@ type SeasonArchive = {
 Using existing `appStateStore` conventions:
 
 ```
-scope: "standings-archive"
+scope: "standings-archive:${leagueSlug}"
 key: "${year}"
 value: SeasonArchive
 ```
 
-Example: `getAppState<SeasonArchive>('standings-archive', '2025')`
+Example: `getAppState<SeasonArchive>('standings-archive:tsc', '2025')`
 
-This is intentionally **year-scoped only** for Phase 3. When Phase 4 multi-league is built, the scope or key will be extended to include league ID (see §6).
+Phase 4 (historical analytics) is built after Phase 3 (multi-league), so archive keys are **league-scoped from the first write** — no migration is needed. Year-only scoping is not used. See §6 for the sequencing dependency.
 
 ---
 
@@ -93,8 +93,8 @@ create table app_state (
 ```
 
 This is a generic key-value store. Each season archive is one row:
-- `scope = 'standings-archive'`, `key = '2025'` → 2025 season
-- `scope = 'standings-archive'`, `key = '2026'` → 2026 season
+- `scope = 'standings-archive:tsc'`, `key = '2025'` → 2025 season for the `tsc` league
+- `scope = 'standings-archive:tsc'`, `key = '2026'` → 2026 season for the `tsc` league
 
 No schema changes required. The `jsonb` value column holds the full `SeasonArchive` object.
 
@@ -105,7 +105,7 @@ No schema changes required. The `jsonb` value column holds the full `SeasonArchi
 | `appStateStore` key-value (recommended) | No migration, no schema work, consistent with existing admin model | Single JSON blob per season; no row-level season queries |
 | Dedicated `season_archives` table | Richer query capability, indexed by owner/year | Schema migration required, new persistence module, complexity without clear current need |
 
-**Recommendation:** Use `appStateStore` key-value for Phase 3. A dedicated table is warranted only if cross-season analytical queries (e.g., "owner performance across all years ranked") become a product requirement. That belongs to a later phase.
+**Recommendation:** Use `appStateStore` key-value for Phase 4. A dedicated table is warranted only if cross-season analytical queries (e.g., "owner performance across all years ranked") become a product requirement. That belongs to a later phase.
 
 ### How should the 2025 season be archived?
 
@@ -114,7 +114,7 @@ The 2025 archive is created by:
 1. Running all existing season data through `deriveStandingsHistory(games, roster, scores)` one final time.
 2. Taking the last week's `byWeek` entry as `finalStandings`.
 3. Snapshotting the current owner CSV from `getAppState('owners', '2025')`.
-4. Writing the result to `setAppState('standings-archive', '2025', archive)`.
+4. Writing the result to `setAppState('standings-archive:tsc', '2025', archive)`.
 
 This can be triggered from the existing admin panel as a one-time action. No automated mechanism is required.
 
@@ -188,25 +188,27 @@ Multi-season aggregation selectors (e.g., `selectOwnerLifetimeRecord`) would be 
 
 ---
 
-## 6. Dependencies on Phase 4 (Multi-League)
+## 6. Dependencies on Phase 3 (Multi-League)
 
-### Decisions that must wait for Phase 4 scoping
+### Decisions that must wait for Phase 3 scoping
 
 | Decision | Dependency |
 |----------|-----------|
-| Final storage key structure | If Phase 4 uses `standings-archive:${leagueId}:${year}`, the Phase 3 keys will need migration |
-| `/api/history/[year]` route signature | May need `/api/history/[leagueSlug]/[year]` in a multi-league world |
-| Commissioner archive trigger | Must be scoped to the correct league in multi-league context |
+| Final storage key structure | Phase 3 establishes `standings-archive:${leagueSlug}:${year}` key pattern; Phase 4 uses it from day one |
+| `/api/history/[year]` route signature | Will need `?league=${slug}` parameter once Phase 3 routing is in place |
+| Commissioner archive trigger | Must be scoped to the correct league slug |
 
 ### Decisions that can be built season-scoped now and extended later
 
-| Decision | Phase 3 approach | Phase 4 extension |
-|----------|-----------------|------------------|
-| Storage key | `scope='standings-archive', key='${year}'` | Add league prefix: `scope='standings-archive:${leagueId}', key='${year}'` |
-| API route | `/api/history/[year]` | `/api/history/[year]?league=${slug}` or route restructure |
-| Season picker | Shows current league's history only | Extended to show current league's history only (same behavior, scoped by league context) |
+**Phase 4 builds after Phase 3, so league-scoped keys are used from the start.** No migration from year-only keys is needed.
 
-**Recommendation:** Build Phase 3 with year-only scoping. When Phase 4 is implemented, migrate `standings-archive` keys to include `leagueId` and update the API route. The `SeasonArchive` type itself does not need to change.
+| Decision | Phase 4 approach |
+|----------|-----------------|
+| Storage key | `scope='standings-archive:${leagueSlug}', key='${year}'` — league-scoped from day one |
+| API route | `/api/history/[year]?league=${slug}` — uses Phase 3 routing conventions |
+| Season picker | Shows current league's history only (scoped by league context from the URL) |
+
+**Sequence dependency:** Phase 3 (multi-league) must be complete before Phase 4 (historical analytics) is implemented. This ensures archive keys are league-scoped from the first write and no migration is required. The `SeasonArchive` type itself does not change.
 
 ---
 
