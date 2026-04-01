@@ -87,8 +87,8 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
-  // Phase 2 — Confirmed: archive all leagues and increment active year
-  // Re-derive each archive (stateless — does not rely on Phase 1 server state)
+  // Phase 2 — Confirmed: two-stage to avoid mixed-year registry state
+  // Stage 1: build and save all archives — do NOT increment any year yet
   const archivedLeagues: string[] = [];
   const errors: Array<{ leagueSlug: string; error: string }> = [];
 
@@ -96,7 +96,6 @@ export async function POST(req: Request): Promise<Response> {
     try {
       const archive = await buildSeasonArchive(league.slug, currentYear);
       await saveSeasonArchive(archive);
-      await updateLeague(league.slug, { year: nextYear });
       archivedLeagues.push(league.slug);
     } catch (err) {
       errors.push({
@@ -106,5 +105,21 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  return Response.json({ success: true, archivedLeagues, newYear: nextYear, errors });
+  // Stage 2: commit year updates only if every archive succeeded
+  if (errors.length > 0) {
+    return Response.json({
+      success: false,
+      archivedLeagues: [],
+      newYear: null,
+      errors,
+      message:
+        'One or more leagues failed to archive. No year updates were made. Resolve errors and retry.',
+    });
+  }
+
+  for (const league of leagues) {
+    await updateLeague(league.slug, { year: nextYear });
+  }
+
+  return Response.json({ success: true, archivedLeagues, newYear: nextYear, errors: [] });
 }
