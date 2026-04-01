@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 
 import AdminAuthPanel from './AdminAuthPanel';
 import FeedbackPanel from './FeedbackPanel';
@@ -135,6 +136,13 @@ export default function AdminDebugSurface({
           >
             {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
           </button>
+          <Link
+            href="/admin/leagues"
+            className={secondaryButtonClass}
+            title="Manage leagues and season configuration"
+          >
+            League Management
+          </Link>
         </div>
       </div>
 
