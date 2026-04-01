@@ -198,6 +198,25 @@ export async function setAppState<T>(
   return { value, updatedAt };
 }
 
+export async function listAppStateKeys(scope: string): Promise<string[]> {
+  assertDurableStorageAvailable();
+
+  if (hasDatabaseConfig()) {
+    await ensureDatabase();
+    const result = await getPool().query<{ key: string }>(
+      'select key from app_state where scope = $1',
+      [scope]
+    );
+    return result.rows.map((r) => r.key);
+  }
+
+  const entries = await readFileStore();
+  const prefix = `${scope}::`;
+  return Object.keys(entries)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length));
+}
+
 export async function deleteAppState(scope: string, key: string): Promise<void> {
   assertDurableStorageAvailable();
 

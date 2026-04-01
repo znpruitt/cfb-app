@@ -129,7 +129,7 @@ PROMPT_IDs: P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1, P2-OVR-TRENDS-PO
 Complete. See `docs/completed-work.md` for the full record.
 PRs: #192–#196. PROMPT_IDs: P3-MULTILEG-FOUNDATION-v1 through P3-MULTILEG-CLOSEOUT-v1.
 
-## Phase 4 — Historical Analytics (next planned campaign)
+## Phase 4 — Historical Analytics (active)
 
 ### Objective
 Archive completed seasons and surface historical league performance for members. **Phase 3 prerequisite is satisfied** — league slugs and scoped key convention are in place; archive keys will be league-scoped from the first write.
@@ -138,18 +138,34 @@ Archive completed seasons and surface historical league performance for members.
 See `docs/phase-4-historical-analytics-design.md` for the full approved design. Key decisions:
 - `SeasonArchive` type wraps existing `StandingsHistory` + owner roster snapshot + `leagueSlug`
 - Storage: `appStateStore` with `scope='standings-archive:${leagueSlug}', key='${year}'` — league-scoped from day one
-- Dedicated `/history/` route hierarchy (not `?year=` on existing pages)
-- Manual admin-triggered archival; re-archival requires diff confirmation
+- Dedicated `/league/[slug]/history/` route hierarchy (not `?year=` on existing pages)
+- Season rollover is a global platform admin action on `/admin/`; CFP Final detection surfaces the prompt; all leagues archived atomically
+- Re-archival requires diff confirmation before overwrite
 - 2025 is the first archived season — no retroactive archival for prior years
-- UI: `/history/` landing (season list + winner), `/history/[year]/` per-season detail
 
-### MVP scope (2026 season launch)
-- Archive the 2025 season as the first historical record
-- `/history/` and `/history/[year]/` pages using existing components
-- Admin "Archive Season" action
+### Subphases
+
+#### P4A — Data Foundation (not started)
+- `SeasonArchive` type definition
+- `src/lib/seasonArchive.ts` — `getSeasonArchive` / `setSeasonArchive` wired to `appStateStore`
+- `/api/history/[year]?league=${slug}` server route
+
+#### P4B — Season Rollover and Admin Action (not started)
+- CFP Final detection logic from shared game schedule
+- `"Start New Season"` button on `/admin/` conditioned on CFP Final detection
+- `/api/admin/rollover` — per-league archive loop, year increment, atomic action
+- Re-archive diff logic with admin confirmation before overwrite
+
+#### P4C — Season Detail UI (not started)
+- `/league/[slug]/history/[year]/` page
+- Final standings, season arc trends chart, owner roster, superlatives, expandable H2H, owner cards, archived banner
+
+#### P4D — League History and Owner Career UI (not started)
+- `/league/[slug]/history/` landing with all-time stats (standings, championships, H2H matrix, dynasty tracker, rivalries, season list)
+- `/league/[slug]/history/owner/[name]/` owner career page
 
 ### Post-launch (not scheduled)
-- Owner lifetime performance summaries
+- Owner identity system (stable cross-season IDs)
 - Season comparison views
 - Upset / odds retrospectives
 
