@@ -1,6 +1,6 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
-import { isValidSlug } from '../../../lib/leagueRegistry.ts';
+import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
 
 function clampYearMaybe(s: string | null): number {
   const fallback = new Date().getFullYear();
@@ -47,6 +47,12 @@ export async function PUT(req: Request): Promise<Response> {
   const year = clampYearMaybe(url.searchParams.get('year'));
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
+
+  if (league) {
+    const registered = await getLeague(league);
+    if (!registered)
+      return new Response(`League '${league}' not found in registry`, { status: 404 });
+  }
 
   let body: unknown;
   try {

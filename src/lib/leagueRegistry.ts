@@ -24,6 +24,9 @@ export async function getLeague(slug: string): Promise<League | null> {
 
 export async function addLeague(league: League): Promise<League[]> {
   const leagues = await getLeagues();
+  if (leagues.some((l) => l.slug === league.slug)) {
+    throw new Error(`League with slug '${league.slug}' already exists`);
+  }
   const updated = [...leagues, league];
   await setAppState(REGISTRY_SCOPE, REGISTRY_KEY, updated);
   return updated;

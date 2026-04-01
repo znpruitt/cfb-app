@@ -2,10 +2,7 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, addLeague, isValidSlug } from '@/lib/leagueRegistry';
 import type { League } from '@/lib/league';
 
-export async function GET(req: Request): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
-  if (authFailure) return authFailure;
-
+export async function GET(): Promise<Response> {
   const leagues = await getLeagues();
   return Response.json({ leagues });
 }
