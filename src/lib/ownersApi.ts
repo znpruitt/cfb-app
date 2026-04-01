@@ -5,8 +5,12 @@ export type ServerOwnersCsvState = {
   hasStoredValue: boolean;
 };
 
-export async function loadServerOwnersCsv(year: number): Promise<ServerOwnersCsvState> {
-  const res = await fetch(`/api/owners?year=${year}`, { cache: 'no-store' });
+export async function loadServerOwnersCsv(
+  year: number,
+  leagueSlug?: string
+): Promise<ServerOwnersCsvState> {
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/owners?year=${year}${leagueParam}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`owners GET ${res.status}`);
   const data = (await res.json()) as {
     year: number;

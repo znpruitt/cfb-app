@@ -700,7 +700,8 @@ function insightHref(
   const base = leagueSlug ? `/league/${leagueSlug}` : '';
   if (target === 'standings') return `${base}/standings`;
   if (target === 'trends') return `${base}/standings?view=trends#trends`;
-  if (target === 'matchup') return leagueSlug ? `/league/${leagueSlug}` : '/';
+  if (target === 'matchup')
+    return leagueSlug ? `/league/${leagueSlug}?view=matchups` : '/?view=matchups';
   return null;
 }
 

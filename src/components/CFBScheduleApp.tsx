@@ -463,6 +463,7 @@ export default function CFBScheduleApp({
   useScheduleBootstrap({
     hasBootstrappedRef,
     selectedSeason,
+    leagueSlug,
     setAliasMap,
     setIssues,
     setHasCachedOwners,
