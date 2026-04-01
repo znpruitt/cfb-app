@@ -12,9 +12,11 @@ export async function loadServerAliases(year: number, leagueSlug?: string): Prom
 export async function saveServerAliases(
   upserts: AliasMap,
   deletes: string[] = [],
-  year: number
+  year: number,
+  leagueSlug?: string
 ): Promise<AliasMap> {
-  const res = await fetch(`/api/aliases?year=${year}`, {
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/aliases?year=${year}${leagueParam}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json', ...requireAdminAuthHeaders() },
     body: JSON.stringify({ upserts, deletes }),

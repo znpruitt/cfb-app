@@ -30,9 +30,11 @@ export async function loadServerPostseasonOverrides(
 
 export async function saveServerPostseasonOverrides(
   year: number,
-  map: PostseasonOverridesMap
+  map: PostseasonOverridesMap,
+  leagueSlug?: string
 ): Promise<PostseasonOverridesMap> {
-  const res = await fetch(`/api/postseason-overrides?year=${year}`, {
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/postseason-overrides?year=${year}${leagueParam}`, {
     method: 'PUT',
     headers: {
       'content-type': 'application/json',

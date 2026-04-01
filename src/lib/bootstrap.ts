@@ -78,7 +78,7 @@ export async function bootstrapAliasesAndCaches(params: {
   try {
     let serverMap = await loadServerAliases(season, leagueSlug);
     if (!Object.keys(serverMap).length && Object.keys(seedAliases).length) {
-      serverMap = await saveServerAliases(seedAliases, [], season);
+      serverMap = await saveServerAliases(seedAliases, [], season, leagueSlug);
     }
     aliasMap = serverMap;
     window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(serverMap));

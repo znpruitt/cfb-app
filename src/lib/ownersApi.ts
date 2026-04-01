@@ -25,9 +25,11 @@ export async function loadServerOwnersCsv(
 
 export async function saveServerOwnersCsv(
   year: number,
-  csvText: string | null
+  csvText: string | null,
+  leagueSlug?: string
 ): Promise<string | null> {
-  const res = await fetch(`/api/owners?year=${year}`, {
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/owners?year=${year}${leagueParam}`, {
     method: 'PUT',
     headers: {
       'content-type': 'application/json',
