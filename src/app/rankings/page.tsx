@@ -1,54 +1,22 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import React from 'react';
+import { getLeagues } from '../../lib/leagueRegistry';
 
-import RankingsPageContent from '../../components/RankingsPageContent';
-import {
-  fetchSeasonRankings,
-  getDefaultRankingsSeason,
-  type RankingsWeek,
-} from '../../lib/rankings';
+export default async function RankingsPage(): Promise<React.ReactElement> {
+  const leagues = await getLeagues();
 
-const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
-const DEFAULT_SEASON = getDefaultRankingsSeason(
-  Number.isFinite(EXPLICIT_SEASON) ? EXPLICIT_SEASON : null
-);
+  if (leagues.length === 0) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-white p-8 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
+        <div className="max-w-md space-y-3 text-center">
+          <h1 className="text-2xl font-bold">No leagues configured</h1>
+          <p className="text-sm text-gray-600 dark:text-zinc-400">
+            Please contact your commissioner to set up the league.
+          </p>
+        </div>
+      </main>
+    );
+  }
 
-export default function RankingsPage(): React.ReactElement {
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [latestWeek, setLatestWeek] = React.useState<RankingsWeek | null>(null);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const response = await fetchSeasonRankings(DEFAULT_SEASON);
-        if (!cancelled) {
-          setLatestWeek(response.latestWeek);
-          setError(null);
-        }
-      } catch (fetchError) {
-        if (!cancelled) {
-          setError(fetchError instanceof Error ? fetchError.message : 'Unable to load rankings');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return (
-    <RankingsPageContent
-      latestWeek={latestWeek}
-      loading={loading}
-      error={error}
-      season={DEFAULT_SEASON}
-    />
-  );
+  redirect(`/league/${leagues[0].slug}/rankings`);
 }

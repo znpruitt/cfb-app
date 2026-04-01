@@ -40,6 +40,7 @@ type RankingsPageContentProps = {
   loading: boolean;
   error: string | null;
   season: number;
+  leagueSlug?: string;
 };
 
 export default function RankingsPageContent({
@@ -47,6 +48,7 @@ export default function RankingsPageContent({
   loading,
   error,
   season,
+  leagueSlug,
 }: RankingsPageContentProps): React.ReactElement {
   return (
     <main className="space-y-6 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
@@ -64,7 +66,7 @@ export default function RankingsPageContent({
           </div>
         </div>
         <Link
-          href="/"
+          href={leagueSlug ? `/league/${leagueSlug}` : '/'}
           className="inline-flex items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
           Back to dashboard
