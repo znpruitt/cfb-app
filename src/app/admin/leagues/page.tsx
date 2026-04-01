@@ -239,7 +239,10 @@ export default function AdminLeaguesPage() {
 
         {!loading && !fetchError && leagues.length === 0 && (
           <p className="text-sm text-gray-500 dark:text-zinc-400">
-            No leagues configured. Create one below.
+            No leagues configured yet. Use the form below to create your first league. For example:
+            slug — <span className="font-mono">tsc</span>, display name —{' '}
+            <span className="font-mono">TSC League</span>, year —{' '}
+            <span className="font-mono">2026</span>.
           </p>
         )}
 
