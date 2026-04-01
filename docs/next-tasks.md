@@ -11,12 +11,13 @@
 ## Current phase
 
 - **Phase 1 (architecture stabilization):** Complete.
-- **Phase 2 (core league surfaces):** Substantially complete foundation.
+- **Phase 2 (core league surfaces):** Complete.
 - **Phase 2A (production hardening):** Complete.
 - **Phase 2B (league UX / engagement):** Complete. See `docs/completed-work.md`.
 - **Phase 2C (overview visual redesign):** Complete. See `docs/completed-work.md`.
-- **Phase 2D (overview trends visual sweep):** Complete. All PRs merged. See `docs/completed-work.md`.
-- **Active execution focus:** Planning pause — no active implementation tasks. Next campaign: **Phase 3 (Multi-League Support)** — design approved, implementation prompt not yet written.
+- **Phase 2D (overview trends visual sweep):** Complete. See `docs/completed-work.md`.
+- **Phase 3 (multi-league support):** ✅ Complete. PRs #192–#196 merged. See `docs/completed-work.md`.
+- **Active execution focus: Phase 4 — Historical Analytics.** Phase 3 prerequisite satisfied.
 
 ## Hosted deployment runbook
 
@@ -53,24 +54,18 @@
 - **Standings sort rule fix** ✅ — Merged PR #184. See `docs/completed-work.md`.
 - **Postseason trend fix + position deltas panel** ✅ — Merged PR #188. See `docs/completed-work.md`.
 
-### Active tasks
+### Active tasks — Phase 4 first pass
 
-No active tasks. Planning pause in effect.
+1. **Season archive data model** — Implement `SeasonArchive` type and storage conventions per `docs/phase-4-historical-analytics-design.md`. Storage: `scope='standings-archive:${leagueSlug}', key='${year}'`.
 
-1. **Commissioner recovery UX refinements** (polish tier — parked)
-   - Based on real hosted usage feedback.
-   - No specific changes identified yet — leave until production usage patterns emerge.
+2. **Season rollover admin action** — Commissioner-triggered archive write. Admin UI action that snapshots current standings into the archive key for the active season. Requires diff confirmation before overwriting an existing archive.
 
-## Post-Phase 2D planning pause
-
-- Phase 2D is complete. No active implementation tasks.
-- Next campaign to be defined before resuming implementation work.
+3. **`/league/[slug]/history/` route and League History UI** — `/history/` landing (season list + winner) and `/history/[year]/` per-season detail. Reuse existing `StandingsHistory` derivation — no new computation model needed.
 
 ## Upcoming phases
 
-- **Phase 3 — Multi-League Support:** Design approved. See `docs/phase-3-multi-league-design.md`. Implementation prompt not yet written.
-- **Phase 4 — Historical Analytics:** Design approved. See `docs/phase-4-historical-analytics-design.md`. Requires Phase 3 to be complete first.
-- **Phase 5 — Draft/Owner Assignment Tool:** Planned. See `docs/roadmap.md`.
+- **Phase 4 — Historical Analytics:** Active. Design approved. See `docs/phase-4-historical-analytics-design.md`.
+- **Phase 5 — Draft/Owner Assignment Tool:** Planned. Warranted once Phase 3 is stable and commissioner-facing UX friction grows. See `docs/roadmap.md`.
 - **Phase 6 — Commissioner Self-Service:** Long-term vision. Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue

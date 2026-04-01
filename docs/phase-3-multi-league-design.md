@@ -1,6 +1,6 @@
 # Phase 3 — Multi-League Support Design
 
-**Status:** Implementation in progress — Phase 3 foundation (P3-MULTILEG-FOUNDATION-v1).
+**Status:** Complete. All Phase 3 work merged (PRs #192–#196). Phase 4 prerequisite satisfied.
 **Affects:** Phase 4 storage key structure (see §7).
 
 ### Slugs are runtime data, not configuration

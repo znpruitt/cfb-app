@@ -16,6 +16,101 @@ The registry should remain:
 
 ## Active Prompts
 
+### P3-MULTILEG-CLOSEOUT-v1
+- Purpose: Audit Phase 3 implementation against design doc, update planning docs to reflect Phase 3 complete, register all Phase 3 prompt IDs.
+- Scope: docs only — completed-work.md, roadmap.md, next-tasks.md, prompt-registry.md, phase-3-multi-league-design.md.
+- Notes: Phase 3 closeout. No code changes.
+
+### P3-MULTILEG-FALLBACK-CLEANUP-v1
+- Purpose: Remove now-redundant `readAliasesScopedOnly` function from aliases route — identical to `readAliases` after fallback removal.
+- Scope: `src/app/api/aliases/route.ts` only.
+- Notes: PR #196. Follow-on to P3-MULTILEG-FALLBACK-REMOVAL-v1.
+
+### P3-MULTILEG-FALLBACK-REMOVAL-REVIEW-v1
+- Purpose: Read-only verification that fallback removal is correct and scope helpers preserve the no-league-param path.
+- Scope: Read-only. `src/app/api/owners/route.ts`, `src/app/api/aliases/route.ts`, `src/app/api/postseason-overrides/route.ts`.
+- Notes: All items passed. Flagged that `readAliasesScopedOnly` was now redundant — addressed by P3-MULTILEG-FALLBACK-CLEANUP-v1.
+
+### P3-MULTILEG-FALLBACK-REMOVAL-v1
+- Purpose: Remove temporary TRANSITION FALLBACK from all three durable data GET handlers after TSC migration confirmed complete.
+- Scope: `src/app/api/owners/route.ts`, `src/app/api/aliases/route.ts`, `src/app/api/postseason-overrides/route.ts` — GET handlers only.
+- Notes: PR #196. No-league-param path unchanged on all three routes.
+
+### P3-MULTILEG-ADMIN-UI-COPY-v1
+- Purpose: Replace developer terminology with plain-language commissioner-facing copy on `/admin/leagues/`.
+- Scope: `src/app/admin/leagues/page.tsx` only — copy and labels only.
+- Notes: PR #195. Slug field relabeled "League URL", annotation updated to "(URL — permanent)", header description rewritten, empty state example year corrected to 2025.
+
+### P3-MULTILEG-ADMIN-UI-FIX-v1
+- Purpose: Improve empty state seed reminder to include example values for slug, display name, and year.
+- Scope: `src/app/admin/leagues/page.tsx` only.
+- Notes: PR #194. Empty state now includes: league URL — work-league, display name — Work League, year — 2025.
+
+### P3-MULTILEG-ADMIN-UI-REVIEW-v1
+- Purpose: Pre-merge review of P3-MULTILEG-ADMIN-UI-v1 implementation.
+- Scope: Read-only. `src/app/admin/leagues/page.tsx`, `src/components/AdminDebugSurface.tsx`.
+- Notes: One partial finding — empty state seed reminder lacked example values. Addressed by P3-MULTILEG-ADMIN-UI-FIX-v1.
+
+### P3-MULTILEG-ADMIN-UI-v1
+- Purpose: Create `/admin/leagues/` management page for commissioner to view, create, and edit leagues.
+- Scope: `src/app/admin/leagues/page.tsx` (new), `src/components/AdminDebugSurface.tsx` (League Management link).
+- Notes: PR #194. Reuses `AdminAuthPanel`, `requireAdminAuthHeaders`. Inline edit, create form with client-side slug validation.
+
+### P3-MULTILEG-WRITE-SCOPE-REVIEW-v1
+- Purpose: Read-only verification that write-scope fix correctly passes `leagueSlug` through all save functions.
+- Scope: Read-only. API client functions and CFBScheduleApp save call sites.
+- Notes: All items passed. Recommend merge.
+
+### P3-MULTILEG-WRITE-SCOPE-FIX-v1
+- Purpose: Fix write-path bug — save functions were not passing `leagueSlug` to API calls despite reads being league-scoped.
+- Scope: `src/lib/aliasesApi.ts`, `src/lib/ownersApi.ts`, `src/lib/postseasonOverridesApi.ts`, `src/components/CFBScheduleApp.tsx`.
+- Notes: PR #193. Establishes full read/write symmetry for all three durable data paths.
+
+### P3-MULTILEG-ROUTING-FIX-REVIEW-v1
+- Purpose: Read-only verification of routing fix — bootstrap chain threading and matchup href.
+- Scope: Read-only. `src/components/CFBScheduleApp.tsx`, bootstrap chain files, `src/components/OverviewPanel.tsx`.
+- Notes: All items passed. Recommend merge.
+
+### P3-MULTILEG-ROUTING-FIX-v1
+- Purpose: Thread `leagueSlug` through full bootstrap chain; restore `?view=matchups` on matchup insight links.
+- Scope: `src/lib/bootstrap.ts`, `src/components/hooks/useScheduleBootstrap.ts`, `src/components/OverviewPanel.tsx`.
+- Notes: PR #193. Bootstrap chain now complete: CFBScheduleApp → useScheduleBootstrap → bootstrapAliasesAndCaches → all three load functions.
+
+### P3-MULTILEG-ROUTING-REVIEW-v1
+- Purpose: Pre-merge review of P3-MULTILEG-ROUTING-v1 routing implementation.
+- Scope: Read-only. All new league route files, root redirects, navigation components.
+- Notes: Two findings: bootstrap chain not threaded end-to-end; matchup insight href missing `?view=matchups`. Both addressed by P3-MULTILEG-ROUTING-FIX-v1.
+
+### P3-MULTILEG-ROUTING-v1
+- Purpose: Implement `/league/[slug]/` route hierarchy; convert root routes to registry-based redirects; update navigation components.
+- Scope: `src/app/league/[slug]/` (new pages), `src/app/page.tsx`, `src/app/standings/page.tsx`, `src/app/rankings/page.tsx`, `src/app/trends/page.tsx`, `src/components/CFBScheduleApp.tsx`, `src/components/OverviewPanel.tsx`, `src/components/RankingsPageContent.tsx`.
+- Notes: PR #193. Root routes read registry at request time; redirect to first league's slug or render empty state if no leagues.
+
+### P3-MULTILEG-FOUNDATION-FIX-v2
+- Purpose: Fix malformed slug silent coercion bug and alias incremental merge inheritance bug.
+- Scope: `src/app/api/aliases/route.ts` (readAliasesScopedOnly), `src/app/api/owners/route.ts`, `src/app/api/postseason-overrides/route.ts`.
+- Notes: PR #192. Added slug format validation to PUT routes. Introduced `readAliasesScopedOnly` to prevent new leagues inheriting legacy alias map on first incremental write.
+
+### P3-MULTILEG-FOUNDATION-FIX-VERIFY-v1
+- Purpose: Read-only verification that registry check is only in PUT (not GET) after FIX-v1 changes.
+- Scope: Read-only. `src/app/api/admin/leagues/route.ts` only.
+- Notes: Confirmed GET is public, PUT has registry validation. Verified correct.
+
+### P3-MULTILEG-FOUNDATION-FIX-v1
+- Purpose: Fix three pre-merge review findings — duplicate guard into `addLeague()`, GET leagues public, PUT registry validation.
+- Scope: `src/lib/leagueRegistry.ts`, `src/app/api/admin/leagues/route.ts`, `src/app/api/owners/route.ts`, `src/app/api/aliases/route.ts`, `src/app/api/postseason-overrides/route.ts`.
+- Notes: PR #192.
+
+### P3-MULTILEG-FOUNDATION-REVIEW-v1
+- Purpose: Read-only pre-merge review of P3-MULTILEG-FOUNDATION-v1 storage layer implementation.
+- Scope: Read-only. All files created or modified in foundation PR.
+- Notes: Three findings addressed by P3-MULTILEG-FOUNDATION-FIX-v1.
+
+### P3-MULTILEG-FOUNDATION-v1
+- Purpose: Implement Phase 3 storage layer — `League` type, `leagueRegistry.ts`, admin API routes, updated durable-data routes with `?league=` support and TRANSITION FALLBACK.
+- Scope: `src/lib/league.ts` (new), `src/lib/leagueRegistry.ts` (new), `src/app/api/admin/leagues/route.ts` (new), `src/app/api/admin/leagues/[slug]/route.ts` (new), `src/app/api/owners/route.ts`, `src/app/api/aliases/route.ts`, `src/app/api/postseason-overrides/route.ts`.
+- Notes: PR #192.
+
 ### P2-FOUNDATION-AUDIT-v1
 - Purpose: Read-only codebase audit — reconcile actual implementation state against all planning documents and produce a structured markdown discrepancy report.
 - Scope: Read-only. All planning docs + key source files. No code or document changes.
