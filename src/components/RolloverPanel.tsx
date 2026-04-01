@@ -62,7 +62,7 @@ export default function RolloverPanel() {
       try {
         authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       } catch {
-        // No token yet — don't show an error, panel stays hidden
+        setLoadError('No admin token found — please enter your admin token above.');
         return;
       }
       const res = await fetch('/api/admin/rollover', {

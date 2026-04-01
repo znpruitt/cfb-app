@@ -1,8 +1,7 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getLeagues } from '@/lib/leagueRegistry';
+import { getLeagues, updateLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
 import { isSeasonComplete, buildSeasonArchive } from '@/lib/seasonRollover';
-import { updateLeague } from '@/lib/leagueRegistry';
 
 // GET — season completion status and platform year, admin-gated
 export async function GET(req: Request): Promise<Response> {
