@@ -1,5 +1,5 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getLeague, updateLeague } from '@/lib/leagueRegistry';
+import { getLeague, updateLeague, removeLeague } from '@/lib/leagueRegistry';
 
 export async function PATCH(
   req: Request,
@@ -55,4 +55,25 @@ export async function PATCH(
 
   const updated = await updateLeague(slug, updates);
   return Response.json({ league: updated });
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Response> {
+  const authFailure = requireAdminRequest(req);
+  if (authFailure) return authFailure;
+
+  const { slug } = await params;
+
+  const existing = await getLeague(slug);
+  if (!existing) {
+    return new Response(`League "${slug}" not found`, { status: 404 });
+  }
+
+  const { leagues } = await removeLeague(slug);
+  return Response.json({
+    leagues,
+    note: 'Registry entry removed. League-scoped storage data (owners, aliases, overrides) is not deleted — clean up manually if needed.',
+  });
 }

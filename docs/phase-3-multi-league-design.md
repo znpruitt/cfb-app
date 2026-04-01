@@ -254,11 +254,13 @@ curl -X POST https://<your-app>/api/admin/leagues \
 
 All open questions from the design review have been resolved.
 
+> **Note:** Example slugs shown in this table (e.g. `tsc`) reflect the TSC league configuration used during Phase 3 development. In all cases the application reads league slugs from the registry at runtime — no slug is hardcoded in application code. The actual slug in URLs depends entirely on what the commissioner registers.
+
 | # | Question | Decision |
 |---|----------|----------|
-| 1 | Default slug | **`tsc`** — primary league slug. All primary league URLs use `/league/tsc/`. |
-| 2 | League selection UI | **Commissioner shares direct URL.** No league picker UI at Phase 3. Members bookmark `/league/tsc/`. |
-| 3 | URL stability | **Redirect from root routes.** `/standings` → `/league/tsc/standings`, etc. Root routes deprecated after one season. |
+| 1 | Default slug | **Commissioner-registered slug read from league registry at runtime.** The TSC league used `tsc` as its slug — registered via the `/admin/leagues/` interface. Root routes redirect to `/league/${registry[0].slug}/`; no slug value is hardcoded in source code. |
+| 2 | League selection UI | **Commissioner shares direct URL.** No league picker UI at Phase 3. Members bookmark their league URL. |
+| 3 | URL stability | **Redirect from root routes.** Root routes (e.g. `/standings`) redirect to `/league/${slug}/standings` where `slug` is derived from the registry at request time — not hardcoded. Root routes deprecated after one season. |
 | 4 | Alias isolation | **Per-league.** Each league has its own alias map scoped to its slug and year. Different leagues may have different team-name quirks. |
 | 5 | CFBD ingestion scoping | **Global.** Schedule and scores are ingested once, shared across all leagues. Per-league owner overlays apply on top of shared game data. |
 | 6 | League deletion | **Not supported at Phase 3 launch.** Add later if a concrete need arises. |
