@@ -43,3 +43,12 @@ export async function updateLeague(
   await setAppState(REGISTRY_SCOPE, REGISTRY_KEY, updated);
   return updated[idx];
 }
+
+export async function removeLeague(slug: string): Promise<{ removed: boolean; leagues: League[] }> {
+  const leagues = await getLeagues();
+  const idx = leagues.findIndex((l) => l.slug === slug);
+  if (idx === -1) return { removed: false, leagues };
+  const updated = leagues.filter((l) => l.slug !== slug);
+  await setAppState(REGISTRY_SCOPE, REGISTRY_KEY, updated);
+  return { removed: true, leagues: updated };
+}

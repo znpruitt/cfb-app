@@ -9,6 +9,31 @@
 
 ## Completed phases / milestones
 
+### Phase 3 — Multi-League Support
+
+- **Status:** Complete. PRs #192–#196 merged.
+- **PROMPT_IDs:** P3-MULTILEG-FOUNDATION-v1, P3-MULTILEG-FOUNDATION-REVIEW-v1, P3-MULTILEG-FOUNDATION-FIX-v1, P3-MULTILEG-FOUNDATION-FIX-VERIFY-v1, P3-MULTILEG-FOUNDATION-FIX-v2, P3-MULTILEG-ROUTING-v1, P3-MULTILEG-ROUTING-REVIEW-v1, P3-MULTILEG-ROUTING-FIX-v1, P3-MULTILEG-ROUTING-FIX-REVIEW-v1, P3-MULTILEG-WRITE-SCOPE-FIX-v1, P3-MULTILEG-WRITE-SCOPE-REVIEW-v1, P3-MULTILEG-ADMIN-UI-v1, P3-MULTILEG-ADMIN-UI-REVIEW-v1, P3-MULTILEG-ADMIN-UI-FIX-v1, P3-MULTILEG-ADMIN-UI-COPY-v1, P3-MULTILEG-FALLBACK-REMOVAL-v1, P3-MULTILEG-FALLBACK-REMOVAL-REVIEW-v1, P3-MULTILEG-FALLBACK-CLEANUP-v1, P3-MULTILEG-CLOSEOUT-v1
+- **PRs merged:** #192 (foundation), #193 (routing), #194 (admin UI), #195 (admin UI copy polish), #196 (fallback removal + cleanup)
+- **Goals completed:**
+  - **League type and registry** (PR #192, P3-MULTILEG-FOUNDATION-v1): Defined `League` type (`slug`, `displayName`, `year`, `createdAt`). Implemented `leagueRegistry.ts` with `getLeagues`, `getLeague`, `addLeague`, `updateLeague`. Added admin API routes — `GET /api/admin/leagues` (public), `POST /api/admin/leagues` (admin-gated), `PATCH /api/admin/leagues/:slug` (admin-gated). Updated all three durable data routes (`/api/owners`, `/api/aliases`, `/api/postseason-overrides`) with league-scoped read/write and TRANSITION FALLBACK for migration.
+  - **Foundation fixes** (PR #192, P3-MULTILEG-FOUNDATION-FIX-v1 + v2): Added duplicate guard to `addLeague()`. Made `GET /api/admin/leagues` public for server-side routing. Added PUT registry validation. Fixed malformed slug silent coercion bug. Fixed alias incremental merge inheritance bug by introducing `readAliasesScopedOnly`.
+  - **League-scoped routing** (PR #193, P3-MULTILEG-ROUTING-v1 + fix): Created `/league/[slug]/` route hierarchy — `page.tsx` (overview), `standings/page.tsx`, `trends/page.tsx` (redirect to standings?view=trends), `rankings/page.tsx`. Converted all four root routes to registry-based redirects reading `getLeagues()` at request time. Threaded `leagueSlug` through full bootstrap chain: `CFBScheduleApp` → `useScheduleBootstrap` → `bootstrapAliasesAndCaches` → all three API client functions. Updated `OverviewPanel` and `RankingsPageContent` nav links for league-aware routing.
+  - **Write-scope symmetry** (PR #193, P3-MULTILEG-WRITE-SCOPE-FIX-v1): All three save functions (`saveServerAliases`, `saveServerOwnersCsv`, `saveServerPostseasonOverrides`) updated to pass `leagueSlug` to API calls. Read/write now fully symmetric.
+  - **Admin leagues UI** (PR #194–#195, P3-MULTILEG-ADMIN-UI-v1 + fixes): Created `src/app/admin/leagues/page.tsx` — league list, inline edit (displayName + year), create form with client-side slug validation, `AdminAuthPanel` reuse, plain-language copy. Added "League Management" navigation link to `AdminDebugSurface`.
+  - **Fallback removal** (PR #196, P3-MULTILEG-FALLBACK-REMOVAL-v1): Removed TRANSITION FALLBACK from all three GET handlers after TSC league migration confirmed complete. Removed redundant `readAliasesScopedOnly` function (now identical to `readAliases` after fallback removal).
+- **Key architectural decisions implemented:**
+  - **Slugs are runtime data, not configuration** — no slug hardcoded in application code; all routing and storage keys derive from the registry at runtime.
+  - **League-scoped storage key convention** — `${type}:${slug}:${year}` for owners, aliases, postseason-overrides; year-only path unchanged for callers without `?league=`.
+  - **Registry-based dynamic redirects** — root routes read the registry at request time, redirect to the first league's slug; no hardcoded redirect target.
+  - **Bootstrap call chain is league-aware end-to-end** — `leagueSlug` flows from route param through every layer to API calls.
+  - **Read fallback introduced for migration, then removed** — TRANSITION FALLBACK enabled phased migration without downtime; removed after TSC league confirmed migrated to scoped keys.
+  - **Phase 4 sequencing satisfied** — league slugs and registry in place; archive keys can be league-scoped from first write with no migration debt.
+- **Optional follow-up (not scheduled):**
+  - `/league/:slug/schedule` and `/league/:slug/matchups` as discrete routes (currently served via `?view=` query params on main page).
+  - League deletion support (explicitly deferred at Phase 3 launch).
+
+---
+
 ### Post-Phase 2D Corrections and Trend Enhancements
 
 - **Status:** Complete. PRs #184–#188 merged on phase-3b-visual-sweep.

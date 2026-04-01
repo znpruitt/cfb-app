@@ -21,14 +21,12 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 
 - Phase 1 architecture stabilization is complete.
 - Core league surfaces are in place.
-- Phase 2A production hardening is **complete**:
-  - admin-only rebuild semantics enforced for schedule/reference refresh paths
-  - diagnostics distinguish shared authoritative state from ephemeral process-memory counters
-  - targeted mobile responsiveness fixes shipped; core member surfaces validated for real-device use
+- Phase 2A production hardening is **complete**.
 - Phase 2B league UX / engagement is **complete**.
 - Phase 2C overview visual redesign is **complete**.
-- Phase 2D overview trends visual sweep is **complete**. All PRs merged. Planning pause in effect — no active implementation tasks.
-- Next campaign to be defined before resuming implementation work.
+- Phase 2D overview trends visual sweep is **complete**.
+- Phase 3 multi-league support is **complete**. PRs #192–#196 merged. League registry, scoped storage, routing, admin UI, and migration fallback removal all done.
+- **Active phase: Phase 4 — Historical Analytics.** Phase 3 prerequisite satisfied — league slugs and scoped key convention are in place.
 
 ## Production data policy
 
@@ -126,44 +124,15 @@ PROMPT_ID: P2C-OVERVIEW-REDESIGN-v1
 See `docs/completed-work.md` for the full record.
 PROMPT_IDs: P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1, P2-OVR-TRENDS-POSTSEASON-v1, P2-OVR-TRENDS-POLISH-v1, P2-OVR-TRENDS-LABELS-v1, P2C-STANDINGS-RULE-AND-DOCS-REALIGNMENT-v1
 
-## Phase 3 — Multi-League Commissioner Support
+## Phase 3 — Multi-League Commissioner Support (complete)
+
+Complete. See `docs/completed-work.md` for the full record.
+PRs: #192–#196. PROMPT_IDs: P3-MULTILEG-FOUNDATION-v1 through P3-MULTILEG-CLOSEOUT-v1.
+
+## Phase 4 — Historical Analytics (next planned campaign)
 
 ### Objective
-Support multiple private leagues managed by the same commissioner while preserving shared global sports data pipelines. **Must be built before Phase 4** — establishes league-scoped storage key structure that historical archives depend on.
-
-### Design
-See `docs/phase-3-multi-league-design.md` for the full approved design. Key decisions:
-- **Primary league slug:** `tsc` — all primary league URLs use `/league/tsc/`
-- **Routing:** path-based `/league/:slug/` prefix; root routes redirect to `/league/tsc/` equivalents and are deprecated after one season
-- **League selection:** commissioner shares direct `/league/:slug/` URL with members — no league picker UI at this phase
-- **Alias isolation:** per-league alias maps (each league has its own `aliases:${slug}:${year}` scope)
-- **CFBD ingestion:** global — schedule and scores shared across all leagues; per-league owner overlays apply on top
-- **Admin:** single global `ADMIN_API_TOKEN`; league management at `/admin/leagues/` page
-- **League deletion:** not supported at launch
-- **Auth and user accounts:** explicitly out of scope for Phase 3
-
-### Scope
-
-- Multiple private leagues (work/family/friends-style) under one commissioner.
-- League-specific data is the ownership overlay (owner roster, aliases, postseason overrides).
-- Shared global CFB data remains common across leagues:
-  - schedule
-  - scores
-  - odds
-  - rankings
-  - conferences
-
-### Non-goals
-
-- No duplication of CFBD ingestion/schedule pipelines per league.
-- No broad SaaS/self-serve multi-tenant platform redesign.
-- No per-member accounts, permissions, or visibility controls.
-- No change to the small-footprint production model unless scale requirements prove it necessary.
-
-## Phase 4 — Historical Analytics
-
-### Objective
-Archive completed seasons and surface historical league performance for members. **Requires Phase 3 to be complete** — archive keys are league-scoped from the first write.
+Archive completed seasons and surface historical league performance for members. **Phase 3 prerequisite is satisfied** — league slugs and scoped key convention are in place; archive keys will be league-scoped from the first write.
 
 ### Design
 See `docs/phase-4-historical-analytics-design.md` for the full approved design. Key decisions:

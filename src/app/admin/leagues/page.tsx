@@ -14,6 +14,8 @@ const controlButtonClass =
   'px-3 py-2 rounded border border-gray-300 bg-white text-sm text-gray-900 transition-colors hover:bg-gray-50 hover:border-gray-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60';
 const secondaryButtonClass =
   'px-3 py-2 rounded border border-gray-200 bg-gray-50 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800';
+const destructiveButtonClass =
+  'px-3 py-2 rounded border border-red-300 bg-white text-sm text-red-700 transition-colors hover:bg-red-50 hover:border-red-400 dark:border-red-800 dark:bg-zinc-900 dark:text-red-400 dark:hover:bg-red-950/40';
 
 type EditState = {
   displayName: string;
@@ -34,6 +36,8 @@ export default function AdminLeaguesPage() {
   const [creating, setCreating] = useState(false);
 
   const [editMap, setEditMap] = useState<Record<string, EditState>>({});
+  const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
+  const [deleting, setDeleting] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     void fetchLeagues();
@@ -72,6 +76,51 @@ export default function AdminLeaguesPage() {
       delete next[slug];
       return next;
     });
+  }
+
+  async function handleDelete(league: League) {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${league.displayName}"? This removes the league from the registry but does not delete its stored data (owners, aliases, overrides). This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    let authHeaders: Record<string, string>;
+    try {
+      authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+    } catch {
+      setDeleteErrors((prev) => ({
+        ...prev,
+        [league.slug]: 'No admin token set. Enter your token in the Auth panel above.',
+      }));
+      return;
+    }
+
+    setDeleting((prev) => ({ ...prev, [league.slug]: true }));
+    setDeleteErrors((prev) => {
+      const next = { ...prev };
+      delete next[league.slug];
+      return next;
+    });
+    try {
+      const res = await fetch(`/api/admin/leagues/${encodeURIComponent(league.slug)}`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setDeleteErrors((prev) => ({
+          ...prev,
+          [league.slug]: text || `DELETE ${res.status}`,
+        }));
+        return;
+      }
+      const data = (await res.json()) as { leagues: League[] };
+      setLeagues(data.leagues);
+    } catch (err) {
+      setDeleteErrors((prev) => ({ ...prev, [league.slug]: (err as Error).message }));
+    } finally {
+      setDeleting((prev) => ({ ...prev, [league.slug]: false }));
+    }
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -317,28 +366,47 @@ export default function AdminLeaguesPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
-                          {league.displayName}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-zinc-400">
-                          <span className="font-mono">{league.slug}</span>
-                          {' · '}
-                          {league.year}
-                          {' · '}
-                          <Link
-                            href={`/league/${league.slug}`}
-                            className="text-blue-600 hover:underline dark:text-blue-400"
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="space-y-0.5">
+                          <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
+                            {league.displayName}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-zinc-400">
+                            <span className="font-mono">{league.slug}</span>
+                            {' · '}
+                            {league.year}
+                            {' · '}
+                            <Link
+                              href={`/league/${league.slug}`}
+                              className="text-blue-600 hover:underline dark:text-blue-400"
+                            >
+                              /league/{league.slug}
+                            </Link>
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            className={secondaryButtonClass}
+                            onClick={() => startEdit(league)}
                           >
-                            /league/{league.slug}
-                          </Link>
-                        </p>
+                            Edit
+                          </button>
+                          <button
+                            className={destructiveButtonClass}
+                            onClick={() => void handleDelete(league)}
+                            disabled={deleting[league.slug]}
+                          >
+                            {deleting[league.slug] ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </div>
                       </div>
-                      <button className={secondaryButtonClass} onClick={() => startEdit(league)}>
-                        Edit
-                      </button>
-                    </div>
+                      {deleteErrors[league.slug] && (
+                        <p className="mt-1 text-xs text-red-700 dark:text-red-400">
+                          {deleteErrors[league.slug]}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               );
