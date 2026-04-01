@@ -263,6 +263,6 @@ All open questions from the design review have been resolved.
 | 3 | URL stability | **Redirect from root routes.** Root routes (e.g. `/standings`) redirect to `/league/${slug}/standings` where `slug` is derived from the registry at request time — not hardcoded. Root routes deprecated after one season. |
 | 4 | Alias isolation | **Per-league.** Each league has its own alias map scoped to its slug and year. Different leagues may have different team-name quirks. |
 | 5 | CFBD ingestion scoping | **Global.** Schedule and scores are ingested once, shared across all leagues. Per-league owner overlays apply on top of shared game data. |
-| 6 | League deletion | **Not supported at Phase 3 launch.** Add later if a concrete need arises. |
+| 6 | League deletion | **Implemented in Phase 3 cleanup.** `DELETE /api/admin/leagues/:slug` removes the registry entry only. League-scoped storage data (owners, aliases, overrides) is not deleted automatically — commissioner is responsible for manual cleanup if needed. Delete action available in `/admin/leagues/` UI with confirmation prompt. |
 | 7 | Season scoping per league | **All leagues share the same active season year.** Not supported to run different leagues in different seasons. |
 | 8 | Commissioner UX | **Dedicated `/admin/leagues/` page.** Separate from single-league admin functions. |
