@@ -692,20 +692,27 @@ function GameSummaryList({
   );
 }
 
-function insightHref(target?: Insight['navigationTarget']): string | null {
+function insightHref(
+  target: Insight['navigationTarget'] | undefined,
+  leagueSlug?: string
+): string | null {
   if (!target) return null;
-  if (target === 'standings') return '/standings';
-  if (target === 'trends') return '/standings?view=trends#trends';
-  if (target === 'matchup') return '/?view=matchups';
+  const base = leagueSlug ? `/league/${leagueSlug}` : '';
+  if (target === 'standings') return `${base}/standings`;
+  if (target === 'trends') return `${base}/standings?view=trends#trends`;
+  if (target === 'matchup')
+    return leagueSlug ? `/league/${leagueSlug}?view=matchups` : '/?view=matchups';
   return null;
 }
 
 function HighlightList({
   insights,
   scopeDetail,
+  leagueSlug,
 }: {
   insights: Insight[];
   scopeDetail?: string | null;
+  leagueSlug?: string;
 }): React.ReactElement | null {
   if (insights.length === 0) return null;
 
@@ -717,7 +724,7 @@ function HighlightList({
         </p>
       ) : null}
       {insights.map((insight) => {
-        const href = insightHref(insight.navigationTarget);
+        const href = insightHref(insight.navigationTarget, leagueSlug);
         return (
           <article
             key={insight.id}
@@ -761,6 +768,7 @@ type OverviewPanelProps = {
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   standingsHistory?: StandingsHistory | null;
+  leagueSlug?: string;
 };
 
 export default function OverviewPanel({
@@ -780,6 +788,7 @@ export default function OverviewPanel({
   onViewMatchups,
   rankingsByTeamId = new Map(),
   standingsHistory = null,
+  leagueSlug,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
@@ -892,7 +901,11 @@ export default function OverviewPanel({
 
         {sharedInsights.length > 0 ? (
           <SectionCard title="Insights" tone="secondary" compact>
-            <HighlightList insights={sharedInsights} scopeDetail={context.scopeDetail} />
+            <HighlightList
+              insights={sharedInsights}
+              scopeDetail={context.scopeDetail}
+              leagueSlug={leagueSlug}
+            />
           </SectionCard>
         ) : null}
       </div>

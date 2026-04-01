@@ -9,9 +9,13 @@ export type ServerPostseasonOverridesState = {
 };
 
 export async function loadServerPostseasonOverrides(
-  year: number
+  year: number,
+  leagueSlug?: string
 ): Promise<ServerPostseasonOverridesState> {
-  const res = await fetch(`/api/postseason-overrides?year=${year}`, { cache: 'no-store' });
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/postseason-overrides?year=${year}${leagueParam}`, {
+    cache: 'no-store',
+  });
   if (!res.ok) throw new Error(`postseason overrides GET ${res.status}`);
   const data = (await res.json()) as {
     year: number;
@@ -26,9 +30,11 @@ export async function loadServerPostseasonOverrides(
 
 export async function saveServerPostseasonOverrides(
   year: number,
-  map: PostseasonOverridesMap
+  map: PostseasonOverridesMap,
+  leagueSlug?: string
 ): Promise<PostseasonOverridesMap> {
-  const res = await fetch(`/api/postseason-overrides?year=${year}`, {
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/postseason-overrides?year=${year}${leagueParam}`, {
     method: 'PUT',
     headers: {
       'content-type': 'application/json',

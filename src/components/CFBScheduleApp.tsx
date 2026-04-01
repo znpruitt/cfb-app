@@ -87,6 +87,7 @@ const DEFAULT_SEASON = getDefaultRankingsSeason(
 
 type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
+  leagueSlug?: string;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -198,6 +199,7 @@ export function resolveHighlightDrilldownNavigation(params: {
 
 export default function CFBScheduleApp({
   surface = 'league',
+  leagueSlug,
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
@@ -268,7 +270,7 @@ export default function CFBScheduleApp({
 
   const persistAliasChanges = useCallback(
     async (upserts: AliasMap, deletes: string[] = []): Promise<AliasMap> => {
-      const saved = await saveServerAliases(upserts, deletes, selectedSeason);
+      const saved = await saveServerAliases(upserts, deletes, selectedSeason, leagueSlug);
       applySavedAliasMap(saved);
       return saved;
     },
@@ -461,6 +463,7 @@ export default function CFBScheduleApp({
   useScheduleBootstrap({
     hasBootstrappedRef,
     selectedSeason,
+    leagueSlug,
     setAliasMap,
     setIssues,
     setHasCachedOwners,
@@ -476,7 +479,7 @@ export default function CFBScheduleApp({
       if (!file) return;
       const text = await file.text();
       try {
-        await saveServerOwnersCsv(selectedSeason, text);
+        await saveServerOwnersCsv(selectedSeason, text, leagueSlug);
         window.localStorage.setItem(storageKeys.ownersCsv, text);
         setHasCachedOwners(true);
         setOwnersLoadedFromCache(false);
@@ -1020,9 +1023,11 @@ export default function CFBScheduleApp({
       });
 
       if (nextOverrides) {
-        void saveServerPostseasonOverrides(selectedSeason, nextOverrides).catch((err) => {
-          setIssues((p) => [...p, `Postseason override save failed: ${(err as Error).message}`]);
-        });
+        void saveServerPostseasonOverrides(selectedSeason, nextOverrides, leagueSlug).catch(
+          (err) => {
+            setIssues((p) => [...p, `Postseason override save failed: ${(err as Error).message}`]);
+          }
+        );
         void loadScheduleFromApi(undefined, nextOverrides);
       }
     },
@@ -1038,7 +1043,7 @@ export default function CFBScheduleApp({
     !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
   const adminAlertCount = getAdminAlertCount({ issues, diag, aliasStaging });
   const adminHref = '/admin';
-  const leagueHref = '/';
+  const leagueHref = leagueSlug ? `/league/${leagueSlug}` : '/';
   const visibleScoresCount = useMemo(
     () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
     [scoresByKey, visibleGames]
@@ -1346,6 +1351,7 @@ export default function CFBScheduleApp({
                   }}
                   onViewMatchups={openWeeklyMatchupsView}
                   onOpenHighlightTarget={onOpenHighlightTarget}
+                  leagueSlug={leagueSlug}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel

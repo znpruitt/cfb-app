@@ -1,24 +1,28 @@
-import CFBScheduleApp from 'components/CFBScheduleApp';
-import type { StandingsSubview } from '../../components/StandingsPanel';
+import { redirect } from 'next/navigation';
 
-function resolveStandingsSubview(view: string | undefined): StandingsSubview {
-  return view === 'trends' ? 'trends' : 'table';
-}
+import { getLeagues } from '../../lib/leagueRegistry';
 
 export default async function StandingsPage({
   searchParams,
 }: {
   searchParams: Promise<{ view?: string }>;
-}) {
-  const params = await searchParams;
-  const initialStandingsSubview = resolveStandingsSubview(params.view);
+}): Promise<React.ReactElement> {
+  const leagues = await getLeagues();
 
-  return (
-    <main>
-      <CFBScheduleApp
-        initialWeekViewMode="standings"
-        initialStandingsSubview={initialStandingsSubview}
-      />
-    </main>
-  );
+  if (leagues.length === 0) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-white p-8 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
+        <div className="max-w-md space-y-3 text-center">
+          <h1 className="text-2xl font-bold">No leagues configured</h1>
+          <p className="text-sm text-gray-600 dark:text-zinc-400">
+            Please contact your commissioner to set up the league.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  const sp = await searchParams;
+  const viewSuffix = sp.view ? `?view=${encodeURIComponent(sp.view)}` : '';
+  redirect(`/league/${leagues[0].slug}/standings${viewSuffix}`);
 }

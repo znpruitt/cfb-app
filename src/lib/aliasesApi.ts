@@ -1,8 +1,9 @@
 import { requireAdminAuthHeaders } from './adminAuth.ts';
 import type { AliasMap } from './teamNames.ts';
 
-export async function loadServerAliases(year: number): Promise<AliasMap> {
-  const res = await fetch(`/api/aliases?year=${year}`, { cache: 'no-store' });
+export async function loadServerAliases(year: number, leagueSlug?: string): Promise<AliasMap> {
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/aliases?year=${year}${leagueParam}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`aliases GET ${res.status}`);
   const data = (await res.json()) as { year: number; map: AliasMap };
   return data.map ?? {};
@@ -11,9 +12,11 @@ export async function loadServerAliases(year: number): Promise<AliasMap> {
 export async function saveServerAliases(
   upserts: AliasMap,
   deletes: string[] = [],
-  year: number
+  year: number,
+  leagueSlug?: string
 ): Promise<AliasMap> {
-  const res = await fetch(`/api/aliases?year=${year}`, {
+  const leagueParam = leagueSlug ? `&league=${encodeURIComponent(leagueSlug)}` : '';
+  const res = await fetch(`/api/aliases?year=${year}${leagueParam}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json', ...requireAdminAuthHeaders() },
     body: JSON.stringify({ upserts, deletes }),

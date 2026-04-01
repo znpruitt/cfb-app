@@ -7,6 +7,7 @@ import type { AppGame } from '../../lib/schedule';
 type UseScheduleBootstrapParams = {
   hasBootstrappedRef: MutableRefObject<boolean>;
   selectedSeason: number;
+  leagueSlug?: string;
   setAliasMap: (next: AliasMap) => void;
   setIssues: Dispatch<SetStateAction<string[]>>;
   setHasCachedOwners: (next: boolean) => void;
@@ -23,6 +24,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
   const {
     hasBootstrappedRef,
     selectedSeason,
+    leagueSlug,
     setAliasMap,
     setIssues,
     setHasCachedOwners,
@@ -44,7 +46,11 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
         ownersLoadIssue,
         postseasonOverrides: loadedOverrides,
         postseasonOverridesLoadIssue,
-      } = await bootstrapAliasesAndCaches({ season: selectedSeason, seedAliases: SEED_ALIASES });
+      } = await bootstrapAliasesAndCaches({
+        season: selectedSeason,
+        seedAliases: SEED_ALIASES,
+        leagueSlug,
+      });
 
       setAliasMap(bootAliasMap);
       if (aliasLoadIssue) setIssues((p) => [...p, aliasLoadIssue]);

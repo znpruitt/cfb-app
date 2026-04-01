@@ -60,6 +60,7 @@ function writePostseasonOverridesToLocal(
 export async function bootstrapAliasesAndCaches(params: {
   season: number;
   seedAliases: AliasMap;
+  leagueSlug?: string;
 }): Promise<{
   aliasMap: AliasMap;
   aliasLoadIssue?: string;
@@ -68,16 +69,16 @@ export async function bootstrapAliasesAndCaches(params: {
   postseasonOverrides: PostseasonOverridesMap;
   postseasonOverridesLoadIssue?: string;
 }> {
-  const { season, seedAliases } = params;
+  const { season, seedAliases, leagueSlug } = params;
   const storageKeys = seasonStorageKeys(season);
 
   let aliasMap: AliasMap = {};
   let aliasLoadIssue: string | undefined;
 
   try {
-    let serverMap = await loadServerAliases(season);
+    let serverMap = await loadServerAliases(season, leagueSlug);
     if (!Object.keys(serverMap).length && Object.keys(seedAliases).length) {
-      serverMap = await saveServerAliases(seedAliases, [], season);
+      serverMap = await saveServerAliases(seedAliases, [], season, leagueSlug);
     }
     aliasMap = serverMap;
     window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(serverMap));
@@ -98,7 +99,7 @@ export async function bootstrapAliasesAndCaches(params: {
   let ownersCsvText = readOwnersCsvWithMigration(storageKeys.ownersCsv);
   let ownersLoadIssue: string | undefined;
   try {
-    const serverOwnersState = await loadServerOwnersCsv(season);
+    const serverOwnersState = await loadServerOwnersCsv(season, leagueSlug);
     if (serverOwnersState.hasStoredValue) {
       ownersCsvText = serverOwnersState.csvText;
       writeOwnersCsvToLocal(storageKeys.ownersCsv, serverOwnersState.csvText);
@@ -110,7 +111,7 @@ export async function bootstrapAliasesAndCaches(params: {
   let postseasonOverrides = readLocalPostseasonOverrides(storageKeys.postseasonOverrides);
   let postseasonOverridesLoadIssue: string | undefined;
   try {
-    const serverOverridesState = await loadServerPostseasonOverrides(season);
+    const serverOverridesState = await loadServerPostseasonOverrides(season, leagueSlug);
     if (serverOverridesState.hasStoredValue) {
       postseasonOverrides = serverOverridesState.map;
       writePostseasonOverridesToLocal(storageKeys.postseasonOverrides, serverOverridesState.map);
