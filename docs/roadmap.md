@@ -126,39 +126,95 @@ PROMPT_ID: P2C-OVERVIEW-REDESIGN-v1
 See `docs/completed-work.md` for the full record.
 PROMPT_IDs: P2D-TRENDS-TITLE-CHASE-v1, P2D-TRENDS-FORM-DOTS-v1, P2-OVR-TRENDS-POSTSEASON-v1, P2-OVR-TRENDS-POLISH-v1, P2-OVR-TRENDS-LABELS-v1, P2C-STANDINGS-RULE-AND-DOCS-REALIGNMENT-v1
 
-## Phase 3 — Historical analytics (optional)
+## Phase 3 — Multi-League Commissioner Support
 
 ### Objective
-Add historical/analytical features only after hosted current-season operation is stable.
+Support multiple private leagues managed by the same commissioner while preserving shared global sports data pipelines. **Must be built before Phase 4** — establishes league-scoped storage key structure that historical archives depend on.
 
-### Examples
-- season archives
-- upset / odds retrospectives
-- historical owner performance summaries
-- deeper visualizations
-
-## Phase 4 — Multi-league commissioner support (future)
-
-### Objective
-Support multiple private leagues managed by the same commissioner while preserving shared global sports data pipelines.
+### Design
+See `docs/phase-3-multi-league-design.md` for the full approved design. Key decisions:
+- **Primary league slug:** `tsc` — all primary league URLs use `/league/tsc/`
+- **Routing:** path-based `/league/:slug/` prefix; root routes redirect to `/league/tsc/` equivalents and are deprecated after one season
+- **League selection:** commissioner shares direct `/league/:slug/` URL with members — no league picker UI at this phase
+- **Alias isolation:** per-league alias maps (each league has its own `aliases:${slug}:${year}` scope)
+- **CFBD ingestion:** global — schedule and scores shared across all leagues; per-league owner overlays apply on top
+- **Admin:** single global `ADMIN_API_TOKEN`; league management at `/admin/leagues/` page
+- **League deletion:** not supported at launch
+- **Auth and user accounts:** explicitly out of scope for Phase 3
 
 ### Scope
 
 - Multiple private leagues (work/family/friends-style) under one commissioner.
-- League-specific data is the ownership overlay (owner roster/mapping and related league views).
+- League-specific data is the ownership overlay (owner roster, aliases, postseason overrides).
 - Shared global CFB data remains common across leagues:
   - schedule
   - scores
   - odds
   - rankings
   - conferences
-- Likely routing boundary: league slug or `leagueId` scoped league pages.
 
 ### Non-goals
 
 - No duplication of CFBD ingestion/schedule pipelines per league.
 - No broad SaaS/self-serve multi-tenant platform redesign.
+- No per-member accounts, permissions, or visibility controls.
 - No change to the small-footprint production model unless scale requirements prove it necessary.
+
+## Phase 4 — Historical Analytics
+
+### Objective
+Archive completed seasons and surface historical league performance for members. **Requires Phase 3 to be complete** — archive keys are league-scoped from the first write.
+
+### Design
+See `docs/phase-4-historical-analytics-design.md` for the full approved design. Key decisions:
+- `SeasonArchive` type wraps existing `StandingsHistory` + owner roster snapshot + `leagueSlug`
+- Storage: `appStateStore` with `scope='standings-archive:${leagueSlug}', key='${year}'` — league-scoped from day one
+- Dedicated `/history/` route hierarchy (not `?year=` on existing pages)
+- Manual admin-triggered archival; re-archival requires diff confirmation
+- 2025 is the first archived season — no retroactive archival for prior years
+- UI: `/history/` landing (season list + winner), `/history/[year]/` per-season detail
+
+### MVP scope (2026 season launch)
+- Archive the 2025 season as the first historical record
+- `/history/` and `/history/[year]/` pages using existing components
+- Admin "Archive Season" action
+
+### Post-launch (not scheduled)
+- Owner lifetime performance summaries
+- Season comparison views
+- Upset / odds retrospectives
+
+## Phase 5 — Draft / Owner Assignment Tool
+
+### Objective
+Replace manual CSV owner roster uploads with a guided in-app draft or assignment tool for the commissioner.
+
+### Scope
+- Commissioner-facing UI to assign CFB teams to owners directly in the app
+- Replaces or supplements the current CSV upload workflow
+- Scoped per league and per season year
+- Stored in existing `owners:${leagueSlug}:${year}` appStateStore key — no new persistence model
+
+### Non-goals
+- No public draft lobbies or real-time multiplayer draft experience
+- No integration with external draft platforms
+
+### Trigger condition
+Phase 5 is warranted once Phase 3 (multi-league) is stable and commissioner-facing UX becomes a primary friction point.
+
+## Phase 6 — Commissioner Self-Service (Long-Term Vision, Not Scheduled)
+
+### Objective
+If the app grows beyond manually managed leagues, the minimal viable expansion is lightweight commissioner signup — not a full SaaS platform.
+
+### Scope (if warranted)
+- Commissioner signup flow — create an account, name a league, receive a shareable URL
+- No per-member accounts or permissions
+- No visibility controls — league URL is the access mechanism
+- League picker UI for commissioners managing multiple leagues
+
+### Trigger condition
+Phase 6 is only warranted if Phase 3 is actively used by multiple leagues **and** manual commissioner management becomes a bottleneck. Full SaaS auth (per-member accounts, permissions, visibility controls) is out of scope indefinitely for this project.
 
 ## Architecture rules
 
