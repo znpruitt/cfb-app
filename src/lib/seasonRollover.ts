@@ -96,8 +96,27 @@ export async function buildSeasonArchive(
 ): Promise<SeasonArchive> {
   // Load schedule items from cache (CacheEntry.items is ScheduleItem[] from cfbdSchedule.ts,
   // which is a structural subtype of ScheduleWireItem[] from schedule.ts — cast is safe)
-  const scheduleCache = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
-  const scheduleItems = (scheduleCache?.value?.items ?? []) as ScheduleWireItem[];
+  let scheduleItems: ScheduleWireItem[];
+  const combinedCache = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
+  if (combinedCache?.value?.items && combinedCache.value.items.length > 0) {
+    scheduleItems = combinedCache.value.items as ScheduleWireItem[];
+  } else {
+    // Fall back to combining regular + postseason caches if the combined key is absent
+    const [regularScheduleCache, postseasonScheduleCache] = await Promise.all([
+      getAppState<{ items: unknown[] }>('schedule', `${year}-all-regular`),
+      getAppState<{ items: unknown[] }>('schedule', `${year}-all-postseason`),
+    ]);
+    scheduleItems = [
+      ...((regularScheduleCache?.value?.items ?? []) as ScheduleWireItem[]),
+      ...((postseasonScheduleCache?.value?.items ?? []) as ScheduleWireItem[]),
+    ];
+  }
+
+  if (scheduleItems.length === 0) {
+    throw new Error(
+      `Full-season schedule cache is unavailable for ${year}. Rebuild the schedule cache before archiving.`
+    );
+  }
 
   // Load team database
   const teams = await getTeamDatabaseItems();
