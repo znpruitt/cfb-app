@@ -221,8 +221,8 @@ export default function AdminLeaguesPage() {
             League Management
           </h2>
           <p className="max-w-2xl text-sm text-gray-600 dark:text-zinc-300">
-            Create and configure leagues. Each league has a permanent URL slug, a display name shown
-            in the UI, and an active season year.
+            Set up and manage your leagues. Each league gets its own URL, a display name, and an
+            active season year. Once created, a league&apos;s URL cannot be changed.
           </p>
         </div>
       </div>
@@ -240,9 +240,9 @@ export default function AdminLeaguesPage() {
         {!loading && !fetchError && leagues.length === 0 && (
           <p className="text-sm text-gray-500 dark:text-zinc-400">
             No leagues configured yet. Use the form below to create your first league. For example:
-            slug — <span className="font-mono">tsc</span>, display name —{' '}
-            <span className="font-mono">TSC League</span>, year —{' '}
-            <span className="font-mono">2026</span>.
+            league URL — <span className="font-mono">work-league</span>, display name —{' '}
+            <span className="font-mono">Work League</span>, year —{' '}
+            <span className="font-mono">2025</span>.
           </p>
         )}
 
@@ -259,7 +259,7 @@ export default function AdminLeaguesPage() {
                           {league.slug}
                         </span>
                         <span className="text-xs text-gray-400 dark:text-zinc-500">
-                          (slug — permanent)
+                          (URL — permanent)
                         </span>
                       </div>
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -352,12 +352,7 @@ export default function AdminLeaguesPage() {
         <form onSubmit={(e) => void handleCreate(e)} className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="space-y-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">
-                Slug{' '}
-                <span className="text-gray-400 dark:text-zinc-500">
-                  (permanent, e.g. tsc, work-league)
-                </span>
-              </label>
+              <label className="text-xs text-gray-500 dark:text-zinc-400">League URL</label>
               <input
                 className={inputClass}
                 value={slug}
@@ -366,6 +361,11 @@ export default function AdminLeaguesPage() {
                 autoComplete="off"
                 spellCheck={false}
               />
+              <p className="text-xs text-gray-400 dark:text-zinc-500">
+                Becomes part of your league&apos;s web address:{' '}
+                <span className="font-mono">/league/your-url/</span>. Permanent — cannot be changed
+                after creation.
+              </p>
             </div>
             <div className="space-y-1">
               <label className="text-xs text-gray-500 dark:text-zinc-400">Display name</label>
