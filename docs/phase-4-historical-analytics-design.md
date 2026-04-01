@@ -247,43 +247,43 @@ All open questions from the design review have been resolved.
 
 ## 8. Implementation Sequence
 
-Phase 4 is implemented in three prompts:
+Phase 4 is implemented in four subphases:
 
-### Prompt 1 — Data layer
+### P4A — Data Foundation
 
 - `SeasonArchive` type definition
-- Archive read/write functions (`getSeasonArchive`, `setSeasonArchive`)
+- `src/lib/seasonArchive.ts` — `getSeasonArchive(leagueSlug, year)` and `setSeasonArchive(archive)` read/write functions wired to `appStateStore` with `scope='standings-archive:${leagueSlug}', key='${year}'`
 - `/api/history/[year]?league=${slug}` server route returning a `SeasonArchive`
-- `/api/admin/rollover` — global "Start New Season" admin action:
-  - CFP Final detection from shared game schedule
-  - Per-league archive loop reading owners, aliases, overrides, schedule, scores
-  - `deriveStandingsHistory` per league
-  - Write to `standings-archive:${leagueSlug}:${year}`
-  - Active year increment
-- Re-archive diff logic (score changes, outcome flips, standings order changes) — presented before any overwrite
-- Admin UI on `/admin/` — "Start New Season" prompt conditioned on CFP Final detection
 
-### Prompt 2 — Season detail UI
+### P4B — Season Rollover and Admin Action
+
+- CFP Final detection logic from shared game schedule
+- `"Start New Season"` button on `/admin/` — global platform admin action conditioned on CFP Final detection
+- `/api/admin/rollover` — per-league archive loop: reads owners, aliases, overrides, schedule, and scores for each registered league; calls `deriveStandingsHistory`; writes `SeasonArchive` via `setSeasonArchive`; increments active year across all leagues as a single atomic action
+- Re-archive diff logic — score changes, outcome flips, and standings order changes presented in summary form before any overwrite; admin must confirm before write proceeds
+
+### P4C — Season Detail UI
 
 - `/league/[slug]/history/[year]/` page
 - Final standings, season arc trends chart (reusing `MiniTrendsGrid` + `StandingsHistory`)
 - Owner roster from `ownerRosterSnapshot`
-- Season superlatives (highest score, biggest upset, most dominant stretch, closest finish)
-- Expandable head-to-head results (top-level W-L, expanded matchup detail)
+- Season superlatives (highest single-week score, biggest upset, most dominant stretch, closest finish)
+- Expandable head-to-head results (top-level W-L per pairing, expanded matchup detail with week, game, and outcome)
 - Owner cards with season summary
 - "Archived — [Year] Season" banner
 
-### Prompt 3 — League history landing and owner career UI
+### P4D — League History and Owner Career UI
 
 - `/league/[slug]/history/` landing page with all-time stats:
   - All-time standings table (wins, losses, championships, average finish)
-  - Championships banner
-  - All-time head-to-head matrix
-  - Dynasty and drought tracker
-  - Most improved section
-  - Rivalries section
+  - Championships banner (who won, how many times, which years)
+  - All-time head-to-head matrix across all seasons combined
+  - Dynasty and drought tracker (longest winning streak, longest championship drought)
+  - Most improved section (biggest finish position improvement season over season)
+  - Rivalries section (closest head-to-head records across seasons)
   - Season list with champion links
 - `/league/[slug]/history/owner/[name]/` owner career page:
-  - Career summary (record, championships, average finish)
-  - Season finish history (year-by-year)
-  - All-time head-to-head with progressive disclosure
+  - Career summary (all-time record, championships, average finish)
+  - Season finish history (year-by-year finish position and W-L record)
+  - All-time head-to-head with progressive disclosure (overall W-L per opponent; expanded per-season breakdown and individual matchup details)
+

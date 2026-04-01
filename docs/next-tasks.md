@@ -54,13 +54,27 @@
 - **Standings sort rule fix** ✅ — Merged PR #184. See `docs/completed-work.md`.
 - **Postseason trend fix + position deltas panel** ✅ — Merged PR #188. See `docs/completed-work.md`.
 
-### Active tasks — Phase 4 first pass
+### Active tasks — Phase 4
 
-1. **Season archive data model** — Implement `SeasonArchive` type and storage conventions per `docs/phase-4-historical-analytics-design.md`. Storage: `scope='standings-archive:${leagueSlug}', key='${year}'`.
+#### P4A — Data Foundation (active)
+- `SeasonArchive` type definition in `src/lib/seasonArchive.ts`
+- `getSeasonArchive(leagueSlug, year)` and `setSeasonArchive(archive)` read/write functions wired to `appStateStore` with `scope='standings-archive:${leagueSlug}', key='${year}'`
+- `/api/history/[year]?league=${slug}` server route returning a `SeasonArchive`
 
-2. **Season rollover admin action** — Commissioner-triggered archive write. Admin UI action that snapshots current standings into the archive key for the active season. Requires diff confirmation before overwriting an existing archive.
+#### P4B — Season Rollover and Admin Action (upcoming)
+- CFP Final detection logic from shared game schedule
+- `"Start New Season"` button on `/admin/` conditioned on CFP Final detection
+- `/api/admin/rollover` — per-league archive loop: reads owners, aliases, overrides, schedule, and scores; calls `deriveStandingsHistory`; writes `SeasonArchive`; increments active year atomically
+- Re-archive diff logic (score changes, outcome flips, standings order changes) with admin confirmation before overwrite
 
-3. **`/league/[slug]/history/` route and League History UI** — `/history/` landing (season list + winner) and `/history/[year]/` per-season detail. Reuse existing `StandingsHistory` derivation — no new computation model needed.
+#### P4C — Season Detail UI (upcoming)
+- `/league/[slug]/history/[year]/` page
+- Final standings, season arc trends chart (reusing `MiniTrendsGrid` + `StandingsHistory`), owner roster from `ownerRosterSnapshot`
+- Season superlatives, expandable head-to-head results, owner cards, "Archived — [Year] Season" banner
+
+#### P4D — League History and Owner Career UI (upcoming)
+- `/league/[slug]/history/` landing with all-time stats: standings table, championships banner, H2H matrix, dynasty/drought tracker, most improved, rivalries, season list
+- `/league/[slug]/history/owner/[name]/` owner career page: career summary, season finish history, all-time H2H with progressive disclosure
 
 ## Upcoming phases
 
