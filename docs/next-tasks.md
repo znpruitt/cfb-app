@@ -17,7 +17,8 @@
 - **Phase 2C (overview visual redesign):** Complete. See `docs/completed-work.md`.
 - **Phase 2D (overview trends visual sweep):** Complete. See `docs/completed-work.md`.
 - **Phase 3 (multi-league support):** ✅ Complete. PRs #192–#196 merged. See `docs/completed-work.md`.
-- **Active execution focus: Phase 4 — Historical Analytics.** Phase 3 prerequisite satisfied.
+- **Phase 4 (historical analytics):** ✅ Complete. All subphases (P4A–P4D) and Historical Season Backfill Endpoint shipped. See `docs/completed-work.md`.
+- **Active execution focus: Phase 5 — Draft / Owner Assignment Tool.**
 
 ## Hosted deployment runbook
 
@@ -60,38 +61,25 @@
 - **P4B — Season Rollover and Admin Action:** ✅ Complete. CFP Final detection, `"Start New Season"` button, `/api/admin/rollover`, re-archive diff.
 - **P4C — Season Detail UI:** ✅ Complete. PR #201 merged. `/league/[slug]/history/[year]/` page with all history components. See `docs/completed-work.md`.
 
-### Active queue — Phase 4 continued
-
 - **Roster Upload Fuzzy Matching:** ✅ Complete. PRs #202–#203 merged. See `docs/completed-work.md`.
+- **P4D — League History and Owner Career UI:** ✅ Complete. PR #204 merged. See `docs/completed-work.md`.
+- **Historical Season Backfill Endpoint:** ✅ Complete. Shipped in same branch as P4D. See `docs/completed-work.md`.
 
-#### P4D — League History and Owner Career UI (active focus)
+## Active queue: Phase 5 — Draft / Owner Assignment Tool
 
-Three deliverables:
+Replace manual CSV owner roster uploads with a guided in-app draft or assignment tool for the commissioner.
 
-**1. League History Landing — `/league/[slug]/history/`**
-- All-time standings table: total wins, losses, championships, average finish position per owner across all archived seasons
-- Championships banner: who has won, how many times, which years
-- All-time head-to-head matrix: record between every owner pair across all seasons combined
-- Dynasty and drought tracker: longest winning streak, longest championship drought per owner
-- Most improved: biggest finish position improvement season over season
-- Rivalries: closest head-to-head records across seasons
-- Season list linking to `/league/[slug]/history/[year]/` pages with champion and final record highlighted
+### Phase 5 first tasks (not yet started)
 
-**2. Owner Career Page — `/league/[slug]/history/owner/[name]/`**
-- Career summary: all-time record, championships, average finish position
-- Season finish history: year-by-year finish position and W-L record
-- All-time head-to-head with progressive disclosure:
-  - Top level: overall W-L record vs every other owner
-  - Expanded: per-season breakdown
+1. **Commissioner team assignment UI** — per-league, per-season UI on `/admin/` (or `/admin/leagues/[slug]/`) to assign CFB teams to owners directly in the app
+2. **Draft order support** — optional ordered assignment flow (snake draft or manual order)
+3. **Persist to existing owners store** — write to `owners:${leagueSlug}:${year}` appStateStore key; no new persistence model
 
-**3. Back Link Update — `src/app/league/[slug]/history/[year]/page.tsx`**
-- Update temporary back link from `/league/${slug}/` to `/league/${slug}/history/`
-- Remove TODO comment (left in place when P4D was not yet built)
+See `docs/roadmap.md` for full Phase 5 scope and non-goals.
 
 ## Upcoming phases
 
-- **Phase 4 — Historical Analytics:** Active. Design approved. See `docs/phase-4-historical-analytics-design.md`.
-- **Phase 5 — Draft/Owner Assignment Tool:** Planned. Warranted once Phase 3 is stable and commissioner-facing UX friction grows. See `docs/roadmap.md`.
+- **Phase 5 — Draft/Owner Assignment Tool:** Active focus. See above.
 - **Phase 6 — Commissioner Self-Service:** Long-term vision. Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
