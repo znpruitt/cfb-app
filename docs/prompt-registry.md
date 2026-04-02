@@ -16,6 +16,46 @@ The registry should remain:
 
 ## Active Prompts
 
+### P4D-CLOSEOUT-v2
+- Purpose: Close any gaps between the organic session closeout and formal spec — rename completed-work entry, add P4-BACKFILL-v1 and remove P4D-HISTORY-POLISH-REVIEW-v1 from PROMPT_IDs, add backfill bullet, add roadmap subphase entry, update next-tasks Phase 5 first task, register P4D-CLOSEOUT-v2.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Phase 4 fully complete including all polish and backfill work. Phase 5 active focus with design scoping as first step.
+
+### P4D-NOCLAIM-FIX-v1
+- Purpose: Fix selectOwnerCareer NoClaim early return — remove it so archived season data is preserved; add explicit NoClaim guard in H2H opponent aggregation loop.
+- Scope: `src/lib/selectors/historySelectors.ts` only.
+- Notes: PR #207. selectOwnerCareer now returns real data for NoClaim; NoClaim excluded from H2H matrix only. All other NoClaim exclusions unchanged.
+
+### P4D-HISTORY-BANNER-v1
+- Purpose: Add "Season in Progress" card to ChampionshipsBanner showing current season leader when active season is not yet archived.
+- Scope: `src/components/history/ChampionshipsBanner.tsx` (new props + card), `src/app/league/[slug]/history/page.tsx` (pass props).
+- Notes: PR #207. Neutral gray/white border distinct from amber champion card. "Current Leader" label. Derives first non-NoClaim owner from liveStandings. No card when props absent.
+
+### P4D-HISTORY-LAYOUT-v1
+- Purpose: Redesign history landing page to asymmetric 60/40 split using lg:grid-cols-5 with col-span-3/col-span-2.
+- Scope: `src/app/league/[slug]/history/page.tsx` only.
+- Notes: PR #207. ChampionshipsBanner remains full width above grid. Single column on mobile unchanged.
+
+### P4D-HISTORY-POLISH-REVIEW-v1
+- Purpose: Read-only review of P4D-HISTORY-POLISH-v1 implementation against specification.
+- Scope: Read-only. All files modified by P4D-HISTORY-POLISH-v1.
+- Notes: All items passed. One partial finding: ChampionshipsBanner renders full-width above grid rather than in left column per spec — accepted as better UX. Overall recommendation: Merge.
+
+### P4D-HISTORY-POLISH-v1
+- Purpose: Fix all-time standings sort order, remove NoClaim from all history views, redesign history landing to two-column layout, add League History nav tab, merge live season data into all-time standings.
+- Scope: `src/lib/selectors/historySelectors.ts`, `src/components/history/AllTimeStandingsTable.tsx`, `src/app/league/[slug]/history/page.tsx`, `src/components/WeekViewTabs.tsx`, `src/components/CFBScheduleApp.tsx`.
+- Notes: PR #207. winPct added to AllTimeStandingRow; sort: championships → winPct → totalWins. NoClaim excluded from 4 selectors. liveStandings optional param added to selectAllTimeStandings. History Link tab in WeekViewTabs via leagueSlug prop.
+
+### P4-HISTORICAL-SCORES-CACHE-v1
+- Purpose: Add POST /api/admin/cache-historical-scores — admin-gated, fetches and caches CFBD scores for a specified past year into the exact keys buildSeasonArchive reads.
+- Scope: `src/app/api/admin/cache-historical-scores/route.ts` (new).
+- Notes: PR #207. Writes scope=`scores`, keys=`${year}-all-regular` and `${year}-all-postseason`. alreadyCached when both keys exist. force: true to overwrite. Rejects active season year.
+
+### P4-HISTORICAL-SCHEDULE-CACHE-v1
+- Purpose: Add POST /api/admin/cache-historical-schedule — admin-gated, fetches and caches CFBD schedule for a specified past year into the exact key buildSeasonArchive reads.
+- Scope: `src/app/api/admin/cache-historical-schedule/route.ts` (new).
+- Notes: PR #207. Writes scope=`schedule`, key=`${year}-all-all`. alreadyCached check prevents quota waste. force: true to overwrite. Rejects active season year.
+
 ### P4D-CLOSEOUT-v1
 - Purpose: Close out Phase 4D and Historical Season Backfill in planning docs; register all P4D and backfill prompt IDs; set Phase 5 as next planned campaign.
 - Scope: docs only — completed-work.md, roadmap.md, next-tasks.md, prompt-registry.md. No code changes.

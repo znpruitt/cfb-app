@@ -64,6 +64,7 @@
 - **Roster Upload Fuzzy Matching:** ✅ Complete. PRs #202–#203 merged. See `docs/completed-work.md`.
 - **P4D — League History and Owner Career UI:** ✅ Complete. PR #204 merged. See `docs/completed-work.md`.
 - **Historical Season Backfill Endpoint:** ✅ Complete. Shipped in same branch as P4D. See `docs/completed-work.md`.
+- **Historical Cache Endpoints + P4D Polish:** ✅ Complete. PR #207 merged. Schedule and scores cache endpoints; standings sort/winPct; NoClaim filter; 60/40 layout; History nav tab; live standings merge; banner card. See `docs/completed-work.md`.
 
 ## Active queue: Phase 5 — Draft / Owner Assignment Tool
 
@@ -71,6 +72,7 @@ Replace manual CSV owner roster uploads with a guided in-app draft or assignment
 
 ### Phase 5 first tasks (not yet started)
 
+0. **Scope the design** — define the assignment UX model (direct assign vs. draft order), admin entry point, and per-league/per-season scope before writing any code
 1. **Commissioner team assignment UI** — per-league, per-season UI on `/admin/` (or `/admin/leagues/[slug]/`) to assign CFB teams to owners directly in the app
 2. **Draft order support** — optional ordered assignment flow (snake draft or manual order)
 3. **Persist to existing owners store** — write to `owners:${leagueSlug}:${year}` appStateStore key; no new persistence model
