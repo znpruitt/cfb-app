@@ -54,27 +54,23 @@
 - **Standings sort rule fix** ✅ — Merged PR #184. See `docs/completed-work.md`.
 - **Postseason trend fix + position deltas panel** ✅ — Merged PR #188. See `docs/completed-work.md`.
 
-### Active tasks — Phase 4
+### Completed — Phase 4 subphases
 
-#### P4A — Data Foundation (active)
-- `SeasonArchive` type definition in `src/lib/seasonArchive.ts`
-- `getSeasonArchive(leagueSlug, year)` and `setSeasonArchive(archive)` read/write functions wired to `appStateStore` with `scope='standings-archive:${leagueSlug}', key='${year}'`
-- `/api/history/[year]?league=${slug}` server route returning a `SeasonArchive`
+- **P4A — Data Foundation:** ✅ Complete. `SeasonArchive` type, `getSeasonArchive`/`setSeasonArchive`, `/api/history/[year]` route.
+- **P4B — Season Rollover and Admin Action:** ✅ Complete. CFP Final detection, `"Start New Season"` button, `/api/admin/rollover`, re-archive diff.
+- **P4C — Season Detail UI:** ✅ Complete. PR #201 merged. `/league/[slug]/history/[year]/` page with all history components. See `docs/completed-work.md`.
 
-#### P4B — Season Rollover and Admin Action (upcoming)
-- CFP Final detection logic from shared game schedule
-- `"Start New Season"` button on `/admin/` conditioned on CFP Final detection
-- `/api/admin/rollover` — per-league archive loop: reads owners, aliases, overrides, schedule, and scores; calls `deriveStandingsHistory`; writes `SeasonArchive`; increments active year atomically
-- Re-archive diff logic (score changes, outcome flips, standings order changes) with admin confirmation before overwrite
+### Active queue — Phase 4 continued
 
-#### P4C — Season Detail UI (upcoming)
-- `/league/[slug]/history/[year]/` page
-- Final standings, season arc trends chart (reusing `MiniTrendsGrid` + `StandingsHistory`), owner roster from `ownerRosterSnapshot`
-- Season superlatives, expandable head-to-head results, owner cards, "Archived — [Year] Season" banner
+#### Roster Upload Fuzzy Matching (active focus)
+Improve the commissioner-facing roster CSV upload flow so minor team name variations (abbreviations, alternate spellings, typos) resolve automatically rather than requiring manual alias edits after every upload.
+- Scope: `src/lib/parseOwnersCsv.ts` and/or a new `src/lib/rosterFuzzyMatch.ts`; wired into the owners upload flow
+- Known friction point: new leagues and season rollovers where commissioner CSV names don't match canonical names exactly
 
 #### P4D — League History and Owner Career UI (upcoming)
 - `/league/[slug]/history/` landing with all-time stats: standings table, championships banner, H2H matrix, dynasty/drought tracker, most improved, rivalries, season list
 - `/league/[slug]/history/owner/[name]/` owner career page: career summary, season finish history, all-time H2H with progressive disclosure
+- Update back links in `src/app/league/[slug]/history/[year]/page.tsx` from `/league/${slug}/` to `/league/${slug}/history/` once this landing page exists (TODO comments already in place)
 
 ## Upcoming phases
 
