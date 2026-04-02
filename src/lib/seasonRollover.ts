@@ -11,6 +11,7 @@ import { deriveStandingsHistory } from './standingsHistory.ts';
 import { parseOwnersCsv } from './parseOwnersCsv.ts';
 import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
 import type { SeasonArchive } from './seasonArchive.ts';
+import type { ScorePack } from './scores.ts';
 import type { AliasMap } from './teamNames.ts';
 
 // Loose type matching the schedule cache CacheEntry items
@@ -211,5 +212,7 @@ export async function buildSeasonArchive(
     ownerRosterSnapshot: ownersCsvText,
     standingsHistory,
     finalStandings,
+    games,
+    scoresByKey: scoresByKey as Record<string, ScorePack>,
   };
 }

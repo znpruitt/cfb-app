@@ -58,18 +58,42 @@ export default function SuperlativesPanel({ superlatives }: Props): React.ReactE
         />
         <SuperlativeCard
           label="Biggest blowout"
-          value={biggestBlowout}
-          detail={null}
+          value={
+            biggestBlowout
+              ? `${biggestBlowout.ownerA} def. ${biggestBlowout.ownerB} by ${biggestBlowout.margin}`
+              : null
+          }
+          detail={
+            biggestBlowout
+              ? `Week ${biggestBlowout.week} · ${biggestBlowout.ownerAScore}–${biggestBlowout.ownerBScore}`
+              : null
+          }
         />
         <SuperlativeCard
           label="Closest matchup"
-          value={closestMatchup}
-          detail={null}
+          value={
+            closestMatchup
+              ? `${closestMatchup.ownerA} def. ${closestMatchup.ownerB} by ${closestMatchup.margin}`
+              : null
+          }
+          detail={
+            closestMatchup
+              ? `Week ${closestMatchup.week} · ${closestMatchup.ownerAScore}–${closestMatchup.ownerBScore}`
+              : null
+          }
         />
         <SuperlativeCard
           label="Biggest upset"
-          value={biggestUpset}
-          detail={null}
+          value={
+            biggestUpset
+              ? `${biggestUpset.winner} over ${biggestUpset.loser} (+${biggestUpset.rankDiff} ranks)`
+              : null
+          }
+          detail={
+            biggestUpset
+              ? `Week ${biggestUpset.week} · margin ${biggestUpset.margin}`
+              : null
+          }
         />
         <SuperlativeCard
           label="Most dominant stretch"
@@ -86,11 +110,7 @@ export default function SuperlativesPanel({ superlatives }: Props): React.ReactE
         />
         <SuperlativeCard
           label="Most improved"
-          value={
-            mostImproved
-              ? `${mostImproved.ownerName}`
-              : null
-          }
+          value={mostImproved ? mostImproved.ownerName : null}
           detail={
             mostImproved && mostImproved.improvement > 0
               ? `Climbed from #${mostImproved.week1Rank} to #${mostImproved.finalRank}`
