@@ -1,6 +1,11 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
-import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
+import { isValidSlug, getLeague, getLeagues } from '../../../lib/leagueRegistry.ts';
+import {
+  getGlobalAliases,
+  upsertGlobalAliases,
+  migrateYearScopedAliasesToGlobal,
+} from '../../../lib/server/globalAliasStore.ts';
 
 /** Canonical alias map type */
 type AliasMap = Record<string, string>;
@@ -37,6 +42,22 @@ async function writeAliases(year: number, map: AliasMap, league?: string): Promi
 
 export async function GET(req: Request): Promise<Response> {
   const url = new URL(req.url);
+
+  // Global scope: ?scope=global — ignores year/league params.
+  if (url.searchParams.get('scope') === 'global') {
+    // Lazy one-time migration from legacy year-scoped alias maps.
+    // migrateYearScopedAliasesToGlobal is idempotent — reads the migration
+    // sentinel on entry and returns immediately once migration has run.
+    const leagues = await getLeagues();
+    const migrationYear = leagues.length > 0 ? leagues[0]!.year : new Date().getFullYear();
+    await migrateYearScopedAliasesToGlobal(
+      leagues.map((l) => l.slug),
+      migrationYear
+    );
+    const map = await getGlobalAliases();
+    return Response.json({ scope: 'global', map });
+  }
+
   const year = clampYearMaybe(url.searchParams.get('year'));
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
@@ -50,6 +71,30 @@ export async function PUT(req: Request): Promise<Response> {
   if (authFailure) return authFailure;
 
   const url = new URL(req.url);
+
+  // Global scope: ?scope=global — patch mode only; upserts/deletes only, no full replace.
+  if (url.searchParams.get('scope') === 'global') {
+    let bodyUnknown: unknown;
+    try {
+      bodyUnknown = await req.json();
+    } catch {
+      return new Response('Invalid JSON body', { status: 400 });
+    }
+    const isAliasMap = (x: unknown): x is AliasMap =>
+      !!x &&
+      typeof x === 'object' &&
+      !Array.isArray(x) &&
+      Object.entries(x as Record<string, unknown>).every(
+        ([k, v]) => typeof k === 'string' && typeof v === 'string'
+      );
+    const obj =
+      bodyUnknown && typeof bodyUnknown === 'object'
+        ? (bodyUnknown as Record<string, unknown>)
+        : {};
+    const upserts: AliasMap = isAliasMap(obj.upserts) ? obj.upserts : {};
+    const next = await upsertGlobalAliases(upserts);
+    return Response.json({ scope: 'global', map: next });
+  }
   const year = clampYearMaybe(url.searchParams.get('year'));
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;

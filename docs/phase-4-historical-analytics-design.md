@@ -272,6 +272,13 @@ Phase 4 is implemented in four subphases:
 - Owner cards with season summary
 - "Archived — [Year] Season" banner
 
+### Roster Upload Fuzzy Matching
+
+- Fuzzy team name matching at roster CSV upload time — resolves minor name variants (abbreviations, typos, alternate spellings) automatically before writing to storage
+- FBS-only match pool — FCS teams are never suggested
+- Admin reviews bulk results; confirmed fuzzy matches and manual selections saved as global aliases automatically
+- See §9 for the full design
+
 ### P4D — League History and Owner Career UI
 
 - `/league/[slug]/history/` landing page with all-time stats:
@@ -286,4 +293,48 @@ Phase 4 is implemented in four subphases:
   - Career summary (all-time record, championships, average finish)
   - Season finish history (year-by-year finish position and W-L record)
   - All-time head-to-head with progressive disclosure (overall W-L per opponent; expanded per-season breakdown and individual matchup details)
+
+---
+
+## 9. Roster Upload Validation
+
+### Problem
+
+Owner roster CSVs use informal team name variants — abbreviations, shorthand, nicknames — that do not exactly match CFBD canonical team names. The current alias map requires manual population and fails silently when a team name is unresolved. No warning is surfaced to the admin.
+
+### Solution: FBS-only fuzzy matching at upload time
+
+The roster upload pipeline gains a pre-processing validation step that runs before any data is saved. This is an upload cleanliness concern — not a teamIdentity concern. `teamIdentity.ts` is unchanged.
+
+### Flow
+
+1. Admin uploads owner roster CSV.
+2. System attempts exact match for every team name against FBS canonical names from `teams.json`.
+3. Unresolved teams go through fuzzy matching against FBS-only pool — FCS and non-FBS teams are excluded from the match pool entirely.
+4. Results presented to admin in bulk:
+   - **Exact matches:** confirmed automatically, no action needed.
+   - **Alias matches:** confirmed automatically from existing alias store.
+   - **Fuzzy suggestions:** shown with confidence indicator, admin must explicitly confirm or override each one.
+   - **No match found:** admin presented with a searchable FBS team picker (typeahead search plus alphabetical dropdown) for manual selection.
+5. Admin resolves all items — upload cannot complete until every team is resolved.
+6. Confirmed fuzzy matches and manual selections saved as global aliases automatically — apply across all leagues and years.
+7. Only fully resolved CSV is written to storage.
+
+### Algorithm
+
+Best available fuzzy matching algorithm or combination — implementation detail left to Claude Code. Must be constrained to FBS-only match pool. May combine Levenshtein distance, token-based matching, or other approaches as needed for accuracy. Tune conservatively — prefer no suggestion over a bad suggestion.
+
+### Alias system changes
+
+- Confirmed fuzzy matches and manual selections are saved to the global alias store automatically.
+- Existing manually-maintained aliases are migrated into the new confirmed alias store at deploy time.
+- The legacy year-scoped alias map is deprecated — the new system replaces it.
+- Aliases are global — a confirmed match applies across all leagues and years.
+
+### Constraints
+
+- FCS teams are never suggested as matches for owner roster uploads.
+- No unresolved teams may reach storage — upload is blocked until all teams are resolved.
+- `teamIdentity.ts` is not modified — fuzzy matching is a pre-upload validation layer only.
+- Schedule and game identity resolution (which includes FCS opponents) is unaffected.
 

@@ -172,6 +172,12 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
    - Any derivation found outside `src/lib/selectors/` is an architecture violation.
    - See the Selectors section in Architecture overview for the full catalog.
 
+10. **Roster Upload Fuzzy Matching is Upload-Layer Only**
+    - Team name fuzzy matching for owner roster CSV uploads is handled in the upload validation pipeline — not in `teamIdentity.ts`.
+    - `teamIdentity.ts` handles runtime identity resolution from already-clean data. The two concerns must remain separated.
+    - The FBS-only match pool constraint applies to roster uploads only — schedule and game identity resolution uses the full team catalog including FCS opponents.
+    - Confirmed fuzzy matches and manual selections are saved as global aliases; the upload pipeline must not write unresolved teams to storage.
+
 ---
 
 ## File size / complexity guardrails
