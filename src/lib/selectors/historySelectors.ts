@@ -164,6 +164,7 @@ function getOwnedFinalGames(
     const homeOwner = rosterByTeam.get(game.csvHome);
     if (!awayOwner || !homeOwner) continue;
     if (awayOwner === NO_CLAIM_OWNER || homeOwner === NO_CLAIM_OWNER) continue;
+    if (awayOwner === homeOwner) continue; // exclude same-owner matchups
     const score = scoresByKey[game.key];
     if (!score) continue;
     const awayScore = score.away.score;
