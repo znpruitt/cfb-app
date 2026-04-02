@@ -107,13 +107,22 @@ export default function AllTimeHeadToHeadPanel({
                   <div className="mb-2 ml-4 space-y-1">
                     <p className="text-xs text-gray-500 dark:text-zinc-400">
                       All-time:{' '}
-                      <Link
-                        href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerA)}/`}
-                        className="font-medium text-gray-700 hover:underline dark:text-zinc-300"
-                      >
-                        {entry.ownerA}
-                      </Link>{' '}
-                      leads {recordLabel(entry.wins, entry.losses)}
+                      {entry.wins === entry.losses ? (
+                        <>Series tied {recordLabel(entry.wins, entry.losses)}</>
+                      ) : (
+                        <>
+                          <Link
+                            href={`/league/${slug}/history/owner/${encodeURIComponent(entry.wins > entry.losses ? entry.ownerA : entry.ownerB)}/`}
+                            className="font-medium text-gray-700 hover:underline dark:text-zinc-300"
+                          >
+                            {entry.wins > entry.losses ? entry.ownerA : entry.ownerB}
+                          </Link>{' '}
+                          leads{' '}
+                          {entry.wins > entry.losses
+                            ? recordLabel(entry.wins, entry.losses)
+                            : recordLabel(entry.losses, entry.wins)}
+                        </>
+                      )}
                     </p>
                   </div>
                 )}

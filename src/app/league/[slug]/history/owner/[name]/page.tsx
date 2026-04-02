@@ -13,8 +13,7 @@ export default async function OwnerCareerPage({
 }: {
   params: Promise<{ slug: string; name: string }>;
 }): Promise<React.ReactElement> {
-  const { slug, name: encodedName } = await params;
-  const ownerName = decodeURIComponent(encodedName);
+  const { slug, name: ownerName } = await params;
 
   const league = await getLeague(slug);
   if (!league) notFound();
