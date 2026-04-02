@@ -1,5 +1,9 @@
 import { getAppState, setAppState, listAppStateKeys } from './server/appStateStore.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow, OwnerStandingsSeriesPoint } from './standingsHistory.ts';
+import type { AppGame } from './schedule.ts';
+import type { ScorePack } from './scores.ts';
+
+export type { AppGame } from './schedule.ts';
 
 export type SeasonArchive = {
   leagueSlug: string;
@@ -8,6 +12,13 @@ export type SeasonArchive = {
   ownerRosterSnapshot: string;
   standingsHistory: StandingsHistory;
   finalStandings: StandingsHistoryStandingRow[];
+  /** Full game list at archive time — both regular season and postseason. */
+  games: AppGame[];
+  /**
+   * Scores keyed by game.key, as attached at archive time.
+   * Used for superlative derivation and head-to-head matchup details.
+   */
+  scoresByKey: Record<string, ScorePack>;
 };
 
 export type SeasonArchiveDiff = {
