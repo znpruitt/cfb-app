@@ -1260,7 +1260,7 @@ export default function CFBScheduleApp({
                 <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
                   View
                 </div>
-                <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} />
+                <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
               </div>
             </div>
 

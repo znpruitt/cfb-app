@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
+import { buildSeasonArchive } from '@/lib/seasonRollover';
 import {
   selectAllTimeStandings,
   selectChampionshipHistory,
@@ -9,6 +10,7 @@ import {
   selectTopRivalries,
   selectDynastyAndDrought,
   selectMostImprovedSeasonOverSeason,
+  type StandingsRow,
 } from '@/lib/selectors/historySelectors';
 import ChampionshipsBanner from '@/components/history/ChampionshipsBanner';
 import AllTimeStandingsTable from '@/components/history/AllTimeStandingsTable';
@@ -55,7 +57,26 @@ export default async function LeagueHistoryPage({
   const archiveResults = await Promise.all(years.map((year) => getSeasonArchive(slug, year)));
   const archives: SeasonArchive[] = archiveResults.filter((a): a is SeasonArchive => a !== null);
 
-  const allTimeStandings = selectAllTimeStandings(archives);
+  // Attempt to fetch live season standings for active year if not yet archived
+  const activeYear = league.year;
+  let liveStandings: StandingsRow[] | undefined;
+  if (!years.includes(activeYear)) {
+    try {
+      const liveArchive = await buildSeasonArchive(slug, activeYear);
+      liveStandings = liveArchive.finalStandings.map((row, idx) => ({
+        rank: idx + 1,
+        owner: row.owner,
+        wins: row.wins,
+        losses: row.losses,
+        gamesBack: row.gamesBack,
+        pointDifferential: row.pointDifferential,
+      }));
+    } catch {
+      // Live season data unavailable — show only archived data
+    }
+  }
+
+  const allTimeStandings = selectAllTimeStandings(archives, liveStandings);
   const championshipHistory = selectChampionshipHistory(archives);
   const allTimeH2H = selectAllTimeHeadToHead(archives);
   const topRivalries = selectTopRivalries(archives);
@@ -63,8 +84,8 @@ export default async function LeagueHistoryPage({
   const mostImproved = selectMostImprovedSeasonOverSeason(archives);
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-      <div>
+    <main className="mx-auto max-w-5xl px-4 py-6">
+      <div className="mb-6">
         <Link
           href={`/league/${slug}/`}
           className="text-sm text-blue-600 hover:underline dark:text-blue-400"
@@ -80,15 +101,29 @@ export default async function LeagueHistoryPage({
       </div>
 
       <ChampionshipsBanner history={championshipHistory} slug={slug} />
-      <AllTimeStandingsTable rows={allTimeStandings} slug={slug} />
-      <SeasonListPanel history={championshipHistory} slug={slug} />
-      {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
-      {dynastyDrought.rows.length > 0 && (
-        <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
-      )}
-      {topRivalries.length > 0 && (
-        <AllTimeHeadToHeadPanel rivalries={topRivalries} allH2H={allTimeH2H} slug={slug} />
-      )}
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Left column */}
+        <div className="flex flex-col gap-6">
+          <AllTimeStandingsTable
+            rows={allTimeStandings}
+            slug={slug}
+            liveSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+          />
+          <SeasonListPanel history={championshipHistory} slug={slug} />
+        </div>
+
+        {/* Right column */}
+        <div className="flex flex-col gap-6">
+          {topRivalries.length > 0 && (
+            <AllTimeHeadToHeadPanel rivalries={topRivalries} allH2H={allTimeH2H} slug={slug} />
+          )}
+          {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
+          {dynastyDrought.rows.length > 0 && (
+            <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
+          )}
+        </div>
+      </div>
     </main>
   );
 }

@@ -441,6 +441,7 @@ export type AllTimeStandingRow = {
   owner: string;
   totalWins: number;
   totalLosses: number;
+  winPct: number;
   championships: number;
   seasonsPlayed: number;
   avgFinish: number;
@@ -531,9 +532,18 @@ function sortedByYear(archives: SeasonArchive[]): SeasonArchive[] {
 
 /**
  * Aggregates W-L records, championships, and average finish position per owner
- * across all provided archives. Sorted by championships desc, then avgFinish asc.
+ * across all provided archives. NoClaim entries are excluded.
+ *
+ * Optionally accepts live season standings to merge into win/loss totals before
+ * computing win percentage. Live wins/losses are included in winPct but the
+ * live season does not count as a championship or increment seasonsPlayed.
+ *
+ * Sorted by: championships desc → win percentage desc → total wins desc.
  */
-export function selectAllTimeStandings(archives: SeasonArchive[]): AllTimeStandingRow[] {
+export function selectAllTimeStandings(
+  archives: SeasonArchive[],
+  liveStandings?: StandingsRow[]
+): AllTimeStandingRow[] {
   type OwnerAccum = {
     totalWins: number;
     totalLosses: number;
@@ -546,6 +556,7 @@ export function selectAllTimeStandings(archives: SeasonArchive[]): AllTimeStandi
   for (const archive of archives) {
     const champion = archiveChampion(archive);
     archive.finalStandings.forEach((row, idx) => {
+      if (row.owner === NO_CLAIM_OWNER) return;
       const finish = idx + 1;
       if (!accum.has(row.owner)) {
         accum.set(row.owner, {
@@ -565,18 +576,44 @@ export function selectAllTimeStandings(archives: SeasonArchive[]): AllTimeStandi
     });
   }
 
+  // Merge live season wins/losses — no championship credit, no seasonsPlayed increment
+  if (liveStandings) {
+    for (const row of liveStandings) {
+      if (row.owner === NO_CLAIM_OWNER) continue;
+      if (!accum.has(row.owner)) {
+        accum.set(row.owner, {
+          totalWins: 0,
+          totalLosses: 0,
+          championships: 0,
+          seasonsPlayed: 0,
+          finishSum: 0,
+        });
+      }
+      const a = accum.get(row.owner)!;
+      a.totalWins += row.wins;
+      a.totalLosses += row.losses;
+    }
+  }
+
   return Array.from(accum.entries())
-    .map(([owner, a]) => ({
-      owner,
-      totalWins: a.totalWins,
-      totalLosses: a.totalLosses,
-      championships: a.championships,
-      seasonsPlayed: a.seasonsPlayed,
-      avgFinish: a.seasonsPlayed > 0 ? a.finishSum / a.seasonsPlayed : 0,
-    }))
+    .map(([owner, a]) => {
+      const totalGames = a.totalWins + a.totalLosses;
+      const winPct = totalGames > 0 ? a.totalWins / totalGames : 0;
+      return {
+        owner,
+        totalWins: a.totalWins,
+        totalLosses: a.totalLosses,
+        winPct,
+        championships: a.championships,
+        seasonsPlayed: a.seasonsPlayed,
+        avgFinish: a.seasonsPlayed > 0 ? a.finishSum / a.seasonsPlayed : 0,
+      };
+    })
     .sort(
       (a, b) =>
-        b.championships - a.championships || a.avgFinish - b.avgFinish || b.totalWins - a.totalWins
+        b.championships - a.championships ||
+        b.winPct - a.winPct ||
+        b.totalWins - a.totalWins
     );
 }
 
@@ -689,6 +726,7 @@ export function selectDynastyAndDrought(archives: SeasonArchive[]): DynastyDroug
   const rows: DynastyDroughtRow[] = [];
 
   for (const owner of allOwners) {
+    if (owner === NO_CLAIM_OWNER) continue;
     // Determine which years the owner won a championship
     const champYears = new Set<number>();
     for (const archive of sorted) {
@@ -785,8 +823,9 @@ export function selectMostImprovedSeasonOverSeason(archives: SeasonArchive[]): M
     const nextFinish = new Map<string, number>();
     next.finalStandings.forEach((row, idx) => nextFinish.set(row.owner, idx + 1));
 
-    // Only owners who appeared in both seasons
+    // Only owners who appeared in both seasons (exclude NoClaim)
     for (const [owner, fromFinish] of prevFinish) {
+      if (owner === NO_CLAIM_OWNER) continue;
       const toFinish = nextFinish.get(owner);
       if (toFinish === undefined) continue;
       const improvement = fromFinish - toFinish; // positive = moved up
@@ -812,6 +851,18 @@ export function selectMostImprovedSeasonOverSeason(archives: SeasonArchive[]): M
  * Aggregates a single owner's career across all archived seasons.
  */
 export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string): OwnerCareerResult {
+  if (ownerName === NO_CLAIM_OWNER) {
+    return {
+      ownerName,
+      totalWins: 0,
+      totalLosses: 0,
+      championships: 0,
+      seasonsPlayed: 0,
+      avgFinish: 0,
+      seasonHistory: [],
+      headToHead: [],
+    };
+  }
   const sorted = sortedByYear(archives);
   const seasonHistory: OwnerSeasonRecord[] = [];
 
