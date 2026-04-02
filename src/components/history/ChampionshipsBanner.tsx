@@ -5,6 +5,8 @@ import type { ChampionshipEntry } from '@/lib/selectors/historySelectors';
 type Props = {
   history: ChampionshipEntry[];
   slug: string;
+  currentSeasonYear?: number;
+  currentLeader?: string;
 };
 
 type OwnerChampInfo = {
@@ -28,7 +30,12 @@ function groupByOwner(history: ChampionshipEntry[]): OwnerChampInfo[] {
   );
 }
 
-export default function ChampionshipsBanner({ history, slug }: Props): React.ReactElement {
+export default function ChampionshipsBanner({
+  history,
+  slug,
+  currentSeasonYear,
+  currentLeader,
+}: Props): React.ReactElement {
   if (history.length === 0) {
     return (
       <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
@@ -48,6 +55,30 @@ export default function ChampionshipsBanner({ history, slug }: Props): React.Rea
       <h2 className="mb-3 text-xl font-semibold tracking-tight text-amber-900 dark:text-amber-200">
         Championships
       </h2>
+
+      {currentSeasonYear !== undefined && currentLeader !== undefined && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-gray-300 bg-white/70 px-3 py-2.5 dark:border-zinc-600 dark:bg-zinc-800/60">
+          <span className="text-2xl" aria-hidden="true">
+            📋
+          </span>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+              {currentSeasonYear} Season in Progress
+            </p>
+            <p className="text-base font-bold text-gray-900 dark:text-zinc-100">
+              <Link
+                href={`/league/${slug}/history/owner/${encodeURIComponent(currentLeader)}/`}
+                className="hover:underline"
+              >
+                {currentLeader}
+              </Link>{' '}
+              <span className="text-sm font-normal text-gray-500 dark:text-zinc-400">
+                Current Leader
+              </span>
+            </p>
+          </div>
+        </div>
+      )}
 
       {latestChamp && (
         <div className="mb-4 flex items-center gap-3 rounded-lg bg-amber-100 px-3 py-2.5 dark:bg-amber-900/40">

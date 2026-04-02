@@ -5,14 +5,26 @@ import type { AllTimeStandingRow } from '@/lib/selectors/historySelectors';
 type Props = {
   rows: AllTimeStandingRow[];
   slug: string;
+  liveSeasonYear?: number;
 };
 
-export default function AllTimeStandingsTable({ rows, slug }: Props): React.ReactElement {
+export default function AllTimeStandingsTable({
+  rows,
+  slug,
+  liveSeasonYear,
+}: Props): React.ReactElement {
   return (
     <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-3 text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-        All-Time Standings
-      </h2>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+          All-Time Standings
+        </h2>
+        {liveSeasonYear !== undefined && (
+          <span className="text-xs text-blue-600 dark:text-blue-400">
+            Includes live {liveSeasonYear} season (in progress)
+          </span>
+        )}
+      </div>
       {rows.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-zinc-400">No data available.</p>
       ) : (
@@ -22,7 +34,7 @@ export default function AllTimeStandingsTable({ rows, slug }: Props): React.Reac
             <table className="min-w-max border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-                  {(['#', 'Owner', 'Record', 'Titles', 'Seasons', 'Avg Finish'] as const).map(
+                  {(['#', 'Owner', 'Record', 'Win%', 'Titles', 'Seasons', 'Avg Finish'] as const).map(
                     (label) => {
                       const isNumeric = label !== '#' && label !== 'Owner';
                       return (
@@ -58,6 +70,9 @@ export default function AllTimeStandingsTable({ rows, slug }: Props): React.Reac
                     </td>
                     <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
                       {row.totalWins}–{row.totalLosses}
+                    </td>
+                    <td className="border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                      {(row.winPct * 100).toFixed(1)}%
                     </td>
                     <td className="border-b border-gray-100 px-1.5 py-2 text-right tabular-nums sm:px-2 dark:border-zinc-800">
                       {row.championships > 0 ? (
