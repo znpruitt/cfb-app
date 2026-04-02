@@ -16,6 +16,36 @@ The registry should remain:
 
 ## Active Prompts
 
+### P4D-KICKOFF-v1
+- Purpose: Close out roster upload fuzzy matching in planning docs, register all prompt IDs, and set P4D as the active phase.
+- Scope: docs only — completed-work.md, roadmap.md, next-tasks.md, prompt-registry.md. No code changes.
+- Notes: Fuzzy matching complete. P4D kickoff.
+
+### P4-ROSTER-UPLOAD-FUZZY-MATCH-FIX-v2
+- Purpose: Fix two bugs from review: exhaustive alias migration across all league years via listAppStateKeys(), and persistent upload error display for auto-upload failures.
+- Scope: `src/lib/server/globalAliasStore.ts` (migration year range + listAppStateKeys), `src/components/RosterUploadPanel.tsx` (phase-agnostic uploadError with retry button).
+- Notes: PR #203.
+
+### P4-ROSTER-UPLOAD-FUZZY-MATCH-FIX-v1
+- Purpose: Wire lazy migrateYearScopedAliasesToGlobal() call in GET /api/aliases?scope=global so migration runs automatically on first global alias read after deploy.
+- Scope: `src/app/api/aliases/route.ts` only — added getLeagues() call and migration invocation in the global scope GET branch.
+- Notes: PR #203.
+
+### P4-ROSTER-UPLOAD-FUZZY-MATCH-REVIEW-v1
+- Purpose: Read-only review of P4-ROSTER-UPLOAD-FUZZY-MATCH-v1 implementation against the prompt specification.
+- Scope: Read-only. All files introduced or modified in the fuzzy matching implementation.
+- Notes: One failure found: migrateYearScopedAliasesToGlobal() was unreachable (no call site). Addressed by FIX-v1. All other 38 items passed. Recommendation: fix before merge.
+
+### P4-ROSTER-UPLOAD-FUZZY-MATCH-v1
+- Purpose: Add FBS-only fuzzy matching validation to the owner roster CSV upload pipeline.
+- Scope: `src/lib/rosterUploadValidator.ts` (new), `src/lib/server/globalAliasStore.ts` (new), `src/app/api/owners/validate/route.ts` (new), `src/components/RosterUploadPanel.tsx` (new), `src/app/api/owners/route.ts` (PUT guard), `src/app/api/aliases/route.ts` (?scope=global), `src/app/admin/page.tsx` (RosterUploadPanel).
+- Notes: PR #203.
+
+### P4-ROSTER-UPLOAD-FUZZY-MATCH-DOCS-v1
+- Purpose: Document the roster upload fuzzy matching design in planning docs and AGENTS.md before implementation.
+- Scope: `docs/phase-4-historical-analytics-design.md` (§9 Roster Upload Validation), `AGENTS.md` (rule #10 upload-layer-only constraint). Docs only.
+- Notes: PR #202.
+
 ### P4C-CLOSEOUT-v1
 - Purpose: Update completed-work.md, roadmap.md, next-tasks.md, and prompt-registry.md to reflect P4C complete; register all P4C prompt IDs; set Roster Upload Fuzzy Matching as active next focus.
 - Scope: docs only — no code changes.

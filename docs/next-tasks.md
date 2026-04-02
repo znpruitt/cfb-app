@@ -62,15 +62,31 @@
 
 ### Active queue — Phase 4 continued
 
-#### Roster Upload Fuzzy Matching (active focus)
-Improve the commissioner-facing roster CSV upload flow so minor team name variations (abbreviations, alternate spellings, typos) resolve automatically rather than requiring manual alias edits after every upload.
-- Scope: `src/lib/parseOwnersCsv.ts` and/or a new `src/lib/rosterFuzzyMatch.ts`; wired into the owners upload flow
-- Known friction point: new leagues and season rollovers where commissioner CSV names don't match canonical names exactly
+- **Roster Upload Fuzzy Matching:** ✅ Complete. PRs #202–#203 merged. See `docs/completed-work.md`.
 
-#### P4D — League History and Owner Career UI (upcoming)
-- `/league/[slug]/history/` landing with all-time stats: standings table, championships banner, H2H matrix, dynasty/drought tracker, most improved, rivalries, season list
-- `/league/[slug]/history/owner/[name]/` owner career page: career summary, season finish history, all-time H2H with progressive disclosure
-- Update back links in `src/app/league/[slug]/history/[year]/page.tsx` from `/league/${slug}/` to `/league/${slug}/history/` once this landing page exists (TODO comments already in place)
+#### P4D — League History and Owner Career UI (active focus)
+
+Three deliverables:
+
+**1. League History Landing — `/league/[slug]/history/`**
+- All-time standings table: total wins, losses, championships, average finish position per owner across all archived seasons
+- Championships banner: who has won, how many times, which years
+- All-time head-to-head matrix: record between every owner pair across all seasons combined
+- Dynasty and drought tracker: longest winning streak, longest championship drought per owner
+- Most improved: biggest finish position improvement season over season
+- Rivalries: closest head-to-head records across seasons
+- Season list linking to `/league/[slug]/history/[year]/` pages with champion and final record highlighted
+
+**2. Owner Career Page — `/league/[slug]/history/owner/[name]/`**
+- Career summary: all-time record, championships, average finish position
+- Season finish history: year-by-year finish position and W-L record
+- All-time head-to-head with progressive disclosure:
+  - Top level: overall W-L record vs every other owner
+  - Expanded: per-season breakdown
+
+**3. Back Link Update — `src/app/league/[slug]/history/[year]/page.tsx`**
+- Update temporary back link from `/league/${slug}/` to `/league/${slug}/history/`
+- Remove TODO comment (left in place when P4D was not yet built)
 
 ## Upcoming phases
 

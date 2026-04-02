@@ -161,14 +161,30 @@ See `docs/phase-4-historical-analytics-design.md` for the full approved design. 
 Complete. PR #201 merged. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P4C-SEASON-DETAIL-UI-v1, P4C-ARCHIVE-DATA-MODEL-FIX-v1, P4C-ARCHIVE-DATA-MODEL-FIX-v2, P4C-BUGS-v1, P4C-LINT-FIX-v1, P4C-CLOSEOUT-v1
 
-#### Roster Upload Fuzzy Matching (not started)
-- Improve commissioner-facing roster upload UX: fuzzy/approximate team name matching on CSV upload so minor name variations (abbreviations, typos, alternate spellings) resolve automatically rather than requiring alias edits.
-- Scope: `src/lib/parseOwnersCsv.ts` or a new `src/lib/rosterFuzzyMatch.ts`, wired into the owners upload flow.
-- Trigger: known friction point for new leagues and season rollovers where team names in commissioner CSV don't match canonical names exactly.
+#### Roster Upload Fuzzy Matching (complete)
 
-#### P4D — League History and Owner Career UI (not started)
-- `/league/[slug]/history/` landing with all-time stats (standings, championships, H2H matrix, dynasty tracker, rivalries, season list)
-- `/league/[slug]/history/owner/[name]/` owner career page
+Complete. PRs #202–#203 merged. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P4-ROSTER-UPLOAD-FUZZY-MATCH-DOCS-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-REVIEW-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-FIX-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-FIX-v2
+
+#### P4D — League History and Owner Career UI (active)
+
+1. **League History Landing** — `/league/[slug]/history/`
+   - All-time standings table: total wins, losses, championships, average finish position per owner across all archived seasons
+   - Championships banner: who has won, how many times, which years
+   - All-time head-to-head matrix across all seasons combined
+   - Dynasty and drought tracker: longest winning streak, longest championship drought
+   - Most improved: biggest finish position improvement season over season
+   - Rivalries: closest head-to-head records across seasons
+   - Season list linking to `/league/[slug]/history/[year]/` pages
+
+2. **Owner Career Page** — `/league/[slug]/history/owner/[name]/`
+   - Career summary: all-time record, championships, average finish position
+   - Season finish history: year-by-year finish position and W-L record
+   - All-time head-to-head with progressive disclosure (overall W-L per opponent; expanded per-season breakdown)
+
+3. **Back Link Update** — `src/app/league/[slug]/history/[year]/page.tsx`
+   - Update temporary back link from `/league/${slug}/` to `/league/${slug}/history/`
+   - Remove TODO comment
 
 ### Post-launch (not scheduled)
 - Owner identity system (stable cross-season IDs)
