@@ -225,7 +225,7 @@ export function selectSeasonSuperlatives(archive: SeasonArchive): SeasonSuperlat
   // Build roster for owned-game queries
   const ownerRows = parseOwnersCsv(archive.ownerRosterSnapshot);
   const rosterByTeam = new Map(ownerRows.map((r) => [r.team, r.owner]));
-  const ownedFinalGames = getOwnedFinalGames(archive.games, archive.scoresByKey, rosterByTeam);
+  const ownedFinalGames = getOwnedFinalGames(archive.games ?? [], archive.scoresByKey ?? {}, rosterByTeam);
 
   // 2. Biggest blowout — max margin in owned-vs-owned final games
   let biggestBlowout: SeasonSuperlatives['biggestBlowout'] = null;
@@ -367,14 +367,14 @@ export function selectHeadToHead(archive: SeasonArchive): HeadToHeadEntry[] {
     return a < b ? `${a}::${b}` : `${b}::${a}`;
   }
 
-  for (const game of archive.games) {
+  for (const game of archive.games ?? []) {
     if (game.isPlaceholder) continue;
     const awayOwner = rosterByTeam.get(game.csvAway);
     const homeOwner = rosterByTeam.get(game.csvHome);
     if (!awayOwner || !homeOwner) continue;
     if (awayOwner === NO_CLAIM_OWNER || homeOwner === NO_CLAIM_OWNER) continue;
 
-    const score = archive.scoresByKey[game.key];
+    const score = (archive.scoresByKey ?? {})[game.key];
     if (!score) continue;
     const awayScore = score.away.score;
     const homeScore = score.home.score;
