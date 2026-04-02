@@ -35,12 +35,11 @@ export default async function SeasonDetailPage({
   if (!archive) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10">
-        {/* TODO: update to /league/${slug}/history/ once P4D landing page is implemented */}
         <Link
-          href={`/league/${slug}/`}
+          href={`/league/${slug}/history/`}
           className="mb-6 inline-block text-sm text-blue-600 hover:underline dark:text-blue-400"
         >
-          Back to {league.displayName} overview
+          ← Back to League History
         </Link>
         <div className="mt-6 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
           <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
@@ -62,12 +61,11 @@ export default async function SeasonDetailPage({
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
       <div>
-        {/* TODO: update to /league/${slug}/history/ once P4D landing page is implemented */}
         <Link
-          href={`/league/${slug}/`}
+          href={`/league/${slug}/history/`}
           className="text-sm text-blue-600 hover:underline dark:text-blue-400"
         >
-          Back to {league.displayName} overview
+          ← Back to League History
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
           {year} Season — {league.displayName}
