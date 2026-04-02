@@ -383,7 +383,6 @@ export function selectHeadToHead(archive: SeasonArchive): HeadToHeadEntry[] {
 
     // ownerA is lexicographically smaller — determines wins/losses perspective
     const ownerA = awayOwner < homeOwner ? awayOwner : homeOwner;
-    const ownerB = awayOwner < homeOwner ? homeOwner : awayOwner;
     const isAwayOwnerA = ownerA === awayOwner;
     const ownerAScore = isAwayOwnerA ? awayScore : homeScore;
     const ownerBScore = isAwayOwnerA ? homeScore : awayScore;
