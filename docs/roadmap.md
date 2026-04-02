@@ -177,6 +177,22 @@ PROMPT_IDs: P4D-KICKOFF-v1, P4D-LEAGUE-HISTORY-UI-v1, P4D-LEAGUE-HISTORY-UI-REVI
 Complete. Shipped in same PR as P4D fixes. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P4-BACKFILL-v1, P4D-BACKFILL-REVIEW-v1
 
+#### P4D Polish, Historical Cache Endpoints, and NoClaim Fix (complete)
+
+Complete. PR #207 merged. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P4D-HISTORY-POLISH-v1, P4D-HISTORY-LAYOUT-v1, P4D-HISTORY-BANNER-v1, P4-HISTORICAL-SCHEDULE-CACHE-v1, P4-HISTORICAL-SCORES-CACHE-v1, P4D-NOCLAIM-FIX-v1
+
+Key deliverables:
+- All-time standings sort: championships → winPct → totalWins; Win% column added
+- NoClaim owner excluded from all history views (selectors, not storage)
+- History landing: asymmetric 60/40 layout (lg:grid-cols-5)
+- "Season in Progress" banner card with current leader on ChampionshipsBanner
+- Live season standings merged into all-time standings without crediting a championship
+- History nav tab added to WeekViewTabs via leagueSlug prop
+- `POST /api/admin/cache-historical-schedule` — caches CFBD schedule for a past year
+- `POST /api/admin/cache-historical-scores` — caches CFBD scores for a past year
+- selectOwnerCareer NoClaim early-return removed; NoClaim guard scoped to H2H matrix only
+
 ### Post-launch (not scheduled)
 - Owner identity system (stable cross-season IDs)
 - Season comparison views

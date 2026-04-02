@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### P4D-CLOSEOUT-v2
+- Purpose: Close any gaps between the organic session closeout and formal spec — rename completed-work entry, add P4-BACKFILL-v1 and remove P4D-HISTORY-POLISH-REVIEW-v1 from PROMPT_IDs, add backfill bullet, add roadmap subphase entry, update next-tasks Phase 5 first task, register P4D-CLOSEOUT-v2.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Phase 4 fully complete including all polish and backfill work. Phase 5 active focus with design scoping as first step.
+
 ### P4D-NOCLAIM-FIX-v1
 - Purpose: Fix selectOwnerCareer NoClaim early return — remove it so archived season data is preserved; add explicit NoClaim guard in H2H opponent aggregation loop.
 - Scope: `src/lib/selectors/historySelectors.ts` only.
