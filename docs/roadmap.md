@@ -156,9 +156,15 @@ See `docs/phase-4-historical-analytics-design.md` for the full approved design. 
 - `/api/admin/rollover` — per-league archive loop, year increment, atomic action
 - Re-archive diff logic with admin confirmation before overwrite
 
-#### P4C — Season Detail UI (not started)
-- `/league/[slug]/history/[year]/` page
-- Final standings, season arc trends chart, owner roster, superlatives, expandable H2H, owner cards, archived banner
+#### P4C — Season Detail UI (complete)
+
+Complete. PR #201 merged. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P4C-SEASON-DETAIL-UI-v1, P4C-ARCHIVE-DATA-MODEL-FIX-v1, P4C-ARCHIVE-DATA-MODEL-FIX-v2, P4C-BUGS-v1, P4C-LINT-FIX-v1, P4C-CLOSEOUT-v1
+
+#### Roster Upload Fuzzy Matching (not started)
+- Improve commissioner-facing roster upload UX: fuzzy/approximate team name matching on CSV upload so minor name variations (abbreviations, typos, alternate spellings) resolve automatically rather than requiring alias edits.
+- Scope: `src/lib/parseOwnersCsv.ts` or a new `src/lib/rosterFuzzyMatch.ts`, wired into the owners upload flow.
+- Trigger: known friction point for new leagues and season rollovers where team names in commissioner CSV don't match canonical names exactly.
 
 #### P4D — League History and Owner Career UI (not started)
 - `/league/[slug]/history/` landing with all-time stats (standings, championships, H2H matrix, dynasty tracker, rivalries, season list)
