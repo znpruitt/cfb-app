@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import type { AllTimeHeadToHeadEntry } from '@/lib/selectors/historySelectors';
 
 type Props = {
@@ -71,7 +72,21 @@ export default function AllTimeHeadToHeadPanel({ rivalries, allH2H }: Props): Re
                   aria-expanded={isOpen}
                 >
                   <span className="font-semibold text-gray-900 dark:text-zinc-50">
-                    {entry.ownerA} vs {entry.ownerB}
+                    <Link
+                      href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerA)}/`}
+                      className="hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {entry.ownerA}
+                    </Link>
+                    {' vs '}
+                    <Link
+                      href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerB)}/`}
+                      className="hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {entry.ownerB}
+                    </Link>
                   </span>
                   <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
                     <span className="tabular-nums text-gray-800 dark:text-zinc-100">
@@ -87,7 +102,14 @@ export default function AllTimeHeadToHeadPanel({ rivalries, allH2H }: Props): Re
                 {isOpen && (
                   <div className="mb-2 ml-4 space-y-1">
                     <p className="text-xs text-gray-500 dark:text-zinc-400">
-                      All-time: {entry.ownerA} leads {recordLabel(entry.wins, entry.losses)}
+                      All-time:{' '}
+                      <Link
+                        href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerA)}/`}
+                        className="font-medium text-gray-700 hover:underline dark:text-zinc-300"
+                      >
+                        {entry.ownerA}
+                      </Link>{' '}
+                      leads {recordLabel(entry.wins, entry.losses)}
                     </p>
                   </div>
                 )}

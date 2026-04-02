@@ -24,7 +24,7 @@ export default function SeasonFinishHistory({ history, slug }: Props): React.Rea
             <table className="min-w-max border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-                  {(['Season', 'Finish', 'Record'] as const).map((label) => (
+                  {(['Season', 'Finish', 'Record', 'GB'] as const).map((label) => (
                     <th
                       key={label}
                       className="whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700"
@@ -66,6 +66,9 @@ export default function SeasonFinishHistory({ history, slug }: Props): React.Rea
                     </td>
                     <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 tabular-nums text-gray-700 sm:px-2 dark:border-zinc-800 dark:text-zinc-300">
                       {s.wins}–{s.losses}
+                    </td>
+                    <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                      {s.gamesBack === 0 ? '—' : s.gamesBack}
                     </td>
                   </tr>
                 ))}

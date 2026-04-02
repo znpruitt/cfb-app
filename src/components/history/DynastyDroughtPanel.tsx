@@ -1,11 +1,13 @@
 import React from 'react';
+import Link from 'next/link';
 import type { DynastyDroughtResult } from '@/lib/selectors/historySelectors';
 
 type Props = {
   result: DynastyDroughtResult;
+  slug: string;
 };
 
-export default function DynastyDroughtPanel({ result }: Props): React.ReactElement {
+export default function DynastyDroughtPanel({ result, slug }: Props): React.ReactElement {
   const { rows } = result;
 
   return (
@@ -42,8 +44,13 @@ export default function DynastyDroughtPanel({ result }: Props): React.ReactEleme
                     key={row.owner}
                     className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
                   >
-                    <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 font-semibold text-gray-950 sm:px-2 dark:border-zinc-800 dark:text-zinc-50">
-                      {row.owner}
+                    <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 sm:px-2 dark:border-zinc-800">
+                      <Link
+                        href={`/league/${slug}/history/owner/${encodeURIComponent(row.owner)}/`}
+                        className="font-semibold text-gray-950 hover:text-blue-600 hover:underline dark:text-zinc-50 dark:hover:text-blue-400"
+                      >
+                        {row.owner}
+                      </Link>
                     </td>
                     <td className="border-b border-gray-100 px-1.5 py-2 text-center tabular-nums sm:px-2 dark:border-zinc-800">
                       {row.longestWinStreak > 0 ? (

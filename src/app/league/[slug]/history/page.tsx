@@ -44,10 +44,7 @@ export default async function LeagueHistoryPage({
         </h1>
         <div className="mt-8 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
           <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
-            No archived seasons yet.
-          </p>
-          <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-            Historical data is available from the 2025 season onward.
+            League history isn&apos;t available yet. Check back next offseason.
           </p>
         </div>
       </main>
@@ -85,8 +82,10 @@ export default async function LeagueHistoryPage({
       <ChampionshipsBanner history={championshipHistory} slug={slug} />
       <AllTimeStandingsTable rows={allTimeStandings} slug={slug} />
       <SeasonListPanel history={championshipHistory} slug={slug} />
-      {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} />}
-      {dynastyDrought.rows.length > 0 && <DynastyDroughtPanel result={dynastyDrought} />}
+      {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
+      {dynastyDrought.rows.length > 0 && (
+        <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
+      )}
       {topRivalries.length > 0 && (
         <AllTimeHeadToHeadPanel rivalries={topRivalries} allH2H={allTimeH2H} slug={slug} />
       )}

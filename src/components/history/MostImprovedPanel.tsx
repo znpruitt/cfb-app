@@ -1,12 +1,14 @@
 import React from 'react';
+import Link from 'next/link';
 import type { MostImprovedEntry } from '@/lib/selectors/historySelectors';
 
 type Props = {
   entries: MostImprovedEntry[];
+  slug: string;
   limit?: number;
 };
 
-export default function MostImprovedPanel({ entries, limit = 5 }: Props): React.ReactElement {
+export default function MostImprovedPanel({ entries, slug, limit = 5 }: Props): React.ReactElement {
   const topGainers = entries.filter((e) => e.improvement > 0).slice(0, limit);
   const topDecliners = entries
     .filter((e) => e.improvement < 0)
@@ -30,7 +32,12 @@ export default function MostImprovedPanel({ entries, limit = 5 }: Props): React.
                   key={`${e.owner}-${e.fromYear}-${e.toYear}`}
                   className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2 text-sm"
                 >
-                  <span className="font-semibold text-gray-900 dark:text-zinc-50">{e.owner}</span>
+                  <Link
+                    href={`/league/${slug}/history/owner/${encodeURIComponent(e.owner)}/`}
+                    className="font-semibold text-gray-900 hover:text-blue-600 hover:underline dark:text-zinc-50 dark:hover:text-blue-400"
+                  >
+                    {e.owner}
+                  </Link>
                   <span className="text-xs text-gray-500 dark:text-zinc-400">
                     {e.fromYear}→{e.toYear}
                   </span>
@@ -57,7 +64,12 @@ export default function MostImprovedPanel({ entries, limit = 5 }: Props): React.
                   key={`${e.owner}-${e.fromYear}-${e.toYear}`}
                   className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2 text-sm"
                 >
-                  <span className="font-semibold text-gray-900 dark:text-zinc-50">{e.owner}</span>
+                  <Link
+                    href={`/league/${slug}/history/owner/${encodeURIComponent(e.owner)}/`}
+                    className="font-semibold text-gray-900 hover:text-blue-600 hover:underline dark:text-zinc-50 dark:hover:text-blue-400"
+                  >
+                    {e.owner}
+                  </Link>
                   <span className="text-xs text-gray-500 dark:text-zinc-400">
                     {e.fromYear}→{e.toYear}
                   </span>

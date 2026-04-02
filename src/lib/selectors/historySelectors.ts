@@ -483,6 +483,7 @@ export type OwnerSeasonRecord = {
   year: number;
   wins: number;
   losses: number;
+  gamesBack: number;
   finish: number;
   totalOwners: number;
   isChampion: boolean;
@@ -829,6 +830,7 @@ export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string):
       year: archive.year,
       wins: row.wins,
       losses: row.losses,
+      gamesBack: row.gamesBack,
       finish,
       totalOwners: archive.finalStandings.length,
       isChampion: champion === ownerName,
