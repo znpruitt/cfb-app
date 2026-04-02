@@ -294,6 +294,24 @@ export default function RosterUploadPanel(): React.ReactElement {
       </h2>
 
       {/* ---------------------------------------------------------------- */}
+      {/* Persistent upload error — shown regardless of phase              */}
+      {/* Covers the auto-upload path (isComplete: true, no review phase)  */}
+      {/* as well as failures during the review phase Complete Upload step. */}
+      {/* ---------------------------------------------------------------- */}
+      {uploadError && (
+        <div className="mb-4 rounded border border-red-200 bg-red-50/80 p-3 dark:border-red-800/40 dark:bg-red-950/20">
+          <p className="text-sm text-red-700 dark:text-red-400">{uploadError}</p>
+          <button
+            type="button"
+            className="mt-2 text-xs underline text-red-700 hover:no-underline dark:text-red-400"
+            onClick={handleReset}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------- */}
       {/* Phase: done                                                       */}
       {/* ---------------------------------------------------------------- */}
       {phase === 'done' && uploadResult && (
@@ -597,7 +615,6 @@ export default function RosterUploadPanel(): React.ReactElement {
             >
               Cancel
             </button>
-            {uploadError && <p className="text-sm text-red-700 dark:text-red-400">{uploadError}</p>}
           </div>
         </div>
       )}

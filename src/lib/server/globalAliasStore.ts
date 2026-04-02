@@ -1,4 +1,4 @@
-import { getAppState, setAppState } from './appStateStore.ts';
+import { getAppState, listAppStateKeys, setAppState } from './appStateStore.ts';
 import type { AliasMap } from '../teamNames.ts';
 import { normalizeAliasLookup } from '../teamNormalization.ts';
 
@@ -49,10 +49,14 @@ export async function upsertGlobalAliases(entries: AliasMap): Promise<AliasMap> 
 /**
  * One-time migration from year-scoped alias maps into the global alias store.
  *
- * Reads alias maps for the provided league slugs and year (plus the legacy
- * year-only scope), then merges any entries not already present in the global
- * store. Existing global entries are never overwritten. Records a migration
- * sentinel in appStateStore so subsequent calls are no-ops.
+ * Discovers all legacy alias scopes by scanning a year range around the
+ * provided year (year−10 to year+1) for every known league slug, plus the
+ * legacy year-only scopes for the same range. Uses listAppStateKeys() to
+ * verify each candidate scope has a 'map' key before reading, so only scopes
+ * with actual data are touched.
+ *
+ * Existing global entries are never overwritten. Records a migration sentinel
+ * after all discovered scopes are processed so subsequent calls are no-ops.
  *
  * Safe to call repeatedly — only performs work once per deployment.
  */
@@ -67,13 +71,23 @@ export async function migrateYearScopedAliasesToGlobal(
   const next: AliasMap = { ...current };
   let migrated = 0;
 
-  // Legacy scopes to check: year-only + per-league scopes
-  const legacyScopes: string[] = [
-    `aliases:${year}`,
-    ...leagueSlugs.map((slug) => `aliases:${slug}:${year}`),
-  ];
+  // Build the full candidate scope list across all leagues and a year range.
+  // This ensures multi-league, multi-year alias data is not silently skipped.
+  const yearStart = Math.max(2000, year - 10);
+  const yearEnd = year + 1;
+  const candidateScopes: string[] = [];
+  for (let y = yearStart; y <= yearEnd; y++) {
+    candidateScopes.push(`aliases:${y}`); // legacy year-only scope
+    for (const slug of leagueSlugs) {
+      candidateScopes.push(`aliases:${slug}:${y}`); // league-scoped scope
+    }
+  }
 
-  for (const scope of legacyScopes) {
+  // Use listAppStateKeys() to verify each scope has a 'map' key before reading.
+  // Only scopes with actual alias data incur a second read.
+  for (const scope of candidateScopes) {
+    const keys = await listAppStateKeys(scope);
+    if (!keys.includes('map')) continue;
     const record = await getAppState<AliasMap>(scope, 'map');
     const legacyMap = record?.value;
     if (!legacyMap || typeof legacyMap !== 'object' || Array.isArray(legacyMap)) continue;
@@ -86,6 +100,7 @@ export async function migrateYearScopedAliasesToGlobal(
     }
   }
 
+  // Write global store and sentinel only after all scopes are processed.
   await setAppState(GLOBAL_SCOPE, GLOBAL_KEY, next);
   await setAppState(GLOBAL_SCOPE, MIGRATION_DONE_KEY, true);
   return { migrated };
