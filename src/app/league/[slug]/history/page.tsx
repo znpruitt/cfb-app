@@ -100,7 +100,12 @@ export default async function LeagueHistoryPage({
         </p>
       </div>
 
-      <ChampionshipsBanner history={championshipHistory} slug={slug} />
+      <ChampionshipsBanner
+        history={championshipHistory}
+        slug={slug}
+        currentSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+        currentLeader={liveStandings?.find((r) => r.owner !== 'NoClaim')?.owner}
+      />
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
         {/* Left column — 60% */}
