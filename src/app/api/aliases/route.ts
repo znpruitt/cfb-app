@@ -1,7 +1,11 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
-import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
-import { getGlobalAliases, upsertGlobalAliases } from '../../../lib/server/globalAliasStore.ts';
+import { isValidSlug, getLeague, getLeagues } from '../../../lib/leagueRegistry.ts';
+import {
+  getGlobalAliases,
+  upsertGlobalAliases,
+  migrateYearScopedAliasesToGlobal,
+} from '../../../lib/server/globalAliasStore.ts';
 
 /** Canonical alias map type */
 type AliasMap = Record<string, string>;
@@ -41,6 +45,15 @@ export async function GET(req: Request): Promise<Response> {
 
   // Global scope: ?scope=global — ignores year/league params.
   if (url.searchParams.get('scope') === 'global') {
+    // Lazy one-time migration from legacy year-scoped alias maps.
+    // migrateYearScopedAliasesToGlobal is idempotent — reads the migration
+    // sentinel on entry and returns immediately once migration has run.
+    const leagues = await getLeagues();
+    const migrationYear = leagues.length > 0 ? leagues[0]!.year : new Date().getFullYear();
+    await migrateYearScopedAliasesToGlobal(
+      leagues.map((l) => l.slug),
+      migrationYear
+    );
     const map = await getGlobalAliases();
     return Response.json({ scope: 'global', map });
   }
