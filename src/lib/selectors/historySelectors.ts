@@ -851,18 +851,6 @@ export function selectMostImprovedSeasonOverSeason(archives: SeasonArchive[]): M
  * Aggregates a single owner's career across all archived seasons.
  */
 export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string): OwnerCareerResult {
-  if (ownerName === NO_CLAIM_OWNER) {
-    return {
-      ownerName,
-      totalWins: 0,
-      totalLosses: 0,
-      championships: 0,
-      seasonsPlayed: 0,
-      avgFinish: 0,
-      seasonHistory: [],
-      headToHead: [],
-    };
-  }
   const sorted = sortedByYear(archives);
   const seasonHistory: OwnerSeasonRecord[] = [];
 
@@ -925,6 +913,7 @@ export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string):
 
   for (const [year, opponentMap] of h2hBySeason) {
     for (const [opponent, record] of opponentMap) {
+      if (opponent === NO_CLAIM_OWNER) continue;
       if (!h2hByOpponent.has(opponent)) {
         h2hByOpponent.set(opponent, { wins: 0, losses: 0, seasons: [] });
       }
