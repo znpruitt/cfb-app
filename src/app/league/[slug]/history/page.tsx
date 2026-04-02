@@ -102,9 +102,9 @@ export default async function LeagueHistoryPage({
 
       <ChampionshipsBanner history={championshipHistory} slug={slug} />
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Left column */}
-        <div className="flex flex-col gap-6">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
+        {/* Left column — 60% */}
+        <div className="flex flex-col gap-6 lg:col-span-3">
           <AllTimeStandingsTable
             rows={allTimeStandings}
             slug={slug}
@@ -113,8 +113,8 @@ export default async function LeagueHistoryPage({
           <SeasonListPanel history={championshipHistory} slug={slug} />
         </div>
 
-        {/* Right column */}
-        <div className="flex flex-col gap-6">
+        {/* Right column — 40% */}
+        <div className="flex flex-col gap-6 lg:col-span-2">
           {topRivalries.length > 0 && (
             <AllTimeHeadToHeadPanel rivalries={topRivalries} allH2H={allTimeH2H} slug={slug} />
           )}
