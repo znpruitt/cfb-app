@@ -18,7 +18,11 @@ function recordLabel(wins: number, losses: number): string {
   return `${wins}–${losses}`;
 }
 
-export default function AllTimeHeadToHeadPanel({ rivalries, allH2H }: Props): React.ReactElement {
+export default function AllTimeHeadToHeadPanel({
+  rivalries,
+  allH2H,
+  slug,
+}: Props): React.ReactElement {
   const [showAll, setShowAll] = React.useState(false);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
