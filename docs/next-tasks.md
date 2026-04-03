@@ -89,26 +89,19 @@ Design complete. See `docs/phase-6-admin-auth-design.md` for full design.
 
 See `docs/completed-work.md` for full record. PR #216. All deliverables shipped.
 
-### P6B — Admin Page Restructure (active)
+### P6B — Admin Page Restructure ✓ Complete
+
+See `docs/completed-work.md` for full record. Branch `claude/improve-thread-speed-v1YFg`.
+PROMPT_IDs: P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1
+
+### P6C — Root Route and Landing Page Polish (active)
 
 Deliverables:
-- `/admin` landing with section cards linking to sub-pages, active platform status
-- `/admin/draft`: SP+ cache, win total upload, draft sequencing guards:
-  1. Rollover guard — block draft creation if active league year does not match draft year
-  2. Active roster guard — warn if `owners:${slug}:${year}` already has data, require explicit acknowledgment
-  3. Existing draft guard — already enforced via 409, no new code needed
-- `/admin/data`: schedule refresh, scores, odds, aliases, historical tools; Owners CSV upload as labeled admin fallback
-- `/admin/season`: rollover panel, historical backfill, archive inspection
-- `/admin/diagnostics`: API usage, team database, score attachment, storage status, ignored rows
-- `/admin/leagues`: unchanged (already exists)
-- Migrate Admin/Debug tools from league view to appropriate sub-pages; remove CFB League Dashboard embed from `/admin`
-
-### P6C — Root Route and Landing Page Polish (after P6B)
-
-Deliverables:
-- Public landing page final polish
-- Admin dashboard league cards with live stats (league name, slug, active year, owner count)
-- Audit and remove any remaining hardcoded slugs; all redirects runtime-derived from registry
+- Public landing page final polish (app name, tagline, league URL entry, discrete admin login link)
+- Admin dashboard league cards with live stats (owner count, last activity)
+- Verify all redirects are runtime-derived from registry — no hardcoded slugs anywhere
+- Ensure unauthenticated visitors hitting `/admin/*` are redirected to `/login` cleanly
+- End-to-end flow validation: public landing → login → admin dashboard → league
 
 ## Upcoming phases
 

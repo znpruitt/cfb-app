@@ -9,6 +9,31 @@
 
 ## Completed phases / milestones
 
+### Phase 6B — Admin Page Restructure: Complete
+
+**Status:** Complete. Branch `claude/improve-thread-speed-v1YFg`.
+**PROMPT_IDs:** P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1
+
+**Goals completed:**
+- **`/admin` is now navigation-only** — no tools on the landing page; five section cards link to sub-pages.
+- **`/admin/draft`** — `DraftSequencingPanel` (server component) shows rollover guard and active roster guard per league with green/red/amber status indicators; `SpRatingsCachePanel` and `WinTotalsUploadPanel` also present.
+- **`/admin/data`** — `HistoricalCachePanel` (new, fills pre-existing API-only gap for `cache-historical-schedule` and `cache-historical-scores`); `CFBScheduleApp surface="admin"` retained for schedule rebuild, scores/odds refresh, alias editor, and owner CSV upload.
+- **`/admin/season`** — `RolloverPanel`, `BackfillPanel`, `ArchiveListPanel`.
+- **`/admin/diagnostics`** — `AdminUsagePanel`, `AdminTeamDatabasePanel`, `AdminStorageStatusPanel`, `DiagnosticsScorePanel`.
+- **`/admin/leagues`** — unchanged (already existed).
+- **Admin/Debug button and panel removed from league view entirely** — league view is now fully public-facing. `CFBScheduleApp` no longer references `adminAlertCount` or renders the Admin/Debug toggle. Fatal error link updated to `/admin/data`.
+- **Owner Roster CSV Upload retained at `/admin/data`** as clearly labeled admin fallback.
+- **`requireAdminAuthHeaders()` fixed** — now returns `{}` instead of throwing when no sessionStorage token; Clerk session cookie handles auth automatically for browser requests.
+
+**Key architectural decisions:**
+- Admin sub-pages are server components where possible (DraftSequencingPanel, ArchiveListPanel, DiagnosticsPage) — no client fetch needed when data is available at render time.
+- `BackfillPanel` and `DiagnosticsScorePanel` are client components using `getAdminAuthHeaders()` for fetch calls.
+- `DiagnosticsScorePanel` is a thin `'use client'` wrapper around `ScoreAttachmentDebugPanel` — `onStageAlias` stub directs users to `/admin/data` for alias operations (alias staging requires full CFBScheduleApp state machine).
+- `HistoricalCachePanel` fills the gap identified in review: historical cache API routes existed but had no UI.
+- All admin sub-page headers include `← Admin` back link for consistent navigation.
+
+---
+
 ### Phase 6A — Clerk Auth Setup: Complete
 
 **Status:** Complete. PR #216 open. Branch `claude/improve-thread-speed-v1YFg`.

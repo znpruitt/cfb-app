@@ -244,17 +244,12 @@ Replace the `ADMIN_API_TOKEN` sessionStorage pattern with Clerk-based auth. Rest
 - Update root route: public landing for unauthenticated visitors; league dashboard for `platform_admin`
 - Add `requireAdminAuth(req)` helper — Clerk JWT first, ADMIN_API_TOKEN fallback during transition
 
-### P6B — Admin Page Restructure (active)
-- Build `/admin` landing with section cards linking to sub-pages, active platform status
-- Build `/admin/draft`: SP+ cache, win total upload, draft sequencing guards (rollover + active roster + existing draft)
-- Build `/admin/data`: schedule refresh, scores, odds, aliases, historical cache tools; Owners CSV upload retained as labeled fallback here
-- Build `/admin/season`: rollover, historical backfill, archive inspection
-- Build `/admin/diagnostics`: API usage, team database, score attachment, storage status, ignored rows
-- Migrate and deprecate original Admin/Debug panel from league view
-- Remove CFB League Dashboard embed from `/admin`
-- `/admin/leagues` unchanged (already exists)
+### P6B — Admin Page Restructure ✓ Complete
 
-### P6C — Root Route and Landing Page Polish
+See `docs/completed-work.md` for full record. Branch `claude/improve-thread-speed-v1YFg`.
+PROMPT_IDs: P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1
+
+### P6C — Root Route and Landing Page Polish (active)
 - Public landing page final polish (app name, tagline, league URL entry, discrete admin login link)
 - Admin dashboard league cards with live stats (league name, slug, active year, owner count)
 - All redirects runtime-derived from registry — no hardcoded slugs anywhere
