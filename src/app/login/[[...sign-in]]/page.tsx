@@ -7,7 +7,7 @@ export default function LoginPage() {
         <h1 className="text-2xl font-bold text-zinc-100">CFB League Dashboard</h1>
         <p className="mt-1 text-sm text-zinc-400">Commissioner access</p>
       </div>
-      <SignIn forceRedirectUrl="/admin" />
+      <SignIn routing="path" path="/login" forceRedirectUrl="/admin" />
     </main>
   );
 }
