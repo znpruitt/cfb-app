@@ -52,7 +52,7 @@ export async function POST(
 
   const updated: DraftState = {
     ...draft,
-    phase: 'preview',
+    phase: 'setup',
     picks: [],
     currentPickIndex: 0,
     timerState: 'off',

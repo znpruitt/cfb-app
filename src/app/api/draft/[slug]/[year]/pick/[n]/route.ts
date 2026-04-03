@@ -4,8 +4,9 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { type DraftState, draftScope } from '@/lib/draft';
+import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
+import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
 import teamsData from '@/data/teams.json';
-import type { TeamCatalogItem } from '@/lib/teamIdentity';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -76,23 +77,24 @@ export async function PUT(
 
   const teamName = team.trim();
 
-  // Resolve team against FBS catalog
+  // Resolve team via canonical teamIdentity resolver (handles aliases, normalization)
   const { items } = teamsData as TeamsJson;
-  const resolved = items.find(
-    (t) =>
-      t.school !== 'NoClaim' &&
-      (t.school.toLowerCase() === teamName.toLowerCase() ||
-        (t.alts ?? []).some((a) => a.toLowerCase() === teamName.toLowerCase()))
-  );
+  const aliasRecord = await getAppState<AliasMap>(`aliases:${year}`, 'map');
+  const aliasMap: AliasMap =
+    aliasRecord?.value && typeof aliasRecord.value === 'object' && !Array.isArray(aliasRecord.value)
+      ? { ...SEED_ALIASES, ...aliasRecord.value }
+      : { ...SEED_ALIASES };
+  const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
+  const resolution = resolver.resolveName(teamName);
 
-  if (!resolved) {
+  if (!resolution.canonicalName || resolution.canonicalName === 'NoClaim') {
     return NextResponse.json(
       { error: `Team "${teamName}" not found in FBS catalog` },
       { status: 400 }
     );
   }
 
-  const canonicalTeam = resolved.school;
+  const canonicalTeam = resolution.canonicalName;
 
   // Validate team not already picked at another position
   const conflicting = draft.picks.find(

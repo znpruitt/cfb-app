@@ -22,6 +22,8 @@ export default function PickNavigator({ draft }: PickNavigatorProps): React.Reac
   const totalPicks = totalRounds * n;
   const idx = draft.currentPickIndex;
 
+  const lastPick = draft.picks.length > 0 ? draft.picks[draft.picks.length - 1] : null;
+
   if (draft.phase === 'complete') {
     return (
       <div className="rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
@@ -51,6 +53,20 @@ export default function PickNavigator({ draft }: PickNavigatorProps): React.Reac
 
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3 dark:border-blue-800/40 dark:bg-blue-950/20">
+      {lastPick ? (
+        <div className="mb-3 border-b border-blue-100 pb-2 dark:border-blue-900/40">
+          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-gray-400 dark:text-zinc-500">
+            Previous Pick
+          </p>
+          <p className="mt-0.5 text-sm text-gray-700 dark:text-zinc-300">
+            <span className="font-semibold">{lastPick.team}</span>
+            <span className="ml-1 text-gray-400 dark:text-zinc-500">— {lastPick.owner}</span>
+            {lastPick.autoSelected && (
+              <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">(auto)</span>
+            )}
+          </p>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.15em] text-blue-600 dark:text-blue-400">

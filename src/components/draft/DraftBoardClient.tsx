@@ -30,6 +30,13 @@ export default function DraftBoardClient({
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
 
+  // Redirect non-admins to the spectator view
+  useEffect(() => {
+    if (!isAdmin) {
+      window.location.replace(`/league/${slug}/draft/board`);
+    }
+  }, [isAdmin, slug]);
+
   const refresh = useCallback(async () => {
     try {
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`);
@@ -41,6 +48,9 @@ export default function DraftBoardClient({
       // ignore transient fetch errors
     }
   }, [slug, year]);
+
+  // Return nothing while redirecting non-admins to spectator view
+  if (!isAdmin) return <></>;
 
   // 1-second polling for commissioner view
   useEffect(() => {
@@ -76,23 +86,18 @@ export default function DraftBoardClient({
     }
   }
 
-  const filteredInsights = teamInsights.filter((t) =>
-    search
-      ? t.teamName.toLowerCase().includes(search.toLowerCase()) ||
-        t.teamId.toLowerCase().includes(search.toLowerCase())
-      : true
-  );
+  // F4: exclude already-drafted teams from the available panel entirely
+  const availableInsights = teamInsights
+    .filter((t) => !pickedTeamsLower.has(t.teamId.toLowerCase()))
+    .filter((t) =>
+      search
+        ? t.teamName.toLowerCase().includes(search.toLowerCase()) ||
+          t.teamId.toLowerCase().includes(search.toLowerCase())
+        : true
+    );
 
   return (
     <div>
-      {/* Status bar */}
-      {!isAdmin && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-2 text-sm text-amber-700 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-400">
-          Commissioner token not detected — viewing in read-only mode. Save your admin token to
-          enable draft controls.
-        </div>
-      )}
-
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr_300px]">
         {/* Left column: owner rosters */}
         <aside>
@@ -113,7 +118,14 @@ export default function DraftBoardClient({
               slug={slug}
               year={year}
               draft={draft}
-              onUpdate={(updated) => setDraft(updated)}
+              onUpdate={(updated) => {
+                // F5: after reset, draft returns to 'setup' — redirect to setup page
+                if (updated.phase === 'setup') {
+                  window.location.href = `/league/${slug}/draft/setup`;
+                  return;
+                }
+                setDraft(updated);
+              }}
             />
           )}
 
@@ -141,23 +153,22 @@ export default function DraftBoardClient({
             <p className="mb-2 text-sm text-red-700 dark:text-red-400">{pickError}</p>
           )}
           <div className="space-y-2">
-            {filteredInsights.map((insights) => {
-              const isDrafted = pickedTeamsLower.has(insights.teamId.toLowerCase());
-              return (
-                <DraftCard
-                  key={insights.teamId}
-                  insights={insights}
-                  isDrafted={isDrafted}
-                  onSelect={
-                    canPick && !isDrafted && !pickLoading
-                      ? () => void handlePick(insights.teamId)
-                      : undefined
-                  }
-                />
-              );
-            })}
-            {filteredInsights.length === 0 && (
-              <p className="text-sm text-gray-400 dark:text-zinc-500">No teams match.</p>
+            {availableInsights.map((insights) => (
+              <DraftCard
+                key={insights.teamId}
+                insights={insights}
+                isDrafted={false}
+                onSelect={
+                  canPick && !pickLoading
+                    ? () => void handlePick(insights.teamId)
+                    : undefined
+                }
+              />
+            ))}
+            {availableInsights.length === 0 && (
+              <p className="text-sm text-gray-400 dark:text-zinc-500">
+                {search ? 'No teams match.' : 'All teams have been drafted.'}
+              </p>
             )}
           </div>
         </aside>

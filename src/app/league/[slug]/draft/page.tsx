@@ -8,8 +8,16 @@ import { loadSeasonRankings } from '@/lib/server/rankings';
 import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import type { SpRatingEntry, WinTotalEntry, ApPollEntry } from '@/lib/selectors/draftTeamInsights';
+import {
+  buildScheduleIndex,
+  attachScoresToSchedule,
+  type NormalizedScoreRow,
+  type SeasonPhase,
+} from '@/lib/scoreAttachment';
+import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
+import type { AppGame } from '@/lib/schedule';
+import type { ScorePack } from '@/lib/scores';
 import teamsData from '@/data/teams.json';
-import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import DraftBoardClient from '@/components/draft/DraftBoardClient';
 
 type TeamsJson = { items: TeamCatalogItem[] };
@@ -32,8 +40,13 @@ export default async function DraftBoardPage({
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
   const draft = draftRecord?.value ?? null;
 
-  // If no draft or still in setup/settings phase, redirect to setup
-  if (!draft || draft.phase === 'setup' || draft.phase === 'settings') {
+  // If no draft or phase is not yet live/paused/complete, redirect to setup
+  if (
+    !draft ||
+    draft.phase === 'setup' ||
+    draft.phase === 'settings' ||
+    draft.phase === 'preview'
+  ) {
     redirect(`/league/${slug}/draft/setup`);
   }
 
@@ -92,6 +105,81 @@ export default async function DraftBoardPage({
     // rankings not cached
   }
 
+  // Load prior year (year-1) schedule + scores for lastSeasonRecord derivation
+  let priorYearGames: AppGame[] | undefined;
+  let priorYearScoresByKey: Record<string, ScorePack> | undefined;
+  try {
+    const priorYear = year - 1;
+    const priorSchedRecord = await getAppState<{ items: unknown[] }>(
+      'schedule',
+      `${priorYear}-all-all`
+    );
+    const priorSchedItems = (priorSchedRecord?.value?.items ?? []) as ScheduleWireItem[];
+    if (priorSchedItems.length > 0) {
+      const priorAliasMap = await loadAliasMap();
+      const priorBuilt = buildScheduleFromApi({
+        scheduleItems: priorSchedItems,
+        teams,
+        aliasMap: priorAliasMap,
+        season: priorYear,
+      });
+      priorYearGames = priorBuilt.games;
+
+      const [regularCache, postseasonCache] = await Promise.all([
+        getAppState<{ items: unknown[] }>('scores', `${priorYear}-all-regular`),
+        getAppState<{ items: unknown[] }>('scores', `${priorYear}-all-postseason`),
+      ]);
+
+      type RawScoreItem = {
+        id?: string | null;
+        seasonType?: string | null;
+        startDate?: string | null;
+        week: number | null;
+        status: string;
+        home: { team: string; score: number | null };
+        away: { team: string; score: number | null };
+        time: string | null;
+      };
+
+      const toRow = (item: unknown, defaultType: SeasonPhase): NormalizedScoreRow => {
+        const s = item as RawScoreItem;
+        const st: SeasonPhase =
+          s.seasonType === 'regular' || s.seasonType === 'postseason'
+            ? (s.seasonType as SeasonPhase)
+            : defaultType;
+        return {
+          week: s.week,
+          seasonType: st,
+          providerEventId: s.id ?? null,
+          status: s.status,
+          time: s.time,
+          date: s.startDate ?? null,
+          home: s.home,
+          away: s.away,
+        };
+      };
+
+      const priorRows: NormalizedScoreRow[] = [
+        ...(regularCache?.value?.items ?? []).map((i) => toRow(i, 'regular')),
+        ...(postseasonCache?.value?.items ?? []).map((i) => toRow(i, 'postseason')),
+      ];
+
+      const priorResolver = createTeamIdentityResolver({
+        teams,
+        aliasMap: priorAliasMap,
+      });
+      const priorIndex = buildScheduleIndex(priorYearGames, priorResolver);
+      const attached = attachScoresToSchedule({
+        rows: priorRows,
+        scheduleIndex: priorIndex,
+        resolver: priorResolver,
+      });
+      priorYearScoresByKey = attached.scoresByKey as Record<string, ScorePack>;
+    }
+  } catch {
+    // prior year historical data unavailable — lastSeasonRecord will be null
+  }
+
   // Derive team insights
   const teamInsights = selectDraftTeamInsights({
     teams,
@@ -100,6 +188,8 @@ export default async function DraftBoardPage({
     schedule: games,
     apPoll,
     year,
+    priorYearGames,
+    priorYearScoresByKey,
   });
 
   // Sort by SP+ rating desc, then alphabetically

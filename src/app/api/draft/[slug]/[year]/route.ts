@@ -349,8 +349,21 @@ export async function PUT(
         timerExpiresAt: null,
       };
     } else if (action === 'expire') {
+      // Guard: expire only valid when draft is live and a timer is actually running
+      if (draft.phase !== 'live') {
+        return NextResponse.json(
+          { error: `Timer expire only valid when draft is live (phase: ${draft.phase})` },
+          { status: 422 }
+        );
+      }
+      if (!draft.timerExpiresAt) {
+        return NextResponse.json(
+          { error: 'No active timer — timerExpiresAt is null' },
+          { status: 422 }
+        );
+      }
       // Client signals timer has expired — server validates and applies expiry behavior
-      if (draft.timerExpiresAt && new Date(draft.timerExpiresAt) > new Date()) {
+      if (new Date(draft.timerExpiresAt) > new Date()) {
         return NextResponse.json({ error: 'Timer has not expired yet' }, { status: 422 });
       }
 
