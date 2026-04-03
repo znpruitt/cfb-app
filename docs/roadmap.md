@@ -238,6 +238,11 @@ Harden the admin experience before the 2026 season. Audit all admin pages for UX
 - Evaluate replacing `ADMIN_API_TOKEN` environment variable with a proper login mechanism (session cookie, JWT, or similar)
 - Consider a per-commissioner token model as an intermediate step before full auth
 
+### Draft Initiation Sequencing
+- **Rollover guard** — block draft creation if active league year does not match draft year; direct commissioner to run rollover first
+- **Active roster guard** — warn if `owners:${slug}:${year}` already has data; require explicit acknowledgment before proceeding ("An owner roster already exists for the [year] season. Creating and confirming a new draft will overwrite it.")
+- **Existing draft guard** — already implemented via 409 on `POST /api/draft/[slug]/[year]`; no action needed
+
 ### Longer-term (not scheduled)
 
 #### Commissioner Self-Service (Phase 7, Long-Term Vision)

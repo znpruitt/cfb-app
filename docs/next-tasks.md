@@ -91,6 +91,16 @@ Harden the admin experience before the 2026 season. No implementation prompts is
 - **Auth mechanism evaluation** — evaluate replacing the `ADMIN_API_TOKEN` environment variable with a proper login mechanism (session cookie, JWT, or similar); consider a per-commissioner token model as an intermediate step before full auth
 - **Scoping decision** — determine whether Phase 6 auth work warrants a dedicated design doc before implementation begins
 
+### Draft Initiation Sequencing
+
+Three sequencing guards should be enforced before a draft can be created. The full intended sequence is: **Rollover → advances league year → clears path for new draft → draft confirm → writes new roster**
+
+1. **Rollover guard** — Draft creation should be blocked if the active league year does not match the draft year being created. Rollover must happen before a new season draft can be initiated. The draft setup page already reads the active league year from the registry — enforce that the draft year matches before allowing creation.
+
+2. **Active roster guard** — Draft creation should warn (or block) if `owners:${slug}:${year}` already has data in `appStateStore`. An existing roster means either a prior CSV upload or a previously confirmed draft is already in place. Silently overwriting on confirm is a dangerous footgun. The draft setup page should surface a clear warning: "An owner roster already exists for the [year] season. Creating and confirming a new draft will overwrite it." Require explicit acknowledgment before proceeding.
+
+3. **Existing draft guard** — Already enforced via 409 response on `POST /api/draft/[slug]/[year]`. No action needed.
+
 ## Upcoming phases
 
 - **Phase 6 — Admin Cleanup and Auth:** Active focus. See above.
