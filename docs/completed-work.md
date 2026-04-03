@@ -9,6 +9,48 @@
 
 ## Completed phases / milestones
 
+### Phase 5 — Draft / Owner Assignment Tool (P5A–P5D): Complete
+
+**Status:** All subphases complete. PR #214 open. Branch `claude/improve-thread-speed-v1YFg`.
+
+Key architectural decisions across Phase 5:
+- **Draft state** persisted in `appStateStore`: scope `draft:${leagueSlug}`, key `${year}`
+- **Snake draft order** computed on-demand from `draftOrder` — never stored per-pick
+- **Timer is server-authoritative** — `timerExpiresAt` stored as ISO timestamp in `DraftState`; clients derive remaining time from it
+- **Client expire dispatch** — `DraftBoardClient` fires `timerAction: 'expire'` when countdown reaches zero; guarded by `expireDispatchedRef` per pick
+- **`effectiveBehavior`** — forces auto-pick when commissioner is in paused-expired overlay state regardless of `timerExpiryBehavior` setting
+- **Auto-pick metric** respects draft settings: SP+ descending or preseason rank ascending; alphabetical tiebreak when metric unavailable
+- **Team resolution for picks** uses `teamIdentity.ts` resolver with merged SEED_ALIASES + stored alias maps — no raw string equality
+- **`DraftPick.team`** stores `resolution.canonicalName` (canonical school name string) — consistent with `parseOwnersCsv()` + `rosterByTeam` downstream ownership pipeline
+- **Drafted teams hidden** from available teams panel entirely — not dimmed
+- **Confirm writes same format as CSV upload** — `owners:${slug}:${year}` scope, `csv` key; `parseOwnersCsv()` / standings / rollover pipeline transparent
+- **CSV upload preserved** as admin fallback — can override a confirmed draft without requiring a full reset
+- **Draft card is informational only** — no recommendations, no color coding implying good/bad teams
+- **Draft → ownership map → app**: downstream systems never depend on draft state directly; the confirmed CSV is the hand-off artifact
+
+---
+
+### P5D — Draft Summary and Confirmation
+
+- **Status:** Complete. PR #214 open. Branch `claude/improve-thread-speed-v1YFg`.
+- **PROMPT_IDs:** P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY-FIX-v1, P5D-DRAFT-SUMMARY-FIX-REVIEW-v1, P5D-DRAFT-REOPEN-v1, P5D-DRAFT-REOPEN-REVIEW-v1, P5D-CLOSEOUT-v1
+- **Goals completed:**
+  - **`POST /api/draft/[slug]/[year]/confirm`**: Admin-gated. Derives expected pick count from FBS team count at runtime (never hardcoded): `teamsPerOwner = floor(fbsTeamCount / ownerCount)`, `totalExpectedPicks = teamsPerOwner * ownerCount`. Validates `picks.length === totalExpectedPicks` and all owners have equal counts (422 with formula in message if not). Generates RFC 4180 CSV — fields containing comma, double quote, or newline are quoted; embedded double quotes escaped by doubling (`"` → `""`). Writes to `owners:${slug}:${year}` scope, `csv` key — same format as CSV upload route. Advances `phase` to `complete`.
+  - **`DELETE /api/draft/[slug]/[year]/confirm`**: Admin-gated. Validates `phase === 'complete'`. Sets phase back to `live`. Preserves all picks and does not remove the previously confirmed owner assignment from `appStateStore` — previous CSV remains in effect until commissioner confirms again.
+  - **`/league/[slug]/draft/summary` (server page)**: Server component, `force-dynamic`. Derives interesting facts server-side from historical archives — league anniversaries at 2/5/10 seasons, top 3 rivalries via `selectTopRivalries`, returning champion from most recent archive. Passes only `facts: string[]` to client — avoids shipping large `SeasonArchive[]` to browser. Loads `allTeamNames` (FBS canonical, NoClaim excluded, alphabetical) for inline team picker.
+  - **`DraftSummaryClient`**: Admin-gated via `hasStoredAdminToken()` + `useEffect` redirect + synchronous early return. Owner roster cards grid in draft order. Inline team picker per pick — excludes all other drafted teams; allows re-selecting the current pick's own team. Two-step Confirm Draft flow with irreversibility warning. Two-step Reopen Draft flow with "previous rosters remain in effect" warning; on success updates local draft state to `phase: 'live'`. Confirm section hidden when `phase === 'complete'`; Reopen section shown only when `phase === 'complete'`.
+  - **`InterestingFactsPanel`**: Pure presentational. Renders `null` when `facts.length === 0`. Each fact as a bordered card in a `<ul>`.
+  - **Draft board link**: "Draft Summary →" shown in commissioner board subtitle when `phase === 'complete'`.
+- **Key architectural decisions:**
+  - **Pick count derived at runtime** — `classification === 'fbs'` filter on `teams.json`; never hardcoded. NoClaim teams fill the FBS remainder not divisible by owner count.
+  - **Per-owner count check** — equal team distribution enforced before confirmation; uneven counts blocked with 422.
+  - **RFC 4180 CSV** — `csvField()` helper handles all edge cases; field quoting and double-quote escaping consistent with spec.
+  - **Reopen does not clear owner assignment** — previous confirmed CSV remains in `appStateStore` until re-confirm; dialogue makes this explicit.
+  - **Interesting facts are server-side only** — `deriveFacts()` runs in page server component; only `string[]` passed to `DraftSummaryClient`; avoids shipping archive data to browser.
+  - **Admin gate is client-side** — sessionStorage not readable server-side; same pattern as `DraftBoardClient`.
+
+---
+
 ### P5C — Live Draft Board
 
 - **Status:** Complete. PR #213 open. Branch `claude/improve-thread-speed-v1YFg`.

@@ -16,6 +16,41 @@ The registry should remain:
 
 ## Active Prompts
 
+### P5D-CLOSEOUT-v1
+- Purpose: Close out Phase 5D and Phase 5 overall in planning docs, register all P5D prompt IDs, and set Phase 6 as active focus.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Phase 5 (P5A–P5D) fully complete. Phase 6 — Admin Cleanup and Auth is next planned campaign.
+
+### P5D-DRAFT-REOPEN-REVIEW-v1
+- Purpose: Read-only review of P5D-DRAFT-REOPEN-v1 implementation. No changes.
+- Scope: `confirm/route.ts` (DELETE handler), `DraftSummaryClient.tsx` (reopen button). All items pass.
+- Notes: One non-blocking observation: `reopenLoading` not reset on success path — harmless because Reopen section unmounts immediately when `setDraft()` flips phase away from `complete`. Recommendation: merge.
+
+### P5D-DRAFT-REOPEN-v1
+- Purpose: Add reopen endpoint (DELETE) and Reopen Draft button to allow commissioner to re-open a confirmed draft for corrections.
+- Scope: `src/app/api/draft/[slug]/[year]/confirm/route.ts` (new DELETE handler), `src/components/draft/DraftSummaryClient.tsx` (reopen state + handler + UI section). No other files.
+- Notes: DELETE validates `phase === 'complete'`, sets phase to `live`, preserves picks and existing owner CSV. Reopen dialogue warns previous rosters remain in effect until re-confirm. Confirm section conditioned on `phase !== 'complete'`; Reopen section conditioned on `phase === 'complete'`.
+
+### P5D-DRAFT-SUMMARY-FIX-REVIEW-v1
+- Purpose: Read-only review of P5D-DRAFT-SUMMARY-FIX-v1 implementation. No changes.
+- Scope: `confirm/route.ts`. All items pass.
+- Notes: One non-blocking edge case noted — zero-owner draft produces `teamsPerOwner: Infinity`, unreachable in practice. Recommendation: merge.
+
+### P5D-DRAFT-SUMMARY-FIX-v1
+- Purpose: Fix two bugs — partial-draft confirmation allowed, and CSV fields with embedded double quotes not properly escaped.
+- Scope: `src/app/api/draft/[slug]/[year]/confirm/route.ts` only. No other files.
+- Notes: Pick count validation replaced phase+non-empty check with runtime FBS count derivation. `csvField()` RFC 4180 helper added — quotes and escapes all edge cases.
+
+### P5D-DRAFT-SUMMARY-REVIEW-v1
+- Purpose: Read-only review of P5D-DRAFT-SUMMARY-v1 implementation against specification. No changes.
+- Scope: `confirm/route.ts`, `summary/page.tsx`, `DraftSummaryClient.tsx`, `InterestingFactsPanel.tsx`, `draft/page.tsx`. All items pass.
+- Notes: One minor deviation — admin redirect goes to `/league/${slug}/draft` (commissioner board) not `/draft/setup`; consistent with P5C pattern, correct behavior. Recommendation: merge.
+
+### P5D-DRAFT-SUMMARY-v1
+- Purpose: Implement Phase 5D — confirm endpoint, summary page, DraftSummaryClient, InterestingFactsPanel, draft board Summary link.
+- Scope: `src/app/api/draft/[slug]/[year]/confirm/route.ts` (new), `src/app/league/[slug]/draft/summary/page.tsx` (new), `src/components/draft/DraftSummaryClient.tsx` (new), `src/components/draft/InterestingFactsPanel.tsx` (new), `src/app/league/[slug]/draft/page.tsx` (modified).
+- Notes: Confirm writes to `owners:${slug}:${year}` scope, `csv` key — matches existing upload route. Facts derived server-side; only `string[]` passed to client. Admin gate is client-side only (sessionStorage not server-readable).
+
 ### P5C-CLOSEOUT-AND-P5D-KICKOFF-v1
 - Purpose: Close out Phase 5C in planning docs, register all P5C prompt IDs, and open Phase 5D with full task detail.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
