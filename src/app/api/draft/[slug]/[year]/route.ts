@@ -158,7 +158,6 @@ export async function POST(
         );
       }
       const orderSet = new Set(s.draftOrder);
-      const ownerSet = new Set(ownerNames);
       const setsMatch =
         orderSet.size === ownerSet.size &&
         ownerNames.every((o) => orderSet.has(o));
