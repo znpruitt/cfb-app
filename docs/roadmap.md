@@ -251,6 +251,18 @@ The root route `/` currently hardcodes a redirect to `/league/tsc`. This is an a
 
 Fix location: `src/app/page.tsx` or middleware — wherever the current hardcoded redirect lives.
 
+### Admin Page Restructure
+The current `/admin` page mixes pre-draft setup tooling and in-season data management onto a single page. Phase 6 restructures admin into a clean multi-page layout:
+
+- `/admin` — landing page with section cards, active league year, rollover status, quick links
+- `/admin/draft` — pre-draft setup: SP+ cache, win total upload, draft sequencing guards
+- `/admin/data` — in-season data: schedule refresh, scores, odds, aliases, historical backfill
+- `/admin/leagues` — league management (already exists, keep as-is)
+- `/admin/season` — season lifecycle: rollover, historical backfill, archive inspection
+- `/admin/diagnostics` — debug tools: API usage, team DB, score attachment, storage status, ignored rows
+
+Migration notes: Admin/Debug league panel tools may move to `/admin/data` or `/admin/diagnostics`; Owners CSV upload retained as labeled fallback; CFB League Dashboard embed removed from `/admin`; all existing API routes unchanged.
+
 ### Longer-term (not scheduled)
 
 #### Commissioner Self-Service (Phase 7, Long-Term Vision)

@@ -112,6 +112,46 @@ Correct behavior:
 
 Fix location: `src/app/page.tsx` or middleware — wherever the current hardcoded redirect lives.
 
+### Admin Page Restructure
+
+The current `/admin` page is a jumbled mix of pre-draft setup tooling and in-season data management/debugging crammed onto a single page. Phase 6 should restructure admin into a clean multi-page layout with clear separation of concerns.
+
+**Proposed structure:**
+
+- `/admin` — clean landing page with section cards linking to sub-tools. Shows active league year, rollover status, and quick links to each admin sub-page. Replaces the current dumped-everything single page.
+
+- `/admin/draft` — pre-draft setup tools:
+  - SP+ Ratings Cache (fetch and cache from CFBD)
+  - Win Total Upload (CSV upload for draft cards)
+  - Draft initiation status and sequencing guards (rollover check, active roster check)
+
+- `/admin/data` — in-season data management:
+  - Schedule refresh
+  - Score cache
+  - Odds management
+  - Alias editor
+  - Historical schedule and scores cache (backfill tools)
+
+- `/admin/leagues` — league management (already exists at this route, keep as-is)
+
+- `/admin/season` — season lifecycle tools:
+  - Season rollover panel
+  - Backfill historical seasons
+  - Archive inspection
+
+- `/admin/diagnostics` — debug and inspection tools:
+  - API usage
+  - Team database inspection
+  - Score attachment diagnostics
+  - Shared storage status
+  - Ignored provider rows
+
+**Migration notes:**
+- The original Admin/Debug panel embedded in the league view (Admin/Debug button on league page) should be reviewed — some of its tools may move to `/admin/data` or `/admin/diagnostics`
+- The Owners CSV upload in the original debug panel is now superseded by the draft confirm flow — should be retained as an admin fallback but clearly labeled as such
+- The CFB League Dashboard embed at the bottom of `/admin` should be removed — it belongs in the league view, not the admin panel
+- All existing routes must continue to work during migration — no breaking changes to API endpoints
+
 ## Upcoming phases
 
 - **Phase 6 — Admin Cleanup and Auth:** Active focus. See above.
