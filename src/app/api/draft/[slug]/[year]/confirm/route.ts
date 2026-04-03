@@ -4,12 +4,24 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { type DraftState, draftScope } from '@/lib/draft';
+import type { TeamCatalogItem } from '@/lib/teamIdentity';
+import teamsData from '@/data/teams.json';
+
+type TeamsJson = { items: TeamCatalogItem[] };
 
 export const dynamic = 'force-dynamic';
 
 function parseYear(raw: string): number | null {
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n >= 2000 ? n : null;
+}
+
+/** RFC 4180 CSV field serialization. */
+function csvField(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 /**
@@ -49,17 +61,39 @@ export async function POST(
 
   const draft = record.value;
 
-  if (draft.phase !== 'live' && draft.phase !== 'complete') {
+  // Derive expected pick count from FBS team catalog at runtime — never hardcoded.
+  // teamsPerOwner = floor(fbsTeamCount / ownerCount); totalExpectedPicks = teamsPerOwner * ownerCount.
+  // NoClaim teams fill the remainder and are not assigned to any owner.
+  const { items: allTeams } = teamsData as TeamsJson;
+  const fbsTeamCount = allTeams.filter(
+    (t) => t.classification?.toLowerCase() === 'fbs'
+  ).length;
+  const ownerCount = draft.owners.length;
+  const teamsPerOwner = Math.floor(fbsTeamCount / ownerCount);
+  const totalExpectedPicks = teamsPerOwner * ownerCount;
+
+  if (draft.picks.length !== totalExpectedPicks) {
     return NextResponse.json(
       {
-        error: `Cannot confirm draft in phase: ${draft.phase}. Draft must be live or complete.`,
+        error: `Draft is not complete — ${draft.picks.length} of ${totalExpectedPicks} picks have been made (${teamsPerOwner} teams per owner × ${ownerCount} owners)`,
       },
       { status: 422 }
     );
   }
 
-  if (draft.picks.length === 0) {
-    return NextResponse.json({ error: 'Cannot confirm draft with no picks' }, { status: 422 });
+  // Validate that every owner has exactly teamsPerOwner picks — no skew allowed.
+  const pickCountByOwner = new Map<string, number>();
+  for (const pick of draft.picks) {
+    pickCountByOwner.set(pick.owner, (pickCountByOwner.get(pick.owner) ?? 0) + 1);
+  }
+  const uneven = Array.from(pickCountByOwner.values()).some((n) => n !== teamsPerOwner);
+  if (uneven) {
+    return NextResponse.json(
+      {
+        error: `Pick counts are uneven — all owners must have exactly ${teamsPerOwner} teams before confirming`,
+      },
+      { status: 422 }
+    );
   }
 
   // Build owner assignment CSV — same format as the CSV upload route:
@@ -67,10 +101,7 @@ export async function POST(
   // parseOwnersCsv() in the schedule pipeline reads this format.
   const csvLines = ['team,owner'];
   for (const pick of draft.picks) {
-    // Escape commas in team/owner names by quoting the field
-    const teamField = pick.team.includes(',') ? `"${pick.team}"` : pick.team;
-    const ownerField = pick.owner.includes(',') ? `"${pick.owner}"` : pick.owner;
-    csvLines.push(`${teamField},${ownerField}`);
+    csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
   }
   const csvString = csvLines.join('\n');
 
@@ -78,7 +109,7 @@ export async function POST(
   //   scope = owners:${slug}:${year}   key = 'csv'
   await setAppState(`owners:${slug}:${year}`, 'csv', csvString);
 
-  // Advance phase to 'complete' if not already
+  // Advance phase to 'complete' if not already.
   if (draft.phase !== 'complete') {
     const updated: DraftState = {
       ...draft,
@@ -88,7 +119,6 @@ export async function POST(
     await setAppState<DraftState>(draftScope(slug), String(year), updated);
   }
 
-  const ownerCount = new Set(draft.picks.map((p) => p.owner)).size;
   const confirmedAt = new Date().toISOString();
 
   return NextResponse.json({
