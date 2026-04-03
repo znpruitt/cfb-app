@@ -21,7 +21,7 @@ export default function RosterSetupPanel({
 }: RosterSetupPanelProps): React.ReactElement {
   const [owners, setOwners] = useState<string[]>(() => {
     if (draftState?.owners && draftState.owners.length > 0) return draftState.owners;
-    return priorOwners.length > 0 ? priorOwners : [''];
+    return priorOwners.length > 0 ? priorOwners : [];
   });
   const [newOwner, setNewOwner] = useState('');
   const [loading, setLoading] = useState(false);
@@ -153,6 +153,13 @@ export default function RosterSetupPanel({
       {(!priorOwners.length || draftState) && (
         <p className="mb-4 text-sm text-gray-500 dark:text-zinc-400">
           Add all owners participating in the {year} draft. Minimum 2.
+        </p>
+      )}
+
+      {/* Empty state */}
+      {owners.length === 0 && (
+        <p className="mb-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500 dark:border-zinc-600 dark:text-zinc-400">
+          No owners added yet — add your first owner below.
         </p>
       )}
 

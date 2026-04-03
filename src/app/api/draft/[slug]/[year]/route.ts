@@ -50,7 +50,13 @@ export async function GET(
   }
 
   const record = await getAppState<DraftState>(draftScope(slug), String(year));
-  return NextResponse.json({ draft: record?.value ?? null });
+  if (!record?.value) {
+    return NextResponse.json(
+      { error: `No draft found for ${slug} season ${year}` },
+      { status: 404 }
+    );
+  }
+  return NextResponse.json({ draft: record.value });
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +96,7 @@ export async function POST(
     return NextResponse.json({ error: 'request body must be valid JSON' }, { status: 400 });
   }
 
-  const { owners } = body as { owners?: unknown };
+  const { owners, settings: rawSettings } = body as { owners?: unknown; settings?: unknown };
 
   if (!Array.isArray(owners) || owners.length < 2) {
     return NextResponse.json(
@@ -107,13 +113,78 @@ export async function POST(
     );
   }
 
+  // Validate and merge provided settings
+  let settings: DraftSettings = defaultDraftSettings(ownerNames);
+  if (rawSettings !== undefined) {
+    if (typeof rawSettings !== 'object' || rawSettings === null) {
+      return NextResponse.json(
+        { error: 'settings must be an object', field: 'settings' },
+        { status: 400 }
+      );
+    }
+    const s = rawSettings as Partial<DraftSettings>;
+
+    if (s.style !== undefined && s.style !== 'snake') {
+      return NextResponse.json(
+        { error: "settings.style must be 'snake'", field: 'settings.style' },
+        { status: 400 }
+      );
+    }
+    if (
+      s.pickTimerSeconds !== undefined &&
+      s.pickTimerSeconds !== null &&
+      (typeof s.pickTimerSeconds !== 'number' || s.pickTimerSeconds <= 0)
+    ) {
+      return NextResponse.json(
+        { error: 'settings.pickTimerSeconds must be null or a positive number', field: 'settings.pickTimerSeconds' },
+        { status: 400 }
+      );
+    }
+    if (
+      s.totalRounds !== undefined &&
+      (typeof s.totalRounds !== 'number' || !Number.isInteger(s.totalRounds) || s.totalRounds < 1)
+    ) {
+      return NextResponse.json(
+        { error: 'settings.totalRounds must be a positive integer', field: 'settings.totalRounds' },
+        { status: 400 }
+      );
+    }
+    // Validate draftOrder matches owners exactly when provided
+    if (s.draftOrder !== undefined) {
+      if (!Array.isArray(s.draftOrder)) {
+        return NextResponse.json(
+          { error: 'settings.draftOrder must be an array', field: 'settings.draftOrder' },
+          { status: 400 }
+        );
+      }
+      const orderSet = new Set(s.draftOrder);
+      const ownerSet = new Set(ownerNames);
+      const setsMatch =
+        orderSet.size === ownerSet.size &&
+        ownerNames.every((o) => orderSet.has(o));
+      if (!setsMatch) {
+        return NextResponse.json(
+          { error: 'draftOrder must contain exactly the same owners as the owners array', field: 'settings.draftOrder' },
+          { status: 400 }
+        );
+      }
+    }
+
+    settings = { ...settings, ...s, style: 'snake' };
+  }
+
+  // Determine initial phase — promote to 'preview' if scheduledAt is a future date
+  const scheduledAt = settings.scheduledAt;
+  const initialPhase: DraftPhase =
+    scheduledAt && new Date(scheduledAt) > new Date() ? 'preview' : 'setup';
+
   const now = new Date().toISOString();
   const draft: DraftState = {
     leagueSlug: slug,
     year,
-    phase: 'setup',
+    phase: initialPhase,
     owners: ownerNames,
-    settings: defaultDraftSettings(ownerNames),
+    settings,
     picks: [],
     currentPickIndex: 0,
     timerState: 'off',
