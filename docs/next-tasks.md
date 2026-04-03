@@ -83,23 +83,13 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ## Active queue: Phase 6 — Admin Cleanup and Auth
 
-Design complete. See `docs/phase-6-admin-auth-design.md` for full design. No implementation prompts issued yet.
+Design complete. See `docs/phase-6-admin-auth-design.md` for full design.
 
-### P6A — Clerk Setup and Login (first)
+### P6A — Clerk Setup and Login ✓ Complete
 
-Deliverables:
-- Install and configure Clerk in Next.js App Router
-- Define three-role model in Clerk `publicMetadata`: `platform_admin`, `commissioner`, `member`
-- Implement `/login` page (Clerk embedded UI)
-- Implement Clerk middleware: `/admin/*` requires `platform_admin`; `/league/[slug]/*` public
-- Update root route: public landing for unauthenticated; league dashboard when authenticated as `platform_admin`
-- Add `requireAdminAuth(req)` helper — Clerk JWT first, ADMIN_API_TOKEN fallback during transition
+See `docs/completed-work.md` for full record. PR #216. All deliverables shipped.
 
-Root route behavior (replaces hardcoded `/league/tsc` redirect — architectural violation):
-- Unauthenticated: public landing page (app name, tagline, league URL entry, discrete admin login link)
-- Authenticated `platform_admin`: league cards dashboard derived from registry at runtime
-
-### P6B — Admin Page Restructure (after P6A)
+### P6B — Admin Page Restructure (active)
 
 Deliverables:
 - `/admin` landing with section cards linking to sub-pages, active platform status

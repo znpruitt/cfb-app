@@ -236,7 +236,7 @@ PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY
 ### Objective
 Replace the `ADMIN_API_TOKEN` sessionStorage pattern with Clerk-based auth. Restructure `/admin` into a clean multi-page layout. Establish a public landing page at `/` with a discrete admin login entry point. Build the auth foundation so Phase 7 commissioner and member roles can be added without rework.
 
-### P6A — Clerk Setup and Login
+### P6A — Clerk Setup and Login ✓ Complete
 - Install and configure Clerk in Next.js App Router
 - Define three-role model in Clerk `publicMetadata`: `platform_admin`, `commissioner`, `member`
 - Implement `/login` page (Clerk embedded UI)
@@ -244,7 +244,7 @@ Replace the `ADMIN_API_TOKEN` sessionStorage pattern with Clerk-based auth. Rest
 - Update root route: public landing for unauthenticated visitors; league dashboard for `platform_admin`
 - Add `requireAdminAuth(req)` helper — Clerk JWT first, ADMIN_API_TOKEN fallback during transition
 
-### P6B — Admin Page Restructure
+### P6B — Admin Page Restructure (active)
 - Build `/admin` landing with section cards linking to sub-pages, active platform status
 - Build `/admin/draft`: SP+ cache, win total upload, draft sequencing guards (rollover + active roster + existing draft)
 - Build `/admin/data`: schedule refresh, scores, odds, aliases, historical cache tools; Owners CSV upload retained as labeled fallback here

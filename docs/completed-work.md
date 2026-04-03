@@ -9,6 +9,28 @@
 
 ## Completed phases / milestones
 
+### Phase 6A — Clerk Auth Setup: Complete
+
+**Status:** Complete. PR #216 open. Branch `claude/improve-thread-speed-v1YFg`.
+**PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1
+
+**Goals completed:**
+- **`@clerk/nextjs` v7.0.8** installed with `--legacy-peer-deps` (React 19.1.0 peer conflict); `.npmrc` added to project root with `legacy-peer-deps=true` for Vercel compatibility.
+- **`src/middleware.ts`**: `clerkMiddleware()` from `@clerk/nextjs/server` — never `authMiddleware()` (deprecated). `/admin/*` protected: unauthenticated → redirect `/login`; authenticated without `platform_admin` → redirect `/`. All other routes pass through.
+- **`src/app/layout.tsx`**: `<ClerkProvider>` wraps body content.
+- **`src/app/login/page.tsx`**: Clerk `<SignIn forceRedirectUrl="/admin" />` embedded — no custom form. Dark theme matching app.
+- **`src/app/page.tsx` + `src/components/RootPageClient.tsx`**: Root route replaced — hardcoded `/league/tsc` redirect removed. Server component loads leagues from registry; `RootPageClient` uses `<Show when="signed-out">` for public landing and `<Show when="signed-in">` for admin league dashboard. `force-dynamic` set. No hardcoded slugs.
+- **`src/lib/server/adminAuth.ts`**: `requireAdminAuth(req)` — checks Clerk JWT first (`sessionClaims.publicMetadata.role === 'platform_admin'`), falls back to `ADMIN_API_TOKEN` with Phase 7 removal comment. `requireAdminRequest` exported as `@deprecated` alias. All 25 existing API route call sites updated to `await requireAdminRequest(req)`.
+
+**Key architectural decisions:**
+- Three roles defined in Clerk `publicMetadata` from day one: `platform_admin`, `commissioner`, `member` — only `platform_admin` enforced in Phase 6.
+- `<Show when="signed-in/out">` used throughout — deprecated `<SignedIn>`/`<SignedOut>` never used.
+- `requireAdminAuth` checks Clerk JWT first; ADMIN_API_TOKEN fallback is temporary — remove in Phase 7.
+- Admin dashboard reads leagues from registry at runtime — never hardcoded.
+- **Manual step required post-deploy:** set `publicMetadata: { "role": "platform_admin" }` in Clerk Dashboard for first user. Cannot be done in code.
+
+---
+
 ### Phase 5 — Draft / Owner Assignment Tool (P5A–P5D): Complete
 
 **Status:** All subphases complete. PR #214 open. Branch `claude/improve-thread-speed-v1YFg`.
