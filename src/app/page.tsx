@@ -14,6 +14,14 @@ export default async function Page() {
     leagues.map(async (league) => {
       try {
         const record = await getAppState<string>(`owners:${league.slug}:${activeYear}`, 'csv');
+        console.log('Owner count debug:', {
+          slug: league.slug,
+          activeYear,
+          scope: `owners:${league.slug}:${activeYear}`,
+          hasRecord: !!record,
+          valueLength: record?.value?.length ?? 0,
+          valuePreview: record?.value?.substring(0, 100) ?? null
+        })
         if (!record?.value) {
           ownerCountBySlug[league.slug] = 0;
           return;
