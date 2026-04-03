@@ -67,7 +67,6 @@ import {
   isScheduleIssue,
   summarizeGames,
 } from '../lib/cfbScheduleAppHelpers';
-import { getAdminAlertCount } from '../lib/adminDiagnostics';
 import {
   buildRankingsLookup,
   fetchSeasonRankings,
@@ -1041,8 +1040,6 @@ export default function CFBScheduleApp({
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
     !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
-  const adminAlertCount = getAdminAlertCount({ issues, diag, aliasStaging });
-  const adminHref = '/admin';
   const leagueHref = leagueSlug ? `/league/${leagueSlug}` : '/';
   const visibleScoresCount = useMemo(
     () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
@@ -1091,26 +1088,17 @@ export default function CFBScheduleApp({
           </div>
         </div>
         <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start xl:w-auto xl:max-w-md xl:justify-end">
-          {!isAdminSurface && adminAlertCount > 0 ? (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
-              {adminAlertCount} admin item{adminAlertCount === 1 ? '' : 's'} need attention
-            </span>
+          {isAdminSurface ? (
+            <Link
+              href={leagueHref}
+              className="inline-flex w-full items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+              Back to league view
+            </Link>
           ) : null}
-          <Link
-            href={isAdminSurface ? leagueHref : adminHref}
-            className="inline-flex w-full items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-          >
-            {isAdminSurface ? 'Back to league view' : 'Admin / Debug'}
-          </Link>
         </div>
       </header>
 
-      {!isAdminSurface && adminAlertCount > 0 ? (
-        <p className="text-xs text-gray-600 dark:text-zinc-400">
-          Diagnostics, alias repairs, refresh controls, and surnames CSV maintenance live on the
-          admin area to keep the default league experience focused.
-        </p>
-      ) : null}
 
       {hasFatalLeagueBootstrapFailure ? (
         <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
@@ -1147,10 +1135,10 @@ export default function CFBScheduleApp({
               {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
             </button>
             <Link
-              href={adminHref}
+              href="/admin/data"
               className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
-              Open Admin / Debug
+              Open Data Management
             </Link>
           </div>
         </section>
