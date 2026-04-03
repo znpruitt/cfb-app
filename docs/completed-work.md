@@ -9,6 +9,44 @@
 
 ## Completed phases / milestones
 
+### Phase 6 — Admin Cleanup and Auth (P6A–P6C): Complete
+
+**Status:** All subphases complete. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.
+**PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1, P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1
+
+**Key architectural decisions across Phase 6:**
+- **Clerk as auth provider** — three roles defined from day one in `publicMetadata`: `platform_admin`, `commissioner`, `member`. Only `platform_admin` enforced in Phase 6. Scales to Phase 7 without rework.
+- **`clerkMiddleware()` in `middleware.ts`** — never `authMiddleware()` (deprecated). `/admin/*` protected at middleware level: unauthenticated → `/login`; authenticated without `platform_admin` → `/`.
+- **`<Show when="signed-in/out">` throughout** — deprecated `<SignedIn>` / `<SignedOut>` never used.
+- **`requireAdminAuth()`** — checks Clerk JWT first, falls back to `ADMIN_API_TOKEN` during transition. Phased replacement: token removed in Phase 7.
+- **Root route `/` dynamic** — hardcoded `/league/tsc` redirect removed. Public landing for unauthenticated visitors; admin dashboard for `platform_admin`. No hardcoded slugs anywhere.
+- **Admin restructured into five sub-pages**: `/admin/draft`, `/admin/data`, `/admin/season`, `/admin/diagnostics`, `/admin/leagues`. `/admin` is navigation-only.
+- **Admin/Debug panel removed from league view** — league view is fully public-facing.
+- **`DraftSequencingPanel`** — rollover guard and active roster guard per league at `/admin/draft`.
+- **`HistoricalCachePanel`** — fills pre-existing API-only gap for historical schedule/scores cache at `/admin/data`.
+- **Backfill flow fixed** — terminal on first write (no existing archive); confirm only when `requiresConfirmation` returned (existing archive diff).
+- **Historical cache year default** — uses CFB season year logic (`month >= 7` → current year is active), not raw UTC year. Prevents offseason 400 errors.
+- **Owner count on dashboard** — derived from `appStateStore` CSV at runtime; fails gracefully to `null` when unavailable.
+- **Redirect audit clean** — no hardcoded slugs in any route, component, or middleware.
+
+---
+
+### Phase 6C — Landing Page Polish: Complete
+
+**Status:** Complete. Branch `claude/improve-thread-speed-v1YFg`.
+**PROMPT_IDs:** P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1
+
+**Goals completed:**
+- **Public landing page** — app name (`text-4xl`), tagline, URL example in `<code>` block with border/bg styling, discrete "Commissioner login" link fixed bottom right.
+- **Admin dashboard league cards** — `league.displayName` (large), slug/year/owner count metadata, "View League →" (blue) and "Draft Setup →" (muted) split links per card.
+- **Owner count** — fetched server-side from `getAppState('owners:${slug}:${year}', 'csv')` per league; CSV rows counted minus header. Returns `0` when CSV empty/missing; returns `null` (graceful skip) when fetch throws.
+- **Footer links** — "Platform admin tools →" (`/admin`) and "Add League →" (`/admin/leagues`) side-by-side.
+- **Empty state** — links to `/admin/leagues` with clear instruction copy.
+- **Redirect audit** — confirmed clean; no hardcoded slugs in `middleware.ts`, `page.tsx`, `RootPageClient.tsx`, `login/page.tsx`, or `admin/page.tsx`.
+- **All seven E2E auth flows verified correct** in code review.
+
+---
+
 ### Phase 6B — Admin Page Restructure: Complete
 
 **Status:** Complete. Branch `claude/improve-thread-speed-v1YFg`.

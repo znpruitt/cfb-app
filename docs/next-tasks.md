@@ -81,32 +81,25 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 - **P5D — Draft Summary and Confirmation** ✅ Complete. PR #214 open. See `docs/completed-work.md`.
 
-## Active queue: Phase 6 — Admin Cleanup and Auth
+## Phase 6 — Admin Cleanup and Auth ✅ Complete
 
-Design complete. See `docs/phase-6-admin-auth-design.md` for full design.
+All subphases (P6A–P6C) complete. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.
+See `docs/completed-work.md` for full record.
 
-### P6A — Clerk Setup and Login ✓ Complete
+## Active queue: Phase 7 — Commissioner Self-Service
 
-See `docs/completed-work.md` for full record. PR #216. All deliverables shipped.
+### First tasks
 
-### P6B — Admin Page Restructure ✓ Complete
-
-See `docs/completed-work.md` for full record. Branch `claude/improve-thread-speed-v1YFg`.
-PROMPT_IDs: P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1
-
-### P6C — Root Route and Landing Page Polish (active)
-
-Deliverables:
-- Public landing page final polish (app name, tagline, league URL entry, discrete admin login link)
-- Admin dashboard league cards with live stats (owner count, last activity)
-- Verify all redirects are runtime-derived from registry — no hardcoded slugs anywhere
-- Ensure unauthenticated visitors hitting `/admin/*` are redirected to `/login` cleanly
-- End-to-end flow validation: public landing → login → admin dashboard → league
+- **Commissioner role enforcement** — protect `/league/[slug]/draft/*` routes for `platform_admin` or `commissioner` scoped to that league
+- **Commissioner self-registration** — invite link flow; commissioner creates account and receives shareable league URL
+- **League-scoped permissions** — enforce `leagues: [slug, ...]` in Clerk `publicMetadata` for commissioner role
+- **Member login** — personalized views for league members
+- **`ADMIN_API_TOKEN` removal** — remove fallback token path from `requireAdminAuth()` and all API routes; Clerk JWT only
 
 ## Upcoming phases
 
-- **Phase 6 — Admin Cleanup and Auth:** Active focus. See above.
-- **Phase 7 — Commissioner Self-Service:** Long-term vision. Not scheduled. See `docs/roadmap.md`.
+- **Phase 7 — Commissioner Self-Service:** Active next focus. See `docs/roadmap.md` for full scope.
+- **Phase 8+:** Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
 
