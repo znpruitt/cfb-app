@@ -101,6 +101,17 @@ Three sequencing guards should be enforced before a draft can be created. The fu
 
 3. **Existing draft guard** — Already enforced via 409 response on `POST /api/draft/[slug]/[year]`. No action needed.
 
+### Root Route Redirect
+
+The root route `/` currently hardcodes a redirect to `/league/tsc`. This is an architectural violation — slugs are runtime data, not configuration.
+
+Correct behavior:
+- If one league exists in the registry → redirect to that league's slug (derived from registry at runtime)
+- If multiple leagues exist → show a league selection page
+- If no leagues exist → show a setup or onboarding page
+
+Fix location: `src/app/page.tsx` or middleware — wherever the current hardcoded redirect lives.
+
 ## Upcoming phases
 
 - **Phase 6 — Admin Cleanup and Auth:** Active focus. See above.

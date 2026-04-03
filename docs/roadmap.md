@@ -243,6 +243,14 @@ Harden the admin experience before the 2026 season. Audit all admin pages for UX
 - **Active roster guard** — warn if `owners:${slug}:${year}` already has data; require explicit acknowledgment before proceeding ("An owner roster already exists for the [year] season. Creating and confirming a new draft will overwrite it.")
 - **Existing draft guard** — already implemented via 409 on `POST /api/draft/[slug]/[year]`; no action needed
 
+### Root Route Redirect
+The root route `/` currently hardcodes a redirect to `/league/tsc`. This is an architectural violation — slugs are runtime data, not configuration. Correct behavior:
+- If one league exists in the registry → redirect to that league's slug (derived from registry at runtime)
+- If multiple leagues exist → show a league selection page
+- If no leagues exist → show a setup or onboarding page
+
+Fix location: `src/app/page.tsx` or middleware — wherever the current hardcoded redirect lives.
+
 ### Longer-term (not scheduled)
 
 #### Commissioner Self-Service (Phase 7, Long-Term Vision)
