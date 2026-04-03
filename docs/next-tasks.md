@@ -64,6 +64,7 @@
 - **Roster Upload Fuzzy Matching:** ✅ Complete. PRs #202–#203 merged. See `docs/completed-work.md`.
 - **P4D — League History and Owner Career UI:** ✅ Complete. PR #204 merged. See `docs/completed-work.md`.
 - **Historical Season Backfill Endpoint:** ✅ Complete. Shipped in same branch as P4D. See `docs/completed-work.md`.
+- **Historical Cache Endpoints + P4D Polish:** ✅ Complete. PR #207 merged. Schedule and scores cache endpoints; standings sort/winPct; NoClaim filter; 60/40 layout; History nav tab; live standings merge; banner card. See `docs/completed-work.md`.
 
 ## Active queue: Phase 5 — Draft / Owner Assignment Tool
 
