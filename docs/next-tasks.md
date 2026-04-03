@@ -18,7 +18,8 @@
 - **Phase 2D (overview trends visual sweep):** Complete. See `docs/completed-work.md`.
 - **Phase 3 (multi-league support):** ✅ Complete. PRs #192–#196 merged. See `docs/completed-work.md`.
 - **Phase 4 (historical analytics):** ✅ Complete. All subphases (P4A–P4D) and Historical Season Backfill Endpoint shipped. See `docs/completed-work.md`.
-- **Active execution focus: Phase 5 — Draft / Owner Assignment Tool.**
+- **Phase 5 (draft/owner assignment tool):** ✅ Complete. All subphases (P5A–P5D) shipped. PR #214 open. See `docs/completed-work.md`.
+- **Active execution focus: Phase 6 — Admin Cleanup and Auth.**
 
 ## Hosted deployment runbook
 
@@ -78,18 +79,22 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 - **P5C — Live Draft Board** ✅ Complete. Branch `claude/improve-thread-speed-v1YFg`. See `docs/completed-work.md`.
 
-- **P5D — Draft Summary and Confirmation** ← active focus
-  - `/league/[slug]/draft/summary` page — shows every owner's full drafted roster as cards; readable by all members, accessible from the live board when `phase === 'complete'`
-  - Commissioner can make final edits to any pick before confirming — picks remain editable via existing `PUT /api/draft/[slug]/[year]/pick/[n]` endpoint
-  - Interesting facts panel — sourced from historical archive: league anniversaries, main rivals from all-time H2H, returning championship teams
-  - **Confirm Draft** button (admin-only): writes final roster to `appStateStore` at `owners:${leagueSlug}:${year}` — the same key used by the existing schedule/standings pipeline for owner assignment
-  - Confirmation is irreversible without starting a new draft or using the manual CSV upload fallback
-  - After confirmation, redirects to `/league/${slug}/overview`
+- **P5D — Draft Summary and Confirmation** ✅ Complete. PR #214 open. See `docs/completed-work.md`.
+
+## Active queue: Phase 6 — Admin Cleanup and Auth
+
+Harden the admin experience before the 2026 season. No implementation prompts issued yet.
+
+### Phase 6 first tasks
+
+- **Admin UX audit** — review all admin-facing pages (`/admin/`, `/league/[slug]/draft/setup`, `/league/[slug]/draft/summary`, and any other admin-gated routes) for UX consistency, labeling, and cleanup
+- **Auth mechanism evaluation** — evaluate replacing the `ADMIN_API_TOKEN` environment variable with a proper login mechanism (session cookie, JWT, or similar); consider a per-commissioner token model as an intermediate step before full auth
+- **Scoping decision** — determine whether Phase 6 auth work warrants a dedicated design doc before implementation begins
 
 ## Upcoming phases
 
-- **Phase 5 — Draft/Owner Assignment Tool:** Active focus. See above.
-- **Phase 6 — Commissioner Self-Service:** Long-term vision. Not scheduled. See `docs/roadmap.md`.
+- **Phase 6 — Admin Cleanup and Auth:** Active focus. See above.
+- **Phase 7 — Commissioner Self-Service:** Long-term vision. Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
 

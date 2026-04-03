@@ -27,7 +27,8 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 - Phase 2D overview trends visual sweep is **complete**.
 - Phase 3 multi-league support is **complete**. PRs #192–#196 merged. League registry, scoped storage, routing, admin UI, and migration fallback removal all done.
 - Phase 4 — Historical Analytics is **complete**. All subphases (P4A–P4D) and Historical Season Backfill Endpoint shipped.
-- **Active phase: Phase 5 — Draft / Owner Assignment Tool.**
+- **Phase 5 — Draft / Owner Assignment Tool** is **complete**. All subphases (P5A–P5D) shipped. PR #214 open.
+- **Active phase: Phase 6 — Admin Cleanup and Auth.**
 
 ## Production data policy
 
@@ -198,20 +199,12 @@ Key deliverables:
 - Season comparison views
 - Upset / odds retrospectives
 
-## Phase 5 — Draft / Owner Assignment Tool
+## Phase 5 — Draft / Owner Assignment Tool (complete)
 
-**Status:** Design complete, ready for implementation. See `docs/phase-5-draft-tool-design.md` for full approved design.
+**Status:** All subphases (P5A–P5D) complete. PR #214 open. See `docs/completed-work.md` for full record.
 
 ### Objective
-Replace manual CSV owner roster uploads with a live in-app draft tool for the commissioner. The CSV upload workflow is preserved as an admin fallback — the draft tool is the primary method for the 2026 season.
-
-### Scope
-- Live in-person draft with persistent server-side state
-- Commissioner draft board at `/league/[slug]/draft` (admin-gated)
-- Spectator view at `/league/[slug]/draft/board` (public, shareable)
-- Draft cards with objective team data: SP+, win totals (optional), preseason rank, SOS tier, home/away split, ranked opponent count
-- Snake draft with configurable pick timer and timer expiry behavior
-- Final roster confirmation writes to existing `owners:${leagueSlug}:${year}` appStateStore key
+Replace manual CSV owner roster uploads with a live in-app draft tool for the commissioner. The CSV upload workflow is preserved as an admin fallback.
 
 ### Subphases
 
@@ -230,36 +223,30 @@ PROMPT_IDs: P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v
 Complete. PR #213 open. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v2, P5C-LIVE-DRAFT-BOARD-FIX-v3, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v2, P5C-CLOSEOUT-AND-P5D-KICKOFF-v1
 
-Key deliverables:
-- Commissioner board at `/league/[slug]/draft` (admin-gated, 1s polling); spectator view at `/league/[slug]/draft/board` (public, 3s polling)
-- Pick, unpick, and edit pick API endpoints; all team resolution via `teamIdentity.ts` resolver
-- Server-authoritative timer: `timerExpiresAt` in `DraftState`; client-side expire dispatch with ref guard; pause-and-prompt and auto-pick expiry behaviors
-- Auto-pick metric: SP+ descending or preseason rank ascending; fallback to alphabetical
-- Draft reset returns to `phase: 'setup'`; commissioner redirected to setup page
-- Seven draft board components: `DraftBoardGrid`, `OwnerRosterPanel`, `TimerDisplay`, `PickNavigator`, `DraftControls`, `DraftBoardClient`, `SpectatorBoardClient`
-- Alias loading in server components via `appStateStore` directly — no browser-oriented helpers
-- All nine original review findings (FIX-v1) and four Codex bug fixes (FIX-v3) resolved before merge
+#### P5D — Draft Summary and Confirmation (complete)
 
-#### P5D — Draft Summary and Confirmation (active)
-- `/league/[slug]/draft/summary` page — all owner rosters shown as cards; accessible when `phase === 'complete'`
-- Commissioner can make final edits to any pick before confirming
-- Interesting facts panel sourced from historical archive data (league anniversaries, rivals, returning champions)
-- Confirm Draft writes final roster to `owners:${leagueSlug}:${year}` appStateStore key — irreversible without new draft or CSV fallback
-- After confirmation, redirects to `/league/${slug}/overview`
+Complete. PR #214 open. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY-FIX-v1, P5D-DRAFT-SUMMARY-FIX-REVIEW-v1, P5D-DRAFT-REOPEN-v1, P5D-DRAFT-REOPEN-REVIEW-v1, P5D-CLOSEOUT-v1
 
-## Phase 6 — Commissioner Self-Service (Long-Term Vision, Not Scheduled)
+## Phase 6 — Admin Cleanup and Auth (next planned campaign)
 
 ### Objective
-If the app grows beyond manually managed leagues, the minimal viable expansion is lightweight commissioner signup — not a full SaaS platform.
+Harden the admin experience before the 2026 season. Audit all admin pages for UX consistency, evaluate the current `ADMIN_API_TOKEN` mechanism, and determine whether a proper login flow or per-commissioner token model is warranted.
 
-### Scope (if warranted)
+### First tasks
+- Audit all admin pages (`/admin/`, `/league/[slug]/draft/setup`, `/league/[slug]/draft/summary`, etc.) for UX consistency and cleanup
+- Evaluate replacing `ADMIN_API_TOKEN` environment variable with a proper login mechanism (session cookie, JWT, or similar)
+- Consider a per-commissioner token model as an intermediate step before full auth
+
+### Longer-term (not scheduled)
+
+#### Commissioner Self-Service (Phase 7, Long-Term Vision)
+If the app grows beyond manually managed leagues, the minimal viable expansion is lightweight commissioner signup — not a full SaaS platform.
 - Commissioner signup flow — create an account, name a league, receive a shareable URL
 - No per-member accounts or permissions
 - No visibility controls — league URL is the access mechanism
 - League picker UI for commissioners managing multiple leagues
-
-### Trigger condition
-Phase 6 is only warranted if Phase 3 is actively used by multiple leagues **and** manual commissioner management becomes a bottleneck. Full SaaS auth (per-member accounts, permissions, visibility controls) is out of scope indefinitely for this project.
+- Only warranted if Phase 3 is actively used by multiple leagues **and** manual commissioner management becomes a bottleneck. Full SaaS auth is out of scope indefinitely.
 
 ## Architecture rules
 
