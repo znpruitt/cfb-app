@@ -67,15 +67,28 @@
 
 ## Active queue: Phase 5 — Draft / Owner Assignment Tool
 
-Replace manual CSV owner roster uploads with a guided in-app draft or assignment tool for the commissioner.
+Replace manual CSV owner roster uploads with a live in-app draft tool for the commissioner. Full design approved — see `docs/phase-5-draft-tool-design.md`. All open questions resolved; no prerequisites blocking implementation.
 
-### Phase 5 first tasks (not yet started)
+### Phase 5 subphases
 
-1. **Commissioner team assignment UI** — per-league, per-season UI on `/admin/` (or `/admin/leagues/[slug]/`) to assign CFB teams to owners directly in the app
-2. **Draft order support** — optional ordered assignment flow (snake draft or manual order)
-3. **Persist to existing owners store** — write to `owners:${leagueSlug}:${year}` appStateStore key; no new persistence model
+- **P5A — Draft Data Infrastructure** ← first implementation task
+  - SP+ cache endpoint (`POST /api/admin/cache-sp-ratings`)
+  - Win total CSV upload via existing fuzzy matching pipeline
+  - `src/lib/selectors/draftTeamInsights.ts` selector
+  - DraftCard component
 
-See `docs/roadmap.md` for full Phase 5 scope and non-goals.
+- **P5B — Draft Setup and Settings** (queued after P5A)
+  - `/league/[slug]/draft/setup` page (roster setup + settings UI)
+  - Draft state creation API
+  - Preview mode with scheduled start time
+
+- **P5C — Live Draft Board** (queued after P5B)
+  - Commissioner view + spectator view
+  - Pick/unpick/edit APIs, timer logic, draft reset, polling
+
+- **P5D — Draft Summary and Confirmation** (queued after P5C)
+  - `/league/[slug]/draft/summary` page
+  - Final roster write, interesting facts panel
 
 ## Upcoming phases
 
