@@ -487,7 +487,7 @@ export async function GET(req: Request): Promise<Response> {
 
     const refreshRequested = new URL(req.url).searchParams.get('refresh') === '1';
     if (refreshRequested) {
-      const authFailure = requireAdminRequest(req);
+      const authFailure = await requireAdminRequest(req);
       if (authFailure) return authFailure;
     }
 

@@ -29,7 +29,7 @@ function aliasesScope(year: number, leagueSlug?: string): string {
  * Body: { csvText: string }
  */
 export async function POST(req: Request): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   const url = new URL(req.url);

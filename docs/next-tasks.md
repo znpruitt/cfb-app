@@ -83,13 +83,42 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ## Active queue: Phase 6 — Admin Cleanup and Auth
 
-Harden the admin experience before the 2026 season. No implementation prompts issued yet.
+Design complete. See `docs/phase-6-admin-auth-design.md` for full design. No implementation prompts issued yet.
 
-### Phase 6 first tasks
+### P6A — Clerk Setup and Login (first)
 
-- **Admin UX audit** — review all admin-facing pages (`/admin/`, `/league/[slug]/draft/setup`, `/league/[slug]/draft/summary`, and any other admin-gated routes) for UX consistency, labeling, and cleanup
-- **Auth mechanism evaluation** — evaluate replacing the `ADMIN_API_TOKEN` environment variable with a proper login mechanism (session cookie, JWT, or similar); consider a per-commissioner token model as an intermediate step before full auth
-- **Scoping decision** — determine whether Phase 6 auth work warrants a dedicated design doc before implementation begins
+Deliverables:
+- Install and configure Clerk in Next.js App Router
+- Define three-role model in Clerk `publicMetadata`: `platform_admin`, `commissioner`, `member`
+- Implement `/login` page (Clerk embedded UI)
+- Implement Clerk middleware: `/admin/*` requires `platform_admin`; `/league/[slug]/*` public
+- Update root route: public landing for unauthenticated; league dashboard when authenticated as `platform_admin`
+- Add `requireAdminAuth(req)` helper — Clerk JWT first, ADMIN_API_TOKEN fallback during transition
+
+Root route behavior (replaces hardcoded `/league/tsc` redirect — architectural violation):
+- Unauthenticated: public landing page (app name, tagline, league URL entry, discrete admin login link)
+- Authenticated `platform_admin`: league cards dashboard derived from registry at runtime
+
+### P6B — Admin Page Restructure (after P6A)
+
+Deliverables:
+- `/admin` landing with section cards linking to sub-pages, active platform status
+- `/admin/draft`: SP+ cache, win total upload, draft sequencing guards:
+  1. Rollover guard — block draft creation if active league year does not match draft year
+  2. Active roster guard — warn if `owners:${slug}:${year}` already has data, require explicit acknowledgment
+  3. Existing draft guard — already enforced via 409, no new code needed
+- `/admin/data`: schedule refresh, scores, odds, aliases, historical tools; Owners CSV upload as labeled admin fallback
+- `/admin/season`: rollover panel, historical backfill, archive inspection
+- `/admin/diagnostics`: API usage, team database, score attachment, storage status, ignored rows
+- `/admin/leagues`: unchanged (already exists)
+- Migrate Admin/Debug tools from league view to appropriate sub-pages; remove CFB League Dashboard embed from `/admin`
+
+### P6C — Root Route and Landing Page Polish (after P6B)
+
+Deliverables:
+- Public landing page final polish
+- Admin dashboard league cards with live stats (league name, slug, active year, owner count)
+- Audit and remove any remaining hardcoded slugs; all redirects runtime-derived from registry
 
 ## Upcoming phases
 

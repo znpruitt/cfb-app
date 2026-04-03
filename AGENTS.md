@@ -232,6 +232,26 @@ Be explicit and accurate.
 
 ---
 
+## Auth Architecture Invariants
+
+These rules apply from Phase 6 onward and must not be violated:
+
+1. **Clerk is the auth provider** — no other auth systems, no custom session handling, no roll-your-own JWT verification.
+
+2. **Three roles defined in Clerk `publicMetadata`**: `platform_admin`, `commissioner`, `member`. Role storage shape: `{ role: 'platform_admin' | 'commissioner' | 'member' }`. Commissioner league scoping: `{ role: 'commissioner', leagues: ['tsc', 'family'] }` — defined now, enforced in Phase 7.
+
+3. **Route protection via Clerk middleware only** — never roll custom auth middleware. The single Clerk middleware instance in `middleware.ts` is the only place route-level auth rules live.
+
+4. **API routes use `requireAdminAuth(req)`** — this helper checks Clerk JWT first, falls back to `ADMIN_API_TOKEN` during the Phase 6 transition period. It is a drop-in replacement for the old `requireAdminRequest()`. All new admin API routes must support Clerk JWT from day one.
+
+5. **`ADMIN_API_TOKEN` fallback is temporary** — it exists only for Phase 6 backward compatibility. It will be removed in Phase 7. Do not build new flows that depend on it.
+
+6. **Never hardcode role checks outside middleware and `requireAdminAuth()`** — no inline `publicMetadata.role` comparisons in UI components or API handlers. All role assertions go through the designated helpers.
+
+7. **Commissioner scoping is enforced in Phase 7** — `/league/[slug]/draft/*` will require `platform_admin` or `commissioner` with a matching slug. Do not implement this in Phase 6; do not design against it being absent in Phase 7.
+
+---
+
 ## Guiding principle
 
 Optimize for:

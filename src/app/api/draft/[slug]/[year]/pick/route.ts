@@ -30,7 +30,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ slug: string; year: string }> }
 ): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   const { slug, year: yearParam } = await params;

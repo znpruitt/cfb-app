@@ -47,7 +47,7 @@ async function fetchScoreItems(year: number, seasonType: SeasonType): Promise<Sc
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   let body: unknown;

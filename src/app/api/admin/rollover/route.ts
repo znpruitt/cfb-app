@@ -5,7 +5,7 @@ import { isSeasonComplete, buildSeasonArchive } from '@/lib/seasonRollover';
 
 // GET — season completion status and platform year, admin-gated
 export async function GET(req: Request): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   const leagues = await getLeagues();
@@ -55,7 +55,7 @@ async function buildLeaguePreview(
 
 // POST — two-phase: preview (confirmed: false) or execute (confirmed: true), admin-gated
 export async function POST(req: Request): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   let body: PostBody;

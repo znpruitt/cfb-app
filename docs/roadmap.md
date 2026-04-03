@@ -228,15 +228,43 @@ PROMPT_IDs: P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DR
 Complete. PR #214 open. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY-FIX-v1, P5D-DRAFT-SUMMARY-FIX-REVIEW-v1, P5D-DRAFT-REOPEN-v1, P5D-DRAFT-REOPEN-REVIEW-v1, P5D-CLOSEOUT-v1
 
-## Phase 6 — Admin Cleanup and Auth (next planned campaign)
+## Phase 6 — Admin Cleanup and Auth (active campaign)
+
+**Design doc:** `docs/phase-6-admin-auth-design.md`
+**Status:** Design approved — ready for implementation.
 
 ### Objective
-Harden the admin experience before the 2026 season. Audit all admin pages for UX consistency, evaluate the current `ADMIN_API_TOKEN` mechanism, and determine whether a proper login flow or per-commissioner token model is warranted.
+Replace the `ADMIN_API_TOKEN` sessionStorage pattern with Clerk-based auth. Restructure `/admin` into a clean multi-page layout. Establish a public landing page at `/` with a discrete admin login entry point. Build the auth foundation so Phase 7 commissioner and member roles can be added without rework.
 
-### First tasks
-- Audit all admin pages (`/admin/`, `/league/[slug]/draft/setup`, `/league/[slug]/draft/summary`, etc.) for UX consistency and cleanup
-- Evaluate replacing `ADMIN_API_TOKEN` environment variable with a proper login mechanism (session cookie, JWT, or similar)
-- Consider a per-commissioner token model as an intermediate step before full auth
+### P6A — Clerk Setup and Login
+- Install and configure Clerk in Next.js App Router
+- Define three-role model in Clerk `publicMetadata`: `platform_admin`, `commissioner`, `member`
+- Implement `/login` page (Clerk embedded UI)
+- Implement Clerk middleware: `/admin/*` requires `platform_admin`; `/league/[slug]/*` public
+- Update root route: public landing for unauthenticated visitors; league dashboard for `platform_admin`
+- Add `requireAdminAuth(req)` helper — Clerk JWT first, ADMIN_API_TOKEN fallback during transition
+
+### P6B — Admin Page Restructure
+- Build `/admin` landing with section cards linking to sub-pages, active platform status
+- Build `/admin/draft`: SP+ cache, win total upload, draft sequencing guards (rollover + active roster + existing draft)
+- Build `/admin/data`: schedule refresh, scores, odds, aliases, historical cache tools; Owners CSV upload retained as labeled fallback here
+- Build `/admin/season`: rollover, historical backfill, archive inspection
+- Build `/admin/diagnostics`: API usage, team database, score attachment, storage status, ignored rows
+- Migrate and deprecate original Admin/Debug panel from league view
+- Remove CFB League Dashboard embed from `/admin`
+- `/admin/leagues` unchanged (already exists)
+
+### P6C — Root Route and Landing Page Polish
+- Public landing page final polish (app name, tagline, league URL entry, discrete admin login link)
+- Admin dashboard league cards with live stats (league name, slug, active year, owner count)
+- All redirects runtime-derived from registry — no hardcoded slugs anywhere
+
+### Deferred to Phase 7
+- Commissioner role enforcement on `/league/[slug]/draft/*` routes
+- Commissioner self-registration and invite link flow
+- League-scoped permissions in Clerk `publicMetadata`
+- Member login and personalized views
+- `ADMIN_API_TOKEN` full removal
 
 ### Longer-term (not scheduled)
 

@@ -341,6 +341,26 @@ Timer is server-authoritative: timerExpiresAt is stored in draft state. Both vie
 
 ---
 
+## 17. Known Gaps and Phase 6 Follow-ups
+
+### Draft Initiation Sequencing (Phase 6)
+
+The draft tool does not currently enforce sequencing relative to season rollover or existing roster state. The following guards are planned for Phase 6:
+
+**Rollover guard:**
+Draft creation should verify that the active league year matches the draft year. If the league has not been rolled over to the new season, the setup page should block draft creation with a clear message directing the commissioner to run the season rollover first.
+
+**Active roster guard:**
+Before allowing draft creation, the setup page should check whether `owners:${slug}:${year}` already contains data. If so, surface a warning: "An owner roster already exists for the [year] season. Creating and confirming a new draft will overwrite it." Require explicit commissioner acknowledgment before proceeding.
+
+**Intended sequencing:**
+Rollover → advances league year → clears path for new draft → draft confirm → writes new roster
+
+**Already enforced:**
+- Duplicate draft creation blocked via 409 on `POST /api/draft/[slug]/[year]`
+
+---
+
 ## 16. Resolved Decisions
 
 | # | Question | Decision |
