@@ -40,7 +40,7 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
-  const adminAuthFailure = requireAdminRequest(req);
+  const adminAuthFailure = await requireAdminRequest(req);
   const isAdmin = !adminAuthFailure;
   if (bypassCache && adminAuthFailure) return adminAuthFailure;
 

@@ -8,7 +8,7 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   let body: unknown;

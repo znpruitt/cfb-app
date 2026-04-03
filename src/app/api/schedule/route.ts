@@ -268,7 +268,7 @@ export async function GET(req: Request) {
 
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
   const now = Date.now();
-  const adminAuthFailure = requireAdminRequest(req);
+  const adminAuthFailure = await requireAdminRequest(req);
   const isAdmin = !adminAuthFailure;
   if (bypassCache && adminAuthFailure) return adminAuthFailure;
 

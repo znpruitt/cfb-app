@@ -87,7 +87,7 @@ export async function POST(req: Request): Promise<Response> {
 }
 
 export async function GET(req: Request): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   const [reports, openCount] = await Promise.all([getFeedbackReports(), getOpenFeedbackCount()]);

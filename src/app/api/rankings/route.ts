@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const authFailure = requireAdminRequest(req);
+    const authFailure = await requireAdminRequest(req);
     if (bypassCache && authFailure) return authFailure;
 
     return NextResponse.json(await loadSeasonRankings(year, { allowRefresh: bypassCache }));

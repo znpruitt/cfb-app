@@ -1,3 +1,5 @@
+import { auth } from '@clerk/nextjs/server';
+
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === 'production';
 }
@@ -57,9 +59,30 @@ function buildAdminAuthFailure(req: Request): { error: string; detail: string } 
   };
 }
 
-export function requireAdminRequest(req: Request): Response | null {
+/**
+ * requireAdminAuth — checks Clerk JWT first (platform_admin role required),
+ * then falls back to ADMIN_API_TOKEN for backward compatibility.
+ *
+ * TODO Phase 7: remove ADMIN_API_TOKEN fallback once all clients use Clerk.
+ */
+export async function requireAdminAuth(req: Request): Promise<Response | null> {
+  // 1. Try Clerk session — requires publicMetadata.role === 'platform_admin'
+  try {
+    const { userId, sessionClaims } = await auth();
+    if (userId) {
+      const role = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+      if (role === 'platform_admin') return null;
+    }
+  } catch {
+    // Clerk not configured or session unreadable — fall through to token check
+  }
+
+  // 2. Fall back to ADMIN_API_TOKEN (Phase 6 transition — remove in Phase 7)
   if (isAuthorizedAdminRequest(req)) return null;
 
   const failure = buildAdminAuthFailure(req);
   return Response.json(failure, { status: 401 });
 }
+
+/** @deprecated Use requireAdminAuth — this alias will be removed in Phase 7 */
+export const requireAdminRequest = requireAdminAuth;

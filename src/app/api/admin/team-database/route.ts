@@ -7,7 +7,7 @@ import { getTeamDatabaseFile, setTeamDatabaseFile } from '@/lib/server/teamDatab
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure)
     return NextResponse.json({ error: 'admin-authorization-required' }, { status: 401 });
 

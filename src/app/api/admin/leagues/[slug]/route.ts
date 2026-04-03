@@ -5,7 +5,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   const { slug } = await params;
@@ -61,7 +61,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   const { slug } = await params;

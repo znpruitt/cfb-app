@@ -22,7 +22,7 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ slug: string; year: string; n: string }> }
 ): Promise<Response> {
-  const authFailure = requireAdminRequest(req);
+  const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
   const { slug, year: yearParam, n: nParam } = await params;
