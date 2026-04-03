@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState } from '@/lib/draft';
-import { loadAliasMap } from '@/lib/aliases';
+import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
@@ -83,7 +83,15 @@ export default async function DraftBoardPage({
     const schedRecord = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
     const schedItems = (schedRecord?.value?.items ?? []) as ScheduleWireItem[];
     if (schedItems.length > 0) {
-      const aliasMap = await loadAliasMap();
+      const [globalAliasRec, leagueAliasRec] = await Promise.all([
+        getAppState<AliasMap>(`aliases:${year}`, 'map'),
+        getAppState<AliasMap>(`aliases:${slug}:${year}`, 'map'),
+      ]);
+      const aliasMap: AliasMap = {
+        ...SEED_ALIASES,
+        ...(globalAliasRec?.value && typeof globalAliasRec.value === 'object' && !Array.isArray(globalAliasRec.value) ? globalAliasRec.value : {}),
+        ...(leagueAliasRec?.value && typeof leagueAliasRec.value === 'object' && !Array.isArray(leagueAliasRec.value) ? leagueAliasRec.value : {}),
+      };
       const built = buildScheduleFromApi({ scheduleItems: schedItems, teams, aliasMap, season: year });
       games = built.games;
     }
@@ -116,7 +124,15 @@ export default async function DraftBoardPage({
     );
     const priorSchedItems = (priorSchedRecord?.value?.items ?? []) as ScheduleWireItem[];
     if (priorSchedItems.length > 0) {
-      const priorAliasMap = await loadAliasMap();
+      const [priorGlobalAliasRec, priorLeagueAliasRec] = await Promise.all([
+        getAppState<AliasMap>(`aliases:${priorYear}`, 'map'),
+        getAppState<AliasMap>(`aliases:${slug}:${priorYear}`, 'map'),
+      ]);
+      const priorAliasMap: AliasMap = {
+        ...SEED_ALIASES,
+        ...(priorGlobalAliasRec?.value && typeof priorGlobalAliasRec.value === 'object' && !Array.isArray(priorGlobalAliasRec.value) ? priorGlobalAliasRec.value : {}),
+        ...(priorLeagueAliasRec?.value && typeof priorLeagueAliasRec.value === 'object' && !Array.isArray(priorLeagueAliasRec.value) ? priorLeagueAliasRec.value : {}),
+      };
       const priorBuilt = buildScheduleFromApi({
         scheduleItems: priorSchedItems,
         teams,

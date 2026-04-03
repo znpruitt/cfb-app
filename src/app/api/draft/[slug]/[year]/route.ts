@@ -349,32 +349,45 @@ export async function PUT(
         timerExpiresAt: null,
       };
     } else if (action === 'expire') {
-      // Guard: expire only valid when draft is live and a timer is actually running
-      if (draft.phase !== 'live') {
+      // Accept expire from live phase (normal expiry) or paused+expired phase (commissioner
+      // clicked auto-pick in the pause-and-prompt overlay)
+      const isLiveExpire = draft.phase === 'live';
+      const isPausedExpire = draft.phase === 'paused' && draft.timerState === 'expired';
+
+      if (!isLiveExpire && !isPausedExpire) {
         return NextResponse.json(
-          { error: `Timer expire only valid when draft is live (phase: ${draft.phase})` },
+          {
+            error: `Timer expire only valid when draft is live or paused-expired (phase: ${draft.phase})`,
+          },
           { status: 422 }
         );
-      }
-      if (!draft.timerExpiresAt) {
-        return NextResponse.json(
-          { error: 'No active timer — timerExpiresAt is null' },
-          { status: 422 }
-        );
-      }
-      // Client signals timer has expired — server validates and applies expiry behavior
-      if (new Date(draft.timerExpiresAt) > new Date()) {
-        return NextResponse.json({ error: 'Timer has not expired yet' }, { status: 422 });
       }
 
-      if (draft.settings.timerExpiryBehavior === 'pause-and-prompt') {
+      // For live phase, validate the timer was actually running and has elapsed
+      if (isLiveExpire) {
+        if (!draft.timerExpiresAt) {
+          return NextResponse.json(
+            { error: 'No active timer — timerExpiresAt is null' },
+            { status: 422 }
+          );
+        }
+        if (new Date(draft.timerExpiresAt) > new Date()) {
+          return NextResponse.json({ error: 'Timer has not expired yet' }, { status: 422 });
+        }
+      }
+
+      // Paused-expired phase means the commissioner is explicitly requesting auto-pick
+      // from the pause-and-prompt overlay, so always auto-pick regardless of configured behavior
+      const effectiveBehavior = isPausedExpire ? 'auto-pick' : draft.settings.timerExpiryBehavior;
+
+      if (effectiveBehavior === 'pause-and-prompt') {
         draft = {
           ...draft,
           phase: 'paused',
           timerState: 'expired',
           timerExpiresAt: null,
         };
-      } else if (draft.settings.timerExpiryBehavior === 'auto-pick') {
+      } else if (effectiveBehavior === 'auto-pick') {
         // Auto-pick: select best available team by SP+ (or alphabetically if no ratings)
         const spRecord = await getAppState<{ ratings: SpRatingEntry[]; cachedAt: string }>(
           'sp-ratings',
@@ -398,11 +411,49 @@ export async function PUT(
         }
 
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
-        available.sort((a, b) => {
-          const ra = spBySchoolLower.get(a.school.toLowerCase()) ?? -Infinity;
-          const rb = spBySchoolLower.get(b.school.toLowerCase()) ?? -Infinity;
-          return rb - ra || a.school.localeCompare(b.school);
-        });
+
+        const metric = draft.settings.autoPickMetric ?? 'sp-plus';
+        if (metric === 'preseason-rank') {
+          // Build preseason rank map from cached rankings
+          const rankBySchoolLower = new Map<string, number>();
+          try {
+            type RankCacheEntry = {
+              at: number;
+              response: {
+                latestWeek: {
+                  teams: Array<{ teamName: string; primaryRank: number | null }>;
+                } | null;
+              };
+            };
+            const rankRecord = await getAppState<RankCacheEntry>('rankings', String(year));
+            for (const t of rankRecord?.value?.response?.latestWeek?.teams ?? []) {
+              if (t.primaryRank == null) continue;
+              const match = fbsTeams.find(
+                (team) =>
+                  team.school.toLowerCase() === t.teamName.toLowerCase() ||
+                  (team.alts ?? []).some((a) => a.toLowerCase() === t.teamName.toLowerCase())
+              );
+              if (match) rankBySchoolLower.set(match.school.toLowerCase(), t.primaryRank);
+            }
+          } catch {
+            // rankings unavailable — fall back to alphabetical
+          }
+          available.sort((a, b) => {
+            const ra = rankBySchoolLower.get(a.school.toLowerCase());
+            const rb = rankBySchoolLower.get(b.school.toLowerCase());
+            if (ra != null && rb != null) return ra - rb;
+            if (ra != null) return -1; // ranked teams first
+            if (rb != null) return 1;
+            return a.school.localeCompare(b.school);
+          });
+        } else {
+          // 'sp-plus' (default) or null
+          available.sort((a, b) => {
+            const ra = spBySchoolLower.get(a.school.toLowerCase()) ?? -Infinity;
+            const rb = spBySchoolLower.get(b.school.toLowerCase()) ?? -Infinity;
+            return rb - ra || a.school.localeCompare(b.school);
+          });
+        }
 
         const bestTeam = available[0];
         if (!bestTeam) {

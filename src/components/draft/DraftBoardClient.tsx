@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
@@ -49,14 +49,69 @@ export default function DraftBoardClient({
     }
   }, [slug, year]);
 
-  // Return nothing while redirecting non-admins to spectator view
-  if (!isAdmin) return <></>;
-
   // 1-second polling for commissioner view
   useEffect(() => {
+    if (!isAdmin) return;
     const id = setInterval(() => void refresh(), 1000);
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [isAdmin, refresh]);
+
+  // Ref to prevent duplicate expire dispatches for the same pick
+  const expireDispatchedRef = useRef(false);
+
+  // Reset the guard whenever a new pick timer starts (timerExpiresAt changes)
+  useEffect(() => {
+    expireDispatchedRef.current = false;
+  }, [draft.timerExpiresAt]);
+
+  // Dispatch timerAction: expire to server when the countdown reaches zero
+  useEffect(() => {
+    if (
+      !isAdmin ||
+      draft.phase !== 'live' ||
+      draft.timerState !== 'running' ||
+      !draft.timerExpiresAt
+    ) {
+      return;
+    }
+
+    const timerExpiresAt = draft.timerExpiresAt;
+    const id = setInterval(() => {
+      if (expireDispatchedRef.current) return;
+      const remaining = new Date(timerExpiresAt).getTime() - Date.now();
+      if (remaining > 0) return;
+
+      expireDispatchedRef.current = true;
+      void (async () => {
+        try {
+          const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+          const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ timerAction: 'expire' }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { draft?: DraftState };
+            if (data.draft) {
+              if (data.draft.phase === 'setup') {
+                window.location.href = `/league/${slug}/draft/setup`;
+                return;
+              }
+              setDraft(data.draft);
+            }
+          }
+        } catch {
+          // Network error — reset guard so the next tick can retry
+          expireDispatchedRef.current = false;
+        }
+      })();
+    }, 500);
+
+    return () => clearInterval(id);
+  }, [draft.phase, draft.timerState, draft.timerExpiresAt, isAdmin, slug, year]);
+
+  // Return nothing while redirecting non-admins to spectator view
+  if (!isAdmin) return <></>;
 
   const pickedTeamsLower = new Set(draft.picks.map((p: DraftPick) => p.team.toLowerCase()));
 
