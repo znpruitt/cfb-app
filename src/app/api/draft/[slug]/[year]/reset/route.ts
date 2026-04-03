@@ -12,7 +12,7 @@ function parseYear(raw: string): number | null {
   return Number.isFinite(n) && n >= 2000 ? n : null;
 }
 
-/** POST /api/draft/[slug]/[year]/reset — clear all picks, return to preview phase */
+/** POST /api/draft/[slug]/[year]/reset — clear all picks, return to setup phase */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ slug: string; year: string }> }
