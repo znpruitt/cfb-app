@@ -159,7 +159,7 @@ export default function DraftSettingsPanel({
       const data = (await res.json()) as { draft: DraftState };
 
       if (targetPhase === 'live' || targetPhase === 'preview') {
-        window.location.href = `/league/${slug}/draft/setup`;
+        window.location.href = `/league/${slug}/draft`;
         return;
       }
 
