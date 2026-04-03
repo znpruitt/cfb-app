@@ -200,21 +200,46 @@ Key deliverables:
 
 ## Phase 5 — Draft / Owner Assignment Tool
 
+**Status:** Design complete, ready for implementation. See `docs/phase-5-draft-tool-design.md` for full approved design.
+
 ### Objective
-Replace manual CSV owner roster uploads with a guided in-app draft or assignment tool for the commissioner.
+Replace manual CSV owner roster uploads with a live in-app draft tool for the commissioner. The CSV upload workflow is preserved as an admin fallback — the draft tool is the primary method for the 2026 season.
 
 ### Scope
-- Commissioner-facing UI to assign CFB teams to owners directly in the app
-- Replaces or supplements the current CSV upload workflow
-- Scoped per league and per season year
-- Stored in existing `owners:${leagueSlug}:${year}` appStateStore key — no new persistence model
+- Live in-person draft with persistent server-side state
+- Commissioner draft board at `/league/[slug]/draft` (admin-gated)
+- Spectator view at `/league/[slug]/draft/board` (public, shareable)
+- Draft cards with objective team data: SP+, win totals (optional), preseason rank, SOS tier, home/away split, ranked opponent count
+- Snake draft with configurable pick timer and timer expiry behavior
+- Final roster confirmation writes to existing `owners:${leagueSlug}:${year}` appStateStore key
 
-### Non-goals
-- No public draft lobbies or real-time multiplayer draft experience
-- No integration with external draft platforms
+### Subphases
 
-### Trigger condition
-Phase 5 is warranted once Phase 3 (multi-league) is stable and commissioner-facing UX becomes a primary friction point.
+#### P5A — Draft Data Infrastructure
+- SP+ cache endpoint (`POST /api/admin/cache-sp-ratings`) and admin trigger
+- Win total CSV upload via existing fuzzy matching pipeline
+- `src/lib/selectors/draftTeamInsights.ts` selector
+- DraftCard component
+
+#### P5B — Draft Setup and Settings
+- `/league/[slug]/draft/setup` page
+- Roster setup UI (auto-populate from prior year archive, add/remove owners)
+- Draft settings UI (style, order, timer duration, timer expiry behavior, rounds, scheduled start)
+- Draft preview mode with countdown
+- Draft state creation API
+
+#### P5C — Live Draft Board
+- Commissioner view at `/league/[slug]/draft`
+- Spectator view at `/league/[slug]/draft/board`
+- Pick, unpick, and edit pick API endpoints
+- Timer logic with pause-and-prompt and auto-pick behaviors
+- Draft reset with confirmation dialogue
+- Real-time polling (1s commissioner, 3s spectator)
+
+#### P5D — Draft Summary and Confirmation
+- `/league/[slug]/draft/summary` page
+- Final roster write to owner assignment
+- Interesting facts panel using historical archive data
 
 ## Phase 6 — Commissioner Self-Service (Long-Term Vision, Not Scheduled)
 
