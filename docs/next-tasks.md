@@ -76,16 +76,9 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 - **P5B — Draft Setup and Settings** ✅ Complete. PR #211 open. See `docs/completed-work.md`.
 
-- **P5C — Live Draft Board** ← active focus
-  - **⚠️ First task — fix redirects:** Update all redirect targets in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` from `/league/${slug}/draft/setup` back to `/league/${slug}/draft` now that the live board route exists
-  - Commissioner view at `/league/[slug]/draft` (admin-gated)
-  - Spectator view at `/league/[slug]/draft/board` (public, shareable)
-  - Pick, unpick, and edit pick API endpoints (`POST /api/draft/[slug]/[year]/pick`, `POST .../unpick`, `PUT .../pick/[n]`)
-  - Timer logic: pause-and-prompt and auto-pick behaviors driven by server-authoritative `timerExpiresAt`
-  - Draft reset with confirmation dialogue
-  - Real-time polling (1s commissioner view, 3s spectator view)
+- **P5C — Live Draft Board** ✅ Complete. Branch `claude/improve-thread-speed-v1YFg`. See `docs/completed-work.md`.
 
-- **P5D — Draft Summary and Confirmation** (queued after P5C)
+- **P5D — Draft Summary and Confirmation** ← active focus
   - `/league/[slug]/draft/summary` page
   - Final roster write, interesting facts panel
 
