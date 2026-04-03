@@ -7,9 +7,24 @@ import {
   type DraftState,
   type DraftSettings,
   type DraftPhase,
+  type DraftPick,
   defaultDraftSettings,
   draftScope,
 } from '@/lib/draft';
+import teamsData from '@/data/teams.json';
+import type { TeamCatalogItem } from '@/lib/teamIdentity';
+import type { SpRatingEntry } from '@/lib/selectors/draftTeamInsights';
+
+type TeamsJson = { items: TeamCatalogItem[] };
+
+/** Derive which owner picks at a given 0-based pickIndex in a snake draft. */
+function getPickOwner(draftOrder: string[], pickIndex: number): string {
+  const n = draftOrder.length;
+  const round = Math.floor(pickIndex / n);
+  const posInRound = pickIndex % n;
+  const ownerIdx = round % 2 === 0 ? posInRound : n - 1 - posInRound;
+  return draftOrder[ownerIdx]!;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -234,10 +249,11 @@ export async function PUT(
     return NextResponse.json({ error: 'request body must be valid JSON' }, { status: 400 });
   }
 
-  const { owners, settings, phase } = body as {
+  const { owners, settings, phase, timerAction } = body as {
     owners?: unknown;
     settings?: unknown;
     phase?: unknown;
+    timerAction?: unknown;
   };
 
   let draft: DraftState = { ...record.value };
@@ -300,6 +316,187 @@ export async function PUT(
       };
     } else {
       draft = { ...draft, phase: targetPhase };
+    }
+  }
+
+  // Timer action
+  if (timerAction !== undefined) {
+    if (typeof timerAction !== 'string') {
+      return NextResponse.json({ error: 'timerAction must be a string' }, { status: 400 });
+    }
+    const action = timerAction as 'start' | 'pause' | 'resume' | 'expire';
+
+    if (action === 'start' || action === 'resume') {
+      if (draft.phase !== 'live') {
+        return NextResponse.json(
+          { error: 'Timer can only be started/resumed when draft is live' },
+          { status: 422 }
+        );
+      }
+      const { pickTimerSeconds } = draft.settings;
+      if (!pickTimerSeconds) {
+        return NextResponse.json({ error: 'No pick timer configured' }, { status: 422 });
+      }
+      draft = {
+        ...draft,
+        timerState: 'running',
+        timerExpiresAt: new Date(Date.now() + pickTimerSeconds * 1000).toISOString(),
+      };
+    } else if (action === 'pause') {
+      draft = {
+        ...draft,
+        timerState: 'paused',
+        timerExpiresAt: null,
+      };
+    } else if (action === 'expire') {
+      // Accept expire from live phase (normal expiry) or paused+expired phase (commissioner
+      // clicked auto-pick in the pause-and-prompt overlay)
+      const isLiveExpire = draft.phase === 'live';
+      const isPausedExpire = draft.phase === 'paused' && draft.timerState === 'expired';
+
+      if (!isLiveExpire && !isPausedExpire) {
+        return NextResponse.json(
+          {
+            error: `Timer expire only valid when draft is live or paused-expired (phase: ${draft.phase})`,
+          },
+          { status: 422 }
+        );
+      }
+
+      // For live phase, validate the timer was actually running and has elapsed
+      if (isLiveExpire) {
+        if (!draft.timerExpiresAt) {
+          return NextResponse.json(
+            { error: 'No active timer — timerExpiresAt is null' },
+            { status: 422 }
+          );
+        }
+        if (new Date(draft.timerExpiresAt) > new Date()) {
+          return NextResponse.json({ error: 'Timer has not expired yet' }, { status: 422 });
+        }
+      }
+
+      // Paused-expired phase means the commissioner is explicitly requesting auto-pick
+      // from the pause-and-prompt overlay, so always auto-pick regardless of configured behavior
+      const effectiveBehavior = isPausedExpire ? 'auto-pick' : draft.settings.timerExpiryBehavior;
+
+      if (effectiveBehavior === 'pause-and-prompt') {
+        draft = {
+          ...draft,
+          phase: 'paused',
+          timerState: 'expired',
+          timerExpiresAt: null,
+        };
+      } else if (effectiveBehavior === 'auto-pick') {
+        // Auto-pick: select best available team by SP+ (or alphabetically if no ratings)
+        const spRecord = await getAppState<{ ratings: SpRatingEntry[]; cachedAt: string }>(
+          'sp-ratings',
+          String(year)
+        );
+        const spRatings = spRecord?.value?.ratings ?? [];
+        const { items } = teamsData as TeamsJson;
+        const fbsTeams = items.filter((t) => t.school !== 'NoClaim');
+        const pickedLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+
+        // Build SP+ rating map using alts for matching
+        const spBySchoolLower = new Map<string, number>();
+        for (const r of spRatings) {
+          if (r.rating == null) continue;
+          const match = fbsTeams.find(
+            (t) =>
+              t.school.toLowerCase() === r.team.toLowerCase() ||
+              (t.alts ?? []).some((a) => a.toLowerCase() === r.team.toLowerCase())
+          );
+          if (match) spBySchoolLower.set(match.school.toLowerCase(), r.rating);
+        }
+
+        const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
+
+        const metric = draft.settings.autoPickMetric ?? 'sp-plus';
+        if (metric === 'preseason-rank') {
+          // Build preseason rank map from cached rankings
+          const rankBySchoolLower = new Map<string, number>();
+          try {
+            type RankCacheEntry = {
+              at: number;
+              response: {
+                latestWeek: {
+                  teams: Array<{ teamName: string; primaryRank: number | null }>;
+                } | null;
+              };
+            };
+            const rankRecord = await getAppState<RankCacheEntry>('rankings', String(year));
+            for (const t of rankRecord?.value?.response?.latestWeek?.teams ?? []) {
+              if (t.primaryRank == null) continue;
+              const match = fbsTeams.find(
+                (team) =>
+                  team.school.toLowerCase() === t.teamName.toLowerCase() ||
+                  (team.alts ?? []).some((a) => a.toLowerCase() === t.teamName.toLowerCase())
+              );
+              if (match) rankBySchoolLower.set(match.school.toLowerCase(), t.primaryRank);
+            }
+          } catch {
+            // rankings unavailable — fall back to alphabetical
+          }
+          available.sort((a, b) => {
+            const ra = rankBySchoolLower.get(a.school.toLowerCase());
+            const rb = rankBySchoolLower.get(b.school.toLowerCase());
+            if (ra != null && rb != null) return ra - rb;
+            if (ra != null) return -1; // ranked teams first
+            if (rb != null) return 1;
+            return a.school.localeCompare(b.school);
+          });
+        } else {
+          // 'sp-plus' (default) or null
+          available.sort((a, b) => {
+            const ra = spBySchoolLower.get(a.school.toLowerCase()) ?? -Infinity;
+            const rb = spBySchoolLower.get(b.school.toLowerCase()) ?? -Infinity;
+            return rb - ra || a.school.localeCompare(b.school);
+          });
+        }
+
+        const bestTeam = available[0];
+        if (!bestTeam) {
+          return NextResponse.json({ error: 'No teams available for auto-pick' }, { status: 422 });
+        }
+
+        const totalPicks = draft.settings.totalRounds * draft.owners.length;
+        const n = draft.owners.length;
+        const round = Math.floor(draft.currentPickIndex / n);
+        const roundPick = draft.currentPickIndex % n;
+        const owner = getPickOwner(draft.settings.draftOrder, draft.currentPickIndex);
+
+        const pick: DraftPick = {
+          pickNumber: draft.currentPickIndex + 1,
+          round,
+          roundPick,
+          owner,
+          team: bestTeam.school,
+          pickedAt: new Date().toISOString(),
+          autoSelected: true,
+        };
+
+        const newPickIndex = draft.currentPickIndex + 1;
+        const isComplete = newPickIndex >= totalPicks;
+        const { pickTimerSeconds } = draft.settings;
+
+        draft = {
+          ...draft,
+          picks: [...draft.picks, pick],
+          currentPickIndex: newPickIndex,
+          phase: isComplete ? 'complete' : 'live',
+          timerState: !isComplete && pickTimerSeconds ? 'running' : 'off',
+          timerExpiresAt:
+            !isComplete && pickTimerSeconds
+              ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
+              : null,
+        };
+      }
+    } else {
+      return NextResponse.json(
+        { error: `Unknown timerAction: "${action}"` },
+        { status: 400 }
+      );
     }
   }
 

@@ -60,7 +60,7 @@ export default function DraftSetupShell({
           Draft is {phase === 'live' ? 'in progress' : phase}.
         </p>
         <a
-          href={`/league/${slug}/draft/setup`}
+          href={`/league/${slug}/draft`}
           className="mt-3 inline-block rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           Go to Draft Board
@@ -124,7 +124,7 @@ export default function DraftSetupShell({
               type="button"
               className="rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
               onClick={() => {
-                window.location.href = `/league/${slug}/draft/setup`;
+                window.location.href = `/league/${slug}/draft`;
               }}
             >
               Start Draft

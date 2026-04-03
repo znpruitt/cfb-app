@@ -16,6 +16,26 @@ The registry should remain:
 
 ## Active Prompts
 
+### P5C-CLOSEOUT-v1
+- Purpose: Close out Phase 5C in planning docs and register all P5C prompt IDs.
+- Scope: `docs/completed-work.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: P5C fully complete. P5D (Draft Summary and Confirmation) is active focus.
+
+### P5C-LIVE-DRAFT-BOARD-FIX-v1
+- Purpose: Fix all nine review findings from P5C-LIVE-DRAFT-BOARD-REVIEW-v1 before merge.
+- Scope: 7 files only — `reset/route.ts`, `draft/page.tsx`, `DraftBoardClient.tsx`, `PickNavigator.tsx`, `pick/route.ts`, `pick/[n]/route.ts`, `route.ts` (main draft PUT). No other files.
+- Notes: F1 reset phase, F2 auth redirect, F3 preview redirect, F4 hide drafted teams, F5 post-reset redirect, F6 previous pick display, F7 prior year data, F8 identity resolver, F9 expire guards.
+
+### P5C-LIVE-DRAFT-BOARD-REVIEW-v1
+- Purpose: Read-only review of P5C-LIVE-DRAFT-BOARD-v1 implementation against spec. No changes.
+- Scope: All P5C new and modified files. Nine findings (F1–F9) reported.
+- Notes: Read-only. All findings addressed in P5C-LIVE-DRAFT-BOARD-FIX-v1.
+
+### P5C-LIVE-DRAFT-BOARD-v1
+- Purpose: Implement the live draft board — pick endpoints, timer actions, commissioner and spectator views, seven UI components.
+- Scope: 4 new API routes (`pick`, `unpick`, `pick/[n]`, `reset`), PUT timer extension, 2 page routes, 7 components, redirect TODO fix in 2 existing components.
+- Notes: Branch `claude/improve-thread-speed-v1YFg`. Review findings fixed in P5C-LIVE-DRAFT-BOARD-FIX-v1.
+
 ### P5B-CLOSEOUT-v1
 - Purpose: Close out Phase 5B in planning docs, register all P5B prompt IDs, and flag the P5C redirect TODO items.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
