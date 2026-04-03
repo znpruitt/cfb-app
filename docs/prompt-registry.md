@@ -16,6 +16,26 @@ The registry should remain:
 
 ## Active Prompts
 
+### P6C-OWNER-COUNT-FIX-v1
+- Purpose: Fix owner count derivation — count distinct owner values from CSV rather than raw row count.
+- Scope: `src/app/page.tsx` only.
+- Notes: CSV format is `team,owner` (one row per team assignment). Previous `rows.length - 1` returned team count. Fix splits each data line at first comma, collects owner column values into a `Set<string>`, returns `Set.size`. Malformed rows and empty owner fields skipped gracefully.
+
+### P6C-CLOSEOUT-v1
+- Purpose: Close out Phase 6C and Phase 6 overall in planning docs, register all P6C prompt IDs, set Phase 7 as next focus.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Phase 6 (P6A–P6C) fully complete. Phase 7 — Commissioner Self-Service is next planned campaign.
+
+### P6C-LANDING-POLISH-REVIEW-v1
+- Purpose: Read-only review of P6C-LANDING-POLISH-v1 implementation. No changes.
+- Scope: `src/app/page.tsx`, `src/components/RootPageClient.tsx`. All checklist items pass.
+- Notes: Redirect audit confirmed clean across all five audited files. All seven E2E auth flows verified correct in code. Recommendation: merge.
+
+### P6C-LANDING-POLISH-v1
+- Purpose: Polish public landing page, add live stats to admin dashboard league cards, audit redirects, validate E2E auth flows.
+- Scope: `src/app/page.tsx`, `src/components/RootPageClient.tsx`. No other files.
+- Notes: Owner count fetched server-side from `appStateStore` CSV per league — fails gracefully to `null`. League cards split into name/meta/View League/Draft Setup links. "Add League" footer link added. Empty state links to `/admin/leagues`. "Commissioner login" label used on public landing. No hardcoded slugs found in any audited file.
+
 ### P6B-CLOSEOUT-v1
 - Purpose: Close out Phase 6B in planning docs and register all P6B prompt IDs.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.

@@ -228,42 +228,28 @@ PROMPT_IDs: P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DR
 Complete. PR #214 open. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY-FIX-v1, P5D-DRAFT-SUMMARY-FIX-REVIEW-v1, P5D-DRAFT-REOPEN-v1, P5D-DRAFT-REOPEN-REVIEW-v1, P5D-CLOSEOUT-v1
 
-## Phase 6 — Admin Cleanup and Auth (active campaign)
+## Phase 6 — Admin Cleanup and Auth (complete)
 
 **Design doc:** `docs/phase-6-admin-auth-design.md`
-**Status:** Design approved — ready for implementation.
-
-### Objective
-Replace the `ADMIN_API_TOKEN` sessionStorage pattern with Clerk-based auth. Restructure `/admin` into a clean multi-page layout. Establish a public landing page at `/` with a discrete admin login entry point. Build the auth foundation so Phase 7 commissioner and member roles can be added without rework.
+**Status:** All subphases (P6A–P6C) complete. See `docs/completed-work.md` for full record. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.
 
 ### P6A — Clerk Setup and Login ✓ Complete
-- Install and configure Clerk in Next.js App Router
-- Define three-role model in Clerk `publicMetadata`: `platform_admin`, `commissioner`, `member`
-- Implement `/login` page (Clerk embedded UI)
-- Implement Clerk middleware: `/admin/*` requires `platform_admin`; `/league/[slug]/*` public
-- Update root route: public landing for unauthenticated visitors; league dashboard for `platform_admin`
-- Add `requireAdminAuth(req)` helper — Clerk JWT first, ADMIN_API_TOKEN fallback during transition
-
 ### P6B — Admin Page Restructure ✓ Complete
+### P6C — Root Route and Landing Page Polish ✓ Complete
 
-See `docs/completed-work.md` for full record. Branch `claude/improve-thread-speed-v1YFg`.
-PROMPT_IDs: P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1
+## Phase 7 — Commissioner Self-Service (next planned campaign)
 
-### P6C — Root Route and Landing Page Polish (active)
-- Public landing page final polish (app name, tagline, league URL entry, discrete admin login link)
-- Admin dashboard league cards with live stats (league name, slug, active year, owner count)
-- All redirects runtime-derived from registry — no hardcoded slugs anywhere
+### Objective
+Extend Clerk auth to commissioner and member roles. Remove `ADMIN_API_TOKEN` fallback. Enable commissioner self-registration and invite-based league access.
 
-### Deferred to Phase 7
+### Remaining Clerk work from Phase 6
 - Commissioner role enforcement on `/league/[slug]/draft/*` routes
 - Commissioner self-registration and invite link flow
 - League-scoped permissions in Clerk `publicMetadata`
 - Member login and personalized views
 - `ADMIN_API_TOKEN` full removal
 
-### Longer-term (not scheduled)
-
-#### Commissioner Self-Service (Phase 7, Long-Term Vision)
+### Longer-term vision
 If the app grows beyond manually managed leagues, the minimal viable expansion is lightweight commissioner signup — not a full SaaS platform.
 - Commissioner signup flow — create an account, name a league, receive a shareable URL
 - No per-member accounts or permissions
