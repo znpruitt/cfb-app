@@ -16,6 +16,46 @@ The registry should remain:
 
 ## Active Prompts
 
+### P5B-CLOSEOUT-v1
+- Purpose: Close out Phase 5B in planning docs, register all P5B prompt IDs, and flag the P5C redirect TODO items.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: P5B fully complete. P5C (Live Draft Board) is active focus. Redirect TODO: four occurrences in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` point to `/draft/setup` temporarily — must be updated to `/draft` as P5C first task.
+
+### P5B-DRAFT-SETUP-FIX-v4
+- Purpose: Fix two bugs — redirects targeting non-existent `/draft` route (pre-P5C) and preview→settings phase not persisted via API.
+- Scope: `src/components/draft/DraftSettingsPanel.tsx`, `src/components/draft/DraftSetupShell.tsx`.
+- Notes: PR #211. DraftSettingsPanel redirects changed from `/draft` to `/draft/setup` for live and preview transitions. DraftSetupShell: "Start Draft" and "Go to Draft Board" redirects updated; "Back to Settings" button replaced client-only state flip with API PUT call, preserving server-side phase state.
+
+### P5B-DRAFT-SETUP-FIX-v3
+- Purpose: Fix build error — `ownerSet.size` reference remaining after `ownerSet` variable removal.
+- Scope: `src/app/api/draft/[slug]/[year]/route.ts` only.
+- Notes: PR #211. `ownerSet.size` → `ownerNames.length` on the `setsMatch` line.
+
+### P5B-DRAFT-SETUP-FIX-v2
+- Purpose: Remove dead code — unused `ownerSet` variable in draftOrder cross-validation.
+- Scope: `src/app/api/draft/[slug]/[year]/route.ts` only.
+- Notes: PR #211. One-line removal; validation logic unchanged.
+
+### P5B-DRAFT-SETUP-FIX-REVIEW-v1
+- Purpose: Verify all six fixes from P5B-DRAFT-SETUP-FIX-v1 are correctly implemented. Read-only.
+- Scope: `src/app/api/draft/[slug]/[year]/route.ts`, `src/components/draft/DraftSettingsPanel.tsx`, `src/components/draft/RosterSetupPanel.tsx`. No changes.
+- Notes: All six fixes verified pass. One dead code observation (unused `ownerSet`) flagged and addressed in FIX-v2/v3.
+
+### P5B-DRAFT-SETUP-FIX-v1
+- Purpose: Fix all six findings from P5B-DRAFT-SETUP-REVIEW-v1 — GET 404, POST settings acceptance and validation, POST preview promotion, draftOrder cross-validation, preview redirect, and empty owner list initialization.
+- Scope: `src/app/api/draft/[slug]/[year]/route.ts`, `src/components/draft/DraftSettingsPanel.tsx`, `src/components/draft/RosterSetupPanel.tsx`.
+- Notes: PR #211. GET returns 404 (not 200+null) when no draft; POST accepts/validates full settings object; POST promotes to 'preview' on future scheduledAt; draftOrder cross-validated against owners set; preview transition redirects to /draft/setup; RosterSetupPanel initialises to [] with empty-state message.
+
+### P5B-DRAFT-SETUP-REVIEW-v1
+- Purpose: Review P5B-DRAFT-SETUP-v1 implementation against specification before merging. Read-only.
+- Scope: All P5B new files. No changes.
+- Notes: Identified six findings: GET 200+null vs 404, POST ignoring settings, POST not promoting to preview, no draftOrder validation, preview redirect staying in-page, empty list `['']` initialisation. All addressed in FIX-v1.
+
+### P5B-DRAFT-SETUP-v1
+- Purpose: Implement Phase 5B — draft API route, setup page, roster and settings panels, Draft tab in navigation.
+- Scope: `src/lib/draft.ts` (new), `src/app/api/draft/[slug]/[year]/route.ts` (new), `src/app/league/[slug]/draft/setup/page.tsx` (new), `src/components/draft/DraftSetupShell.tsx` (new), `src/components/draft/RosterSetupPanel.tsx` (new), `src/components/draft/DraftSettingsPanel.tsx` (new), `src/components/WeekViewTabs.tsx`.
+- Notes: PR #211. DraftState/DraftSettings/DraftPick types in shared lib. Server-side phase transition validation. Prior year archive auto-population. FBS-based round auto-suggest.
+
 ### P5A-CLOSEOUT-v1
 - Purpose: Close out Phase 5A in planning docs and register all P5A prompt IDs.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
