@@ -72,16 +72,14 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ### Phase 5 subphases
 
-- **P5A — Draft Data Infrastructure** ← first implementation task
-  - SP+ cache endpoint (`POST /api/admin/cache-sp-ratings`)
-  - Win total CSV upload via existing fuzzy matching pipeline
-  - `src/lib/selectors/draftTeamInsights.ts` selector
-  - DraftCard component
+- **P5A — Draft Data Infrastructure** ✅ Complete. PR #210 merged. See `docs/completed-work.md`.
 
-- **P5B — Draft Setup and Settings** (queued after P5A)
-  - `/league/[slug]/draft/setup` page (roster setup + settings UI)
-  - Draft state creation API
-  - Preview mode with scheduled start time
+- **P5B — Draft Setup and Settings** ← active focus
+  - `/league/[slug]/draft/setup` page
+  - Roster setup UI (auto-populate from prior year archive, add/remove owners)
+  - Draft settings UI (style, order, timer duration, timer expiry behavior, rounds)
+  - Draft preview mode with scheduled start time
+  - Draft state creation API (`POST /api/draft/[slug]/[year]`)
 
 - **P5C — Live Draft Board** (queued after P5B)
   - Commissioner view + spectator view
