@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 
 import teamsData from '@/data/teams.json';
+import { createTeamIdentityResolver, type TeamCatalogItem, type TeamIdentityResolver } from '@/lib/teamIdentity';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +15,7 @@ export type WinTotalEntry = {
 };
 
 type TeamsJson = {
-  items: Array<{ school: string; alts?: string[] }>;
+  items: TeamCatalogItem[];
 };
 
 function parseYear(raw: string | null): number | null {
@@ -25,7 +27,7 @@ function parseYear(raw: string | null): number | null {
 
 function parseWinTotalsCsv(
   csv: string,
-  teamItems: Array<{ school: string; alts?: string[] }>
+  resolver: TeamIdentityResolver
 ): { resolved: WinTotalEntry[]; unresolved: string[] } {
   const lines = csv
     .split('\n')
@@ -50,17 +52,13 @@ function parseWinTotalsCsv(
 
     if (!rawTeam || !Number.isFinite(winTotalLow) || !Number.isFinite(winTotalHigh)) continue;
 
-    const input = rawTeam.toLowerCase();
-    const match = teamItems.find(
-      (t) => t.school.toLowerCase() === input || (t.alts ?? []).includes(input)
-    );
-
-    if (!match) {
+    const resolution = resolver.resolveName(rawTeam);
+    if (!resolution.canonicalName) {
       unresolved.push(rawTeam);
       continue;
     }
 
-    resolved.push({ school: match.school, winTotalLow, winTotalHigh });
+    resolved.push({ school: resolution.canonicalName, winTotalLow, winTotalHigh });
   }
 
   return { resolved, unresolved };
@@ -105,7 +103,15 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const { items } = teamsData as TeamsJson;
-  const { resolved, unresolved } = parseWinTotalsCsv(csvText, items);
+
+  const aliasRecord = await getAppState<AliasMap>(`aliases:${year}`, 'map');
+  const aliasMap: AliasMap =
+    aliasRecord?.value && typeof aliasRecord.value === 'object' && !Array.isArray(aliasRecord.value)
+      ? { ...SEED_ALIASES, ...aliasRecord.value }
+      : { ...SEED_ALIASES };
+
+  const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
+  const { resolved, unresolved } = parseWinTotalsCsv(csvText, resolver);
 
   if (resolved.length > 0) {
     await setAppState('win-totals', String(year), resolved);

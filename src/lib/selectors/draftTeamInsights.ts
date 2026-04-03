@@ -96,17 +96,33 @@ export function selectDraftTeamInsights(params: {
 
   const awaitingRatings = !spRatings || spRatings.length === 0;
 
-  // Build lookup maps
+  // Build provider name → canonical school name lookup using teams catalog (school + alts).
+  // External providers (CFBD SP+, AP poll) use their own team name variants; this resolves
+  // them to the canonical school name so lookup maps key on the same values as team.school.
+  const providerToCanonical = new Map<string, string>();
+  for (const team of teams) {
+    providerToCanonical.set(team.school.toLowerCase(), team.school);
+    for (const alt of team.alts ?? []) {
+      if (!providerToCanonical.has(alt)) {
+        providerToCanonical.set(alt, team.school);
+      }
+    }
+  }
+  const resolveProviderName = (name: string): string =>
+    providerToCanonical.get(name.toLowerCase()) ?? name;
+
+  // Build lookup maps — all keyed by canonical school name (lowercased)
   const spByName = new Map<string, SpRatingEntry>();
   if (spRatings) {
     for (const r of spRatings) {
-      spByName.set(r.team.toLowerCase(), r);
+      spByName.set(resolveProviderName(r.team).toLowerCase(), r);
     }
   }
 
   const winTotalBySchool = new Map<string, WinTotalEntry>();
   if (winTotals) {
     for (const w of winTotals) {
+      // Win totals are already stored with canonical school names from the upload route
       winTotalBySchool.set(w.school.toLowerCase(), w);
     }
   }
@@ -114,7 +130,7 @@ export function selectDraftTeamInsights(params: {
   const apRankByName = new Map<string, number>();
   if (apPoll) {
     for (const entry of apPoll) {
-      apRankByName.set(entry.teamName.toLowerCase(), entry.rank);
+      apRankByName.set(resolveProviderName(entry.teamName).toLowerCase(), entry.rank);
     }
   }
 
