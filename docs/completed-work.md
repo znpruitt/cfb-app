@@ -12,7 +12,7 @@
 ### Phase 6 — Admin Cleanup and Auth (P6A–P6C): Complete
 
 **Status:** All subphases complete. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.
-**PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1, P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1
+**PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1, P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1, P6C-OWNER-COUNT-FIX-v1
 
 **Key architectural decisions across Phase 6:**
 - **Clerk as auth provider** — three roles defined from day one in `publicMetadata`: `platform_admin`, `commissioner`, `member`. Only `platform_admin` enforced in Phase 6. Scales to Phase 7 without rework.
@@ -34,7 +34,7 @@
 ### Phase 6C — Landing Page Polish: Complete
 
 **Status:** Complete. Branch `claude/improve-thread-speed-v1YFg`.
-**PROMPT_IDs:** P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1
+**PROMPT_IDs:** P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1, P6C-OWNER-COUNT-FIX-v1
 
 **Goals completed:**
 - **Public landing page** — app name (`text-4xl`), tagline, URL example in `<code>` block with border/bg styling, discrete "Commissioner login" link fixed bottom right.
@@ -44,6 +44,7 @@
 - **Empty state** — links to `/admin/leagues` with clear instruction copy.
 - **Redirect audit** — confirmed clean; no hardcoded slugs in `middleware.ts`, `page.tsx`, `RootPageClient.tsx`, `login/page.tsx`, or `admin/page.tsx`.
 - **All seven E2E auth flows verified correct** in code review.
+- **Owner count uses distinct owner values** — CSV format is `team,owner` (one row per team assignment). Raw row count returns team count, not owner count. Set-based distinct owner parsing returns correct participant count.
 
 ---
 

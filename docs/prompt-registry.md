@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### P6C-OWNER-COUNT-FIX-v1
+- Purpose: Fix owner count derivation — count distinct owner values from CSV rather than raw row count.
+- Scope: `src/app/page.tsx` only.
+- Notes: CSV format is `team,owner` (one row per team assignment). Previous `rows.length - 1` returned team count. Fix splits each data line at first comma, collects owner column values into a `Set<string>`, returns `Set.size`. Malformed rows and empty owner fields skipped gracefully.
+
 ### P6C-CLOSEOUT-v1
 - Purpose: Close out Phase 6C and Phase 6 overall in planning docs, register all P6C prompt IDs, set Phase 7 as next focus.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
