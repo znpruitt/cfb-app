@@ -1,5 +1,6 @@
 import { getAppState } from '@/lib/server/appStateStore';
 import { getLeagues } from '@/lib/leagueRegistry';
+import { seasonYearForToday } from '@/lib/scores/normalizers';
 import RootPageClient from '@/components/RootPageClient';
 
 export const dynamic = 'force-dynamic';
@@ -7,11 +8,12 @@ export const dynamic = 'force-dynamic';
 export default async function Page() {
   const leagues = await getLeagues();
 
+  const activeYear = seasonYearForToday();
   const ownerCountBySlug: Record<string, number | null> = {};
   await Promise.all(
     leagues.map(async (league) => {
       try {
-        const record = await getAppState<string>(`owners:${league.slug}:${league.year}`, 'csv');
+        const record = await getAppState<string>(`owners:${league.slug}:${activeYear}`, 'csv');
         if (!record?.value) {
           ownerCountBySlug[league.slug] = 0;
           return;
