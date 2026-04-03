@@ -96,6 +96,44 @@ export async function POST(
     );
   }
 
+  // Validate no team appears in more than one pick.
+  const teamToPicks = new Map<string, number[]>();
+  for (const pick of draft.picks) {
+    const key = pick.team.toLowerCase();
+    const existing = teamToPicks.get(key) ?? [];
+    existing.push(pick.pickNumber);
+    teamToPicks.set(key, existing);
+  }
+  const duplicateTeams = Array.from(teamToPicks.entries())
+    .filter(([, picks]) => picks.length > 1)
+    .map(([team]) => draft.picks.find((p) => p.team.toLowerCase() === team)?.team ?? team);
+  if (duplicateTeams.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Duplicate team assignments found — the following teams have been picked more than once: ${duplicateTeams.join(', ')}. Resolve before confirming.`,
+      },
+      { status: 422 }
+    );
+  }
+
+  // Validate all pick.team values resolve to a known FBS team in the catalog.
+  const fbsTeamNames = new Set(
+    allTeams
+      .filter((t) => t.classification?.toLowerCase() === 'fbs')
+      .map((t) => t.school.toLowerCase())
+  );
+  const unrecognizedTeams = draft.picks
+    .filter((p) => !fbsTeamNames.has(p.team.toLowerCase()))
+    .map((p) => p.team);
+  if (unrecognizedTeams.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Unrecognized team names found in draft picks: ${unrecognizedTeams.join(', ')}. These do not match any known FBS team. Resolve before confirming.`,
+      },
+      { status: 422 }
+    );
+  }
+
   // Build owner assignment CSV — same format as the CSV upload route:
   // header row "team,owner" + one data row per pick.
   // parseOwnersCsv() in the schedule pipeline reads this format.
@@ -103,6 +141,18 @@ export async function POST(
   for (const pick of draft.picks) {
     csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
   }
+
+  // Belt-and-suspenders: verify CSV row count before writing.
+  const rowCount = csvLines.length - 1; // exclude header
+  if (rowCount !== totalExpectedPicks) {
+    return NextResponse.json(
+      {
+        error: `CSV generation error — expected ${totalExpectedPicks} rows but produced ${rowCount}. Do not write partial data.`,
+      },
+      { status: 422 }
+    );
+  }
+
   const csvString = csvLines.join('\n');
 
   // Write to the same scope/key pattern as /api/owners PUT:
