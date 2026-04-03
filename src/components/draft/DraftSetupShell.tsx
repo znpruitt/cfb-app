@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState } from '@/lib/draft';
 import RosterSetupPanel from './RosterSetupPanel';
 import DraftSettingsPanel from './DraftSettingsPanel';
@@ -23,8 +24,34 @@ export default function DraftSetupShell({
   fbsTeamCount,
 }: DraftSetupShellProps): React.ReactElement {
   const [draftState, setDraftState] = useState<DraftState | null>(initialDraftState);
+  const [backLoading, setBackLoading] = useState(false);
+  const [backError, setBackError] = useState<string | null>(null);
 
   const phase = draftState?.phase ?? 'setup';
+
+  async function handleBackToSettings() {
+    setBackError(null);
+    setBackLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ phase: 'settings' }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setBackError(data.error ?? `Failed to go back (${res.status})`);
+        return;
+      }
+      const data = (await res.json()) as { draft: DraftState };
+      setDraftState(data.draft);
+    } catch (err) {
+      setBackError((err as Error).message);
+    } finally {
+      setBackLoading(false);
+    }
+  }
 
   if (phase === 'live' || phase === 'paused' || phase === 'complete') {
     return (
@@ -33,7 +60,7 @@ export default function DraftSetupShell({
           Draft is {phase === 'live' ? 'in progress' : phase}.
         </p>
         <a
-          href={`/league/${slug}/draft`}
+          href={`/league/${slug}/draft/setup`}
           className="mt-3 inline-block rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           Go to Draft Board
@@ -97,19 +124,23 @@ export default function DraftSetupShell({
               type="button"
               className="rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
               onClick={() => {
-                window.location.href = `/league/${slug}/draft`;
+                window.location.href = `/league/${slug}/draft/setup`;
               }}
             >
               Start Draft
             </button>
             <button
               type="button"
-              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-              onClick={() => setDraftState({ ...draftState, phase: 'settings' })}
+              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+              onClick={() => void handleBackToSettings()}
+              disabled={backLoading}
             >
-              Back to Settings
+              {backLoading ? 'Going back…' : 'Back to Settings'}
             </button>
           </div>
+          {backError && (
+            <p className="mt-2 text-sm text-red-700 dark:text-red-400">{backError}</p>
+          )}
         </div>
 
         <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-800/40">
