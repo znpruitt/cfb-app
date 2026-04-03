@@ -159,7 +159,7 @@ export async function POST(
       }
       const orderSet = new Set(s.draftOrder);
       const setsMatch =
-        orderSet.size === ownerSet.size &&
+        orderSet.size === ownerNames.length &&
         ownerNames.every((o) => orderSet.has(o));
       if (!setsMatch) {
         return NextResponse.json(
