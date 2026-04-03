@@ -74,16 +74,16 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 - **P5A — Draft Data Infrastructure** ✅ Complete. PR #210 merged. See `docs/completed-work.md`.
 
-- **P5B — Draft Setup and Settings** ← active focus
-  - `/league/[slug]/draft/setup` page
-  - Roster setup UI (auto-populate from prior year archive, add/remove owners)
-  - Draft settings UI (style, order, timer duration, timer expiry behavior, rounds)
-  - Draft preview mode with scheduled start time
-  - Draft state creation API (`POST /api/draft/[slug]/[year]`)
+- **P5B — Draft Setup and Settings** ✅ Complete. PR #211 open. See `docs/completed-work.md`.
 
-- **P5C — Live Draft Board** (queued after P5B)
-  - Commissioner view + spectator view
-  - Pick/unpick/edit APIs, timer logic, draft reset, polling
+- **P5C — Live Draft Board** ← active focus
+  - **⚠️ First task — fix redirects:** Update all redirect targets in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` from `/league/${slug}/draft/setup` back to `/league/${slug}/draft` now that the live board route exists
+  - Commissioner view at `/league/[slug]/draft` (admin-gated)
+  - Spectator view at `/league/[slug]/draft/board` (public, shareable)
+  - Pick, unpick, and edit pick API endpoints (`POST /api/draft/[slug]/[year]/pick`, `POST .../unpick`, `PUT .../pick/[n]`)
+  - Timer logic: pause-and-prompt and auto-pick behaviors driven by server-authoritative `timerExpiresAt`
+  - Draft reset with confirmation dialogue
+  - Real-time polling (1s commissioner view, 3s spectator view)
 
 - **P5D — Draft Summary and Confirmation** (queued after P5C)
   - `/league/[slug]/draft/summary` page

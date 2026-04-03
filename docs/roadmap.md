@@ -220,20 +220,19 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 Complete. PR #210 merged. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P5A-DRAFT-DATA-INFRA-v1, P5A-DRAFT-DATA-INFRA-REVIEW-v1, P5A-IDENTITY-FIX-v1, P5A-CLOSEOUT-v1
 
-#### P5B — Draft Setup and Settings
-- `/league/[slug]/draft/setup` page
-- Roster setup UI (auto-populate from prior year archive, add/remove owners)
-- Draft settings UI (style, order, timer duration, timer expiry behavior, rounds, scheduled start)
-- Draft preview mode with countdown
-- Draft state creation API
+#### P5B — Draft Setup and Settings (complete)
 
-#### P5C — Live Draft Board
+Complete. PR #211 open. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v1, P5B-DRAFT-SETUP-FIX-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v2, P5B-DRAFT-SETUP-FIX-v3, P5B-DRAFT-SETUP-FIX-v4, P5B-CLOSEOUT-v1
+
+#### P5C — Live Draft Board (active)
 - Commissioner view at `/league/[slug]/draft`
 - Spectator view at `/league/[slug]/draft/board`
 - Pick, unpick, and edit pick API endpoints
 - Timer logic with pause-and-prompt and auto-pick behaviors
 - Draft reset with confirmation dialogue
 - Real-time polling (1s commissioner, 3s spectator)
+- **Update all redirects currently pointing to `/draft/setup` back to `/draft`** — search `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx`
 
 #### P5D — Draft Summary and Confirmation
 - `/league/[slug]/draft/summary` page

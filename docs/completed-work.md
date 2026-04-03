@@ -9,6 +9,30 @@
 
 ## Completed phases / milestones
 
+### P5B — Draft Setup and Settings
+
+- **Status:** Complete. PR #211 open.
+- **PROMPT_IDs:** P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v1, P5B-DRAFT-SETUP-FIX-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v2, P5B-DRAFT-SETUP-FIX-v3, P5B-DRAFT-SETUP-FIX-v4, P5B-CLOSEOUT-v1
+- **Goals completed:**
+  - **`src/lib/draft.ts`** (P5B-DRAFT-SETUP-v1): Shared type definitions — `DraftState`, `DraftSettings`, `DraftPick`, `DraftPhase`, `defaultDraftSettings()`, `draftScope()`. All draft state persisted in appStateStore at scope=`draft:${slug}`, key=`${year}`.
+  - **`GET /api/draft/[slug]/[year]`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v1): Public read. Returns 404 when no draft exists. Validates slug in registry and year >= 2000.
+  - **`POST /api/draft/[slug]/[year]`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v1): Admin-gated draft creation. Accepts `owners` + optional `settings`. Validates: owners min 2, settings.style='snake', pickTimerSeconds null or positive, totalRounds positive integer, draftOrder must match owners exactly when provided. Returns 409 if draft already exists. Sets initial phase to `'preview'` when `settings.scheduledAt` is a future date; `'setup'` otherwise.
+  - **`PUT /api/draft/[slug]/[year]`** (P5B-DRAFT-SETUP-v1): Admin-gated. Updates owners, settings (merge), and/or phase. Validates phase transitions server-side against allowed transition table. Resets picks/timer on transition to 'setup'.
+  - **`/league/[slug]/draft/setup` page** (P5B-DRAFT-SETUP-v1): Server component. Fetches league, existing draft state, prior year owners from most recent season archive (via `parseOwnersCsv(ownerRosterSnapshot)`), reverse-championship order from archive `finalStandings`, and FBS team count from `teams.json` for auto-suggesting rounds.
+  - **`DraftSetupShell`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v4): Client shell component. Routes to `RosterSetupPanel`, `DraftSettingsPanel`, or preview card based on current `draftState.phase`. Preview→settings transition persists via API before updating local state (not client-only flip).
+  - **`RosterSetupPanel`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v1): Auto-populates from prior year archive owners. Initialises to empty `[]` with dashed empty-state message when no prior archive. Add/remove/reorder owners. Validates min 2 before continuing. Creates draft via POST then advances to settings via PUT.
+  - **`DraftSettingsPanel`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v4): Draft order (random/manual/reverse-championship), timer (none/30s/60s/90s/2min), expiry behavior (pause-and-prompt / auto-pick), auto-pick metric, total rounds (auto-suggested as `ceil(FBS / owners)`), optional scheduled start. Redirects to `/draft/setup` on preview or live transition (temporary — see redirect TODO below).
+  - **Draft tab added to `WeekViewTabs`** (P5B-DRAFT-SETUP-v1): Links to `/league/${slug}/draft/setup`. Matches existing History tab style.
+- **Key architectural decisions:**
+  - **Phase transitions validated server-side** — no skipping; allowed transitions encoded in `VALID_PHASE_TRANSITIONS` map; 422 on invalid transition.
+  - **POST accepts settings at creation time** — full settings validation on POST (not just PUT); draftOrder cross-validated against owners array on creation.
+  - **Preview promoted at creation** — POST sets `phase: 'preview'` when `scheduledAt` is a future date; no separate promotion step needed.
+  - **Back to Settings persists via API** — preview→settings transition calls PUT before updating local state; server state always reflects the true phase.
+  - **RosterSetupPanel initialises empty** — `[]` not `['']` when no prior owners; clear empty-state message removes ambiguity.
+- **⚠️ Redirect TODO for P5C:** All redirects in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` currently point to `/league/${slug}/draft/setup` because the `/league/${slug}/draft` live board route does not exist until P5C. When the live draft board route is implemented, update all four redirect targets back to `/league/${slug}/draft`.
+
+---
+
 ### P5A — Draft Data Infrastructure
 
 - **Status:** Complete. PR #210 merged.
