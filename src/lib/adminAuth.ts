@@ -21,13 +21,10 @@ export function setStoredAdminToken(token: string): void {
 
 export function requireAdminAuthHeaders(): HeadersInit {
   const token = getStoredAdminToken().trim();
-  if (!token) {
-    throw new Error(
-      'Admin token missing in this browser session. Save ADMIN_API_TOKEN in the Admin / Debug panel before running commissioner actions.'
-    );
-  }
-
-  return { 'x-admin-token': token };
+  // With Clerk auth, the session cookie is sent automatically by the browser.
+  // Return empty headers when no token is set — Clerk handles auth via cookies.
+  // TODO Phase 7: remove ADMIN_API_TOKEN path entirely once all clients use Clerk.
+  return token ? { 'x-admin-token': token } : {};
 }
 
 export function getAdminAuthHeaders(): HeadersInit {
