@@ -83,74 +83,42 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ## Active queue: Phase 6 — Admin Cleanup and Auth
 
-Harden the admin experience before the 2026 season. No implementation prompts issued yet.
+Design complete. See `docs/phase-6-admin-auth-design.md` for full design. No implementation prompts issued yet.
 
-### Phase 6 first tasks
+### P6A — Clerk Setup and Login (first)
 
-- **Admin UX audit** — review all admin-facing pages (`/admin/`, `/league/[slug]/draft/setup`, `/league/[slug]/draft/summary`, and any other admin-gated routes) for UX consistency, labeling, and cleanup
-- **Auth mechanism evaluation** — evaluate replacing the `ADMIN_API_TOKEN` environment variable with a proper login mechanism (session cookie, JWT, or similar); consider a per-commissioner token model as an intermediate step before full auth
-- **Scoping decision** — determine whether Phase 6 auth work warrants a dedicated design doc before implementation begins
+Deliverables:
+- Install and configure Clerk in Next.js App Router
+- Define three-role model in Clerk `publicMetadata`: `platform_admin`, `commissioner`, `member`
+- Implement `/login` page (Clerk embedded UI)
+- Implement Clerk middleware: `/admin/*` requires `platform_admin`; `/league/[slug]/*` public
+- Update root route: public landing for unauthenticated; league dashboard when authenticated as `platform_admin`
+- Add `requireAdminAuth(req)` helper — Clerk JWT first, ADMIN_API_TOKEN fallback during transition
 
-### Draft Initiation Sequencing
+Root route behavior (replaces hardcoded `/league/tsc` redirect — architectural violation):
+- Unauthenticated: public landing page (app name, tagline, league URL entry, discrete admin login link)
+- Authenticated `platform_admin`: league cards dashboard derived from registry at runtime
 
-Three sequencing guards should be enforced before a draft can be created. The full intended sequence is: **Rollover → advances league year → clears path for new draft → draft confirm → writes new roster**
+### P6B — Admin Page Restructure (after P6A)
 
-1. **Rollover guard** — Draft creation should be blocked if the active league year does not match the draft year being created. Rollover must happen before a new season draft can be initiated. The draft setup page already reads the active league year from the registry — enforce that the draft year matches before allowing creation.
+Deliverables:
+- `/admin` landing with section cards linking to sub-pages, active platform status
+- `/admin/draft`: SP+ cache, win total upload, draft sequencing guards:
+  1. Rollover guard — block draft creation if active league year does not match draft year
+  2. Active roster guard — warn if `owners:${slug}:${year}` already has data, require explicit acknowledgment
+  3. Existing draft guard — already enforced via 409, no new code needed
+- `/admin/data`: schedule refresh, scores, odds, aliases, historical tools; Owners CSV upload as labeled admin fallback
+- `/admin/season`: rollover panel, historical backfill, archive inspection
+- `/admin/diagnostics`: API usage, team database, score attachment, storage status, ignored rows
+- `/admin/leagues`: unchanged (already exists)
+- Migrate Admin/Debug tools from league view to appropriate sub-pages; remove CFB League Dashboard embed from `/admin`
 
-2. **Active roster guard** — Draft creation should warn (or block) if `owners:${slug}:${year}` already has data in `appStateStore`. An existing roster means either a prior CSV upload or a previously confirmed draft is already in place. Silently overwriting on confirm is a dangerous footgun. The draft setup page should surface a clear warning: "An owner roster already exists for the [year] season. Creating and confirming a new draft will overwrite it." Require explicit acknowledgment before proceeding.
+### P6C — Root Route and Landing Page Polish (after P6B)
 
-3. **Existing draft guard** — Already enforced via 409 response on `POST /api/draft/[slug]/[year]`. No action needed.
-
-### Root Route Redirect
-
-The root route `/` currently hardcodes a redirect to `/league/tsc`. This is an architectural violation — slugs are runtime data, not configuration.
-
-Correct behavior:
-- If one league exists in the registry → redirect to that league's slug (derived from registry at runtime)
-- If multiple leagues exist → show a league selection page
-- If no leagues exist → show a setup or onboarding page
-
-Fix location: `src/app/page.tsx` or middleware — wherever the current hardcoded redirect lives.
-
-### Admin Page Restructure
-
-The current `/admin` page is a jumbled mix of pre-draft setup tooling and in-season data management/debugging crammed onto a single page. Phase 6 should restructure admin into a clean multi-page layout with clear separation of concerns.
-
-**Proposed structure:**
-
-- `/admin` — clean landing page with section cards linking to sub-tools. Shows active league year, rollover status, and quick links to each admin sub-page. Replaces the current dumped-everything single page.
-
-- `/admin/draft` — pre-draft setup tools:
-  - SP+ Ratings Cache (fetch and cache from CFBD)
-  - Win Total Upload (CSV upload for draft cards)
-  - Draft initiation status and sequencing guards (rollover check, active roster check)
-
-- `/admin/data` — in-season data management:
-  - Schedule refresh
-  - Score cache
-  - Odds management
-  - Alias editor
-  - Historical schedule and scores cache (backfill tools)
-
-- `/admin/leagues` — league management (already exists at this route, keep as-is)
-
-- `/admin/season` — season lifecycle tools:
-  - Season rollover panel
-  - Backfill historical seasons
-  - Archive inspection
-
-- `/admin/diagnostics` — debug and inspection tools:
-  - API usage
-  - Team database inspection
-  - Score attachment diagnostics
-  - Shared storage status
-  - Ignored provider rows
-
-**Migration notes:**
-- The original Admin/Debug panel embedded in the league view (Admin/Debug button on league page) should be reviewed — some of its tools may move to `/admin/data` or `/admin/diagnostics`
-- The Owners CSV upload in the original debug panel is now superseded by the draft confirm flow — should be retained as an admin fallback but clearly labeled as such
-- The CFB League Dashboard embed at the bottom of `/admin` should be removed — it belongs in the league view, not the admin panel
-- All existing routes must continue to work during migration — no breaking changes to API endpoints
+Deliverables:
+- Public landing page final polish
+- Admin dashboard league cards with live stats (league name, slug, active year, owner count)
+- Audit and remove any remaining hardcoded slugs; all redirects runtime-derived from registry
 
 ## Upcoming phases
 
