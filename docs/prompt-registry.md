@@ -17,9 +17,9 @@ The registry should remain:
 ## Active Prompts
 
 ### P5D-CLOSEOUT-v1
-- Purpose: Close out Phase 5D and Phase 5 overall in planning docs, register all P5D prompt IDs, and set Phase 6 as active focus.
-- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
-- Notes: Phase 5 (P5A–P5D) fully complete. Phase 6 — Admin Cleanup and Auth is next planned campaign.
+- Purpose: Close out Phase 5D and Phase 5 overall in planning docs, register all P5D prompt IDs, archive Phases 1–3 entries, and set Phase 6 as active focus.
+- Scope: `docs/completed-work.md`, `docs/completed-work-archive.md` (new), `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Phase 5 (P5A–P5D) fully complete. Phases 1–3 entries moved verbatim to archive file. Phase 6 — Admin Cleanup and Auth is next planned campaign.
 
 ### P5D-DRAFT-REOPEN-REVIEW-v1
 - Purpose: Read-only review of P5D-DRAFT-REOPEN-v1 implementation. No changes.
