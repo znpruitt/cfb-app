@@ -20,8 +20,11 @@ type CacheResult = {
 };
 
 export default function HistoricalCachePanel({ leagues }: Props) {
-  const currentYear = new Date().getUTCFullYear();
-  const [year, setYear] = useState(currentYear - 1);
+  const now = new Date();
+  // CFB season starts in late August. Month >= 7 (Aug) means the current year is the active season.
+  const currentSeasonYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  const defaultHistoricalYear = currentSeasonYear - 1;
+  const [year, setYear] = useState(defaultHistoricalYear);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scoresLoading, setScoresLoading] = useState(false);
   const [scheduleResult, setScheduleResult] = useState<CacheResult | null>(null);
@@ -91,7 +94,7 @@ export default function HistoricalCachePanel({ leagues }: Props) {
             type="number"
             value={year}
             min={2000}
-            max={currentYear - 1}
+            max={defaultHistoricalYear}
             onChange={(e) => setYear(Number(e.target.value))}
             className="ml-2 w-24 rounded border border-zinc-600 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />

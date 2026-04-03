@@ -9,13 +9,19 @@ type Props = {
   leagues: League[];
 };
 
-type BackfillResult = {
-  success: boolean;
+type BackfillSuccess = {
+  success: true;
   leagueSlug: string;
   year: number;
-  hasExistingArchive: boolean;
+  archivedAt: string;
+  replaced: boolean;
+};
+
+type BackfillConfirmationRequired = {
+  requiresConfirmation: true;
+  leagueSlug: string;
+  year: number;
   diff: unknown;
-  error: string | null;
 };
 
 const primaryButtonClass =
@@ -27,9 +33,9 @@ export default function BackfillPanel({ leagues }: Props) {
   const [selectedSlug, setSelectedSlug] = useState(leagues[0]?.slug ?? '');
   const [year, setYear] = useState<number>(new Date().getUTCFullYear() - 1);
   const [previewing, setPreviewing] = useState(false);
-  const [preview, setPreview] = useState<BackfillResult | null>(null);
+  const [preview, setPreview] = useState<BackfillConfirmationRequired | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [result, setResult] = useState<BackfillResult | null>(null);
+  const [result, setResult] = useState<BackfillSuccess | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handlePreview() {
@@ -47,8 +53,14 @@ export default function BackfillPanel({ leagues }: Props) {
         setError((await res.text()) || `POST /api/admin/backfill ${res.status}`);
         return;
       }
-      const data = (await res.json()) as BackfillResult;
-      setPreview(data);
+      const data = (await res.json()) as BackfillSuccess | BackfillConfirmationRequired;
+      if ('success' in data && data.success) {
+        // No existing archive — data was written on this call. Treat as terminal.
+        setResult(data);
+      } else {
+        // Existing archive found — show diff and require explicit confirmation.
+        setPreview(data as BackfillConfirmationRequired);
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -69,7 +81,7 @@ export default function BackfillPanel({ leagues }: Props) {
         setError((await res.text()) || `POST /api/admin/backfill ${res.status}`);
         return;
       }
-      const data = (await res.json()) as BackfillResult;
+      const data = (await res.json()) as BackfillSuccess;
       setResult(data);
       setPreview(null);
     } catch (err) {
@@ -144,9 +156,7 @@ export default function BackfillPanel({ leagues }: Props) {
       ) : preview ? (
         <div className="space-y-3">
           <p className="text-sm text-zinc-300">
-            {preview.hasExistingArchive
-              ? `An existing ${year} archive will be overwritten.`
-              : `A new ${year} archive will be written for ${selectedSlug}.`}
+            An existing {year} archive for {selectedSlug} will be overwritten.
           </p>
           <div className="flex gap-2">
             <button
