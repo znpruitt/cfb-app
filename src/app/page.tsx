@@ -16,8 +16,15 @@ export default async function Page() {
           ownerCountBySlug[league.slug] = 0;
           return;
         }
-        const rows = record.value.split('\n').filter((l) => l.trim().length > 0);
-        ownerCountBySlug[league.slug] = Math.max(0, rows.length - 1);
+        const lines = record.value.split('\n');
+        const owners = new Set<string>();
+        for (const line of lines.slice(1)) {
+          const commaIdx = line.indexOf(',');
+          if (commaIdx === -1) continue;
+          const owner = line.slice(commaIdx + 1).trim();
+          if (owner) owners.add(owner);
+        }
+        ownerCountBySlug[league.slug] = owners.size;
       } catch {
         ownerCountBySlug[league.slug] = null;
       }
