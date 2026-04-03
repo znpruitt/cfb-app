@@ -58,6 +58,14 @@ export default function WeekViewTabs({
           History
         </Link>
       )}
+      {leagueSlug && (
+        <Link
+          href={`/league/${leagueSlug}/draft/setup`}
+          className={`min-w-0 border-b border-r border-gray-200 px-3 py-2 text-center text-sm font-medium transition last:border-r-0 [&:nth-child(2n)]:border-r-0 sm:[&:nth-child(2n)]:border-r lg:border-b-0 ${inactiveTabClass}`}
+        >
+          Draft
+        </Link>
+      )}
     </div>
   );
 }

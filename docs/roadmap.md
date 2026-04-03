@@ -215,11 +215,10 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ### Subphases
 
-#### P5A — Draft Data Infrastructure
-- SP+ cache endpoint (`POST /api/admin/cache-sp-ratings`) and admin trigger
-- Win total CSV upload via existing fuzzy matching pipeline
-- `src/lib/selectors/draftTeamInsights.ts` selector
-- DraftCard component
+#### P5A — Draft Data Infrastructure (complete)
+
+Complete. PR #210 merged. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P5A-DRAFT-DATA-INFRA-v1, P5A-DRAFT-DATA-INFRA-REVIEW-v1, P5A-IDENTITY-FIX-v1, P5A-CLOSEOUT-v1
 
 #### P5B — Draft Setup and Settings
 - `/league/[slug]/draft/setup` page
