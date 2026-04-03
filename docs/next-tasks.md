@@ -79,8 +79,12 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 - **P5C — Live Draft Board** ✅ Complete. Branch `claude/improve-thread-speed-v1YFg`. See `docs/completed-work.md`.
 
 - **P5D — Draft Summary and Confirmation** ← active focus
-  - `/league/[slug]/draft/summary` page
-  - Final roster write, interesting facts panel
+  - `/league/[slug]/draft/summary` page — shows every owner's full drafted roster as cards; readable by all members, accessible from the live board when `phase === 'complete'`
+  - Commissioner can make final edits to any pick before confirming — picks remain editable via existing `PUT /api/draft/[slug]/[year]/pick/[n]` endpoint
+  - Interesting facts panel — sourced from historical archive: league anniversaries, main rivals from all-time H2H, returning championship teams
+  - **Confirm Draft** button (admin-only): writes final roster to `appStateStore` at `owners:${leagueSlug}:${year}` — the same key used by the existing schedule/standings pipeline for owner assignment
+  - Confirmation is irreversible without starting a new draft or using the manual CSV upload fallback
+  - After confirmation, redirects to `/league/${slug}/overview`
 
 ## Upcoming phases
 

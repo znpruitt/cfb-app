@@ -11,8 +11,38 @@
 
 ### P5C — Live Draft Board
 
-- **Status:** Complete. Branch `claude/improve-thread-speed-v1YFg`.
-- **PROMPT_IDs:** P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1
+- **Status:** Complete. PR #213 open. Branch `claude/improve-thread-speed-v1YFg`.
+- **PROMPT_IDs:** P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v2, P5C-LIVE-DRAFT-BOARD-FIX-v3, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v2, P5C-CLOSEOUT-AND-P5D-KICKOFF-v1
+- **Goals completed:**
+  - **Redirect TODO resolved** (v1, Task 0): All four `/draft/setup` redirect targets in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` updated to `/draft` now that the live board route exists.
+  - **`POST /api/draft/[slug]/[year]/pick`** (v1, FIX-v1, FIX-v3): Admin-gated. Validates `phase === 'live'`. Resolves team name via `createTeamIdentityResolver` with SEED_ALIASES + stored alias map. Validates not already picked. Derives pick owner from snake draft formula. Advances `currentPickIndex`. Starts next pick timer if configured. Transitions to `complete` when all picks exhausted. `autoSelected: false` on manual picks.
+  - **`POST /api/draft/[slug]/[year]/unpick`** (v1): Admin-gated. Validates phase in `live|paused|complete`. Removes last pick, decrements `currentPickIndex`, resets timer, sets `phase: 'live'`.
+  - **`PUT /api/draft/[slug]/[year]/pick/[n]`** (v1, FIX-v1, FIX-v3): Admin-gated. Edits pick `n` (1-indexed) via resolver. Validates no conflict at other positions. Preserves `pickNumber/round/roundPick/owner`; updates `team`, `pickedAt`, clears `autoSelected`.
+  - **`POST /api/draft/[slug]/[year]/reset`** (v1, FIX-v1, FIX-v2): Admin-gated. Validates phase in `live|paused|complete|preview`. Resets to `phase: 'setup'`, clears picks/timer. JSDoc corrected to say "setup" not "preview".
+  - **`timerAction` on `PUT /api/draft/[slug]/[year]`** (v1, FIX-v1, FIX-v3): `start|resume` → `timerState: running` + new `timerExpiresAt`. `pause` → null expiry. `expire` → validated server-side then dispatches `pause-and-prompt` or `auto-pick` per `timerExpiryBehavior`; also accepted when `phase=paused` + `timerState=expired` (commissioner auto-pick overlay) — always forces auto-pick via `effectiveBehavior` in that state. `timerExpiresAt` null-check and timestamp validation only applied on live-expire path; timestamp/null checks skipped for paused-expired path. Auto-pick branches on `autoPickMetric`: SP+ descending or preseason rank ascending (unranked last); both fall back to alphabetical when metric data unavailable.
+  - **`/league/[slug]/draft` (commissioner page)** (v1, FIX-v1, FIX-v3): Server component, `force-dynamic`. Redirects to `/draft/setup` when draft is null/setup/settings/preview. Loads SP+, win totals, schedule, AP poll, prior-year games + scores for `selectDraftTeamInsights`. Alias maps loaded from `appStateStore` directly — global `aliases:${year}` and league-scoped `aliases:${slug}:${year}` merged with SEED_ALIASES; no browser-oriented `loadAliasMap()` call. Prior-year alias maps use `priorYear` in both scope keys. Renders `DraftBoardClient` (1s polling).
+  - **`/league/[slug]/draft/board` (spectator page)** (v1): Public server component. Waiting card for pre-live phases. Same insight data. Renders `SpectatorBoardClient` (3s polling, no pick controls, available teams sliced to 30).
+  - **`DraftBoardClient`** (v1, FIX-v1, FIX-v3): `'use client'`, 1s polling. Redirects non-admins to spectator view via `useEffect` + synchronous `hasStoredAdminToken()`. Filters drafted teams from available panel entirely (not dimmed). Post-reset: detects `phase === 'setup'` in `onUpdate` → navigates to `/draft/setup`. Client-side expire dispatch: when countdown reaches zero and `phase=live`+`timerState=running`, dispatches `PUT { timerAction: 'expire' }` to server; guarded by `expireDispatchedRef` (reset on `timerExpiresAt` change or network error) to prevent double-dispatch. Hooks ordering violation fixed — polling effect moved before early return.
+  - **`SpectatorBoardClient`**: `'use client'`, 3s polling. No admin actions, no pick panel. Shows current pick owner and available teams (undrafted only, top 30).
+  - **`DraftBoardGrid`**: Snake draft grid. Correct column alignment for odd rounds: `posInRound = isEvenRound ? colIdx : n-1-colIdx`. Highlights current pick cell in blue. Amber text for auto-selected picks.
+  - **`OwnerRosterPanel`**: Highlights current owner with blue border + "← picking" label.
+  - **`TimerDisplay`**: Countdown derived from server-authoritative `timerExpiresAt`. Urgent styling ≤10s. Progress bar. Paused/expired states.
+  - **`PickNavigator`**: On-the-clock + on-deck owners with round/pick numbers. Previous pick section (team, owner, `(auto)` label when `autoSelected`).
+  - **`DraftControls`**: Commissioner-only. Start/pause/resume timer; undo last pick; reset with two-click confirm. Pause-and-prompt overlay. Auto-pick button calls `timerAction: 'expire'` from `paused+expired` state.
+- **Key architectural decisions:**
+  - **Server-authoritative timer** — `timerExpiresAt` stored as ISO timestamp in `DraftState`; clients derive countdown from `timerExpiresAt - Date.now()`. Expiry validated server-side before state changes; client signals expiry via `timerAction: 'expire'`, server validates and applies.
+  - **Client-side expire dispatch** — `DraftBoardClient` fires `timerAction: 'expire'` when countdown reaches zero; guarded by ref to prevent double-dispatch per pick; polling recovers state on non-200 responses.
+  - **Expire from paused-expired state** — auto-pick button in pause-and-prompt overlay sends `timerAction: 'expire'` when `phase=paused` + `timerState=expired`; server accepts and always resolves to auto-pick via `effectiveBehavior`; the live-expire timestamp guards are skipped on this path.
+  - **Auto-pick metric** — `autoPickMetric` in `DraftSettings`; `sp-plus` (default) sorts by SP+ descending; `preseason-rank` loads rankings cache and sorts by rank ascending (unranked last); both fall back to alphabetical when metric data unavailable.
+  - **Identity resolver in all pick routes** — `createTeamIdentityResolver` with merged SEED_ALIASES + stored alias map; no direct `teamsData` scans.
+  - **Server-safe alias loading** — draft page reads alias maps from `appStateStore` (global `aliases:${year}` + league-scoped `aliases:${slug}:${year}`, merged with SEED_ALIASES); `loadAliasMap()` is browser-only and removed from server components.
+  - **Admin gate is client-side at the board** — sessionStorage not readable server-side; `DraftBoardClient` redirects non-admins via `useEffect`.
+  - **Prior year data is optional** — `selectDraftTeamInsights` degrades gracefully when prior-year cache is cold; `lastSeasonRecord` is `null`.
+  - **Reset targets `phase: 'setup'`** — consistent with PUT phase transition; triggers full draft re-configuration on reset.
+
+---
+
+### P5B — Draft Setup and Settings
 - **Goals completed:**
   - **Redirect TODO resolved** (P5C-LIVE-DRAFT-BOARD-v1, Task 0): All four redirect targets in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` updated from `/draft/setup` to `/draft` now that the live board route exists.
   - **`POST /api/draft/[slug]/[year]/pick`** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): Admin-gated. Validates `phase === 'live'`. Resolves team name via `createTeamIdentityResolver` with SEED_ALIASES + stored alias map (F8 fix). Validates team not already picked. Derives pick owner from snake draft formula. Creates `DraftPick` with `autoSelected: false`. Advances `currentPickIndex`. Starts next pick timer if configured. Transitions to `phase: 'complete'` when all picks exhausted.
