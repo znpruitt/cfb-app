@@ -16,14 +16,34 @@ The registry should remain:
 
 ## Active Prompts
 
-### P5C-CLOSEOUT-v1
-- Purpose: Close out Phase 5C in planning docs and register all P5C prompt IDs.
-- Scope: `docs/completed-work.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+### P5C-CLOSEOUT-AND-P5D-KICKOFF-v1
+- Purpose: Close out Phase 5C in planning docs, register all P5C prompt IDs, and open Phase 5D with full task detail.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
 - Notes: P5C fully complete. P5D (Draft Summary and Confirmation) is active focus.
+
+### P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v2
+- Purpose: Read-only review of P5C-LIVE-DRAFT-BOARD-FIX-v3 implementation. No changes.
+- Scope: `route.ts`, `DraftBoardClient.tsx`, `draft/page.tsx`. All four fixes confirmed passing.
+- Notes: All items pass. One non-blocking observation: non-200 expire response leaves ref set, but 1s polling recovers state. Recommendation: merge.
+
+### P5C-LIVE-DRAFT-BOARD-FIX-v3
+- Purpose: Fix four bugs — expire validation, client-side expiry dispatch, server-safe alias loading, auto-pick metric.
+- Scope: `src/app/api/draft/[slug]/[year]/route.ts`, `src/components/draft/DraftBoardClient.tsx`, `src/app/league/[slug]/draft/page.tsx`. No other files.
+- Notes: B1 — expire accepted from `paused+expired`; `effectiveBehavior` always forces auto-pick in that state. B2 — client dispatches `timerAction: expire` when countdown reaches zero; `expireDispatchedRef` guards double-dispatch; polling effect moved before early return (hooks ordering fix). B3 — `loadAliasMap()` replaced with `appStateStore` reads of global + league-scoped alias maps merged with SEED_ALIASES. B4 — auto-pick branches on `autoPickMetric`: SP+ desc or preseason rank asc; falls back to alphabetical.
+
+### P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v1
+- Purpose: Read-only review of P5C-LIVE-DRAFT-BOARD-FIX-v1 implementation. No changes.
+- Scope: All seven FIX-v1 files. All nine findings confirmed passing.
+- Notes: One checklist wording discrepancy (F2 said `/draft/setup`, correct target is `/draft/board`). One stale JSDoc noted (fixed in FIX-v2). Recommendation: merge.
+
+### P5C-LIVE-DRAFT-BOARD-FIX-v2
+- Purpose: Fix stale JSDoc comment in reset route — said "return to preview phase", now says "return to setup phase".
+- Scope: `src/app/api/draft/[slug]/[year]/reset/route.ts` only — one line.
+- Notes: Comment-only fix; no runtime impact.
 
 ### P5C-LIVE-DRAFT-BOARD-FIX-v1
 - Purpose: Fix all nine review findings from P5C-LIVE-DRAFT-BOARD-REVIEW-v1 before merge.
-- Scope: 7 files only — `reset/route.ts`, `draft/page.tsx`, `DraftBoardClient.tsx`, `PickNavigator.tsx`, `pick/route.ts`, `pick/[n]/route.ts`, `route.ts` (main draft PUT). No other files.
+- Scope: 7 files — `reset/route.ts`, `draft/page.tsx`, `DraftBoardClient.tsx`, `PickNavigator.tsx`, `pick/route.ts`, `pick/[n]/route.ts`, `route.ts` (main draft PUT).
 - Notes: F1 reset phase, F2 auth redirect, F3 preview redirect, F4 hide drafted teams, F5 post-reset redirect, F6 previous pick display, F7 prior year data, F8 identity resolver, F9 expire guards.
 
 ### P5C-LIVE-DRAFT-BOARD-REVIEW-v1

@@ -225,19 +225,27 @@ PROMPT_IDs: P5A-DRAFT-DATA-INFRA-v1, P5A-DRAFT-DATA-INFRA-REVIEW-v1, P5A-IDENTIT
 Complete. PR #211 open. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v1, P5B-DRAFT-SETUP-FIX-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v2, P5B-DRAFT-SETUP-FIX-v3, P5B-DRAFT-SETUP-FIX-v4, P5B-CLOSEOUT-v1
 
-#### P5C — Live Draft Board (active)
-- Commissioner view at `/league/[slug]/draft`
-- Spectator view at `/league/[slug]/draft/board`
-- Pick, unpick, and edit pick API endpoints
-- Timer logic with pause-and-prompt and auto-pick behaviors
-- Draft reset with confirmation dialogue
-- Real-time polling (1s commissioner, 3s spectator)
-- **Update all redirects currently pointing to `/draft/setup` back to `/draft`** — search `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx`
+#### P5C — Live Draft Board (complete)
 
-#### P5D — Draft Summary and Confirmation
-- `/league/[slug]/draft/summary` page
-- Final roster write to owner assignment
-- Interesting facts panel using historical archive data
+Complete. PR #213 open. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v2, P5C-LIVE-DRAFT-BOARD-FIX-v3, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v2, P5C-CLOSEOUT-AND-P5D-KICKOFF-v1
+
+Key deliverables:
+- Commissioner board at `/league/[slug]/draft` (admin-gated, 1s polling); spectator view at `/league/[slug]/draft/board` (public, 3s polling)
+- Pick, unpick, and edit pick API endpoints; all team resolution via `teamIdentity.ts` resolver
+- Server-authoritative timer: `timerExpiresAt` in `DraftState`; client-side expire dispatch with ref guard; pause-and-prompt and auto-pick expiry behaviors
+- Auto-pick metric: SP+ descending or preseason rank ascending; fallback to alphabetical
+- Draft reset returns to `phase: 'setup'`; commissioner redirected to setup page
+- Seven draft board components: `DraftBoardGrid`, `OwnerRosterPanel`, `TimerDisplay`, `PickNavigator`, `DraftControls`, `DraftBoardClient`, `SpectatorBoardClient`
+- Alias loading in server components via `appStateStore` directly — no browser-oriented helpers
+- All nine original review findings (FIX-v1) and four Codex bug fixes (FIX-v3) resolved before merge
+
+#### P5D — Draft Summary and Confirmation (active)
+- `/league/[slug]/draft/summary` page — all owner rosters shown as cards; accessible when `phase === 'complete'`
+- Commissioner can make final edits to any pick before confirming
+- Interesting facts panel sourced from historical archive data (league anniversaries, rivals, returning champions)
+- Confirm Draft writes final roster to `owners:${leagueSlug}:${year}` appStateStore key — irreversible without new draft or CSV fallback
+- After confirmation, redirects to `/league/${slug}/overview`
 
 ## Phase 6 — Commissioner Self-Service (Long-Term Vision, Not Scheduled)
 
