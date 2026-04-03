@@ -1,4 +1,5 @@
 import type { AppGame } from '@/lib/schedule';
+import type { ScorePack } from '@/lib/scores';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 
 // ---------------------------------------------------------------------------
@@ -52,11 +53,6 @@ export type DraftTeamInsights = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function percentileThreshold(sortedAsc: number[], pct: number): number {
-  const idx = Math.floor(sortedAsc.length * pct);
-  return sortedAsc[Math.min(idx, sortedAsc.length - 1)] ?? 0;
-}
-
 function deriveSpTier(rating: number, sortedRatingsDesc: number[]): SpTier {
   const n = sortedRatingsDesc.length;
   if (n === 0) return 'Average';
@@ -90,8 +86,13 @@ export function selectDraftTeamInsights(params: {
   schedule: AppGame[];
   apPoll: ApPollEntry[] | null;
   year: number;
+  /** Completed games from year - 1 for last season record derivation. Optional — field is null when absent. */
+  priorYearGames?: AppGame[];
+  /** Scores keyed by game.key for priorYearGames. Must be provided alongside priorYearGames. */
+  priorYearScoresByKey?: Record<string, ScorePack>;
 }): DraftTeamInsights[] {
-  const { teams, spRatings, winTotals, schedule, apPoll } = params;
+  const { teams, spRatings, winTotals, schedule, apPoll, priorYearGames, priorYearScoresByKey } =
+    params;
 
   const awaitingRatings = !spRatings || spRatings.length === 0;
 
@@ -114,6 +115,34 @@ export function selectDraftTeamInsights(params: {
   if (apPoll) {
     for (const entry of apPoll) {
       apRankByName.set(entry.teamName.toLowerCase(), entry.rank);
+    }
+  }
+
+  // Build prior year win/loss records from completed games + scores
+  const priorYearRecordBySchool = new Map<string, { wins: number; losses: number }>();
+  if (priorYearGames && priorYearScoresByKey) {
+    for (const game of priorYearGames) {
+      if (game.isPlaceholder) continue;
+      const score = priorYearScoresByKey[game.key];
+      if (!score) continue;
+      const homeScore = score.home.score;
+      const awayScore = score.away.score;
+      if (homeScore === null || awayScore === null) continue;
+      if (!score.status.toLowerCase().includes('final')) continue;
+
+      const homeLower = game.canHome.toLowerCase();
+      const awayLower = game.canAway.toLowerCase();
+      const homeWon = homeScore > awayScore;
+
+      const homeRec = priorYearRecordBySchool.get(homeLower) ?? { wins: 0, losses: 0 };
+      if (homeWon) homeRec.wins++;
+      else homeRec.losses++;
+      priorYearRecordBySchool.set(homeLower, homeRec);
+
+      const awayRec = priorYearRecordBySchool.get(awayLower) ?? { wins: 0, losses: 0 };
+      if (!homeWon) awayRec.wins++;
+      else awayRec.losses++;
+      priorYearRecordBySchool.set(awayLower, awayRec);
     }
   }
 
@@ -217,7 +246,7 @@ export function selectDraftTeamInsights(params: {
       spTier,
       winTotalLow,
       winTotalHigh,
-      lastSeasonRecord: null, // deferred to future subphase
+      lastSeasonRecord: priorYearRecordBySchool.get(schoolLower) ?? null,
       preseasonRank,
       sosTier,
       homeGames,
