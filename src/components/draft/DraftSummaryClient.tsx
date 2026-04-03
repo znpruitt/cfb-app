@@ -36,6 +36,11 @@ export default function DraftSummaryClient({
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
+  // Reopen state
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopenLoading, setReopenLoading] = useState(false);
+  const [reopenError, setReopenError] = useState<string | null>(null);
+
   // Redirect non-admins to draft board
   useEffect(() => {
     if (!isAdmin) {
@@ -137,6 +142,29 @@ export default function DraftSummaryClient({
     } catch (err) {
       setConfirmError((err as Error).message);
       setConfirmLoading(false);
+    }
+  }
+
+  async function handleReopen() {
+    setReopenError(null);
+    setReopenLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/confirm`, {
+        method: 'DELETE',
+        headers: { ...authHeaders },
+      });
+      const data = (await res.json()) as { draft?: DraftState; error?: string };
+      if (!res.ok || !data.draft) {
+        setReopenError(data.error ?? `Reopen failed (${res.status})`);
+        setReopenLoading(false);
+        return;
+      }
+      setDraft(data.draft);
+      setReopenOpen(false);
+    } catch (err) {
+      setReopenError((err as Error).message);
+      setReopenLoading(false);
     }
   }
 
@@ -256,46 +284,91 @@ export default function DraftSummaryClient({
       {/* Interesting Facts */}
       <InterestingFactsPanel facts={facts} />
 
-      {/* Confirm Draft */}
-      <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
-        {confirmError && (
-          <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
-        )}
-        {confirmOpen ? (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950">
-            <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">
-              This will write all owner rosters to the league for the {year} season. This cannot
-              be undone without starting a new draft or uploading a CSV override.
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                disabled={confirmLoading}
-                onClick={() => void handleConfirm()}
-                className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
-              >
-                {confirmLoading ? 'Confirming…' : 'Confirm'}
-              </button>
-              <button
-                type="button"
-                disabled={confirmLoading}
-                onClick={() => setConfirmOpen(false)}
-                className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-              >
-                Cancel
-              </button>
+      {/* Confirm Draft — only shown when draft is not yet confirmed */}
+      {draft.phase !== 'complete' && (
+        <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
+          {confirmError && (
+            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
+          )}
+          {confirmOpen ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950">
+              <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">
+                This will write all owner rosters to the league for the {year} season. This cannot
+                be undone without starting a new draft or uploading a CSV override.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={confirmLoading}
+                  onClick={() => void handleConfirm()}
+                  className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+                >
+                  {confirmLoading ? 'Confirming…' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmLoading}
+                  onClick={() => setConfirmOpen(false)}
+                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmOpen(true)}
-            className="rounded bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
-          >
-            Confirm Draft — Write Rosters to League
-          </button>
-        )}
-      </section>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(true)}
+              className="rounded bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+            >
+              Confirm Draft — Write Rosters to League
+            </button>
+          )}
+        </section>
+      )}
+
+      {/* Reopen Draft — only shown when draft is confirmed (phase === 'complete') */}
+      {draft.phase === 'complete' && (
+        <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
+          {reopenError && (
+            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{reopenError}</p>
+          )}
+          {reopenOpen ? (
+            <div className="rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-zinc-600 dark:bg-zinc-800">
+              <p className="mb-3 text-sm text-gray-700 dark:text-zinc-300">
+                Reopen this draft for editing? The previously confirmed rosters will remain in
+                effect until you confirm again.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={reopenLoading}
+                  onClick={() => void handleReopen()}
+                  className="rounded border border-gray-400 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 disabled:opacity-60 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
+                >
+                  {reopenLoading ? 'Reopening…' : 'Reopen Draft'}
+                </button>
+                <button
+                  type="button"
+                  disabled={reopenLoading}
+                  onClick={() => setReopenOpen(false)}
+                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setReopenOpen(true)}
+              className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+            >
+              Reopen Draft
+            </button>
+          )}
+        </section>
+      )}
     </div>
   );
 }
