@@ -16,6 +16,26 @@ The registry should remain:
 
 ## Active Prompts
 
+### P6E-CLOSEOUT-v1
+- Purpose: Close out Phase 6E in planning docs and register all P6E prompt IDs.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: P6E complete. Phase 6 all subphases P6A–P6E done. Phase 7 queued.
+
+### P6E-ROSTER-EDITOR-FIX-v1
+- Purpose: Fix two bugs — year scope mismatch between panels, and naive CSV parser corrupting quoted fields on re-save.
+- Scope: `src/app/admin/[slug]/roster/page.tsx`, `src/components/admin/RosterEditorPanel.tsx`.
+- Notes: Bug 1: `roster/page.tsx` now uses `league.year` for both panels (removed `seasonYearForToday()` call). Bug 2: `parseCsvRow()` RFC 4180 state-machine parser replaces naive `indexOf(',')` split — handles quoted fields, `""` unescaping, mixed rows. `buildCsv()` escaping verified correct and left unchanged.
+
+### P6E-ROSTER-EDITOR-REVIEW-v1
+- Purpose: Read-only review of P6E-ROSTER-EDITOR-v1 implementation against specification. No changes.
+- Scope: `src/components/admin/RosterEditorPanel.tsx`, `src/app/admin/[slug]/roster/page.tsx`.
+- Notes: All checklist items pass. Recommendation: merge.
+
+### P6E-ROSTER-EDITOR-v1
+- Purpose: Implement RosterEditorPanel — direct CRUD interface for team-owner assignments per league.
+- Scope: `src/components/admin/RosterEditorPanel.tsx` (new), `src/app/admin/[slug]/roster/page.tsx` (updated).
+- Notes: `savedOwners`/`draftOwners` Map split for dirty tracking. RFC 4180 `buildCsv()`. Bulk reassign local-state only. Accessible at `/admin/[slug]/roster` alongside `RosterUploadPanel`.
+
 ### P6D-CLOSEOUT-v1
 - Purpose: Close out Phase 6D in planning docs and register all P6D prompt IDs.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.

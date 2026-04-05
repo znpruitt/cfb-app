@@ -19,7 +19,8 @@
 - **Phase 3 (multi-league support):** ✅ Complete. PRs #192–#196 merged. See `docs/completed-work.md`.
 - **Phase 4 (historical analytics):** ✅ Complete. All subphases (P4A–P4D) and Historical Season Backfill Endpoint shipped. See `docs/completed-work.md`.
 - **Phase 5 (draft/owner assignment tool):** ✅ Complete. All subphases (P5A–P5D) shipped. PR #214 open. See `docs/completed-work.md`.
-- **Active execution focus: Phase 6 — Admin Cleanup and Auth.**
+- **Phase 6 (admin cleanup and auth):** ✅ Complete. All subphases P6A–P6E shipped. See `docs/completed-work.md`.
+- **Active execution focus: Phase 7 — Commissioner Self-Service (queued).**
 
 ## Hosted deployment runbook
 
@@ -81,30 +82,16 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 - **P5D — Draft Summary and Confirmation** ✅ Complete. PR #214 open. See `docs/completed-work.md`.
 
-## Phase 6 — Admin Cleanup and Auth (active)
+## Phase 6 — Admin Cleanup and Auth ✅ Complete
 
-P6A–P6D complete. P6E active. See `docs/completed-work.md` for full record.
+All subphases P6A–P6E complete. See `docs/completed-work.md` for full record.
 
-## P6D ✅ Complete
-
-See `docs/completed-work.md` for full record. PR #228.
-
-## Active queue: Phase 6E — Roster Editor
-
-Direct CRUD interface for the ownership map per league. Accessible at `/admin/[slug]/roster` alongside the existing `RosterUploadPanel`.
-
-### P6E deliverables
-
-- **Table of all FBS teams** with their current owner assignment for the selected league and year
-- **Inline edit** — click an owner name to reassign a team
-- **Bulk reassign** — move all teams from one owner to another (useful when an owner drops out)
-- **Writes to `owners:${slug}:${year}`** via existing `PUT /api/owners` endpoint
-- **No fuzzy matching** — owner names are free-form text; teams come from `teams.json` FBS catalog
-- **Design doc:** `docs/phase-6-admin-auth-design.md` section 11
+- **P6D** ✅ Complete. PR #228.
+- **P6E** ✅ Complete. PR #229. `RosterEditorPanel` — inline CRUD for team-owner assignments at `/admin/[slug]/roster`.
 
 ## Upcoming phases
 
-- **Phase 7 — Commissioner Self-Service:** After P6E. See `docs/roadmap.md` for full scope.
+- **Phase 7 — Commissioner Self-Service:** Next planned campaign. See `docs/roadmap.md` for full scope.
 - **Phase 8+:** Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
