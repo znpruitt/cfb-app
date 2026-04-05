@@ -1109,35 +1109,44 @@ export default function CFBScheduleApp({
 
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
-      <header className="flex flex-col gap-2.5 lg:gap-3 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0 flex-1 space-y-1">
-          {isAdminSurface ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                Admin / Debug
-              </span>
-            </div>
-          ) : null}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-lg font-bold sm:text-2xl">
-                {leagueDisplayName ??
-                  (leagueSlug
-                    ? leagueSlug
-                        .split('-')
-                        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                        .join(' ')
-                    : 'League')}
-              </h1>
-              <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
-                College football pool
-              </p>
-            </div>
+      <header className="flex flex-col gap-2">
+        {isAdminSurface ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+              Admin / Debug
+            </span>
+          </div>
+        ) : null}
+        {/*
+          Responsive layout:
+          Mobile  — flex-wrap: name+subtitle fills row 1 (flex-1), gear icon right on row 1,
+                    nav (w-full) wraps to row 2.
+          Desktop — md:flex-nowrap: name left, nav fills middle (md:flex-1), gear far right
+                    (md:order-last).
+        */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:flex-nowrap">
+          {/* League name + season subtitle */}
+          <div className="min-w-0 flex-1 md:flex-none">
+            <h1 className="text-xl font-medium">
+              {leagueDisplayName ??
+                (leagueSlug
+                  ? leagueSlug
+                      .split('-')
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(' ')
+                  : 'League')}
+            </h1>
+            <p className="mt-0.5 text-sm text-zinc-400">
+              {leagueYear ?? selectedSeason} season
+            </p>
+          </div>
+          {/* Gear icon + back-to-league — right of name on mobile, far right on desktop */}
+          <div className="flex shrink-0 items-center gap-3 md:order-last">
             {isAdmin && leagueSlug ? (
               <Link
                 href={`/admin/${leagueSlug}`}
                 title="League settings"
-                className="mt-1 flex-shrink-0 text-zinc-500 hover:text-zinc-200 transition-colors"
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -1155,20 +1164,138 @@ export default function CFBScheduleApp({
                 </svg>
               </Link>
             ) : null}
+            {isAdminSurface ? (
+              <Link
+                href={leagueHref}
+                className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              >
+                Back to league view
+              </Link>
+            ) : null}
           </div>
-        </div>
-        <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start xl:w-auto xl:max-w-md xl:justify-end">
-          {isAdminSurface ? (
-            <Link
-              href={leagueHref}
-              className="inline-flex w-full items-center justify-center rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-            >
-              Back to league view
-            </Link>
+          {/* Nav — full width on mobile (wraps to next row), fills middle on desktop */}
+          {!isAdminSurface ? (
+            <div className="w-full space-y-2 md:flex md:w-auto md:flex-1 md:flex-col md:items-end">
+              <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
+              {/* Matchups sub-nav */}
+              {(weekViewMode === 'matchups' ||
+                weekViewMode === 'schedule' ||
+                weekViewMode === 'matrix') ? (
+                <div className="flex flex-wrap gap-1">
+                  {(
+                    [
+                      { key: 'matchups', label: 'Matchups' },
+                      { key: 'schedule', label: 'Schedule' },
+                      { key: 'matrix', label: 'Matrix' },
+                    ] as const
+                  ).map((sub) => (
+                    <button
+                      key={sub.key}
+                      type="button"
+                      onClick={() => setWeekViewMode(sub.key)}
+                      className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                        weekViewMode === sub.key
+                          ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      }`}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {/* Standings sub-nav */}
+              {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
+                <div className="flex flex-wrap gap-1">
+                  {(
+                    [
+                      { key: 'standings', label: 'Standings' },
+                      { key: 'rankings', label: 'Rankings' },
+                    ] as const
+                  ).map((sub) => (
+                    <button
+                      key={sub.key}
+                      type="button"
+                      onClick={() => setWeekViewMode(sub.key)}
+                      className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                        weekViewMode === sub.key
+                          ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      }`}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </header>
 
+      {/* Draft banner — contextual, non-admin league surface only */}
+      {!isAdminSurface && leagueSlug && draftPhase && draftPhase !== 'setup' &&
+        !(draftPhase === 'complete' && draftBannerDismissed) ? (
+        <div
+          className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-sm ${
+            draftPhase === 'live' || draftPhase === 'paused'
+              ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
+              : 'border-gray-200 bg-gray-50 text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
+          }`}
+        >
+          <span className={`font-medium ${draftPhase === 'live' || draftPhase === 'paused' ? 'text-amber-800 dark:text-amber-200' : ''}`}>
+            {draftPhase === 'live' || draftPhase === 'paused'
+              ? 'Draft in progress'
+              : draftPhase === 'complete'
+                ? 'Draft complete'
+                : 'Draft scheduled'}
+          </span>
+          <div className="flex items-center gap-2">
+            {(draftPhase === 'settings' || draftPhase === 'preview') && (
+              <Link
+                href={`/league/${leagueSlug}/draft/board`}
+                className="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+              >
+                Draft Board
+              </Link>
+            )}
+            {(draftPhase === 'live' || draftPhase === 'paused') && (
+              <Link
+                href={`/league/${leagueSlug}/draft/board`}
+                className="rounded border border-amber-400 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-100 dark:hover:bg-amber-900"
+              >
+                Join Draft
+              </Link>
+            )}
+            {draftPhase === 'complete' && (
+              <>
+                <Link
+                  href={`/league/${leagueSlug}/draft/summary`}
+                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  View Summary
+                </Link>
+                <button
+                  type="button"
+                  onClick={dismissDraftBanner}
+                  aria-label="Dismiss draft banner"
+                  className="ml-1 text-gray-400 hover:text-gray-600 transition-colors dark:text-zinc-500 dark:hover:text-zinc-300"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  >
+                    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {hasFatalLeagueBootstrapFailure ? (
         <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
@@ -1260,73 +1387,14 @@ export default function CFBScheduleApp({
         />
       ) : null}
 
-      {/* Draft banner — contextual, non-admin league surface only */}
-      {!isAdminSurface && leagueSlug && draftPhase && draftPhase !== 'setup' &&
-        !(draftPhase === 'complete' && draftBannerDismissed) ? (
-        <div
-          className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-sm ${
-            draftPhase === 'live' || draftPhase === 'paused'
-              ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
-              : 'border-gray-200 bg-gray-50 text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
-          }`}
-        >
-          <span className={`font-medium ${draftPhase === 'live' || draftPhase === 'paused' ? 'text-amber-800 dark:text-amber-200' : ''}`}>
-            {draftPhase === 'live' || draftPhase === 'paused'
-              ? 'Draft in progress'
-              : draftPhase === 'complete'
-                ? 'Draft complete'
-                : 'Draft scheduled'}
-          </span>
-          <div className="flex items-center gap-2">
-            {(draftPhase === 'settings' || draftPhase === 'preview') && (
-              <Link
-                href={`/league/${leagueSlug}/draft/board`}
-                className="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-              >
-                Draft Board
-              </Link>
-            )}
-            {(draftPhase === 'live' || draftPhase === 'paused') && (
-              <Link
-                href={`/league/${leagueSlug}/draft/board`}
-                className="rounded border border-amber-400 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-100 dark:hover:bg-amber-900"
-              >
-                Join Draft
-              </Link>
-            )}
-            {draftPhase === 'complete' && (
-              <>
-                <Link
-                  href={`/league/${leagueSlug}/draft/summary`}
-                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  View Summary
-                </Link>
-                <button
-                  type="button"
-                  onClick={dismissDraftBanner}
-                  aria-label="Dismiss draft banner"
-                  className="ml-1 text-gray-400 hover:text-gray-600 transition-colors dark:text-zinc-500 dark:hover:text-zinc-300"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="h-4 w-4"
-                    aria-hidden="true"
-                  >
-                    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
-                  </svg>
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      ) : null}
-
       {canRenderPrimarySurface && (
         <>
-          {!isAdminSurface ? (
+          {!isAdminSurface &&
+          ((loadingSchedule && !scheduleLoaded) ||
+            loadingLive ||
+            (!loadingLive && visibleGames.length > 0 && visibleScoresCount < visibleGames.length) ||
+            (!loadingLive && oddsAvailabilitySummary != null) ||
+            userFacingLiveIssues.length > 0) ? (
             <section className="space-y-1">
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {loadingSchedule && !scheduleLoaded ? (
@@ -1360,120 +1428,42 @@ export default function CFBScheduleApp({
             </section>
           ) : null}
 
-          <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-            <div className="flex flex-col gap-4 lg:gap-5 xl:flex-row xl:items-start xl:justify-between">
-              <div className="max-w-3xl space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
-                  {activeSurfaceCopy.eyebrow}
-                </p>
-                <h2 className="text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-                  {activeSurfaceCopy.title}
-                </h2>
-                {activeSurfaceCopy.subtitle ? (
-                  <p
-                    className="text-sm text-gray-600 dark:text-zinc-300"
-                    data-active-surface-subtitle="true"
-                  >
-                    {activeSurfaceCopy.subtitle}
-                  </p>
-                ) : null}
-              </div>
-              <div className="w-full space-y-2 xl:max-w-2xl">
-                <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-                  View
-                </div>
-                <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
-                {/* Matchups sub-nav: Schedule and Matrix accessible within Matchups */}
-                {(weekViewMode === 'matchups' ||
-                  weekViewMode === 'schedule' ||
-                  weekViewMode === 'matrix') ? (
-                  <div className="flex flex-wrap gap-1">
-                    {(
-                      [
-                        { key: 'matchups', label: 'Matchups' },
-                        { key: 'schedule', label: 'Schedule' },
-                        { key: 'matrix', label: 'Matrix' },
-                      ] as const
-                    ).map((sub) => (
-                      <button
-                        key={sub.key}
-                        type="button"
-                        onClick={() => setWeekViewMode(sub.key)}
-                        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                          weekViewMode === sub.key
-                            ? 'bg-gray-200 text-gray-900 dark:bg-zinc-700 dark:text-zinc-100'
-                            : 'text-gray-500 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300'
-                        }`}
-                      >
-                        {sub.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {/* Standings sub-nav: Rankings accessible within Standings */}
-                {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
-                  <div className="flex flex-wrap gap-1">
-                    {(
-                      [
-                        { key: 'standings', label: 'Standings' },
-                        { key: 'rankings', label: 'Rankings' },
-                      ] as const
-                    ).map((sub) => (
-                      <button
-                        key={sub.key}
-                        type="button"
-                        onClick={() => setWeekViewMode(sub.key)}
-                        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                          weekViewMode === sub.key
-                            ? 'bg-gray-200 text-gray-900 dark:bg-zinc-700 dark:text-zinc-100'
-                            : 'text-gray-500 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300'
-                        }`}
-                      >
-                        {sub.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
+          {!isSeasonScopedView ? (
+            <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+              {selectedTab === 'postseason' ? (
+                <>
+                  <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
+                  game
+                  {postseasonGames.length === 1 ? '' : 's'} shown
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">Week {activeWeekForDisplay}</span>
+                  {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
+                    <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
+                  ) : null}{' '}
+                  {weekViewMode === 'matchups' ? (
+                    <>
+                      · {renderedMatchupCardCount} matchup card
+                      {renderedMatchupCardCount === 1 ? '' : 's'} shown
+                      {matchupSections.otherGames.length > 0 ? (
+                        <>
+                          {' '}
+                          · {matchupSections.otherGames.length} other game
+                          {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      · {filteredWeekGames.length} matchup
+                      {filteredWeekGames.length === 1 ? '' : 's'} shown
+                    </>
+                  )}
+                </>
+              )}
             </div>
-
-            {!isSeasonScopedView ? (
-              <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-                {selectedTab === 'postseason' ? (
-                  <>
-                    <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
-                    game
-                    {postseasonGames.length === 1 ? '' : 's'} shown
-                  </>
-                ) : (
-                  <>
-                    <span className="font-semibold">Week {activeWeekForDisplay}</span>
-                    {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
-                      <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
-                    ) : null}{' '}
-                    {weekViewMode === 'matchups' ? (
-                      <>
-                        · {renderedMatchupCardCount} matchup card
-                        {renderedMatchupCardCount === 1 ? '' : 's'} shown
-                        {matchupSections.otherGames.length > 0 ? (
-                          <>
-                            {' '}
-                            · {matchupSections.otherGames.length} other game
-                            {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
-                          </>
-                        ) : null}
-                      </>
-                    ) : (
-                      <>
-                        · {filteredWeekGames.length} matchup
-                        {filteredWeekGames.length === 1 ? '' : 's'} shown
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            ) : null}
-          </section>
+          ) : null}
 
           {shouldShowWeekControls ? (
             <WeekControls

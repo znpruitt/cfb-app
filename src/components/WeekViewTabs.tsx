@@ -31,8 +31,8 @@ function canonicalTab(mode: WeekViewMode): 'overview' | 'matchups' | 'standings'
 }
 
 const tabBase = 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap';
-const tabActive = `${tabBase} bg-white shadow-sm text-gray-900 dark:bg-zinc-700 dark:text-zinc-100`;
-const tabInactive = `${tabBase} text-gray-600 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-200`;
+const tabActive = `${tabBase} bg-white shadow-sm text-gray-900 dark:bg-zinc-600 dark:text-zinc-100`;
+const tabInactive = `${tabBase} text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100`;
 
 export default function WeekViewTabs({
   value,
@@ -42,7 +42,11 @@ export default function WeekViewTabs({
   const current = canonicalTab(value);
 
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800">
+    <div style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
+    <div
+      className="flex w-fit items-center gap-1 rounded-lg p-1"
+      style={{ backgroundColor: 'rgb(39 39 42)', border: '1px solid rgb(63 63 70)' }}
+    >
       {(
         [
           { key: 'overview', label: 'Overview' },
@@ -55,6 +59,7 @@ export default function WeekViewTabs({
           key={tab.key}
           type="button"
           className={current === tab.key ? tabActive : tabInactive}
+          style={current === tab.key ? { backgroundColor: 'rgb(82 82 91)', borderRadius: '6px' } : undefined}
           onClick={() => onChange(tab.key)}
         >
           {tab.label}
@@ -65,6 +70,7 @@ export default function WeekViewTabs({
           History
         </Link>
       )}
+    </div>
     </div>
   );
 }
