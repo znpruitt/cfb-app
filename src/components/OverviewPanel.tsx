@@ -317,10 +317,7 @@ function LeagueSummaryHero({
 
     return (
       <section className="rounded-xl border border-gray-200 bg-white px-4 py-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/80 sm:px-7 sm:py-6">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-zinc-300">
-          Final standings
-        </p>
-        <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
+        <p className="text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
           Season podium
         </p>
 
@@ -402,10 +399,7 @@ function LeagueSummaryHero({
     <section
       className={`rounded-xl border bg-gradient-to-r via-white to-white px-4 py-5 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6 ${toneClasses}`}
     >
-      <p className="text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-zinc-300">
-        League summary
-      </p>
-      <p className="mt-1.5 text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
+      <p className="text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
         {summary.headline}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-gray-700 dark:text-zinc-200">
