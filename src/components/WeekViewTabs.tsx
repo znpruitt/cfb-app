@@ -16,54 +16,53 @@ type WeekViewTabsProps = {
   leagueSlug?: string;
 };
 
-const inactiveTabClass =
-  'bg-white text-gray-900 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
+/**
+ * Map secondary modes to the canonical top-level tab they live under.
+ * Schedule and Matrix are sub-views of Matchups.
+ * Rankings is a sub-view of Standings.
+ */
+function canonicalTab(mode: WeekViewMode): 'overview' | 'matchups' | 'standings' | 'owner' {
+  if (mode === 'schedule' || mode === 'matrix') return 'matchups';
+  if (mode === 'rankings') return 'standings';
+  if (mode === 'standings') return 'standings';
+  if (mode === 'matchups') return 'matchups';
+  if (mode === 'owner') return 'owner';
+  return 'overview';
+}
+
+const tabBase = 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap';
+const tabActive = `${tabBase} bg-white shadow-sm text-gray-900 dark:bg-zinc-700 dark:text-zinc-100`;
+const tabInactive = `${tabBase} text-gray-600 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-200`;
 
 export default function WeekViewTabs({
   value,
   onChange,
   leagueSlug,
 }: WeekViewTabsProps): React.ReactElement {
+  const current = canonicalTab(value);
+
   return (
-    <div className="grid w-full grid-cols-2 overflow-hidden rounded-xl border border-gray-300 bg-white shadow-sm sm:grid-cols-3 lg:inline-flex lg:w-auto lg:flex-wrap dark:border-zinc-700 dark:bg-zinc-800">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800">
       {(
         [
           { key: 'overview', label: 'Overview' },
           { key: 'standings', label: 'Standings' },
           { key: 'matchups', label: 'Matchups' },
-          { key: 'schedule', label: 'Schedule' },
-          { key: 'matrix', label: 'Matrix' },
-          { key: 'owner', label: 'Owner' },
-          { key: 'rankings', label: 'Rankings' },
+          { key: 'owner', label: 'Members' },
         ] as const
       ).map((tab) => (
         <button
           key={tab.key}
           type="button"
-          className={`min-w-0 border-b border-r border-gray-200 px-3 py-2 text-center text-sm font-medium transition last:border-r-0 [&:nth-child(2n)]:border-r-0 sm:[&:nth-child(2n)]:border-r lg:border-b-0 ${
-            value === tab.key
-              ? 'bg-gray-900 text-white dark:bg-zinc-200 dark:text-zinc-900'
-              : inactiveTabClass
-          }`}
+          className={current === tab.key ? tabActive : tabInactive}
           onClick={() => onChange(tab.key)}
         >
           {tab.label}
         </button>
       ))}
       {leagueSlug && (
-        <Link
-          href={`/league/${leagueSlug}/history/`}
-          className={`min-w-0 border-b border-r border-gray-200 px-3 py-2 text-center text-sm font-medium transition last:border-r-0 [&:nth-child(2n)]:border-r-0 sm:[&:nth-child(2n)]:border-r lg:border-b-0 ${inactiveTabClass}`}
-        >
+        <Link href={`/league/${leagueSlug}/history/`} className={tabInactive}>
           History
-        </Link>
-      )}
-      {leagueSlug && (
-        <Link
-          href={`/league/${leagueSlug}/draft/setup`}
-          className={`min-w-0 border-b border-r border-gray-200 px-3 py-2 text-center text-sm font-medium transition last:border-r-0 [&:nth-child(2n)]:border-r-0 sm:[&:nth-child(2n)]:border-r lg:border-b-0 ${inactiveTabClass}`}
-        >
-          Draft
         </Link>
       )}
     </div>
