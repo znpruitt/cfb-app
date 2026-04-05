@@ -712,11 +712,6 @@ function HighlightList({
 
   return (
     <div>
-      {scopeDetail ? (
-        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-400">
-          {scopeDetail}
-        </p>
-      ) : null}
       {insights.map((insight) => {
         const href = insightHref(insight.navigationTarget, leagueSlug);
         return (
