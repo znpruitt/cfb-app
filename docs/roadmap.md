@@ -28,7 +28,7 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 - Phase 3 multi-league support is **complete**. PRs #192–#196 merged. League registry, scoped storage, routing, admin UI, and migration fallback removal all done.
 - Phase 4 — Historical Analytics is **complete**. All subphases (P4A–P4D) and Historical Season Backfill Endpoint shipped.
 - **Phase 5 — Draft / Owner Assignment Tool** is **complete**. All subphases (P5A–P5D) shipped. PR #214 open.
-- **Active phase: Phase 6 — Admin Cleanup and Auth.**
+- **Phase 6 — Admin Cleanup and Auth** is **complete**. All subphases P6A–P6E shipped.
 
 ## Production data policy
 
@@ -231,7 +231,7 @@ PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY
 ## Phase 6 — Admin Cleanup and Auth (active)
 
 **Design doc:** `docs/phase-6-admin-auth-design.md`
-**Status:** P6A–P6C complete. P6D and P6E active. See `docs/completed-work.md` for full record.
+**Status:** All subphases P6A–P6E complete. See `docs/completed-work.md` for full record.
 
 ### P6A — Clerk Setup and Login ✓ Complete
 ### P6B — Admin Page Restructure ✓ Complete
@@ -241,17 +241,12 @@ PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY
 
 See `docs/completed-work.md` for full record. PR #228.
 
-### P6E — Roster Editor (active)
+### P6E — Roster Editor ✓ Complete
 
-Direct CRUD interface for the ownership map per league. Handles post-draft fixes, setup without a formal draft, mid-season transfers, and testing.
+Complete. PR #229. See `docs/completed-work.md` for full record.
+PROMPT_IDs: P6E-ROSTER-EDITOR-v1, P6E-ROSTER-EDITOR-REVIEW-v1, P6E-ROSTER-EDITOR-FIX-v1, P6E-CLOSEOUT-v1
 
-- Table of all FBS teams with current owner assignment per league/year
-- Inline edit — click owner name to reassign
-- Bulk reassign — move all teams from one owner to another
-- Writes to `owners:${slug}:${year}` via existing `PUT /api/owners`
-- No fuzzy matching — owner names are free-form text
-
-See `docs/phase-6-admin-auth-design.md` section 11 for full design.
+**Phase 6 subphases P6A through P6E are all complete.**
 
 ## Phase 7 — Commissioner Self-Service (next planned campaign)
 

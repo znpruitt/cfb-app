@@ -9,6 +9,24 @@
 
 ## Completed phases / milestones
 
+### P6E — Roster Editor: Complete
+
+**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #229.
+**PROMPT_IDs:** P6E-ROSTER-EDITOR-v1, P6E-ROSTER-EDITOR-REVIEW-v1, P6E-ROSTER-EDITOR-FIX-v1, P6E-CLOSEOUT-v1
+
+**Key decisions and architectural notes:**
+- **`RosterEditorPanel` is a direct CRUD interface** — distinct from the draft tool (live event) and upload flow (bulk CSV with fuzzy matching). Handles post-draft fixes, leagues without a formal draft, mid-season transfers, and testing.
+- **`savedOwners` / `draftOwners` Map split** enables per-row dirty tracking. `mapsEqual()` gates save/discard buttons. Dirty rows highlighted amber.
+- **Save writes full CSV via `PUT /api/owners`** — same endpoint as the upload flow. `buildCsv()` filters teams with empty owner values; only assigned teams written to storage.
+- **Bulk reassign updates `draftOwners` local state only** — commissioner must explicitly click Save Changes to persist.
+- **RFC 4180 state-machine CSV parser** (`parseCsvRow()`) — handles quoted fields, comma-in-name (`"Smith, Jr"`), `""` unescaping, mixed quoted/unquoted fields. Replaces naive `indexOf(',')` split that caused quote amplification on re-save.
+- **`buildCsv()` RFC 4180 escaping verified correct** — `csvField()` wraps fields containing commas/quotes/newlines and escapes `"` as `""`. Left unchanged.
+- **Year sourced from `league.year`** — same source as `RosterUploadPanel` — ensures both panels target the same `owners:${slug}:${year}` scope key. `seasonYearForToday()` removed as a separate year source.
+- **`NoClaim` and empty owner values both supported** — owner inputs are free-form text; no validation or exclusion logic.
+- **On save success**: server response CSV re-parsed; both `savedOwners` and `draftOwners` synced from server state.
+
+---
+
 ### P6D — Admin UI Restructure: Complete
 
 **Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #228.
