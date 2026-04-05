@@ -28,10 +28,10 @@ const platformCards = [
 ];
 
 const commissionerTools = [
-  { key: 'roster', title: 'Roster', desc: 'Upload and edit team-owner assignments' },
-  { key: 'draft', title: 'Draft', desc: 'Set up and run the draft', external: true },
-  { key: 'win-totals', title: 'Win Totals', desc: 'Upload win total projections for draft cards' },
-  { key: 'data', title: 'Data', desc: 'Schedule, scores, aliases' },
+  { key: 'roster', title: 'Roster', desc: 'Manage team ownership for this season' },
+  { key: 'draft', title: 'Draft', desc: 'Set up and run the season draft', external: true },
+  { key: 'win-totals', title: 'Win Totals', desc: 'Add Vegas win totals for draft card info' },
+  { key: 'data', title: 'Data', desc: 'Refresh data and manage team aliases' },
 ] as const;
 
 export default async function AdminPage() {
@@ -40,11 +40,11 @@ export default async function AdminPage() {
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
       <div className="mx-auto max-w-3xl space-y-10">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-zinc-100">Platform Admin</h1>
-          <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+        <div className="space-y-1">
+          <Link href="/" className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
             ← Home
           </Link>
+          <h1 className="text-2xl font-semibold text-zinc-100">Platform Admin</h1>
         </div>
 
         {/* ---- Platform Admin ---- */}
