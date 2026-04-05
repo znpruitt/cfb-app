@@ -77,6 +77,7 @@ import {
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
+import type { DraftPhase } from '../lib/draft';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -87,6 +88,7 @@ const DEFAULT_SEASON = getDefaultRankingsSeason(
 type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
   leagueSlug?: string;
+  leagueDisplayName?: string;
   isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
@@ -200,6 +202,7 @@ export function resolveHighlightDrilldownNavigation(params: {
 export default function CFBScheduleApp({
   surface = 'league',
   leagueSlug,
+  leagueDisplayName,
   isAdmin = false,
   initialGames = [],
   initialIssues = [],
@@ -257,6 +260,9 @@ export default function CFBScheduleApp({
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
   );
+
+  const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
+  const [draftBannerDismissed, setDraftBannerDismissed] = useState<boolean>(false);
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
@@ -460,6 +466,16 @@ export default function CFBScheduleApp({
     setAliasToast(message);
     setTimeout(() => setAliasToast(null), timeoutMs);
   }, []);
+
+  const dismissDraftBanner = useCallback(() => {
+    if (leagueSlug && typeof window !== 'undefined') {
+      window.localStorage.setItem(
+        `cfb-draft-banner-dismissed:${leagueSlug}:${selectedSeason}`,
+        '1'
+      );
+    }
+    setDraftBannerDismissed(true);
+  }, [leagueSlug, selectedSeason]);
 
   useScheduleBootstrap({
     hasBootstrappedRef,
@@ -925,6 +941,22 @@ export default function CFBScheduleApp({
       });
   }, []);
 
+  // Load draft phase for contextual banner (non-blocking, best-effort).
+  useEffect(() => {
+    if (!leagueSlug) return;
+    const dismissKey = `cfb-draft-banner-dismissed:${leagueSlug}:${selectedSeason}`;
+    if (typeof window !== 'undefined' && window.localStorage.getItem(dismissKey) === '1') {
+      setDraftBannerDismissed(true);
+    }
+    fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${selectedSeason}`)
+      .then((res) => (res.ok ? (res.json() as Promise<{ draft?: { phase?: string } }>) : null))
+      .then((data) => {
+        const phase = data?.draft?.phase;
+        if (typeof phase === 'string') setDraftPhase(phase as DraftPhase);
+      })
+      .catch(() => {}); // non-fatal
+  }, [leagueSlug, selectedSeason]);
+
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
       setAliasStaging((prev) => stageAliasFromMiss(providerName, csvName, prev));
@@ -1084,9 +1116,17 @@ export default function CFBScheduleApp({
           ) : null}
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-lg font-bold sm:text-2xl">CFB League Dashboard</h1>
+              <h1 className="text-lg font-bold sm:text-2xl">
+                {leagueDisplayName ??
+                  (leagueSlug
+                    ? leagueSlug
+                        .split('-')
+                        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                        .join(' ')
+                    : 'League')}
+              </h1>
               <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
-                Track owner matchups, scores, and odds for the selected league view.
+                College football pool
               </p>
             </div>
             {isAdmin && leagueSlug ? (
@@ -1216,6 +1256,70 @@ export default function CFBScheduleApp({
         />
       ) : null}
 
+      {/* Draft banner — contextual, non-admin league surface only */}
+      {!isAdminSurface && leagueSlug && draftPhase && draftPhase !== 'setup' &&
+        !(draftPhase === 'complete' && draftBannerDismissed) ? (
+        <div
+          className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-sm ${
+            draftPhase === 'live' || draftPhase === 'paused'
+              ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
+              : 'border-gray-200 bg-gray-50 text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
+          }`}
+        >
+          <span className={`font-medium ${draftPhase === 'live' || draftPhase === 'paused' ? 'text-amber-800 dark:text-amber-200' : ''}`}>
+            {draftPhase === 'live' || draftPhase === 'paused'
+              ? 'Draft in progress'
+              : draftPhase === 'complete'
+                ? 'Draft complete'
+                : 'Draft scheduled'}
+          </span>
+          <div className="flex items-center gap-2">
+            {(draftPhase === 'settings' || draftPhase === 'preview') && (
+              <Link
+                href={`/league/${leagueSlug}/draft/board`}
+                className="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+              >
+                Draft Board
+              </Link>
+            )}
+            {(draftPhase === 'live' || draftPhase === 'paused') && (
+              <Link
+                href={`/league/${leagueSlug}/draft/board`}
+                className="rounded border border-amber-400 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-100 dark:hover:bg-amber-900"
+              >
+                Join Draft
+              </Link>
+            )}
+            {draftPhase === 'complete' && (
+              <>
+                <Link
+                  href={`/league/${leagueSlug}/draft/summary`}
+                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  View Summary
+                </Link>
+                <button
+                  type="button"
+                  onClick={dismissDraftBanner}
+                  aria-label="Dismiss draft banner"
+                  className="ml-1 text-gray-400 hover:text-gray-600 transition-colors dark:text-zinc-500 dark:hover:text-zinc-300"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  >
+                    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {canRenderPrimarySurface && (
         <>
           {!isAdminSurface ? (
@@ -1275,6 +1379,57 @@ export default function CFBScheduleApp({
                   View
                 </div>
                 <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
+                {/* Matchups sub-nav: Schedule and Matrix accessible within Matchups */}
+                {(weekViewMode === 'matchups' ||
+                  weekViewMode === 'schedule' ||
+                  weekViewMode === 'matrix') ? (
+                  <div className="flex flex-wrap gap-1">
+                    {(
+                      [
+                        { key: 'matchups', label: 'Matchups' },
+                        { key: 'schedule', label: 'Schedule' },
+                        { key: 'matrix', label: 'Matrix' },
+                      ] as const
+                    ).map((sub) => (
+                      <button
+                        key={sub.key}
+                        type="button"
+                        onClick={() => setWeekViewMode(sub.key)}
+                        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                          weekViewMode === sub.key
+                            ? 'bg-gray-200 text-gray-900 dark:bg-zinc-700 dark:text-zinc-100'
+                            : 'text-gray-500 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                        }`}
+                      >
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {/* Standings sub-nav: Rankings accessible within Standings */}
+                {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
+                  <div className="flex flex-wrap gap-1">
+                    {(
+                      [
+                        { key: 'standings', label: 'Standings' },
+                        { key: 'rankings', label: 'Rankings' },
+                      ] as const
+                    ).map((sub) => (
+                      <button
+                        key={sub.key}
+                        type="button"
+                        onClick={() => setWeekViewMode(sub.key)}
+                        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                          weekViewMode === sub.key
+                            ? 'bg-gray-200 text-gray-900 dark:bg-zinc-700 dark:text-zinc-100'
+                            : 'text-gray-500 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                        }`}
+                      >
+                        {sub.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
 
