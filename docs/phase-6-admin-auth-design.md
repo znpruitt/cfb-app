@@ -183,3 +183,55 @@ This must be done for **both** Development and Production Clerk instances.
 **Important:** JWT templates are for third-party integrations only (e.g. Supabase, Firebase, custom APIs). They do not affect the Clerk session token used by the Next.js middleware. Do not use JWT templates to fix middleware auth — use the session token customization described above.
 
 **Do not use `currentUser()` in middleware.** `currentUser()` requires a route handler context and will fail in middleware. Use `auth()` and read `sessionClaims.publicMetadata.role` directly — this works correctly once the session token is customized as described above.
+
+---
+
+## 10. Admin UI Restructure — Platform Admin vs Commissioner Buckets
+
+### Goal
+
+Restructure the admin experience into two clear buckets — platform admin tools (global, platform operator only) and commissioner tools (scoped per league). This is a prerequisite for Phase 7 commissioner self-service — the buckets must exist before access can be delegated.
+
+### Proposed Structure
+
+**`/admin` landing:**
+
+**Platform Admin section** (one block, global):
+- Season rollover
+- League creation and management
+- Backfill historical seasons
+- Cache historical schedule and scores
+- SP+ ratings cache
+- Diagnostics (API usage, storage, score attachment)
+
+**Per-league Commissioner section** (one block per league in registry):
+- Roster Editor — direct ownership map editing
+- Draft — link to draft setup and board
+- Win Totals — upload win total CSV for draft cards
+- Data — schedule rebuild, alias management
+
+### Why This Matters for Phase 7
+
+When a commissioner is granted access to their league, they see only their league's commissioner bucket. Platform admin tools remain invisible and inaccessible to commissioners. No code restructuring needed in Phase 7 — just Clerk role enforcement on the existing bucket routes.
+
+---
+
+## 11. Roster Editor
+
+### Goal
+
+A direct CRUD interface for the ownership map per league. Distinct from the draft tool, which is a structured live event. The roster editor handles:
+
+- Fixing mistakes after draft confirmation
+- Setting up a league without a formal draft
+- Mid-season ownership transfers
+- Testing and development
+
+### Behavior
+
+- Table showing all FBS teams and their current owner assignment for the selected league and year
+- Inline edit — click an owner name to reassign a team
+- Bulk reassign — move all teams from one owner to another (useful when an owner drops out)
+- Save writes to `owners:${slug}:${year}` via existing `PUT /api/owners` endpoint
+- Read loads current roster from `appStateStore`
+- No fuzzy matching needed — owner names are free-form text, teams come from `teams.json` FBS catalog

@@ -228,14 +228,36 @@ PROMPT_IDs: P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DR
 Complete. PR #214 open. See `docs/completed-work.md` for full record.
 PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY-FIX-v1, P5D-DRAFT-SUMMARY-FIX-REVIEW-v1, P5D-DRAFT-REOPEN-v1, P5D-DRAFT-REOPEN-REVIEW-v1, P5D-CLOSEOUT-v1
 
-## Phase 6 — Admin Cleanup and Auth (complete)
+## Phase 6 — Admin Cleanup and Auth (active)
 
 **Design doc:** `docs/phase-6-admin-auth-design.md`
-**Status:** All subphases (P6A–P6C) complete. See `docs/completed-work.md` for full record. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.
+**Status:** P6A–P6C complete. P6D and P6E active. See `docs/completed-work.md` for full record.
 
 ### P6A — Clerk Setup and Login ✓ Complete
 ### P6B — Admin Page Restructure ✓ Complete
 ### P6C — Root Route and Landing Page Polish ✓ Complete
+
+### P6D — Admin UI Restructure (active)
+
+Restructure `/admin` landing into two clear buckets — platform admin (global tools) and per-league commissioner (scoped tools). Prerequisite for Phase 7 commissioner self-service.
+
+**Platform Admin bucket:** season rollover, league creation and management, backfill, historical cache, SP+ cache, diagnostics.
+
+**Per-league Commissioner bucket** (one block per league in registry): roster editor, draft, win totals, data/aliases.
+
+See `docs/phase-6-admin-auth-design.md` section 10 for full design.
+
+### P6E — Roster Editor (queued after P6D)
+
+Direct CRUD interface for the ownership map per league. Handles post-draft fixes, setup without a formal draft, mid-season transfers, and testing.
+
+- Table of all FBS teams with current owner assignment per league/year
+- Inline edit — click owner name to reassign
+- Bulk reassign — move all teams from one owner to another
+- Writes to `owners:${slug}:${year}` via existing `PUT /api/owners`
+- No fuzzy matching — owner names are free-form text
+
+See `docs/phase-6-admin-auth-design.md` section 11 for full design.
 
 ## Phase 7 — Commissioner Self-Service (next planned campaign)
 
