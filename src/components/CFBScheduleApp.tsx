@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@clerk/nextjs';
 
 import AdminDebugSurface from './AdminDebugSurface';
 import FeedbackForm from './FeedbackForm';
@@ -88,6 +87,7 @@ const DEFAULT_SEASON = getDefaultRankingsSeason(
 type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
   leagueSlug?: string;
+  isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -200,6 +200,7 @@ export function resolveHighlightDrilldownNavigation(params: {
 export default function CFBScheduleApp({
   surface = 'league',
   leagueSlug,
+  isAdmin = false,
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
@@ -207,10 +208,6 @@ export default function CFBScheduleApp({
   initialStandingsSubview = 'table',
 }: CFBScheduleAppProps = {}): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
-  const { sessionClaims } = useAuth();
-  const isPlatformAdmin =
-    (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
-      ?.publicMetadata?.role === 'platform_admin';
 
   const [selectedSeason] = useState<number>(DEFAULT_SEASON);
   const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason), [selectedSeason]);
@@ -1088,7 +1085,7 @@ export default function CFBScheduleApp({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold sm:text-2xl">CFB League Dashboard</h1>
-              {isPlatformAdmin && leagueSlug ? (
+              {isAdmin && leagueSlug ? (
                 <Link
                   href={`/admin/${leagueSlug}`}
                   title="League settings"
