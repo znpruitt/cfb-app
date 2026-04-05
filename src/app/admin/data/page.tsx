@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import CFBScheduleApp from '@/components/CFBScheduleApp';
 import HistoricalCachePanel from '@/components/admin/HistoricalCachePanel';
+import RosterUploadPanel from '@/components/admin/RosterUploadPanel';
 import { getLeagues } from '@/lib/leagueRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,7 @@ export default async function AdminDataPage() {
         </Link>
       </div>
       <div className="px-6 py-6 space-y-4 max-w-3xl mx-auto">
+        <RosterUploadPanel leagues={leagues} />
         <HistoricalCachePanel leagues={leagues} />
       </div>
       <CFBScheduleApp surface="admin" />
