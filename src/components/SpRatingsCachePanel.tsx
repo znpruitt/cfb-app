@@ -55,11 +55,11 @@ export default function SpRatingsCachePanel() {
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-3 text-base font-semibold text-gray-900 dark:text-zinc-100">
+      <h2 className="mb-3 text-base font-medium text-gray-900 dark:text-zinc-100">
         SP+ Ratings Cache
       </h2>
       <p className="mb-3 text-sm text-gray-500 dark:text-zinc-400">
-        Fetch and cache SP+ ratings from CFBD for a given season year. Run once before the draft.
+        Download and save SP+ power ratings for a season. Run this once before the draft.
       </p>
 
       <div className="mb-3 flex items-center gap-2">

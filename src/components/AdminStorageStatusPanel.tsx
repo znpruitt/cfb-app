@@ -51,7 +51,7 @@ export default function AdminStorageStatusPanel(): React.ReactElement {
   return (
     <details>
       <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-zinc-300">
-        Shared storage status
+        Storage Status
       </summary>
       <div className="mt-3 space-y-2 rounded border border-gray-200 bg-gray-50 p-3 text-sm dark:border-zinc-700 dark:bg-zinc-900">
         {error ? (

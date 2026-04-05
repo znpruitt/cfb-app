@@ -1,3 +1,4 @@
+import { auth } from '@clerk/nextjs/server';
 import CFBScheduleApp from 'components/CFBScheduleApp';
 import type { StandingsSubview } from '../../../../components/StandingsPanel';
 
@@ -15,11 +16,16 @@ export default async function LeagueStandingsPage({
   const { slug } = await params;
   const sp = await searchParams;
   const initialStandingsSubview = resolveStandingsSubview(sp.view);
+  const { sessionClaims } = await auth();
+  const isAdmin =
+    (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
+      ?.publicMetadata?.role === 'platform_admin';
 
   return (
     <main>
       <CFBScheduleApp
         leagueSlug={slug}
+        isAdmin={isAdmin}
         initialWeekViewMode="standings"
         initialStandingsSubview={initialStandingsSubview}
       />
