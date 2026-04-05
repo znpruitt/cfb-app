@@ -3,7 +3,6 @@ import { notFound } from 'next/navigation';
 import RosterEditorPanel from '@/components/admin/RosterEditorPanel';
 import RosterUploadPanel from '@/components/admin/RosterUploadPanel';
 import { getLeague } from '@/lib/leagueRegistry';
-import { seasonYearForToday } from '@/lib/scores/normalizers';
 import teamsData from '@/data/teams.json';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +19,7 @@ export default async function AdminLeagueRosterPage({
   // notFound() throws — league is non-null below this point
   const definedLeague = league!;
 
-  const year = seasonYearForToday();
+  const year = definedLeague.year;
   const teams = (teamsData.items as { school: string; conference: string }[]).map((t) => ({
     school: t.school,
     conference: t.conference,

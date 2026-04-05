@@ -22,15 +22,57 @@ function csvField(s: string): string {
   return s;
 }
 
+/** Parse a single RFC 4180 row into fields. */
+function parseCsvRow(row: string): string[] {
+  const fields: string[] = [];
+  let i = 0;
+  while (i <= row.length) {
+    if (row[i] === '"') {
+      // Quoted field — consume until closing unescaped quote
+      i++; // skip opening quote
+      let field = '';
+      while (i < row.length) {
+        if (row[i] === '"') {
+          if (row[i + 1] === '"') {
+            // Escaped quote
+            field += '"';
+            i += 2;
+          } else {
+            // Closing quote
+            i++;
+            break;
+          }
+        } else {
+          field += row[i];
+          i++;
+        }
+      }
+      fields.push(field);
+      if (row[i] === ',') i++; // skip comma separator
+    } else {
+      // Unquoted field — read until next comma or end of string
+      const end = row.indexOf(',', i);
+      if (end === -1) {
+        fields.push(row.slice(i).trim());
+        break;
+      } else {
+        fields.push(row.slice(i, end).trim());
+        i = end + 1;
+      }
+    }
+  }
+  return fields;
+}
+
 function parseCsv(csvText: string | null): Map<string, string> {
   const map = new Map<string, string>();
   if (!csvText) return map;
-  const lines = csvText.split('\n').slice(1);
+  const lines = csvText.split('\n').slice(1); // skip header
   for (const line of lines) {
-    const idx = line.indexOf(',');
-    if (idx === -1) continue;
-    const team = line.slice(0, idx).trim();
-    const owner = line.slice(idx + 1).trim();
+    if (!line.trim()) continue;
+    const fields = parseCsvRow(line);
+    const team = fields[0] ?? '';
+    const owner = fields[1] ?? '';
     if (team) map.set(team, owner);
   }
   return map;
