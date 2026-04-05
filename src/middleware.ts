@@ -7,6 +7,13 @@ export default clerkMiddleware(async (auth, req) => {
   if (isAdminRoute(req)) {
     const { userId, sessionClaims } = await auth();
 
+    console.log('Middleware /admin debug:', JSON.stringify({
+      userId,
+      sessionClaims,
+      role: (sessionClaims?.public_metadata as Record<string, unknown>)?.role,
+      publicMetadata: (sessionClaims?.publicMetadata as Record<string, unknown>)?.role,
+    }))
+
     if (!userId) {
       return NextResponse.redirect(new URL('/login', req.url));
     }
