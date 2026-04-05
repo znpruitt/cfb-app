@@ -9,6 +9,24 @@
 
 ## Completed phases / milestones
 
+### P6D — Admin UI Restructure: Complete
+
+**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #228.
+**PROMPT_IDs:** P6D-ADMIN-RESTRUCTURE-v1, P6D-ADMIN-RESTRUCTURE-REVIEW-v1, P6D-ADMIN-RESTRUCTURE-FIX-v1, P6D-ADMIN-RESTRUCTURE-FIX-REVIEW-v1, P6D-CLOSEOUT-v1
+
+**Key decisions and architectural notes:**
+- **`/admin` landing restructured into two sections**: Platform Admin (global tools) and Commissioner Tools (per-league). Four platform admin cards; one block per league in registry for commissioner tools.
+- **Commissioner tool buckets derived from league registry at runtime** — no hardcoded slugs anywhere.
+- **League-scoped routes**: `/admin/[slug]/roster`, `/admin/[slug]/win-totals`, `/admin/[slug]/data` — each validates slug and calls `notFound()` on miss.
+- **`/admin/data/cache`** serves as platform admin SP+ and historical cache page.
+- **`/admin/draft`** retained for `DraftSequencingPanel` overview only — SP+ and Win Totals moved to league-scoped pages.
+- **`/admin/data`** restored as a league selector — single league auto-redirects to `/admin/[slug]/data`; multiple leagues shows card grid; no leagues shows link to `/admin/leagues`.
+- **`RESERVED_ADMIN_SLUGS`** enforced in league creation API (`POST /api/admin/leagues`): `season`, `data`, `draft`, `diagnostics`, `leagues`, `cache` — returns 400 with clear error message.
+- **No route collisions**: named `/admin/*` routes take precedence over `[slug]` dynamic segment in Next.js App Router.
+- **Phase 7 prerequisite satisfied**: bucket structure exists; commissioner self-service only needs Clerk role enforcement on existing routes — no restructuring required in Phase 7.
+
+---
+
 ### P6 — Clerk Auth Fixes and Admin Data Cleanup: Complete
 
 **Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PRs #221–#227.

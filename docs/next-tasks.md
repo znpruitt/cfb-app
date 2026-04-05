@@ -83,29 +83,28 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ## Phase 6 — Admin Cleanup and Auth (active)
 
-P6A–P6C complete. P6D and P6E active. See `docs/completed-work.md` for full record.
+P6A–P6D complete. P6E active. See `docs/completed-work.md` for full record.
 
-## Active queue: Phase 6D — Admin UI Restructure
+## P6D ✅ Complete
 
-**P6D is a prerequisite for Phase 7 commissioner self-service.** The platform admin / commissioner bucket split must exist before access can be delegated to commissioners.
+See `docs/completed-work.md` for full record. PR #228.
 
-### P6D tasks
+## Active queue: Phase 6E — Roster Editor
 
-- **Restructure `/admin` landing** — replace current flat layout with two clear sections:
-  - Platform Admin: rollover, league management, backfill, historical cache, SP+ cache, diagnostics
-  - Per-league Commissioner: one block per league in registry — roster editor, draft, win totals, data/aliases
-- **Design doc:** `docs/phase-6-admin-auth-design.md` section 10
+Direct CRUD interface for the ownership map per league. Accessible at `/admin/[slug]/roster` alongside the existing `RosterUploadPanel`.
 
-### P6E — Roster Editor (queued after P6D)
+### P6E deliverables
 
-- **Direct ownership map editing per league** — table of all FBS teams with current owner; inline edit; bulk reassign
-- **Writes to `owners:${slug}:${year}`** via existing `PUT /api/owners`
-- **No fuzzy matching** — owner names are free-form text
+- **Table of all FBS teams** with their current owner assignment for the selected league and year
+- **Inline edit** — click an owner name to reassign a team
+- **Bulk reassign** — move all teams from one owner to another (useful when an owner drops out)
+- **Writes to `owners:${slug}:${year}`** via existing `PUT /api/owners` endpoint
+- **No fuzzy matching** — owner names are free-form text; teams come from `teams.json` FBS catalog
 - **Design doc:** `docs/phase-6-admin-auth-design.md` section 11
 
 ## Upcoming phases
 
-- **Phase 7 — Commissioner Self-Service:** After P6D and P6E. See `docs/roadmap.md` for full scope.
+- **Phase 7 — Commissioner Self-Service:** After P6E. See `docs/roadmap.md` for full scope.
 - **Phase 8+:** Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
