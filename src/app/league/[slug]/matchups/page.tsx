@@ -14,7 +14,7 @@ export default async function LeagueMatchupsPage({
       ?.publicMetadata?.role === 'platform_admin';
   return (
     <main>
-      <CFBScheduleApp leagueSlug={slug} leagueDisplayName={league?.displayName} isAdmin={isAdmin} initialWeekViewMode="matchups" />
+      <CFBScheduleApp leagueSlug={slug} leagueDisplayName={league?.displayName} leagueYear={league?.year} isAdmin={isAdmin} initialWeekViewMode="matchups" />
     </main>
   );
 }

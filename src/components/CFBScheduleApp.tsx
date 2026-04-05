@@ -89,6 +89,7 @@ type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
   leagueSlug?: string;
   leagueDisplayName?: string;
+  leagueYear?: number;
   isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
@@ -203,6 +204,7 @@ export default function CFBScheduleApp({
   surface = 'league',
   leagueSlug,
   leagueDisplayName,
+  leagueYear,
   isAdmin = false,
   initialGames = [],
   initialIssues = [],
@@ -468,14 +470,15 @@ export default function CFBScheduleApp({
   }, []);
 
   const dismissDraftBanner = useCallback(() => {
+    const draftYear = leagueYear ?? selectedSeason;
     if (leagueSlug && typeof window !== 'undefined') {
       window.localStorage.setItem(
-        `cfb-draft-banner-dismissed:${leagueSlug}:${selectedSeason}`,
+        `cfb-draft-banner-dismissed:${leagueSlug}:${draftYear}`,
         '1'
       );
     }
     setDraftBannerDismissed(true);
-  }, [leagueSlug, selectedSeason]);
+  }, [leagueSlug, leagueYear, selectedSeason]);
 
   useScheduleBootstrap({
     hasBootstrappedRef,
@@ -944,18 +947,19 @@ export default function CFBScheduleApp({
   // Load draft phase for contextual banner (non-blocking, best-effort).
   useEffect(() => {
     if (!leagueSlug) return;
-    const dismissKey = `cfb-draft-banner-dismissed:${leagueSlug}:${selectedSeason}`;
+    const draftYear = leagueYear ?? selectedSeason;
+    const dismissKey = `cfb-draft-banner-dismissed:${leagueSlug}:${draftYear}`;
     if (typeof window !== 'undefined' && window.localStorage.getItem(dismissKey) === '1') {
       setDraftBannerDismissed(true);
     }
-    fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${selectedSeason}`)
+    fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftYear}`)
       .then((res) => (res.ok ? (res.json() as Promise<{ draft?: { phase?: string } }>) : null))
       .then((data) => {
         const phase = data?.draft?.phase;
         if (typeof phase === 'string') setDraftPhase(phase as DraftPhase);
       })
       .catch(() => {}); // non-fatal
-  }, [leagueSlug, selectedSeason]);
+  }, [leagueSlug, leagueYear, selectedSeason]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {

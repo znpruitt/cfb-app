@@ -29,6 +29,7 @@ export default async function LeagueStandingsPage({
         leagueDisplayName={league?.displayName}
         isAdmin={isAdmin}
         initialWeekViewMode="standings"
+        leagueYear={league?.year}
         initialStandingsSubview={initialStandingsSubview}
       />
     </main>
