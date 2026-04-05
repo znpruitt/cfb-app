@@ -1137,7 +1137,7 @@ export default function CFBScheduleApp({
                   : 'League')}
             </h1>
             <p className="mt-0.5 text-sm text-zinc-400">
-              {selectedSeason} season
+              {leagueYear ?? selectedSeason} season
             </p>
           </div>
           {/* Gear icon + back-to-league — right of name on mobile, far right on desktop */}
