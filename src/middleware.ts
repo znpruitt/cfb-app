@@ -12,8 +12,14 @@ export default clerkMiddleware(async (auth, req) => {
       return NextResponse.redirect(new URL('/login', req.url));
     }
 
-    const user = await currentUser();
-    const role = (user?.publicMetadata as Record<string, unknown>)?.role;
+    let role: unknown;
+    try {
+      const user = await currentUser();
+      role = (user?.publicMetadata as Record<string, unknown>)?.role;
+    } catch (err) {
+      console.error('Middleware: currentUser() failed for /admin route', err);
+      return NextResponse.redirect(new URL('/', req.url));
+    }
     if (role !== 'platform_admin') {
       return NextResponse.redirect(new URL('/', req.url));
     }
