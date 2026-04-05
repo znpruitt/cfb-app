@@ -1,4 +1,4 @@
-import { auth, currentUser } from '@clerk/nextjs/server';
+import { auth } from '@clerk/nextjs/server';
 
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -68,10 +68,10 @@ function buildAdminAuthFailure(req: Request): { error: string; detail: string } 
 export async function requireAdminAuth(req: Request): Promise<Response | null> {
   // 1. Try Clerk session — requires publicMetadata.role === 'platform_admin'
   try {
-    const { userId } = await auth();
+    const { userId, sessionClaims } = await auth();
     if (userId) {
-      const user = await currentUser();
-      const role = (user?.publicMetadata as Record<string, unknown>)?.role;
+      const claims = sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> };
+      const role = claims?.publicMetadata?.role;
       if (role === 'platform_admin') return null;
     }
   } catch {
