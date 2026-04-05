@@ -86,7 +86,7 @@ export default async function AdminPage() {
           {leagues.map((league) => (
             <div key={league.slug} className="space-y-3">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-zinc-100">{league.displayName}</span>
+                <span className="text-sm font-semibold text-zinc-100">{league.displayName}</span>
                 <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-400">
                   {league.slug}
                 </span>
