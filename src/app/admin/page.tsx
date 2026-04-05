@@ -23,14 +23,13 @@ const platformCards = [
   {
     href: '/admin/data/cache',
     title: 'Data Cache',
-    desc: 'SP+ ratings, historical schedule and scores',
+    desc: 'SP+ ratings, win totals, historical schedule and scores',
   },
 ];
 
 const commissionerTools = [
   { key: 'roster', title: 'Roster', desc: 'Manage team ownership for this season' },
   { key: 'draft', title: 'Draft', desc: 'Set up and run the season draft', external: true },
-  { key: 'win-totals', title: 'Win Totals', desc: 'Add Vegas win totals for draft card info' },
   { key: 'data', title: 'Data', desc: 'Refresh data and manage team aliases' },
 ] as const;
 

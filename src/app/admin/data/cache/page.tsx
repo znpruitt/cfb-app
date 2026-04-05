@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import SpRatingsCachePanel from '@/components/SpRatingsCachePanel';
+import WinTotalsUploadPanel from '@/components/WinTotalsUploadPanel';
 import HistoricalCachePanel from '@/components/admin/HistoricalCachePanel';
 import { getLeagues } from '@/lib/leagueRegistry';
 
@@ -20,6 +21,7 @@ export default async function AdminDataCachePage() {
         </div>
 
         <SpRatingsCachePanel />
+        <WinTotalsUploadPanel />
         <HistoricalCachePanel leagues={leagues} />
       </div>
     </main>
