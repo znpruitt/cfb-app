@@ -16,6 +16,31 @@ The registry should remain:
 
 ## Active Prompts
 
+### P6D-CLOSEOUT-v1
+- Purpose: Close out Phase 6D in planning docs and register all P6D prompt IDs.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: P6D complete. P6E (Roster Editor) set as active focus.
+
+### P6D-ADMIN-RESTRUCTURE-FIX-REVIEW-v1
+- Purpose: Read-only review of P6D-ADMIN-RESTRUCTURE-FIX-v1. No changes.
+- Scope: `src/app/api/admin/leagues/route.ts`, `src/app/admin/data/page.tsx`. All items pass.
+- Notes: Recommendation: merge.
+
+### P6D-ADMIN-RESTRUCTURE-FIX-v1
+- Purpose: Fix two bugs from code review — reserve admin route slugs in league creation, and restore `/admin/data` as a real league selector page.
+- Scope: `src/app/api/admin/leagues/route.ts`, `src/app/admin/data/page.tsx`.
+- Notes: `RESERVED_ADMIN_SLUGS` Set enforces six blocked slugs in `POST /api/admin/leagues`. `/admin/data` now auto-redirects for single league, shows card grid for multiple leagues, links to `/admin/leagues` when empty.
+
+### P6D-ADMIN-RESTRUCTURE-REVIEW-v1
+- Purpose: Read-only review of P6D-ADMIN-RESTRUCTURE-v1. No changes.
+- Scope: All eight changed admin files. All items pass.
+- Notes: One non-blocking observation: `external: true` field on draft tool entry is declared but never read — harmless. Recommendation: merge.
+
+### P6D-ADMIN-RESTRUCTURE-v1
+- Purpose: Restructure `/admin` landing into Platform Admin and per-league Commissioner buckets. Create league-scoped admin routes.
+- Scope: `src/app/admin/page.tsx`, `src/app/admin/draft/page.tsx`, `src/app/admin/data/page.tsx`, `src/app/admin/data/cache/page.tsx` (new), `src/app/admin/[slug]/layout.tsx` (new), `src/app/admin/[slug]/roster/page.tsx` (new), `src/app/admin/[slug]/win-totals/page.tsx` (new), `src/app/admin/[slug]/data/page.tsx` (new).
+- Notes: Named routes take precedence over `[slug]` — no collisions. Commissioner buckets derived from `getLeagues()` at runtime. Phase 7 prerequisite satisfied.
+
 ### P6-CLERK-FIXES-CLOSEOUT-v1
 - Purpose: Document Clerk session token configuration requirement and register all P6 fix prompt IDs from the P6A/P6B/P6C debugging session.
 - Scope: `docs/phase-6-admin-auth-design.md`, `docs/completed-work.md`, `docs/prompt-registry.md`. No code changes.

@@ -237,17 +237,11 @@ PROMPT_IDs: P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY
 ### P6B — Admin Page Restructure ✓ Complete
 ### P6C — Root Route and Landing Page Polish ✓ Complete
 
-### P6D — Admin UI Restructure (active)
+### P6D — Admin UI Restructure ✓ Complete
 
-Restructure `/admin` landing into two clear buckets — platform admin (global tools) and per-league commissioner (scoped tools). Prerequisite for Phase 7 commissioner self-service.
+See `docs/completed-work.md` for full record. PR #228.
 
-**Platform Admin bucket:** season rollover, league creation and management, backfill, historical cache, SP+ cache, diagnostics.
-
-**Per-league Commissioner bucket** (one block per league in registry): roster editor, draft, win totals, data/aliases.
-
-See `docs/phase-6-admin-auth-design.md` section 10 for full design.
-
-### P6E — Roster Editor (queued after P6D)
+### P6E — Roster Editor (active)
 
 Direct CRUD interface for the ownership map per league. Handles post-draft fixes, setup without a formal draft, mid-season transfers, and testing.
 
