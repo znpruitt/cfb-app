@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { seasonYearForToday } from '@/lib/scores/normalizers';
 
 type SectionStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -18,6 +19,8 @@ const buttonClass =
   'rounded border border-zinc-600 bg-zinc-800 px-4 py-1.5 text-sm text-zinc-100 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed';
 
 export default function GlobalRefreshPanel(): React.ReactElement {
+  const [year, setYear] = useState(seasonYearForToday());
+
   const [scheduleStatus, setScheduleStatus] = useState<SectionStatus>('idle');
   const [scheduleError, setScheduleError] = useState<string | undefined>();
 
@@ -28,7 +31,7 @@ export default function GlobalRefreshPanel(): React.ReactElement {
     setScheduleStatus('loading');
     setScheduleError(undefined);
     try {
-      const res = await fetch('/api/schedule?bypassCache=1', {
+      const res = await fetch(`/api/schedule?bypassCache=1&year=${year}`, {
         cache: 'no-store',
         headers: requireAdminAuthHeaders() as Record<string, string>,
       });
@@ -50,8 +53,8 @@ export default function GlobalRefreshPanel(): React.ReactElement {
     setScoresError(undefined);
     try {
       const [regularRes, postseasonRes] = await Promise.all([
-        fetch('/api/scores?seasonType=regular', { cache: 'no-store' }),
-        fetch('/api/scores?seasonType=postseason', { cache: 'no-store' }),
+        fetch(`/api/scores?seasonType=regular&year=${year}`, { cache: 'no-store' }),
+        fetch(`/api/scores?seasonType=postseason&year=${year}`, { cache: 'no-store' }),
       ]);
       const failed = [
         !regularRes.ok ? `regular ${regularRes.status}` : null,
@@ -71,6 +74,18 @@ export default function GlobalRefreshPanel(): React.ReactElement {
 
   return (
     <>
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-medium text-zinc-400">Season year</label>
+        <input
+          type="number"
+          value={year}
+          onChange={(e) => setYear(Number(e.target.value))}
+          min={2000}
+          step={1}
+          className="w-24 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+        />
+      </div>
+
       <section className={sectionClass}>
         <div>
           <h2 className="text-base font-medium text-zinc-100">Schedule</h2>

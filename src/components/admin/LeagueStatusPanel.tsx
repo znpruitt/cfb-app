@@ -45,7 +45,10 @@ export default async function LeagueStatusPanel({
   try {
     [rosterRecord, scheduleRecord, scoresRecord, draftRecord] = await Promise.all([
       getAppState<string>(`owners:${slug}:${year}`, 'csv'),
-      getAppState<unknown>('schedule', `${year}-all-regular`),
+      // Check combined key first (default seasonType=all), fall back to regular-only key
+      getAppState<unknown>('schedule', `${year}-all-all`).then(
+        (r) => r ?? getAppState<unknown>('schedule', `${year}-all-regular`)
+      ),
       getAppState<unknown>('scores', `${year}-all-regular`),
       getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
     ]);
