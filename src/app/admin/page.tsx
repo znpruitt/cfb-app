@@ -23,14 +23,13 @@ const platformCards = [
   {
     href: '/admin/data/cache',
     title: 'Data Cache',
-    desc: 'SP+ ratings, historical schedule and scores',
+    desc: 'SP+ ratings, win totals, historical schedule and scores',
   },
 ];
 
 const commissionerTools = [
   { key: 'roster', title: 'Roster', desc: 'Manage team ownership for this season' },
   { key: 'draft', title: 'Draft', desc: 'Set up and run the season draft', external: true },
-  { key: 'win-totals', title: 'Win Totals', desc: 'Add Vegas win totals for draft card info' },
   { key: 'data', title: 'Data', desc: 'Refresh data and manage team aliases' },
 ] as const;
 
@@ -87,7 +86,7 @@ export default async function AdminPage() {
           {leagues.map((league) => (
             <div key={league.slug} className="space-y-3">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-zinc-100">{league.displayName}</span>
+                <span className="text-sm font-semibold text-zinc-100">{league.displayName}</span>
                 <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-zinc-400">
                   {league.slug}
                 </span>
