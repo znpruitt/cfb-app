@@ -701,11 +701,9 @@ function insightHref(
 
 function HighlightList({
   insights,
-  scopeDetail,
   leagueSlug,
 }: {
   insights: Insight[];
-  scopeDetail?: string | null;
   leagueSlug?: string;
 }): React.ReactElement | null {
   if (insights.length === 0) return null;
@@ -892,7 +890,6 @@ export default function OverviewPanel({
           <SectionCard title="Insights" tone="secondary" compact>
             <HighlightList
               insights={sharedInsights}
-              scopeDetail={context.scopeDetail}
               leagueSlug={leagueSlug}
             />
           </SectionCard>
