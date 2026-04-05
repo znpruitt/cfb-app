@@ -19,7 +19,12 @@ The registry should remain:
 ### P6-FINAL-CLOSEOUT-v1
 - Purpose: Close out all remaining Phase 6 polish and fix work in planning docs and register all prompt IDs.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
-- Notes: Final Phase 6 closeout. Phase 7 remains next planned campaign.
+- Notes: Final Phase 6 closeout. Phase 7 first tasks documented in next-tasks.md.
+
+### P6-ADMIN-NAV-FIX-v1
+- Purpose: Fix two navigation issues on `/admin/[slug]` — remove duplicate back link, add "← Back to league" link.
+- Scope: `src/app/admin/[slug]/page.tsx` only.
+- Notes: Removed page-level "← Admin" link (layout breadcrumb handles this). Added `← Back to league` → `/league/${slug}` in blue-400 style — gives commissioners a clear return path after navigating from gear icon.
 
 ### P6-ADMIN-COMMISSIONER-POLISH-FIX-v1
 - Purpose: Fix two bugs — pass explicit year param to schedule/scores refresh calls, and read schedule status from correct combined cache key (`${year}-all-all`).

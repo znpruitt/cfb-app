@@ -92,7 +92,17 @@ All subphases P6A–P6E and Admin Polish complete. See `docs/completed-work.md` 
 
 ## Upcoming phases
 
-- **Phase 7 — Commissioner Self-Service:** Next planned campaign. See `docs/roadmap.md` for full scope.
+### Phase 7 — Commissioner Self-Service (next)
+
+First tasks:
+- **Commissioner role enforcement** — protect `/league/[slug]/draft/*` and `/admin/[slug]/*` routes for `commissioner` role in Clerk middleware; currently only `platform_admin` is enforced.
+- **Commissioner self-registration and invite link flow** — mechanism for platform_admin to grant `commissioner` role to a league member for a specific slug.
+- **League-scoped permissions in Clerk `publicMetadata`** — data model for associating a user with one or more league slugs as commissioner.
+- **Member login and personalized views** — Clerk `member` role; personalized owner views filtered to logged-in member's teams.
+- **`ADMIN_API_TOKEN` full removal** — Phase 6 left a fallback; Phase 7 removes it and requires Clerk JWT for all admin API routes.
+
+See `docs/roadmap.md` for full Phase 7 scope.
+
 - **Phase 8+:** Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
