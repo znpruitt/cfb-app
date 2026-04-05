@@ -43,7 +43,10 @@ export default function WeekViewTabs({
 
   return (
     <div style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
-    <div className="flex w-fit items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-600 dark:bg-zinc-700">
+    <div
+      className="flex w-fit items-center gap-1 rounded-lg p-1"
+      style={{ backgroundColor: 'rgb(39 39 42)', border: '1px solid rgb(63 63 70)' }}
+    >
       {(
         [
           { key: 'overview', label: 'Overview' },
@@ -56,6 +59,7 @@ export default function WeekViewTabs({
           key={tab.key}
           type="button"
           className={current === tab.key ? tabActive : tabInactive}
+          style={current === tab.key ? { backgroundColor: 'rgb(82 82 91)', borderRadius: '6px' } : undefined}
           onClick={() => onChange(tab.key)}
         >
           {tab.label}
