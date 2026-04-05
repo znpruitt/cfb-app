@@ -42,7 +42,8 @@ export default function WeekViewTabs({
   const current = canonicalTab(value);
 
   return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800">
+    <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="flex min-w-max items-center gap-1 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800">
       {(
         [
           { key: 'overview', label: 'Overview' },
@@ -65,6 +66,7 @@ export default function WeekViewTabs({
           History
         </Link>
       )}
+    </div>
     </div>
   );
 }
