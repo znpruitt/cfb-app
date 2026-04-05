@@ -157,3 +157,29 @@ Built into `/admin/draft`:
 | 5 | Member login | Deferred to Phase 7 |
 | 6 | Admin restructure | Multi-page `/admin/*` layout |
 | 7 | Root route | Public landing + admin dashboard when authenticated |
+
+---
+
+## 9. Critical Clerk Configuration — Session Token
+
+### Clerk Session Token Must Include publicMetadata
+
+By default Clerk's session token does **NOT** include user `publicMetadata`. The middleware reads `publicMetadata.role` to enforce `platform_admin` access on `/admin/*` routes. Without this configuration the role will always be `undefined` and authenticated users will be redirected away from `/admin` regardless of their actual role.
+
+**Required configuration (one-time setup, per Clerk instance):**
+
+1. Go to Clerk dashboard → Configure → Sessions → Sessions
+2. Scroll to "Customize session token"
+3. In the Claims editor add: `{ "publicMetadata": "{{user.public_metadata}}" }`
+4. Save
+
+This must be done for **both** Development and Production Clerk instances.
+
+**Without this configuration:**
+- Authenticated `platform_admin` users cannot access `/admin`
+- The middleware correctly reads `sessionClaims.publicMetadata.role` but the claim is absent from the token
+- JWT templates (Configure → Sessions → JWT templates) are **NOT** the same as session token customization and do not fix this
+
+**Important:** JWT templates are for third-party integrations only (e.g. Supabase, Firebase, custom APIs). They do not affect the Clerk session token used by the Next.js middleware. Do not use JWT templates to fix middleware auth — use the session token customization described above.
+
+**Do not use `currentUser()` in middleware.** `currentUser()` requires a route handler context and will fail in middleware. Use `auth()` and read `sessionClaims.publicMetadata.role` directly — this works correctly once the session token is customized as described above.

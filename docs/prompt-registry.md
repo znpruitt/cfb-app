@@ -16,6 +16,101 @@ The registry should remain:
 
 ## Active Prompts
 
+### P6-CLERK-FIXES-CLOSEOUT-v1
+- Purpose: Document Clerk session token configuration requirement and register all P6 fix prompt IDs from the P6A/P6B/P6C debugging session.
+- Scope: `docs/phase-6-admin-auth-design.md`, `docs/completed-work.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Session 9 added to design doc covering Clerk session token customization requirement. JWT templates confirmed as wrong approach. currentUser() confirmed as unusable in middleware.
+
+### P6C-DEBUG-CLEANUP-v1
+- Purpose: Remove debug `console.log` from `page.tsx` added during owner count diagnosis.
+- Scope: `src/app/page.tsx` only.
+- Notes: Cleanup after P6C-OWNER-COUNT-DEBUG-v2 diagnosis.
+
+### P6C-OWNER-SCOPE-AUDIT-v1
+- Purpose: Read-only audit to find the exact appStateStore scope and key where the TSC 2025 owner CSV is stored.
+- Scope: `src/app/api/owners/route.ts`, `src/lib/server/appStateStore.ts`. No changes.
+- Notes: Confirmed scope is `owners:${slug}:${year}`, key is `csv`. Identified that CSV uploaded without `?league=` goes to wrong scope `owners:${year}`. `ownersScope()` helper exists in route.ts only.
+
+### P6C-OWNER-COUNT-DEBUG-v2
+- Purpose: Add temporary debug log to `page.tsx` to surface what appStateStore returns when reading the owner CSV.
+- Scope: `src/app/page.tsx` only. Temporary diagnostic.
+- Notes: Logged slug, activeYear, scope key, hasRecord, valueLength, valuePreview. Removed in P6C-DEBUG-CLEANUP-v1.
+
+### P6C-OWNER-COUNT-DEBUG-v1
+- Purpose: Add temporary debug logging to investigate owner count returning 0 for TSC league.
+- Scope: `src/app/page.tsx` only. Temporary diagnostic.
+- Notes: Earlier iteration of debug log; superseded by P6C-OWNER-COUNT-DEBUG-v2.
+
+### P6C-OWNER-COUNT-FIX-v3
+- Purpose: Fix owner count — use `seasonYearForToday()` instead of `league.year` to match the scope key used when the CSV was uploaded.
+- Scope: `src/app/page.tsx` only.
+- Notes: `league.year` may differ from the active CFB season year. `seasonYearForToday()` matches the year used during upload via the admin panel.
+
+### P6C-OWNER-COUNT-FIX-v2
+- Purpose: Iteration on owner count fix.
+- Scope: `src/app/page.tsx` only.
+- Notes: Intermediate fix; superseded by P6C-OWNER-COUNT-FIX-v3.
+
+### P6B-ROSTER-UPLOAD-FIX-REVIEW-v1
+- Purpose: Read-only review of P6B-ROSTER-UPLOAD-FIX-v2 implementation. No changes.
+- Scope: `src/components/admin/RosterUploadPanel.tsx`. All checklist items pass.
+- Notes: allResolved requires every needsConfirmation item resolved — correct, intentional. Recommendation: merge.
+
+### P6B-ROSTER-UPLOAD-FIX-v2
+- Purpose: Fix two bugs in admin RosterUploadPanel — add validation pipeline and sync year on league change.
+- Scope: `src/components/admin/RosterUploadPanel.tsx` only.
+- Notes: Bug 1: replaced direct PUT with POST to `/api/owners/validate` then PUT resolved CSV. Bug 2: `handleLeagueChange()` sets year to `league.year ?? seasonYearForToday()`.
+
+### P6B-ROSTER-UPLOAD-FIX-v1
+- Purpose: Add dedicated `RosterUploadPanel` to `/admin/data` — league/year scoped, writes to correct appStateStore key.
+- Scope: `src/components/admin/RosterUploadPanel.tsx` (new), `src/app/admin/data/page.tsx`.
+- Notes: Initial version used direct PUT without validation. Fixed in P6B-ROSTER-UPLOAD-FIX-v2.
+
+### P6B-BACKFILL-FIX-REVIEW-v1
+- Purpose: Read-only review of P6B-BACKFILL-FIX-v1 implementation. No changes.
+- Scope: `src/components/admin/BackfillPanel.tsx`. All checklist items pass.
+- Notes: Recommendation: merge.
+
+### P6B-BACKFILL-FIX-v1
+- Purpose: Fix backfill flow — terminal on first write, confirm only when requiresConfirmation returned.
+- Scope: `src/components/admin/BackfillPanel.tsx` only.
+- Notes: Fixed premature confirm prompt on first-time backfill.
+
+### P6A-CLERK-MIDDLEWARE-DEBUG-v1
+- Purpose: Add temporary debug logging to middleware to see sessionClaims contents when hitting /admin.
+- Scope: `src/middleware.ts` only. Temporary diagnostic.
+- Notes: Logged userId, full sessionClaims, and both role key paths. Confirmed publicMetadata absent without session token customization.
+
+### P6A-CLERK-MIDDLEWARE-FIX-v4
+- Purpose: Revert to `auth()`/`sessionClaims` approach — correct for Clerk v7 once session token is customized.
+- Scope: `src/middleware.ts`, `src/lib/server/adminAuth.ts`.
+- Notes: currentUser() cannot be used in middleware. auth() + sessionClaims.publicMetadata.role is correct once session token includes publicMetadata claim.
+
+### P6A-CLERK-MIDDLEWARE-FIX-v3
+- Purpose: Wrap `currentUser()` calls in try/catch for Clerk backend resilience.
+- Scope: `src/middleware.ts` only.
+- Notes: Intermediate fix during currentUser() exploration; superseded by P6A-CLERK-MIDDLEWARE-FIX-v4 revert.
+
+### P6A-CLERK-MIDDLEWARE-FIX-v2
+- Purpose: Switch to `currentUser()` for publicMetadata role check — exploration of alternative approach.
+- Scope: `src/middleware.ts`, `src/lib/server/adminAuth.ts`.
+- Notes: Ultimately reverted — currentUser() cannot be called in middleware context.
+
+### P6A-CLERK-MIDDLEWARE-FIX-v1
+- Purpose: Update middleware and adminAuth to read `public_metadata` instead of `publicMetadata` — matching JWT template claim key.
+- Scope: `src/middleware.ts`, `src/lib/server/adminAuth.ts`.
+- Notes: Later determined JWT templates are the wrong approach. Superseded by P6A-CLERK-MIDDLEWARE-FIX-v4.
+
+### P6A-CLERK-ROUTE-FIX-v1
+- Purpose: Fix login page — add catch-all route `[[...sign-in]]` and required `routing="path"` / `path="/login"` props.
+- Scope: `src/app/login/` route structure and `page.tsx`.
+- Notes: Multi-step Clerk auth flows require catch-all slug. Static route breaks after step 1.
+
+### P6A-CLERK-REQUIREMENTS-AUDIT-v1
+- Purpose: Audit Clerk configuration requirements — identify gaps between implementation and Clerk v7 requirements.
+- Scope: Read-only audit. No changes.
+- Notes: Identified session token customization requirement and login route catch-all requirement.
+
 ### P6C-OWNER-COUNT-FIX-v1
 - Purpose: Fix owner count derivation — count distinct owner values from CSV rather than raw row count.
 - Scope: `src/app/page.tsx` only.
