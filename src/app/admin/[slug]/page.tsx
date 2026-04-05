@@ -42,8 +42,11 @@ export default async function AdminLeaguePage({
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
       <div className="space-y-1">
-        <Link href="/admin" className="text-sm text-blue-400 hover:text-blue-300 transition-colors">
-          ← Admin
+        <Link
+          href={`/league/${slug}`}
+          className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+        >
+          ← Back to league
         </Link>
         <h1 className="text-2xl font-semibold text-zinc-100">
           {league.displayName} — Commissioner Tools

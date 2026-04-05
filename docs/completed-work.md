@@ -27,6 +27,31 @@
 
 ---
 
+### P6 — Admin Polish and Commissioner UX: Complete
+
+**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PRs #230–#234.
+**PROMPT_IDs:** P6-ADMIN-POLISH-v1, P6-ADMIN-POLISH-REVIEW-v1, P6-ADMIN-POLISH-FIX-v1, P6-ADMIN-POLISH-FIX-REVIEW-v1, P6-ADMIN-POLISH-CLOSEOUT-v1, P6-GEAR-ICON-FIX-v1, P6-ADMIN-FONT-FIX-v1, P6-ADMIN-SLUG-INDEX-v1, P6-LEAGUE-DATA-PAGE-v1, P6-LEAGUE-DATA-PAGE-FIX-v1, P6-ADMIN-COMMISSIONER-POLISH-v1, P6-ADMIN-COMMISSIONER-POLISH-REVIEW-v1, P6-ADMIN-COMMISSIONER-POLISH-FIX-v1, P6-ADMIN-NAV-FIX-v1, P6-FINAL-CLOSEOUT-v1
+
+**Key decisions and architectural notes:**
+- **Consistent back-nav pattern** — blue `← Label` top-left on all admin pages; label names the immediate parent (e.g. `← Admin`, `← {displayName}`).
+- **Plain English copy** — developer terminology replaced throughout all diagnostic and action panels.
+- **Gear icon in league view header** — right-justified, only visible to `platform_admin`, links to `/admin/[slug]`, tooltip "League settings". Rendered via `isAdmin` prop; no Clerk hooks in client component body.
+- **`isAdmin` prop pattern** — `CFBScheduleApp` accepts `isAdmin?: boolean` prop; auth derived server-side via `auth()` from `@clerk/nextjs/server` in each parent page; cast pattern `sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> }` to extract role safely. No `useAuth()` in reusable components.
+- **Commissioner bucket per league: four cards in 2×2 grid** — Roster, Draft, Data, Settings at `/admin/[slug]`.
+- **`/admin/[slug]` landing page** — gear icon destination and direct commissioner entry point; `notFound()` on bad slug. "← Back to league" link gives clear return path after navigating from gear icon. Duplicate "← Admin" removed — layout breadcrumb handles admin navigation.
+- **League Settings page at `/admin/[slug]/settings`** — `LeagueSettingsForm` (client component): editable display name and year, read-only slug field, `PATCH /api/admin/leagues/${slug}` with `requireAdminAuthHeaders()`, save/error/loading states.
+- **`LeagueStatusPanel`** — server component at top of `/admin/[slug]/data`; reads `appStateStore` directly; shows roster owner count + age timestamp, schedule/scores cache status + age, draft phase with color coding (setup/settings: zinc; preview: blue; live: green; paused: amber; complete: white); returns `null` gracefully if storage unavailable.
+- **Schedule cache key** — default `seasonType` in schedule route is `'all'`; default cache key is `${year}-all-all`. `LeagueStatusPanel` checks `${year}-all-all` first, falls back to `${year}-all-regular`.
+- **`GlobalRefreshPanel`** on `/admin/data/cache` — platform-level schedule and both-season-type scores refresh; year input defaulting to `seasonYearForToday()` prevents wrong-season caching in offseason. All three fetch calls pass explicit `year` param.
+- **Aliases kept per-league** — `LeagueDataPanel` on `/admin/[slug]/data` retains Aliases section only; Schedule/Scores removed (platform-level actions moved to `GlobalRefreshPanel`).
+- **Win Totals moved to platform admin** — `/admin/[slug]/win-totals` now redirects to `/admin/data/cache`; Win Totals is a global action with no per-league scope.
+- **`RESERVED_ADMIN_SLUGS`** enforced at league creation (`POST /api/admin/leagues`) — prevents slug collisions with named admin routes (`season`, `data`, `draft`, `diagnostics`, `leagues`, `cache`).
+- **`/admin/data` as league selector** — single league auto-redirects to `/admin/[slug]/data`; multiple leagues shows card grid; no leagues shows link to `/admin/leagues`.
+- **Legacy `CFBScheduleApp` Admin/Debug panel fully removed** from all commissioner-facing and public-facing league pages.
+- **League name font** — `text-sm font-semibold text-zinc-100` in commissioner tools card; prevents oversized rendering at default `text-base`.
+
+---
+
 ### P6D — Admin UI Restructure: Complete
 
 **Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #228.

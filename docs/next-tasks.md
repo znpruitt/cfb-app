@@ -84,14 +84,25 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ## Phase 6 — Admin Cleanup and Auth ✅ Complete
 
-All subphases P6A–P6E complete. See `docs/completed-work.md` for full record.
+All subphases P6A–P6E and Admin Polish complete. See `docs/completed-work.md` for full record.
 
 - **P6D** ✅ Complete. PR #228.
 - **P6E** ✅ Complete. PR #229. `RosterEditorPanel` — inline CRUD for team-owner assignments at `/admin/[slug]/roster`.
+- **P6 Admin Polish and Commissioner UX** ✅ Complete. PRs #230–#233. Gear icon, `isAdmin` prop pattern, per-league commissioner landing (`/admin/[slug]`), `LeagueStatusPanel`, `LeagueSettingsForm`, `GlobalRefreshPanel` with year input.
 
 ## Upcoming phases
 
-- **Phase 7 — Commissioner Self-Service:** Next planned campaign. See `docs/roadmap.md` for full scope.
+### Phase 7 — Commissioner Self-Service (next)
+
+First tasks:
+- **Commissioner role enforcement** — protect `/league/[slug]/draft/*` and `/admin/[slug]/*` routes for `commissioner` role in Clerk middleware; currently only `platform_admin` is enforced.
+- **Commissioner self-registration and invite link flow** — mechanism for platform_admin to grant `commissioner` role to a league member for a specific slug.
+- **League-scoped permissions in Clerk `publicMetadata`** — data model for associating a user with one or more league slugs as commissioner.
+- **Member login and personalized views** — Clerk `member` role; personalized owner views filtered to logged-in member's teams.
+- **`ADMIN_API_TOKEN` full removal** — Phase 6 left a fallback; Phase 7 removes it and requires Clerk JWT for all admin API routes.
+
+See `docs/roadmap.md` for full Phase 7 scope.
+
 - **Phase 8+:** Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
