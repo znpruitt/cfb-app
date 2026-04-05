@@ -84,10 +84,11 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 ## Phase 6 — Admin Cleanup and Auth ✅ Complete
 
-All subphases P6A–P6E complete. See `docs/completed-work.md` for full record.
+All subphases P6A–P6E and Admin Polish complete. See `docs/completed-work.md` for full record.
 
 - **P6D** ✅ Complete. PR #228.
 - **P6E** ✅ Complete. PR #229. `RosterEditorPanel` — inline CRUD for team-owner assignments at `/admin/[slug]/roster`.
+- **P6 Admin Polish and Commissioner UX** ✅ Complete. PRs #230–#233. Gear icon, `isAdmin` prop pattern, per-league commissioner landing (`/admin/[slug]`), `LeagueStatusPanel`, `LeagueSettingsForm`, `GlobalRefreshPanel` with year input.
 
 ## Upcoming phases
 

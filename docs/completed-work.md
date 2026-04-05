@@ -14,6 +14,30 @@
 **Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #229.
 **PROMPT_IDs:** P6E-ROSTER-EDITOR-v1, P6E-ROSTER-EDITOR-REVIEW-v1, P6E-ROSTER-EDITOR-FIX-v1, P6E-CLOSEOUT-v1
 
+---
+
+### P6 — Admin Polish and Commissioner UX: Complete
+
+**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PRs #230–#233.
+**PROMPT_IDs:** P6-ADMIN-POLISH-v1, P6-ADMIN-POLISH-REVIEW-v1, P6-ADMIN-POLISH-FIX-v1, P6-ADMIN-POLISH-FIX-REVIEW-v1, P6-ADMIN-POLISH-CLOSEOUT-v1, P6-GEAR-ICON-FIX-v1, P6-ADMIN-FONT-FIX-v1, P6-ADMIN-SLUG-INDEX-v1, P6-LEAGUE-DATA-PAGE-v1, P6-LEAGUE-DATA-PAGE-FIX-v1, P6-ADMIN-COMMISSIONER-POLISH-v1, P6-ADMIN-COMMISSIONER-POLISH-REVIEW-v1, P6-ADMIN-COMMISSIONER-POLISH-FIX-v1, P6-FINAL-CLOSEOUT-v1
+
+**Key decisions and architectural notes:**
+- **Consistent back-nav pattern** — blue `← Label` top-left on all admin pages; label names the immediate parent (e.g. `← Admin`, `← {displayName}`).
+- **Plain English copy** — developer terminology replaced throughout all diagnostic and action panels.
+- **Gear icon in league view header** — right-justified, only visible to `platform_admin`, links to `/admin/[slug]`, tooltip "League settings". Rendered via `isAdmin` prop; no Clerk hooks in client component body.
+- **`isAdmin` prop pattern** — `CFBScheduleApp` accepts `isAdmin?: boolean` prop; auth derived server-side via `auth()` from `@clerk/nextjs/server` in each parent page; cast pattern `sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> }` to extract role safely. No `useAuth()` in reusable components.
+- **Commissioner bucket per league: four cards in 2×2 grid** — Roster, Draft, Data, Settings at `/admin/[slug]`.
+- **`/admin/[slug]` landing page** — gear icon destination and direct commissioner entry point; `notFound()` on bad slug.
+- **League Settings page at `/admin/[slug]/settings`** — `LeagueSettingsForm` (client component): editable display name and year, read-only slug field, `PATCH /api/admin/leagues/${slug}` with `requireAdminAuthHeaders()`, save/error/loading states.
+- **`LeagueStatusPanel`** — server component at top of `/admin/[slug]/data`; reads `appStateStore` directly; shows roster owner count + age timestamp, schedule/scores cache status + age, draft phase with color coding (setup/settings: zinc; preview: blue; live: green; paused: amber; complete: white); returns `null` gracefully if storage unavailable.
+- **Schedule cache key** — default `seasonType` in schedule route is `'all'`; default cache key is `${year}-all-all`. `LeagueStatusPanel` checks `${year}-all-all` first, falls back to `${year}-all-regular`.
+- **`GlobalRefreshPanel`** on `/admin/data/cache` — platform-level schedule and both-season-type scores refresh; year input defaulting to `seasonYearForToday()` prevents wrong-season caching in offseason. All three fetch calls pass explicit `year` param.
+- **Aliases kept per-league** — `LeagueDataPanel` on `/admin/[slug]/data` retains Aliases section only; Schedule/Scores removed (platform-level actions moved to `GlobalRefreshPanel`).
+- **Win Totals moved to platform admin** — `/admin/[slug]/win-totals` now redirects to `/admin/data/cache`; Win Totals is a global action with no per-league scope.
+- **League name font** — `text-sm font-semibold text-zinc-100` in commissioner tools commissioner card; prevents oversized rendering at default `text-base`.
+
+---
+
 **Key decisions and architectural notes:**
 - **`RosterEditorPanel` is a direct CRUD interface** — distinct from the draft tool (live event) and upload flow (bulk CSV with fuzzy matching). Handles post-draft fixes, leagues without a formal draft, mid-season transfers, and testing.
 - **`savedOwners` / `draftOwners` Map split** enables per-row dirty tracking. `mapsEqual()` gates save/discard buttons. Dirty rows highlighted amber.

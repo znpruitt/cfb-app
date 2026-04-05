@@ -16,6 +16,76 @@ The registry should remain:
 
 ## Active Prompts
 
+### P6-FINAL-CLOSEOUT-v1
+- Purpose: Close out all remaining Phase 6 polish and fix work in planning docs and register all prompt IDs.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Final Phase 6 closeout. Phase 7 remains next planned campaign.
+
+### P6-ADMIN-COMMISSIONER-POLISH-FIX-v1
+- Purpose: Fix two bugs — pass explicit year param to schedule/scores refresh calls, and read schedule status from correct combined cache key (`${year}-all-all`).
+- Scope: `src/components/admin/GlobalRefreshPanel.tsx`, `src/components/admin/LeagueStatusPanel.tsx` only.
+- Notes: Bug 1: `GlobalRefreshPanel` now has a year number input defaulting to `seasonYearForToday()`; all three fetch calls pass `&year=${year}`. Bug 2: `LeagueStatusPanel` checks `${year}-all-all` first (default `seasonType=all`), falls back to `${year}-all-regular`.
+
+### P6-ADMIN-COMMISSIONER-POLISH-REVIEW-v1
+- Purpose: Read-only review of P6-ADMIN-COMMISSIONER-POLISH-v1 implementation before merging.
+- Scope: Read-only. All changed files in the commissioner polish commit.
+- Notes: All checklist items pass. Recommendation: merge.
+
+### P6-ADMIN-COMMISSIONER-POLISH-v1
+- Purpose: Commissioner tools polish — per-league status panel, settings page, global refresh panel, aliases-only data panel.
+- Scope: `src/components/admin/LeagueDataPanel.tsx`, `src/components/admin/LeagueStatusPanel.tsx` (new), `src/components/admin/GlobalRefreshPanel.tsx` (new), `src/components/admin/LeagueSettingsForm.tsx` (new), `src/app/admin/[slug]/data/page.tsx`, `src/app/admin/[slug]/page.tsx`, `src/app/admin/[slug]/settings/page.tsx` (new), `src/app/admin/data/cache/page.tsx`.
+- Notes: Schedule/Scores sections removed from `LeagueDataPanel` (moved to `GlobalRefreshPanel`). `LeagueStatusPanel` reads `appStateStore` directly as server component. Four cards in 2×2 grid at `/admin/[slug]`. PR #233.
+
+### P6-LEAGUE-DATA-PAGE-FIX-v1
+- Purpose: Fix alias key normalization and score refresh scope — apply `normalizeAliasLookup()` to alias keys before PUT, refresh both regular and postseason scores.
+- Scope: `src/components/admin/LeagueDataPanel.tsx` only.
+- Notes: Bug 1: alias keys now run through `normalizeAliasLookup(r.key.trim())` before building PUT payload — matches runtime lookup normalization. Bug 2: scores refresh upgraded from regular-only to `Promise.all` of regular + postseason.
+
+### P6-LEAGUE-DATA-PAGE-v1
+- Purpose: Replace CFBScheduleApp embed in `/admin/[slug]/data` with focused `LeagueDataPanel` (schedule, scores, aliases).
+- Scope: `src/app/admin/[slug]/data/page.tsx`, `src/components/admin/LeagueDataPanel.tsx` (new).
+- Notes: `CFBScheduleApp`, `HistoricalCachePanel`, and `auth()` call removed from page. `LeagueDataPanel` is a focused client component with three sections: Schedule, Scores, Aliases.
+
+### P6-ADMIN-FONT-FIX-v1
+- Purpose: Reduce league name font size in commissioner tools card on `/admin/page.tsx`.
+- Scope: `src/app/admin/page.tsx` only.
+- Notes: Added `text-sm` to league display name span — prevents oversized rendering at implicit `text-base`.
+
+### P6-GEAR-ICON-FIX-v1
+- Purpose: Right-justify gear icon in CFBScheduleApp league view header.
+- Scope: `src/components/CFBScheduleApp.tsx` only.
+- Notes: Restructured header to `flex items-start justify-between` — title/subtitle left, gear icon right.
+
+### P6-ADMIN-SLUG-INDEX-v1
+- Purpose: Add `/admin/[slug]` landing page as gear icon destination and commissioner entry point. Move Win Totals to platform admin.
+- Scope: `src/app/admin/[slug]/page.tsx` (new), `src/app/admin/[slug]/win-totals/page.tsx` (replaced with redirect), `src/app/admin/page.tsx` (Data Cache card desc update).
+- Notes: `/admin/[slug]` renders three commissioner tool cards (Roster, Draft, Data). `/admin/[slug]/win-totals` redirects to `/admin/data/cache`. Data Cache card desc updated to include schedule, scores, and historical data.
+
+### P6-ADMIN-POLISH-CLOSEOUT-v1
+- Purpose: Register Phase 6 admin polish prompt IDs and update planning docs.
+- Scope: `docs/prompt-registry.md`, `docs/completed-work.md`, `docs/next-tasks.md`. No code changes.
+- Notes: Intermediate closeout after initial polish pass; superseded by P6-FINAL-CLOSEOUT-v1 for final documentation.
+
+### P6-ADMIN-POLISH-FIX-REVIEW-v1
+- Purpose: Read-only review of P6-ADMIN-POLISH-FIX-v1 implementation. No changes.
+- Scope: Read-only. All files modified in admin polish fix.
+- Notes: All items pass. Recommendation: merge.
+
+### P6-ADMIN-POLISH-FIX-v1
+- Purpose: Remove `useAuth()` from `CFBScheduleApp`, lift auth check to server component parents, add `isAdmin` prop.
+- Scope: `src/components/CFBScheduleApp.tsx`, `src/app/league/[slug]/page.tsx`, `src/app/league/[slug]/matchups/page.tsx`, `src/app/league/[slug]/schedule/page.tsx`, `src/app/league/[slug]/standings/page.tsx`.
+- Notes: `isAdmin` derived via `auth()` from `@clerk/nextjs/server` in each server component parent; cast pattern for `sessionClaims.publicMetadata.role`. No Clerk hooks in `CFBScheduleApp`.
+
+### P6-ADMIN-POLISH-REVIEW-v1
+- Purpose: Read-only review of P6-ADMIN-POLISH-v1 implementation. No changes.
+- Scope: Read-only. All files modified in admin polish pass.
+- Notes: Found `useAuth()` usage in `CFBScheduleApp` violating auth architecture invariant. Addressed by P6-ADMIN-POLISH-FIX-v1.
+
+### P6-ADMIN-POLISH-v1
+- Purpose: Admin nav consistency, plain English copy, gear icon in league view header linking to `/admin/[slug]`.
+- Scope: `src/app/admin/page.tsx`, `src/app/admin/season/page.tsx`, `src/app/admin/diagnostics/page.tsx`, `src/app/admin/draft/page.tsx`, `src/app/admin/[slug]/layout.tsx`, `src/components/CFBScheduleApp.tsx`, `src/components/AdminUsagePanel.tsx`, `src/components/AdminTeamDatabasePanel.tsx`, `src/components/AdminStorageStatusPanel.tsx`, `src/components/ScoreAttachmentDebugPanel.tsx`, `src/components/admin/BackfillPanel.tsx`, `src/components/SpRatingsCachePanel.tsx`, `src/components/admin/HistoricalCachePanel.tsx`.
+- Notes: Blue back links, `text-2xl font-semibold` titles, plain English copy on all panels. Gear icon via `useAuth()` — fixed in P6-ADMIN-POLISH-FIX-v1.
+
 ### P6E-CLOSEOUT-v1
 - Purpose: Close out Phase 6E in planning docs and register all P6E prompt IDs.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.

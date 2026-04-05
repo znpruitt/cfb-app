@@ -29,6 +29,7 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 - Phase 4 — Historical Analytics is **complete**. All subphases (P4A–P4D) and Historical Season Backfill Endpoint shipped.
 - **Phase 5 — Draft / Owner Assignment Tool** is **complete**. All subphases (P5A–P5D) shipped. PR #214 open.
 - **Phase 6 — Admin Cleanup and Auth** is **complete**. All subphases P6A–P6E shipped.
+- **Phase 6 — Admin Polish and Commissioner UX** is **complete**. Gear icon, `isAdmin` prop pattern, per-league commissioner bucket (Roster/Draft/Data/Settings), `LeagueStatusPanel`, `LeagueSettingsForm`, `GlobalRefreshPanel` with explicit year. PRs #230–#233.
 
 ## Production data policy
 
