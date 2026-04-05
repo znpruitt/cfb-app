@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 
 import AliasEditorPanel from '@/components/AliasEditorPanel';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { normalizeAliasLookup } from '@/lib/teamNormalization';
 
 type DraftRow = { key: string; value: string };
 type AliasMap = Record<string, string>;
@@ -63,13 +64,16 @@ export default function LeagueDataPanel({
     setScoresStatus('loading');
     setScoresError(undefined);
     try {
-      const res = await fetch(
-        `/api/scores?year=${year}&seasonType=regular`,
-        { cache: 'no-store' }
-      );
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        setScoresError(`Error ${res.status}${text ? `: ${text.slice(0, 120)}` : ''}`);
+      const [regularRes, postseasonRes] = await Promise.all([
+        fetch(`/api/scores?year=${year}&seasonType=regular`, { cache: 'no-store' }),
+        fetch(`/api/scores?year=${year}&seasonType=postseason`, { cache: 'no-store' }),
+      ]);
+      const failed = [
+        !regularRes.ok ? `regular ${regularRes.status}` : null,
+        !postseasonRes.ok ? `postseason ${postseasonRes.status}` : null,
+      ].filter(Boolean);
+      if (failed.length > 0) {
+        setScoresError(`Error: ${failed.join(', ')}`);
         setScoresStatus('error');
         return;
       }
@@ -114,7 +118,7 @@ export default function LeagueDataPanel({
       const map = Object.fromEntries(
         aliasDraft
           .filter((r) => r.key.trim() && r.value.trim())
-          .map((r) => [r.key.trim(), r.value.trim()])
+          .map((r) => [normalizeAliasLookup(r.key.trim()), r.value.trim()])
       );
       const res = await fetch(
         `/api/aliases?league=${encodeURIComponent(slug)}&year=${year}`,
