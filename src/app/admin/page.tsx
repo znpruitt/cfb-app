@@ -23,7 +23,7 @@ const platformCards = [
   {
     href: '/admin/data/cache',
     title: 'Data Cache',
-    desc: 'SP+ ratings, win totals, historical schedule and scores',
+    desc: 'SP+ ratings, win totals, schedule, scores, historical data',
   },
 ];
 
@@ -91,7 +91,7 @@ export default async function AdminPage() {
                   {league.slug}
                 </span>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 {commissionerTools.map((tool) => {
                   const href =
                     tool.key === 'draft'

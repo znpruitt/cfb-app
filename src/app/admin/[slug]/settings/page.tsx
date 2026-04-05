@@ -1,13 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import LeagueDataPanel from '@/components/admin/LeagueDataPanel';
-import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
+import LeagueSettingsForm from '@/components/admin/LeagueSettingsForm';
 import { getLeague } from '@/lib/leagueRegistry';
 
 export const dynamic = 'force-dynamic';
 
-export default async function AdminLeagueDataPage({
+export default async function AdminLeagueSettingsPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -27,11 +26,14 @@ export default async function AdminLeagueDataPage({
           ← {league.displayName}
         </Link>
         <h1 className="text-2xl font-semibold text-zinc-100">
-          {league.displayName} — Data
+          {league.displayName} — Settings
         </h1>
       </div>
-      <LeagueStatusPanel slug={slug} year={league.year} />
-      <LeagueDataPanel slug={slug} year={league.year} />
+      <LeagueSettingsForm
+        slug={slug}
+        initialDisplayName={league.displayName}
+        initialYear={league.year}
+      />
     </main>
   );
 }

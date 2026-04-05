@@ -20,7 +20,12 @@ const tools = [
   {
     key: 'data',
     title: 'Data',
-    desc: 'Refresh data and manage team aliases',
+    desc: 'Manage league status and team aliases',
+  },
+  {
+    key: 'settings',
+    title: 'Settings',
+    desc: 'Edit league display name and season year',
   },
 ] as const;
 
@@ -50,7 +55,7 @@ export default async function AdminLeaguePage({
           const href =
             tool.key === 'draft'
               ? `/league/${league.slug}/draft/setup`
-              : `/admin/${league.slug}/${tool.key}`;
+              : `/admin/${slug}/${tool.key}`;
           return (
             <Link
               key={tool.key}
