@@ -25,7 +25,7 @@ export default function AdminTeamDatabasePanel(): React.ReactElement {
   return (
     <details>
       <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-zinc-300">
-        Admin diagnostics: team database
+        Team Database
       </summary>
       <div className="mt-3 space-y-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm dark:border-zinc-700 dark:bg-zinc-900">
         <p className="text-xs text-gray-600 dark:text-zinc-400">

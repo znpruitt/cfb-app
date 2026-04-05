@@ -81,9 +81,9 @@ export default function HistoricalCachePanel({ leagues }: Props) {
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-5 space-y-4">
       <div>
-        <h2 className="text-base font-semibold text-zinc-100">Historical Data Cache</h2>
+        <h2 className="text-base font-medium text-zinc-100">Historical Data Cache</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Cache schedule and scores for past seasons. Required before backfilling historical archives.
+          Download and save schedule and score data for past seasons. Required before archiving historical seasons.
         </p>
       </div>
 

@@ -52,7 +52,7 @@ export default function AdminUsagePanel({
   return (
     <details className={className}>
       <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-zinc-300">
-        Admin diagnostics: API usage
+        API Usage
       </summary>
       <div className="mt-3 space-y-3 rounded border border-gray-200 bg-gray-50 p-3 text-sm dark:border-zinc-700 dark:bg-zinc-900">
         <p className="text-xs text-gray-600 dark:text-zinc-400">

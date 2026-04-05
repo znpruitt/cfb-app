@@ -87,6 +87,7 @@ const DEFAULT_SEASON = getDefaultRankingsSeason(
 type CFBScheduleAppProps = {
   surface?: 'league' | 'admin';
   leagueSlug?: string;
+  isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -199,6 +200,7 @@ export function resolveHighlightDrilldownNavigation(params: {
 export default function CFBScheduleApp({
   surface = 'league',
   leagueSlug,
+  isAdmin = false,
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
@@ -1081,7 +1083,31 @@ export default function CFBScheduleApp({
             </div>
           ) : null}
           <div>
-            <h1 className="text-lg font-bold sm:text-2xl">CFB League Dashboard</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold sm:text-2xl">CFB League Dashboard</h1>
+              {isAdmin && leagueSlug ? (
+                <Link
+                  href={`/admin/${leagueSlug}`}
+                  title="League settings"
+                  className="text-zinc-500 hover:text-zinc-200 transition-colors"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-5 w-5"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+                  </svg>
+                </Link>
+              ) : null}
+            </div>
             <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
               Track owner matchups, scores, and odds for the selected league view.
             </p>
