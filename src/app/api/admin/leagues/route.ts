@@ -2,6 +2,16 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, addLeague, isValidSlug } from '@/lib/leagueRegistry';
 import type { League } from '@/lib/league';
 
+/** Slugs that collide with static /admin/* routes and cannot be used for leagues. */
+const RESERVED_ADMIN_SLUGS = new Set([
+  'season',
+  'data',
+  'draft',
+  'diagnostics',
+  'leagues',
+  'cache',
+]);
+
 export async function GET(): Promise<Response> {
   const leagues = await getLeagues();
   return Response.json({ leagues });
@@ -33,6 +43,11 @@ export async function POST(req: Request): Promise<Response> {
   if (!isValidSlug(slug))
     return new Response(
       'slug must be lowercase alphanumeric words separated by hyphens (e.g. tsc, work-league)',
+      { status: 400 }
+    );
+  if (RESERVED_ADMIN_SLUGS.has(slug))
+    return new Response(
+      'Slug is reserved and cannot be used for a league. Choose a different slug.',
       { status: 400 }
     );
   if (!displayName) return new Response('displayName is required', { status: 400 });

@@ -9,6 +9,24 @@
 
 ## Completed phases / milestones
 
+### P6 — Clerk Auth Fixes and Admin Data Cleanup: Complete
+
+**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PRs #221–#227.
+**PROMPT_IDs:** P6A-CLERK-REQUIREMENTS-AUDIT-v1, P6A-CLERK-ROUTE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v2, P6A-CLERK-MIDDLEWARE-FIX-v3, P6A-CLERK-MIDDLEWARE-FIX-v4, P6A-CLERK-MIDDLEWARE-DEBUG-v1, P6B-ROSTER-UPLOAD-FIX-v1, P6B-ROSTER-UPLOAD-FIX-v2, P6B-ROSTER-UPLOAD-FIX-REVIEW-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-OWNER-COUNT-FIX-v1, P6C-OWNER-COUNT-FIX-v2, P6C-OWNER-COUNT-FIX-v3, P6C-OWNER-COUNT-DEBUG-v1, P6C-OWNER-COUNT-DEBUG-v2, P6C-OWNER-SCOPE-AUDIT-v1, P6C-DEBUG-CLEANUP-v1, P6-CLERK-FIXES-CLOSEOUT-v1
+
+**Key fixes and decisions:**
+- **Clerk session token requires explicit publicMetadata claim** — add via Configure → Sessions → Customize session token: `{ "publicMetadata": "{{user.public_metadata}}" }`. Must be done for both Dev and Prod instances. See `docs/phase-6-admin-auth-design.md` section 9.
+- **JWT templates are for third-party integrations only** — they do NOT affect middleware auth. Using a JWT template to expose `public_metadata` does not fix the session token. Delete any templates created for this purpose.
+- **`currentUser()` cannot be called in middleware** — use `auth()` and `sessionClaims.publicMetadata.role` only.
+- **Login page requires catch-all route at `[[...sign-in]]`** — multi-step Clerk auth flows (MFA, SSO) require a catch-all slug. A static `/login/page.tsx` will break after step 1.
+- **`routing="path"` and `path="/login"` props required** on the `<SignIn>` component to enable catch-all routing correctly.
+- **Owner count on landing page uses `seasonYearForToday()`** — not `league.year`. Matches league view behavior; owner CSV stored under `owners:${slug}:${year}` where year is the active CFB season year.
+- **Owner CSV scope is `owners:${slug}:${year}` with key `csv`** — year must match active season year. CSV uploaded without `?league=` query param goes to `owners:${year}` (wrong scope); always include `?league=${slug}`.
+- **Roster upload on `/admin/data`** uses full fuzzy-match validation pipeline — POST to `/api/owners/validate` first, review confirmed/needs-confirmation/no-match sections, then PUT resolved CSV to `/api/owners`. Confirmed matches saved as global aliases.
+- **`/admin/data` page organization** — `RosterUploadPanel` placed at top, before `HistoricalCachePanel`. Further cleanup deferred to future pass.
+
+---
+
 ### Phase 6 — Admin Cleanup and Auth (P6A–P6C): Complete
 
 **Status:** All subphases complete. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.

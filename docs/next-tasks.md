@@ -81,24 +81,31 @@ Replace manual CSV owner roster uploads with a live in-app draft tool for the co
 
 - **P5D — Draft Summary and Confirmation** ✅ Complete. PR #214 open. See `docs/completed-work.md`.
 
-## Phase 6 — Admin Cleanup and Auth ✅ Complete
+## Phase 6 — Admin Cleanup and Auth (active)
 
-All subphases (P6A–P6C) complete. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.
-See `docs/completed-work.md` for full record.
+P6A–P6C complete. P6D and P6E active. See `docs/completed-work.md` for full record.
 
-## Active queue: Phase 7 — Commissioner Self-Service
+## Active queue: Phase 6D — Admin UI Restructure
 
-### First tasks
+**P6D is a prerequisite for Phase 7 commissioner self-service.** The platform admin / commissioner bucket split must exist before access can be delegated to commissioners.
 
-- **Commissioner role enforcement** — protect `/league/[slug]/draft/*` routes for `platform_admin` or `commissioner` scoped to that league
-- **Commissioner self-registration** — invite link flow; commissioner creates account and receives shareable league URL
-- **League-scoped permissions** — enforce `leagues: [slug, ...]` in Clerk `publicMetadata` for commissioner role
-- **Member login** — personalized views for league members
-- **`ADMIN_API_TOKEN` removal** — remove fallback token path from `requireAdminAuth()` and all API routes; Clerk JWT only
+### P6D tasks
+
+- **Restructure `/admin` landing** — replace current flat layout with two clear sections:
+  - Platform Admin: rollover, league management, backfill, historical cache, SP+ cache, diagnostics
+  - Per-league Commissioner: one block per league in registry — roster editor, draft, win totals, data/aliases
+- **Design doc:** `docs/phase-6-admin-auth-design.md` section 10
+
+### P6E — Roster Editor (queued after P6D)
+
+- **Direct ownership map editing per league** — table of all FBS teams with current owner; inline edit; bulk reassign
+- **Writes to `owners:${slug}:${year}`** via existing `PUT /api/owners`
+- **No fuzzy matching** — owner names are free-form text
+- **Design doc:** `docs/phase-6-admin-auth-design.md` section 11
 
 ## Upcoming phases
 
-- **Phase 7 — Commissioner Self-Service:** Active next focus. See `docs/roadmap.md` for full scope.
+- **Phase 7 — Commissioner Self-Service:** After P6D and P6E. See `docs/roadmap.md` for full scope.
 - **Phase 8+:** Not scheduled. See `docs/roadmap.md`.
 
 ## Out of scope for this queue
