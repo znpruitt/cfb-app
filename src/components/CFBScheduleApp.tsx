@@ -1109,7 +1109,7 @@ export default function CFBScheduleApp({
 
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
-      <header className="flex flex-col gap-3">
+      <header className="flex flex-col gap-2">
         {isAdminSurface ? (
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
@@ -1117,9 +1117,16 @@ export default function CFBScheduleApp({
             </span>
           </div>
         ) : null}
-        {/* Row 1: league name + gear icon */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        {/*
+          Responsive layout:
+          Mobile  — flex-wrap: name+subtitle fills row 1 (flex-1), gear icon right on row 1,
+                    nav (w-full) wraps to row 2.
+          Desktop — md:flex-nowrap: name left, nav fills middle (md:flex-1), gear far right
+                    (md:order-last).
+        */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:flex-nowrap">
+          {/* League name + season subtitle */}
+          <div className="min-w-0 flex-1 md:flex-none">
             <h1 className="text-xl font-medium">
               {leagueDisplayName ??
                 (leagueSlug
@@ -1133,12 +1140,13 @@ export default function CFBScheduleApp({
               {selectedSeason} season
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          {/* Gear icon + back-to-league — right of name on mobile, far right on desktop */}
+          <div className="flex shrink-0 items-center gap-3 md:order-last">
             {isAdmin && leagueSlug ? (
               <Link
                 href={`/admin/${leagueSlug}`}
                 title="League settings"
-                className="flex-shrink-0 text-zinc-500 hover:text-zinc-200 transition-colors"
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -1165,64 +1173,64 @@ export default function CFBScheduleApp({
               </Link>
             ) : null}
           </div>
+          {/* Nav — full width on mobile (wraps to next row), fills middle on desktop */}
+          {!isAdminSurface ? (
+            <div className="w-full space-y-2 md:w-auto md:flex-1">
+              <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
+              {/* Matchups sub-nav */}
+              {(weekViewMode === 'matchups' ||
+                weekViewMode === 'schedule' ||
+                weekViewMode === 'matrix') ? (
+                <div className="flex flex-wrap gap-1">
+                  {(
+                    [
+                      { key: 'matchups', label: 'Matchups' },
+                      { key: 'schedule', label: 'Schedule' },
+                      { key: 'matrix', label: 'Matrix' },
+                    ] as const
+                  ).map((sub) => (
+                    <button
+                      key={sub.key}
+                      type="button"
+                      onClick={() => setWeekViewMode(sub.key)}
+                      className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                        weekViewMode === sub.key
+                          ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      }`}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {/* Standings sub-nav */}
+              {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
+                <div className="flex flex-wrap gap-1">
+                  {(
+                    [
+                      { key: 'standings', label: 'Standings' },
+                      { key: 'rankings', label: 'Rankings' },
+                    ] as const
+                  ).map((sub) => (
+                    <button
+                      key={sub.key}
+                      type="button"
+                      onClick={() => setWeekViewMode(sub.key)}
+                      className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                        weekViewMode === sub.key
+                          ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      }`}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-        {/* Row 2: nav tabs (non-admin surface only) */}
-        {!isAdminSurface ? (
-          <div className="space-y-2">
-            <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
-            {/* Matchups sub-nav */}
-            {(weekViewMode === 'matchups' ||
-              weekViewMode === 'schedule' ||
-              weekViewMode === 'matrix') ? (
-              <div className="flex flex-wrap gap-1">
-                {(
-                  [
-                    { key: 'matchups', label: 'Matchups' },
-                    { key: 'schedule', label: 'Schedule' },
-                    { key: 'matrix', label: 'Matrix' },
-                  ] as const
-                ).map((sub) => (
-                  <button
-                    key={sub.key}
-                    type="button"
-                    onClick={() => setWeekViewMode(sub.key)}
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                      weekViewMode === sub.key
-                        ? 'bg-gray-200 text-gray-900 dark:bg-zinc-700 dark:text-zinc-100'
-                        : 'text-gray-500 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300'
-                    }`}
-                  >
-                    {sub.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {/* Standings sub-nav */}
-            {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
-              <div className="flex flex-wrap gap-1">
-                {(
-                  [
-                    { key: 'standings', label: 'Standings' },
-                    { key: 'rankings', label: 'Rankings' },
-                  ] as const
-                ).map((sub) => (
-                  <button
-                    key={sub.key}
-                    type="button"
-                    onClick={() => setWeekViewMode(sub.key)}
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                      weekViewMode === sub.key
-                        ? 'bg-gray-200 text-gray-900 dark:bg-zinc-700 dark:text-zinc-100'
-                        : 'text-gray-500 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300'
-                    }`}
-                  >
-                    {sub.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
       </header>
 
       {/* Draft banner — contextual, non-admin league surface only */}
@@ -1381,7 +1389,12 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
-          {!isAdminSurface ? (
+          {!isAdminSurface &&
+          ((loadingSchedule && !scheduleLoaded) ||
+            loadingLive ||
+            (!loadingLive && visibleGames.length > 0 && visibleScoresCount < visibleGames.length) ||
+            (!loadingLive && oddsAvailabilitySummary != null) ||
+            userFacingLiveIssues.length > 0) ? (
             <section className="space-y-1">
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {loadingSchedule && !scheduleLoaded ? (
