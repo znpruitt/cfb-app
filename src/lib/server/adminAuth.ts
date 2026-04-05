@@ -66,11 +66,11 @@ function buildAdminAuthFailure(req: Request): { error: string; detail: string } 
  * TODO Phase 7: remove ADMIN_API_TOKEN fallback once all clients use Clerk.
  */
 export async function requireAdminAuth(req: Request): Promise<Response | null> {
-  // 1. Try Clerk session — requires publicMetadata.role === 'platform_admin'
+  // 1. Try Clerk session — requires public_metadata.role === 'platform_admin'
   try {
     const { userId, sessionClaims } = await auth();
     if (userId) {
-      const role = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+      const role = (sessionClaims?.public_metadata as Record<string, unknown> | undefined)?.role;
       if (role === 'platform_admin') return null;
     }
   } catch {
