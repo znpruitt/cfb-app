@@ -1175,7 +1175,7 @@ export default function CFBScheduleApp({
           </div>
           {/* Nav — full width on mobile (wraps to next row), fills middle on desktop */}
           {!isAdminSurface ? (
-            <div className="w-full space-y-2 md:w-auto md:flex-1">
+            <div className="w-full space-y-2 md:flex md:w-auto md:flex-1 md:flex-col md:items-end">
               <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
               {/* Matchups sub-nav */}
               {(weekViewMode === 'matchups' ||

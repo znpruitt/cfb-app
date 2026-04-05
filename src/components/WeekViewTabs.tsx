@@ -43,7 +43,7 @@ export default function WeekViewTabs({
 
   return (
     <div style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
-    <div className="flex min-w-max items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-700">
+    <div className="inline-flex items-center gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-700">
       {(
         [
           { key: 'overview', label: 'Overview' },
