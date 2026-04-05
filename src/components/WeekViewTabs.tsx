@@ -42,7 +42,7 @@ export default function WeekViewTabs({
   const current = canonicalTab(value);
 
   return (
-    <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
     <div className="flex min-w-max items-center gap-1 rounded-lg bg-gray-100 p-1 dark:bg-zinc-800">
       {(
         [

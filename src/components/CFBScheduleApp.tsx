@@ -1415,45 +1415,42 @@ export default function CFBScheduleApp({
             </section>
           ) : null}
 
-          <section className="space-y-4 rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-
-            {!isSeasonScopedView ? (
-              <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-                {selectedTab === 'postseason' ? (
-                  <>
-                    <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
-                    game
-                    {postseasonGames.length === 1 ? '' : 's'} shown
-                  </>
-                ) : (
-                  <>
-                    <span className="font-semibold">Week {activeWeekForDisplay}</span>
-                    {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
-                      <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
-                    ) : null}{' '}
-                    {weekViewMode === 'matchups' ? (
-                      <>
-                        · {renderedMatchupCardCount} matchup card
-                        {renderedMatchupCardCount === 1 ? '' : 's'} shown
-                        {matchupSections.otherGames.length > 0 ? (
-                          <>
-                            {' '}
-                            · {matchupSections.otherGames.length} other game
-                            {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
-                          </>
-                        ) : null}
-                      </>
-                    ) : (
-                      <>
-                        · {filteredWeekGames.length} matchup
-                        {filteredWeekGames.length === 1 ? '' : 's'} shown
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            ) : null}
-          </section>
+          {!isSeasonScopedView ? (
+            <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
+              {selectedTab === 'postseason' ? (
+                <>
+                  <span className="font-semibold">Postseason</span> · {postseasonGames.length}{' '}
+                  game
+                  {postseasonGames.length === 1 ? '' : 's'} shown
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">Week {activeWeekForDisplay}</span>
+                  {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
+                    <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
+                  ) : null}{' '}
+                  {weekViewMode === 'matchups' ? (
+                    <>
+                      · {renderedMatchupCardCount} matchup card
+                      {renderedMatchupCardCount === 1 ? '' : 's'} shown
+                      {matchupSections.otherGames.length > 0 ? (
+                        <>
+                          {' '}
+                          · {matchupSections.otherGames.length} other game
+                          {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      · {filteredWeekGames.length} matchup
+                      {filteredWeekGames.length === 1 ? '' : 's'} shown
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
 
           {shouldShowWeekControls ? (
             <WeekControls
