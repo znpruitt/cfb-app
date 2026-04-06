@@ -125,17 +125,6 @@ function formatMetricValue(metric: MetricKind, value: number): string {
   return value.toFixed(1);
 }
 
-function formatMetricLabelValue(metric: MetricKind, value: number | null): string {
-  if (value == null) return '—';
-  return formatMetricValue(metric, value);
-}
-
-function formatLabelOwnerName(ownerName: string): string {
-  const maxLength = 10;
-  if (ownerName.length <= maxLength) return ownerName;
-  return `${ownerName.slice(0, maxLength - 1)}…`;
-}
-
 function formatSignedMetricValue(metric: MetricKind, value: number): string {
   const base = formatMetricValue(metric, Math.abs(value));
   if (value > 0) return `+${base}`;
