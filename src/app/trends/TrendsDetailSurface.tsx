@@ -500,6 +500,7 @@ function SharedTrendChart({
   multiSelectedOwnerIds,
   onMultiSelectToggle,
   hideLegend = false,
+  hideTitle = false,
   externalHoveredOwnerId,
   onHoverChange,
 }: {
@@ -516,6 +517,7 @@ function SharedTrendChart({
   multiSelectedOwnerIds?: Set<string>;
   onMultiSelectToggle?: (ownerId: string) => void;
   hideLegend?: boolean;
+  hideTitle?: boolean;
   externalHoveredOwnerId?: string | null;
   onHoverChange?: (ownerId: string | null) => void;
 }): React.ReactElement {
@@ -529,9 +531,11 @@ const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
   if (rows.length === 0) {
     return (
       <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-          {title}
-        </h2>
+        {!hideTitle ? (
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+            {title}
+          </h2>
+        ) : null}
         <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
           No trend data available yet.
         </p>
@@ -665,9 +669,11 @@ const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
   }, [chartWidth]);
   return (
     <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-        {title}
-      </h2>
+      {!hideTitle ? (
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+          {title}
+        </h2>
+      ) : null}
 
       <div
         ref={containerRef}
@@ -982,6 +988,7 @@ export default function TrendsDetailSurface({
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
   const [selectedOwnerSet, setSelectedOwnerSet] = React.useState<Set<string>>(() => new Set());
   const [focusMode, setFocusMode] = React.useState<FocusMode>('all');
+  const [activeMetric, setActiveMetric] = React.useState<MetricKind>('games-back');
   const [viewportWidth, setViewportWidth] = React.useState(() =>
     typeof window === 'undefined' ? 1024 : window.innerWidth
   );
@@ -1219,41 +1226,77 @@ export default function TrendsDetailSurface({
         <p className="text-xs text-gray-500 dark:text-zinc-400">Click lines to compare</p>
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        <SharedTrendChart
-          title="Games Back"
-          metric="games-back"
-          rows={gamesBackRows}
-          focusedOwnerIds={focusedOwnerIdSet}
-          selectedOwnerId={selectedOwnerId}
-          viewportWidth={viewportWidth}
-          onSelectOwner={handleOwnerToggle}
-          getOwnerTrendColor={getOwnerTrendColor}
-          focusMode={focusMode}
-          multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
-          onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
-          hideLegend={isControlled}
-          externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
-          onHoverChange={isControlled ? onExternalHoverChange : undefined}
-        />
+      <div>
+        <nav
+          className="mb-3 flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700"
+          aria-label="Chart metric tabs"
+        >
+          {(
+            [
+              { metric: 'games-back' as MetricKind, label: 'Games Back' },
+              { metric: 'win-pct' as MetricKind, label: 'Win %' },
+            ] as const
+          ).map(({ metric: m, label }) => {
+            const isActive = activeMetric === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveMetric(m)}
+                className={`pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-[1.5px] ${
+                  isActive
+                    ? 'border-gray-800 text-gray-900 dark:border-zinc-100 dark:text-zinc-100'
+                    : 'border-transparent text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300'
+                }`}
+                data-chart-tab={m}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </nav>
 
-        <SharedTrendChart
-          title="Win %"
-          metric="win-pct"
-          rows={winPctRows}
-          focusedOwnerIds={focusedOwnerIdSet}
-          selectedOwnerId={selectedOwnerId}
-          viewportWidth={viewportWidth}
-          onSelectOwner={handleOwnerToggle}
-          getOwnerTrendColor={getOwnerTrendColor}
-          heightScale={0.62}
-          focusMode={focusMode}
-          multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
-          onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
-          hideLegend={isControlled}
-          externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
-          onHoverChange={isControlled ? onExternalHoverChange : undefined}
-        />
+        {activeMetric === 'games-back' ? (
+          <SharedTrendChart
+            title="Games Back"
+            metric="games-back"
+            rows={gamesBackRows}
+            focusedOwnerIds={focusedOwnerIdSet}
+            selectedOwnerId={selectedOwnerId}
+            viewportWidth={viewportWidth}
+            onSelectOwner={handleOwnerToggle}
+            getOwnerTrendColor={getOwnerTrendColor}
+            heightScale={1.6}
+            focusMode={focusMode}
+            multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+            onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+            hideLegend={isControlled}
+            hideTitle
+            externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+            onHoverChange={isControlled ? onExternalHoverChange : undefined}
+          />
+        ) : (
+          <SharedTrendChart
+            title="Win %"
+            metric="win-pct"
+            rows={winPctRows}
+            focusedOwnerIds={focusedOwnerIdSet}
+            selectedOwnerId={selectedOwnerId}
+            viewportWidth={viewportWidth}
+            onSelectOwner={handleOwnerToggle}
+            getOwnerTrendColor={getOwnerTrendColor}
+            heightScale={1.6}
+            focusMode={focusMode}
+            multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+            onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+            hideLegend={isControlled}
+            hideTitle
+            externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+            onHoverChange={isControlled ? onExternalHoverChange : undefined}
+          />
+        )}
       </div>
 
       {showMomentum ? (
