@@ -121,14 +121,23 @@ export default function StandingsPanel({
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
   const [hoveredOwner, setHoveredOwner] = React.useState<string | null>(null);
   const [selectedOwnerSet, setSelectedOwnerSet] = React.useState<Set<string>>(() => new Set());
-  const movementByOwner = React.useMemo(
-    () =>
-      deriveStandingsMovementByOwner({
-        rows,
-        standingsHistory,
-      }),
-    [rows, standingsHistory]
-  );
+  const movementByOwner = React.useMemo(() => {
+    const filteredHistory: StandingsHistory | null = standingsHistory
+      ? {
+          ...standingsHistory,
+          byWeek: Object.fromEntries(
+            Object.entries(standingsHistory.byWeek).map(([week, snapshot]) => [
+              week,
+              { ...snapshot, standings: snapshot.standings.filter((s) => s.owner !== 'NoClaim') },
+            ])
+          ),
+        }
+      : null;
+    return deriveStandingsMovementByOwner({
+      rows: visibleRows,
+      standingsHistory: filteredHistory,
+    });
+  }, [visibleRows, standingsHistory]);
   const standingsInsights = React.useMemo(
     () =>
       deriveStandingsInsights(
