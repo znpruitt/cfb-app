@@ -613,7 +613,7 @@ const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
     weekCount: weeks.length,
     pxPerWeek,
   });
-  const totalChartWidth = chartWidth;
+  const totalChartWidth = chartWidth + 32;
   const leaderIds = resolveLeaderIds(metric, rows);
   const topOwnerIds = React.useMemo(
     () =>
@@ -766,7 +766,7 @@ const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
                       fill="currentColor"
                       opacity={0.7}
                     >
-                      {tick.label}
+                      {tick.value === weeks[weeks.length - 1] ? 'Final' : tick.label}
                     </text>
                   </g>
                 );
@@ -1219,40 +1219,42 @@ export default function TrendsDetailSurface({
         <p className="text-xs text-gray-500 dark:text-zinc-400">Click lines to compare</p>
       ) : null}
 
-      <SharedTrendChart
-        title="Games Back"
-        metric="games-back"
-        rows={gamesBackRows}
-        focusedOwnerIds={focusedOwnerIdSet}
-        selectedOwnerId={selectedOwnerId}
-        viewportWidth={viewportWidth}
-        onSelectOwner={handleOwnerToggle}
-        getOwnerTrendColor={getOwnerTrendColor}
-        focusMode={focusMode}
-        multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
-        onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
-        hideLegend={isControlled}
-        externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
-        onHoverChange={isControlled ? onExternalHoverChange : undefined}
-      />
+      <div className="flex flex-col gap-2">
+        <SharedTrendChart
+          title="Games Back"
+          metric="games-back"
+          rows={gamesBackRows}
+          focusedOwnerIds={focusedOwnerIdSet}
+          selectedOwnerId={selectedOwnerId}
+          viewportWidth={viewportWidth}
+          onSelectOwner={handleOwnerToggle}
+          getOwnerTrendColor={getOwnerTrendColor}
+          focusMode={focusMode}
+          multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+          onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+          hideLegend={isControlled}
+          externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+          onHoverChange={isControlled ? onExternalHoverChange : undefined}
+        />
 
-      <SharedTrendChart
-        title="Win %"
-        metric="win-pct"
-        rows={winPctRows}
-        focusedOwnerIds={focusedOwnerIdSet}
-        selectedOwnerId={selectedOwnerId}
-        viewportWidth={viewportWidth}
-        onSelectOwner={handleOwnerToggle}
-        getOwnerTrendColor={getOwnerTrendColor}
-        heightScale={0.62}
-        focusMode={focusMode}
-        multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
-        onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
-        hideLegend={isControlled}
-        externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
-        onHoverChange={isControlled ? onExternalHoverChange : undefined}
-      />
+        <SharedTrendChart
+          title="Win %"
+          metric="win-pct"
+          rows={winPctRows}
+          focusedOwnerIds={focusedOwnerIdSet}
+          selectedOwnerId={selectedOwnerId}
+          viewportWidth={viewportWidth}
+          onSelectOwner={handleOwnerToggle}
+          getOwnerTrendColor={getOwnerTrendColor}
+          heightScale={0.62}
+          focusMode={focusMode}
+          multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+          onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+          hideLegend={isControlled}
+          externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+          onHoverChange={isControlled ? onExternalHoverChange : undefined}
+        />
+      </div>
 
       {showMomentum ? (
         <section
