@@ -65,7 +65,6 @@ export default function RankingsPageContent({
   loading,
   error,
   season,
-  leagueSlug: _leagueSlug,
 }: RankingsPageContentProps): React.ReactElement {
   const weeks = allWeeks.length > 0 ? allWeeks : latestWeek ? [latestWeek] : [];
   const [selectedWeekIndex, setSelectedWeekIndex] = React.useState<number | null>(null);
