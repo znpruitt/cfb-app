@@ -896,7 +896,7 @@ function SharedTrendChart({
                 });
               })}
 
-              {responsiveLayout.showRightEdgeLabels
+              {responsiveLayout.showRightEdgeLabels && metric !== 'win-pct'
                 ? endpointLabels.map((labelPlacement) => {
                     const visualState = resolveChartVisualState({
                       ownerId: labelPlacement.owner,
@@ -1004,16 +1004,29 @@ function SharedTrendChart({
       <ul className="mt-3 grid gap-1.5 text-xs text-gray-700 dark:text-zinc-300 sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((row) => {
           if (!focusedOwnerIds.has(row.ownerId)) return null;
-          const visualState = resolveOwnerVisualState({
+          // Use the unified resolveChartVisualState so legend and chart
+          // respond to the same hoveredOwnerId / selectedOwnerId state.
+          const visualState = resolveChartVisualState({
             ownerId: row.ownerId,
             selectedOwnerId,
-            focusMode: 'all',
+            hoveredOwnerId,
+            focusMode: selectedOwnerId ? 'selected' : 'all',
             topOwnerIds: new Set(),
           });
+          const isLocked = selectedOwnerId === row.ownerId;
+          const isHoverHighlighted = hoveredOwnerId === row.ownerId && selectedOwnerId == null;
           return (
             <li
               key={`${metric}-legend-${row.ownerId}`}
-              className={`rounded-md border px-2 py-1 ${visualState.selected ? 'border-blue-300 bg-blue-100/80 ring-1 ring-blue-300 dark:border-blue-600 dark:bg-blue-950/40 dark:ring-blue-500' : 'border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900'} ${visualState.muted ? 'opacity-35' : ''}`}
+              className={`rounded-md border px-2 py-1 transition-opacity ${
+                isLocked
+                  ? 'border-blue-300 bg-blue-100/80 ring-1 ring-blue-300 dark:border-blue-600 dark:bg-blue-950/40 dark:ring-blue-500'
+                  : isHoverHighlighted
+                    ? 'border-gray-300 bg-gray-100 dark:border-zinc-600 dark:bg-zinc-800'
+                    : 'border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900'
+              } ${visualState.muted ? 'opacity-20' : ''}`}
+              onMouseEnter={() => setHoveredOwnerId(row.ownerId)}
+              onMouseLeave={() => setHoveredOwnerId(null)}
             >
               <button
                 type="button"
