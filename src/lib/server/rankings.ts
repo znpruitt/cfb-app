@@ -207,16 +207,29 @@ export async function loadSeasonRankings(
     aliasMap: SEED_ALIASES,
     teams: (teamsCatalog.items ?? []) as TeamCatalogItem[],
   });
-  const url = buildCfbdRankingsUrl({ year: season });
-  const data = await fetchUpstreamJson<CfbdPollWeek[]>(url.toString(), {
-    cache: 'no-store',
+  const fetchOpts = {
+    cache: 'no-store' as const,
     timeoutMs: 12_000,
     headers: { Authorization: `Bearer ${cfbdApiKey}` },
     retry: CFBD_RETRY_POLICY,
     pacing: CFBD_PACING_POLICY,
-  });
+  };
 
-  const weeks = normalizeCfbdRankingsWeeks(data ?? [], resolver);
+  const [regularData, postseasonData] = await Promise.all([
+    fetchUpstreamJson<CfbdPollWeek[]>(
+      buildCfbdRankingsUrl({ year: season, seasonType: 'regular' }).toString(),
+      fetchOpts,
+    ),
+    fetchUpstreamJson<CfbdPollWeek[]>(
+      buildCfbdRankingsUrl({ year: season, seasonType: 'postseason' }).toString(),
+      fetchOpts,
+    ),
+  ]);
+
+  const weeks = normalizeCfbdRankingsWeeks(
+    [...(regularData ?? []), ...(postseasonData ?? [])],
+    resolver,
+  );
 
   const response: RankingsResponse = {
     weeks,
