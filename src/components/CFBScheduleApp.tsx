@@ -1553,6 +1553,7 @@ export default function CFBScheduleApp({
               ) : primarySurfaceKind === 'rankings' ? (
                 <RankingsPageContent
                   latestWeek={rankings?.latestWeek ?? null}
+                  allWeeks={rankings?.weeks ?? []}
                   loading={rankings === null}
                   error={
                     issues

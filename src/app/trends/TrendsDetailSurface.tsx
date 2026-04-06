@@ -370,17 +370,27 @@ export function deriveEndpointLabelLayout(params: {
     );
     const doglegX = labelX - Math.max(8, Math.min(20, laneWidth * 0.22));
     const connectorStartX = Math.max(0, Math.min(entry.endpointX + 2, doglegX - 2));
+    // Exit the chart horizontally before bending toward the staggered label Y,
+    // so that clustered lines fan out cleanly rather than crossing diagonally.
+    const exitX = Math.min(chartWidth + 4, doglegX - 4);
     return {
       ...entry,
       lane,
       labelX,
       labelY,
       estimatedWidth,
-      connectorPoints: [
-        { x: connectorStartX, y: entry.endpointY },
-        { x: doglegX, y: labelY },
-        { x: labelX - 2, y: labelY },
-      ],
+      connectorPoints:
+        Math.abs(labelY - entry.endpointY) > 2
+          ? [
+              { x: connectorStartX, y: entry.endpointY },
+              { x: exitX, y: entry.endpointY },
+              { x: doglegX, y: labelY },
+              { x: labelX - 2, y: labelY },
+            ]
+          : [
+              { x: connectorStartX, y: entry.endpointY },
+              { x: labelX - 2, y: labelY },
+            ],
     };
   });
 }
@@ -950,6 +960,7 @@ export default function TrendsDetailSurface({
   const momentum = standingsHistory ? selectOwnerMomentum({ standingsHistory, windowSize: 3 }) : [];
 
   const gamesBackRows: TrendRowData[] = gamesBackTrend
+    .filter((entry) => entry.ownerId !== 'NoClaim')
     .map((entry) => ({
       ownerId: entry.ownerId,
       ownerName: entry.ownerName,
@@ -964,6 +975,7 @@ export default function TrendsDetailSurface({
     });
 
   const winPctRows: TrendRowData[] = winPctTrend
+    .filter((entry) => entry.ownerId !== 'NoClaim')
     .map((entry) => ({
       ownerId: entry.ownerId,
       ownerName: entry.ownerName,
@@ -1144,7 +1156,7 @@ export default function TrendsDetailSurface({
         </div>
       </section>
 
-      <p className="text-xs text-gray-500 dark:text-zinc-400">Click bars to compare</p>
+      <p className="text-xs text-gray-500 dark:text-zinc-400">Click lines to compare</p>
 
       <SharedTrendChart
         title="Games Back"

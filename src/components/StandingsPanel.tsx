@@ -51,7 +51,7 @@ export function scrollFocusedStandingsOwnerIntoView(params: {
 }
 
 function formatWinPct(value: number): string {
-  return value.toFixed(3);
+  return value.toFixed(3).replace(/^0/, '');
 }
 
 function formatGamesBack(value: number): string {
@@ -109,6 +109,7 @@ export default function StandingsPanel({
   trendIssues = [],
   initialSubview = 'table',
 }: StandingsPanelProps): React.ReactElement {
+  const showMoveColumn = seasonContext !== 'final';
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
   const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
@@ -194,7 +195,7 @@ export default function StandingsPanel({
                   >
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-                        {['Rank', 'Move', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
+                        {['Rank', ...(showMoveColumn ? ['Move'] : []), 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
                           (label) => {
                             const isNumericMetric =
                               label === 'PF' ||
@@ -248,14 +249,16 @@ export default function StandingsPanel({
                             <td className="w-[2.8rem] border-b border-gray-100 px-1.5 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
                               {index + 1}
                             </td>
-                            <td
-                              className={`w-[2.8rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-xs font-semibold tabular-nums sm:px-2 dark:border-zinc-800 ${movementPresentation.className}`}
-                              title={movementPresentation.label}
-                              aria-label={movementPresentation.label}
-                              data-standings-move={movementPresentation.text}
-                            >
-                              {movementPresentation.text}
-                            </td>
+                            {showMoveColumn ? (
+                              <td
+                                className={`w-[2.8rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-xs font-semibold tabular-nums sm:px-2 dark:border-zinc-800 ${movementPresentation.className}`}
+                                title={movementPresentation.label}
+                                aria-label={movementPresentation.label}
+                                data-standings-move={movementPresentation.text}
+                              >
+                                {movementPresentation.text}
+                              </td>
+                            ) : null}
                             <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-2 dark:border-zinc-800 dark:text-zinc-50">
                               <div className="min-w-[8rem] truncate sm:min-w-0">
                                 {onOwnerSelect ? (
@@ -283,7 +286,7 @@ export default function StandingsPanel({
                             <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
                               {row.pointsAgainst}
                             </td>
-                            <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className={`w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums sm:px-2 dark:border-zinc-800 ${row.pointDifferential > 0 ? 'text-emerald-700 dark:text-emerald-400' : row.pointDifferential < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-gray-500 dark:text-zinc-400'}`}>
                               {formatDiff(row.pointDifferential)}
                             </td>
                             <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
