@@ -519,7 +519,18 @@ function SharedTrendChart({
     );
   }
 
-  const geometry = buildSharedChartGeometry(rows);
+  const rawGeometry = buildSharedChartGeometry(rows);
+  // For Win %, pad the domain by 3 percentage points and clamp to [0, 1] so the
+  // chart hugs the actual data range instead of spanning the full 0–1 axis when
+  // early-season 1-0/0-1 records push valueMin/Max to extremes.
+  const geometry =
+    rawGeometry && metric === 'win-pct'
+      ? {
+          ...rawGeometry,
+          valueMin: Math.max(0, rawGeometry.valueMin - 0.03),
+          valueMax: Math.min(1, rawGeometry.valueMax + 0.03),
+        }
+      : rawGeometry;
   const invertYAxis = metric === 'games-back';
   const weeks = Array.from(
     new Set(rows.flatMap((row) => row.points.map((point) => point.week)))
