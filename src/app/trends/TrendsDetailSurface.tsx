@@ -521,8 +521,7 @@ function SharedTrendChart({
 }): React.ReactElement {
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
   const [hoveredOwnerId, setHoveredOwnerId] = React.useState<string | null>(null);
-  const [hoveredWeek, setHoveredWeek] = React.useState<number | null>(null);
-  const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
+const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const hasScrolledRef = React.useRef(false);
   const [containerWidth, setContainerWidth] = React.useState(0);
@@ -674,7 +673,7 @@ function SharedTrendChart({
         ref={containerRef}
         data-trend-scroll-container={metric}
         className={`mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white ${responsiveLayout.chartPaddingClass} dark:border-zinc-700 dark:bg-zinc-900`}
-        onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); setHoveredWeek(null); }}
+        onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); }}
       >
         {focusMode === 'selected' && focusedOwnerIds.size === 0 ? (
           <div
@@ -719,7 +718,7 @@ function SharedTrendChart({
                   />
                 );
               })}
-              {/* Per-week invisible hit zones for hoveredWeek — spans full column width */}
+              {/* Per-week invisible hit zones — spans full column width */}
               {weeks.map((week) => {
                 const x =
                   ((week - geometry.weekMin) /
@@ -736,8 +735,6 @@ function SharedTrendChart({
                     fill="transparent"
                     pointerEvents="all"
                     style={{ cursor: 'crosshair' }}
-                    onMouseEnter={() => setHoveredWeek(week)}
-                    onMouseLeave={() => setHoveredWeek(null)}
                     data-week-hit-zone={week}
                   />
                 );
@@ -752,8 +749,6 @@ function SharedTrendChart({
                     key={`${metric}-tick-${tick.value}`}
                     data-week-tick={tick.label}
                     style={{ cursor: 'crosshair' }}
-                    onMouseEnter={() => setHoveredWeek(tick.value)}
-                    onMouseLeave={() => setHoveredWeek(null)}
                   >
                     <line
                       x1={x}
@@ -887,16 +882,14 @@ function SharedTrendChart({
                           setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
                           setHoveredOwnerId(row.ownerId);
                           onHoverChange?.(row.ownerId);
-                          setHoveredWeek(point.week);
                         }}
-                        onMouseLeave={() => { setHoverState(null); setHoveredOwnerId(null); onHoverChange?.(null); setHoveredWeek(null); }}
+                        onMouseLeave={() => { setHoverState(null); setHoveredOwnerId(null); onHoverChange?.(null); }}
                         onClick={() => {
                           setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
                         }}
                         onTouchStart={() => {
                           setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
                           setHoveredOwnerId(row.ownerId);
-                          setHoveredWeek(point.week);
                         }}
                       />
                       <circle
