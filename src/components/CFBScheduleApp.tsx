@@ -1175,59 +1175,8 @@ export default function CFBScheduleApp({
           </div>
           {/* Nav — full width on mobile (wraps to next row), fills middle on desktop */}
           {!isAdminSurface ? (
-            <div className="w-full space-y-2 md:flex md:w-auto md:flex-1 md:flex-col md:items-end">
+            <div className="w-full md:flex md:w-auto md:flex-1 md:flex-col md:items-end">
               <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
-              {/* Matchups sub-nav */}
-              {(weekViewMode === 'matchups' ||
-                weekViewMode === 'schedule' ||
-                weekViewMode === 'matrix') ? (
-                <div className="flex flex-wrap gap-1">
-                  {(
-                    [
-                      { key: 'matchups', label: 'Matchups' },
-                      { key: 'schedule', label: 'Schedule' },
-                      { key: 'matrix', label: 'Matrix' },
-                    ] as const
-                  ).map((sub) => (
-                    <button
-                      key={sub.key}
-                      type="button"
-                      onClick={() => setWeekViewMode(sub.key)}
-                      className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                        weekViewMode === sub.key
-                          ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300'
-                      }`}
-                    >
-                      {sub.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {/* Standings sub-nav */}
-              {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
-                <div className="flex flex-wrap gap-1">
-                  {(
-                    [
-                      { key: 'standings', label: 'Standings' },
-                      { key: 'rankings', label: 'Rankings' },
-                    ] as const
-                  ).map((sub) => (
-                    <button
-                      key={sub.key}
-                      type="button"
-                      onClick={() => setWeekViewMode(sub.key)}
-                      className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                        weekViewMode === sub.key
-                          ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300'
-                      }`}
-                    >
-                      {sub.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
           ) : null}
         </div>
@@ -1490,6 +1439,57 @@ export default function CFBScheduleApp({
 
           {shouldRenderPrimaryView && (
             <section className="space-y-3">
+              {/* Standings section inline sub-view tabs */}
+              {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
+                <nav className="flex gap-6 border-b border-zinc-700">
+                  {(
+                    [
+                      { key: 'standings', label: 'League Table' },
+                      { key: 'rankings', label: 'FBS Polls' },
+                    ] as const
+                  ).map((sub) => (
+                    <button
+                      key={sub.key}
+                      type="button"
+                      onClick={() => setWeekViewMode(sub.key)}
+                      className={`pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2 ${
+                        weekViewMode === sub.key
+                          ? 'border-white/90 text-white/95'
+                          : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </nav>
+              ) : null}
+              {/* Matchups section inline sub-view tabs */}
+              {(weekViewMode === 'matchups' ||
+                weekViewMode === 'schedule' ||
+                weekViewMode === 'matrix') ? (
+                <nav className="flex gap-6 border-b border-zinc-700">
+                  {(
+                    [
+                      { key: 'matchups', label: 'Matchups' },
+                      { key: 'schedule', label: 'Schedule' },
+                      { key: 'matrix', label: 'Matrix' },
+                    ] as const
+                  ).map((sub) => (
+                    <button
+                      key={sub.key}
+                      type="button"
+                      onClick={() => setWeekViewMode(sub.key)}
+                      className={`pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2 ${
+                        weekViewMode === sub.key
+                          ? 'border-white/90 text-white/95'
+                          : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </nav>
+              ) : null}
               {primarySurfaceKind === 'overview' ? (
                 <OverviewPanel
                   games={games}
