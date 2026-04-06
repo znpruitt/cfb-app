@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
+import { buildOwnerColorMap, getOwnerColor } from '../app/trends/presentationColors';
 import {
   deriveLeagueInsights,
   deriveStandingsInsights,
@@ -51,7 +52,7 @@ export function scrollFocusedStandingsOwnerIntoView(params: {
 }
 
 function formatWinPct(value: number): string {
-  return value.toFixed(3);
+  return value.toFixed(3).replace(/^0/, '');
 }
 
 function formatGamesBack(value: number): string {
@@ -60,6 +61,10 @@ function formatGamesBack(value: number): string {
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
+}
+
+function withColorAlpha(hslColor: string, alpha: number): string {
+  return hslColor.replace(/^hsl\(/, 'hsla(').replace(/\)$/, `, ${alpha})`);
 }
 
 function deriveMovementPresentation(rankDelta: number | null): {
@@ -109,17 +114,30 @@ export default function StandingsPanel({
   trendIssues = [],
   initialSubview = 'table',
 }: StandingsPanelProps): React.ReactElement {
+  const showMoveColumn = seasonContext !== 'final';
+  const visibleRows = React.useMemo(() => rows.filter((r) => r.owner !== 'NoClaim'), [rows]);
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
   const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
-  const movementByOwner = React.useMemo(
-    () =>
-      deriveStandingsMovementByOwner({
-        rows,
-        standingsHistory,
-      }),
-    [rows, standingsHistory]
-  );
+  const [hoveredOwner, setHoveredOwner] = React.useState<string | null>(null);
+  const [selectedOwnerSet, setSelectedOwnerSet] = React.useState<Set<string>>(() => new Set());
+  const movementByOwner = React.useMemo(() => {
+    const filteredHistory: StandingsHistory | null = standingsHistory
+      ? {
+          ...standingsHistory,
+          byWeek: Object.fromEntries(
+            Object.entries(standingsHistory.byWeek).map(([week, snapshot]) => [
+              week,
+              { ...snapshot, standings: snapshot.standings.filter((s) => s.owner !== 'NoClaim') },
+            ])
+          ),
+        }
+      : null;
+    return deriveStandingsMovementByOwner({
+      rows: visibleRows,
+      standingsHistory: filteredHistory,
+    });
+  }, [visibleRows, standingsHistory]);
   const standingsInsights = React.useMemo(
     () =>
       deriveStandingsInsights(
@@ -131,6 +149,27 @@ export default function StandingsPanel({
       ),
     [rows, seasonContext, standingsHistory]
   );
+
+  const ownerColorFn = React.useMemo(() => {
+    const ownerIds = visibleRows.map((r) => r.owner);
+    const colorMap = buildOwnerColorMap(ownerIds);
+    return (ownerId: string): string => {
+      const idx = ownerIds.indexOf(ownerId);
+      return colorMap.get(ownerId) ?? getOwnerColor(ownerId, idx >= 0 ? idx : 0, ownerIds.length || 1);
+    };
+  }, [visibleRows]);
+
+  const handleToggleOwner = React.useCallback((ownerId: string) => {
+    setSelectedOwnerSet((current) => {
+      const next = new Set(current);
+      if (next.has(ownerId)) {
+        next.delete(ownerId);
+      } else {
+        next.add(ownerId);
+      }
+      return next;
+    });
+  }, []);
 
   React.useEffect(() => {
     scrollFocusedStandingsOwnerIntoView({
@@ -157,29 +196,23 @@ export default function StandingsPanel({
 
   return (
     <section className="space-y-3 rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-          {season} Standings
-        </h2>
-        {coverage.message ? (
-          <p
-            className={`text-sm ${
-              coverage.state === 'error'
-                ? 'text-amber-700 dark:text-amber-300'
-                : 'text-gray-600 dark:text-zinc-300'
-            }`}
-          >
-            {coverage.message}
-          </p>
-        ) : null}
-      </div>
-
+      {coverage.message ? (
+        <p
+          className={`text-sm ${
+            coverage.state === 'error'
+              ? 'text-amber-700 dark:text-amber-300'
+              : 'text-gray-600 dark:text-zinc-300'
+          }`}
+        >
+          {coverage.message}
+        </p>
+      ) : null}
       <div
         className="grid grid-cols-1 gap-4 md:gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)]"
         data-layout="standings-trends-split"
       >
         <div className="space-y-3">
-          {rows.length === 0 ? (
+          {visibleRows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
               Upload surnames to populate league standings.
             </div>
@@ -189,12 +222,12 @@ export default function StandingsPanel({
                 <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-900" />
                 <div className="-mx-1 overflow-x-auto px-1">
                   <table
-                    className="min-w-max border-separate border-spacing-0 text-sm"
+                    className="w-full border-separate border-spacing-0 text-sm"
                     data-standings-layout="tight"
                   >
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-                        {['Rank', 'Move', 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
+                        {['Rank', ...(showMoveColumn ? ['Move'] : []), 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
                           (label) => {
                             const isNumericMetric =
                               label === 'PF' ||
@@ -207,7 +240,7 @@ export default function StandingsPanel({
                             return (
                               <th
                                 key={label}
-                                className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${isCompact ? 'w-[2.8rem]' : ''} ${isTeam ? 'min-w-[9.5rem]' : ''} ${isNumericMetric ? 'w-[4.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
+                                className={`whitespace-nowrap border-b border-gray-200 px-1 py-2 font-semibold dark:border-zinc-700 ${isCompact ? 'w-[1.9rem]' : ''} ${isTeam ? 'w-[7rem] max-w-[7rem]' : ''} ${isNumericMetric ? 'w-[3.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${label === 'Win %' ? 'w-[3rem]' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
                                 data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
                               >
                                 {label}
@@ -218,12 +251,16 @@ export default function StandingsPanel({
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row, index) => {
-                        const winPctWidth = Math.max(0, Math.min(100, row.winPct * 100)).toFixed(1);
+                      {visibleRows.map((row, index) => {
                         const movement = movementByOwner[row.owner];
                         const movementPresentation = deriveMovementPresentation(
                           movement?.rankDelta ?? null
                         );
+                        const color = ownerColorFn(row.owner);
+                        const isHovered = hoveredOwner === row.owner;
+                        const isSelected = selectedOwnerSet.has(row.owner);
+                        const hasActiveHighlight = hoveredOwner !== null || selectedOwnerSet.size > 0;
+                        const isHighlighted = isHovered || isSelected;
                         return (
                           <tr
                             key={row.owner}
@@ -234,35 +271,43 @@ export default function StandingsPanel({
                               }
                               ownerRowRefs.current.set(row.owner, element);
                             }}
-                            className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 ${
+                            className={`odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900 transition-colors ${
                               focusedOwner === row.owner
                                 ? 'ring-1 ring-inset ring-blue-400 dark:ring-blue-600'
                                 : ''
                             }`}
                             style={{
-                              backgroundImage: `linear-gradient(to right, rgba(59, 130, 246, 0.12) ${winPctWidth}%, transparent ${winPctWidth}%)`,
+                              cursor: 'pointer',
+                              backgroundColor: isHighlighted
+                                ? withColorAlpha(color, isSelected ? 0.12 : 0.07)
+                                : undefined,
+                              opacity: hasActiveHighlight && !isHighlighted ? 0.3 : undefined,
                             }}
+                            onMouseEnter={() => setHoveredOwner(row.owner)}
+                            onMouseLeave={() => setHoveredOwner(null)}
+                            onClick={() => handleToggleOwner(row.owner)}
                             data-standings-owner={row.owner}
-                            data-winbar-background={`${winPctWidth}%`}
                           >
-                            <td className="w-[2.8rem] border-b border-gray-100 px-1.5 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
-                              {index + 1}
+                            <td className="w-[1.9rem] border-b border-gray-100 px-1 py-2 text-base font-semibold tabular-nums dark:border-zinc-800">
+                              <span style={{ color: ownerColorFn(row.owner) }}>{index + 1}</span>
                             </td>
-                            <td
-                              className={`w-[2.8rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-xs font-semibold tabular-nums sm:px-2 dark:border-zinc-800 ${movementPresentation.className}`}
-                              title={movementPresentation.label}
-                              aria-label={movementPresentation.label}
-                              data-standings-move={movementPresentation.text}
-                            >
-                              {movementPresentation.text}
-                            </td>
-                            <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-2 dark:border-zinc-800 dark:text-zinc-50">
-                              <div className="min-w-[8rem] truncate sm:min-w-0">
+                            {showMoveColumn ? (
+                              <td
+                                className={`w-[1.9rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-xs font-semibold tabular-nums dark:border-zinc-800 ${movementPresentation.className}`}
+                                title={movementPresentation.label}
+                                aria-label={movementPresentation.label}
+                                data-standings-move={movementPresentation.text}
+                              >
+                                {movementPresentation.text}
+                              </td>
+                            ) : null}
+                            <td className="w-[7rem] max-w-[7rem] border-b border-gray-100 px-1 py-2 text-[0.95rem] font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+                              <div className="truncate">
                                 {onOwnerSelect ? (
                                   <button
                                     type="button"
                                     className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                                    onClick={() => onOwnerSelect(row.owner)}
+                                    onClick={(e) => { e.stopPropagation(); onOwnerSelect(row.owner); }}
                                   >
                                     {row.owner}
                                   </button>
@@ -271,22 +316,22 @@ export default function StandingsPanel({
                                 )}
                               </div>
                             </td>
-                            <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
+                            <td className="whitespace-nowrap border-b border-gray-100 px-1 py-2 font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
                               {row.wins}–{row.losses}
                             </td>
-                            <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 tabular-nums text-gray-600 sm:px-2 dark:border-zinc-800 dark:text-zinc-300">
+                            <td className="w-[3rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 tabular-nums text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
                               {formatWinPct(row.winPct)}
                             </td>
-                            <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className="w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {row.pointsFor}
                             </td>
-                            <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {row.pointsAgainst}
                             </td>
-                            <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className={`w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums dark:border-zinc-800 ${row.pointDifferential > 0 ? 'text-emerald-700 dark:text-emerald-400' : row.pointDifferential < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-gray-500 dark:text-zinc-400'}`}>
                               {formatDiff(row.pointDifferential)}
                             </td>
-                            <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {formatGamesBack(row.gamesBack)}
                             </td>
                           </tr>
@@ -355,6 +400,10 @@ export default function StandingsPanel({
             layoutMode="embedded"
             compact
             showMomentum={false}
+            externalHoveredOwnerId={hoveredOwner}
+            externalSelectedOwnerSet={selectedOwnerSet}
+            onExternalHoverChange={setHoveredOwner}
+            onExternalToggleOwner={handleToggleOwner}
           />
         </div>
       </div>

@@ -125,17 +125,6 @@ function formatMetricValue(metric: MetricKind, value: number): string {
   return value.toFixed(1);
 }
 
-function formatMetricLabelValue(metric: MetricKind, value: number | null): string {
-  if (value == null) return '—';
-  return formatMetricValue(metric, value);
-}
-
-function formatLabelOwnerName(ownerName: string): string {
-  const maxLength = 10;
-  if (ownerName.length <= maxLength) return ownerName;
-  return `${ownerName.slice(0, maxLength - 1)}…`;
-}
-
 function formatSignedMetricValue(metric: MetricKind, value: number): string {
   const base = formatMetricValue(metric, Math.abs(value));
   if (value > 0) return `+${base}`;
@@ -370,17 +359,27 @@ export function deriveEndpointLabelLayout(params: {
     );
     const doglegX = labelX - Math.max(8, Math.min(20, laneWidth * 0.22));
     const connectorStartX = Math.max(0, Math.min(entry.endpointX + 2, doglegX - 2));
+    // Exit the chart horizontally before bending toward the staggered label Y,
+    // so that clustered lines fan out cleanly rather than crossing diagonally.
+    const exitX = Math.min(chartWidth + 4, doglegX - 4);
     return {
       ...entry,
       lane,
       labelX,
       labelY,
       estimatedWidth,
-      connectorPoints: [
-        { x: connectorStartX, y: entry.endpointY },
-        { x: doglegX, y: labelY },
-        { x: labelX - 2, y: labelY },
-      ],
+      connectorPoints:
+        Math.abs(labelY - entry.endpointY) > 2
+          ? [
+              { x: connectorStartX, y: entry.endpointY },
+              { x: exitX, y: entry.endpointY },
+              { x: doglegX, y: labelY },
+              { x: labelX - 2, y: labelY },
+            ]
+          : [
+              { x: connectorStartX, y: entry.endpointY },
+              { x: labelX - 2, y: labelY },
+            ],
     };
   });
 }
@@ -406,6 +405,52 @@ function resolveOwnerVisualState(params: {
 
   const muted = selectedOwnerId != null && !selected;
   return { selected, muted, emphasized: !muted };
+}
+
+/**
+ * Extends resolveOwnerVisualState with hover highlight:
+ * - When a line is locked (selectedOwnerId set), hover has no effect.
+ * - When hovering only, the hovered line is highlighted and others are dimmed to 20%.
+ */
+function resolveChartVisualState(params: {
+  ownerId: string;
+  selectedOwnerId: string | null;
+  hoveredOwnerId: string | null;
+  focusMode: FocusMode;
+  topOwnerIds: Set<string>;
+}): OwnerVisualState {
+  const { ownerId, selectedOwnerId, hoveredOwnerId, focusMode, topOwnerIds } = params;
+
+  // Lock takes precedence — hover does not override a selection.
+  if (selectedOwnerId != null) {
+    return resolveOwnerVisualState({ ownerId, selectedOwnerId, focusMode, topOwnerIds });
+  }
+
+  // Hover highlight: hovered owner prominent, all others dimmed.
+  if (hoveredOwnerId != null) {
+    const isHovered = ownerId === hoveredOwnerId;
+    return { selected: isHovered, muted: !isHovered, emphasized: isHovered };
+  }
+
+  return resolveOwnerVisualState({ ownerId, selectedOwnerId: null, focusMode, topOwnerIds });
+}
+
+function resolveEmbeddedVisualState(params: {
+  ownerId: string;
+  hoveredOwnerId: string | null;
+  selectedOwnerSet: Set<string>;
+}): OwnerVisualState {
+  const { ownerId, hoveredOwnerId, selectedOwnerSet } = params;
+  const isHovered = ownerId === hoveredOwnerId;
+  const isSelected = selectedOwnerSet.has(ownerId);
+  const hasAnyHighlight = hoveredOwnerId !== null || selectedOwnerSet.size > 0;
+  if (isHovered || isSelected) {
+    return { selected: true, muted: false, emphasized: true };
+  }
+  if (hasAnyHighlight) {
+    return { selected: false, muted: true, emphasized: false };
+  }
+  return { selected: false, muted: false, emphasized: true };
 }
 
 function resolveTrendVisualStyle(params: {
@@ -450,6 +495,14 @@ function SharedTrendChart({
   onSelectOwner,
   viewportWidth,
   getOwnerTrendColor,
+  heightScale = 1.0,
+  focusMode = 'all',
+  multiSelectedOwnerIds,
+  onMultiSelectToggle,
+  hideLegend = false,
+  hideTitle = false,
+  externalHoveredOwnerId,
+  onHoverChange,
 }: {
   title: string;
   metric: MetricKind;
@@ -459,8 +512,18 @@ function SharedTrendChart({
   onSelectOwner: (ownerId: string) => void;
   viewportWidth: number;
   getOwnerTrendColor: (ownerId: string) => string;
+  heightScale?: number;
+  focusMode?: FocusMode;
+  multiSelectedOwnerIds?: Set<string>;
+  onMultiSelectToggle?: (ownerId: string) => void;
+  hideLegend?: boolean;
+  hideTitle?: boolean;
+  externalHoveredOwnerId?: string | null;
+  onHoverChange?: (ownerId: string | null) => void;
 }): React.ReactElement {
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
+  const [hoveredOwnerId, setHoveredOwnerId] = React.useState<string | null>(null);
+const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const hasScrolledRef = React.useRef(false);
   const [containerWidth, setContainerWidth] = React.useState(0);
@@ -468,9 +531,11 @@ function SharedTrendChart({
   if (rows.length === 0) {
     return (
       <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-          {title}
-        </h2>
+        {!hideTitle ? (
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+            {title}
+          </h2>
+        ) : null}
         <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
           No trend data available yet.
         </p>
@@ -478,7 +543,64 @@ function SharedTrendChart({
     );
   }
 
-  const geometry = buildSharedChartGeometry(rows);
+  const rawGeometry = buildSharedChartGeometry(rows);
+  const geometry = (() => {
+    if (!rawGeometry || metric !== 'win-pct') return rawGeometry;
+
+    // Build a week-ordered list of all data points so we can find the first week
+    // where win% values have converged enough to use as the domain baseline.
+    // Early weeks (e.g. W1 where owners are 1-0 or 0-1) cause extreme spread that
+    // would make the Y-axis span [0, 1] for the rest of the season.
+    const weekSet = Array.from(
+      new Set(rows.flatMap((row) => row.points.map((p) => p.week)))
+    ).sort((a, b) => a - b);
+
+    // Build a lookup: week → list of values for that week
+    const valuesByWeek = new Map<number, number[]>();
+    for (const row of rows) {
+      for (const point of row.points) {
+        const existing = valuesByWeek.get(point.week);
+        if (existing) {
+          existing.push(point.value);
+        } else {
+          valuesByWeek.set(point.week, [point.value]);
+        }
+      }
+    }
+
+    // Find the first week where spread (max - min) across all owners drops below 0.35.
+    const CONVERGENCE_THRESHOLD = 0.35;
+    let convergedFromWeek: number | null = null;
+    for (const week of weekSet) {
+      const vals = valuesByWeek.get(week) ?? [];
+      if (vals.length < 2) continue;
+      const spread = Math.max(...vals) - Math.min(...vals);
+      if (spread < CONVERGENCE_THRESHOLD) {
+        convergedFromWeek = week;
+        break;
+      }
+    }
+
+    // Use converged weeks for domain calculation; fall back to all weeks if never converged.
+    const domainWeeks =
+      convergedFromWeek !== null
+        ? weekSet.filter((w) => w >= convergedFromWeek!)
+        : weekSet;
+
+    const domainPoints = rows.flatMap((row) =>
+      row.points.filter((p) => domainWeeks.includes(p.week))
+    );
+    const domainMin =
+      domainPoints.length > 0 ? Math.min(...domainPoints.map((p) => p.value)) : rawGeometry.valueMin;
+    const domainMax =
+      domainPoints.length > 0 ? Math.max(...domainPoints.map((p) => p.value)) : rawGeometry.valueMax;
+
+    return {
+      ...rawGeometry,
+      valueMin: Math.max(0, domainMin - 0.01),
+      valueMax: Math.min(1, domainMax + 0.01),
+    };
+  })();
   const invertYAxis = metric === 'games-back';
   const weeks = Array.from(
     new Set(rows.flatMap((row) => row.points.map((point) => point.week)))
@@ -487,17 +609,15 @@ function SharedTrendChart({
     viewportWidth,
     weekCount: weeks.length,
   });
-  const chartHeight = responsiveLayout.chartHeight;
+  const chartHeight = Math.round(responsiveLayout.chartHeight * heightScale);
   const plotHeight = chartHeight - 26;
-  const labelLaneWidth = responsiveLayout.labelLaneWidth;
-  const endpointLaneCount = labelLaneWidth >= 240 ? 3 : 2;
   const pxPerWeek = responsiveLayout.pxPerWeek;
   const chartWidth = deriveDynamicPlotWidth({
     containerWidth,
     weekCount: weeks.length,
     pxPerWeek,
   });
-  const totalChartWidth = chartWidth + labelLaneWidth;
+  const totalChartWidth = chartWidth + 32;
   const leaderIds = resolveLeaderIds(metric, rows);
   const topOwnerIds = React.useMemo(
     () =>
@@ -516,36 +636,6 @@ function SharedTrendChart({
       ),
     [metric, rows]
   );
-  const endpointLabels = geometry
-    ? deriveEndpointLabelLayout({
-        entries: rows
-          .filter((row) => focusedOwnerIds.has(row.ownerId))
-          .map((row) => {
-            const latestPoint = row.points[row.points.length - 1];
-            if (!latestPoint) return null;
-            const latestPos = pointPosition({
-              point: latestPoint,
-              geometry,
-              width: chartWidth,
-              height: plotHeight,
-              invertYAxis,
-            });
-            return {
-              owner: row.ownerId,
-              text: `${formatLabelOwnerName(row.ownerName)} ${formatMetricLabelValue(metric, row.latest)}`,
-              endpointX: latestPos.x,
-              endpointY: latestPos.y,
-              color: getOwnerTrendColor(row.ownerId),
-            };
-          })
-          .filter((entry): entry is EndpointLabelInput => entry != null),
-        chartWidth,
-        chartHeight: plotHeight,
-        labelAreaWidth: labelLaneWidth,
-        laneCount: endpointLaneCount,
-        minVerticalSpacing: 14,
-      })
-    : [];
   const weekTicks = deriveAllWeekTicks(weeks);
 
   React.useEffect(() => {
@@ -572,21 +662,34 @@ function SharedTrendChart({
     if (hasScrolledRef.current) return;
     const container = containerRef.current;
     if (!container) return;
-    container.scrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    const maxScroll = container.scrollWidth - container.clientWidth;
+    if (maxScroll <= 0) return;
+    container.scrollLeft = maxScroll;
     hasScrolledRef.current = true;
-  }, []);
+  }, [chartWidth]);
   return (
     <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-        {title}
-      </h2>
+      {!hideTitle ? (
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+          {title}
+        </h2>
+      ) : null}
 
       <div
         ref={containerRef}
         data-trend-scroll-container={metric}
         className={`mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white ${responsiveLayout.chartPaddingClass} dark:border-zinc-700 dark:bg-zinc-900`}
+        onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); }}
       >
-        {geometry ? (
+        {focusMode === 'selected' && focusedOwnerIds.size === 0 ? (
+          <div
+            className="flex items-center justify-center text-sm text-gray-400 dark:text-zinc-500"
+            style={{ height: `${chartHeight}px` }}
+            data-chart-empty-selected
+          >
+            Select owners from the legend below
+          </div>
+        ) : geometry ? (
           <div
             style={{ width: `${totalChartWidth}px` }}
             data-plot-width={chartWidth}
@@ -597,11 +700,11 @@ function SharedTrendChart({
           >
             <svg
               viewBox={`0 0 ${totalChartWidth} ${chartHeight}`}
-              className={`${responsiveLayout.chartHeightClass} w-full`}
+              className="w-full"
+              style={{ height: `${chartHeight}px` }}
               role="img"
               aria-label={`${title} shared trend chart`}
               data-y-domain={invertYAxis ? JSON.stringify([geometry.valueMax, 0]) : 'auto'}
-              data-label-lane-width={labelLaneWidth}
             >
               {weekTicks.map((tick) => {
                 const x =
@@ -621,13 +724,38 @@ function SharedTrendChart({
                   />
                 );
               })}
+              {/* Per-week invisible hit zones — spans full column width */}
+              {weeks.map((week) => {
+                const x =
+                  ((week - geometry.weekMin) /
+                    Math.max(1, geometry.weekMax - geometry.weekMin)) *
+                  chartWidth;
+                const colWidth = Math.max(8, pxPerWeek * 0.9);
+                return (
+                  <rect
+                    key={`${metric}-week-hit-${week}`}
+                    x={x - colWidth / 2}
+                    y={0}
+                    width={colWidth}
+                    height={plotHeight}
+                    fill="transparent"
+                    pointerEvents="all"
+                    style={{ cursor: 'crosshair' }}
+                    data-week-hit-zone={week}
+                  />
+                );
+              })}
               {weekTicks.map((tick) => {
                 const x =
                   ((tick.value - geometry.weekMin) /
                     Math.max(1, geometry.weekMax - geometry.weekMin)) *
                   chartWidth;
                 return (
-                  <g key={`${metric}-tick-${tick.value}`} data-week-tick={tick.label}>
+                  <g
+                    key={`${metric}-tick-${tick.value}`}
+                    data-week-tick={tick.label}
+                    style={{ cursor: 'crosshair' }}
+                  >
                     <line
                       x1={x}
                       y1={chartHeight - 24}
@@ -644,7 +772,7 @@ function SharedTrendChart({
                       fill="currentColor"
                       opacity={0.7}
                     >
-                      {tick.label}
+                      {tick.value === weeks[weeks.length - 1] ? 'Final' : tick.label}
                     </text>
                   </g>
                 );
@@ -652,14 +780,17 @@ function SharedTrendChart({
               {rows.map((row) => {
                 const isFocused = focusedOwnerIds.has(row.ownerId);
                 if (!isFocused) return null;
-                const visualState = resolveOwnerVisualState({
-                  ownerId: row.ownerId,
-                  selectedOwnerId,
-                  focusMode: selectedOwnerId ? 'selected' : 'all',
-                  topOwnerIds,
-                });
+                const visualState = hideLegend
+                  ? resolveEmbeddedVisualState({ ownerId: row.ownerId, hoveredOwnerId: effectiveHoveredOwnerId, selectedOwnerSet: multiSelectedOwnerIds ?? new Set() })
+                  : resolveChartVisualState({
+                      ownerId: row.ownerId,
+                      selectedOwnerId,
+                      hoveredOwnerId,
+                      focusMode,
+                      topOwnerIds,
+                    });
                 const isLeader = leaderIds.has(row.ownerId);
-                const isSeriesHovered = hoverState?.ownerName === row.ownerName;
+                const isSeriesHovered = hoverState?.ownerName === row.ownerName || effectiveHoveredOwnerId === row.ownerId;
                 const trendStyle = resolveTrendVisualStyle({
                   visualState,
                   isLeader,
@@ -689,15 +820,44 @@ function SharedTrendChart({
                   />
                 );
               })}
+              {/* Wide transparent overlay paths for per-line hover and click */}
+              {rows.map((row) => {
+                if (!focusedOwnerIds.has(row.ownerId)) return null;
+                const seriesPath = buildSeriesPath({
+                  points: row.points,
+                  geometry,
+                  width: chartWidth,
+                  height: plotHeight,
+                  invertYAxis,
+                });
+                return (
+                  <path
+                    key={`${metric}-hover-overlay-${row.ownerId}`}
+                    d={seriesPath}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={16}
+                    pointerEvents="stroke"
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => { setHoveredOwnerId(row.ownerId); onHoverChange?.(row.ownerId); }}
+                    onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); }}
+                    onClick={() => (hideLegend || focusMode === 'selected') ? onMultiSelectToggle?.(row.ownerId) : onSelectOwner(row.ownerId)}
+                    data-hover-line={row.ownerId}
+                  />
+                );
+              })}
               {rows.flatMap((row) => {
                 const isFocused = focusedOwnerIds.has(row.ownerId);
                 if (!isFocused) return [];
-                const visualState = resolveOwnerVisualState({
-                  ownerId: row.ownerId,
-                  selectedOwnerId,
-                  focusMode: selectedOwnerId ? 'selected' : 'all',
-                  topOwnerIds,
-                });
+                const visualState = hideLegend
+                  ? resolveEmbeddedVisualState({ ownerId: row.ownerId, hoveredOwnerId: effectiveHoveredOwnerId, selectedOwnerSet: multiSelectedOwnerIds ?? new Set() })
+                  : resolveChartVisualState({
+                      ownerId: row.ownerId,
+                      selectedOwnerId,
+                      hoveredOwnerId,
+                      focusMode,
+                      topOwnerIds,
+                    });
                 return row.points.map((point) => {
                   const pos = pointPosition({
                     point,
@@ -724,37 +884,19 @@ function SharedTrendChart({
                         fill="transparent"
                         pointerEvents="all"
                         data-hover-target={`${metric}-${row.ownerId}-${point.week}`}
-                        onMouseEnter={() =>
-                          setHoverState({
-                            x: pos.x,
-                            y: pos.y,
-                            ownerName: row.ownerName,
-                            metric,
-                            week: point.week,
-                            value: point.value,
-                          })
-                        }
-                        onMouseLeave={() => setHoverState(null)}
-                        onClick={() =>
-                          setHoverState({
-                            x: pos.x,
-                            y: pos.y,
-                            ownerName: row.ownerName,
-                            metric,
-                            week: point.week,
-                            value: point.value,
-                          })
-                        }
-                        onTouchStart={() =>
-                          setHoverState({
-                            x: pos.x,
-                            y: pos.y,
-                            ownerName: row.ownerName,
-                            metric,
-                            week: point.week,
-                            value: point.value,
-                          })
-                        }
+                        onMouseEnter={() => {
+                          setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
+                          setHoveredOwnerId(row.ownerId);
+                          onHoverChange?.(row.ownerId);
+                        }}
+                        onMouseLeave={() => { setHoverState(null); setHoveredOwnerId(null); onHoverChange?.(null); }}
+                        onClick={() => {
+                          setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
+                        }}
+                        onTouchStart={() => {
+                          setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
+                          setHoveredOwnerId(row.ownerId);
+                        }}
                       />
                       <circle
                         cx={pos.x}
@@ -769,65 +911,6 @@ function SharedTrendChart({
                 });
               })}
 
-              {responsiveLayout.showRightEdgeLabels
-                ? endpointLabels.map((labelPlacement) => {
-                    const visualState = resolveOwnerVisualState({
-                      ownerId: labelPlacement.owner,
-                      selectedOwnerId,
-                      focusMode: selectedOwnerId ? 'selected' : 'all',
-                      topOwnerIds,
-                    });
-                    const trendStyle = resolveTrendVisualStyle({
-                      visualState,
-                      isLeader: leaderIds.has(labelPlacement.owner),
-                      isSeriesHovered: hoverState?.ownerName === labelPlacement.owner,
-                    });
-                    const connectorPath = labelPlacement.connectorPoints
-                      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-                      .join(' ');
-                    return (
-                      <g
-                        key={`${metric}-label-${labelPlacement.owner}`}
-                        opacity={visualState.selected ? 1 : visualState.muted ? 0.3 : 0.92}
-                        data-owner-id={labelPlacement.owner}
-                        data-selected={visualState.selected ? 'true' : 'false'}
-                        data-muted={visualState.muted ? 'true' : 'false'}
-                        data-emphasized={visualState.emphasized ? 'true' : 'false'}
-                        data-endpoint-label-lane={labelPlacement.lane}
-                        data-endpoint-label-x={labelPlacement.labelX.toFixed(2)}
-                        data-endpoint-label-y={labelPlacement.labelY.toFixed(2)}
-                      >
-                        <circle
-                          cx={labelPlacement.endpointX}
-                          cy={labelPlacement.endpointY}
-                          r={trendStyle.anchorDotRadius}
-                          fill={getOwnerTrendColor(labelPlacement.owner)}
-                          opacity={visualState.selected ? 0.98 : 0.72}
-                          data-label-anchor-dot={labelPlacement.owner}
-                        />
-                        <path
-                          d={connectorPath}
-                          fill="none"
-                          stroke={getOwnerTrendColor(labelPlacement.owner)}
-                          strokeWidth={visualState.selected ? 2.2 : visualState.muted ? 0.9 : 1.4}
-                          strokeDasharray="1.5 2.5"
-                          opacity={visualState.selected ? 0.92 : visualState.muted ? 0.32 : 0.65}
-                          data-label-connector={labelPlacement.owner}
-                        />
-                        <text
-                          x={labelPlacement.labelX}
-                          y={labelPlacement.labelY + 3}
-                          fill={getOwnerTrendColor(labelPlacement.owner)}
-                          fontSize="10"
-                          fontWeight={visualState.selected ? 800 : visualState.muted ? 500 : 650}
-                          data-right-edge-label={labelPlacement.owner}
-                        >
-                          {labelPlacement.text}
-                        </text>
-                      </g>
-                    );
-                  })
-                : null}
               {hoverState ? (
                 <g data-trend-tooltip={metric} pointerEvents="none">
                   {(() => {
@@ -873,43 +956,6 @@ function SharedTrendChart({
         ) : null}
       </div>
 
-      <ul className="mt-3 grid gap-1.5 text-xs text-gray-700 dark:text-zinc-300 sm:grid-cols-2 lg:grid-cols-3">
-        {rows.map((row) => {
-          if (!focusedOwnerIds.has(row.ownerId)) return null;
-          const visualState = resolveOwnerVisualState({
-            ownerId: row.ownerId,
-            selectedOwnerId,
-            focusMode: 'all',
-            topOwnerIds: new Set(),
-          });
-          return (
-            <li
-              key={`${metric}-legend-${row.ownerId}`}
-              className={`rounded-md border px-2 py-1 ${visualState.selected ? 'border-blue-300 bg-blue-100/80 ring-1 ring-blue-300 dark:border-blue-600 dark:bg-blue-950/40 dark:ring-blue-500' : 'border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900'} ${visualState.muted ? 'opacity-35' : ''}`}
-            >
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-2 text-left"
-                onClick={() => onSelectOwner(row.ownerId)}
-                data-selected={visualState.selected ? 'true' : 'false'}
-                data-muted={visualState.muted ? 'true' : 'false'}
-                data-emphasized={visualState.emphasized ? 'true' : 'false'}
-                data-legend-owner={row.ownerId}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: getOwnerTrendColor(row.ownerId) }}
-                  />
-                  <span className="truncate font-medium">{row.ownerName}</span>
-                </span>
-                <span>{row.latest == null ? '—' : formatMetricValue(metric, row.latest)}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
     </section>
   );
 }
@@ -922,6 +968,10 @@ export default function TrendsDetailSurface({
   layoutMode = 'standalone',
   compact = false,
   showMomentum = true,
+  externalHoveredOwnerId,
+  externalSelectedOwnerSet,
+  onExternalHoverChange,
+  onExternalToggleOwner,
 }: {
   standingsHistory: StandingsHistory | null;
   season: number;
@@ -930,12 +980,19 @@ export default function TrendsDetailSurface({
   layoutMode?: LayoutMode;
   compact?: boolean;
   showMomentum?: boolean;
+  externalHoveredOwnerId?: string | null;
+  externalSelectedOwnerSet?: Set<string>;
+  onExternalHoverChange?: (ownerId: string | null) => void;
+  onExternalToggleOwner?: (ownerId: string) => void;
 }): React.ReactElement {
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
-  const [focusMode, setFocusMode] = React.useState<FocusMode>('top');
+  const [selectedOwnerSet, setSelectedOwnerSet] = React.useState<Set<string>>(() => new Set());
+  const [focusMode, setFocusMode] = React.useState<FocusMode>('all');
+  const [activeMetric, setActiveMetric] = React.useState<MetricKind>('games-back');
   const [viewportWidth, setViewportWidth] = React.useState(() =>
     typeof window === 'undefined' ? 1024 : window.innerWidth
   );
+  const isControlled = externalSelectedOwnerSet !== undefined;
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -950,6 +1007,7 @@ export default function TrendsDetailSurface({
   const momentum = standingsHistory ? selectOwnerMomentum({ standingsHistory, windowSize: 3 }) : [];
 
   const gamesBackRows: TrendRowData[] = gamesBackTrend
+    .filter((entry) => entry.ownerId !== 'NoClaim')
     .map((entry) => ({
       ownerId: entry.ownerId,
       ownerName: entry.ownerName,
@@ -964,6 +1022,7 @@ export default function TrendsDetailSurface({
     });
 
   const winPctRows: TrendRowData[] = winPctTrend
+    .filter((entry) => entry.ownerId !== 'NoClaim')
     .map((entry) => ({
       ownerId: entry.ownerId,
       ownerName: entry.ownerName,
@@ -1016,20 +1075,37 @@ export default function TrendsDetailSurface({
     },
     [orderedOwners.length, ownerColorMap, ownerIndexMap]
   );
-  const focusedOwners = React.useMemo(
-    () =>
-      deriveFocusedOwners({
-        focusMode,
-        selectedOwners: selectedOwnerId ? new Set([selectedOwnerId]) : new Set<string>(),
-        orderedOwners,
-        topN: TOP_FOCUS_COUNT,
-      }),
-    [focusMode, orderedOwners, selectedOwnerId]
-  );
+  const focusedOwners = React.useMemo(() => {
+    if (isControlled) return orderedOwners;
+    if (focusMode === 'selected') {
+      return Array.from(selectedOwnerSet);
+    }
+    return deriveFocusedOwners({
+      focusMode,
+      selectedOwners: selectedOwnerId ? new Set([selectedOwnerId]) : new Set<string>(),
+      orderedOwners,
+      topN: TOP_FOCUS_COUNT,
+    });
+  }, [focusMode, isControlled, orderedOwners, selectedOwnerId, selectedOwnerSet]);
   const focusedOwnerIdSet = React.useMemo(() => new Set(focusedOwners), [focusedOwners]);
   const compactWinBars = compact || viewportWidth < 640;
   const handleOwnerToggle = React.useCallback((ownerId: string) => {
     setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId));
+  }, []);
+  const handleSelectedSetToggle = React.useCallback((ownerId: string) => {
+    setSelectedOwnerSet((current) => {
+      const next = new Set(current);
+      if (next.has(ownerId)) {
+        next.delete(ownerId);
+      } else {
+        next.add(ownerId);
+      }
+      return next;
+    });
+  }, []);
+  const handleFocusModeChange = React.useCallback((mode: FocusMode) => {
+    setFocusMode(mode);
+    setSelectedOwnerId(null);
   }, []);
 
   const WrapperTag = layoutMode === 'standalone' ? 'main' : 'div';
@@ -1053,7 +1129,7 @@ export default function TrendsDetailSurface({
             Season {season} · {seasonContextLabel(seasonContext)}
           </p>
         </header>
-      ) : (
+      ) : isControlled ? null : (
         <header>
           <h3 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
             Trends
@@ -1064,7 +1140,7 @@ export default function TrendsDetailSurface({
         </header>
       )}
 
-      {selectedOwnerId && selectedWinBar && selectedRank != null ? (
+      {!isControlled && selectedOwnerId && selectedWinBar && selectedRank != null ? (
         <section
           className="rounded-xl border border-blue-300 bg-blue-50/80 p-3 dark:border-blue-700 dark:bg-blue-950/30"
           data-owner-focus="true"
@@ -1110,63 +1186,118 @@ export default function TrendsDetailSurface({
         </section>
       ) : null}
 
-      <section className="rounded-lg border border-gray-200 bg-white/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/70">
-        <div
-          className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
-          role="group"
-          aria-label="Chart focus mode controls"
+      {!isControlled ? (
+        <section className="rounded-lg border border-gray-200 bg-white/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/70">
+          <div
+            className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
+            role="group"
+            aria-label="Chart focus mode controls"
+          >
+            {(
+              [
+                { mode: 'all', label: 'All' },
+                { mode: 'top', label: `Top ${TOP_FOCUS_COUNT}` },
+                {
+                  mode: 'selected',
+                  label: selectedOwnerSet.size > 0 ? `Selected (${selectedOwnerSet.size})` : 'Selected',
+                },
+              ] as const
+            ).map(({ mode, label }) => (
+              <button
+                key={mode}
+                type="button"
+                className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                  focusMode === mode
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100'
+                }`}
+                aria-pressed={focusMode === mode}
+                onClick={() => handleFocusModeChange(mode)}
+                data-focus-mode-control={mode}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {!isControlled ? (
+        <p className="text-xs text-gray-500 dark:text-zinc-400">Click lines to compare</p>
+      ) : null}
+
+      <div>
+        <nav
+          className="mb-3 flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700"
+          aria-label="Chart metric tabs"
         >
           {(
             [
-              { mode: 'all', label: 'All' },
-              { mode: 'top', label: `Top ${TOP_FOCUS_COUNT}` },
-              {
-                mode: 'selected',
-                label: selectedOwnerId ? 'Selected (1)' : 'Selected',
-              },
+              { metric: 'games-back' as MetricKind, label: 'Games Back' },
+              { metric: 'win-pct' as MetricKind, label: 'Win %' },
             ] as const
-          ).map(({ mode, label }) => (
-            <button
-              key={mode}
-              type="button"
-              className={`rounded px-2.5 py-1 text-xs font-medium transition ${
-                focusMode === mode
-                  ? 'bg-white text-gray-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100'
-              }`}
-              aria-pressed={focusMode === mode}
-              onClick={() => setFocusMode(mode)}
-              data-focus-mode-control={mode}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
+          ).map(({ metric: m, label }) => {
+            const isActive = activeMetric === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveMetric(m)}
+                className={`pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-[1.5px] ${
+                  isActive
+                    ? 'border-gray-800 text-gray-900 dark:border-zinc-100 dark:text-zinc-100'
+                    : 'border-transparent text-gray-400 hover:text-gray-600 dark:text-zinc-500 dark:hover:text-zinc-300'
+                }`}
+                data-chart-tab={m}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </nav>
 
-      <p className="text-xs text-gray-500 dark:text-zinc-400">Click bars to compare</p>
-
-      <SharedTrendChart
-        title="Games Back"
-        metric="games-back"
-        rows={gamesBackRows}
-        focusedOwnerIds={focusedOwnerIdSet}
-        selectedOwnerId={selectedOwnerId}
-        viewportWidth={viewportWidth}
-        onSelectOwner={handleOwnerToggle}
-        getOwnerTrendColor={getOwnerTrendColor}
-      />
-
-      <SharedTrendChart
-        title="Win %"
-        metric="win-pct"
-        rows={winPctRows}
-        focusedOwnerIds={focusedOwnerIdSet}
-        selectedOwnerId={selectedOwnerId}
-        viewportWidth={viewportWidth}
-        onSelectOwner={handleOwnerToggle}
-        getOwnerTrendColor={getOwnerTrendColor}
-      />
+        {activeMetric === 'games-back' ? (
+          <SharedTrendChart
+            title="Games Back"
+            metric="games-back"
+            rows={gamesBackRows}
+            focusedOwnerIds={focusedOwnerIdSet}
+            selectedOwnerId={selectedOwnerId}
+            viewportWidth={viewportWidth}
+            onSelectOwner={handleOwnerToggle}
+            getOwnerTrendColor={getOwnerTrendColor}
+            heightScale={1.6}
+            focusMode={focusMode}
+            multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+            onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+            hideLegend={isControlled}
+            hideTitle
+            externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+            onHoverChange={isControlled ? onExternalHoverChange : undefined}
+          />
+        ) : (
+          <SharedTrendChart
+            title="Win %"
+            metric="win-pct"
+            rows={winPctRows}
+            focusedOwnerIds={focusedOwnerIdSet}
+            selectedOwnerId={selectedOwnerId}
+            viewportWidth={viewportWidth}
+            onSelectOwner={handleOwnerToggle}
+            getOwnerTrendColor={getOwnerTrendColor}
+            heightScale={1.6}
+            focusMode={focusMode}
+            multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+            onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+            hideLegend={isControlled}
+            hideTitle
+            externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+            onHoverChange={isControlled ? onExternalHoverChange : undefined}
+          />
+        )}
+      </div>
 
       {showMomentum ? (
         <section

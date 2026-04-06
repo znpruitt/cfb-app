@@ -30,9 +30,9 @@ function canonicalTab(mode: WeekViewMode): 'overview' | 'matchups' | 'standings'
   return 'overview';
 }
 
-const tabBase = 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors whitespace-nowrap';
-const tabActive = `${tabBase} bg-white shadow-sm text-gray-900 dark:bg-zinc-600 dark:text-zinc-100`;
-const tabInactive = `${tabBase} text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100`;
+const tabBase = 'pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2';
+const tabActive = `${tabBase} border-white text-white`;
+const tabInactive = `${tabBase} border-transparent text-zinc-400 hover:text-zinc-200`;
 
 export default function WeekViewTabs({
   value,
@@ -43,34 +43,30 @@ export default function WeekViewTabs({
 
   return (
     <div style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
-    <div
-      className="flex w-fit items-center gap-1 rounded-lg p-1"
-      style={{ backgroundColor: 'rgb(39 39 42)', border: '1px solid rgb(63 63 70)' }}
-    >
-      {(
-        [
-          { key: 'overview', label: 'Overview' },
-          { key: 'standings', label: 'Standings' },
-          { key: 'matchups', label: 'Matchups' },
-          { key: 'owner', label: 'Members' },
-        ] as const
-      ).map((tab) => (
-        <button
-          key={tab.key}
-          type="button"
-          className={current === tab.key ? tabActive : tabInactive}
-          style={current === tab.key ? { backgroundColor: 'rgb(82 82 91)', borderRadius: '6px' } : undefined}
-          onClick={() => onChange(tab.key)}
-        >
-          {tab.label}
-        </button>
-      ))}
-      {leagueSlug && (
-        <Link href={`/league/${leagueSlug}/history/`} className={tabInactive}>
-          History
-        </Link>
-      )}
-    </div>
+      <div className="flex items-center gap-6 border-b border-zinc-700">
+        {(
+          [
+            { key: 'overview', label: 'Overview' },
+            { key: 'standings', label: 'Standings' },
+            { key: 'matchups', label: 'Matchups' },
+            { key: 'owner', label: 'Members' },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            className={current === tab.key ? tabActive : tabInactive}
+            onClick={() => onChange(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+        {leagueSlug && (
+          <Link href={`/league/${leagueSlug}/history/`} className={tabInactive}>
+            History
+          </Link>
+        )}
+      </div>
     </div>
   );
 }
