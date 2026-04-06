@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { rankSourceLabel, type CanonicalPollEntry, type RankingsWeek } from '../lib/rankings';
+import { type CanonicalPollEntry, type RankingsWeek } from '../lib/rankings';
 import RankedTeamName from './RankedTeamName';
 
 function PollSection({
@@ -37,12 +37,6 @@ function PollSection({
 function WeekPollsView({ week }: { week: RankingsWeek }): React.ReactElement {
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <p className="text-sm text-gray-600 dark:text-zinc-300">
-          {week.label ?? `${week.seasonType} · Week ${week.week}`} · Primary source:{' '}
-          {week.primarySource ? rankSourceLabel(week.primarySource) : 'Unavailable'}
-        </p>
-      </section>
       <PollSection title="CFP Rankings" entries={week.polls.cfp} />
       <PollSection title="AP Top 25" entries={week.polls.ap} />
       <PollSection title="Coaches Poll" entries={week.polls.coaches} />
