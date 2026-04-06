@@ -520,17 +520,63 @@ function SharedTrendChart({
   }
 
   const rawGeometry = buildSharedChartGeometry(rows);
-  // For Win %, pad the domain by 3 percentage points and clamp to [0, 1] so the
-  // chart hugs the actual data range instead of spanning the full 0–1 axis when
-  // early-season 1-0/0-1 records push valueMin/Max to extremes.
-  const geometry =
-    rawGeometry && metric === 'win-pct'
-      ? {
-          ...rawGeometry,
-          valueMin: Math.max(0, rawGeometry.valueMin - 0.03),
-          valueMax: Math.min(1, rawGeometry.valueMax + 0.03),
+  const geometry = (() => {
+    if (!rawGeometry || metric !== 'win-pct') return rawGeometry;
+
+    // Build a week-ordered list of all data points so we can find the first week
+    // where win% values have converged enough to use as the domain baseline.
+    // Early weeks (e.g. W1 where owners are 1-0 or 0-1) cause extreme spread that
+    // would make the Y-axis span [0, 1] for the rest of the season.
+    const weekSet = Array.from(
+      new Set(rows.flatMap((row) => row.points.map((p) => p.week)))
+    ).sort((a, b) => a - b);
+
+    // Build a lookup: week → list of values for that week
+    const valuesByWeek = new Map<number, number[]>();
+    for (const row of rows) {
+      for (const point of row.points) {
+        const existing = valuesByWeek.get(point.week);
+        if (existing) {
+          existing.push(point.value);
+        } else {
+          valuesByWeek.set(point.week, [point.value]);
         }
-      : rawGeometry;
+      }
+    }
+
+    // Find the first week where spread (max - min) across all owners drops below 0.35.
+    const CONVERGENCE_THRESHOLD = 0.35;
+    let convergedFromWeek: number | null = null;
+    for (const week of weekSet) {
+      const vals = valuesByWeek.get(week) ?? [];
+      if (vals.length < 2) continue;
+      const spread = Math.max(...vals) - Math.min(...vals);
+      if (spread < CONVERGENCE_THRESHOLD) {
+        convergedFromWeek = week;
+        break;
+      }
+    }
+
+    // Use converged weeks for domain calculation; fall back to all weeks if never converged.
+    const domainWeeks =
+      convergedFromWeek !== null
+        ? weekSet.filter((w) => w >= convergedFromWeek!)
+        : weekSet;
+
+    const domainPoints = rows.flatMap((row) =>
+      row.points.filter((p) => domainWeeks.includes(p.week))
+    );
+    const domainMin =
+      domainPoints.length > 0 ? Math.min(...domainPoints.map((p) => p.value)) : rawGeometry.valueMin;
+    const domainMax =
+      domainPoints.length > 0 ? Math.max(...domainPoints.map((p) => p.value)) : rawGeometry.valueMax;
+
+    return {
+      ...rawGeometry,
+      valueMin: Math.max(0, domainMin - 0.01),
+      valueMax: Math.min(1, domainMax + 0.01),
+    };
+  })();
   const invertYAxis = metric === 'games-back';
   const weeks = Array.from(
     new Set(rows.flatMap((row) => row.points.map((point) => point.week)))
