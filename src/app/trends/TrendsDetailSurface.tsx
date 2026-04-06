@@ -418,6 +418,34 @@ function resolveOwnerVisualState(params: {
   return { selected, muted, emphasized: !muted };
 }
 
+/**
+ * Extends resolveOwnerVisualState with hover highlight:
+ * - When a line is locked (selectedOwnerId set), hover has no effect.
+ * - When hovering only, the hovered line is highlighted and others are dimmed to 20%.
+ */
+function resolveChartVisualState(params: {
+  ownerId: string;
+  selectedOwnerId: string | null;
+  hoveredOwnerId: string | null;
+  focusMode: FocusMode;
+  topOwnerIds: Set<string>;
+}): OwnerVisualState {
+  const { ownerId, selectedOwnerId, hoveredOwnerId, focusMode, topOwnerIds } = params;
+
+  // Lock takes precedence — hover does not override a selection.
+  if (selectedOwnerId != null) {
+    return resolveOwnerVisualState({ ownerId, selectedOwnerId, focusMode, topOwnerIds });
+  }
+
+  // Hover highlight: hovered owner prominent, all others dimmed.
+  if (hoveredOwnerId != null) {
+    const isHovered = ownerId === hoveredOwnerId;
+    return { selected: isHovered, muted: !isHovered, emphasized: isHovered };
+  }
+
+  return resolveOwnerVisualState({ ownerId, selectedOwnerId: null, focusMode, topOwnerIds });
+}
+
 function resolveTrendVisualStyle(params: {
   visualState: OwnerVisualState;
   isLeader: boolean;
@@ -460,6 +488,7 @@ function SharedTrendChart({
   onSelectOwner,
   viewportWidth,
   getOwnerTrendColor,
+  heightScale = 1.0,
 }: {
   title: string;
   metric: MetricKind;
@@ -469,8 +498,10 @@ function SharedTrendChart({
   onSelectOwner: (ownerId: string) => void;
   viewportWidth: number;
   getOwnerTrendColor: (ownerId: string) => string;
+  heightScale?: number;
 }): React.ReactElement {
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
+  const [hoveredOwnerId, setHoveredOwnerId] = React.useState<string | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const hasScrolledRef = React.useRef(false);
   const [containerWidth, setContainerWidth] = React.useState(0);
@@ -497,7 +528,7 @@ function SharedTrendChart({
     viewportWidth,
     weekCount: weeks.length,
   });
-  const chartHeight = responsiveLayout.chartHeight;
+  const chartHeight = Math.round(responsiveLayout.chartHeight * heightScale);
   const plotHeight = chartHeight - 26;
   const labelLaneWidth = responsiveLayout.labelLaneWidth;
   const endpointLaneCount = labelLaneWidth >= 240 ? 3 : 2;
@@ -553,7 +584,7 @@ function SharedTrendChart({
         chartHeight: plotHeight,
         labelAreaWidth: labelLaneWidth,
         laneCount: endpointLaneCount,
-        minVerticalSpacing: 14,
+        minVerticalSpacing: 18,
       })
     : [];
   const weekTicks = deriveAllWeekTicks(weeks);
@@ -607,7 +638,8 @@ function SharedTrendChart({
           >
             <svg
               viewBox={`0 0 ${totalChartWidth} ${chartHeight}`}
-              className={`${responsiveLayout.chartHeightClass} w-full`}
+              className="w-full"
+              style={{ height: `${chartHeight}px` }}
               role="img"
               aria-label={`${title} shared trend chart`}
               data-y-domain={invertYAxis ? JSON.stringify([geometry.valueMax, 0]) : 'auto'}
@@ -662,14 +694,15 @@ function SharedTrendChart({
               {rows.map((row) => {
                 const isFocused = focusedOwnerIds.has(row.ownerId);
                 if (!isFocused) return null;
-                const visualState = resolveOwnerVisualState({
+                const visualState = resolveChartVisualState({
                   ownerId: row.ownerId,
                   selectedOwnerId,
+                  hoveredOwnerId,
                   focusMode: selectedOwnerId ? 'selected' : 'all',
                   topOwnerIds,
                 });
                 const isLeader = leaderIds.has(row.ownerId);
-                const isSeriesHovered = hoverState?.ownerName === row.ownerName;
+                const isSeriesHovered = hoverState?.ownerName === row.ownerName || hoveredOwnerId === row.ownerId;
                 const trendStyle = resolveTrendVisualStyle({
                   visualState,
                   isLeader,
@@ -699,12 +732,39 @@ function SharedTrendChart({
                   />
                 );
               })}
+              {/* Wide transparent overlay paths for per-line hover and click */}
+              {rows.map((row) => {
+                if (!focusedOwnerIds.has(row.ownerId)) return null;
+                const seriesPath = buildSeriesPath({
+                  points: row.points,
+                  geometry,
+                  width: chartWidth,
+                  height: plotHeight,
+                  invertYAxis,
+                });
+                return (
+                  <path
+                    key={`${metric}-hover-overlay-${row.ownerId}`}
+                    d={seriesPath}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={16}
+                    pointerEvents="stroke"
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => setHoveredOwnerId(row.ownerId)}
+                    onMouseLeave={() => setHoveredOwnerId(null)}
+                    onClick={() => onSelectOwner(row.ownerId)}
+                    data-hover-line={row.ownerId}
+                  />
+                );
+              })}
               {rows.flatMap((row) => {
                 const isFocused = focusedOwnerIds.has(row.ownerId);
                 if (!isFocused) return [];
-                const visualState = resolveOwnerVisualState({
+                const visualState = resolveChartVisualState({
                   ownerId: row.ownerId,
                   selectedOwnerId,
+                  hoveredOwnerId,
                   focusMode: selectedOwnerId ? 'selected' : 'all',
                   topOwnerIds,
                 });
@@ -781,9 +841,10 @@ function SharedTrendChart({
 
               {responsiveLayout.showRightEdgeLabels
                 ? endpointLabels.map((labelPlacement) => {
-                    const visualState = resolveOwnerVisualState({
+                    const visualState = resolveChartVisualState({
                       ownerId: labelPlacement.owner,
                       selectedOwnerId,
+                      hoveredOwnerId,
                       focusMode: selectedOwnerId ? 'selected' : 'all',
                       topOwnerIds,
                     });
@@ -1178,6 +1239,7 @@ export default function TrendsDetailSurface({
         viewportWidth={viewportWidth}
         onSelectOwner={handleOwnerToggle}
         getOwnerTrendColor={getOwnerTrendColor}
+        heightScale={0.62}
       />
 
       {showMomentum ? (

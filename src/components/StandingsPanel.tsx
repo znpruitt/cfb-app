@@ -110,6 +110,7 @@ export default function StandingsPanel({
   initialSubview = 'table',
 }: StandingsPanelProps): React.ReactElement {
   const showMoveColumn = seasonContext !== 'final';
+  const visibleRows = React.useMemo(() => rows.filter((r) => r.owner !== 'NoClaim'), [rows]);
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
   const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
@@ -180,7 +181,7 @@ export default function StandingsPanel({
         data-layout="standings-trends-split"
       >
         <div className="space-y-3">
-          {rows.length === 0 ? (
+          {visibleRows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
               Upload surnames to populate league standings.
             </div>
@@ -190,7 +191,7 @@ export default function StandingsPanel({
                 <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-900" />
                 <div className="-mx-1 overflow-x-auto px-1">
                   <table
-                    className="min-w-max border-separate border-spacing-0 text-sm"
+                    className="w-full border-separate border-spacing-0 text-sm"
                     data-standings-layout="tight"
                   >
                     <thead>
@@ -208,7 +209,7 @@ export default function StandingsPanel({
                             return (
                               <th
                                 key={label}
-                                className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${isCompact ? 'w-[2.8rem]' : ''} ${isTeam ? 'min-w-[9.5rem]' : ''} ${isNumericMetric ? 'w-[4.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
+                                className={`whitespace-nowrap border-b border-gray-200 px-1 py-2 font-semibold dark:border-zinc-700 ${isCompact ? 'w-[1.9rem]' : ''} ${isTeam ? 'w-[7rem] max-w-[7rem]' : ''} ${isNumericMetric ? 'w-[3.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${label === 'Win %' ? 'w-[3rem]' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
                                 data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
                               >
                                 {label}
@@ -219,7 +220,7 @@ export default function StandingsPanel({
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((row, index) => {
+                      {visibleRows.map((row, index) => {
                         const winPctWidth = Math.max(0, Math.min(100, row.winPct * 100)).toFixed(1);
                         const movement = movementByOwner[row.owner];
                         const movementPresentation = deriveMovementPresentation(
@@ -246,12 +247,12 @@ export default function StandingsPanel({
                             data-standings-owner={row.owner}
                             data-winbar-background={`${winPctWidth}%`}
                           >
-                            <td className="w-[2.8rem] border-b border-gray-100 px-1.5 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
+                            <td className="w-[1.9rem] border-b border-gray-100 px-1 py-2 text-base font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
                               {index + 1}
                             </td>
                             {showMoveColumn ? (
                               <td
-                                className={`w-[2.8rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-xs font-semibold tabular-nums sm:px-2 dark:border-zinc-800 ${movementPresentation.className}`}
+                                className={`w-[1.9rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-xs font-semibold tabular-nums dark:border-zinc-800 ${movementPresentation.className}`}
                                 title={movementPresentation.label}
                                 aria-label={movementPresentation.label}
                                 data-standings-move={movementPresentation.text}
@@ -259,8 +260,8 @@ export default function StandingsPanel({
                                 {movementPresentation.text}
                               </td>
                             ) : null}
-                            <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 text-[0.95rem] font-semibold text-gray-950 sm:px-2 dark:border-zinc-800 dark:text-zinc-50">
-                              <div className="min-w-[8rem] truncate sm:min-w-0">
+                            <td className="w-[7rem] max-w-[7rem] border-b border-gray-100 px-1 py-2 text-[0.95rem] font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+                              <div className="truncate">
                                 {onOwnerSelect ? (
                                   <button
                                     type="button"
@@ -274,22 +275,22 @@ export default function StandingsPanel({
                                 )}
                               </div>
                             </td>
-                            <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
+                            <td className="whitespace-nowrap border-b border-gray-100 px-1 py-2 font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
                               {row.wins}–{row.losses}
                             </td>
-                            <td className="whitespace-nowrap border-b border-gray-100 px-1.5 py-2 tabular-nums text-gray-600 sm:px-2 dark:border-zinc-800 dark:text-zinc-300">
+                            <td className="w-[3rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 tabular-nums text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
                               {formatWinPct(row.winPct)}
                             </td>
-                            <td className="w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className="w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {row.pointsFor}
                             </td>
-                            <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {row.pointsAgainst}
                             </td>
-                            <td className={`w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums sm:px-2 dark:border-zinc-800 ${row.pointDifferential > 0 ? 'text-emerald-700 dark:text-emerald-400' : row.pointDifferential < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-gray-500 dark:text-zinc-400'}`}>
+                            <td className={`w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums dark:border-zinc-800 ${row.pointDifferential > 0 ? 'text-emerald-700 dark:text-emerald-400' : row.pointDifferential < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-gray-500 dark:text-zinc-400'}`}>
                               {formatDiff(row.pointDifferential)}
                             </td>
-                            <td className="hidden sm:table-cell w-[4.2rem] whitespace-nowrap border-b border-gray-100 px-1.5 py-2 text-right tabular-nums text-gray-500 sm:px-2 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {formatGamesBack(row.gamesBack)}
                             </td>
                           </tr>
