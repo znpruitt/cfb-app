@@ -502,6 +502,7 @@ function SharedTrendChart({
 }): React.ReactElement {
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
   const [hoveredOwnerId, setHoveredOwnerId] = React.useState<string | null>(null);
+  const [hoveredWeek, setHoveredWeek] = React.useState<number | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const hasScrolledRef = React.useRef(false);
   const [containerWidth, setContainerWidth] = React.useState(0);
@@ -587,15 +588,13 @@ function SharedTrendChart({
   });
   const chartHeight = Math.round(responsiveLayout.chartHeight * heightScale);
   const plotHeight = chartHeight - 26;
-  const labelLaneWidth = responsiveLayout.labelLaneWidth;
-  const endpointLaneCount = labelLaneWidth >= 240 ? 3 : 2;
   const pxPerWeek = responsiveLayout.pxPerWeek;
   const chartWidth = deriveDynamicPlotWidth({
     containerWidth,
     weekCount: weeks.length,
     pxPerWeek,
   });
-  const totalChartWidth = chartWidth + labelLaneWidth;
+  const totalChartWidth = chartWidth;
   const leaderIds = resolveLeaderIds(metric, rows);
   const topOwnerIds = React.useMemo(
     () =>
@@ -614,36 +613,6 @@ function SharedTrendChart({
       ),
     [metric, rows]
   );
-  const endpointLabels = geometry
-    ? deriveEndpointLabelLayout({
-        entries: rows
-          .filter((row) => focusedOwnerIds.has(row.ownerId))
-          .map((row) => {
-            const latestPoint = row.points[row.points.length - 1];
-            if (!latestPoint) return null;
-            const latestPos = pointPosition({
-              point: latestPoint,
-              geometry,
-              width: chartWidth,
-              height: plotHeight,
-              invertYAxis,
-            });
-            return {
-              owner: row.ownerId,
-              text: `${formatLabelOwnerName(row.ownerName)} ${formatMetricLabelValue(metric, row.latest)}`,
-              endpointX: latestPos.x,
-              endpointY: latestPos.y,
-              color: getOwnerTrendColor(row.ownerId),
-            };
-          })
-          .filter((entry): entry is EndpointLabelInput => entry != null),
-        chartWidth,
-        chartHeight: plotHeight,
-        labelAreaWidth: labelLaneWidth,
-        laneCount: endpointLaneCount,
-        minVerticalSpacing: 18,
-      })
-    : [];
   const weekTicks = deriveAllWeekTicks(weeks);
 
   React.useEffect(() => {
@@ -683,6 +652,7 @@ function SharedTrendChart({
         ref={containerRef}
         data-trend-scroll-container={metric}
         className={`mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white ${responsiveLayout.chartPaddingClass} dark:border-zinc-700 dark:bg-zinc-900`}
+        onMouseLeave={() => { setHoveredOwnerId(null); setHoveredWeek(null); }}
       >
         {geometry ? (
           <div
@@ -700,7 +670,6 @@ function SharedTrendChart({
               role="img"
               aria-label={`${title} shared trend chart`}
               data-y-domain={invertYAxis ? JSON.stringify([geometry.valueMax, 0]) : 'auto'}
-              data-label-lane-width={labelLaneWidth}
             >
               {weekTicks.map((tick) => {
                 const x =
@@ -717,6 +686,29 @@ function SharedTrendChart({
                     stroke="currentColor"
                     opacity={0.15}
                     data-week-grid-line={tick.label}
+                  />
+                );
+              })}
+              {/* Per-week invisible hit zones for hoveredWeek — spans full column width */}
+              {weeks.map((week) => {
+                const x =
+                  ((week - geometry.weekMin) /
+                    Math.max(1, geometry.weekMax - geometry.weekMin)) *
+                  chartWidth;
+                const colWidth = Math.max(8, pxPerWeek * 0.9);
+                return (
+                  <rect
+                    key={`${metric}-week-hit-${week}`}
+                    x={x - colWidth / 2}
+                    y={0}
+                    width={colWidth}
+                    height={plotHeight}
+                    fill="transparent"
+                    pointerEvents="all"
+                    style={{ cursor: 'crosshair' }}
+                    onMouseEnter={() => setHoveredWeek(week)}
+                    onMouseLeave={() => setHoveredWeek(null)}
+                    data-week-hit-zone={week}
                   />
                 );
               })}
@@ -851,37 +843,20 @@ function SharedTrendChart({
                         fill="transparent"
                         pointerEvents="all"
                         data-hover-target={`${metric}-${row.ownerId}-${point.week}`}
-                        onMouseEnter={() =>
-                          setHoverState({
-                            x: pos.x,
-                            y: pos.y,
-                            ownerName: row.ownerName,
-                            metric,
-                            week: point.week,
-                            value: point.value,
-                          })
-                        }
-                        onMouseLeave={() => setHoverState(null)}
-                        onClick={() =>
-                          setHoverState({
-                            x: pos.x,
-                            y: pos.y,
-                            ownerName: row.ownerName,
-                            metric,
-                            week: point.week,
-                            value: point.value,
-                          })
-                        }
-                        onTouchStart={() =>
-                          setHoverState({
-                            x: pos.x,
-                            y: pos.y,
-                            ownerName: row.ownerName,
-                            metric,
-                            week: point.week,
-                            value: point.value,
-                          })
-                        }
+                        onMouseEnter={() => {
+                          setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
+                          setHoveredOwnerId(row.ownerId);
+                          setHoveredWeek(point.week);
+                        }}
+                        onMouseLeave={() => { setHoverState(null); setHoveredOwnerId(null); setHoveredWeek(null); }}
+                        onClick={() => {
+                          setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
+                        }}
+                        onTouchStart={() => {
+                          setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
+                          setHoveredOwnerId(row.ownerId);
+                          setHoveredWeek(point.week);
+                        }}
                       />
                       <circle
                         cx={pos.x}
@@ -896,66 +871,6 @@ function SharedTrendChart({
                 });
               })}
 
-              {responsiveLayout.showRightEdgeLabels && metric !== 'win-pct'
-                ? endpointLabels.map((labelPlacement) => {
-                    const visualState = resolveChartVisualState({
-                      ownerId: labelPlacement.owner,
-                      selectedOwnerId,
-                      hoveredOwnerId,
-                      focusMode: selectedOwnerId ? 'selected' : 'all',
-                      topOwnerIds,
-                    });
-                    const trendStyle = resolveTrendVisualStyle({
-                      visualState,
-                      isLeader: leaderIds.has(labelPlacement.owner),
-                      isSeriesHovered: hoverState?.ownerName === labelPlacement.owner,
-                    });
-                    const connectorPath = labelPlacement.connectorPoints
-                      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
-                      .join(' ');
-                    return (
-                      <g
-                        key={`${metric}-label-${labelPlacement.owner}`}
-                        opacity={visualState.selected ? 1 : visualState.muted ? 0.3 : 0.92}
-                        data-owner-id={labelPlacement.owner}
-                        data-selected={visualState.selected ? 'true' : 'false'}
-                        data-muted={visualState.muted ? 'true' : 'false'}
-                        data-emphasized={visualState.emphasized ? 'true' : 'false'}
-                        data-endpoint-label-lane={labelPlacement.lane}
-                        data-endpoint-label-x={labelPlacement.labelX.toFixed(2)}
-                        data-endpoint-label-y={labelPlacement.labelY.toFixed(2)}
-                      >
-                        <circle
-                          cx={labelPlacement.endpointX}
-                          cy={labelPlacement.endpointY}
-                          r={trendStyle.anchorDotRadius}
-                          fill={getOwnerTrendColor(labelPlacement.owner)}
-                          opacity={visualState.selected ? 0.98 : 0.72}
-                          data-label-anchor-dot={labelPlacement.owner}
-                        />
-                        <path
-                          d={connectorPath}
-                          fill="none"
-                          stroke={getOwnerTrendColor(labelPlacement.owner)}
-                          strokeWidth={visualState.selected ? 2.2 : visualState.muted ? 0.9 : 1.4}
-                          strokeDasharray="1.5 2.5"
-                          opacity={visualState.selected ? 0.92 : visualState.muted ? 0.32 : 0.65}
-                          data-label-connector={labelPlacement.owner}
-                        />
-                        <text
-                          x={labelPlacement.labelX}
-                          y={labelPlacement.labelY + 3}
-                          fill={getOwnerTrendColor(labelPlacement.owner)}
-                          fontSize="10"
-                          fontWeight={visualState.selected ? 800 : visualState.muted ? 500 : 650}
-                          data-right-edge-label={labelPlacement.owner}
-                        >
-                          {labelPlacement.text}
-                        </text>
-                      </g>
-                    );
-                  })
-                : null}
               {hoverState ? (
                 <g data-trend-tooltip={metric} pointerEvents="none">
                   {(() => {
@@ -1045,7 +960,15 @@ function SharedTrendChart({
                   />
                   <span className="truncate font-medium">{row.ownerName}</span>
                 </span>
-                <span>{row.latest == null ? '—' : formatMetricValue(metric, row.latest)}</span>
+                <span>
+                  {(() => {
+                    const weekVal = hoveredWeek != null
+                      ? row.points.find((p) => p.week === hoveredWeek)?.value ?? null
+                      : null;
+                    const display = weekVal != null ? weekVal : row.latest;
+                    return display == null ? '—' : formatMetricValue(metric, display);
+                  })()}
+                </span>
               </button>
             </li>
           );
@@ -1073,7 +996,7 @@ export default function TrendsDetailSurface({
   showMomentum?: boolean;
 }): React.ReactElement {
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
-  const [focusMode, setFocusMode] = React.useState<FocusMode>('top');
+  const [focusMode, setFocusMode] = React.useState<FocusMode>('all');
   const [viewportWidth, setViewportWidth] = React.useState(() =>
     typeof window === 'undefined' ? 1024 : window.innerWidth
   );
