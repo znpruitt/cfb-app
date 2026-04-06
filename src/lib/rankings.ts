@@ -25,6 +25,7 @@ export type RankingsWeek = {
   season: number;
   week: number;
   seasonType: string;
+  label?: string;
   primarySource: RankSource | null;
   teams: CanonicalRankedTeam[];
   polls: Record<RankSource, CanonicalPollEntry[]>;

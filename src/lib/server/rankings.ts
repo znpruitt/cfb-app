@@ -135,6 +135,27 @@ function mergeWeekRankings(params: {
   };
 }
 
+const POSTSEASON_SYNTHETIC_WEEK = 999;
+
+function remapPostseasonWeeks(weeks: RankingsWeek[]): RankingsWeek[] {
+  const regular = weeks.filter((w) => w.seasonType !== 'postseason');
+  const postseason = weeks
+    .filter((w) => w.seasonType === 'postseason')
+    .sort((a, b) => a.week - b.week);
+
+  if (postseason.length === 0) return regular;
+
+  // Keep only the latest postseason entry (highest CFBD week = final poll).
+  const finalPoll = postseason[postseason.length - 1]!;
+  const remapped: RankingsWeek = {
+    ...finalPoll,
+    week: POSTSEASON_SYNTHETIC_WEEK,
+    label: 'Final Poll',
+  };
+
+  return [...regular, remapped].sort(compareWeek);
+}
+
 export function normalizeCfbdRankingsWeeks(
   data: CfbdPollWeek[],
   resolver: ReturnType<typeof createTeamIdentityResolver>
@@ -226,10 +247,11 @@ export async function loadSeasonRankings(
     ),
   ]);
 
-  const weeks = normalizeCfbdRankingsWeeks(
+  const rawWeeks = normalizeCfbdRankingsWeeks(
     [...(regularData ?? []), ...(postseasonData ?? [])],
     resolver,
   );
+  const weeks = remapPostseasonWeeks(rawWeeks);
 
   const response: RankingsResponse = {
     weeks,

@@ -39,7 +39,7 @@ function WeekPollsView({ week }: { week: RankingsWeek }): React.ReactElement {
     <div className="space-y-4">
       <section className="rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <p className="text-sm text-gray-600 dark:text-zinc-300">
-          {week.seasonType} · Week {week.week} · Primary inline source:{' '}
+          {week.label ?? `${week.seasonType} · Week ${week.week}`} · Primary source:{' '}
           {week.primarySource ? rankSourceLabel(week.primarySource) : 'Unavailable'}
         </p>
       </section>
@@ -118,7 +118,7 @@ export default function RankingsPageContent({
                   }`}
                   aria-pressed={index === resolvedIndex}
                 >
-                  W{week.week}
+                  {week.label ?? `W${week.week}`}
                 </button>
               ))}
             </div>
