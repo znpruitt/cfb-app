@@ -1,46 +1,132 @@
 import React from 'react';
 
-import { type CanonicalPollEntry, type RankingsWeek } from '../lib/rankings';
-import RankedTeamName from './RankedTeamName';
+import { type CanonicalPollEntry, type RankSource, type RankingsWeek } from '../lib/rankings';
 
-function PollSection({
-  title,
-  entries,
-}: {
-  title: string;
-  entries: CanonicalPollEntry[];
-}): React.ReactElement | null {
-  if (entries.length === 0) return null;
+type RankDelta = number | 'new' | null;
 
+function deriveRankDeltas(
+  current: CanonicalPollEntry[],
+  previous: CanonicalPollEntry[]
+): Map<string, RankDelta> {
+  const prevByTeam = new Map(previous.map((e) => [e.teamId, e.rank]));
+  const deltas = new Map<string, RankDelta>();
+  for (const entry of current) {
+    const prevRank = prevByTeam.get(entry.teamId);
+    if (prevRank == null) {
+      deltas.set(entry.teamId, 'new');
+    } else {
+      deltas.set(entry.teamId, prevRank - entry.rank); // positive = moved up
+    }
+  }
+  return deltas;
+}
+
+function MovementBadge({ delta }: { delta: RankDelta }): React.ReactElement {
+  if (delta === 'new') {
+    return (
+      <span className="w-8 text-right text-xs font-medium text-zinc-400 dark:text-zinc-500">
+        NR
+      </span>
+    );
+  }
+  if (delta === null || delta === 0) {
+    return (
+      <span className="w-8 text-right text-xs text-zinc-400 dark:text-zinc-600" aria-label="No change">
+        —
+      </span>
+    );
+  }
+  if (delta > 0) {
+    return (
+      <span
+        className="w-8 text-right text-xs font-semibold tabular-nums text-emerald-600 dark:text-emerald-400"
+        aria-label={`Up ${delta}`}
+      >
+        ↑{delta}
+      </span>
+    );
+  }
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-        {title}
-      </h2>
-      <ol className="mt-4 space-y-2">
-        {entries.map((entry) => (
-          <li
-            key={`${entry.rankSource}:${entry.teamId}`}
-            className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-800 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-100"
-          >
-            <RankedTeamName
-              teamName={entry.teamName}
-              ranking={{ rank: entry.rank, rankSource: entry.rankSource }}
-            />
-          </li>
-        ))}
-      </ol>
-    </section>
+    <span
+      className="w-8 text-right text-xs font-semibold tabular-nums text-rose-600 dark:text-rose-400"
+      aria-label={`Down ${Math.abs(delta)}`}
+    >
+      ↓{Math.abs(delta)}
+    </span>
   );
 }
 
-function WeekPollsView({ week }: { week: RankingsWeek }): React.ReactElement {
+function PollColumn({
+  title,
+  entries,
+  deltas,
+}: {
+  title: string;
+  entries: CanonicalPollEntry[];
+  deltas: Map<string, RankDelta>;
+}): React.ReactElement {
   return (
-    <div className="space-y-4">
-      <PollSection title="CFP Rankings" entries={week.polls.cfp} />
-      <PollSection title="AP Top 25" entries={week.polls.ap} />
-      <PollSection title="Coaches Poll" entries={week.polls.coaches} />
+    <div className="min-w-0">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+        {title}
+      </h3>
+      {entries.length === 0 ? (
+        <p className="py-3 text-xs text-gray-400 dark:text-zinc-600">Not available</p>
+      ) : (
+        <ol>
+          {entries.map((entry, idx) => {
+            const delta = deltas.get(entry.teamId) ?? null;
+            return (
+              <li
+                key={`${entry.rankSource}:${entry.teamId}`}
+                className={`flex items-center gap-2 px-1 py-1.5 text-sm ${
+                  idx % 2 === 0
+                    ? 'bg-transparent'
+                    : 'rounded bg-gray-50/60 dark:bg-zinc-800/40'
+                }`}
+              >
+                <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums text-gray-500 dark:text-zinc-400">
+                  {entry.rank}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium text-gray-900 dark:text-zinc-100">
+                  {entry.teamName}
+                </span>
+                <MovementBadge delta={delta} />
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
+  );
+}
+
+const POLL_COLUMNS: { key: RankSource; title: string }[] = [
+  { key: 'cfp', title: 'CFP Rankings' },
+  { key: 'ap', title: 'AP Top 25' },
+  { key: 'coaches', title: 'Coaches Poll' },
+];
+
+function WeekPollsView({
+  week,
+  previousWeek,
+}: {
+  week: RankingsWeek;
+  previousWeek: RankingsWeek | null;
+}): React.ReactElement {
+  return (
+    <section className="rounded-xl border border-gray-300 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+        {POLL_COLUMNS.map(({ key, title }) => {
+          const current = week.polls[key] ?? [];
+          const previous = previousWeek?.polls[key] ?? [];
+          const deltas = deriveRankDeltas(current, previous);
+          return (
+            <PollColumn key={key} title={title} entries={current} deltas={deltas} />
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -63,7 +149,6 @@ export default function RankingsPageContent({
   const weeks = allWeeks.length > 0 ? allWeeks : latestWeek ? [latestWeek] : [];
   const [selectedWeekIndex, setSelectedWeekIndex] = React.useState<number | null>(null);
 
-  // Default to the latest week when data loads
   const resolvedIndex =
     selectedWeekIndex !== null && selectedWeekIndex < weeks.length
       ? selectedWeekIndex
@@ -72,6 +157,8 @@ export default function RankingsPageContent({
         : null;
 
   const displayWeek = resolvedIndex !== null ? weeks[resolvedIndex] : null;
+  const previousWeek =
+    resolvedIndex !== null && resolvedIndex > 0 ? (weeks[resolvedIndex - 1] ?? null) : null;
 
   return (
     <div className="space-y-4 p-3 sm:p-4">
@@ -118,7 +205,9 @@ export default function RankingsPageContent({
             </div>
           ) : null}
 
-          {displayWeek ? <WeekPollsView week={displayWeek} /> : null}
+          {displayWeek ? (
+            <WeekPollsView week={displayWeek} previousWeek={previousWeek} />
+          ) : null}
         </>
       )}
     </div>
