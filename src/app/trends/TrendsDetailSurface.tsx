@@ -634,9 +634,11 @@ function SharedTrendChart({
     if (hasScrolledRef.current) return;
     const container = containerRef.current;
     if (!container) return;
-    container.scrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+    const maxScroll = container.scrollWidth - container.clientWidth;
+    if (maxScroll <= 0) return;
+    container.scrollLeft = maxScroll;
     hasScrolledRef.current = true;
-  }, []);
+  }, [chartWidth]);
   return (
     <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
@@ -721,7 +723,13 @@ function SharedTrendChart({
                     Math.max(1, geometry.weekMax - geometry.weekMin)) *
                   chartWidth;
                 return (
-                  <g key={`${metric}-tick-${tick.value}`} data-week-tick={tick.label}>
+                  <g
+                    key={`${metric}-tick-${tick.value}`}
+                    data-week-tick={tick.label}
+                    style={{ cursor: 'crosshair' }}
+                    onMouseEnter={() => setHoveredWeek(tick.value)}
+                    onMouseLeave={() => setHoveredWeek(null)}
+                  >
                     <line
                       x1={x}
                       y1={chartHeight - 24}
