@@ -478,6 +478,9 @@ function SharedTrendChart({
   viewportWidth,
   getOwnerTrendColor,
   heightScale = 1.0,
+  focusMode = 'all',
+  multiSelectedOwnerIds,
+  onMultiSelectToggle,
 }: {
   title: string;
   metric: MetricKind;
@@ -488,6 +491,9 @@ function SharedTrendChart({
   viewportWidth: number;
   getOwnerTrendColor: (ownerId: string) => string;
   heightScale?: number;
+  focusMode?: FocusMode;
+  multiSelectedOwnerIds?: Set<string>;
+  onMultiSelectToggle?: (ownerId: string) => void;
 }): React.ReactElement {
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
   const [hoveredOwnerId, setHoveredOwnerId] = React.useState<string | null>(null);
@@ -643,7 +649,15 @@ function SharedTrendChart({
         className={`mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white ${responsiveLayout.chartPaddingClass} dark:border-zinc-700 dark:bg-zinc-900`}
         onMouseLeave={() => { setHoveredOwnerId(null); setHoveredWeek(null); }}
       >
-        {geometry ? (
+        {focusMode === 'selected' && focusedOwnerIds.size === 0 ? (
+          <div
+            className="flex items-center justify-center text-sm text-gray-400 dark:text-zinc-500"
+            style={{ height: `${chartHeight}px` }}
+            data-chart-empty-selected
+          >
+            Select owners from the legend below
+          </div>
+        ) : geometry ? (
           <div
             style={{ width: `${totalChartWidth}px` }}
             data-plot-width={chartWidth}
@@ -736,7 +750,7 @@ function SharedTrendChart({
                   ownerId: row.ownerId,
                   selectedOwnerId,
                   hoveredOwnerId,
-                  focusMode: selectedOwnerId ? 'selected' : 'all',
+                  focusMode,
                   topOwnerIds,
                 });
                 const isLeader = leaderIds.has(row.ownerId);
@@ -791,7 +805,7 @@ function SharedTrendChart({
                     style={{ cursor: 'pointer' }}
                     onMouseEnter={() => setHoveredOwnerId(row.ownerId)}
                     onMouseLeave={() => setHoveredOwnerId(null)}
-                    onClick={() => onSelectOwner(row.ownerId)}
+                    onClick={() => focusMode === 'selected' ? onMultiSelectToggle?.(row.ownerId) : onSelectOwner(row.ownerId)}
                     data-hover-line={row.ownerId}
                   />
                 );
@@ -803,7 +817,7 @@ function SharedTrendChart({
                   ownerId: row.ownerId,
                   selectedOwnerId,
                   hoveredOwnerId,
-                  focusMode: selectedOwnerId ? 'selected' : 'all',
+                  focusMode,
                   topOwnerIds,
                 });
                 return row.points.map((point) => {
@@ -907,17 +921,19 @@ function SharedTrendChart({
 
       <ul className="mt-3 grid gap-1.5 text-xs text-gray-700 dark:text-zinc-300 sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((row) => {
-          if (!focusedOwnerIds.has(row.ownerId)) return null;
+          if (focusMode !== 'selected' && !focusedOwnerIds.has(row.ownerId)) return null;
           // Use the unified resolveChartVisualState so legend and chart
           // respond to the same hoveredOwnerId / selectedOwnerId state.
           const visualState = resolveChartVisualState({
             ownerId: row.ownerId,
             selectedOwnerId,
             hoveredOwnerId,
-            focusMode: selectedOwnerId ? 'selected' : 'all',
+            focusMode,
             topOwnerIds: new Set(),
           });
-          const isLocked = selectedOwnerId === row.ownerId;
+          const isLocked = focusMode === 'selected'
+            ? (multiSelectedOwnerIds?.has(row.ownerId) ?? false)
+            : selectedOwnerId === row.ownerId;
           const isHoverHighlighted = hoveredOwnerId === row.ownerId && selectedOwnerId == null;
           return (
             <li
@@ -935,7 +951,7 @@ function SharedTrendChart({
               <button
                 type="button"
                 className="flex w-full items-center justify-between gap-2 text-left"
-                onClick={() => onSelectOwner(row.ownerId)}
+                onClick={() => focusMode === 'selected' ? onMultiSelectToggle?.(row.ownerId) : onSelectOwner(row.ownerId)}
                 data-selected={visualState.selected ? 'true' : 'false'}
                 data-muted={visualState.muted ? 'true' : 'false'}
                 data-emphasized={visualState.emphasized ? 'true' : 'false'}
@@ -985,6 +1001,7 @@ export default function TrendsDetailSurface({
   showMomentum?: boolean;
 }): React.ReactElement {
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
+  const [selectedOwnerSet, setSelectedOwnerSet] = React.useState<Set<string>>(() => new Set());
   const [focusMode, setFocusMode] = React.useState<FocusMode>('all');
   const [viewportWidth, setViewportWidth] = React.useState(() =>
     typeof window === 'undefined' ? 1024 : window.innerWidth
@@ -1071,20 +1088,36 @@ export default function TrendsDetailSurface({
     },
     [orderedOwners.length, ownerColorMap, ownerIndexMap]
   );
-  const focusedOwners = React.useMemo(
-    () =>
-      deriveFocusedOwners({
-        focusMode,
-        selectedOwners: selectedOwnerId ? new Set([selectedOwnerId]) : new Set<string>(),
-        orderedOwners,
-        topN: TOP_FOCUS_COUNT,
-      }),
-    [focusMode, orderedOwners, selectedOwnerId]
-  );
+  const focusedOwners = React.useMemo(() => {
+    if (focusMode === 'selected') {
+      return Array.from(selectedOwnerSet);
+    }
+    return deriveFocusedOwners({
+      focusMode,
+      selectedOwners: selectedOwnerId ? new Set([selectedOwnerId]) : new Set<string>(),
+      orderedOwners,
+      topN: TOP_FOCUS_COUNT,
+    });
+  }, [focusMode, orderedOwners, selectedOwnerId, selectedOwnerSet]);
   const focusedOwnerIdSet = React.useMemo(() => new Set(focusedOwners), [focusedOwners]);
   const compactWinBars = compact || viewportWidth < 640;
   const handleOwnerToggle = React.useCallback((ownerId: string) => {
     setSelectedOwnerId((current) => toggleSelectedOwner(current, ownerId));
+  }, []);
+  const handleSelectedSetToggle = React.useCallback((ownerId: string) => {
+    setSelectedOwnerSet((current) => {
+      const next = new Set(current);
+      if (next.has(ownerId)) {
+        next.delete(ownerId);
+      } else {
+        next.add(ownerId);
+      }
+      return next;
+    });
+  }, []);
+  const handleFocusModeChange = React.useCallback((mode: FocusMode) => {
+    setFocusMode(mode);
+    setSelectedOwnerId(null);
   }, []);
 
   const WrapperTag = layoutMode === 'standalone' ? 'main' : 'div';
@@ -1177,7 +1210,7 @@ export default function TrendsDetailSurface({
               { mode: 'top', label: `Top ${TOP_FOCUS_COUNT}` },
               {
                 mode: 'selected',
-                label: selectedOwnerId ? 'Selected (1)' : 'Selected',
+                label: selectedOwnerSet.size > 0 ? `Selected (${selectedOwnerSet.size})` : 'Selected',
               },
             ] as const
           ).map(({ mode, label }) => (
@@ -1190,7 +1223,7 @@ export default function TrendsDetailSurface({
                   : 'text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100'
               }`}
               aria-pressed={focusMode === mode}
-              onClick={() => setFocusMode(mode)}
+              onClick={() => handleFocusModeChange(mode)}
               data-focus-mode-control={mode}
             >
               {label}
@@ -1210,6 +1243,9 @@ export default function TrendsDetailSurface({
         viewportWidth={viewportWidth}
         onSelectOwner={handleOwnerToggle}
         getOwnerTrendColor={getOwnerTrendColor}
+        focusMode={focusMode}
+        multiSelectedOwnerIds={selectedOwnerSet}
+        onMultiSelectToggle={handleSelectedSetToggle}
       />
 
       <SharedTrendChart
@@ -1222,6 +1258,9 @@ export default function TrendsDetailSurface({
         onSelectOwner={handleOwnerToggle}
         getOwnerTrendColor={getOwnerTrendColor}
         heightScale={0.62}
+        focusMode={focusMode}
+        multiSelectedOwnerIds={selectedOwnerSet}
+        onMultiSelectToggle={handleSelectedSetToggle}
       />
 
       {showMomentum ? (
