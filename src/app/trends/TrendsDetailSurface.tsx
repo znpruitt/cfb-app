@@ -435,6 +435,24 @@ function resolveChartVisualState(params: {
   return resolveOwnerVisualState({ ownerId, selectedOwnerId: null, focusMode, topOwnerIds });
 }
 
+function resolveEmbeddedVisualState(params: {
+  ownerId: string;
+  hoveredOwnerId: string | null;
+  selectedOwnerSet: Set<string>;
+}): OwnerVisualState {
+  const { ownerId, hoveredOwnerId, selectedOwnerSet } = params;
+  const isHovered = ownerId === hoveredOwnerId;
+  const isSelected = selectedOwnerSet.has(ownerId);
+  const hasAnyHighlight = hoveredOwnerId !== null || selectedOwnerSet.size > 0;
+  if (isHovered || isSelected) {
+    return { selected: true, muted: false, emphasized: true };
+  }
+  if (hasAnyHighlight) {
+    return { selected: false, muted: true, emphasized: false };
+  }
+  return { selected: false, muted: false, emphasized: true };
+}
+
 function resolveTrendVisualStyle(params: {
   visualState: OwnerVisualState;
   isLeader: boolean;
@@ -481,6 +499,9 @@ function SharedTrendChart({
   focusMode = 'all',
   multiSelectedOwnerIds,
   onMultiSelectToggle,
+  hideLegend = false,
+  externalHoveredOwnerId,
+  onHoverChange,
 }: {
   title: string;
   metric: MetricKind;
@@ -494,10 +515,14 @@ function SharedTrendChart({
   focusMode?: FocusMode;
   multiSelectedOwnerIds?: Set<string>;
   onMultiSelectToggle?: (ownerId: string) => void;
+  hideLegend?: boolean;
+  externalHoveredOwnerId?: string | null;
+  onHoverChange?: (ownerId: string | null) => void;
 }): React.ReactElement {
   const [hoverState, setHoverState] = React.useState<HoverState | null>(null);
   const [hoveredOwnerId, setHoveredOwnerId] = React.useState<string | null>(null);
   const [hoveredWeek, setHoveredWeek] = React.useState<number | null>(null);
+  const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const hasScrolledRef = React.useRef(false);
   const [containerWidth, setContainerWidth] = React.useState(0);
@@ -649,7 +674,7 @@ function SharedTrendChart({
         ref={containerRef}
         data-trend-scroll-container={metric}
         className={`mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white ${responsiveLayout.chartPaddingClass} dark:border-zinc-700 dark:bg-zinc-900`}
-        onMouseLeave={() => { setHoveredOwnerId(null); setHoveredWeek(null); }}
+        onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); setHoveredWeek(null); }}
       >
         {focusMode === 'selected' && focusedOwnerIds.size === 0 ? (
           <div
@@ -754,15 +779,17 @@ function SharedTrendChart({
               {rows.map((row) => {
                 const isFocused = focusedOwnerIds.has(row.ownerId);
                 if (!isFocused) return null;
-                const visualState = resolveChartVisualState({
-                  ownerId: row.ownerId,
-                  selectedOwnerId,
-                  hoveredOwnerId,
-                  focusMode,
-                  topOwnerIds,
-                });
+                const visualState = hideLegend
+                  ? resolveEmbeddedVisualState({ ownerId: row.ownerId, hoveredOwnerId: effectiveHoveredOwnerId, selectedOwnerSet: multiSelectedOwnerIds ?? new Set() })
+                  : resolveChartVisualState({
+                      ownerId: row.ownerId,
+                      selectedOwnerId,
+                      hoveredOwnerId,
+                      focusMode,
+                      topOwnerIds,
+                    });
                 const isLeader = leaderIds.has(row.ownerId);
-                const isSeriesHovered = hoverState?.ownerName === row.ownerName || hoveredOwnerId === row.ownerId;
+                const isSeriesHovered = hoverState?.ownerName === row.ownerName || effectiveHoveredOwnerId === row.ownerId;
                 const trendStyle = resolveTrendVisualStyle({
                   visualState,
                   isLeader,
@@ -811,9 +838,9 @@ function SharedTrendChart({
                     strokeWidth={16}
                     pointerEvents="stroke"
                     style={{ cursor: 'pointer' }}
-                    onMouseEnter={() => setHoveredOwnerId(row.ownerId)}
-                    onMouseLeave={() => setHoveredOwnerId(null)}
-                    onClick={() => focusMode === 'selected' ? onMultiSelectToggle?.(row.ownerId) : onSelectOwner(row.ownerId)}
+                    onMouseEnter={() => { setHoveredOwnerId(row.ownerId); onHoverChange?.(row.ownerId); }}
+                    onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); }}
+                    onClick={() => (hideLegend || focusMode === 'selected') ? onMultiSelectToggle?.(row.ownerId) : onSelectOwner(row.ownerId)}
                     data-hover-line={row.ownerId}
                   />
                 );
@@ -821,13 +848,15 @@ function SharedTrendChart({
               {rows.flatMap((row) => {
                 const isFocused = focusedOwnerIds.has(row.ownerId);
                 if (!isFocused) return [];
-                const visualState = resolveChartVisualState({
-                  ownerId: row.ownerId,
-                  selectedOwnerId,
-                  hoveredOwnerId,
-                  focusMode,
-                  topOwnerIds,
-                });
+                const visualState = hideLegend
+                  ? resolveEmbeddedVisualState({ ownerId: row.ownerId, hoveredOwnerId: effectiveHoveredOwnerId, selectedOwnerSet: multiSelectedOwnerIds ?? new Set() })
+                  : resolveChartVisualState({
+                      ownerId: row.ownerId,
+                      selectedOwnerId,
+                      hoveredOwnerId,
+                      focusMode,
+                      topOwnerIds,
+                    });
                 return row.points.map((point) => {
                   const pos = pointPosition({
                     point,
@@ -857,9 +886,10 @@ function SharedTrendChart({
                         onMouseEnter={() => {
                           setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
                           setHoveredOwnerId(row.ownerId);
+                          onHoverChange?.(row.ownerId);
                           setHoveredWeek(point.week);
                         }}
-                        onMouseLeave={() => { setHoverState(null); setHoveredOwnerId(null); setHoveredWeek(null); }}
+                        onMouseLeave={() => { setHoverState(null); setHoveredOwnerId(null); onHoverChange?.(null); setHoveredWeek(null); }}
                         onClick={() => {
                           setHoverState({ x: pos.x, y: pos.y, ownerName: row.ownerName, metric, week: point.week, value: point.value });
                         }}
@@ -927,66 +957,6 @@ function SharedTrendChart({
         ) : null}
       </div>
 
-      <ul className="mt-3 grid gap-1.5 text-xs text-gray-700 dark:text-zinc-300 sm:grid-cols-2 lg:grid-cols-3">
-        {rows.map((row) => {
-          if (focusMode !== 'selected' && !focusedOwnerIds.has(row.ownerId)) return null;
-          // Use the unified resolveChartVisualState so legend and chart
-          // respond to the same hoveredOwnerId / selectedOwnerId state.
-          const visualState = resolveChartVisualState({
-            ownerId: row.ownerId,
-            selectedOwnerId,
-            hoveredOwnerId,
-            focusMode,
-            topOwnerIds: new Set(),
-          });
-          const isLocked = focusMode === 'selected'
-            ? (multiSelectedOwnerIds?.has(row.ownerId) ?? false)
-            : selectedOwnerId === row.ownerId;
-          const isHoverHighlighted = hoveredOwnerId === row.ownerId && selectedOwnerId == null;
-          return (
-            <li
-              key={`${metric}-legend-${row.ownerId}`}
-              className={`rounded-md border px-2 py-1 transition-opacity ${
-                isLocked
-                  ? 'border-blue-300 bg-blue-100/80 ring-1 ring-blue-300 dark:border-blue-600 dark:bg-blue-950/40 dark:ring-blue-500'
-                  : isHoverHighlighted
-                    ? 'border-gray-300 bg-gray-100 dark:border-zinc-600 dark:bg-zinc-800'
-                    : 'border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900'
-              } ${visualState.muted ? 'opacity-20' : ''}`}
-              onMouseEnter={() => setHoveredOwnerId(row.ownerId)}
-              onMouseLeave={() => setHoveredOwnerId(null)}
-            >
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-2 text-left"
-                onClick={() => focusMode === 'selected' ? onMultiSelectToggle?.(row.ownerId) : onSelectOwner(row.ownerId)}
-                data-selected={visualState.selected ? 'true' : 'false'}
-                data-muted={visualState.muted ? 'true' : 'false'}
-                data-emphasized={visualState.emphasized ? 'true' : 'false'}
-                data-legend-owner={row.ownerId}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: getOwnerTrendColor(row.ownerId) }}
-                  />
-                  <span className="truncate font-medium">{row.ownerName}</span>
-                </span>
-                <span>
-                  {(() => {
-                    const weekVal = hoveredWeek != null
-                      ? row.points.find((p) => p.week === hoveredWeek)?.value ?? null
-                      : null;
-                    const display = weekVal != null ? weekVal : row.latest;
-                    return display == null ? '—' : formatMetricValue(metric, display);
-                  })()}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
     </section>
   );
 }
@@ -999,6 +969,10 @@ export default function TrendsDetailSurface({
   layoutMode = 'standalone',
   compact = false,
   showMomentum = true,
+  externalHoveredOwnerId,
+  externalSelectedOwnerSet,
+  onExternalHoverChange,
+  onExternalToggleOwner,
 }: {
   standingsHistory: StandingsHistory | null;
   season: number;
@@ -1007,6 +981,10 @@ export default function TrendsDetailSurface({
   layoutMode?: LayoutMode;
   compact?: boolean;
   showMomentum?: boolean;
+  externalHoveredOwnerId?: string | null;
+  externalSelectedOwnerSet?: Set<string>;
+  onExternalHoverChange?: (ownerId: string | null) => void;
+  onExternalToggleOwner?: (ownerId: string) => void;
 }): React.ReactElement {
   const [selectedOwnerId, setSelectedOwnerId] = React.useState<string | null>(null);
   const [selectedOwnerSet, setSelectedOwnerSet] = React.useState<Set<string>>(() => new Set());
@@ -1014,6 +992,7 @@ export default function TrendsDetailSurface({
   const [viewportWidth, setViewportWidth] = React.useState(() =>
     typeof window === 'undefined' ? 1024 : window.innerWidth
   );
+  const isControlled = externalSelectedOwnerSet !== undefined;
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1097,6 +1076,7 @@ export default function TrendsDetailSurface({
     [orderedOwners.length, ownerColorMap, ownerIndexMap]
   );
   const focusedOwners = React.useMemo(() => {
+    if (isControlled) return orderedOwners;
     if (focusMode === 'selected') {
       return Array.from(selectedOwnerSet);
     }
@@ -1106,7 +1086,7 @@ export default function TrendsDetailSurface({
       orderedOwners,
       topN: TOP_FOCUS_COUNT,
     });
-  }, [focusMode, orderedOwners, selectedOwnerId, selectedOwnerSet]);
+  }, [focusMode, isControlled, orderedOwners, selectedOwnerId, selectedOwnerSet]);
   const focusedOwnerIdSet = React.useMemo(() => new Set(focusedOwners), [focusedOwners]);
   const compactWinBars = compact || viewportWidth < 640;
   const handleOwnerToggle = React.useCallback((ownerId: string) => {
@@ -1149,7 +1129,7 @@ export default function TrendsDetailSurface({
             Season {season} · {seasonContextLabel(seasonContext)}
           </p>
         </header>
-      ) : (
+      ) : isControlled ? null : (
         <header>
           <h3 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
             Trends
@@ -1160,7 +1140,7 @@ export default function TrendsDetailSurface({
         </header>
       )}
 
-      {selectedOwnerId && selectedWinBar && selectedRank != null ? (
+      {!isControlled && selectedOwnerId && selectedWinBar && selectedRank != null ? (
         <section
           className="rounded-xl border border-blue-300 bg-blue-50/80 p-3 dark:border-blue-700 dark:bg-blue-950/30"
           data-owner-focus="true"
@@ -1206,41 +1186,45 @@ export default function TrendsDetailSurface({
         </section>
       ) : null}
 
-      <section className="rounded-lg border border-gray-200 bg-white/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/70">
-        <div
-          className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
-          role="group"
-          aria-label="Chart focus mode controls"
-        >
-          {(
-            [
-              { mode: 'all', label: 'All' },
-              { mode: 'top', label: `Top ${TOP_FOCUS_COUNT}` },
-              {
-                mode: 'selected',
-                label: selectedOwnerSet.size > 0 ? `Selected (${selectedOwnerSet.size})` : 'Selected',
-              },
-            ] as const
-          ).map(({ mode, label }) => (
-            <button
-              key={mode}
-              type="button"
-              className={`rounded px-2.5 py-1 text-xs font-medium transition ${
-                focusMode === mode
-                  ? 'bg-white text-gray-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100'
-              }`}
-              aria-pressed={focusMode === mode}
-              onClick={() => handleFocusModeChange(mode)}
-              data-focus-mode-control={mode}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
+      {!isControlled ? (
+        <section className="rounded-lg border border-gray-200 bg-white/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/70">
+          <div
+            className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
+            role="group"
+            aria-label="Chart focus mode controls"
+          >
+            {(
+              [
+                { mode: 'all', label: 'All' },
+                { mode: 'top', label: `Top ${TOP_FOCUS_COUNT}` },
+                {
+                  mode: 'selected',
+                  label: selectedOwnerSet.size > 0 ? `Selected (${selectedOwnerSet.size})` : 'Selected',
+                },
+              ] as const
+            ).map(({ mode, label }) => (
+              <button
+                key={mode}
+                type="button"
+                className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                  focusMode === mode
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
+                    : 'text-gray-600 hover:text-gray-900 dark:text-zinc-300 dark:hover:text-zinc-100'
+                }`}
+                aria-pressed={focusMode === mode}
+                onClick={() => handleFocusModeChange(mode)}
+                data-focus-mode-control={mode}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-      <p className="text-xs text-gray-500 dark:text-zinc-400">Click lines to compare</p>
+      {!isControlled ? (
+        <p className="text-xs text-gray-500 dark:text-zinc-400">Click lines to compare</p>
+      ) : null}
 
       <SharedTrendChart
         title="Games Back"
@@ -1252,8 +1236,11 @@ export default function TrendsDetailSurface({
         onSelectOwner={handleOwnerToggle}
         getOwnerTrendColor={getOwnerTrendColor}
         focusMode={focusMode}
-        multiSelectedOwnerIds={selectedOwnerSet}
-        onMultiSelectToggle={handleSelectedSetToggle}
+        multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+        onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+        hideLegend={isControlled}
+        externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+        onHoverChange={isControlled ? onExternalHoverChange : undefined}
       />
 
       <SharedTrendChart
@@ -1267,8 +1254,11 @@ export default function TrendsDetailSurface({
         getOwnerTrendColor={getOwnerTrendColor}
         heightScale={0.62}
         focusMode={focusMode}
-        multiSelectedOwnerIds={selectedOwnerSet}
-        onMultiSelectToggle={handleSelectedSetToggle}
+        multiSelectedOwnerIds={isControlled ? externalSelectedOwnerSet : selectedOwnerSet}
+        onMultiSelectToggle={isControlled ? onExternalToggleOwner : handleSelectedSetToggle}
+        hideLegend={isControlled}
+        externalHoveredOwnerId={isControlled ? (externalHoveredOwnerId ?? null) : undefined}
+        onHoverChange={isControlled ? onExternalHoverChange : undefined}
       />
 
       {showMomentum ? (
