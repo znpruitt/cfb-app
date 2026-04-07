@@ -142,6 +142,10 @@ function formatRank(rank: number): string {
   return `${rank}th`;
 }
 
+function hslAlpha(hsl: string, alpha: number): string {
+  return hsl.replace(/^hsl\(/, 'hsla(').replace(/\)$/, `, ${alpha})`);
+}
+
 function latestTrendValue(series: { points: { value: number }[] }): number | null {
   const point = series.points[series.points.length - 1];
   return point ? point.value : null;
@@ -486,6 +490,60 @@ function resolveTrendVisualStyle(params: {
   };
 }
 
+function MobileLegend({
+  rows,
+  hoveredOwnerId,
+  selectedOwnerSet,
+  onToggle,
+  getColor,
+  chartHeight,
+}: {
+  rows: TrendRowData[];
+  hoveredOwnerId: string | null;
+  selectedOwnerSet: Set<string>;
+  onToggle: ((ownerId: string) => void) | undefined;
+  getColor: (ownerId: string) => string;
+  chartHeight: number;
+}): React.ReactElement {
+  const hasHighlight = hoveredOwnerId !== null || selectedOwnerSet.size > 0;
+  return (
+    <div
+      className="w-[80px] shrink-0 overflow-y-auto pr-1 sm:hidden"
+      style={{ maxHeight: chartHeight }}
+      aria-label="Owner legend"
+    >
+      {rows.map((row) => {
+        const isSelected = selectedOwnerSet.has(row.ownerId);
+        const isHovered = hoveredOwnerId === row.ownerId;
+        const isActive = isSelected || isHovered;
+        const color = getColor(row.ownerId);
+        return (
+          <button
+            key={row.ownerId}
+            type="button"
+            className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left"
+            style={{
+              backgroundColor: isActive ? hslAlpha(color, 0.15) : undefined,
+              opacity: hasHighlight && !isActive ? 0.2 : 1,
+            }}
+            onClick={() => onToggle?.(row.ownerId)}
+            aria-label={row.ownerName}
+          >
+            <span
+              className="h-[7px] w-[7px] shrink-0 rounded-full"
+              style={{ backgroundColor: color }}
+              aria-hidden="true"
+            />
+            <span className="truncate text-[11px] text-gray-800 dark:text-zinc-200">
+              {row.ownerName}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SharedTrendChart({
   title,
   metric,
@@ -675,12 +733,26 @@ const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
         </h2>
       ) : null}
 
-      <div
-        ref={containerRef}
-        data-trend-scroll-container={metric}
-        className={`mt-3 overflow-x-auto rounded-md border border-gray-200 bg-white ${responsiveLayout.chartPaddingClass} dark:border-zinc-700 dark:bg-zinc-900`}
-        onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); }}
-      >
+      <div className="mt-3 flex items-start sm:block">
+        <MobileLegend
+          rows={rows}
+          hoveredOwnerId={effectiveHoveredOwnerId}
+          selectedOwnerSet={multiSelectedOwnerIds ?? new Set()}
+          onToggle={(ownerId) =>
+            hideLegend || focusMode === 'selected'
+              ? onMultiSelectToggle?.(ownerId)
+              : onSelectOwner(ownerId)
+          }
+          getColor={getOwnerTrendColor}
+          chartHeight={chartHeight}
+        />
+
+        <div
+          ref={containerRef}
+          data-trend-scroll-container={metric}
+          className={`min-w-0 flex-1 overflow-x-auto rounded-md border border-gray-200 bg-white ${responsiveLayout.chartPaddingClass} dark:border-zinc-700 dark:bg-zinc-900 sm:flex-none`}
+          onMouseLeave={() => { setHoveredOwnerId(null); onHoverChange?.(null); }}
+        >
         {focusMode === 'selected' && focusedOwnerIds.size === 0 ? (
           <div
             className="flex items-center justify-center text-sm text-gray-400 dark:text-zinc-500"
@@ -954,6 +1026,7 @@ const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
             </svg>
           </div>
         ) : null}
+        </div>
       </div>
 
     </section>
