@@ -725,6 +725,24 @@ export default function CFBScheduleApp({
     [selectedRankingsWeek]
   );
 
+  // For the Overview panel's Featured Games, postseason games should display
+  // rankings from the last regular-season CFP poll (e.g. W16) rather than the
+  // Final Poll, which reflects pre-bowl rankings rather than end-of-season awards.
+  const overviewRankingsByTeamId = useMemo(() => {
+    if (!rankings) return rankingsByTeamId;
+    // Only redirect if latestWeek is postseason/Final Poll (not regular season)
+    const latestIsPostseason =
+      rankings.latestWeek != null && rankings.latestWeek.seasonType !== 'regular';
+    if (!latestIsPostseason) return rankingsByTeamId;
+    // Find the highest regular-season week that has CFP poll data
+    const regularCfpWeeks = rankings.weeks.filter(
+      (w) => w.seasonType === 'regular' && w.polls.cfp.length > 0
+    );
+    if (regularCfpWeeks.length === 0) return rankingsByTeamId;
+    const bestWeek = regularCfpWeeks.reduce((best, w) => (w.week > best.week ? w : best));
+    return buildRankingsLookup(bestWeek);
+  }, [rankings, rankingsByTeamId]);
+
   const visibleGames = useMemo(() => {
     if (selectedTab === 'postseason') return postseasonGames;
     return filteredWeekGames;
@@ -1503,7 +1521,7 @@ export default function CFBScheduleApp({
                   keyMatchups={overviewSnapshot.keyMatchups}
                   context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
-                  rankingsByTeamId={rankingsByTeamId}
+                  rankingsByTeamId={overviewRankingsByTeamId}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
