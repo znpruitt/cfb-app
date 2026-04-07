@@ -225,6 +225,43 @@ function stateBadgeClasses(state: 'final' | 'inprogress' | 'scheduled' | 'unknow
   return 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
 }
 
+function deriveFeaturedGameBadge(
+  game: AppGame
+): { label: string; classes: string } | null {
+  const role = game.postseasonRole;
+  if (role === 'national_championship') {
+    return {
+      label: 'Natl. Championship',
+      classes:
+        'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    };
+  }
+  if (role === 'playoff') {
+    const round = game.playoffRound;
+    const label =
+      round === 'national_championship'
+        ? 'Natl. Championship'
+        : round === 'semifinal'
+          ? 'CFP SF'
+          : round === 'quarterfinal'
+            ? 'CFP QF'
+            : 'CFP';
+    return {
+      label,
+      classes:
+        'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    };
+  }
+  if (role === 'conference_championship') {
+    return {
+      label: 'Conf. Champ',
+      classes:
+        'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
+    };
+  }
+  return null;
+}
+
 function SectionCard({
   title,
   children,
@@ -686,6 +723,99 @@ function GameSummaryList({
   );
 }
 
+function FeaturedGamesList({
+  prioritizedItems,
+  emptyMessage,
+  timeZone,
+  rankingsByTeamId,
+}: {
+  prioritizedItems: PrioritizedOverviewItem[];
+  emptyMessage: string;
+  timeZone: string;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): React.ReactElement {
+  if (prioritizedItems.length === 0) {
+    return <EmptyState message={emptyMessage} compact />;
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      {prioritizedItems.map((prioritized) => {
+        const item = prioritized.item;
+        const game = item.bucket.game;
+        const score = item.score;
+        const state = gameStateFromScore(score);
+        const kickoff = formatKickoff(game.date, timeZone);
+        const gameBadge = deriveFeaturedGameBadge(game);
+        const awayScore = score?.away.score ?? null;
+        const homeScore = score?.home.score ?? null;
+        const ownerLine =
+          item.bucket.awayOwner && item.bucket.homeOwner
+            ? `${item.bucket.awayOwner} vs ${item.bucket.homeOwner}`
+            : item.bucket.awayOwner
+              ? `${item.bucket.awayOwner}'s game`
+              : item.bucket.homeOwner
+                ? `${item.bucket.homeOwner}'s game`
+                : null;
+
+        return (
+          <article
+            key={game.key}
+            className="rounded-lg border border-gray-200 bg-white/80 p-2.5 sm:p-3 dark:border-zinc-800 dark:bg-zinc-950/70"
+          >
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-gray-950 dark:text-zinc-50">
+                {renderMatchupLabel(item, rankingsByTeamId)}
+              </p>
+              {gameBadge ? (
+                <span
+                  className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
+                >
+                  {gameBadge.label}
+                </span>
+              ) : null}
+            </div>
+            {ownerLine ? (
+              <p className="mt-0.5 text-xs text-gray-600 dark:text-zinc-400">{ownerLine}</p>
+            ) : null}
+            <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+              <span
+                className={`rounded-full border px-1.5 py-0.5 font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
+              >
+                {state === 'final' ? 'Final' : (score?.status ?? 'Scheduled')}
+              </span>
+              <span aria-hidden="true" className="text-gray-400 dark:text-zinc-500">
+                •
+              </span>
+              <span className="text-gray-500 dark:text-zinc-400">{kickoff}</span>
+            </div>
+            {awayScore !== null || homeScore !== null ? (
+              <div className="mt-1.5 space-y-0.5 rounded-md bg-gray-50/80 px-2 py-1.5 dark:bg-zinc-900/60">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="min-w-0 truncate text-gray-700 dark:text-zinc-300">
+                    {game.csvAway}
+                  </span>
+                  <span className="font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                    {awayScore}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="min-w-0 truncate text-gray-700 dark:text-zinc-300">
+                    {game.csvHome}
+                  </span>
+                  <span className="font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                    {homeScore}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function insightHref(
   target: Insight['navigationTarget'] | undefined,
   leagueSlug?: string
@@ -897,7 +1027,7 @@ export default function OverviewPanel({
       </div>
 
       <SectionCard
-        title="Recent results"
+        title="Featured games"
         tone="secondary"
         compact
         action={
@@ -910,7 +1040,7 @@ export default function OverviewPanel({
           </button>
         }
       >
-        <GameSummaryList
+        <FeaturedGamesList
           prioritizedItems={viewModel.recentResults}
           emptyMessage="No recent results yet—completed games will appear here."
           timeZone={timeZone}
