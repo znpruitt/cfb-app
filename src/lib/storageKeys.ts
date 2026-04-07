@@ -11,3 +11,12 @@ export function seasonStorageKeys(season: number, leagueSlug?: string) {
     postseasonOverrides: `cfb_postseason_overrides:${scope}`,
   } as const;
 }
+
+/** Season-only keys from before league-scoped storage was introduced. */
+export function seasonOnlyStorageKeys(season: number) {
+  return {
+    aliasMap: `cfb_name_map:${season}`,
+    ownersCsv: `cfb_owners_csv:${season}`,
+    postseasonOverrides: `cfb_postseason_overrides:${season}`,
+  } as const;
+}
