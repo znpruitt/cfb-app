@@ -30,6 +30,7 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 - **Phase 5 — Draft / Owner Assignment Tool** is **complete**. All subphases (P5A–P5D) shipped. PR #214 open.
 - **Phase 6 — Admin Cleanup and Auth** is **complete**. All subphases P6A–P6E shipped.
 - **Phase 6 — Admin Polish and Commissioner UX** is **complete**. Gear icon, `isAdmin` prop pattern, per-league commissioner bucket (Roster/Draft/Data/Settings), `LeagueStatusPanel`, `LeagueSettingsForm`, `GlobalRefreshPanel` with explicit year. PRs #230–#233.
+- **Phase 7 — Product Design Audit** is **active**. Subphases 7A–7F complete. 7G (Matchups) is next. Design principles codified in `DESIGN.md`.
 
 ## Production data policy
 
@@ -249,12 +250,46 @@ PROMPT_IDs: P6E-ROSTER-EDITOR-v1, P6E-ROSTER-EDITOR-REVIEW-v1, P6E-ROSTER-EDITOR
 
 **Phase 6 subphases P6A through P6E are all complete.**
 
-## Phase 7 — Commissioner Self-Service (next planned campaign)
+## Phase 7 — Product Design Audit (active)
+
+### Objective
+Systematic page-by-page UI/UX review and improvement. Design principles codified in `DESIGN.md`.
+
+### Subphases
+
+#### 7A — Standings page ✓ Complete
+NoClaim exclusion, Win% format, DIFF colors, MOVE column at season end, ranked colors, table-as-legend, bidirectional hover/select, mode switcher removed, legend tables removed, chart improvements (Y-axis domain, convergence scaling, Final label, right edge padding, tabbed charts).
+
+#### 7B — FBS Polls tab ✓ Complete
+Built Rankings tab, postseason Final Poll week, debug pill removed, three-column layout with movement indicators.
+
+#### 7C — Nav redesign ✓ Complete
+Underline tabs, sub-nav band removed, inline content tabs, League Table / FBS Polls / Matchups tab naming.
+
+#### 7D — Mobile standings ✓ Complete
+PF/PA hidden, card borders removed, compact column set, mobile legend + scrollable chart.
+
+#### 7E — Speed Insights ✓ Complete
+Added Vercel Speed Insights to layout.tsx.
+
+#### 7F — Overview page ✓ Complete
+Featured Games redesign (renamed from Recent Results), 2-column card grid, CFP/conf championship badges with neutral slate styling, inline W16 CFP rankings, dark card styling, context-aware selection logic, blue highlight removal, First Round classification via neutral site detection. PR #241.
+
+#### 7G — Matchups page (next)
+Review and improve the Matchups tab layout, information density, and interaction model.
+
+#### 7H — History page (planned)
+Review history landing, season detail, and owner career pages for design consistency.
+
+#### 7I — Members page (planned)
+Review member-facing views for design consistency and information density.
+
+## Phase 8 — Commissioner Self-Service (planned)
 
 ### Objective
 Extend Clerk auth to commissioner and member roles. Remove `ADMIN_API_TOKEN` fallback. Enable commissioner self-registration and invite-based league access.
 
-### Remaining Clerk work from Phase 6
+### Key workstreams
 - Commissioner role enforcement on `/league/[slug]/draft/*` routes
 - Commissioner self-registration and invite link flow
 - League-scoped permissions in Clerk `publicMetadata`

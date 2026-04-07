@@ -28,6 +28,7 @@ Codex handles implementation. Claude generates the prompts Codex executes.
 | `docs/next-tasks.md` | Active task queue and current phase focus |
 | `docs/prompt-registry.md` | Prompt ID registry — check before assigning new IDs |
 | `docs/completed-work.md` | Append-only milestone log |
+| `DESIGN.md` | UI/UX design principles — read before any UI work |
 | `docs/roadmap.md` | Phase definitions and development philosophy |
 | `docs/deployment-runbook.md` | Hosted deployment checklist |
 
@@ -58,6 +59,12 @@ Every Codex prompt Claude produces must:
 3. Be registered in `docs/prompt-registry.md` after execution.
 
 Check `docs/prompt-registry.md` for related existing prompts before assigning a new ID.
+
+---
+
+## Design principles
+
+Before implementing any UI work, read `DESIGN.md` at the project root. All UI decisions must be consistent with the established design principles.
 
 ---
 
