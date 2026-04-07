@@ -69,26 +69,28 @@ export type OverviewViewModel = {
   winPctTrend: WinPctSeries[];
   winBars: WinBarsRow[];
   storylines: LeagueStoryline[];
-  leagueHighlights: {
-    id: string;
-    type:
-      | 'biggest_blowout'
-      | 'closest_finish'
-      | 'top_ranked_matchup'
-      | 'biggest_gain'
-      | 'most_games_owner'
-      | 'split_owner_matchup'
-      | 'heavy_owner_collision';
-    label: string;
-    text: string;
-    ctaLabel: string;
-    drilldownTarget: HighlightDrilldownTarget;
-  }[];
+};
+
+/** Internal-only type for leagueHighlights — consumed by deriveLeaguePulse and deriveShouldShowFeaturedMatchups but not exposed on the view model. */
+type LeagueHighlightEntry = {
+  id: string;
+  type:
+    | 'biggest_blowout'
+    | 'closest_finish'
+    | 'top_ranked_matchup'
+    | 'biggest_gain'
+    | 'most_games_owner'
+    | 'split_owner_matchup'
+    | 'heavy_owner_collision';
+  label: string;
+  text: string;
+  ctaLabel: string;
+  drilldownTarget: HighlightDrilldownTarget;
 };
 
 function deriveShouldShowFeaturedMatchups(params: {
   featuredMatchups: PrioritizedOverviewItem[];
-  leagueHighlights: OverviewViewModel['leagueHighlights'];
+  leagueHighlights: LeagueHighlightEntry[];
 }): boolean {
   if (params.featuredMatchups.length === 0) return false;
   return params.leagueHighlights.length === 0;
@@ -180,7 +182,7 @@ function deriveLeaguePulse(params: {
   championSummary: LeagueSummaryViewModel | null;
   standingsContext: string | null;
   movementInsights: { id: string; text: string }[];
-  leagueHighlights: OverviewViewModel['leagueHighlights'];
+  leagueHighlights: LeagueHighlightEntry[];
 }): { id: string; text: string }[] {
   const pulse: { id: string; text: string }[] = [];
   const seen = new Set<string>();
@@ -621,13 +623,13 @@ function deriveLeagueHighlights(params: {
   };
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   context: OverviewContext;
-}): OverviewViewModel['leagueHighlights'] {
+}): LeagueHighlightEntry[] {
   const fallbackWeek = params.allMatchups[0]?.bucket.game.week ?? null;
   const drilldownScope = deriveDrilldownScope(params.context, fallbackWeek);
-  const highlights: OverviewViewModel['leagueHighlights'] = [];
+  const highlights: LeagueHighlightEntry[] = [];
   const finals = params.finalItems.map((entry) => entry.item);
   const seen = new Set<string>();
-  const push = (entry: OverviewViewModel['leagueHighlights'][number] | null): void => {
+  const push = (entry: LeagueHighlightEntry | null): void => {
     if (!entry || seen.has(entry.id)) return;
     seen.add(entry.id);
     highlights.push(entry);
@@ -1010,6 +1012,5 @@ export function selectOverviewViewModel(params: {
     winPctTrend,
     winBars,
     storylines,
-    leagueHighlights,
   };
 }

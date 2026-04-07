@@ -1543,6 +1543,7 @@ export default function CFBScheduleApp({
                     setWeekViewMode('owner');
                   }}
                   initialSubview={initialStandingsSubview}
+                  leagueSlug={leagueSlug}
                 />
               ) : primarySurfaceKind === 'owner' ? (
                 <OwnerPanel

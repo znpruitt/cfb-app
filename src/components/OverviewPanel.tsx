@@ -855,8 +855,7 @@ function insightHref(
   const base = leagueSlug ? `/league/${leagueSlug}` : '';
   if (target === 'standings') return `${base}/standings`;
   if (target === 'trends') return `${base}/standings?view=trends#trends`;
-  if (target === 'matchup')
-    return leagueSlug ? `/league/${leagueSlug}?view=matchups` : '/?view=matchups';
+  if (target === 'matchup') return `${base}/matchups`;
   return null;
 }
 
@@ -979,10 +978,6 @@ export default function OverviewPanel({
       rankingsByTeamId,
     ]
   );
-  // TEMP-DIAG: selector output audit — remove after review
-  console.log('[DIAG] storylines:', viewModel.storylines);
-  console.log('[DIAG] leagueHighlights:', viewModel.leagueHighlights);
-  console.log('[DIAG] leaguePulse:', viewModel.leaguePulse);
   const sharedInsights = React.useMemo(() => {
     const resolvedWeeks = standingsHistory
       ? selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks
@@ -1122,7 +1117,7 @@ export default function OverviewPanel({
           compact
           action={
             <Link
-              href="/standings?view=trends#trends"
+              href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings?view=trends#trends`}
               className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
             >
               See full trends ↗

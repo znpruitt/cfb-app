@@ -474,6 +474,13 @@ Key architectural decisions across Phase 5:
   - Update back links to `/league/${slug}/history/` once P4D history landing page is implemented (TODO comments left in page.tsx).
   - Owner career links from `OwnerRosterCard` once P4D owner career pages exist.
 
+### Navigation & Selector Integrity Fixes (standalone)
+
+- Fixed matchup deep links in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/matchups`) instead of unsupported `?view=matchups` query params
+- Fixed trends CTAs in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/standings?view=trends#trends`) instead of hardcoded root-scoped paths
+- Retired `leagueHighlights` from `selectOverviewViewModel` — was producing an empty array with no consuming UI
+- Removed TEMP-DIAG console logs from OverviewPanel.tsx
+
 ---
 
 *Phases 1–3 entries have been moved to `docs/completed-work-archive.md`.*
