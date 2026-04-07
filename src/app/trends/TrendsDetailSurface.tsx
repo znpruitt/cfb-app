@@ -738,7 +738,11 @@ const effectiveHoveredOwnerId = externalHoveredOwnerId ?? hoveredOwnerId;
           rows={rows}
           hoveredOwnerId={effectiveHoveredOwnerId}
           selectedOwnerSet={multiSelectedOwnerIds ?? new Set()}
-          onToggle={onMultiSelectToggle}
+          onToggle={(ownerId) =>
+            hideLegend || focusMode === 'selected'
+              ? onMultiSelectToggle?.(ownerId)
+              : onSelectOwner(ownerId)
+          }
           getColor={getOwnerTrendColor}
           chartHeight={chartHeight}
         />
