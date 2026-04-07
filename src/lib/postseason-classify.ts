@@ -187,7 +187,8 @@ function canonicalBowlName(value: string): string {
 
 function playoffRoundFromText(
   text: string
-): 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' {
+): 'first-round' | 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' {
+  if (/first.?round/i.test(text)) return 'first-round';
   if (/quarterfinal/i.test(text)) return 'quarterfinal';
   if (/semifinal/i.test(text)) return 'semifinal';
   if (/national championship/i.test(text)) return 'national_championship';
@@ -309,19 +310,27 @@ export function classifyScheduleRow(row: ScheduleWireItem, season: number): RowC
     const label =
       round === 'national_championship'
         ? 'National Championship'
-        : hasExplicitSlot
-          ? `CFP ${round[0]?.toUpperCase()}${round.slice(1)} ${slot}`
-          : `CFP ${round[0]?.toUpperCase()}${round.slice(1)}`;
-    const slotOrder =
-      round === 'quarterfinal'
-        ? hasExplicitSlot
-          ? 20 + slot
-          : 29
-        : round === 'semifinal'
+        : round === 'first-round'
           ? hasExplicitSlot
-            ? 30 + slot
-            : 39
-          : 41;
+            ? `CFP First Round ${slot}`
+            : 'CFP First Round'
+          : hasExplicitSlot
+            ? `CFP ${round[0]?.toUpperCase()}${round.slice(1)} ${slot}`
+            : `CFP ${round[0]?.toUpperCase()}${round.slice(1)}`;
+    const slotOrder =
+      round === 'first-round'
+        ? hasExplicitSlot
+          ? 10 + slot
+          : 19
+        : round === 'quarterfinal'
+          ? hasExplicitSlot
+            ? 20 + slot
+            : 29
+          : round === 'semifinal'
+            ? hasExplicitSlot
+              ? 30 + slot
+              : 39
+            : 41;
 
     return {
       kind: 'postseason_placeholder',

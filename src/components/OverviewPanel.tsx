@@ -15,7 +15,7 @@ import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/se
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
-import type { TeamRankingEnrichment } from '../lib/rankings';
+import { getTeamRanking, type TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -167,9 +167,9 @@ function renderMatchupLabel(
 
   return (
     <>
-      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(awayTeamId)} />
+      <RankedTeamName teamName={game.csvAway} ranking={getTeamRanking(rankingsByTeamId, awayTeamId)} />
       {separator}
-      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(homeTeamId)} />
+      <RankedTeamName teamName={game.csvHome} ranking={getTeamRanking(rankingsByTeamId, homeTeamId)} />
     </>
   );
 }
@@ -223,6 +223,53 @@ function stateBadgeClasses(state: 'final' | 'inprogress' | 'scheduled' | 'unknow
     return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
   }
   return 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
+}
+
+function deriveFeaturedGameBadge(
+  game: AppGame
+): { label: string; classes: string } | null {
+  const role = game.postseasonRole;
+
+  if (role === 'national_championship' || role === 'playoff') {
+    const round = game.playoffRound;
+    // playoffRound is more specific than postseasonRole — trust it for the label.
+    // This guards against misclassified postseasonRole (e.g., inferBowlPostseasonRole
+    // matching "national championship" in bowl notes when the game is really a semifinal).
+    // Fallback: if round is generic 'playoff' or null and the game is non-neutral-site,
+    // it is a first-round campus game (all QF/SF/Championship games are at neutral sites).
+    let label: string;
+    if (round === 'semifinal') {
+      label = 'CFP Semifinal';
+    } else if (round === 'quarterfinal') {
+      label = 'CFP Quarterfinal';
+    } else if (round === 'first-round' || (round != null && /first.?round/i.test(round))) {
+      label = 'CFP First Round';
+    } else if (round === 'national_championship' || role === 'national_championship') {
+      label = 'CFP Championship';
+    } else if ((round == null || round === 'playoff') && !game.neutral) {
+      // Campus game without an explicit round — only first-round games are non-neutral
+      label = 'CFP First Round';
+    } else {
+      label = 'CFP';
+    }
+    return {
+      label,
+      classes:
+        'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
+    };
+  }
+
+  if (role === 'conference_championship') {
+    const conf = game.conference?.trim();
+    const label = conf ? `${conf} Champ` : 'Conf. Champ';
+    return {
+      label,
+      classes:
+        'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
+    };
+  }
+
+  return null;
 }
 
 function SectionCard({
@@ -686,6 +733,107 @@ function GameSummaryList({
   );
 }
 
+function FeaturedGamesList({
+  prioritizedItems,
+  emptyMessage,
+  timeZone,
+  rankingsByTeamId,
+}: {
+  prioritizedItems: PrioritizedOverviewItem[];
+  emptyMessage: string;
+  timeZone: string;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): React.ReactElement {
+  if (prioritizedItems.length === 0) {
+    return <EmptyState message={emptyMessage} compact />;
+  }
+
+  const NO_CLAIM = 'NoClaim';
+
+  return (
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      {prioritizedItems.map((prioritized) => {
+        const item = prioritized.item;
+        const game = item.bucket.game;
+        const score = item.score;
+        const state = gameStateFromScore(score);
+        const kickoff = formatKickoff(game.date, timeZone);
+        const gameBadge = deriveFeaturedGameBadge(game);
+        const awayScore = score?.away.score ?? null;
+        const homeScore = score?.home.score ?? null;
+        const awayWon = state === 'final' && awayScore !== null && homeScore !== null && awayScore > homeScore;
+        const homeWon = state === 'final' && awayScore !== null && homeScore !== null && homeScore > awayScore;
+
+        // Strip NoClaim from owner display lines
+        const awayOwner = item.bucket.awayOwner === NO_CLAIM ? null : item.bucket.awayOwner;
+        const homeOwner = item.bucket.homeOwner === NO_CLAIM ? null : item.bucket.homeOwner;
+        const ownerLine =
+          awayOwner && homeOwner
+            ? `${awayOwner} vs ${homeOwner}`
+            : awayOwner
+              ? `${awayOwner}'s game`
+              : homeOwner
+                ? `${homeOwner}'s game`
+                : null;
+
+        return (
+          <article
+            key={game.key}
+            className="rounded-lg bg-gray-100/60 p-2.5 sm:p-3 dark:bg-zinc-800/40"
+          >
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-gray-950 dark:text-zinc-50">
+                {renderMatchupLabel(item, rankingsByTeamId)}
+              </p>
+              {gameBadge ? (
+                <span
+                  className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
+                >
+                  {gameBadge.label}
+                </span>
+              ) : null}
+            </div>
+            {ownerLine ? (
+              <p className="mt-0.5 text-xs text-gray-600 dark:text-zinc-400">{ownerLine}</p>
+            ) : null}
+            <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+              <span
+                className={`rounded-full border px-1.5 py-0.5 font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
+              >
+                {state === 'final' ? 'Final' : (score?.status ?? 'Scheduled')}
+              </span>
+              <span aria-hidden="true" className="text-gray-400 dark:text-zinc-500">
+                •
+              </span>
+              <span className="text-gray-500 dark:text-zinc-400">{kickoff}</span>
+            </div>
+            {awayScore !== null || homeScore !== null ? (
+              <div className="mt-1.5 space-y-0.5 rounded-md bg-white/60 px-2 py-1.5 dark:bg-zinc-900/60">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className={`min-w-0 truncate ${awayWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}>
+                    {game.csvAway}
+                  </span>
+                  <span className={`tabular-nums ${awayWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}>
+                    {awayScore}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className={`min-w-0 truncate ${homeWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}>
+                    {game.csvHome}
+                  </span>
+                  <span className={`tabular-nums ${homeWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}>
+                    {homeScore}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 function insightHref(
   target: Insight['navigationTarget'] | undefined,
   leagueSlug?: string
@@ -897,7 +1045,7 @@ export default function OverviewPanel({
       </div>
 
       <SectionCard
-        title="Recent results"
+        title="Featured games"
         tone="secondary"
         compact
         action={
@@ -910,7 +1058,7 @@ export default function OverviewPanel({
           </button>
         }
       >
-        <GameSummaryList
+        <FeaturedGamesList
           prioritizedItems={viewModel.recentResults}
           emptyMessage="No recent results yet—completed games will appear here."
           timeZone={timeZone}

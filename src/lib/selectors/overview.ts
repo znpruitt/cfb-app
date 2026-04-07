@@ -96,7 +96,7 @@ function deriveShouldShowFeaturedMatchups(params: {
 
 export const OVERVIEW_STANDINGS_LIMIT = 5;
 export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
-export const OVERVIEW_RESULTS_LIMIT = 5;
+export const OVERVIEW_RESULTS_LIMIT = 6;
 
 function deriveTemporalStandingsFromHistory(standingsHistory?: StandingsHistory | null): {
   current: OwnerStandingsRow[] | null;
@@ -830,6 +830,41 @@ function deriveLeagueHighlights(params: {
   return highlights.slice(0, 5);
 }
 
+const NO_CLAIM_OWNER = 'NoClaim';
+
+function postseasonRolePriority(role: string | null): number {
+  if (role === 'national_championship') return 0;
+  if (role === 'playoff') return 1;
+  if (role === 'conference_championship') return 2;
+  if (role === 'bowl') return 3;
+  return 4;
+}
+
+function selectFeaturedGames(
+  prioritized: PrioritizedOverviewItem[],
+  limit: number
+): PrioritizedOverviewItem[] {
+  // Exclude games where both sides are NoClaim — no real owner is involved
+  const eligible = prioritized.filter((p) => {
+    const a = p.item.bucket.awayOwner;
+    const h = p.item.bucket.homeOwner;
+    return !(a === NO_CLAIM_OWNER && h === NO_CLAIM_OWNER);
+  });
+
+  const hasPostseasonGames = eligible.some(
+    (item) => item.item.bucket.game.postseasonRole != null
+  );
+  if (!hasPostseasonGames) return eligible.slice(0, limit);
+  // In postseason context, sort by postseasonRole tier, preserving original order within each tier
+  const indexed = eligible.map((item, i) => ({ item, i }));
+  indexed.sort((a, b) => {
+    const ap = postseasonRolePriority(a.item.item.bucket.game.postseasonRole);
+    const bp = postseasonRolePriority(b.item.item.bucket.game.postseasonRole);
+    return ap !== bp ? ap - bp : a.i - b.i;
+  });
+  return indexed.slice(0, limit).map(({ item }) => item);
+}
+
 export function selectOverviewViewModel(params: {
   standingsLeaders: OwnerStandingsRow[];
   standingsHistory?: StandingsHistory | null;
@@ -889,7 +924,7 @@ export function selectOverviewViewModel(params: {
     topOwnerNames,
   });
   const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
-  const recentResults = prioritizedResults.slice(0, resultsLimit);
+  const recentResults = selectFeaturedGames(prioritizedResults, resultsLimit);
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
   const winPctTrend = standingsHistory ? selectWinPctTrend({ standingsHistory }) : [];
   const winBars = standingsHistory ? selectWinBars({ standingsHistory }) : [];
