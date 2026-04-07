@@ -9,6 +9,48 @@
 
 ## Completed phases / milestones
 
+### Phase 7F — Overview Featured Games: Complete
+
+**Status:** Complete. Branch `claude/fix-standings-ui-re94y`. PR #241.
+**PROMPT_IDs:** PHASE-7F-FEATURED-GAMES, PHASE-7F-FIX-01 through PHASE-7F-FIX-06
+
+**Key outcomes:**
+- Renamed "Recent Results" → "Featured Games" with 2-column card grid layout
+- CFP round badges with neutral slate/gray styling — full labels ("CFP Quarterfinal", "CFP First Round")
+- Conference championship badges with conference name ("SEC Champ")
+- Inline W16 CFP rankings on postseason game cards (not Final Poll)
+- Dark card styling — no border, background-defined cards
+- Winner score full weight, loser score muted
+- Context-aware game selection: postseason surfaces playoff/bowl, in-season surfaces current week
+- NoClaim owner filtering from display lines and game list
+- First Round CFP classification via neutral site = false (campus games)
+- 6-game display cap
+
+**Key architectural decisions:**
+- `deriveFeaturedGameBadge(game)` — badge logic driven by `playoffRound` (more specific) over `postseasonRole`
+- `overviewRankingsByTeamId` memo in `CFBScheduleApp.tsx` — selects last regular-season CFP week for rankings instead of Final Poll
+- `selectFeaturedGames()` in overview selectors — postseason tier sorting via `postseasonRolePriority()`
+- First-round campus game fallback: `(round == null || round === 'playoff') && !game.neutral` → 'CFP First Round'
+
+---
+
+### Phase 7A–7E — Product Design Audit (Standings through Speed Insights): Complete
+
+**Status:** Complete. Multiple PRs across branches.
+
+**Key outcomes:**
+- **7A Standings:** NoClaim exclusion, Win% format, DIFF colors, MOVE column hidden at season end, ranked colors, table-as-legend pattern, bidirectional hover/select, mode switcher removed, legend tables removed, chart improvements (Y-axis domain, convergence scaling, Final label, right edge padding, tabbed charts)
+- **7B FBS Polls:** Built Rankings tab, postseason Final Poll week, debug pill removed, three-column layout with movement indicators
+- **7C Nav redesign:** Underline tabs throughout, sub-nav band removed, inline content tabs, renamed to League Table / FBS Polls / Matchups
+- **7D Mobile standings:** PF/PA hidden, card borders removed, compact column set, mobile legend + scrollable chart
+- **7E Speed Insights:** Added Vercel Speed Insights to layout.tsx
+
+**Design codification:**
+- Created `DESIGN.md` at project root capturing all design principles established during Phase 7
+- Added `DESIGN.md` reference to `CLAUDE.md` canonical doc pointers and architectural section
+
+---
+
 ### P6E — Roster Editor: Complete
 
 **Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #229.

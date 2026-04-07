@@ -20,7 +20,8 @@
 - **Phase 4 (historical analytics):** ✅ Complete. All subphases (P4A–P4D) and Historical Season Backfill Endpoint shipped. See `docs/completed-work.md`.
 - **Phase 5 (draft/owner assignment tool):** ✅ Complete. All subphases (P5A–P5D) shipped. PR #214 open. See `docs/completed-work.md`.
 - **Phase 6 (admin cleanup and auth):** ✅ Complete. All subphases P6A–P6E shipped. See `docs/completed-work.md`.
-- **Active execution focus: Phase 7 — Commissioner Self-Service (queued).**
+- **Phase 7 (product design audit):** Active. Subphases 7A–7F complete. See `docs/completed-work.md`.
+- **Active execution focus: Phase 7G — Matchups page review.**
 
 ## Hosted deployment runbook
 
@@ -90,20 +91,32 @@ All subphases P6A–P6E and Admin Polish complete. See `docs/completed-work.md` 
 - **P6E** ✅ Complete. PR #229. `RosterEditorPanel` — inline CRUD for team-owner assignments at `/admin/[slug]/roster`.
 - **P6 Admin Polish and Commissioner UX** ✅ Complete. PRs #230–#233. Gear icon, `isAdmin` prop pattern, per-league commissioner landing (`/admin/[slug]`), `LeagueStatusPanel`, `LeagueSettingsForm`, `GlobalRefreshPanel` with year input.
 
+## Active queue: Phase 7 — Product Design Audit
+
+### Completed subphases
+- **7A — Standings page** ✅ Complete
+- **7B — FBS Polls tab** ✅ Complete
+- **7C — Nav redesign** ✅ Complete
+- **7D — Mobile standings** ✅ Complete
+- **7E — Speed Insights** ✅ Complete
+- **7F — Overview Featured Games** ✅ Complete. PR #241.
+
+### Next
+- **7G — Matchups page** — Review and improve layout, information density, interaction model
+- **7H — History page** — Review history landing, season detail, owner career for design consistency
+- **7I — Members page** — Review member-facing views
+
 ## Upcoming phases
 
-### Phase 7 — Commissioner Self-Service (next)
+### Phase 8 — Commissioner Self-Service (planned)
 
-First tasks:
-- **Commissioner role enforcement** — protect `/league/[slug]/draft/*` and `/admin/[slug]/*` routes for `commissioner` role in Clerk middleware; currently only `platform_admin` is enforced.
-- **Commissioner self-registration and invite link flow** — mechanism for platform_admin to grant `commissioner` role to a league member for a specific slug.
-- **League-scoped permissions in Clerk `publicMetadata`** — data model for associating a user with one or more league slugs as commissioner.
-- **Member login and personalized views** — Clerk `member` role; personalized owner views filtered to logged-in member's teams.
-- **`ADMIN_API_TOKEN` full removal** — Phase 6 left a fallback; Phase 7 removes it and requires Clerk JWT for all admin API routes.
+- Commissioner role enforcement on `/league/[slug]/draft/*` and `/admin/[slug]/*` routes
+- Commissioner self-registration and invite link flow
+- League-scoped permissions in Clerk `publicMetadata`
+- Member login and personalized views
+- `ADMIN_API_TOKEN` full removal
 
-See `docs/roadmap.md` for full Phase 7 scope.
-
-- **Phase 8+:** Not scheduled. See `docs/roadmap.md`.
+See `docs/roadmap.md` for full Phase 8 scope.
 
 ## Out of scope for this queue
 
