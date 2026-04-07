@@ -237,13 +237,13 @@ function deriveFeaturedGameBadge(
     // matching "national championship" in bowl notes when the game is really a semifinal).
     let label: string;
     if (round === 'semifinal') {
-      label = 'CFP SF';
+      label = 'CFP Semifinal';
     } else if (round === 'quarterfinal') {
-      label = 'CFP QF';
-    } else if (round != null && /first.?round|^1st/i.test(round)) {
-      label = 'CFP R1';
+      label = 'CFP Quarterfinal';
+    } else if (round === 'first-round' || (round != null && /first.?round/i.test(round))) {
+      label = 'CFP First Round';
     } else if (round === 'national_championship' || role === 'national_championship') {
-      label = 'Natl. Championship';
+      label = 'CFP Championship';
     } else {
       label = 'CFP';
     }

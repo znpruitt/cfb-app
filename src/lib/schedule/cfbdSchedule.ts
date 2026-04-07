@@ -7,7 +7,7 @@ export type SeasonType = 'regular' | 'postseason';
 
 type GamePhase = 'regular' | 'conference_championship' | 'postseason';
 type PostseasonSubtype = 'bowl' | 'playoff';
-type PlayoffRound = 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff';
+type PlayoffRound = 'first-round' | 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff';
 type NeutralSiteDisplay = 'vs' | 'home_away';
 
 export type VenueInfo = {
@@ -201,6 +201,7 @@ function extractBowlName(game: CfbdScheduleGame): string | null {
 }
 
 function playoffRoundFromText(text: string): PlayoffRound {
+  if (/first.?round/i.test(text)) return 'first-round';
   if (/quarterfinal/i.test(text)) return 'quarterfinal';
   if (/semifinal/i.test(text)) return 'semifinal';
   if (/national championship/i.test(text)) return 'national_championship';
@@ -300,6 +301,7 @@ function deriveEventMetadata(params: {
     const playoffFromText = hasPlayoffMarker(text);
     const roundFromText = playoffFromText ? playoffRoundFromText(text) : null;
     const round: PlayoffRound | null =
+      normalizedPlayoffRound === 'first-round' ||
       normalizedPlayoffRound === 'quarterfinal' ||
       normalizedPlayoffRound === 'semifinal' ||
       normalizedPlayoffRound === 'national_championship' ||

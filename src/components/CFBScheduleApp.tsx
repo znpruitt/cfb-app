@@ -1503,6 +1503,7 @@ export default function CFBScheduleApp({
                   keyMatchups={overviewSnapshot.keyMatchups}
                   context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
+                  rankingsByTeamId={rankingsByTeamId}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
