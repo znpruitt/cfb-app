@@ -15,7 +15,7 @@ import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/se
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
-import type { TeamRankingEnrichment } from '../lib/rankings';
+import { getTeamRanking, type TeamRankingEnrichment } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -167,9 +167,9 @@ function renderMatchupLabel(
 
   return (
     <>
-      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(awayTeamId)} />
+      <RankedTeamName teamName={game.csvAway} ranking={getTeamRanking(rankingsByTeamId, awayTeamId)} />
       {separator}
-      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(homeTeamId)} />
+      <RankedTeamName teamName={game.csvHome} ranking={getTeamRanking(rankingsByTeamId, homeTeamId)} />
     </>
   );
 }
@@ -229,36 +229,41 @@ function deriveFeaturedGameBadge(
   game: AppGame
 ): { label: string; classes: string } | null {
   const role = game.postseasonRole;
-  if (role === 'national_championship') {
-    return {
-      label: 'Natl. Championship',
-      classes:
-        'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
-    };
-  }
-  if (role === 'playoff') {
+
+  if (role === 'national_championship' || role === 'playoff') {
     const round = game.playoffRound;
-    const label =
-      round === 'national_championship'
-        ? 'Natl. Championship'
-        : round === 'semifinal'
-          ? 'CFP SF'
-          : round === 'quarterfinal'
-            ? 'CFP QF'
-            : 'CFP';
+    // playoffRound is more specific than postseasonRole — trust it for the label.
+    // This guards against misclassified postseasonRole (e.g., inferBowlPostseasonRole
+    // matching "national championship" in bowl notes when the game is really a semifinal).
+    let label: string;
+    if (round === 'semifinal') {
+      label = 'CFP SF';
+    } else if (round === 'quarterfinal') {
+      label = 'CFP QF';
+    } else if (round != null && /first.?round|^1st/i.test(round)) {
+      label = 'CFP R1';
+    } else if (round === 'national_championship' || role === 'national_championship') {
+      label = 'Natl. Championship';
+    } else {
+      label = 'CFP';
+    }
     return {
       label,
       classes:
         'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
     };
   }
+
   if (role === 'conference_championship') {
+    const conf = game.conference?.trim();
+    const label = conf ? `${conf} Champ` : 'Conf. Champ';
     return {
-      label: 'Conf. Champ',
+      label,
       classes:
         'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
     };
   }
+
   return null;
 }
 
@@ -738,6 +743,8 @@ function FeaturedGamesList({
     return <EmptyState message={emptyMessage} compact />;
   }
 
+  const NO_CLAIM = 'NoClaim';
+
   return (
     <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
       {prioritizedItems.map((prioritized) => {
@@ -749,19 +756,25 @@ function FeaturedGamesList({
         const gameBadge = deriveFeaturedGameBadge(game);
         const awayScore = score?.away.score ?? null;
         const homeScore = score?.home.score ?? null;
+        const awayWon = state === 'final' && awayScore !== null && homeScore !== null && awayScore > homeScore;
+        const homeWon = state === 'final' && awayScore !== null && homeScore !== null && homeScore > awayScore;
+
+        // Strip NoClaim from owner display lines
+        const awayOwner = item.bucket.awayOwner === NO_CLAIM ? null : item.bucket.awayOwner;
+        const homeOwner = item.bucket.homeOwner === NO_CLAIM ? null : item.bucket.homeOwner;
         const ownerLine =
-          item.bucket.awayOwner && item.bucket.homeOwner
-            ? `${item.bucket.awayOwner} vs ${item.bucket.homeOwner}`
-            : item.bucket.awayOwner
-              ? `${item.bucket.awayOwner}'s game`
-              : item.bucket.homeOwner
-                ? `${item.bucket.homeOwner}'s game`
+          awayOwner && homeOwner
+            ? `${awayOwner} vs ${homeOwner}`
+            : awayOwner
+              ? `${awayOwner}'s game`
+              : homeOwner
+                ? `${homeOwner}'s game`
                 : null;
 
         return (
           <article
             key={game.key}
-            className="rounded-lg border border-gray-200 bg-white/80 p-2.5 sm:p-3 dark:border-zinc-800 dark:bg-zinc-950/70"
+            className="rounded-lg bg-gray-100/60 p-2.5 sm:p-3 dark:bg-zinc-800/40"
           >
             <div className="flex items-start gap-2">
               <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-gray-950 dark:text-zinc-50">
@@ -790,20 +803,20 @@ function FeaturedGamesList({
               <span className="text-gray-500 dark:text-zinc-400">{kickoff}</span>
             </div>
             {awayScore !== null || homeScore !== null ? (
-              <div className="mt-1.5 space-y-0.5 rounded-md bg-gray-50/80 px-2 py-1.5 dark:bg-zinc-900/60">
+              <div className="mt-1.5 space-y-0.5 rounded-md bg-white/60 px-2 py-1.5 dark:bg-zinc-900/60">
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className="min-w-0 truncate text-gray-700 dark:text-zinc-300">
+                  <span className={`min-w-0 truncate ${awayWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}>
                     {game.csvAway}
                   </span>
-                  <span className="font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                  <span className={`tabular-nums ${awayWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}>
                     {awayScore}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className="min-w-0 truncate text-gray-700 dark:text-zinc-300">
+                  <span className={`min-w-0 truncate ${homeWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}>
                     {game.csvHome}
                   </span>
-                  <span className="font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                  <span className={`tabular-nums ${homeWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}>
                     {homeScore}
                   </span>
                 </div>

@@ -830,6 +830,8 @@ function deriveLeagueHighlights(params: {
   return highlights.slice(0, 5);
 }
 
+const NO_CLAIM_OWNER = 'NoClaim';
+
 function postseasonRolePriority(role: string | null): number {
   if (role === 'national_championship') return 0;
   if (role === 'playoff') return 1;
@@ -842,12 +844,19 @@ function selectFeaturedGames(
   prioritized: PrioritizedOverviewItem[],
   limit: number
 ): PrioritizedOverviewItem[] {
-  const hasPostseasonGames = prioritized.some(
+  // Exclude games where both sides are NoClaim — no real owner is involved
+  const eligible = prioritized.filter((p) => {
+    const a = p.item.bucket.awayOwner;
+    const h = p.item.bucket.homeOwner;
+    return !(a === NO_CLAIM_OWNER && h === NO_CLAIM_OWNER);
+  });
+
+  const hasPostseasonGames = eligible.some(
     (item) => item.item.bucket.game.postseasonRole != null
   );
-  if (!hasPostseasonGames) return prioritized.slice(0, limit);
+  if (!hasPostseasonGames) return eligible.slice(0, limit);
   // In postseason context, sort by postseasonRole tier, preserving original order within each tier
-  const indexed = prioritized.map((item, i) => ({ item, i }));
+  const indexed = eligible.map((item, i) => ({ item, i }));
   indexed.sort((a, b) => {
     const ap = postseasonRolePriority(a.item.item.bucket.game.postseasonRole);
     const bp = postseasonRolePriority(b.item.item.bucket.game.postseasonRole);
