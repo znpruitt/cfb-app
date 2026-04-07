@@ -38,7 +38,6 @@ import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
-import { deriveActiveSurfaceCopy } from '../lib/presentationCopy';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -839,8 +838,6 @@ export default function CFBScheduleApp({
     primarySurfaceKind === 'matchups' ||
     primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'postseason';
-  const activeSurfaceCopy = deriveActiveSurfaceCopy(weekViewMode);
-
   const openWeeklyMatchupsView = useCallback(() => {
     const nextDrilldownState = deriveWeeklyMatchupsDrilldownState({
       selectedTab,
@@ -879,30 +876,6 @@ export default function CFBScheduleApp({
       setWeekViewMode(nextState.nextViewMode);
     },
     [selectedTab, selectedWeek, weeks]
-  );
-
-  const matrixSnapshot = useMemo(
-    () =>
-      deriveOverviewSnapshot({
-        standingsRows: standingsSnapshot.rows,
-        standingsCoverage,
-        weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
-        allGames: games,
-        rosterByTeam,
-        scoresByKey,
-        selectedWeekLabel: activeWeekLabel,
-      }),
-    [
-      activeWeekLabel,
-      filteredWeekGames,
-      games,
-      postseasonGames,
-      rosterByTeam,
-      scoresByKey,
-      selectedTab,
-      standingsCoverage,
-      standingsSnapshot.rows,
-    ]
   );
 
   // Cumulative games through selected week for the dedicated Matrix tab
