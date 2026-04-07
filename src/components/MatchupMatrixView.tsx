@@ -2,6 +2,20 @@ import React from 'react';
 
 import type { OwnerMatchupMatrix } from '../lib/overview';
 
+function recordCellClass(record: string | null, isDiagonal: boolean, hasGames: boolean): string {
+  if (isDiagonal) return 'bg-gray-100/80 dark:bg-zinc-800/70';
+  if (!hasGames) return 'text-gray-400 dark:text-zinc-600';
+  if (!record) return 'font-semibold text-gray-900 dark:text-zinc-100';
+  const parts = record.split('\u2013'); // en dash
+  const w = parseInt(parts[0] ?? '0', 10);
+  const l = parseInt(parts[1] ?? '0', 10);
+  if (w > l)
+    return 'bg-emerald-50/80 font-semibold text-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100';
+  if (l > w)
+    return 'bg-rose-50/80 font-semibold text-rose-900 dark:bg-rose-950/25 dark:text-rose-100';
+  return 'font-semibold text-gray-900 dark:text-zinc-100';
+}
+
 type FocusableElement = {
   scrollIntoView: (options?: ScrollIntoViewOptions) => void;
 };
@@ -42,10 +56,7 @@ export default function MatchupMatrixView({
   if (matrix.owners.length === 0) {
     return (
       <section className="rounded-xl border border-gray-200 bg-gray-50/80 p-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
-        <h2 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-          Matchup matrix
-        </h2>
-        <p className="mt-2 rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-3 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
+        <p className="rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-3 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
           No matrix data yet. Upload owner assignments and games to populate owner-vs-owner counts.
         </p>
       </section>
@@ -54,14 +65,7 @@ export default function MatchupMatrixView({
 
   return (
     <section className="rounded-xl border border-gray-300 bg-white p-3.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-        Matchup matrix
-      </h2>
-      <p className="mt-1.5 text-xs text-gray-500 dark:text-zinc-400">
-        Full owner-vs-owner game counts and records from the canonical schedule-derived slate.
-      </p>
-
-      <div className="mt-3 -mx-1 overflow-x-auto px-1">
+      <div className="-mx-1 overflow-x-auto px-1">
         <table className="min-w-max border-separate border-spacing-0 text-center text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
@@ -106,24 +110,11 @@ export default function MatchupMatrixView({
                         }
                         ownerPairRefs.current.set(key, element);
                       }}
-                      className={`w-14 border-b border-gray-100 px-2 py-1.5 align-middle leading-tight dark:border-zinc-800 ${
-                        isDiagonal
-                          ? 'bg-gray-100/80 dark:bg-zinc-800/70'
-                          : hasGames
-                            ? 'bg-blue-50/70 font-semibold text-gray-900 dark:bg-blue-950/20 dark:text-zinc-100'
-                            : 'text-gray-400 dark:text-zinc-600'
-                      } ${isFocusedPair ? 'ring-1 ring-inset ring-blue-500 dark:ring-blue-500' : ''}`}
+                      className={`w-14 border-b border-gray-100 px-2 py-1.5 align-middle leading-tight dark:border-zinc-800 ${recordCellClass(cell.record, isDiagonal, hasGames)} ${isFocusedPair ? 'ring-1 ring-inset ring-blue-500 dark:ring-blue-500' : ''}`}
                       data-owner-pair-cell={ownerPairKey([row.owner, cell.owner])}
                     >
                       {hasGames ? (
-                        <div className="flex flex-col items-center leading-tight">
-                          <span>{cell.gameCount}</span>
-                          {cell.record ? (
-                            <span className="text-xs font-medium text-gray-500 dark:text-zinc-400">
-                              {cell.record}
-                            </span>
-                          ) : null}
-                        </div>
+                        <span>{cell.record ?? String(cell.gameCount)}</span>
                       ) : (
                         <span>{isDiagonal ? '—' : ''}</span>
                       )}

@@ -73,8 +73,12 @@ export function chooseDefaultWeek({
 
   if (seasonStartMs == null || seasonEndMs == null) return fallbackWeek;
 
-  if (nowMs < seasonStartMs || nowMs > seasonEndMs + OFFSEASON_GRACE_MS) {
+  if (nowMs < seasonStartMs) {
     return fallbackWeek;
+  }
+
+  if (nowMs > seasonEndMs + OFFSEASON_GRACE_MS) {
+    return regularWeeks[regularWeeks.length - 1] ?? fallbackWeek;
   }
 
   const startedWeeks = sortedWeekStarts
