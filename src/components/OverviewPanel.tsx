@@ -255,7 +255,7 @@ function deriveFeaturedGameBadge(
     return {
       label,
       classes:
-        'border-teal-300 bg-teal-50 text-teal-800 dark:border-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+        'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
     };
   }
 
