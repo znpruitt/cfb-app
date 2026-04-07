@@ -218,7 +218,7 @@ export default function CFBScheduleApp({
   const hasBootstrappedRef = useRef<boolean>(false);
 
   const [selectedSeason] = useState<number>(DEFAULT_SEASON);
-  const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason), [selectedSeason]);
+  const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason, leagueSlug), [selectedSeason, leagueSlug]);
 
   const [games, setGames] = useState<AppGame[]>(initialGames);
   const [byes, setByes] = useState<Record<number, string[]>>({});

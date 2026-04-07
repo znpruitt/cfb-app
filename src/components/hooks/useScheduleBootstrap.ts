@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 
 import { SEED_ALIASES, type AliasMap } from '../../lib/teamNames';
 import { bootstrapAliasesAndCaches } from '../../lib/bootstrap';
@@ -34,7 +34,15 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     tryParseOwnersCSV,
   } = params;
 
+  const lastLeagueSlugRef = useRef<string | undefined>(leagueSlug);
+
   useEffect(() => {
+    // Reset bootstrap guard when the league changes so data reloads.
+    if (leagueSlug !== lastLeagueSlugRef.current) {
+      lastLeagueSlugRef.current = leagueSlug;
+      hasBootstrappedRef.current = false;
+    }
+
     if (hasBootstrappedRef.current) return;
     hasBootstrappedRef.current = true;
 
@@ -69,6 +77,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     })();
   }, [
     hasBootstrappedRef,
+    leagueSlug,
     loadScheduleFromApi,
     selectedSeason,
     setAliasMap,

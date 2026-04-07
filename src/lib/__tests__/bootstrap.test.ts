@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { bootstrapAliasesAndCaches } from '../bootstrap.ts';
-import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../storageKeys.ts';
+import { LEGACY_STORAGE_KEYS, seasonOnlyStorageKeys, seasonStorageKeys } from '../storageKeys.ts';
 
 class MemoryStorage {
   private readonly store = new Map<string, string>();
@@ -40,7 +40,8 @@ function installWindow(storage: MemoryStorage): void {
 
 test('bootstrap clears stale local owners and postseason overrides when the shared server state is empty', async () => {
   const season = 2026;
-  const storageKeys = seasonStorageKeys(season);
+  const leagueSlug = 'tsc';
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
   const localStorage = new MemoryStorage();
   installWindow(localStorage);
 
@@ -73,7 +74,7 @@ test('bootstrap clears stale local owners and postseason overrides when the shar
     throw new Error(`Unexpected request: ${url}`);
   });
 
-  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {} });
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug });
 
   assert.equal(result.ownersCsvText, null);
   assert.deepEqual(result.postseasonOverrides, {});
@@ -122,6 +123,100 @@ test('bootstrap preserves legacy local owners and overrides when shared state is
     localStorage.getItem(storageKeys.postseasonOverrides),
     JSON.stringify({ legacy: { notes: 'legacy override' } })
   );
+});
+
+test('bootstrap returns empty data for a new league even when another league has localStorage data', async () => {
+  const season = 2026;
+  const tscKeys = seasonStorageKeys(season, 'tsc');
+  const testKeys = seasonStorageKeys(season, 'test');
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  // Simulate TSC league data already in localStorage
+  localStorage.setItem(tscKeys.ownersCsv, 'Team,Owner\nTexas,Alice');
+  localStorage.setItem(
+    tscKeys.postseasonOverrides,
+    JSON.stringify({ game1: { notes: 'tsc override' } })
+  );
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+
+    if (url.includes('/api/aliases?')) {
+      return Response.json({ year: season, map: {} });
+    }
+
+    // Test League has no server data
+    if (url.includes('/api/owners?')) {
+      return Response.json({ year: season, csvText: null, hasStoredValue: false });
+    }
+
+    if (url.includes('/api/postseason-overrides?')) {
+      return Response.json({ year: season, map: {}, hasStoredValue: false });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug: 'test' });
+
+  // Test League must get empty data — not TSC's data
+  assert.equal(result.ownersCsvText, null);
+  assert.deepEqual(result.postseasonOverrides, {});
+  assert.equal(localStorage.getItem(testKeys.ownersCsv), null);
+  assert.equal(localStorage.getItem(testKeys.postseasonOverrides), null);
+  // TSC data must remain untouched
+  assert.equal(localStorage.getItem(tscKeys.ownersCsv), 'Team,Owner\nTexas,Alice');
+});
+
+test('bootstrap migrates season-only localStorage keys to league-scoped keys', async () => {
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const oldKeys = seasonOnlyStorageKeys(season);
+  const newKeys = seasonStorageKeys(season, leagueSlug);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  // Data stored under old season-only keys (pre-migration format)
+  localStorage.setItem(oldKeys.ownersCsv, 'Team,Owner\nTexas,Alice');
+  localStorage.setItem(
+    oldKeys.postseasonOverrides,
+    JSON.stringify({ game1: { notes: 'old override' } })
+  );
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+
+    if (url.includes('/api/aliases?')) {
+      return Response.json({ year: season, map: {} });
+    }
+
+    // Server has no stored value — forces localStorage fallback path
+    if (url.includes('/api/owners?')) {
+      return new Response('boom', { status: 500 });
+    }
+
+    if (url.includes('/api/postseason-overrides?')) {
+      return new Response('boom', { status: 500 });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug });
+
+  // Data should be read from old keys and promoted to new keys
+  assert.equal(result.ownersCsvText, 'Team,Owner\nTexas,Alice');
+  assert.deepEqual(result.postseasonOverrides, { game1: { notes: 'old override' } });
+  // New keys should now have the data
+  assert.equal(localStorage.getItem(newKeys.ownersCsv), 'Team,Owner\nTexas,Alice');
+  assert.equal(
+    localStorage.getItem(newKeys.postseasonOverrides),
+    JSON.stringify({ game1: { notes: 'old override' } })
+  );
+  // Old keys should be cleaned up
+  assert.equal(localStorage.getItem(oldKeys.ownersCsv), null);
+  assert.equal(localStorage.getItem(oldKeys.postseasonOverrides), null);
 });
 
 test('bootstrap keeps cached owners and overrides when the server load fails', async () => {
