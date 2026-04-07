@@ -195,7 +195,7 @@ export default function StandingsPanel({
   }, [initialSubview]);
 
   return (
-    <section className="space-y-3 rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
+    <section className="space-y-3 sm:rounded-xl sm:border sm:border-gray-300 sm:bg-white sm:p-4 sm:shadow-sm sm:dark:border-zinc-700 sm:dark:bg-zinc-900">
       {coverage.message ? (
         <p
           className={`text-sm ${
@@ -218,9 +218,8 @@ export default function StandingsPanel({
             </div>
           ) : (
             <>
-              <div className="relative">
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-900" />
-                <div className="-mx-1 overflow-x-auto px-1">
+              <div>
+                <div className="overflow-x-auto">
                   <table
                     className="w-full border-separate border-spacing-0 text-sm"
                     data-standings-layout="tight"
@@ -234,16 +233,17 @@ export default function StandingsPanel({
                               label === 'PA' ||
                               label === 'Diff' ||
                               label === 'GB';
-                            const isCompact = label === 'Rank' || label === 'Move';
+                            const isRank = label === 'Rank';
+                            const isCompact = isRank || label === 'Move';
                             const isTeam = label === 'Team';
-                            const isDeEmphasized = label === 'PA' || label === 'GB';
+                            const isDeEmphasized = label === 'PF' || label === 'PA' || label === 'GB';
                             return (
                               <th
                                 key={label}
-                                className={`whitespace-nowrap border-b border-gray-200 px-1 py-2 font-semibold dark:border-zinc-700 ${isCompact ? 'w-[1.9rem]' : ''} ${isTeam ? 'w-[7rem] max-w-[7rem]' : ''} ${isNumericMetric ? 'w-[3.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${label === 'Win %' ? 'w-[3rem]' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
+                                className={`whitespace-nowrap border-b border-gray-200 px-1 py-2 font-semibold dark:border-zinc-700 ${isRank ? 'w-6' : !isRank && isCompact ? 'w-[1.9rem]' : ''} ${isTeam ? 'sm:w-[7rem] sm:max-w-[7rem]' : ''}${isNumericMetric ? 'w-[3.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${label === 'Win %' ? 'w-[3rem]' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
                                 data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
                               >
-                                {label}
+                                {isRank ? null : label}
                               </th>
                             );
                           }
@@ -288,7 +288,7 @@ export default function StandingsPanel({
                             onClick={() => handleToggleOwner(row.owner)}
                             data-standings-owner={row.owner}
                           >
-                            <td className="w-[1.9rem] border-b border-gray-100 px-1 py-2 text-base font-semibold tabular-nums dark:border-zinc-800">
+                            <td className="w-6 border-b border-gray-100 px-1 py-2 text-base font-semibold tabular-nums dark:border-zinc-800">
                               <span style={{ color: ownerColorFn(row.owner) }}>{index + 1}</span>
                             </td>
                             {showMoveColumn ? (
@@ -301,7 +301,7 @@ export default function StandingsPanel({
                                 {movementPresentation.text}
                               </td>
                             ) : null}
-                            <td className="w-[7rem] max-w-[7rem] border-b border-gray-100 px-1 py-2 text-[0.95rem] font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
+                            <td className="sm:w-[7rem] sm:max-w-[7rem] border-b border-gray-100 px-1 py-2 text-[0.95rem] font-semibold text-gray-950 dark:border-zinc-800 dark:text-zinc-50">
                               <div className="truncate">
                                 {onOwnerSelect ? (
                                   <button
@@ -322,7 +322,7 @@ export default function StandingsPanel({
                             <td className="w-[3rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 tabular-nums text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
                               {formatWinPct(row.winPct)}
                             </td>
-                            <td className="w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
+                            <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {row.pointsFor}
                             </td>
                             <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
@@ -346,7 +346,7 @@ export default function StandingsPanel({
 
           {standingsInsights.length > 0 ? (
             <section
-              className="rounded-xl border border-gray-200 bg-gray-50/70 p-3.5 dark:border-zinc-800 dark:bg-zinc-900/60"
+              className="sm:rounded-xl sm:border sm:border-gray-200 sm:bg-gray-50/70 sm:p-3.5 sm:dark:border-zinc-800 sm:dark:bg-zinc-900/60"
               data-standings-section="contextual-insights"
             >
               <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
