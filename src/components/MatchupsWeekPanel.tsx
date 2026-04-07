@@ -337,7 +337,7 @@ function OwnerCard({
         </span>
       </div>
 
-      <div className="mb-3 grid grid-cols-4 divide-x divide-gray-200 overflow-hidden rounded-lg border border-gray-200 dark:divide-zinc-700 dark:border-zinc-700">
+      <div className="mb-3 grid grid-cols-4 divide-x divide-gray-200 dark:divide-zinc-700">
         {(
           [
             { label: 'GAMES', value: slate.totalGames },
@@ -426,14 +426,9 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
   return (
     <div className="space-y-3">
       <section className="space-y-2.5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
-            Weekly Slates
-          </h2>
-          {oddsSummaryCopy ? (
-            <p className="text-xs text-gray-500 dark:text-zinc-400">{oddsSummaryCopy}</p>
-          ) : null}
-        </div>
+        {oddsSummaryCopy ? (
+          <p className="text-xs text-gray-500 dark:text-zinc-400">{oddsSummaryCopy}</p>
+        ) : null}
 
         {ownerSlates.length ? (
           <div className="grid gap-2.5 lg:grid-cols-2">

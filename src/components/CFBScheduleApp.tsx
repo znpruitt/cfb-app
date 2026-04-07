@@ -29,12 +29,15 @@ import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
 import { deriveStandingsHistory } from '../lib/standingsHistory';
-import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../lib/overview';
+import {
+  deriveAutonomousOverviewScope,
+  deriveOverviewSnapshot,
+  deriveOwnerMatchupMatrix,
+} from '../lib/overview';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
-import { deriveActiveSurfaceCopy } from '../lib/presentationCopy';
 import {
   buildScheduleFromApi,
   fetchSeasonSchedule,
@@ -827,16 +830,14 @@ export default function CFBScheduleApp({
   });
   const isSeasonScopedView =
     primarySurfaceKind === 'overview' ||
-    primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'standings' ||
     primarySurfaceKind === 'owner' ||
     primarySurfaceKind === 'rankings';
   const shouldShowWeekControls =
     primarySurfaceKind === 'schedule' ||
     primarySurfaceKind === 'matchups' ||
+    primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'postseason';
-  const activeSurfaceCopy = deriveActiveSurfaceCopy(weekViewMode);
-
   const openWeeklyMatchupsView = useCallback(() => {
     const nextDrilldownState = deriveWeeklyMatchupsDrilldownState({
       selectedTab,
@@ -877,28 +878,22 @@ export default function CFBScheduleApp({
     [selectedTab, selectedWeek, weeks]
   );
 
-  const matrixSnapshot = useMemo(
+  // Cumulative games through selected week for the dedicated Matrix tab
+  const matrixViewGames = useMemo(() => {
+    if (selectedTab === 'postseason') return games;
+    if (selectedWeek == null) return games;
+    return games.filter((g) => typeof g.week === 'number' && g.week <= selectedWeek);
+  }, [games, selectedTab, selectedWeek]);
+
+  const matrixData = useMemo(
     () =>
-      deriveOverviewSnapshot({
+      deriveOwnerMatchupMatrix({
+        weekGames: matrixViewGames,
         standingsRows: standingsSnapshot.rows,
-        standingsCoverage,
-        weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
-        allGames: games,
         rosterByTeam,
         scoresByKey,
-        selectedWeekLabel: activeWeekLabel,
       }),
-    [
-      activeWeekLabel,
-      filteredWeekGames,
-      games,
-      postseasonGames,
-      rosterByTeam,
-      scoresByKey,
-      selectedTab,
-      standingsCoverage,
-      standingsSnapshot.rows,
-    ]
+    [matrixViewGames, standingsSnapshot.rows, rosterByTeam, scoresByKey]
   );
 
   const scoreScopeGames = useMemo(() => {
@@ -1451,7 +1446,6 @@ export default function CFBScheduleApp({
               onSelectedConferenceChange={setSelectedConference}
               onTeamFilterChange={setTeamFilter}
               isSeasonViewActive={isSeasonScopedView}
-              activeViewLabel={activeSurfaceCopy.title}
             />
           ) : null}
 
@@ -1597,7 +1591,7 @@ export default function CFBScheduleApp({
                 />
               ) : weekViewMode === 'matrix' ? (
                 <MatchupMatrixView
-                  matrix={matrixSnapshot.matchupMatrix}
+                  matrix={matrixData}
                   focusedOwnerPair={focusedOwnerPair}
                 />
               ) : (

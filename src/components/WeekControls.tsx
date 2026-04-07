@@ -13,7 +13,6 @@ type WeekControlsProps = {
   onSelectedConferenceChange: (conference: string) => void;
   onTeamFilterChange: (value: string) => void;
   isSeasonViewActive?: boolean;
-  activeViewLabel?: string;
 };
 
 export default function WeekControls({
@@ -29,30 +28,10 @@ export default function WeekControls({
   onSelectedConferenceChange,
   onTeamFilterChange,
   isSeasonViewActive = false,
-  activeViewLabel = 'Overview',
 }: WeekControlsProps): React.ReactElement {
   return (
-    <section
-      className={`space-y-3 rounded-xl border px-4 py-3 sm:px-5 ${
-        isSeasonViewActive
-          ? 'border-gray-200 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-900/70'
-          : 'border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-900'
-      }`}
-    >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="max-w-2xl space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
-            Week context
-          </p>
-          {isSeasonViewActive ? (
-            <p className="text-xs text-gray-500 dark:text-zinc-400">
-              Supporting context while <span className="font-semibold">{activeViewLabel}</span> is
-              active.
-            </p>
-          ) : null}
-        </div>
-
-        <div className="grid w-full gap-2 text-sm sm:grid-cols-2 lg:w-auto lg:min-w-[24rem]">
+    <div className="space-y-3">
+        <div className="grid w-full gap-2 text-sm sm:grid-cols-2">
           <label className="space-y-1">
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-zinc-400">
               Conference
@@ -82,7 +61,6 @@ export default function WeekControls({
             />
           </label>
         </div>
-      </div>
 
       <div
         className={`flex gap-2 overflow-x-auto pb-1 transition-opacity ${
@@ -129,6 +107,6 @@ export default function WeekControls({
           </button>
         )}
       </div>
-    </section>
+    </div>
   );
 }
