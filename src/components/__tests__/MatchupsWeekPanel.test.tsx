@@ -163,7 +163,7 @@ test('matchups panel omits unowned-vs-unowned from owner cards and summarizes ex
     />
   );
 
-  assert.match(html, /No surname-relevant games for this week/);
+  assert.match(html, /No owner-relevant games for this week/);
   assert.match(html, /Excluded games/);
   assert.match(html, /1 excluded game/);
 });
