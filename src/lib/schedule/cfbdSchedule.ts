@@ -301,13 +301,14 @@ function deriveEventMetadata(params: {
     const playoffFromText = hasPlayoffMarker(text);
     const roundFromText = playoffFromText ? playoffRoundFromText(text) : null;
     const round: PlayoffRound | null =
-      normalizedPlayoffRound === 'first-round' ||
-      normalizedPlayoffRound === 'quarterfinal' ||
-      normalizedPlayoffRound === 'semifinal' ||
-      normalizedPlayoffRound === 'national_championship' ||
-      normalizedPlayoffRound === 'playoff'
-        ? (normalizedPlayoffRound as PlayoffRound)
-        : roundFromText;
+      normalizedPlayoffRound === 'first-round' || normalizedPlayoffRound === 'first round'
+        ? 'first-round'
+        : normalizedPlayoffRound === 'quarterfinal' ||
+            normalizedPlayoffRound === 'semifinal' ||
+            normalizedPlayoffRound === 'national_championship' ||
+            normalizedPlayoffRound === 'playoff'
+          ? (normalizedPlayoffRound as PlayoffRound)
+          : roundFromText;
     const postseasonSubtype: PostseasonSubtype =
       normalizedPostseasonSubtype === 'playoff' ||
       (normalizedPostseasonSubtype !== 'bowl' && playoffFromText)

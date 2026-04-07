@@ -235,6 +235,8 @@ function deriveFeaturedGameBadge(
     // playoffRound is more specific than postseasonRole — trust it for the label.
     // This guards against misclassified postseasonRole (e.g., inferBowlPostseasonRole
     // matching "national championship" in bowl notes when the game is really a semifinal).
+    // Fallback: if round is generic 'playoff' or null and the game is non-neutral-site,
+    // it is a first-round campus game (all QF/SF/Championship games are at neutral sites).
     let label: string;
     if (round === 'semifinal') {
       label = 'CFP Semifinal';
@@ -244,13 +246,16 @@ function deriveFeaturedGameBadge(
       label = 'CFP First Round';
     } else if (round === 'national_championship' || role === 'national_championship') {
       label = 'CFP Championship';
+    } else if ((round == null || round === 'playoff') && !game.neutral) {
+      // Campus game without an explicit round — only first-round games are non-neutral
+      label = 'CFP First Round';
     } else {
       label = 'CFP';
     }
     return {
       label,
       classes:
-        'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+        'border-teal-300 bg-teal-50 text-teal-800 dark:border-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
     };
   }
 
