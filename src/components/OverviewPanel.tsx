@@ -979,6 +979,10 @@ export default function OverviewPanel({
       rankingsByTeamId,
     ]
   );
+  // TEMP-DIAG: selector output audit — remove after review
+  console.log('[DIAG] storylines:', viewModel.storylines);
+  console.log('[DIAG] leagueHighlights:', viewModel.leagueHighlights);
+  console.log('[DIAG] leaguePulse:', viewModel.leaguePulse);
   const sharedInsights = React.useMemo(() => {
     const resolvedWeeks = standingsHistory
       ? selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks
