@@ -337,12 +337,14 @@ function LeagueSummaryHero({
   heroMode,
   podiumLeaders,
   leader,
+  leagueSlug,
 }: {
   summary: ReturnType<typeof selectOverviewViewModel>['championSummary'];
   narrative: ReturnType<typeof selectOverviewViewModel>['heroNarrative'];
   heroMode: ReturnType<typeof selectOverviewViewModel>['heroMode'];
   podiumLeaders: ReturnType<typeof selectOverviewViewModel>['podiumLeaders'];
   leader: OwnerStandingsRow | undefined;
+  leagueSlug?: string;
 }): React.ReactElement {
   if (!leader) {
     return (
@@ -351,8 +353,19 @@ function LeagueSummaryHero({
           League summary
         </p>
         <p className="mt-2 text-sm text-gray-700 dark:text-zinc-200">
-          Upload surnames to unlock league leader tracking.
+          Your league isn&apos;t set up yet.
         </p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
+          Add your owners and configure your draft to get started.
+        </p>
+        {leagueSlug ? (
+          <Link
+            href={`/admin/${leagueSlug}`}
+            className="mt-3 inline-block rounded-md bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            Set up your league
+          </Link>
+        ) : null}
       </section>
     );
   }
@@ -994,6 +1007,7 @@ export default function OverviewPanel({
         heroMode={viewModel.heroMode}
         podiumLeaders={viewModel.podiumLeaders}
         leader={standingsLeaders[0]}
+        leagueSlug={leagueSlug}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -1015,7 +1029,7 @@ export default function OverviewPanel({
             </p>
           ) : null}
           {viewModel.standingsTopN.length === 0 ? (
-            <EmptyState message="Upload surnames to populate league standings." compact />
+            <EmptyState message="Add owners to populate standings." compact />
           ) : (
             <CondensedStandingsTable
               rows={viewModel.standingsTopN}

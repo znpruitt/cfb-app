@@ -286,7 +286,7 @@ function GameRow({
 function EmptyState(): React.ReactElement {
   return (
     <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-      No surname-relevant games for this week.
+      No owner-relevant games for this week.
     </div>
   );
 }

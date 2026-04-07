@@ -214,7 +214,7 @@ export default function StandingsPanel({
         <div className="space-y-3">
           {visibleRows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-              Upload surnames to populate league standings.
+              Add owners to populate standings.
             </div>
           ) : (
             <>

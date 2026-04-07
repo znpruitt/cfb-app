@@ -53,8 +53,7 @@ export default function UploadPanel({
             className="text-sm file:mr-2 file:rounded file:border file:px-2 file:py-1 file:bg-white file:border-gray-300 dark:file:bg-zinc-800 dark:file:border-zinc-700"
           />
           <div className="text-xs text-gray-600 dark:text-zinc-400 mt-1">
-            Columns: <code>Team, Owner</code>. Use a unique owner identifier even if two
-            participants share a surname.
+            Columns: <code>Team, Owner</code>. Use a unique name for each owner.
           </div>
         </div>
       </div>

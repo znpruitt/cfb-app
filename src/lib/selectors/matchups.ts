@@ -162,7 +162,7 @@ export function deriveOddsAvailabilitySummary(params: {
 
 export function deriveExcludedGamesSummary(sections: WeekMatchupSections): string {
   if (sections.otherGames.length === 0) {
-    return 'All games this week appear on a surname card.';
+    return 'All games this week appear on an owner card.';
   }
 
   const gameCount = sections.otherGames.length;
