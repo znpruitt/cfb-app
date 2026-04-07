@@ -69,6 +69,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     })();
   }, [
     hasBootstrappedRef,
+    leagueSlug,
     loadScheduleFromApi,
     selectedSeason,
     setAliasMap,

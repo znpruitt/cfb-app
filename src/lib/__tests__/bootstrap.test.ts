@@ -40,7 +40,8 @@ function installWindow(storage: MemoryStorage): void {
 
 test('bootstrap clears stale local owners and postseason overrides when the shared server state is empty', async () => {
   const season = 2026;
-  const storageKeys = seasonStorageKeys(season);
+  const leagueSlug = 'tsc';
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
   const localStorage = new MemoryStorage();
   installWindow(localStorage);
 
@@ -73,7 +74,7 @@ test('bootstrap clears stale local owners and postseason overrides when the shar
     throw new Error(`Unexpected request: ${url}`);
   });
 
-  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {} });
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug });
 
   assert.equal(result.ownersCsvText, null);
   assert.deepEqual(result.postseasonOverrides, {});
@@ -122,6 +123,50 @@ test('bootstrap preserves legacy local owners and overrides when shared state is
     localStorage.getItem(storageKeys.postseasonOverrides),
     JSON.stringify({ legacy: { notes: 'legacy override' } })
   );
+});
+
+test('bootstrap returns empty data for a new league even when another league has localStorage data', async () => {
+  const season = 2026;
+  const tscKeys = seasonStorageKeys(season, 'tsc');
+  const testKeys = seasonStorageKeys(season, 'test');
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  // Simulate TSC league data already in localStorage
+  localStorage.setItem(tscKeys.ownersCsv, 'Team,Owner\nTexas,Alice');
+  localStorage.setItem(
+    tscKeys.postseasonOverrides,
+    JSON.stringify({ game1: { notes: 'tsc override' } })
+  );
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+
+    if (url.includes('/api/aliases?')) {
+      return Response.json({ year: season, map: {} });
+    }
+
+    // Test League has no server data
+    if (url.includes('/api/owners?')) {
+      return Response.json({ year: season, csvText: null, hasStoredValue: false });
+    }
+
+    if (url.includes('/api/postseason-overrides?')) {
+      return Response.json({ year: season, map: {}, hasStoredValue: false });
+    }
+
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug: 'test' });
+
+  // Test League must get empty data — not TSC's data
+  assert.equal(result.ownersCsvText, null);
+  assert.deepEqual(result.postseasonOverrides, {});
+  assert.equal(localStorage.getItem(testKeys.ownersCsv), null);
+  assert.equal(localStorage.getItem(testKeys.postseasonOverrides), null);
+  // TSC data must remain untouched
+  assert.equal(localStorage.getItem(tscKeys.ownersCsv), 'Team,Owner\nTexas,Alice');
 });
 
 test('bootstrap keeps cached owners and overrides when the server load fails', async () => {

@@ -70,7 +70,7 @@ export async function bootstrapAliasesAndCaches(params: {
   postseasonOverridesLoadIssue?: string;
 }> {
   const { season, seedAliases, leagueSlug } = params;
-  const storageKeys = seasonStorageKeys(season);
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
 
   let aliasMap: AliasMap = {};
   let aliasLoadIssue: string | undefined;
@@ -103,6 +103,10 @@ export async function bootstrapAliasesAndCaches(params: {
     if (serverOwnersState.hasStoredValue) {
       ownersCsvText = serverOwnersState.csvText;
       writeOwnersCsvToLocal(storageKeys.ownersCsv, serverOwnersState.csvText);
+    } else if (leagueSlug) {
+      // Server is authoritative for league-scoped data — no stored value means empty.
+      ownersCsvText = null;
+      writeOwnersCsvToLocal(storageKeys.ownersCsv, null);
     }
   } catch (err) {
     ownersLoadIssue = `Owners load failed: ${(err as Error).message}`;
@@ -115,6 +119,10 @@ export async function bootstrapAliasesAndCaches(params: {
     if (serverOverridesState.hasStoredValue) {
       postseasonOverrides = serverOverridesState.map;
       writePostseasonOverridesToLocal(storageKeys.postseasonOverrides, serverOverridesState.map);
+    } else if (leagueSlug) {
+      // Server is authoritative for league-scoped data — no stored value means empty.
+      postseasonOverrides = {};
+      writePostseasonOverridesToLocal(storageKeys.postseasonOverrides, {});
     }
   } catch (err) {
     postseasonOverridesLoadIssue = `Postseason overrides load failed: ${(err as Error).message}`;
