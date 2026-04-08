@@ -164,10 +164,12 @@ function deriveHeroNarrative(params: {
       : `Leads at ${recordAndDiff}.`;
   }
 
-  const gap = Math.max(0, leader.winPct - runnerUp.winPct);
+  const gbGap = runnerUp.gamesBack;
+  const gbLabel = gbGap === 1 ? '1 game' : Number.isInteger(gbGap) ? `${gbGap} games` : `${gbGap.toFixed(1)} games`;
+  const pctGap = Math.max(0, leader.winPct - runnerUp.winPct);
   return summary.phase === 'complete'
-    ? `${leader.owner} won the title by ${formatPctGap(gap)} over ${runnerUp.owner}`
-    : `Leads at ${recordAndDiff} • Ahead of ${runnerUp.owner} by ${formatPctGap(gap)}`;
+    ? `${leader.owner} won the title by ${gbLabel} over ${runnerUp.owner}`
+    : `Leads at ${recordAndDiff} • Ahead of ${runnerUp.owner} by ${formatPctGap(pctGap)}`;
 }
 
 function deriveHeroMode(

@@ -503,6 +503,68 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### Overview Page Polish (standalone)
+
+**De-containerization**
+- Removed outer card wrappers from Standings, Insights, Featured games, and GB Race sections
+- Individual game cards retain borders — they are discrete objects
+- Horizontal dividers replace card borders as section separators
+- Season podium retains card treatment — amber border is doing meaningful visual work
+
+**Podium redesign**
+- Replaced mixed layout (wide #1 card + two half-width cards below) with three equal horizontal cards
+- #1 card gets amber border and amber rank label — amber reserved exclusively for champion signals
+- #2 and #3 get neutral borders and plain muted rank labels
+- Removed narrative text from all podium cards — data speaks for itself
+- Removed "Season podium" section title — self-evident from content
+- Removed CHAMPION badge from Overview standings rows — podium handles champion signal
+
+**Standings section restructure**
+- Converted to trifold layout: Standings (25%) · AP Poll (25%) · Insights (50%)
+- Removed column headers from Overview standings table — self-evident at this density
+- Reordered standings row hierarchy: rank · name · record · GB on primary line, Win% · Diff on secondary line
+- GB elevated to primary line — most important metric in a pool format
+- Added inline last-5-weeks position delta columns to standings rows (Option A: week headers once at top)
+- Removed CHAMPION badge from standings rows — redundant with podium above
+
+**Champion narrative copy fix**
+- Fixed champion margin narrative to use games back as primary descriptor
+- Win% is a tiebreaker — no longer used as the margin of victory descriptor
+- Correct: "Won the title by 7 games over Maleski"
+
+**Owner color system**
+- Created src/lib/ownerColors.ts as shared owner color utility
+- getOwnerColor(ownerName) is now the sole source of owner color across the entire app
+- Replaced position-based alphabetical color assignment with hardcoded name-to-color lookup
+- Colors are now stable and consistent across all surfaces — chart lines, table legends, rank numbers
+- Owner names are color-coded only when the table serves as a legend for an adjacent chart
+
+**GB Race section**
+- Renamed from "Trends" to "GB Race"
+- Removed inline chart line labels — companion table serves as legend
+- Reverted to top 5 lines on Overview — 14 lines too cluttered at this surface
+- Added companion table showing GB change over last 5 weeks with current GB column
+- Owner names color-coded in companion table to match chart lines
+
+**AP Poll column**
+- Added AP Poll snapshot as middle column of trifold
+- Shows top 10 teams with week-over-week movement indicators
+- Switches to CFP Rankings during postseason, back to AP at season end
+- "Full rankings ↗" CTA links to FBS Polls page
+- Fixed movement delta bug — was showing NR for all teams due to reference equality failure in previous week lookup
+- Fixed week label alignment — converted to CSS grid so headers stay pinned to delta columns at all viewport widths
+
+**DESIGN.md updates**
+- Containerization rules
+- Owner color encoding rules
+- Podium design rules
+- Champion narrative copy rules
+- Section header rules
+- Overview trifold layout
+- Poll phase logic (inSeason → AP, postseason → CFP, complete → AP)
+
+---
+
 *Phases 1–3 entries have been moved to `docs/completed-work-archive.md`.*
 
 ---

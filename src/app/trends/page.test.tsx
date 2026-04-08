@@ -18,7 +18,7 @@ import TrendsDetailSurface, {
 import TrendsPage from './page';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import { deriveWeekTicks } from '../../lib/trendsFocus';
-import { buildOwnerColorMap, getOwnerColor } from './presentationColors';
+import { buildOwnerColorMap, getOwnerColor } from '../../lib/ownerColors';
 
 const history: StandingsHistory = {
   weeks: [1, 2],
@@ -1115,22 +1115,14 @@ test('owner color map provides distinct colors for top 5 owners', () => {
   assert.equal(uniqueColors.size, orderedOwners.length);
 });
 
-test('getOwnerColor is stable for same owner/index inputs', () => {
-  assert.equal(getOwnerColor('Alice', 2, 8), getOwnerColor('Alice', 2, 8));
+test('getOwnerColor is stable for same owner name', () => {
+  assert.equal(getOwnerColor('Alice'), getOwnerColor('Alice'));
 });
 
-test('getOwnerColor applies deterministic lightness variation by index', () => {
-  const getLightness = (color: string): number => {
-    const match = color.match(/, (\d+)%\)$/);
-    assert.ok(match);
-    return Number.parseInt(match[1] ?? '0', 10);
-  };
-
-  const lightnessValues = [0, 1, 2, 3].map((index) =>
-    getLightness(getOwnerColor('Owner', index, 8))
-  );
-  assert.deepEqual(lightnessValues, [52, 58, 64, 70]);
-  assert.equal(getLightness(getOwnerColor('Owner', 4, 8)), 52);
+test('getOwnerColor returns different colors for different owners', () => {
+  const colors = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'].map((n) => getOwnerColor(n));
+  const unique = new Set(colors);
+  assert.equal(unique.size, 5);
 });
 
 test('mobile layout suppresses right-edge labels and adapts chart height', () => {

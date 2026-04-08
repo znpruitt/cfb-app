@@ -19,7 +19,7 @@
 ## Tables
 - Tables serve as legends when charts are present — do not duplicate the table data in a separate legend
 - Color encodes identity at the interaction layer — row tints on hover/select connect table to chart
-- Rank numbers carry the owner's chart line color — minimal footprint, maximum utility
+- On the full Standings page, rank numbers carry the owner's chart line color — minimal footprint, maximum utility
 - Redundant columns should be hidden when they carry no information (e.g. MOVE column at season end)
 - On mobile, hide lower-priority columns (PF, PA) and remove card borders — let the table breathe
 
@@ -57,6 +57,67 @@
 - "Top matchup" and "Close" are internal selection signals only — never user-facing labels
 - Game selection is context-aware: postseason surfaces playoff/bowl games, in-season surfaces current week
 - First Round CFP games are identified by neutral site = false (campus games)
+
+## Containerization
+- Outer card containers are removed from all Overview sections except the season podium
+- Individual game cards retain borders — they are discrete objects
+- Horizontal dividers (0.5px, var(--color-border-tertiary)) separate major sections
+- Card chrome is reserved for content that has a meaningful border signal (e.g. amber champion border)
+
+## Owner Colors
+- Each owner has a single persistent assigned color defined in src/lib/ownerColors.ts
+- getOwnerColor(ownerName) is the sole source of owner color across the entire app
+- Handpicked 14-color palette — all visually distinct in dark mode, no near-duplicates
+- Owner colors are used for chart lines and their companion table legend labels
+- Colors are fixed — not derived from standings position or render order
+- Future: user-assignable colors are a planned enhancement but not yet implemented
+
+## Podium
+- Three equal horizontal cards
+- Champion (#1) gets amber border (1.5px, #BA7517) and amber rank label
+- #2 and #3 get neutral borders and muted rank labels
+- No narrative text on podium cards — data speaks for itself
+- No "Season podium" section title
+- Amber is reserved exclusively for champion signals — never used for decoration
+
+## Champion Narrative Copy
+- Champion margin is always expressed in games back, never win percentage delta
+- Win% is a tiebreaker — never the primary margin descriptor
+
+## Section Headers
+- Plain text section title, 15px, font-weight 500
+- CTAs are plain text ↗ aligned right in the same header row
+- No card chrome around section headers
+
+## Trends / GB Race
+- Renamed from "Trends" to "GB Race" on Overview
+- Inline chart labels removed — companion table serves as legend
+- Companion table shows GB change over last 5 weeks with total GB column
+- Owner names color-coded using getOwnerColor()
+
+## Color encoding
+- Owner names are color-coded ONLY when the table is serving as a legend for an adjacent chart
+- Rank numbers in all standings tables are plain muted text — never colored
+- Chart line colors and their companion table legend colors must always match via getOwnerColor()
+
+## Overview standings row hierarchy
+- Primary line: rank (muted) · name · champion badge (if applicable) · record · GB
+- Secondary line: Win% · Diff — smaller font, muted
+- No column headers on condensed snapshot tables — data is self-evident at this density
+- GB is the primary metric in a pool format and sits on the primary line
+
+## Overview trifold layout
+- Three columns: Standings (25%) · FBS Polls (25%) · Insights (50%)
+- Poll column shows AP Poll during regular season and season end, CFP Rankings during postseason
+- Top 10 entries only in the poll column
+- Poll column header uses same styling as peer column headers (15px, font-medium)
+- CTA links to full rankings page
+- Insights is not a standalone full-width section — it only renders in column 3
+
+## Poll phase logic
+- inSeason → AP Poll
+- postseason → CFP Rankings
+- complete → AP Poll (final)
 
 ## Scope discipline
 - Do not add features not explicitly requested

@@ -7,7 +7,7 @@ import { type SeasonContext } from '../../lib/selectors/seasonContext';
 import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../../lib/selectors/trends';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import { deriveFocusedOwners, type FocusMode } from '../../lib/trendsFocus';
-import { buildOwnerColorMap, getOwnerColor } from './presentationColors';
+import { buildOwnerColorMap } from '../../lib/ownerColors';
 
 type MetricKind = 'games-back' | 'win-pct';
 type LayoutMode = 'standalone' | 'embedded';
@@ -1136,17 +1136,9 @@ export default function TrendsDetailSurface({
   );
   const orderedOwners = React.useMemo(() => winBars.map((row) => row.ownerId), [winBars]);
   const ownerColorMap = React.useMemo(() => buildOwnerColorMap(orderedOwners), [orderedOwners]);
-  const ownerIndexMap = React.useMemo(
-    () => new Map(orderedOwners.map((owner, index) => [owner, index])),
-    [orderedOwners]
-  );
   const getOwnerTrendColor = React.useCallback(
-    (ownerId: string) => {
-      const color = ownerColorMap.get(ownerId);
-      if (color) return color;
-      return getOwnerColor(ownerId, ownerIndexMap.get(ownerId) ?? 0, orderedOwners.length || 1);
-    },
-    [orderedOwners.length, ownerColorMap, ownerIndexMap]
+    (ownerId: string) => ownerColorMap.get(ownerId) ?? '#888',
+    [ownerColorMap]
   );
   const focusedOwners = React.useMemo(() => {
     if (isControlled) return orderedOwners;

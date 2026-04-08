@@ -1,8 +1,9 @@
 import React from 'react';
 import Link from 'next/link';
 
-import MiniTrendsGrid, { CONTENDER_COLORS } from './MiniTrendsGrid';
-import { selectPositionDeltas } from '../lib/selectors/trends';
+import MiniTrendsGrid from './MiniTrendsGrid';
+import { buildOwnerColorMap } from '../lib/ownerColors';
+import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
@@ -15,7 +16,7 @@ import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/se
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
-import { getTeamRanking, type TeamRankingEnrichment } from '../lib/rankings';
+import { getTeamRanking, type TeamRankingEnrichment, type RankingsResponse, type RankingsWeek, type CanonicalPollEntry, type RankSource } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -43,9 +44,6 @@ function sliceStandingsHistoryToRecentWeeks(
   };
 }
 
-const NAME_COL_W = '4.5rem';
-const DELTA_COL_W = '1.75rem';
-
 function deltaTextColor(delta: number | null): string {
   if (delta == null || delta === 0) return 'text-gray-400 dark:text-zinc-500';
   if (delta > 0) return 'text-emerald-600 dark:text-emerald-400';
@@ -56,80 +54,6 @@ function deltaLabel(delta: number | null): string {
   if (delta == null) return '·';
   if (delta === 0) return '—';
   return delta > 0 ? `+${delta}` : String(delta);
-}
-
-function PositionDeltaPanel({
-  standingsHistory,
-  weekLabel,
-  seriesColors,
-}: {
-  standingsHistory: StandingsHistory;
-  weekLabel?: (week: number) => string;
-  /** Colors indexed by owner position — must match the trend chart's CONTENDER_COLORS order. */
-  seriesColors?: readonly string[];
-}): React.ReactElement | null {
-  const { weeks, owners } = React.useMemo(
-    () => selectPositionDeltas({ standingsHistory, maxWeeks: 5 }),
-    [standingsHistory]
-  );
-  if (owners.length === 0 || weeks.length === 0) return null;
-
-  const labelFn = weekLabel ?? ((w: number) => `W${w}`);
-
-  return (
-    <div className="border-l border-gray-200 pl-3 dark:border-zinc-700">
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-        Last {weeks.length} weeks
-      </p>
-      {/* Column headers */}
-      <div className="mb-px flex items-center">
-        <span style={{ width: NAME_COL_W, flexShrink: 0 }} />
-        {weeks.map((w) => (
-          <span
-            key={w}
-            className="shrink-0 text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
-            style={{ width: DELTA_COL_W }}
-          >
-            {labelFn(w)}
-          </span>
-        ))}
-      </div>
-      {/* Owner rows */}
-      {owners.map((owner, i) => {
-        const deltaByWeek = new Map(owner.deltas.map((d) => [d.week, d.delta]));
-        // Color the owner name to match their trend line; owners beyond the chart's
-        // contender count (no trend line) fall back to default text styling.
-        const nameColor = seriesColors?.[i];
-        return (
-          <div
-            key={owner.ownerId}
-            className={`flex items-center py-[3px] ${
-              i % 2 !== 0 ? 'rounded-sm bg-gray-50/60 dark:bg-zinc-800/30' : ''
-            }`}
-          >
-            <span
-              className="shrink-0 truncate text-[11px] font-medium"
-              style={{ width: NAME_COL_W, color: nameColor ?? undefined }}
-            >
-              {owner.ownerName}
-            </span>
-            {weeks.map((w) => {
-              const delta = deltaByWeek.has(w) ? (deltaByWeek.get(w) ?? null) : null;
-              return (
-                <span
-                  key={w}
-                  className={`shrink-0 text-center text-[11px] font-medium tabular-nums ${deltaTextColor(delta)}`}
-                  style={{ width: DELTA_COL_W }}
-                >
-                  {deltaLabel(delta)}
-                </span>
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 function formatWinPct(value: number): string {
@@ -331,18 +255,216 @@ function EmptyState({
   );
 }
 
+const GB_NAME_W = '4.5rem';
+const GB_COL_W = '2rem';
+
+function gbDeltaColor(delta: number | null): string {
+  if (delta == null || delta === 0) return 'text-gray-400 dark:text-zinc-500';
+  // Negative delta = gaining ground (good), positive = falling behind (bad)
+  if (delta < 0) return 'text-emerald-600 dark:text-emerald-400';
+  return 'text-red-500 dark:text-red-400';
+}
+
+function formatGbDelta(delta: number | null): string {
+  if (delta == null) return '·';
+  if (delta === 0) return '—';
+  if (delta > 0) return `+${Number.isInteger(delta) ? delta : delta.toFixed(1)}`;
+  return Number.isInteger(delta) ? String(delta) : delta.toFixed(1);
+}
+
+function formatGbValue(gb: number): string {
+  if (gb === 0) return '—';
+  return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
+}
+
+type GbChangeRow = {
+  ownerId: string;
+  ownerName: string;
+  deltas: (number | null)[];
+  currentGb: number;
+};
+
+type GbChangeData = {
+  weeks: number[];
+  rows: GbChangeRow[];
+};
+
+function GbChangeTable({
+  standingsHistory,
+  standingsLeaders,
+  weekLabel,
+}: {
+  standingsHistory: StandingsHistory;
+  standingsLeaders: OwnerStandingsRow[];
+  weekLabel?: (week: number) => string;
+}): React.ReactElement | null {
+  const data = React.useMemo((): GbChangeData | null => {
+    const allSeries = selectGamesBackTrend({ standingsHistory });
+    const weeks = standingsHistory.weeks;
+    if (weeks.length === 0 || allSeries.length === 0) return null;
+
+    const recentWeeks = weeks.slice(-5);
+    // Build a lookup from live standings for the authoritative GB value.
+    const liveGbByOwner = new Map(standingsLeaders.map((r) => [r.owner, r.gamesBack]));
+    const rows: GbChangeRow[] = allSeries.map((s) => {
+      const pointByWeek = new Map(s.points.map((p) => [p.week, p.value]));
+      const allWeeks = weeks;
+      const deltas: (number | null)[] = recentWeeks.map((w) => {
+        const wIdx = allWeeks.indexOf(w);
+        const prevWeek = wIdx > 0 ? allWeeks[wIdx - 1] : null;
+        const current = pointByWeek.get(w);
+        const previous = prevWeek != null ? pointByWeek.get(prevWeek) : undefined;
+        if (current == null || previous == null) return null;
+        return current - previous;
+      });
+      // Use live standings GB — not the last trend point.
+      const currentGb = liveGbByOwner.get(s.ownerName) ?? liveGbByOwner.get(s.ownerId) ?? 0;
+      return { ownerId: s.ownerId, ownerName: s.ownerName, deltas, currentGb };
+    });
+
+    return { weeks: recentWeeks, rows };
+  }, [standingsHistory, standingsLeaders]);
+
+  const ownerColorMap = React.useMemo(
+    () => (data ? buildOwnerColorMap(data.rows.map((r) => r.ownerName)) : new Map<string, string>()),
+    [data]
+  );
+
+  if (!data) return null;
+
+  const labelFn = weekLabel ?? ((w: number) => `W${w}`);
+
+  return (
+    <div>
+      {/* Column headers */}
+      <div className="mb-px flex items-center">
+        <span style={{ width: GB_NAME_W, flexShrink: 0 }} />
+        {data.weeks.map((w) => (
+          <span
+            key={w}
+            className="shrink-0 text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
+            style={{ width: GB_COL_W }}
+          >
+            {labelFn(w)}
+          </span>
+        ))}
+        <span
+          className="shrink-0 text-center text-[8px] font-semibold text-gray-500 dark:text-zinc-400"
+          style={{ width: GB_COL_W }}
+        >
+          GB
+        </span>
+      </div>
+      {/* Owner rows */}
+      {data.rows.map((row, i) => {
+        const nameColor = ownerColorMap.get(row.ownerName) ?? '#888';
+        return (
+          <div
+            key={row.ownerId}
+            className={`flex items-center py-[3px] ${
+              i % 2 !== 0 ? 'rounded-sm bg-gray-50/60 dark:bg-zinc-800/30' : ''
+            }`}
+          >
+            <span
+              className="shrink-0 truncate text-[11px] font-medium"
+              style={{ width: GB_NAME_W, color: nameColor }}
+            >
+              {row.ownerName}
+            </span>
+            {row.deltas.map((delta, di) => (
+              <span
+                key={data.weeks[di]}
+                className={`shrink-0 text-center text-[11px] font-medium tabular-nums ${gbDeltaColor(delta)}`}
+                style={{ width: GB_COL_W }}
+              >
+                {formatGbDelta(delta)}
+              </span>
+            ))}
+            <span
+              className="shrink-0 text-center text-[11px] font-semibold tabular-nums text-gray-700 dark:text-zinc-200"
+              style={{ width: GB_COL_W }}
+            >
+              {formatGbValue(row.currentGb)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SectionDivider(): React.ReactElement {
+  return <hr className="border-t border-gray-200/60 dark:border-zinc-800/60" />;
+}
+
+function SectionHeader({
+  title,
+  action,
+}: {
+  title: string;
+  action?: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <h2 className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">{title}</h2>
+      {action ?? null}
+    </div>
+  );
+}
+
+function PodiumCard({
+  row,
+  rank,
+  label,
+  isChampion,
+}: {
+  row: OwnerStandingsRow;
+  rank: number;
+  label: string;
+  isChampion: boolean;
+}): React.ReactElement {
+  return (
+    <article
+      className={`rounded-xl border px-3 py-3 ${
+        isChampion
+          ? 'border-[1.5px] border-[#BA7517]/60 bg-gradient-to-b from-amber-50/80 to-white dark:border-[#BA7517]/50 dark:from-amber-950/25 dark:to-zinc-900'
+          : 'border-gray-200/60 bg-white dark:border-zinc-800/60 dark:bg-zinc-900'
+      }`}
+    >
+      <p
+        className={`text-[10px] font-semibold uppercase tracking-wider ${
+          isChampion
+            ? 'text-amber-700 dark:text-amber-400'
+            : 'text-gray-400 dark:text-zinc-500'
+        }`}
+      >
+        {isChampion ? `#${rank} · ${label}` : `#${rank}`}
+      </p>
+      <div className="mt-1.5 flex items-start justify-between gap-2">
+        <p className="text-base font-bold text-gray-950 dark:text-zinc-50">{row.owner}</p>
+        <p className="shrink-0 text-base font-bold tabular-nums text-gray-950 dark:text-zinc-50">
+          {row.wins}–{row.losses}
+        </p>
+      </div>
+      <p className="mt-0.5 text-xs text-gray-600 dark:text-zinc-300">
+        Win% {formatWinPct(row.winPct)} · Diff {formatDiff(row.pointDifferential)}
+      </p>
+    </article>
+  );
+}
+
 function LeagueSummaryHero({
   summary,
-  narrative,
   heroMode,
   podiumLeaders,
+  standingsLeaders,
   leader,
   leagueSlug,
 }: {
   summary: ReturnType<typeof selectOverviewViewModel>['championSummary'];
-  narrative: ReturnType<typeof selectOverviewViewModel>['heroNarrative'];
   heroMode: ReturnType<typeof selectOverviewViewModel>['heroMode'];
   podiumLeaders: ReturnType<typeof selectOverviewViewModel>['podiumLeaders'];
+  standingsLeaders: OwnerStandingsRow[];
   leader: OwnerStandingsRow | undefined;
   leagueSlug?: string;
 }): React.ReactElement {
@@ -372,118 +494,35 @@ function LeagueSummaryHero({
 
   if (!summary) return <></>;
 
-  if (heroMode === 'podium' && podiumLeaders.length === 3) {
-    const [first, second, third] = podiumLeaders;
+  const isComplete = summary.phase === 'complete';
+  const top3 = heroMode === 'podium' && podiumLeaders.length === 3
+    ? podiumLeaders
+    : standingsLeaders.slice(0, 3);
 
-    return (
-      <section className="rounded-xl border border-gray-200 bg-white px-4 py-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/80 sm:px-7 sm:py-6">
-        <p className="text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
-          Season podium
-        </p>
-
-        {/* Champion — full width, dominant */}
-        <article className="mt-3 rounded-xl border border-l-4 border-amber-400/60 bg-gradient-to-b from-amber-50/90 to-white px-4 py-4 shadow-sm dark:border-amber-500/60 dark:from-amber-950/35 dark:to-zinc-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-            #1 · Champion
-          </p>
-          <div className="mt-1.5 flex items-start justify-between gap-3">
-            <p className="text-lg font-extrabold text-gray-950 dark:text-zinc-50">{first.owner}</p>
-            <p className="shrink-0 text-xl font-extrabold tabular-nums text-gray-950 dark:text-zinc-50">
-              {first.wins}–{first.losses}
-            </p>
-          </div>
-          <p className="mt-0.5 text-sm text-gray-600 dark:text-zinc-300">
-            Win% {formatWinPct(first.winPct)} · Diff {formatDiff(first.pointDifferential)}
-          </p>
-          {narrative ? (
-            <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">{narrative}</p>
-          ) : null}
-        </article>
-
-        {/* Silver / Bronze — two columns */}
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {(
-            [
-              {
-                rank: 2 as const,
-                row: second,
-                className:
-                  'border-slate-300/70 bg-gradient-to-b from-slate-50/90 to-white dark:border-slate-500/50 dark:from-slate-800/40 dark:to-zinc-900',
-                labelClassName: 'text-slate-500 dark:text-slate-400',
-                rankLabel: '#2',
-              },
-              {
-                rank: 3 as const,
-                row: third,
-                className:
-                  'border-orange-300/60 bg-gradient-to-b from-orange-50/80 to-white dark:border-orange-500/40 dark:from-orange-950/25 dark:to-zinc-900',
-                labelClassName: 'text-orange-700 dark:text-orange-400',
-                rankLabel: '#3',
-              },
-            ] as const
-          ).map((card) => (
-            <article
-              key={card.rank}
-              className={`rounded-xl border border-l-4 px-3 py-3 shadow-sm ${card.className}`}
-            >
-              <p
-                className={`text-xs font-semibold uppercase tracking-wider ${card.labelClassName}`}
-              >
-                {card.rankLabel}
-              </p>
-              <p className="mt-1 text-base font-bold text-gray-950 dark:text-zinc-50">
-                {card.row.owner}
-              </p>
-              <p className="mt-0.5 text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
-                {card.row.wins}–{card.row.losses}{' '}
-                <span className="font-normal text-gray-600 dark:text-zinc-400">
-                  ({formatWinPct(card.row.winPct)})
-                </span>
-              </p>
-              <p className="text-xs text-gray-600 dark:text-zinc-300">
-                Diff {formatDiff(card.row.pointDifferential)}
-              </p>
-            </article>
-          ))}
-        </div>
-      </section>
-    );
-  }
-
-  const toneClasses =
-    summary.phase === 'complete'
-      ? 'border-emerald-300/80 from-emerald-100/80 dark:border-emerald-900/70 dark:from-emerald-950/30'
-      : 'border-blue-300 dark:border-blue-900/70 from-blue-200/95 dark:from-blue-950/45';
+  const rankLabels = isComplete
+    ? ['CHAMPION', '2ND', '3RD']
+    : summary.phase === 'postseason'
+      ? ['LEADER', '2ND', '3RD']
+      : ['LEADER', '2ND', '3RD'];
 
   return (
-    <section
-      className={`rounded-xl border bg-gradient-to-r via-white to-white px-4 py-5 shadow-sm dark:via-zinc-900 dark:to-zinc-900 sm:px-7 sm:py-6 ${toneClasses}`}
-    >
-      <p className="text-xl font-bold tracking-tight text-gray-950 dark:text-zinc-50 sm:text-2xl">
-        {summary.headline}
-      </p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-gray-700 dark:text-zinc-200">
-        <span className="rounded-full border border-gray-300 bg-white/85 px-2 py-0.5 font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-          {leader.wins}–{leader.losses}
-        </span>
-        <span className="font-bold">Win% {formatWinPct(leader.winPct)}</span>
-        <span className="text-gray-500 dark:text-zinc-400">•</span>
-        <span className="font-medium">{summary.metricSignal}</span>
-      </div>
-      {narrative ? (
-        <p className="mt-2 text-sm text-gray-600 dark:text-zinc-300">{narrative}</p>
-      ) : null}
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600 dark:text-zinc-300">
-        <span>{summary.supportingCopy}</span>
-        {summary.placementSummary ? (
-          <>
-            <span className="text-gray-500 dark:text-zinc-400">•</span>
-            <span>{summary.progressSignal}</span>
-          </>
-        ) : null}
-      </div>
-    </section>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {top3.map((row, i) => (
+        <PodiumCard
+          key={row.owner}
+          row={row}
+          rank={i + 1}
+          label={rankLabels[i]}
+          isChampion={i === 0 && isComplete}
+        />
+      ))}
+    </div>
   );
+}
+
+function formatGb(gb: number): string {
+  if (gb === 0) return '—';
+  return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
 }
 
 function CondensedStandingsTable({
@@ -491,70 +530,75 @@ function CondensedStandingsTable({
   onOwnerSelect,
   previousRows,
   liveCountByOwner,
-  leaderLabel = 'Leader',
+  deltaWeeks,
+  deltasByOwner,
+  weekLabel,
 }: {
   rows: OwnerStandingsRow[];
   onOwnerSelect?: (owner: string) => void;
   previousRows?: OwnerStandingsRow[] | null;
   liveCountByOwner?: Map<string, number>;
-  leaderLabel?: string;
+  deltaWeeks?: number[];
+  deltasByOwner?: Map<string, Map<number, number | null>>;
+  weekLabel?: (week: number) => string;
 }): React.ReactElement {
   const previousRankLookup = new Map(
     (previousRows ?? []).map((row, index) => [row.owner, index + 1] as const)
   );
+  const hasDeltaCols = deltaWeeks && deltaWeeks.length > 0 && deltasByOwner;
+  const labelFn = weekLabel ?? ((w: number) => `W${w}`);
+  const deltaCount = hasDeltaCols ? deltaWeeks.length : 0;
+  // Grid template: flexible content column + fixed-width delta columns (1.75rem each)
+  const gridCols = deltaCount > 0
+    ? `minmax(0, 1fr) repeat(${deltaCount}, 1.75rem)`
+    : 'minmax(0, 1fr)';
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <div className="min-w-full text-sm sm:text-[0.92rem]">
-        <div className="grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-wider text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
-          <span className="font-semibold">Rank</span>
-          <span className="font-semibold">Owner · Record · Metrics</span>
-        </div>
-
-        {rows.map((row, index) => {
-          const isTopThree = index < 3;
-          const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
-          return (
-            <div
-              key={row.owner}
-              className={`grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-100 px-2 py-2.5 dark:border-zinc-800 ${
-                index === 0
-                  ? 'bg-blue-100/90 ring-1 ring-inset ring-blue-300 dark:bg-blue-950/40 dark:ring-blue-800'
-                  : isTopThree
-                    ? 'bg-blue-50/60 dark:bg-blue-950/15'
-                    : 'odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900'
-              }`}
-            >
-              <span className="text-base font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
-                {index + 1}
-                {(() => {
-                  const previousRank = previousRankLookup.get(row.owner);
-                  if (!previousRank || previousRank === index + 1) return null;
-                  const movedUp = previousRank > index + 1;
-                  return (
-                    <span
-                      className={`ml-1 text-xs font-semibold ${
-                        movedUp
-                          ? 'text-emerald-700 dark:text-emerald-300'
-                          : 'text-amber-700 dark:text-amber-300'
-                      }`}
-                      aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
-                    >
-                      {movedUp ? '↑' : '↓'}
-                    </span>
-                  );
-                })()}
+      <div className="min-w-full text-sm" style={{ display: 'grid', gridTemplateColumns: gridCols }}>
+        {/* Week header row for delta columns */}
+        {hasDeltaCols ? (
+          <>
+            <span className="border-b border-gray-100 px-2 py-1 dark:border-zinc-800" />
+            {deltaWeeks.map((w) => (
+              <span
+                key={w}
+                className="border-b border-gray-100 py-1 text-center text-[9px] font-medium text-gray-400 dark:border-zinc-800 dark:text-zinc-500"
+              >
+                {labelFn(w)}
               </span>
-              <div className={`min-w-0 ${index > 2 ? 'text-gray-800 dark:text-zinc-200' : ''}`}>
+            ))}
+          </>
+        ) : null}
+        {rows.map((row, index) => {
+          const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
+          const ownerDeltas = hasDeltaCols ? deltasByOwner.get(row.owner) : null;
+          return (
+            <React.Fragment key={row.owner}>
+              {/* Content cell */}
+              <div className="border-b border-gray-100 px-2 py-2 dark:border-zinc-800">
+                {/* Primary line: rank · name · record · GB */}
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                  <span
-                    className={`min-w-0 truncate ${
-                      index === 0
-                        ? 'font-extrabold text-gray-950 dark:text-zinc-50'
-                        : isTopThree
-                          ? 'font-bold text-gray-950 dark:text-zinc-50'
-                          : 'font-semibold text-gray-900 dark:text-zinc-100'
-                    }`}
-                  >
+                  <span className="text-sm tabular-nums text-gray-400 dark:text-zinc-500">
+                    {index + 1}
+                    {(() => {
+                      const previousRank = previousRankLookup.get(row.owner);
+                      if (!previousRank || previousRank === index + 1) return null;
+                      const movedUp = previousRank > index + 1;
+                      return (
+                        <span
+                          className={`ml-0.5 text-xs font-semibold ${
+                            movedUp
+                              ? 'text-emerald-700 dark:text-emerald-300'
+                              : 'text-amber-700 dark:text-amber-300'
+                          }`}
+                          aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
+                        >
+                          {movedUp ? '↑' : '↓'}
+                        </span>
+                      );
+                    })()}
+                  </span>
+                  <span className="min-w-0 truncate font-semibold text-gray-950 dark:text-zinc-50">
                     {onOwnerSelect ? (
                       <button
                         type="button"
@@ -567,36 +611,43 @@ function CondensedStandingsTable({
                       row.owner
                     )}
                   </span>
-                  {index === 0 ? (
-                    <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
-                      {leaderLabel}
-                    </span>
-                  ) : null}
                   <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
                     {row.wins}–{row.losses}
                   </span>
-                </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 dark:text-zinc-400">
-                  <span>Win% {formatWinPct(row.winPct)}</span>
-                  <span className="text-gray-400 dark:text-zinc-500">
-                    GB{' '}
-                    {row.gamesBack === 0
-                      ? '—'
-                      : Number.isInteger(row.gamesBack)
-                        ? row.gamesBack
-                        : row.gamesBack.toFixed(1)}
-                  </span>
-                  <span className="text-gray-400 dark:text-zinc-500">
-                    Diff {formatDiff(row.pointDifferential)}
+                  <span className="text-xs tabular-nums text-gray-400 dark:text-zinc-500">
+                    {index === 0 ? formatGb(row.gamesBack) : `${formatGb(row.gamesBack)} GB`}
                   </span>
                   {liveCount > 0 ? (
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                       {liveCount} live
                     </span>
                   ) : null}
                 </div>
+                {/* Secondary line: Win% · Diff */}
+                <div className="mt-0.5 flex items-center gap-x-2 text-xs text-gray-400 dark:text-zinc-500">
+                  <span>Win% {formatWinPct(row.winPct)}</span>
+                  <span>Diff {formatDiff(row.pointDifferential)}</span>
+                </div>
               </div>
-            </div>
+              {/* Delta cells — one per week column, aligned to grid */}
+              {hasDeltaCols && ownerDeltas ? (
+                deltaWeeks.map((w) => {
+                  const d = ownerDeltas.get(w) ?? null;
+                  return (
+                    <span
+                      key={w}
+                      className={`flex items-center justify-center border-b border-gray-100 text-[11px] font-medium tabular-nums dark:border-zinc-800 ${deltaTextColor(d)}`}
+                    >
+                      {deltaLabel(d)}
+                    </span>
+                  );
+                })
+              ) : hasDeltaCols ? (
+                deltaWeeks.map((w) => (
+                  <span key={w} className="border-b border-gray-100 dark:border-zinc-800" />
+                ))
+              ) : null}
+            </React.Fragment>
           );
         })}
       </div>
@@ -897,6 +948,154 @@ function HighlightList({
   );
 }
 
+type PollSnapshotEntry = {
+  rank: number;
+  teamName: string;
+  teamId: string;
+  delta: number | 'new' | null;
+};
+
+type PollSnapshot = {
+  pollName: string;
+  entries: PollSnapshotEntry[];
+};
+
+function derivePollSnapshot(
+  rankings: RankingsResponse | null,
+  phase: 'inSeason' | 'postseason' | 'complete'
+): PollSnapshot | null {
+  if (!rankings || !rankings.latestWeek) return null;
+
+  const weeks = rankings.weeks;
+  const latestWeek = rankings.latestWeek;
+
+  // Determine which poll source to show based on season phase
+  const pollSource: RankSource = phase === 'postseason' ? 'cfp' : 'ap';
+  const pollName = phase === 'postseason' ? 'CFP Rankings' : 'AP Poll';
+
+  const currentEntries = latestWeek.polls[pollSource] ?? [];
+  if (currentEntries.length === 0) {
+    // Fall back to AP if CFP not available
+    const fallback = latestWeek.polls['ap'] ?? [];
+    if (fallback.length === 0) return null;
+    return derivePollSnapshotFromEntries('AP Poll', fallback, weeks, latestWeek);
+  }
+
+  return derivePollSnapshotFromEntries(pollName, currentEntries, weeks, latestWeek);
+}
+
+function derivePollSnapshotFromEntries(
+  pollName: string,
+  currentEntries: CanonicalPollEntry[],
+  weeks: RankingsWeek[],
+  latestWeek: RankingsWeek
+): PollSnapshot {
+  // Find the previous week for delta computation.
+  // Use the second-to-last week in the array since latestWeek corresponds
+  // to the final entry. indexOf may fail on reference inequality, so match
+  // by week/season identity instead.
+  const latestIdx = weeks.findIndex(
+    (w) => w.season === latestWeek.season && w.week === latestWeek.week && w.seasonType === latestWeek.seasonType
+  );
+  const previousWeek = latestIdx > 0 ? weeks[latestIdx - 1] : (weeks.length >= 2 ? weeks[weeks.length - 2] : null);
+  const pollSource = currentEntries[0]?.rankSource ?? 'ap';
+  const previousEntries = previousWeek?.polls[pollSource] ?? [];
+  const prevByTeam = new Map(previousEntries.map((e) => [e.teamId, e.rank]));
+  const hasPreviousData = previousEntries.length > 0;
+
+  const top10 = currentEntries.slice(0, 10);
+
+  return {
+    pollName,
+    entries: top10.map((entry) => {
+      // No previous week data at all → show — (not NR)
+      if (!hasPreviousData) {
+        return { rank: entry.rank, teamName: entry.teamName, teamId: entry.teamId, delta: null };
+      }
+      const prevRank = prevByTeam.get(entry.teamId);
+      // Team was not ranked in previous week → NR
+      if (prevRank == null) {
+        return { rank: entry.rank, teamName: entry.teamName, teamId: entry.teamId, delta: 'new' as const };
+      }
+      // Compute delta: positive = moved up, negative = moved down
+      const delta = prevRank === entry.rank ? null : prevRank - entry.rank;
+      return { rank: entry.rank, teamName: entry.teamName, teamId: entry.teamId, delta };
+    }),
+  };
+}
+
+function PollMovementBadge({ delta }: { delta: number | 'new' | null }): React.ReactElement {
+  if (delta === 'new') {
+    return (
+      <span className="w-7 text-right text-[11px] font-medium text-gray-400 dark:text-zinc-500">
+        NR
+      </span>
+    );
+  }
+  if (delta === null || delta === 0) {
+    return (
+      <span className="w-7 text-right text-[11px] text-gray-400 dark:text-zinc-500">
+        —
+      </span>
+    );
+  }
+  if (delta > 0) {
+    return (
+      <span className="w-7 text-right text-[11px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+        ↑{delta}
+      </span>
+    );
+  }
+  return (
+    <span className="w-7 text-right text-[11px] font-semibold tabular-nums text-red-500 dark:text-red-400">
+      ↓{Math.abs(delta)}
+    </span>
+  );
+}
+
+function PollSnapshotColumn({
+  snapshot,
+  rankingsHref,
+  ctaClasses,
+}: {
+  snapshot: PollSnapshot | null;
+  rankingsHref: string;
+  ctaClasses: string;
+}): React.ReactElement {
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">
+          {snapshot?.pollName ?? 'FBS Poll'}
+        </p>
+        <Link href={rankingsHref} className={ctaClasses}>
+          Full rankings ↗
+        </Link>
+      </div>
+      {!snapshot || snapshot.entries.length === 0 ? (
+        <p className="py-2 text-sm text-gray-400 dark:text-zinc-500">Rankings unavailable</p>
+      ) : (
+        <div className="text-sm">
+          {snapshot.entries.map((entry) => (
+            <div
+              key={entry.teamId}
+              className="flex items-center gap-1.5 border-b border-gray-100 px-1 py-1.5 dark:border-zinc-800"
+            >
+              <span className="w-5 shrink-0 text-right text-xs font-semibold tabular-nums text-gray-400 dark:text-zinc-500">
+                {entry.rank}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-medium text-gray-900 dark:text-zinc-100">
+                {entry.teamName}
+              </span>
+              <PollMovementBadge delta={entry.delta} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
@@ -913,6 +1112,7 @@ type OverviewPanelProps = {
   onViewMatchups?: () => void;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  rankings?: RankingsResponse | null;
   standingsHistory?: StandingsHistory | null;
   leagueSlug?: string;
 };
@@ -932,6 +1132,7 @@ export default function OverviewPanel({
   onViewSchedule,
   onViewMatchups,
   rankingsByTeamId = new Map(),
+  rankings = null,
   standingsHistory = null,
   leagueSlug,
 }: OverviewPanelProps): React.ReactElement {
@@ -996,147 +1197,184 @@ export default function OverviewPanel({
     );
   }, [standingsHistory, standingsLeaders]);
 
+  const positionDeltaData = React.useMemo(() => {
+    if (!standingsHistory) return null;
+    const { weeks, owners } = selectPositionDeltas({ standingsHistory, maxWeeks: 5 });
+    if (weeks.length === 0) return null;
+    const byOwner = new Map<string, Map<number, number | null>>();
+    for (const owner of owners) {
+      const deltaMap = new Map<number, number | null>();
+      for (const d of owner.deltas) {
+        deltaMap.set(d.week, d.delta);
+      }
+      byOwner.set(owner.ownerName, deltaMap);
+    }
+    return { weeks, byOwner };
+  }, [standingsHistory]);
+
+  const pollSnapshot = React.useMemo(() => {
+    const phase = viewModel.championSummary?.phase ?? 'inSeason';
+    return derivePollSnapshot(rankings, phase);
+  }, [rankings, viewModel.championSummary]);
+
+  const standingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
+  const rankingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/rankings`;
+  const ctaClasses = 'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200';
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Podium / Hero */}
       <LeagueSummaryHero
         summary={viewModel.championSummary}
-        narrative={viewModel.heroNarrative}
         heroMode={viewModel.heroMode}
         podiumLeaders={viewModel.podiumLeaders}
+        standingsLeaders={standingsLeaders}
         leader={standingsLeaders[0]}
         leagueSlug={leagueSlug}
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <SectionCard title="Standings (Top 5)" headingClassName="text-lg sm:text-xl" compact>
-          {viewModel.standingsContext ? (
-            <p className="mb-2 text-xs font-medium text-gray-600 dark:text-zinc-300">
-              {viewModel.standingsContext}
-            </p>
-          ) : null}
-          {standingsCoverage.message ? (
-            <p
-              className={`mb-3 text-sm ${
-                standingsCoverage.state === 'error'
-                  ? 'text-amber-700 dark:text-amber-300'
-                  : 'text-gray-600 dark:text-zinc-300'
-              }`}
-            >
-              {standingsCoverage.message}
-            </p>
-          ) : null}
-          {viewModel.standingsTopN.length === 0 ? (
-            <EmptyState message="Add owners to populate standings." compact />
-          ) : (
-            <CondensedStandingsTable
-              rows={viewModel.standingsTopN}
-              onOwnerSelect={onOwnerSelect}
-              previousRows={viewModel.previousStandingsLeaders}
-              liveCountByOwner={liveCountByOwner}
-              leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
-            />
-          )}
-          <Link
-            href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`}
-            className="mt-2 inline-block text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
-          >
-            Full standings ↗
-          </Link>
-        </SectionCard>
+      <SectionDivider />
 
-        {sharedInsights.length > 0 ? (
-          <SectionCard title="Insights" tone="secondary" compact>
-            <HighlightList
-              insights={sharedInsights}
-              leagueSlug={leagueSlug}
-            />
-          </SectionCard>
+      {/* Standings · FBS Polls · Insights */}
+      <section>
+        {standingsCoverage.message ? (
+          <p
+            className={`mb-3 text-sm ${
+              standingsCoverage.state === 'error'
+                ? 'text-amber-700 dark:text-amber-300'
+                : 'text-gray-600 dark:text-zinc-300'
+            }`}
+          >
+            {standingsCoverage.message}
+          </p>
         ) : null}
-      </div>
+        {viewModel.standingsTopN.length === 0 ? (
+          <EmptyState message="Add owners to populate standings." compact />
+        ) : (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_1fr_2fr] md:items-start">
+            {/* Column 1: Standings table with inline deltas */}
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Standings</p>
+                <Link href={standingsHref} className={ctaClasses}>
+                  Full standings ↗
+                </Link>
+              </div>
+              <CondensedStandingsTable
+                rows={viewModel.standingsTopN}
+                onOwnerSelect={onOwnerSelect}
+                previousRows={viewModel.previousStandingsLeaders}
+                liveCountByOwner={liveCountByOwner}
+                deltaWeeks={positionDeltaData?.weeks}
+                deltasByOwner={positionDeltaData?.byOwner}
+                weekLabel={weekLabelFn}
+              />
+            </div>
+            {/* Column 2: FBS Polls snapshot */}
+            <PollSnapshotColumn
+              snapshot={pollSnapshot}
+              rankingsHref={rankingsHref}
+              ctaClasses={ctaClasses}
+            />
+            {/* Column 3: Insights */}
+            {sharedInsights.length > 0 ? (
+              <div className="min-w-0">
+                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
+                <HighlightList
+                  insights={sharedInsights}
+                  leagueSlug={leagueSlug}
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
 
-      <SectionCard
-        title="Featured games"
-        tone="secondary"
-        compact
-        action={
-          <button
-            type="button"
-            className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
-            onClick={onViewSchedule}
-          >
-            All results ↗
-          </button>
-        }
-      >
-        <FeaturedGamesList
-          prioritizedItems={viewModel.recentResults}
-          emptyMessage="No recent results yet—completed games will appear here."
-          timeZone={timeZone}
-          rankingsByTeamId={rankingsByTeamId}
-        />
-      </SectionCard>
+      <SectionDivider />
 
-      {viewModel.shouldShowFeaturedMatchups ? (
-        <SectionCard
-          title="Upcoming watchlist"
-          tone="weekly"
-          compact
+      {/* Featured games */}
+      <section>
+        <SectionHeader
+          title="Featured games"
           action={
-            <button
-              type="button"
-              className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
-              onClick={onViewMatchups}
-            >
-              All matchups ↗
+            <button type="button" className={ctaClasses} onClick={onViewSchedule}>
+              All results ↗
             </button>
           }
-        >
-          <GameSummaryList
-            prioritizedItems={viewModel.featuredMatchups}
-            emptyMessage="No featured matchups yet for this slate."
+        />
+        <div className="mt-2.5">
+          <FeaturedGamesList
+            prioritizedItems={viewModel.recentResults}
+            emptyMessage="No recent results yet—completed games will appear here."
             timeZone={timeZone}
             rankingsByTeamId={rankingsByTeamId}
-            density="featured"
           />
-        </SectionCard>
+        </div>
+      </section>
+
+      {/* Upcoming watchlist */}
+      {viewModel.shouldShowFeaturedMatchups ? (
+        <>
+          <SectionDivider />
+          <section>
+            <SectionHeader
+              title="Upcoming watchlist"
+              action={
+                <button type="button" className={ctaClasses} onClick={onViewMatchups}>
+                  All matchups ↗
+                </button>
+              }
+            />
+            <div className="mt-2.5">
+              <GameSummaryList
+                prioritizedItems={viewModel.featuredMatchups}
+                emptyMessage="No featured matchups yet for this slate."
+                timeZone={timeZone}
+                rankingsByTeamId={rankingsByTeamId}
+                density="featured"
+              />
+            </div>
+          </section>
+        </>
       ) : null}
 
+      {/* Live games — keeps card treatment */}
       {liveItems.length > 0 ? (
         <SectionCard title={liveTitle} tone="live" compact>
           <GameCardList items={liveItems} timeZone={timeZone} rankingsByTeamId={rankingsByTeamId} />
         </SectionCard>
       ) : null}
 
+      {/* GB Race */}
       {standingsHistory ? (
-        <SectionCard
-          title="Trends"
-          tone="secondary"
-          compact
-          action={
-            <Link
-              href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings?view=trends#trends`}
-              className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
-            >
-              Full standings ↗
-            </Link>
-          }
-        >
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="min-w-0 flex-1">
-              <MiniTrendsGrid
-                standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
-                weekLabel={weekLabelFn}
-              />
+        <>
+          <SectionDivider />
+          <section>
+            <SectionHeader
+              title="GB Race"
+              action={
+                <Link href={`${standingsHref}?view=trends#trends`} className={ctaClasses}>
+                  Full standings ↗
+                </Link>
+              }
+            />
+            <div className="mt-2.5 flex flex-col gap-3 sm:flex-row">
+              <div className="min-w-0 flex-1">
+                <MiniTrendsGrid
+                  standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
+                  weekLabel={weekLabelFn}
+                />
+              </div>
+              <div className="shrink-0">
+                <GbChangeTable
+                  standingsHistory={standingsHistory}
+                  standingsLeaders={standingsLeaders}
+                  weekLabel={weekLabelFn}
+                />
+              </div>
             </div>
-            <div className="shrink-0">
-              <PositionDeltaPanel
-                standingsHistory={standingsHistory}
-                weekLabel={weekLabelFn}
-                seriesColors={CONTENDER_COLORS}
-              />
-            </div>
-          </div>
-        </SectionCard>
+          </section>
+        </>
       ) : null}
     </div>
   );
