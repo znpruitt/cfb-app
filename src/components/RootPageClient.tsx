@@ -20,14 +20,14 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
     <>
       {/* Public landing — shown when signed out */}
       <Show when="signed-out">
-        <main className="relative flex min-h-screen flex-col items-center justify-center bg-zinc-950 px-6 text-zinc-100">
+        <main className="relative flex min-h-screen flex-col items-center justify-center bg-white px-6 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
           <div className="max-w-lg space-y-5 text-center">
             <h1 className="text-4xl font-bold tracking-tight">CFB League Dashboard</h1>
-            <p className="text-lg text-zinc-400">
+            <p className="text-lg text-gray-500 dark:text-zinc-400">
               College football pool management for your league
             </p>
-            <p className="text-sm text-zinc-500">Enter your league URL to get started</p>
-            <code className="block rounded bg-zinc-900 border border-zinc-800 px-4 py-2 text-sm text-zinc-300 font-mono">
+            <p className="text-sm text-gray-400 dark:text-zinc-500">Enter your league URL to get started</p>
+            <code className="block rounded border border-gray-300 bg-gray-100 px-4 py-2 font-mono text-sm text-gray-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
               cfb-app.vercel.app/league/your-league-slug
             </code>
           </div>
@@ -36,7 +36,7 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
           <div className="fixed bottom-6 right-6">
             <Link
               href="/login"
-              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+              className="text-xs text-gray-400 transition-colors hover:text-gray-600 dark:text-zinc-600 dark:hover:text-zinc-400"
             >
               Commissioner login
             </Link>
@@ -46,23 +46,23 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
 
       {/* Admin dashboard — shown when signed in */}
       <Show when="signed-in">
-        <main className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
+        <main className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
           <div className="mx-auto max-w-4xl">
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <h1 className="text-2xl font-bold">CFB League Dashboard</h1>
-                <p className="mt-1 text-sm text-zinc-400">Platform admin</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">Platform admin</p>
               </div>
               <UserButton />
             </div>
 
             {/* League cards */}
             {leagues.length === 0 ? (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
-                <p className="text-zinc-400">No leagues configured.</p>
+              <div className="rounded-lg border border-gray-300 bg-gray-50 p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
+                <p className="text-gray-500 dark:text-zinc-400">No leagues configured.</p>
                 <Link
                   href="/admin/leagues"
-                  className="mt-3 inline-block text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                  className="mt-3 inline-block text-sm text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
                 >
                   Go to League Management to set up your first league →
                 </Link>
@@ -74,13 +74,13 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
                   return (
                     <div
                       key={league.slug}
-                      className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 space-y-3 hover:border-zinc-600 transition-colors"
+                      className="space-y-3 rounded-lg border border-gray-300 bg-gray-50 p-5 transition-colors hover:border-gray-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
                     >
                       <div>
-                        <div className="text-lg font-semibold text-zinc-100">
+                        <div className="text-lg font-semibold text-gray-900 dark:text-zinc-100">
                           {league.displayName}
                         </div>
-                        <div className="mt-1 text-xs text-zinc-500">
+                        <div className="mt-1 text-xs text-gray-400 dark:text-zinc-500">
                           /{league.slug} &middot; {league.year} season
                           {label !== null && <> &middot; {label}</>}
                         </div>
@@ -88,13 +88,13 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
                       <div className="flex gap-4">
                         <Link
                           href={`/league/${league.slug}`}
-                          className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                          className="text-sm text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
                         >
                           View League →
                         </Link>
                         <Link
                           href={`/league/${league.slug}/draft/setup`}
-                          className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+                          className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-500 dark:hover:text-zinc-300"
                         >
                           Draft Setup →
                         </Link>
@@ -106,11 +106,11 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
             )}
 
             {/* Footer links */}
-            <div className="mt-8 border-t border-zinc-800 pt-6 flex items-center justify-between">
-              <Link href="/admin" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+            <div className="mt-8 flex items-center justify-between border-t border-gray-200 pt-6 dark:border-zinc-800">
+              <Link href="/admin" className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200">
                 Platform admin tools →
               </Link>
-              <Link href="/admin/leagues" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+              <Link href="/admin/leagues" className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200">
                 Add League →
               </Link>
             </div>
