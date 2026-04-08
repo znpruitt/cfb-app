@@ -280,7 +280,7 @@ function SectionCard({
   compact = false,
   action,
 }: {
-  title: string;
+  title: React.ReactNode;
   children: React.ReactNode;
   tone?: 'default' | 'live' | 'weekly' | 'secondary';
   headingClassName?: string;
@@ -1112,17 +1112,16 @@ export default function OverviewPanel({
 
       {standingsHistory ? (
         <SectionCard
-          title="Trends"
-          tone="secondary"
-          compact
-          action={
+          title={
             <Link
               href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings?view=trends#trends`}
-              className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
+              className="hover:opacity-75 transition-opacity"
             >
-              See full trends ↗
+              Trends
             </Link>
           }
+          tone="secondary"
+          compact
         >
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="min-w-0 flex-1">
