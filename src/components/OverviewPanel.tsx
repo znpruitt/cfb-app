@@ -547,34 +547,37 @@ function CondensedStandingsTable({
   );
   const hasDeltaCols = deltaWeeks && deltaWeeks.length > 0 && deltasByOwner;
   const labelFn = weekLabel ?? ((w: number) => `W${w}`);
+  const deltaCount = hasDeltaCols ? deltaWeeks.length : 0;
+  // Grid template: flexible content column + fixed-width delta columns (1.75rem each)
+  const gridCols = deltaCount > 0
+    ? `minmax(0, 1fr) repeat(${deltaCount}, 1.75rem)`
+    : 'minmax(0, 1fr)';
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <div className="min-w-full text-sm">
+      <div className="min-w-full text-sm" style={{ display: 'grid', gridTemplateColumns: gridCols }}>
         {/* Week header row for delta columns */}
         {hasDeltaCols ? (
-          <div className="flex items-center border-b border-gray-100 px-2 py-1 dark:border-zinc-800">
-            <span className="flex-1" />
+          <>
+            <span className="border-b border-gray-100 px-2 py-1 dark:border-zinc-800" />
             {deltaWeeks.map((w) => (
               <span
                 key={w}
-                className="w-7 shrink-0 text-center text-[9px] font-medium text-gray-400 dark:text-zinc-500"
+                className="border-b border-gray-100 py-1 text-center text-[9px] font-medium text-gray-400 dark:border-zinc-800 dark:text-zinc-500"
               >
                 {labelFn(w)}
               </span>
             ))}
-          </div>
+          </>
         ) : null}
         {rows.map((row, index) => {
           const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
           const ownerDeltas = hasDeltaCols ? deltasByOwner.get(row.owner) : null;
           return (
-            <div
-              key={row.owner}
-              className="border-b border-gray-100 px-2 py-2 dark:border-zinc-800"
-            >
-              {/* Primary line: rank · name · record · GB · deltas */}
-              <div className="flex items-center gap-x-1.5">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <React.Fragment key={row.owner}>
+              {/* Content cell */}
+              <div className="border-b border-gray-100 px-2 py-2 dark:border-zinc-800">
+                {/* Primary line: rank · name · record · GB */}
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   <span className="text-sm tabular-nums text-gray-400 dark:text-zinc-500">
                     {index + 1}
                     {(() => {
@@ -620,27 +623,31 @@ function CondensedStandingsTable({
                     </span>
                   ) : null}
                 </div>
-                {/* Inline delta values */}
-                {hasDeltaCols && ownerDeltas ? (
-                  deltaWeeks.map((w) => {
-                    const d = ownerDeltas.get(w) ?? null;
-                    return (
-                      <span
-                        key={w}
-                        className={`w-7 shrink-0 text-center text-[11px] font-medium tabular-nums ${deltaTextColor(d)}`}
-                      >
-                        {deltaLabel(d)}
-                      </span>
-                    );
-                  })
-                ) : null}
+                {/* Secondary line: Win% · Diff */}
+                <div className="mt-0.5 flex items-center gap-x-2 text-xs text-gray-400 dark:text-zinc-500">
+                  <span>Win% {formatWinPct(row.winPct)}</span>
+                  <span>Diff {formatDiff(row.pointDifferential)}</span>
+                </div>
               </div>
-              {/* Secondary line: Win% · Diff */}
-              <div className="mt-0.5 flex items-center gap-x-2 text-xs text-gray-400 dark:text-zinc-500">
-                <span>Win% {formatWinPct(row.winPct)}</span>
-                <span>Diff {formatDiff(row.pointDifferential)}</span>
-              </div>
-            </div>
+              {/* Delta cells — one per week column, aligned to grid */}
+              {hasDeltaCols && ownerDeltas ? (
+                deltaWeeks.map((w) => {
+                  const d = ownerDeltas.get(w) ?? null;
+                  return (
+                    <span
+                      key={w}
+                      className={`flex items-center justify-center border-b border-gray-100 text-[11px] font-medium tabular-nums dark:border-zinc-800 ${deltaTextColor(d)}`}
+                    >
+                      {deltaLabel(d)}
+                    </span>
+                  );
+                })
+              ) : hasDeltaCols ? (
+                deltaWeeks.map((w) => (
+                  <span key={w} className="border-b border-gray-100 dark:border-zinc-800" />
+                ))
+              ) : null}
+            </React.Fragment>
           );
         })}
       </div>
@@ -983,26 +990,36 @@ function derivePollSnapshotFromEntries(
   weeks: RankingsWeek[],
   latestWeek: RankingsWeek
 ): PollSnapshot {
-  // Find the previous week for delta computation
-  const latestIdx = weeks.indexOf(latestWeek);
-  const previousWeek = latestIdx > 0 ? weeks[latestIdx - 1] : null;
-  const previousEntries = previousWeek?.polls[currentEntries[0]?.rankSource ?? 'ap'] ?? [];
+  // Find the previous week for delta computation.
+  // Use the second-to-last week in the array since latestWeek corresponds
+  // to the final entry. indexOf may fail on reference inequality, so match
+  // by week/season identity instead.
+  const latestIdx = weeks.findIndex(
+    (w) => w.season === latestWeek.season && w.week === latestWeek.week && w.seasonType === latestWeek.seasonType
+  );
+  const previousWeek = latestIdx > 0 ? weeks[latestIdx - 1] : (weeks.length >= 2 ? weeks[weeks.length - 2] : null);
+  const pollSource = currentEntries[0]?.rankSource ?? 'ap';
+  const previousEntries = previousWeek?.polls[pollSource] ?? [];
   const prevByTeam = new Map(previousEntries.map((e) => [e.teamId, e.rank]));
+  const hasPreviousData = previousEntries.length > 0;
 
   const top10 = currentEntries.slice(0, 10);
 
   return {
     pollName,
     entries: top10.map((entry) => {
+      // No previous week data at all → show — (not NR)
+      if (!hasPreviousData) {
+        return { rank: entry.rank, teamName: entry.teamName, teamId: entry.teamId, delta: null };
+      }
       const prevRank = prevByTeam.get(entry.teamId);
-      const delta: number | 'new' | null =
-        prevRank == null ? 'new' : prevRank === entry.rank ? null : prevRank - entry.rank;
-      return {
-        rank: entry.rank,
-        teamName: entry.teamName,
-        teamId: entry.teamId,
-        delta,
-      };
+      // Team was not ranked in previous week → NR
+      if (prevRank == null) {
+        return { rank: entry.rank, teamName: entry.teamName, teamId: entry.teamId, delta: 'new' as const };
+      }
+      // Compute delta: positive = moved up, negative = moved down
+      const delta = prevRank === entry.rank ? null : prevRank - entry.rank;
+      return { rank: entry.rank, teamName: entry.teamName, teamId: entry.teamId, delta };
     }),
   };
 }
