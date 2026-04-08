@@ -1121,8 +1121,8 @@ export default function OverviewPanel({
           {viewModel.standingsTopN.length === 0 ? (
             <EmptyState message="Add owners to populate standings." compact />
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
-              {/* Left half: Standings table + Last 5 Weeks stacked */}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_1fr_2fr] md:items-start">
+              {/* Column 1: Standings table */}
               <div className="min-w-0">
                 <CondensedStandingsTable
                   rows={viewModel.standingsTopN}
@@ -1131,16 +1131,17 @@ export default function OverviewPanel({
                   liveCountByOwner={liveCountByOwner}
                   leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
                 />
-                {standingsHistory ? (
-                  <div className="mt-3 border-t border-gray-100 pt-3 dark:border-zinc-800">
-                    <PositionDeltaPanel
-                      standingsHistory={standingsHistory}
-                      weekLabel={weekLabelFn}
-                    />
-                  </div>
-                ) : null}
               </div>
-              {/* Right half: Insights */}
+              {/* Column 2: Last 5 Weeks */}
+              {standingsHistory ? (
+                <div className="min-w-0">
+                  <PositionDeltaPanel
+                    standingsHistory={standingsHistory}
+                    weekLabel={weekLabelFn}
+                  />
+                </div>
+              ) : null}
+              {/* Column 3: Insights */}
               {sharedInsights.length > 0 ? (
                 <div className="min-w-0">
                   <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
