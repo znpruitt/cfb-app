@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { auth } from '@clerk/nextjs/server';
 import { notFound } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
@@ -18,6 +18,7 @@ import AllTimeHeadToHeadPanel from '@/components/history/AllTimeHeadToHeadPanel'
 import DynastyDroughtPanel from '@/components/history/DynastyDroughtPanel';
 import MostImprovedPanel from '@/components/history/MostImprovedPanel';
 import SeasonListPanel from '@/components/history/SeasonListPanel';
+import LeaguePageShell from '@/components/LeaguePageShell';
 import type { SeasonArchive } from '@/lib/seasonArchive';
 
 export default async function LeagueHistoryPage({
@@ -27,28 +28,36 @@ export default async function LeagueHistoryPage({
 }): Promise<React.ReactElement> {
   const { slug } = await params;
 
-  const league = await getLeague(slug);
+  const [{ sessionClaims }, league] = await Promise.all([
+    auth(),
+    getLeague(slug),
+  ]);
   if (!league) notFound();
+
+  const isAdmin =
+    (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
+      ?.publicMetadata?.role === 'platform_admin';
 
   const years = await listSeasonArchives(slug);
 
   if (years.length === 0) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-10">
-        <Link
-          href={`/league/${slug}/`}
-          className="mb-6 inline-block text-sm text-blue-600 hover:underline dark:text-blue-400"
+      <main>
+        <LeaguePageShell
+          leagueSlug={slug}
+          leagueDisplayName={league.displayName}
+          leagueYear={league.year}
+          isAdmin={isAdmin}
+          activeTab="history"
         >
-          ← Back to {league.displayName}
-        </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
-          {league.displayName} — League History
-        </h1>
-        <div className="mt-8 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
-          <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
-            League history isn&apos;t available yet. Check back next offseason.
-          </p>
-        </div>
+          <div className="mx-auto max-w-3xl">
+            <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
+              <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
+                League history isn&apos;t available yet. Check back next offseason.
+              </p>
+            </div>
+          </div>
+        </LeaguePageShell>
       </main>
     );
   }
@@ -84,51 +93,46 @@ export default async function LeagueHistoryPage({
   const mostImproved = selectMostImprovedSeasonOverSeason(archives);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-6">
-        <Link
-          href={`/league/${slug}/`}
-          className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-        >
-          ← Back to {league.displayName}
-        </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
-          {league.displayName} — League History
-        </h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
-          {archives.length} archived season{archives.length !== 1 ? 's' : ''}
-        </p>
-      </div>
-
-      <ChampionshipsBanner
-        history={championshipHistory}
-        slug={slug}
-        currentSeasonYear={liveStandings !== undefined ? activeYear : undefined}
-        currentLeader={liveStandings?.find((r) => r.owner !== 'NoClaim')?.owner}
-      />
-
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
-        {/* Left column — 60% */}
-        <div className="flex flex-col gap-6 lg:col-span-3">
-          <AllTimeStandingsTable
-            rows={allTimeStandings}
+    <main>
+      <LeaguePageShell
+        leagueSlug={slug}
+        leagueDisplayName={league.displayName}
+        leagueYear={league.year}
+        isAdmin={isAdmin}
+        activeTab="history"
+      >
+        <div className="mx-auto max-w-5xl">
+          <ChampionshipsBanner
+            history={championshipHistory}
             slug={slug}
-            liveSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+            currentSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+            currentLeader={liveStandings?.find((r) => r.owner !== 'NoClaim')?.owner}
           />
-          <SeasonListPanel history={championshipHistory} slug={slug} />
-        </div>
 
-        {/* Right column — 40% */}
-        <div className="flex flex-col gap-6 lg:col-span-2">
-          {topRivalries.length > 0 && (
-            <AllTimeHeadToHeadPanel rivalries={topRivalries} allH2H={allTimeH2H} slug={slug} />
-          )}
-          {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
-          {dynastyDrought.rows.length > 0 && (
-            <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
-          )}
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
+            {/* Left column — 60% */}
+            <div className="flex flex-col gap-6 lg:col-span-3">
+              <AllTimeStandingsTable
+                rows={allTimeStandings}
+                slug={slug}
+                liveSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+              />
+              <SeasonListPanel history={championshipHistory} slug={slug} />
+            </div>
+
+            {/* Right column — 40% */}
+            <div className="flex flex-col gap-6 lg:col-span-2">
+              {topRivalries.length > 0 && (
+                <AllTimeHeadToHeadPanel rivalries={topRivalries} allH2H={allTimeH2H} slug={slug} />
+              )}
+              {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
+              {dynastyDrought.rows.length > 0 && (
+                <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      </LeaguePageShell>
     </main>
   );
 }

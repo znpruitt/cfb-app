@@ -62,9 +62,16 @@ export default function WeekViewTabs({
           </button>
         ))}
         {leagueSlug && (
-          <Link href={`/league/${leagueSlug}/history/`} className={tabInactive}>
-            History
-          </Link>
+          <>
+            <div
+              className="self-center bg-zinc-600"
+              style={{ width: '0.5px', height: 16 }}
+              aria-hidden="true"
+            />
+            <Link href={`/league/${leagueSlug}/history/`} className={tabInactive}>
+              History
+            </Link>
+          </>
         )}
       </div>
     </div>
