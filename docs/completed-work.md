@@ -474,12 +474,28 @@ Key architectural decisions across Phase 5:
   - Update back links to `/league/${slug}/history/` once P4D history landing page is implemented (TODO comments left in page.tsx).
   - Owner career links from `OwnerRosterCard` once P4D owner career pages exist.
 
-### Navigation & Selector Integrity Fixes (standalone)
+### Navigation, CTA Consistency & History Chrome (standalone)
 
+**Navigation & Selector Integrity**
 - Fixed matchup deep links in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/matchups`) instead of unsupported `?view=matchups` query params
 - Fixed trends CTAs in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/standings?view=trends#trends`) instead of hardcoded root-scoped paths
 - Retired `leagueHighlights` from `selectOverviewViewModel` — was producing an empty array with no consuming UI
 - Removed TEMP-DIAG console logs from OverviewPanel.tsx
+
+**CTA Consistency**
+- Removed redundant "See full trends" CTA from Standings page — user is already viewing full trends content
+- Replaced Trends section CTA with linked section header on Overview page
+- Standardized all Overview page CTAs to plain text ↗ pattern matching "All results ↗"
+- Removed `onViewStandings` prop from OverviewPanel after its consuming button was replaced with a Link
+
+**History Page Chrome**
+- Created `LeaguePageShell.tsx` — shared server-compatible league chrome component for standalone route pages
+- Replaced standalone History page chrome (back link, h1, subtitle) with consistent league header and nav bar
+- Added History as a separated muted tab in the main league nav with a vertical divider before it
+- History page subtitle set to "Est. 2021" instead of active season year
+- Removed "4 archived seasons" text from History page
+- `foundedYear` identified as a Phase 7 commissioner settings field — hardcoded for now, to be made dynamic when league settings are built
+- `LeaguePageShell` noted as a known duplication point with CFBScheduleApp header — to be reconciled in Phase 7
 
 ---
 
