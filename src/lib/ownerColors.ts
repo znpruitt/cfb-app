@@ -6,62 +6,68 @@
  * owner references must use these functions.
  *
  * Colors are assigned by sorted index (not by name) so the palette
- * supports any league with up to 16 owners. Beyond 16, colors wrap.
+ * supports any league with up to 20 owners. Beyond 20, colors wrap.
  */
 
 /**
- * 16-color dark mode palette.
+ * 20-color dark mode palette.
  *
- * Generated from 16 evenly-distributed HSL hues (22.5° apart) with
- * high lightness (68–72%) and high saturation (82–85%) for readability
- * on dark backgrounds. Every adjacent pair is exactly 22.5° apart —
- * maximum perceptual separation for 16 slots.
+ * Tableau-derived categorical palette extended to 20 colors.
+ * Optimized for perceptual separation on dark backgrounds.
  */
 export const PALETTE_DARK: readonly string[] = [
-  '#f36868', // 0   — red          (hue   0.0°)
-  '#f1a374', // 1   — orange       (hue  22.5°)
-  '#f4d67b', // 2   — gold         (hue  45.0°)
-  '#e0f06a', // 3   — yellow-green (hue  67.5°)
-  '#b3f471', // 4   — lime         (hue  90.0°)
-  '#8cf27d', // 5   — green        (hue 112.5°)
-  '#68f38b', // 6   — emerald      (hue 135.0°)
-  '#74f1c2', // 7   — teal         (hue 157.5°)
-  '#7bf4f4', // 8   — cyan         (hue 180.0°)
-  '#6abef0', // 9   — sky          (hue 202.5°)
-  '#7192f4', // 10  — blue         (hue 225.0°)
-  '#8c7df2', // 11  — indigo       (hue 247.5°)
-  '#ad68f3', // 12  — purple       (hue 270.0°)
-  '#e274f1', // 13  — violet       (hue 292.5°)
-  '#f47bd6', // 14  — magenta      (hue 315.0°)
-  '#f06a9d', // 15  — rose         (hue 337.5°)
+  '#4E79A7', // steel blue
+  '#F28E2B', // orange
+  '#E15759', // red
+  '#76B7B2', // teal
+  '#59A14F', // green
+  '#EDC948', // yellow
+  '#B07AA1', // purple
+  '#FF9DA7', // pink
+  '#9C755F', // brown
+  '#BAB0AC', // gray
+  '#D37295', // rose
+  '#8CD17D', // light green
+  '#B6992D', // dark yellow
+  '#499894', // dark teal
+  '#86BCB6', // light teal
+  '#79706E', // dark gray
+  '#D4A6C8', // lavender
+  '#D7B5A6', // tan
+  '#A0CBE8', // light blue
+  '#FFBE7D', // light orange
 ];
 
 /**
- * 16-color light mode palette.
+ * 20-color light mode palette.
  *
- * Same hue distribution as PALETTE_DARK but with low lightness (35–37%)
- * and high saturation (78–80%) for readable contrast on white backgrounds.
+ * Same hues as PALETTE_DARK with reduced lightness (~25% darker)
+ * for readable contrast on white backgrounds.
  */
 export const PALETTE_LIGHT: readonly string[] = [
-  '#a11212', // 0   — red          (hue   0.0°)
-  '#a84c15', // 1   — orange       (hue  22.5°)
-  '#a17d12', // 2   — gold         (hue  45.0°)
-  '#96a815', // 3   — yellow-green (hue  67.5°)
-  '#59a112', // 4   — lime         (hue  90.0°)
-  '#27a815', // 5   — green        (hue 112.5°)
-  '#12a136', // 6   — emerald      (hue 135.0°)
-  '#15a871', // 7   — teal         (hue 157.5°)
-  '#12a1a1', // 8   — cyan         (hue 180.0°)
-  '#1571a8', // 9   — sky          (hue 202.5°)
-  '#1236a1', // 10  — blue         (hue 225.0°)
-  '#2715a8', // 11  — indigo       (hue 247.5°)
-  '#5912a1', // 12  — purple       (hue 270.0°)
-  '#9615a8', // 13  — violet       (hue 292.5°)
-  '#a1127d', // 14  — magenta      (hue 315.0°)
-  '#a8154c', // 15  — rose         (hue 337.5°)
+  '#2E5F8A', // steel blue
+  '#C46D0A', // orange
+  '#B83336', // red
+  '#4A8C87', // teal
+  '#357A2C', // green
+  '#C9A000', // yellow
+  '#8A5580', // purple
+  '#E06070', // pink
+  '#6E4F3A', // brown
+  '#7A7573', // gray
+  '#A84E72', // rose
+  '#5EA852', // light green
+  '#8A7010', // dark yellow
+  '#27736F', // dark teal
+  '#5A9993', // light teal
+  '#534F4E', // dark gray
+  '#A87BAA', // lavender
+  '#A8836F', // tan
+  '#5AAAD4', // light blue
+  '#D4894A', // light orange
 ];
 
-const PALETTE_SIZE = 16;
+const PALETTE_SIZE = 20;
 
 /**
  * Detect whether the user prefers dark mode via media query.
