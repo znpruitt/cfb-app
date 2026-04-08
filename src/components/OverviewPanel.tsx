@@ -1121,7 +1121,7 @@ export default function OverviewPanel({
           {viewModel.standingsTopN.length === 0 ? (
             <EmptyState message="Add owners to populate standings." compact />
           ) : (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-start">
               {/* Left half: Standings table + Last 5 Weeks stacked */}
               <div className="min-w-0">
                 <CondensedStandingsTable
