@@ -40,9 +40,9 @@ export default function LeaguePageShell({
           {/* League name + season subtitle */}
           <div className="min-w-0 flex-1 md:flex-none">
             <h1 className="text-xl font-medium">{leagueDisplayName}</h1>
-            {leagueYear != null && (
-              <p className="mt-0.5 text-sm text-zinc-400">{leagueYear} season</p>
-            )}
+            <p className="mt-0.5 text-sm text-zinc-400">
+              {activeTab === 'history' ? 'Est. 2021' : leagueYear != null ? `${leagueYear} season` : null}
+            </p>
           </div>
 
           {/* Gear icon — right of name on mobile, far right on desktop */}
@@ -84,13 +84,21 @@ export default function LeaguePageShell({
             >
               <div className="flex items-center gap-6 border-b border-zinc-700">
                 {tabs.map((tab) => (
-                  <Link
-                    key={tab.key}
-                    href={tab.href(leagueSlug)}
-                    className={activeTab === tab.key ? tabActive : tabInactive}
-                  >
-                    {tab.label}
-                  </Link>
+                  <React.Fragment key={tab.key}>
+                    {tab.key === 'history' && (
+                      <div
+                        className="self-center bg-zinc-600"
+                        style={{ width: '0.5px', height: 16 }}
+                        aria-hidden="true"
+                      />
+                    )}
+                    <Link
+                      href={tab.href(leagueSlug)}
+                      className={activeTab === tab.key ? tabActive : tabInactive}
+                    >
+                      {tab.label}
+                    </Link>
+                  </React.Fragment>
                 ))}
               </div>
             </div>

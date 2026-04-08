@@ -102,10 +102,6 @@ export default async function LeagueHistoryPage({
         activeTab="history"
       >
         <div className="mx-auto max-w-5xl">
-          <p className="text-sm text-gray-500 dark:text-zinc-400">
-            {archives.length} archived season{archives.length !== 1 ? 's' : ''}
-          </p>
-
           <ChampionshipsBanner
             history={championshipHistory}
             slug={slug}
