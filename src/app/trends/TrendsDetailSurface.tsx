@@ -7,7 +7,7 @@ import { type SeasonContext } from '../../lib/selectors/seasonContext';
 import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../../lib/selectors/trends';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import { deriveFocusedOwners, type FocusMode } from '../../lib/trendsFocus';
-import { buildOwnerColorMap } from '../../lib/ownerColors';
+import { buildOwnerColorMap, prefersDarkMode } from '../../lib/ownerColors';
 
 type MetricKind = 'games-back' | 'win-pct';
 type LayoutMode = 'standalone' | 'embedded';
@@ -1135,9 +1135,9 @@ export default function TrendsDetailSurface({
     [winBars]
   );
   const orderedOwners = React.useMemo(() => winBars.map((row) => row.ownerId), [winBars]);
-  const ownerColorMap = React.useMemo(() => buildOwnerColorMap(orderedOwners), [orderedOwners]);
+  const ownerColorMap = React.useMemo(() => buildOwnerColorMap(orderedOwners, prefersDarkMode()), [orderedOwners]);
   const getOwnerTrendColor = React.useCallback(
-    (ownerId: string) => ownerColorMap.get(ownerId) ?? '#888',
+    (ownerId: string) => ownerColorMap[ownerId] ?? '#888',
     [ownerColorMap]
   );
   const focusedOwners = React.useMemo(() => {

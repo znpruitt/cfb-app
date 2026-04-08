@@ -132,6 +132,3 @@ export function buildOwnerColorMap(owners: string[], isDark: boolean): Record<st
   return map;
 }
 
-// TEMP: palette review — remove after approval
-console.log('PALETTE_DARK', PALETTE_DARK);
-console.log('PALETTE_LIGHT', PALETTE_LIGHT);

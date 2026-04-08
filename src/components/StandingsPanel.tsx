@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
-import { buildOwnerColorMap } from '../lib/ownerColors';
+import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import {
   deriveLeagueInsights,
   deriveStandingsInsights,
@@ -68,8 +68,9 @@ function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function withColorAlpha(hslColor: string, alpha: number): string {
-  return hslColor.replace(/^hsl\(/, 'hsla(').replace(/\)$/, `, ${alpha})`);
+function withColorAlpha(hexColor: string, alpha: number): string {
+  const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hexColor}${alphaHex}`;
 }
 
 function deriveMovementPresentation(rankDelta: number | null): {
@@ -157,11 +158,11 @@ export default function StandingsPanel({
   );
 
   const ownerColorMap = React.useMemo(
-    () => buildOwnerColorMap(visibleRows.map((r) => r.owner)),
+    () => buildOwnerColorMap(visibleRows.map((r) => r.owner), prefersDarkMode()),
     [visibleRows]
   );
   const ownerColorFn = React.useCallback(
-    (ownerId: string): string => ownerColorMap.get(ownerId) ?? '#888',
+    (ownerId: string): string => ownerColorMap[ownerId] ?? '#888',
     [ownerColorMap]
   );
 

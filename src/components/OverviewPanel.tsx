@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
-import { buildOwnerColorMap } from '../lib/ownerColors';
+import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
@@ -326,7 +326,7 @@ function GbChangeTable({
   }, [standingsHistory, standingsLeaders]);
 
   const ownerColorMap = React.useMemo(
-    () => (data ? buildOwnerColorMap(data.rows.map((r) => r.ownerName)) : new Map<string, string>()),
+    () => (data ? buildOwnerColorMap(data.rows.map((r) => r.ownerName), prefersDarkMode()) : {}),
     [data]
   );
 
@@ -357,7 +357,7 @@ function GbChangeTable({
       </div>
       {/* Owner rows */}
       {data.rows.map((row, i) => {
-        const nameColor = ownerColorMap.get(row.ownerName) ?? '#888';
+        const nameColor = ownerColorMap[row.ownerName] ?? '#888';
         return (
           <div
             key={row.ownerId}
