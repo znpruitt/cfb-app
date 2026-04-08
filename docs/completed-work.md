@@ -497,6 +497,10 @@ Key architectural decisions across Phase 5:
 - `foundedYear` identified as a Phase 7 commissioner settings field — hardcoded for now, to be made dynamic when league settings are built
 - `LeaguePageShell` noted as a known duplication point with CFBScheduleApp header — to be reconciled in Phase 7
 
+**Follow-up Fixes**
+- Created `/league/[slug]/members/page.tsx` — Members was a client-side-only view mode with no dedicated route, causing LeaguePageShell Members tab to land on Overview instead. New route mirrors the Matchups/Standings pattern and renders CFBScheduleApp with `initialWeekViewMode="owner"`. All five nav tabs now have proper dedicated routes.
+- Fixed Members tab href in `LeaguePageShell.tsx` to `/league/[slug]/members`
+
 ---
 
 *Phases 1–3 entries have been moved to `docs/completed-work-archive.md`.*
