@@ -16,7 +16,7 @@ const tabs: { key: LeagueTab; label: string; href: (slug: string) => string }[] 
   { key: 'overview', label: 'Overview', href: (s) => `/league/${s}/` },
   { key: 'standings', label: 'Standings', href: (s) => `/league/${s}/standings` },
   { key: 'matchups', label: 'Matchups', href: (s) => `/league/${s}/matchups` },
-  { key: 'members', label: 'Members', href: (s) => `/league/${s}/` },
+  { key: 'members', label: 'Members', href: (s) => `/league/${s}/members` },
   { key: 'history', label: 'History', href: (s) => `/league/${s}/history/` },
 ];
 
