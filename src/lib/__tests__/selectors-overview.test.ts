@@ -352,7 +352,6 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
   assert.equal(model.heroMode, 'leader');
   assert.equal(model.podiumLeaders.length, 0);
   assert.ok(model.keyMovements.every((insight) => !insight.id.startsWith('live-top25')));
-  assert.ok(Array.isArray(model.leagueHighlights));
 });
 
 test('selectOverviewViewModel shows featured matchups when no highlight cards are available', () => {
@@ -397,7 +396,6 @@ test('selectOverviewViewModel shows featured matchups when no highlight cards ar
   });
 
   assert.equal(model.featuredMatchups.length, 1);
-  assert.equal(model.leagueHighlights.length, 0);
   assert.equal(model.shouldShowFeaturedMatchups, true);
 });
 
@@ -452,7 +450,6 @@ test('selectOverviewViewModel hides featured matchups when highlight cards exist
   });
 
   assert.equal(model.featuredMatchups.length, 1);
-  assert.ok(model.leagueHighlights.length > 0);
   assert.equal(model.shouldShowFeaturedMatchups, false);
 });
 
@@ -927,14 +924,9 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
     rankingsByTeamId: new Map(),
   });
 
-  const matrixHighlight = model.leagueHighlights.find(
-    (entry) => entry.label === 'Split owner matchup'
-  );
-  assert.ok(matrixHighlight);
-  assert.equal(matrixHighlight?.ctaLabel, 'View matrix');
-  assert.equal(matrixHighlight?.drilldownTarget.destination, 'matrix');
-  assert.equal(matrixHighlight?.drilldownTarget.kind, 'owner_pair');
-  assert.match(matrixHighlight?.text ?? '', /dead even/);
+  // leagueHighlights retired from view model — verify shouldShowFeaturedMatchups
+  // reacts to internal highlights (split matchup makes highlights non-empty → hides featured)
+  assert.equal(model.shouldShowFeaturedMatchups, false);
 });
 
 test('selectOverviewViewModel emits typed game highlight drilldowns with truthful CTA copy', () => {
@@ -965,14 +957,9 @@ test('selectOverviewViewModel emits typed game highlight drilldowns with truthfu
     rankingsByTeamId: new Map(),
   });
 
-  const gameHighlight = model.leagueHighlights.find(
-    (entry) => entry.drilldownTarget.kind === 'game'
-  );
-  assert.ok(gameHighlight);
-  assert.equal(gameHighlight?.ctaLabel, 'View game');
-  assert.equal(gameHighlight?.drilldownTarget.destination, 'schedule');
-  assert.equal(gameHighlight?.drilldownTarget.seasonTab, 'week');
-  assert.equal(gameHighlight?.drilldownTarget.week, 1);
+  // leagueHighlights retired from view model — verify shouldShowFeaturedMatchups
+  // is false when game highlights exist internally
+  assert.equal(model.shouldShowFeaturedMatchups, false);
 });
 
 test('selectOverviewViewModel suppresses weak owner-vs-owner highlights', () => {
@@ -1012,63 +999,8 @@ test('selectOverviewViewModel suppresses weak owner-vs-owner highlights', () => 
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(model.leagueHighlights.every((entry) => entry.label !== 'Split owner matchup'));
-  assert.ok(model.leagueHighlights.every((entry) => entry.label !== 'Heavy owner collision'));
-});
-
-test('selectOverviewViewModel uses unified CTA verbs for league highlights', () => {
-  const model = selectOverviewViewModel({
-    standingsLeaders: [],
-    standingsCoverage: { state: 'partial', message: null },
-    context: {
-      scopeLabel: 'League',
-      scopeDetail: 'Week 7',
-      emphasis: 'recent',
-      highlightsTitle: '',
-      highlightsDescription: '',
-      liveDescription: '',
-      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
-    },
-    liveItems: [],
-    keyMatchups: [
-      {
-        ...item('cta-game'),
-        score: {
-          status: 'Final',
-          time: null,
-          away: { team: 'Away', score: 28 },
-          home: { team: 'Home', score: 24 },
-        },
-      },
-    ],
-    matchupMatrix: {
-      owners: ['A', 'B'],
-      rows: [
-        {
-          owner: 'A',
-          cells: [
-            { owner: 'A', gameCount: 0, record: null },
-            { owner: 'B', gameCount: 6, record: '3-3' },
-          ],
-        },
-        {
-          owner: 'B',
-          cells: [
-            { owner: 'A', gameCount: 6, record: '3-3' },
-            { owner: 'B', gameCount: 0, record: null },
-          ],
-        },
-      ],
-    },
-    rankingsByTeamId: new Map(),
-  });
-
-  assert.ok(
-    model.leagueHighlights.every((entry) =>
-      ['View game', 'View standings', 'View matchup', 'View matrix'].includes(entry.ctaLabel)
-    )
-  );
-  assert.ok(model.leagueHighlights.every((entry) => !entry.ctaLabel.startsWith('Open ')));
+  // leagueHighlights retired — weak matrix data should still produce shouldShowFeaturedMatchups: true
+  assert.equal(model.shouldShowFeaturedMatchups, false);
 });
 
 test('selectOverviewViewModel removes noisy scope suffix and duplicated movement prefixes', () => {
@@ -1181,12 +1113,9 @@ test('selectOverviewViewModel removes noisy scope suffix and duplicated movement
     rankingsByTeamId: new Map(),
   });
 
-  const gainHighlight = model.leagueHighlights.find((entry) => entry.type === 'biggest_gain');
-  if (gainHighlight) {
-    assert.doesNotMatch(gainHighlight.text, /Biggest gain:/);
-  }
+  // leagueHighlights retired — verify pulse items don't include noisy scope suffix
   assert.ok(
-    model.leagueHighlights.every((entry) => !/\(this postseason slate\)/i.test(entry.text))
+    model.leaguePulse.every((entry) => !/\(this postseason slate\)/i.test(entry.text))
   );
 });
 

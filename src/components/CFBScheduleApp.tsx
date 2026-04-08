@@ -1520,7 +1520,6 @@ export default function CFBScheduleApp({
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
                   }}
-                  onViewStandings={() => setWeekViewMode('standings')}
                   onViewSchedule={() => {
                     setFocusedGameId(null);
                     setWeekViewMode('schedule');
@@ -1543,6 +1542,7 @@ export default function CFBScheduleApp({
                     setWeekViewMode('owner');
                   }}
                   initialSubview={initialStandingsSubview}
+                  leagueSlug={leagueSlug}
                 />
               ) : primarySurfaceKind === 'owner' ? (
                 <OwnerPanel

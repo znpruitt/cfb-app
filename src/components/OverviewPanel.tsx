@@ -855,8 +855,7 @@ function insightHref(
   const base = leagueSlug ? `/league/${leagueSlug}` : '';
   if (target === 'standings') return `${base}/standings`;
   if (target === 'trends') return `${base}/standings?view=trends#trends`;
-  if (target === 'matchup')
-    return leagueSlug ? `/league/${leagueSlug}?view=matchups` : '/?view=matchups';
+  if (target === 'matchup') return `${base}/matchups`;
   return null;
 }
 
@@ -910,7 +909,6 @@ type OverviewPanelProps = {
   context: OverviewContext;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
-  onViewStandings?: () => void;
   onViewSchedule?: () => void;
   onViewMatchups?: () => void;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
@@ -931,7 +929,6 @@ export default function OverviewPanel({
   context,
   displayTimeZone,
   onOwnerSelect,
-  onViewStandings,
   onViewSchedule,
   onViewMatchups,
   rankingsByTeamId = new Map(),
@@ -1039,13 +1036,12 @@ export default function OverviewPanel({
               leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
             />
           )}
-          <button
-            type="button"
-            className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-            onClick={onViewStandings}
+          <Link
+            href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`}
+            className="mt-2 inline-block text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
           >
-            View full standings
-          </button>
+            Full standings ↗
+          </Link>
         </SectionCard>
 
         {sharedInsights.length > 0 ? (
@@ -1118,10 +1114,10 @@ export default function OverviewPanel({
           compact
           action={
             <Link
-              href="/standings?view=trends#trends"
+              href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings?view=trends#trends`}
               className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
             >
-              See full trends ↗
+              Full standings ↗
             </Link>
           }
         >

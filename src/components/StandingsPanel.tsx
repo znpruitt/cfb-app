@@ -25,17 +25,22 @@ type StandingsPanelProps = {
   seasonContext?: SeasonContext | null;
   trendIssues?: string[];
   initialSubview?: StandingsSubview;
+  leagueSlug?: string;
 };
 
 type FocusableElement = {
   scrollIntoView: (options?: ScrollIntoViewOptions) => void;
 };
 
-function insightHref(target?: Insight['navigationTarget']): string | null {
+function insightHref(
+  target: Insight['navigationTarget'] | undefined,
+  leagueSlug?: string
+): string | null {
   if (!target) return null;
-  if (target === 'standings') return '/standings';
-  if (target === 'trends') return '/standings?view=trends#trends';
-  if (target === 'matchup') return '/?view=matchups';
+  const base = leagueSlug ? `/league/${leagueSlug}` : '';
+  if (target === 'standings') return `${base}/standings`;
+  if (target === 'trends') return `${base}/standings?view=trends#trends`;
+  if (target === 'matchup') return `${base}/matchups`;
   return null;
 }
 
@@ -113,6 +118,7 @@ export default function StandingsPanel({
   seasonContext = null,
   trendIssues = [],
   initialSubview = 'table',
+  leagueSlug,
 }: StandingsPanelProps): React.ReactElement {
   const showMoveColumn = seasonContext !== 'final';
   const visibleRows = React.useMemo(() => rows.filter((r) => r.owner !== 'NoClaim'), [rows]);
@@ -354,7 +360,7 @@ export default function StandingsPanel({
               </h3>
               <div className="mt-2">
                 {standingsInsights.map((insight) => {
-                  const href = insightHref(insight.navigationTarget);
+                  const href = insightHref(insight.navigationTarget, leagueSlug);
                   return (
                     <article
                       key={insight.id}
