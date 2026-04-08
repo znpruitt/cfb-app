@@ -76,9 +76,6 @@ function PositionDeltaPanel({
 
   return (
     <div>
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-zinc-400">
-        Last {weeks.length} weeks
-      </p>
       {/* Column headers */}
       <div className="mb-px flex items-center">
         <span style={{ width: NAME_COL_W, flexShrink: 0 }} />
@@ -1096,66 +1093,61 @@ export default function OverviewPanel({
 
       <SectionDivider />
 
-      {/* Standings (left: table + delta stacked) + Insights (right) */}
+      {/* Standings · Last 5 Weeks · Insights */}
       <section>
-        <SectionHeader
-          title="Standings"
-          action={
-            <Link href={standingsHref} className={ctaClasses}>
-              Full standings ↗
-            </Link>
-          }
-        />
-        <div className="mt-2.5">
-          {standingsCoverage.message ? (
-            <p
-              className={`mb-3 text-sm ${
-                standingsCoverage.state === 'error'
-                  ? 'text-amber-700 dark:text-amber-300'
-                  : 'text-gray-600 dark:text-zinc-300'
-              }`}
-            >
-              {standingsCoverage.message}
-            </p>
-          ) : null}
-          {viewModel.standingsTopN.length === 0 ? (
-            <EmptyState message="Add owners to populate standings." compact />
-          ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_1fr_2fr] md:items-start">
-              {/* Column 1: Standings table */}
+        {standingsCoverage.message ? (
+          <p
+            className={`mb-3 text-sm ${
+              standingsCoverage.state === 'error'
+                ? 'text-amber-700 dark:text-amber-300'
+                : 'text-gray-600 dark:text-zinc-300'
+            }`}
+          >
+            {standingsCoverage.message}
+          </p>
+        ) : null}
+        {viewModel.standingsTopN.length === 0 ? (
+          <EmptyState message="Add owners to populate standings." compact />
+        ) : (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_1fr_2fr] md:items-start">
+            {/* Column 1: Standings table */}
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Standings</p>
+                <Link href={standingsHref} className={ctaClasses}>
+                  Full standings ↗
+                </Link>
+              </div>
+              <CondensedStandingsTable
+                rows={viewModel.standingsTopN}
+                onOwnerSelect={onOwnerSelect}
+                previousRows={viewModel.previousStandingsLeaders}
+                liveCountByOwner={liveCountByOwner}
+                leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
+              />
+            </div>
+            {/* Column 2: Last 5 Weeks */}
+            {standingsHistory ? (
               <div className="min-w-0">
-                <CondensedStandingsTable
-                  rows={viewModel.standingsTopN}
-                  onOwnerSelect={onOwnerSelect}
-                  previousRows={viewModel.previousStandingsLeaders}
-                  liveCountByOwner={liveCountByOwner}
-                  leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
+                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Last 5 weeks</p>
+                <PositionDeltaPanel
+                  standingsHistory={standingsHistory}
+                  weekLabel={weekLabelFn}
                 />
               </div>
-              {/* Column 2: Last 5 Weeks */}
-              {standingsHistory ? (
-                <div className="min-w-0">
-                  <PositionDeltaPanel
-                    standingsHistory={standingsHistory}
-                    weekLabel={weekLabelFn}
-                  />
-                </div>
-              ) : null}
-              {/* Column 3: Insights */}
-              {sharedInsights.length > 0 ? (
-                <div className="min-w-0">
-                  <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
-                  <div className="mt-2">
-                    <HighlightList
-                      insights={sharedInsights}
-                      leagueSlug={leagueSlug}
-                    />
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
+            ) : null}
+            {/* Column 3: Insights */}
+            {sharedInsights.length > 0 ? (
+              <div className="min-w-0">
+                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
+                <HighlightList
+                  insights={sharedInsights}
+                  leagueSlug={leagueSlug}
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
       </section>
 
       <SectionDivider />
