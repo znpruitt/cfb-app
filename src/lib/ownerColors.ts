@@ -26,13 +26,13 @@ export const PALETTE_DARK: readonly string[] = [
   '#FF9DA7', // pink
   '#9C755F', // brown
   '#BAB0AC', // gray
-  '#D37295', // rose
+  '#17BECF', // bright cyan
   '#8CD17D', // light green
   '#B6992D', // dark yellow
   '#499894', // dark teal
   '#86BCB6', // light teal
   '#79706E', // dark gray
-  '#D4A6C8', // lavender
+  '#1F77B4', // navy blue
   '#D7B5A6', // tan
   '#A0CBE8', // light blue
   '#FFBE7D', // light orange
@@ -55,13 +55,13 @@ export const PALETTE_LIGHT: readonly string[] = [
   '#E06070', // pink
   '#6E4F3A', // brown
   '#7A7573', // gray
-  '#A84E72', // rose
+  '#0E8A9A', // dark cyan
   '#5EA852', // light green
   '#8A7010', // dark yellow
   '#27736F', // dark teal
   '#5A9993', // light teal
   '#534F4E', // dark gray
-  '#A87BAA', // lavender
+  '#0D5A8A', // dark navy
   '#A8836F', // tan
   '#5AAAD4', // light blue
   '#D4894A', // light orange
