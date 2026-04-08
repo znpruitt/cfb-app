@@ -280,7 +280,7 @@ function SectionCard({
   compact = false,
   action,
 }: {
-  title: React.ReactNode;
+  title: string;
   children: React.ReactNode;
   tone?: 'default' | 'live' | 'weekly' | 'secondary';
   headingClassName?: string;
@@ -1038,13 +1038,12 @@ export default function OverviewPanel({
               leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
             />
           )}
-          <button
-            type="button"
-            className="mt-2 inline-flex rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60"
-            onClick={onViewStandings}
+          <Link
+            href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`}
+            className="mt-2 inline-block text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
           >
-            View full standings
-          </button>
+            Full standings ↗
+          </Link>
         </SectionCard>
 
         {sharedInsights.length > 0 ? (
@@ -1112,16 +1111,17 @@ export default function OverviewPanel({
 
       {standingsHistory ? (
         <SectionCard
-          title={
-            <Link
-              href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings?view=trends#trends`}
-              className="hover:opacity-75 transition-opacity"
-            >
-              Trends
-            </Link>
-          }
+          title="Trends"
           tone="secondary"
           compact
+          action={
+            <Link
+              href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/standings?view=trends#trends`}
+              className="text-xs font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-200"
+            >
+              Full standings ↗
+            </Link>
+          }
         >
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="min-w-0 flex-1">
