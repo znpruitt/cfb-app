@@ -60,9 +60,6 @@ const OWNER_COLORS_LIGHT: Record<string, string> = {
   Whited:    'hsl(345, 75%, 38%)',     // deep crimson — 46→38
 };
 
-/** Backward-compatible alias — dark palette is the original. */
-const OWNER_COLORS = OWNER_COLORS_DARK;
-
 /** Fallback palette for unknown owner names — same 14-slot HSL distribution. */
 const FALLBACK_PALETTE_DARK: readonly string[] = [
   'hsl(0.00, 70%, 52%)',
