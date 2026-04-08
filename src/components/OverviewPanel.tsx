@@ -16,7 +16,7 @@ import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/se
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
-import { getTeamRanking, type TeamRankingEnrichment } from '../lib/rankings';
+import { getTeamRanking, type TeamRankingEnrichment, type RankingsResponse, type RankingsWeek, type CanonicalPollEntry, type RankSource } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -941,6 +941,144 @@ function HighlightList({
   );
 }
 
+type PollSnapshotEntry = {
+  rank: number;
+  teamName: string;
+  teamId: string;
+  delta: number | 'new' | null;
+};
+
+type PollSnapshot = {
+  pollName: string;
+  entries: PollSnapshotEntry[];
+};
+
+function derivePollSnapshot(
+  rankings: RankingsResponse | null,
+  phase: 'inSeason' | 'postseason' | 'complete'
+): PollSnapshot | null {
+  if (!rankings || !rankings.latestWeek) return null;
+
+  const weeks = rankings.weeks;
+  const latestWeek = rankings.latestWeek;
+
+  // Determine which poll source to show based on season phase
+  const pollSource: RankSource = phase === 'postseason' ? 'cfp' : 'ap';
+  const pollName = phase === 'postseason' ? 'CFP Rankings' : 'AP Poll';
+
+  const currentEntries = latestWeek.polls[pollSource] ?? [];
+  if (currentEntries.length === 0) {
+    // Fall back to AP if CFP not available
+    const fallback = latestWeek.polls['ap'] ?? [];
+    if (fallback.length === 0) return null;
+    return derivePollSnapshotFromEntries('AP Poll', fallback, weeks, latestWeek);
+  }
+
+  return derivePollSnapshotFromEntries(pollName, currentEntries, weeks, latestWeek);
+}
+
+function derivePollSnapshotFromEntries(
+  pollName: string,
+  currentEntries: CanonicalPollEntry[],
+  weeks: RankingsWeek[],
+  latestWeek: RankingsWeek
+): PollSnapshot {
+  // Find the previous week for delta computation
+  const latestIdx = weeks.indexOf(latestWeek);
+  const previousWeek = latestIdx > 0 ? weeks[latestIdx - 1] : null;
+  const previousEntries = previousWeek?.polls[currentEntries[0]?.rankSource ?? 'ap'] ?? [];
+  const prevByTeam = new Map(previousEntries.map((e) => [e.teamId, e.rank]));
+
+  const top10 = currentEntries.slice(0, 10);
+
+  return {
+    pollName,
+    entries: top10.map((entry) => {
+      const prevRank = prevByTeam.get(entry.teamId);
+      const delta: number | 'new' | null =
+        prevRank == null ? 'new' : prevRank === entry.rank ? null : prevRank - entry.rank;
+      return {
+        rank: entry.rank,
+        teamName: entry.teamName,
+        teamId: entry.teamId,
+        delta,
+      };
+    }),
+  };
+}
+
+function PollMovementBadge({ delta }: { delta: number | 'new' | null }): React.ReactElement {
+  if (delta === 'new') {
+    return (
+      <span className="w-7 text-right text-[11px] font-medium text-gray-400 dark:text-zinc-500">
+        NR
+      </span>
+    );
+  }
+  if (delta === null || delta === 0) {
+    return (
+      <span className="w-7 text-right text-[11px] text-gray-400 dark:text-zinc-500">
+        —
+      </span>
+    );
+  }
+  if (delta > 0) {
+    return (
+      <span className="w-7 text-right text-[11px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+        ↑{delta}
+      </span>
+    );
+  }
+  return (
+    <span className="w-7 text-right text-[11px] font-semibold tabular-nums text-red-500 dark:text-red-400">
+      ↓{Math.abs(delta)}
+    </span>
+  );
+}
+
+function PollSnapshotColumn({
+  snapshot,
+  rankingsHref,
+  ctaClasses,
+}: {
+  snapshot: PollSnapshot | null;
+  rankingsHref: string;
+  ctaClasses: string;
+}): React.ReactElement {
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">
+          {snapshot?.pollName ?? 'FBS Poll'}
+        </p>
+        <Link href={rankingsHref} className={ctaClasses}>
+          Full rankings ↗
+        </Link>
+      </div>
+      {!snapshot || snapshot.entries.length === 0 ? (
+        <p className="py-2 text-sm text-gray-400 dark:text-zinc-500">Rankings unavailable</p>
+      ) : (
+        <div className="text-sm">
+          {snapshot.entries.map((entry, idx) => (
+            <div
+              key={entry.teamId}
+              className="flex items-center gap-1.5 border-b border-gray-100 px-1 py-1.5 dark:border-zinc-800"
+            >
+              <span className="w-5 shrink-0 text-right text-xs font-semibold tabular-nums text-gray-400 dark:text-zinc-500">
+                {entry.rank}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-medium text-gray-900 dark:text-zinc-100">
+                {entry.teamName}
+              </span>
+              <PollMovementBadge delta={entry.delta} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
@@ -957,6 +1095,7 @@ type OverviewPanelProps = {
   onViewMatchups?: () => void;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  rankings?: RankingsResponse | null;
   standingsHistory?: StandingsHistory | null;
   leagueSlug?: string;
 };
@@ -976,6 +1115,7 @@ export default function OverviewPanel({
   onViewSchedule,
   onViewMatchups,
   rankingsByTeamId = new Map(),
+  rankings = null,
   standingsHistory = null,
   leagueSlug,
 }: OverviewPanelProps): React.ReactElement {
@@ -1055,7 +1195,13 @@ export default function OverviewPanel({
     return { weeks, byOwner };
   }, [standingsHistory]);
 
+  const pollSnapshot = React.useMemo(() => {
+    const phase = viewModel.championSummary?.phase ?? 'inSeason';
+    return derivePollSnapshot(rankings, phase);
+  }, [rankings, viewModel.championSummary]);
+
   const standingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
+  const rankingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/rankings`;
   const ctaClasses = 'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200';
 
   return (
@@ -1072,57 +1218,59 @@ export default function OverviewPanel({
 
       <SectionDivider />
 
-      {/* Standings + Insights */}
+      {/* Standings · FBS Polls · Insights */}
       <section>
-        <SectionHeader
-          title="Standings"
-          action={
-            <Link href={standingsHref} className={ctaClasses}>
-              Full standings ↗
-            </Link>
-          }
-        />
-        <div className="mt-2.5">
-          {standingsCoverage.message ? (
-            <p
-              className={`mb-3 text-sm ${
-                standingsCoverage.state === 'error'
-                  ? 'text-amber-700 dark:text-amber-300'
-                  : 'text-gray-600 dark:text-zinc-300'
-              }`}
-            >
-              {standingsCoverage.message}
-            </p>
-          ) : null}
-          {viewModel.standingsTopN.length === 0 ? (
-            <EmptyState message="Add owners to populate standings." compact />
-          ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-[3fr_2fr] md:items-start">
-              {/* Left column: Standings table with inline deltas */}
+        {standingsCoverage.message ? (
+          <p
+            className={`mb-3 text-sm ${
+              standingsCoverage.state === 'error'
+                ? 'text-amber-700 dark:text-amber-300'
+                : 'text-gray-600 dark:text-zinc-300'
+            }`}
+          >
+            {standingsCoverage.message}
+          </p>
+        ) : null}
+        {viewModel.standingsTopN.length === 0 ? (
+          <EmptyState message="Add owners to populate standings." compact />
+        ) : (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_1fr_2fr] md:items-start">
+            {/* Column 1: Standings table with inline deltas */}
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Standings</p>
+                <Link href={standingsHref} className={ctaClasses}>
+                  Full standings ↗
+                </Link>
+              </div>
+              <CondensedStandingsTable
+                rows={viewModel.standingsTopN}
+                onOwnerSelect={onOwnerSelect}
+                previousRows={viewModel.previousStandingsLeaders}
+                liveCountByOwner={liveCountByOwner}
+                deltaWeeks={positionDeltaData?.weeks}
+                deltasByOwner={positionDeltaData?.byOwner}
+                weekLabel={weekLabelFn}
+              />
+            </div>
+            {/* Column 2: FBS Polls snapshot */}
+            <PollSnapshotColumn
+              snapshot={pollSnapshot}
+              rankingsHref={rankingsHref}
+              ctaClasses={ctaClasses}
+            />
+            {/* Column 3: Insights */}
+            {sharedInsights.length > 0 ? (
               <div className="min-w-0">
-                <CondensedStandingsTable
-                  rows={viewModel.standingsTopN}
-                  onOwnerSelect={onOwnerSelect}
-                  previousRows={viewModel.previousStandingsLeaders}
-                  liveCountByOwner={liveCountByOwner}
-                  deltaWeeks={positionDeltaData?.weeks}
-                  deltasByOwner={positionDeltaData?.byOwner}
-                  weekLabel={weekLabelFn}
+                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
+                <HighlightList
+                  insights={sharedInsights}
+                  leagueSlug={leagueSlug}
                 />
               </div>
-              {/* Right column: Insights */}
-              {sharedInsights.length > 0 ? (
-                <div className="min-w-0">
-                  <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
-                  <HighlightList
-                    insights={sharedInsights}
-                    leagueSlug={leagueSlug}
-                  />
-                </div>
-              ) : null}
-            </div>
-          )}
-        </div>
+            ) : null}
+          </div>
+        )}
       </section>
 
       <SectionDivider />

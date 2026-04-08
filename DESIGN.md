@@ -106,9 +106,18 @@
 - No column headers on condensed snapshot tables — data is self-evident at this density
 - GB is the primary metric in a pool format and sits on the primary line
 
-## Section layout
-- On Overview: Standings + Last 5 Weeks (left half) and Insights (right half) share a two-column layout
-- Insights is not a standalone full-width section on Overview
+## Overview trifold layout
+- Three columns: Standings (25%) · FBS Polls (25%) · Insights (50%)
+- Poll column shows AP Poll during regular season and season end, CFP Rankings during postseason
+- Top 10 entries only in the poll column
+- Poll column header uses same styling as peer column headers (15px, font-medium)
+- CTA links to full rankings page
+- Insights is not a standalone full-width section — it only renders in column 3
+
+## Poll phase logic
+- inSeason → AP Poll
+- postseason → CFP Rankings
+- complete → AP Poll (final)
 
 ## Scope discipline
 - Do not add features not explicitly requested
