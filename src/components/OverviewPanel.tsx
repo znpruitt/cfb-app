@@ -1059,7 +1059,7 @@ function PollSnapshotColumn({
         <p className="py-2 text-sm text-gray-400 dark:text-zinc-500">Rankings unavailable</p>
       ) : (
         <div className="text-sm">
-          {snapshot.entries.map((entry, idx) => (
+          {snapshot.entries.map((entry) => (
             <div
               key={entry.teamId}
               className="flex items-center gap-1.5 border-b border-gray-100 px-1 py-1.5 dark:border-zinc-800"
