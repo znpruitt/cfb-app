@@ -29,10 +29,10 @@ export const PALETTE_DARK: readonly string[] = [
   '#17BECF', // bright cyan
   '#8CD17D', // light green
   '#B6992D', // dark yellow
-  '#499894', // dark teal
+  '#1F77B4', // navy blue
   '#86BCB6', // light teal
   '#79706E', // dark gray
-  '#1F77B4', // navy blue
+  '#499894', // dark teal
   '#D7B5A6', // tan
   '#A0CBE8', // light blue
   '#FFBE7D', // light orange
@@ -58,10 +58,10 @@ export const PALETTE_LIGHT: readonly string[] = [
   '#0E8A9A', // dark cyan
   '#5EA852', // light green
   '#8A7010', // dark yellow
-  '#27736F', // dark teal
+  '#0D5A8A', // dark navy
   '#5A9993', // light teal
   '#534F4E', // dark gray
-  '#0D5A8A', // dark navy
+  '#27736F', // dark teal
   '#A8836F', // tan
   '#5AAAD4', // light blue
   '#D4894A', // light orange
