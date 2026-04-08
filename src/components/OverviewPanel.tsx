@@ -44,9 +44,6 @@ function sliceStandingsHistoryToRecentWeeks(
   };
 }
 
-const NAME_COL_W = '4.5rem';
-const DELTA_COL_W = '1.75rem';
-
 function deltaTextColor(delta: number | null): string {
   if (delta == null || delta === 0) return 'text-gray-400 dark:text-zinc-500';
   if (delta > 0) return 'text-emerald-600 dark:text-emerald-400';
@@ -57,71 +54,6 @@ function deltaLabel(delta: number | null): string {
   if (delta == null) return '·';
   if (delta === 0) return '—';
   return delta > 0 ? `+${delta}` : String(delta);
-}
-
-function PositionDeltaPanel({
-  standingsHistory,
-  weekLabel,
-}: {
-  standingsHistory: StandingsHistory;
-  weekLabel?: (week: number) => string;
-}): React.ReactElement | null {
-  const { weeks, owners } = React.useMemo(
-    () => selectPositionDeltas({ standingsHistory, maxWeeks: 5 }),
-    [standingsHistory]
-  );
-  if (owners.length === 0 || weeks.length === 0) return null;
-
-  const labelFn = weekLabel ?? ((w: number) => `W${w}`);
-
-  return (
-    <div>
-      {/* Column headers */}
-      <div className="mb-px flex items-center">
-        <span style={{ width: NAME_COL_W, flexShrink: 0 }} />
-        {weeks.map((w) => (
-          <span
-            key={w}
-            className="shrink-0 text-center text-[8px] font-medium text-gray-400 dark:text-zinc-500"
-            style={{ width: DELTA_COL_W }}
-          >
-            {labelFn(w)}
-          </span>
-        ))}
-      </div>
-      {/* Owner rows */}
-      {owners.map((owner, i) => {
-        const deltaByWeek = new Map(owner.deltas.map((d) => [d.week, d.delta]));
-        return (
-          <div
-            key={owner.ownerId}
-            className={`flex items-center py-[3px] ${
-              i % 2 !== 0 ? 'rounded-sm bg-gray-50/60 dark:bg-zinc-800/30' : ''
-            }`}
-          >
-            <span
-              className="shrink-0 truncate text-[11px] font-medium text-gray-900 dark:text-zinc-100"
-              style={{ width: NAME_COL_W }}
-            >
-              {owner.ownerName}
-            </span>
-            {weeks.map((w) => {
-              const delta = deltaByWeek.has(w) ? (deltaByWeek.get(w) ?? null) : null;
-              return (
-                <span
-                  key={w}
-                  className={`shrink-0 text-center text-[11px] font-medium tabular-nums ${deltaTextColor(delta)}`}
-                  style={{ width: DELTA_COL_W }}
-                >
-                  {deltaLabel(delta)}
-                </span>
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 function formatWinPct(value: number): string {
@@ -598,77 +530,109 @@ function CondensedStandingsTable({
   onOwnerSelect,
   previousRows,
   liveCountByOwner,
-  leaderLabel = 'Leader',
+  deltaWeeks,
+  deltasByOwner,
+  weekLabel,
 }: {
   rows: OwnerStandingsRow[];
   onOwnerSelect?: (owner: string) => void;
   previousRows?: OwnerStandingsRow[] | null;
   liveCountByOwner?: Map<string, number>;
-  leaderLabel?: string;
+  deltaWeeks?: number[];
+  deltasByOwner?: Map<string, Map<number, number | null>>;
+  weekLabel?: (week: number) => string;
 }): React.ReactElement {
   const previousRankLookup = new Map(
     (previousRows ?? []).map((row, index) => [row.owner, index + 1] as const)
   );
+  const hasDeltaCols = deltaWeeks && deltaWeeks.length > 0 && deltasByOwner;
+  const labelFn = weekLabel ?? ((w: number) => `W${w}`);
   return (
     <div className="-mx-1 overflow-x-auto px-1">
       <div className="min-w-full text-sm">
+        {/* Week header row for delta columns */}
+        {hasDeltaCols ? (
+          <div className="flex items-center border-b border-gray-100 px-2 py-1 dark:border-zinc-800">
+            <span className="flex-1" />
+            {deltaWeeks.map((w) => (
+              <span
+                key={w}
+                className="w-7 shrink-0 text-center text-[9px] font-medium text-gray-400 dark:text-zinc-500"
+              >
+                {labelFn(w)}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {rows.map((row, index) => {
           const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
+          const ownerDeltas = hasDeltaCols ? deltasByOwner.get(row.owner) : null;
           return (
             <div
               key={row.owner}
               className="border-b border-gray-100 px-2 py-2 dark:border-zinc-800"
             >
-              {/* Primary line: rank · name · badge · record · GB */}
-              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <span className="text-sm tabular-nums text-gray-400 dark:text-zinc-500">
-                  {index + 1}
-                  {(() => {
-                    const previousRank = previousRankLookup.get(row.owner);
-                    if (!previousRank || previousRank === index + 1) return null;
-                    const movedUp = previousRank > index + 1;
+              {/* Primary line: rank · name · record · GB · deltas */}
+              <div className="flex items-center gap-x-1.5">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span className="text-sm tabular-nums text-gray-400 dark:text-zinc-500">
+                    {index + 1}
+                    {(() => {
+                      const previousRank = previousRankLookup.get(row.owner);
+                      if (!previousRank || previousRank === index + 1) return null;
+                      const movedUp = previousRank > index + 1;
+                      return (
+                        <span
+                          className={`ml-0.5 text-xs font-semibold ${
+                            movedUp
+                              ? 'text-emerald-700 dark:text-emerald-300'
+                              : 'text-amber-700 dark:text-amber-300'
+                          }`}
+                          aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
+                        >
+                          {movedUp ? '↑' : '↓'}
+                        </span>
+                      );
+                    })()}
+                  </span>
+                  <span className="min-w-0 truncate font-semibold text-gray-950 dark:text-zinc-50">
+                    {onOwnerSelect ? (
+                      <button
+                        type="button"
+                        className="max-w-full truncate text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                        onClick={() => onOwnerSelect(row.owner)}
+                      >
+                        {row.owner}
+                      </button>
+                    ) : (
+                      row.owner
+                    )}
+                  </span>
+                  <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                    {row.wins}–{row.losses}
+                  </span>
+                  <span className="text-xs tabular-nums text-gray-400 dark:text-zinc-500">
+                    {index === 0 ? formatGb(row.gamesBack) : `${formatGb(row.gamesBack)} GB`}
+                  </span>
+                  {liveCount > 0 ? (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                      {liveCount} live
+                    </span>
+                  ) : null}
+                </div>
+                {/* Inline delta values */}
+                {hasDeltaCols && ownerDeltas ? (
+                  deltaWeeks.map((w) => {
+                    const d = ownerDeltas.get(w) ?? null;
                     return (
                       <span
-                        className={`ml-0.5 text-xs font-semibold ${
-                          movedUp
-                            ? 'text-emerald-700 dark:text-emerald-300'
-                            : 'text-amber-700 dark:text-amber-300'
-                        }`}
-                        aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
+                        key={w}
+                        className={`w-7 shrink-0 text-center text-[11px] font-medium tabular-nums ${deltaTextColor(d)}`}
                       >
-                        {movedUp ? '↑' : '↓'}
+                        {deltaLabel(d)}
                       </span>
                     );
-                  })()}
-                </span>
-                <span className="min-w-0 truncate font-semibold text-gray-950 dark:text-zinc-50">
-                  {onOwnerSelect ? (
-                    <button
-                      type="button"
-                      className="max-w-full truncate text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                      onClick={() => onOwnerSelect(row.owner)}
-                    >
-                      {row.owner}
-                    </button>
-                  ) : (
-                    row.owner
-                  )}
-                </span>
-                {index === 0 ? (
-                  <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
-                    {leaderLabel}
-                  </span>
-                ) : null}
-                <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
-                  {row.wins}–{row.losses}
-                </span>
-                <span className="text-xs tabular-nums text-gray-400 dark:text-zinc-500">
-                  {formatGb(row.gamesBack)} GB
-                </span>
-                {liveCount > 0 ? (
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                    {liveCount} live
-                  </span>
+                  })
                 ) : null}
               </div>
               {/* Secondary line: Win% · Diff */}
@@ -1076,6 +1040,21 @@ export default function OverviewPanel({
     );
   }, [standingsHistory, standingsLeaders]);
 
+  const positionDeltaData = React.useMemo(() => {
+    if (!standingsHistory) return null;
+    const { weeks, owners } = selectPositionDeltas({ standingsHistory, maxWeeks: 5 });
+    if (weeks.length === 0) return null;
+    const byOwner = new Map<string, Map<number, number | null>>();
+    for (const owner of owners) {
+      const deltaMap = new Map<number, number | null>();
+      for (const d of owner.deltas) {
+        deltaMap.set(d.week, d.delta);
+      }
+      byOwner.set(owner.ownerName, deltaMap);
+    }
+    return { weeks, byOwner };
+  }, [standingsHistory]);
+
   const standingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
   const ctaClasses = 'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200';
 
@@ -1093,61 +1072,57 @@ export default function OverviewPanel({
 
       <SectionDivider />
 
-      {/* Standings · Last 5 Weeks · Insights */}
+      {/* Standings + Insights */}
       <section>
-        {standingsCoverage.message ? (
-          <p
-            className={`mb-3 text-sm ${
-              standingsCoverage.state === 'error'
-                ? 'text-amber-700 dark:text-amber-300'
-                : 'text-gray-600 dark:text-zinc-300'
-            }`}
-          >
-            {standingsCoverage.message}
-          </p>
-        ) : null}
-        {viewModel.standingsTopN.length === 0 ? (
-          <EmptyState message="Add owners to populate standings." compact />
-        ) : (
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_1fr_2fr] md:items-start">
-            {/* Column 1: Standings table */}
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Standings</p>
-                <Link href={standingsHref} className={ctaClasses}>
-                  Full standings ↗
-                </Link>
-              </div>
-              <CondensedStandingsTable
-                rows={viewModel.standingsTopN}
-                onOwnerSelect={onOwnerSelect}
-                previousRows={viewModel.previousStandingsLeaders}
-                liveCountByOwner={liveCountByOwner}
-                leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
-              />
-            </div>
-            {/* Column 2: Last 5 Weeks */}
-            {standingsHistory ? (
+        <SectionHeader
+          title="Standings"
+          action={
+            <Link href={standingsHref} className={ctaClasses}>
+              Full standings ↗
+            </Link>
+          }
+        />
+        <div className="mt-2.5">
+          {standingsCoverage.message ? (
+            <p
+              className={`mb-3 text-sm ${
+                standingsCoverage.state === 'error'
+                  ? 'text-amber-700 dark:text-amber-300'
+                  : 'text-gray-600 dark:text-zinc-300'
+              }`}
+            >
+              {standingsCoverage.message}
+            </p>
+          ) : null}
+          {viewModel.standingsTopN.length === 0 ? (
+            <EmptyState message="Add owners to populate standings." compact />
+          ) : (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-[3fr_2fr] md:items-start">
+              {/* Left column: Standings table with inline deltas */}
               <div className="min-w-0">
-                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Last 5 weeks</p>
-                <PositionDeltaPanel
-                  standingsHistory={standingsHistory}
+                <CondensedStandingsTable
+                  rows={viewModel.standingsTopN}
+                  onOwnerSelect={onOwnerSelect}
+                  previousRows={viewModel.previousStandingsLeaders}
+                  liveCountByOwner={liveCountByOwner}
+                  deltaWeeks={positionDeltaData?.weeks}
+                  deltasByOwner={positionDeltaData?.byOwner}
                   weekLabel={weekLabelFn}
                 />
               </div>
-            ) : null}
-            {/* Column 3: Insights */}
-            {sharedInsights.length > 0 ? (
-              <div className="min-w-0">
-                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
-                <HighlightList
-                  insights={sharedInsights}
-                  leagueSlug={leagueSlug}
-                />
-              </div>
-            ) : null}
-          </div>
-        )}
+              {/* Right column: Insights */}
+              {sharedInsights.length > 0 ? (
+                <div className="min-w-0">
+                  <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
+                  <HighlightList
+                    insights={sharedInsights}
+                    leagueSlug={leagueSlug}
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
       </section>
 
       <SectionDivider />

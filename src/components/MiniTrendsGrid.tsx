@@ -49,7 +49,8 @@ export default function MiniTrendsGrid({
     () => selectGamesBackTrend({ standingsHistory }),
     [standingsHistory]
   );
-  const series = allSeries;
+  const CONTENDERS = 5;
+  const series = allSeries.slice(0, CONTENDERS);
 
   const weeks = standingsHistory.weeks;
   if (weeks.length === 0 || series.length === 0) return null;

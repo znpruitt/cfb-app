@@ -12,28 +12,27 @@
  * the full owner list isn't available. May produce collisions.
  */
 
-/**
- * Handpicked 14-color palette — visually distinct in both light and dark mode.
- * Covers the full spectrum with clear separation; no near-duplicate pairs.
- */
-const PALETTE: readonly string[] = [
-  '#FF6B6B', // coral red
-  '#FF9F43', // orange
-  '#FECA57', // yellow
-  '#1DD1A1', // teal green
-  '#48DBFB', // cyan
-  '#54A0FF', // blue
-  '#0652DD', // royal blue
-  '#5F27CD', // purple
-  '#9B59B6', // violet
-  '#FF9FF3', // pink
-  '#EE5A24', // burnt orange
-  '#00D2D3', // aqua
-  '#8395A7', // slate
-  '#C8D6E5', // light gray
-];
+const PALETTE_SIZE = 14;
+const SATURATION = 70;
+const BASE_LIGHTNESS = 52;
+const LIGHTNESS_STEP = 6;
+const LIGHTNESS_VARIANTS = 4;
 
-const PALETTE_SIZE = PALETTE.length;
+/**
+ * Generates the canonical HSL color for a given palette slot index.
+ */
+function colorAtIndex(index: number, total: number): string {
+  const normalizedTotal = Math.max(1, total);
+  const normalizedIndex = ((index % normalizedTotal) + normalizedTotal) % normalizedTotal;
+  const hue = (normalizedIndex / normalizedTotal) * 360;
+  const lightness = BASE_LIGHTNESS + (normalizedIndex % LIGHTNESS_VARIANTS) * LIGHTNESS_STEP;
+  return `hsl(${hue.toFixed(2)}, ${SATURATION}%, ${lightness}%)`;
+}
+
+/** Pre-computed 14-color palette — evenly distributed HSL hues with lightness variation. */
+const PALETTE: readonly string[] = Array.from({ length: PALETTE_SIZE }, (_, i) =>
+  colorAtIndex(i, PALETTE_SIZE)
+);
 
 /**
  * Builds a Map of owner name → color for a list of owners.
