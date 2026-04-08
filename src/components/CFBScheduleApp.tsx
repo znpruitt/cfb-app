@@ -1149,7 +1149,7 @@ export default function CFBScheduleApp({
                       .join(' ')
                   : 'League')}
             </h1>
-            <p className="mt-0.5 text-sm text-zinc-400">
+            <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
               {leagueYear ?? selectedSeason} season
             </p>
           </div>
@@ -1159,7 +1159,7 @@ export default function CFBScheduleApp({
               <Link
                 href={`/admin/${leagueSlug}`}
                 title="League settings"
-                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="text-gray-500 hover:text-gray-700 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -1453,7 +1453,7 @@ export default function CFBScheduleApp({
             <section className="space-y-3">
               {/* Standings section inline sub-view tabs */}
               {(weekViewMode === 'standings' || weekViewMode === 'rankings') ? (
-                <nav className="flex gap-6 border-b border-zinc-700">
+                <nav className="flex gap-6 border-b border-gray-200 dark:border-zinc-700">
                   {(
                     [
                       { key: 'standings', label: 'League Table' },
@@ -1466,8 +1466,8 @@ export default function CFBScheduleApp({
                       onClick={() => setWeekViewMode(sub.key)}
                       className={`pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2 ${
                         weekViewMode === sub.key
-                          ? 'border-white/90 text-white/95'
-                          : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                          ? 'border-gray-900 text-gray-900 dark:border-white/90 dark:text-white/95'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200'
                       }`}
                     >
                       {sub.label}
@@ -1479,7 +1479,7 @@ export default function CFBScheduleApp({
               {(weekViewMode === 'matchups' ||
                 weekViewMode === 'schedule' ||
                 weekViewMode === 'matrix') ? (
-                <nav className="flex gap-6 border-b border-zinc-700">
+                <nav className="flex gap-6 border-b border-gray-200 dark:border-zinc-700">
                   {(
                     [
                       { key: 'matchups', label: 'Matchups' },
@@ -1493,8 +1493,8 @@ export default function CFBScheduleApp({
                       onClick={() => setWeekViewMode(sub.key)}
                       className={`pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2 ${
                         weekViewMode === sub.key
-                          ? 'border-white/90 text-white/95'
-                          : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                          ? 'border-gray-900 text-gray-900 dark:border-white/90 dark:text-white/95'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200'
                       }`}
                     >
                       {sub.label}

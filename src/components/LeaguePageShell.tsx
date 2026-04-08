@@ -22,8 +22,8 @@ const tabs: { key: LeagueTab; label: string; href: (slug: string) => string }[] 
 
 const tabBase =
   'pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2';
-const tabActive = `${tabBase} border-white text-white`;
-const tabInactive = `${tabBase} border-transparent text-zinc-400 hover:text-zinc-200`;
+const tabActive = `${tabBase} border-gray-900 text-gray-900 dark:border-white dark:text-white`;
+const tabInactive = `${tabBase} border-transparent text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200`;
 
 export default function LeaguePageShell({
   leagueSlug,
@@ -40,7 +40,7 @@ export default function LeaguePageShell({
           {/* League name + season subtitle */}
           <div className="min-w-0 flex-1 md:flex-none">
             <h1 className="text-xl font-medium">{leagueDisplayName}</h1>
-            <p className="mt-0.5 text-sm text-zinc-400">
+            <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
               {activeTab === 'history' ? 'Est. 2021' : leagueYear != null ? `${leagueYear} season` : null}
             </p>
           </div>
@@ -51,7 +51,7 @@ export default function LeaguePageShell({
               <Link
                 href={`/admin/${leagueSlug}`}
                 title="League settings"
-                className="text-zinc-500 transition-colors hover:text-zinc-300"
+                className="text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-500 dark:hover:text-zinc-300"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -82,12 +82,12 @@ export default function LeaguePageShell({
                 } as React.CSSProperties
               }
             >
-              <div className="flex items-center gap-6 border-b border-zinc-700">
+              <div className="flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700">
                 {tabs.map((tab) => (
                   <React.Fragment key={tab.key}>
                     {tab.key === 'history' && (
                       <div
-                        className="self-center bg-zinc-600"
+                        className="self-center bg-gray-300 dark:bg-zinc-600"
                         style={{ width: '0.5px', height: 16 }}
                         aria-hidden="true"
                       />

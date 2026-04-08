@@ -1252,7 +1252,7 @@ export default function TrendsDetailSurface({
       ) : null}
 
       {!isControlled ? (
-        <section className="rounded-lg border border-gray-200 bg-white/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/70">
+        <section className="rounded-lg border border-gray-300 bg-gray-50/80 p-2 dark:border-zinc-700 dark:bg-zinc-900/70">
           <div
             className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
             role="group"

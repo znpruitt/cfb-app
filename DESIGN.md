@@ -119,6 +119,19 @@
 - postseason → CFP Rankings
 - complete → AP Poll (final)
 
+## Light/dark mode
+- Dark mode uses Tailwind `media` strategy (`prefers-color-scheme`) — no `.dark` class on `<html>`
+- Light mode is the base Tailwind class layer (no prefix needed); dark mode uses `dark:` variants
+- Page background in light mode: white (`--background: #ffffff`)
+- Card surfaces in light mode: `bg-gray-50` with `border-gray-300` — provides visible separation from white page
+- Nested containers (cards inside cards): `bg-white` with `border-gray-300`
+- Navigation tab borders: `border-gray-200` in light, `dark:border-zinc-700` in dark
+- Active tab text: `text-gray-900` in light, `dark:text-white` in dark
+- Owner colors: separate lightness-adjusted palettes for light and dark backgrounds (same hues)
+- Owner color auto-detection via `window.matchMedia('(prefers-color-scheme: dark)')`
+- User preference override: deferred until user accounts are built
+- When adding user override: switch Tailwind to `class` strategy, add theme provider
+
 ## Scope discipline
 - Do not add features not explicitly requested
 - If a better solution exists, recommend it before implementing

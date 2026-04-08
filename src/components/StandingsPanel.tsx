@@ -201,7 +201,7 @@ export default function StandingsPanel({
   }, [initialSubview]);
 
   return (
-    <section className="space-y-3 sm:rounded-xl sm:border sm:border-gray-300 sm:bg-white sm:p-4 sm:shadow-sm sm:dark:border-zinc-700 sm:dark:bg-zinc-900">
+    <section className="space-y-3 sm:rounded-xl sm:border sm:border-gray-300 sm:bg-gray-50 sm:p-4 sm:shadow-sm sm:dark:border-zinc-700 sm:dark:bg-zinc-900">
       {coverage.message ? (
         <p
           className={`text-sm ${

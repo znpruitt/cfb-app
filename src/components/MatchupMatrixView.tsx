@@ -64,12 +64,12 @@ export default function MatchupMatrixView({
   }
 
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+    <section className="rounded-xl border border-gray-300 bg-gray-50 p-3.5 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
       <div className="-mx-1 overflow-x-auto px-1">
         <table className="min-w-max border-separate border-spacing-0 text-center text-sm">
           <thead>
             <tr className="text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-              <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-200 bg-white px-2 py-1.5 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
+              <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-200 bg-gray-50 px-2 py-1.5 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
                 Owner
               </th>
               {matrix.owners.map((owner) => (

@@ -24,14 +24,14 @@ function deriveRankDeltas(
 function MovementBadge({ delta }: { delta: RankDelta }): React.ReactElement {
   if (delta === 'new') {
     return (
-      <span className="w-8 text-right text-xs font-medium text-zinc-400 dark:text-zinc-500">
+      <span className="w-8 text-right text-xs font-medium text-gray-400 dark:text-zinc-500">
         NR
       </span>
     );
   }
   if (delta === null || delta === 0) {
     return (
-      <span className="w-8 text-right text-xs text-zinc-400 dark:text-zinc-600" aria-label="No change">
+      <span className="w-8 text-right text-xs text-gray-400 dark:text-zinc-600" aria-label="No change">
         —
       </span>
     );
@@ -194,8 +194,8 @@ export default function RankingsPageContent({
                   onClick={() => setSelectedWeekIndex(index)}
                   className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                     index === resolvedIndex
-                      ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                      : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      ? 'bg-gray-200 text-gray-900 dark:bg-zinc-700 dark:text-zinc-100'
+                      : 'text-gray-500 hover:text-gray-800 dark:text-zinc-500 dark:hover:text-zinc-300'
                   }`}
                   aria-pressed={index === resolvedIndex}
                 >
