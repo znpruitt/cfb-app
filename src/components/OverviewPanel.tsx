@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
-import { getOwnerColor } from '../lib/ownerColors';
+import { buildOwnerColorMap } from '../lib/ownerColors';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
@@ -95,7 +95,6 @@ function PositionDeltaPanel({
       {/* Owner rows */}
       {owners.map((owner, i) => {
         const deltaByWeek = new Map(owner.deltas.map((d) => [d.week, d.delta]));
-        const nameColor = getOwnerColor(owner.ownerName);
         return (
           <div
             key={owner.ownerId}
@@ -104,8 +103,8 @@ function PositionDeltaPanel({
             }`}
           >
             <span
-              className="shrink-0 truncate text-[11px] font-medium"
-              style={{ width: NAME_COL_W, color: nameColor }}
+              className="shrink-0 truncate text-[11px] font-medium text-gray-900 dark:text-zinc-100"
+              style={{ width: NAME_COL_W }}
             >
               {owner.ownerName}
             </span>
@@ -363,9 +362,11 @@ type GbChangeData = {
 
 function GbChangeTable({
   standingsHistory,
+  standingsLeaders,
   weekLabel,
 }: {
   standingsHistory: StandingsHistory;
+  standingsLeaders: OwnerStandingsRow[];
   weekLabel?: (week: number) => string;
 }): React.ReactElement | null {
   const data = React.useMemo((): GbChangeData | null => {
@@ -374,6 +375,8 @@ function GbChangeTable({
     if (weeks.length === 0 || allSeries.length === 0) return null;
 
     const recentWeeks = weeks.slice(-5);
+    // Build a lookup from live standings for the authoritative GB value.
+    const liveGbByOwner = new Map(standingsLeaders.map((r) => [r.owner, r.gamesBack]));
     const rows: GbChangeRow[] = allSeries.map((s) => {
       const pointByWeek = new Map(s.points.map((p) => [p.week, p.value]));
       const allWeeks = weeks;
@@ -385,12 +388,18 @@ function GbChangeTable({
         if (current == null || previous == null) return null;
         return current - previous;
       });
-      const currentGb = s.points.at(-1)?.value ?? 0;
+      // Use live standings GB — not the last trend point.
+      const currentGb = liveGbByOwner.get(s.ownerName) ?? liveGbByOwner.get(s.ownerId) ?? 0;
       return { ownerId: s.ownerId, ownerName: s.ownerName, deltas, currentGb };
     });
 
     return { weeks: recentWeeks, rows };
-  }, [standingsHistory]);
+  }, [standingsHistory, standingsLeaders]);
+
+  const ownerColorMap = React.useMemo(
+    () => (data ? buildOwnerColorMap(data.rows.map((r) => r.ownerName)) : new Map<string, string>()),
+    [data]
+  );
 
   if (!data) return null;
 
@@ -419,7 +428,7 @@ function GbChangeTable({
       </div>
       {/* Owner rows */}
       {data.rows.map((row, i) => {
-        const nameColor = getOwnerColor(row.ownerName);
+        const nameColor = ownerColorMap.get(row.ownerName) ?? '#888';
         return (
           <div
             key={row.ownerId}
@@ -500,7 +509,7 @@ function PodiumCard({
             : 'text-gray-400 dark:text-zinc-500'
         }`}
       >
-        #{rank} · {label}
+        {isChampion ? `#${rank} · ${label}` : `#${rank}`}
       </p>
       <div className="mt-1.5 flex items-start justify-between gap-2">
         <p className="text-base font-bold text-gray-950 dark:text-zinc-50">{row.owner}</p>
@@ -582,6 +591,11 @@ function LeagueSummaryHero({
   );
 }
 
+function formatGb(gb: number): string {
+  if (gb === 0) return '—';
+  return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
+}
+
 function CondensedStandingsTable({
   rows,
   onOwnerSelect,
@@ -600,97 +614,70 @@ function CondensedStandingsTable({
   );
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <div className="min-w-full text-sm sm:text-[0.92rem]">
-        <div className="grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-200 px-2 py-1.5 text-xs uppercase tracking-wider text-gray-500 dark:border-zinc-700 dark:text-zinc-500">
-          <span className="font-semibold">Rank</span>
-          <span className="font-semibold">Owner · Record · Metrics</span>
-        </div>
-
+      <div className="min-w-full text-sm">
         {rows.map((row, index) => {
-          const isTopThree = index < 3;
           const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
           return (
             <div
               key={row.owner}
-              className={`grid grid-cols-[2.2rem_minmax(0,1fr)] items-center gap-x-2 border-b border-gray-100 px-2 py-2.5 dark:border-zinc-800 ${
-                index === 0
-                  ? 'bg-blue-100/90 ring-1 ring-inset ring-blue-300 dark:bg-blue-950/40 dark:ring-blue-800'
-                  : isTopThree
-                    ? 'bg-blue-50/60 dark:bg-blue-950/15'
-                    : 'odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900'
-              }`}
+              className="border-b border-gray-100 px-2 py-2 dark:border-zinc-800"
             >
-              <span className="text-base font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
-                {index + 1}
-                {(() => {
-                  const previousRank = previousRankLookup.get(row.owner);
-                  if (!previousRank || previousRank === index + 1) return null;
-                  const movedUp = previousRank > index + 1;
-                  return (
-                    <span
-                      className={`ml-1 text-xs font-semibold ${
-                        movedUp
-                          ? 'text-emerald-700 dark:text-emerald-300'
-                          : 'text-amber-700 dark:text-amber-300'
-                      }`}
-                      aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
-                    >
-                      {movedUp ? '↑' : '↓'}
-                    </span>
-                  );
-                })()}
-              </span>
-              <div className={`min-w-0 ${index > 2 ? 'text-gray-800 dark:text-zinc-200' : ''}`}>
-                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                  <span
-                    className={`min-w-0 truncate ${
-                      index === 0
-                        ? 'font-extrabold text-gray-950 dark:text-zinc-50'
-                        : isTopThree
-                          ? 'font-bold text-gray-950 dark:text-zinc-50'
-                          : 'font-semibold text-gray-900 dark:text-zinc-100'
-                    }`}
-                  >
-                    {onOwnerSelect ? (
-                      <button
-                        type="button"
-                        className="max-w-full truncate text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                        onClick={() => onOwnerSelect(row.owner)}
+              {/* Primary line: rank · name · badge · record · GB */}
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span className="text-sm tabular-nums text-gray-400 dark:text-zinc-500">
+                  {index + 1}
+                  {(() => {
+                    const previousRank = previousRankLookup.get(row.owner);
+                    if (!previousRank || previousRank === index + 1) return null;
+                    const movedUp = previousRank > index + 1;
+                    return (
+                      <span
+                        className={`ml-0.5 text-xs font-semibold ${
+                          movedUp
+                            ? 'text-emerald-700 dark:text-emerald-300'
+                            : 'text-amber-700 dark:text-amber-300'
+                        }`}
+                        aria-label={movedUp ? 'Moved up in standings' : 'Dropped in standings'}
                       >
-                        {row.owner}
-                      </button>
-                    ) : (
-                      row.owner
-                    )}
+                        {movedUp ? '↑' : '↓'}
+                      </span>
+                    );
+                  })()}
+                </span>
+                <span className="min-w-0 truncate font-semibold text-gray-950 dark:text-zinc-50">
+                  {onOwnerSelect ? (
+                    <button
+                      type="button"
+                      className="max-w-full truncate text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
+                      onClick={() => onOwnerSelect(row.owner)}
+                    >
+                      {row.owner}
+                    </button>
+                  ) : (
+                    row.owner
+                  )}
+                </span>
+                {index === 0 ? (
+                  <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                    {leaderLabel}
                   </span>
-                  {index === 0 ? (
-                    <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
-                      {leaderLabel}
-                    </span>
-                  ) : null}
-                  <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
-                    {row.wins}–{row.losses}
+                ) : null}
+                <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
+                  {row.wins}–{row.losses}
+                </span>
+                <span className="text-xs tabular-nums text-gray-400 dark:text-zinc-500">
+                  {formatGb(row.gamesBack)} GB
+                </span>
+                {liveCount > 0 ? (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                    {liveCount} live
                   </span>
-                </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 dark:text-zinc-400">
-                  <span>Win% {formatWinPct(row.winPct)}</span>
-                  <span className="text-gray-400 dark:text-zinc-500">
-                    GB{' '}
-                    {row.gamesBack === 0
-                      ? '—'
-                      : Number.isInteger(row.gamesBack)
-                        ? row.gamesBack
-                        : row.gamesBack.toFixed(1)}
-                  </span>
-                  <span className="text-gray-400 dark:text-zinc-500">
-                    Diff {formatDiff(row.pointDifferential)}
-                  </span>
-                  {liveCount > 0 ? (
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                      {liveCount} live
-                    </span>
-                  ) : null}
-                </div>
+                ) : null}
+              </div>
+              {/* Secondary line: Win% · Diff */}
+              <div className="mt-0.5 flex items-center gap-x-2 text-xs text-gray-400 dark:text-zinc-500">
+                <span>Win% {formatWinPct(row.winPct)}</span>
+                <span>Diff {formatDiff(row.pointDifferential)}</span>
               </div>
             </div>
           );
@@ -1109,7 +1096,7 @@ export default function OverviewPanel({
 
       <SectionDivider />
 
-      {/* Standings + Position Delta */}
+      {/* Standings (left: table + delta stacked) + Insights (right) */}
       <section>
         <SectionHeader
           title="Standings"
@@ -1134,8 +1121,9 @@ export default function OverviewPanel({
           {viewModel.standingsTopN.length === 0 ? (
             <EmptyState message="Add owners to populate standings." compact />
           ) : (
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="min-w-0 flex-1">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* Left half: Standings table + Last 5 Weeks stacked */}
+              <div className="min-w-0">
                 <CondensedStandingsTable
                   rows={viewModel.standingsTopN}
                   onOwnerSelect={onOwnerSelect}
@@ -1143,35 +1131,31 @@ export default function OverviewPanel({
                   liveCountByOwner={liveCountByOwner}
                   leaderLabel={viewModel.heroMode === 'podium' ? 'Champion' : 'Leader'}
                 />
+                {standingsHistory ? (
+                  <div className="mt-3 border-t border-gray-100 pt-3 dark:border-zinc-800">
+                    <PositionDeltaPanel
+                      standingsHistory={standingsHistory}
+                      weekLabel={weekLabelFn}
+                    />
+                  </div>
+                ) : null}
               </div>
-              {standingsHistory ? (
-                <div className="shrink-0 border-l border-gray-200 pl-3 dark:border-zinc-700">
-                  <PositionDeltaPanel
-                    standingsHistory={standingsHistory}
-                    weekLabel={weekLabelFn}
-                  />
+              {/* Right half: Insights */}
+              {sharedInsights.length > 0 ? (
+                <div className="min-w-0">
+                  <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
+                  <div className="mt-2">
+                    <HighlightList
+                      insights={sharedInsights}
+                      leagueSlug={leagueSlug}
+                    />
+                  </div>
                 </div>
               ) : null}
             </div>
           )}
         </div>
       </section>
-
-      {/* Insights (standalone) */}
-      {sharedInsights.length > 0 ? (
-        <>
-          <SectionDivider />
-          <section>
-            <SectionHeader title="Insights" />
-            <div className="mt-2.5">
-              <HighlightList
-                insights={sharedInsights}
-                leagueSlug={leagueSlug}
-              />
-            </div>
-          </section>
-        </>
-      ) : null}
 
       <SectionDivider />
 
@@ -1251,6 +1235,7 @@ export default function OverviewPanel({
               <div className="shrink-0">
                 <GbChangeTable
                   standingsHistory={standingsHistory}
+                  standingsLeaders={standingsLeaders}
                   weekLabel={weekLabelFn}
                 />
               </div>

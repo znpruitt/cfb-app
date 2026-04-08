@@ -19,7 +19,7 @@
 ## Tables
 - Tables serve as legends when charts are present — do not duplicate the table data in a separate legend
 - Color encodes identity at the interaction layer — row tints on hover/select connect table to chart
-- Rank numbers carry the owner's chart line color — minimal footprint, maximum utility
+- On the full Standings page, rank numbers carry the owner's chart line color — minimal footprint, maximum utility
 - Redundant columns should be hidden when they carry no information (e.g. MOVE column at season end)
 - On mobile, hide lower-priority columns (PF, PA) and remove card borders — let the table breathe
 
@@ -67,7 +67,8 @@
 ## Owner Colors
 - Each owner has a single persistent assigned color defined in src/lib/ownerColors.ts
 - getOwnerColor(ownerName) is the sole source of owner color across the entire app
-- Owner colors are used for chart lines, color-coded table name labels, and any future owner references
+- Handpicked 14-color palette — all visually distinct in dark mode, no near-duplicates
+- Owner colors are used for chart lines and their companion table legend labels
 - Colors are fixed — not derived from standings position or render order
 - Future: user-assignable colors are a planned enhancement but not yet implemented
 
@@ -93,6 +94,21 @@
 - Inline chart labels removed — companion table serves as legend
 - Companion table shows GB change over last 5 weeks with total GB column
 - Owner names color-coded using getOwnerColor()
+
+## Color encoding
+- Owner names are color-coded ONLY when the table is serving as a legend for an adjacent chart
+- Rank numbers in all standings tables are plain muted text — never colored
+- Chart line colors and their companion table legend colors must always match via getOwnerColor()
+
+## Overview standings row hierarchy
+- Primary line: rank (muted) · name · champion badge (if applicable) · record · GB
+- Secondary line: Win% · Diff — smaller font, muted
+- No column headers on condensed snapshot tables — data is self-evident at this density
+- GB is the primary metric in a pool format and sits on the primary line
+
+## Section layout
+- On Overview: Standings + Last 5 Weeks (left half) and Insights (right half) share a two-column layout
+- Insights is not a standalone full-width section on Overview
 
 ## Scope discipline
 - Do not add features not explicitly requested
