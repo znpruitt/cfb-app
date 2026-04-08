@@ -909,7 +909,6 @@ type OverviewPanelProps = {
   context: OverviewContext;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
-  onViewStandings?: () => void;
   onViewSchedule?: () => void;
   onViewMatchups?: () => void;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
@@ -930,7 +929,6 @@ export default function OverviewPanel({
   context,
   displayTimeZone,
   onOwnerSelect,
-  onViewStandings,
   onViewSchedule,
   onViewMatchups,
   rankingsByTeamId = new Map(),

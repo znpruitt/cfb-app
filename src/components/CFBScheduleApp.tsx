@@ -1520,7 +1520,6 @@ export default function CFBScheduleApp({
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
                   }}
-                  onViewStandings={() => setWeekViewMode('standings')}
                   onViewSchedule={() => {
                     setFocusedGameId(null);
                     setWeekViewMode('schedule');
