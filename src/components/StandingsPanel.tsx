@@ -2,7 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
-import { buildOwnerColorMap, getOwnerColor } from '../app/trends/presentationColors';
+import { getOwnerColor } from '../lib/ownerColors';
 import {
   deriveLeagueInsights,
   deriveStandingsInsights,
@@ -156,14 +156,10 @@ export default function StandingsPanel({
     [rows, seasonContext, standingsHistory]
   );
 
-  const ownerColorFn = React.useMemo(() => {
-    const ownerIds = visibleRows.map((r) => r.owner);
-    const colorMap = buildOwnerColorMap(ownerIds);
-    return (ownerId: string): string => {
-      const idx = ownerIds.indexOf(ownerId);
-      return colorMap.get(ownerId) ?? getOwnerColor(ownerId, idx >= 0 ? idx : 0, ownerIds.length || 1);
-    };
-  }, [visibleRows]);
+  const ownerColorFn = React.useCallback(
+    (ownerId: string): string => getOwnerColor(ownerId),
+    []
+  );
 
   const handleToggleOwner = React.useCallback((ownerId: string) => {
     setSelectedOwnerSet((current) => {

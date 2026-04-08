@@ -58,6 +58,42 @@
 - Game selection is context-aware: postseason surfaces playoff/bowl games, in-season surfaces current week
 - First Round CFP games are identified by neutral site = false (campus games)
 
+## Containerization
+- Outer card containers are removed from all Overview sections except the season podium
+- Individual game cards retain borders — they are discrete objects
+- Horizontal dividers (0.5px, var(--color-border-tertiary)) separate major sections
+- Card chrome is reserved for content that has a meaningful border signal (e.g. amber champion border)
+
+## Owner Colors
+- Each owner has a single persistent assigned color defined in src/lib/ownerColors.ts
+- getOwnerColor(ownerName) is the sole source of owner color across the entire app
+- Owner colors are used for chart lines, color-coded table name labels, and any future owner references
+- Colors are fixed — not derived from standings position or render order
+- Future: user-assignable colors are a planned enhancement but not yet implemented
+
+## Podium
+- Three equal horizontal cards
+- Champion (#1) gets amber border (1.5px, #BA7517) and amber rank label
+- #2 and #3 get neutral borders and muted rank labels
+- No narrative text on podium cards — data speaks for itself
+- No "Season podium" section title
+- Amber is reserved exclusively for champion signals — never used for decoration
+
+## Champion Narrative Copy
+- Champion margin is always expressed in games back, never win percentage delta
+- Win% is a tiebreaker — never the primary margin descriptor
+
+## Section Headers
+- Plain text section title, 15px, font-weight 500
+- CTAs are plain text ↗ aligned right in the same header row
+- No card chrome around section headers
+
+## Trends / GB Race
+- Renamed from "Trends" to "GB Race" on Overview
+- Inline chart labels removed — companion table serves as legend
+- Companion table shows GB change over last 5 weeks with total GB column
+- Owner names color-coded using getOwnerColor()
+
 ## Scope discipline
 - Do not add features not explicitly requested
 - If a better solution exists, recommend it before implementing

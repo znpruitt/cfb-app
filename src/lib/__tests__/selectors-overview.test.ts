@@ -567,7 +567,7 @@ test('selectOverviewViewModel switches hero to podium for complete season with t
 
   assert.equal(model.heroMode, 'podium');
   assert.equal(model.podiumLeaders.length, 3);
-  assert.match(model.heroNarrative ?? '', /won the title by 0.062 over Maleski/);
+  assert.match(model.heroNarrative ?? '', /won the title by 1 game over Maleski/);
 });
 
 test('selectOverviewViewModel hero narrative handles two-way top tie', () => {
@@ -762,7 +762,7 @@ test('selectOverviewViewModel hero narrative keeps non-tie winner phrasing', () 
 
   assert.equal(model.isTopTie, false);
   assert.equal(model.topTierLeaders.length, 1);
-  assert.match(model.heroNarrative ?? '', /Alice won the title by 0.083 over Bob/);
+  assert.match(model.heroNarrative ?? '', /Alice won the title by 1 game over Bob/);
 });
 
 test('selectOverviewViewModel is stable for identical inputs', () => {
