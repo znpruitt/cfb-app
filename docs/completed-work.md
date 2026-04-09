@@ -600,6 +600,32 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### P7A-1 — Founded Year (Phase 7A)
+
+**Data model**
+- Added foundedYear?: number to the League type in src/lib/league.ts
+- Auto-populated on league creation from current year — no commissioner input required
+- PATCH /api/admin/leagues/[slug] now accepts and validates foundedYear (must be >= 1900, <= current year)
+
+**Settings UI**
+- Added Founded Year field to LeagueSettingsForm — editable number input
+- Field pre-populates from saved value or current year if not yet set
+- Helper text removed — field is self-explanatory
+
+**History page**
+- LeaguePageShell renders "Est. {foundedYear}" as subtitle when activeTab is history
+- Subtitle only renders when foundedYear is explicitly set — no misleading fallback
+- Added force-dynamic to history/page.tsx to prevent Next.js caching stale league data
+- Fixed bug: second LeaguePageShell render path (main content) was missing foundedYear prop — only the empty state path had it
+- TSC League foundedYear set to 2021 in production
+
+**Debugging notes**
+- Root cause of rendering failure: one of two render paths in history/page.tsx was missing the prop due to a partial find-and-replace during implementation
+- Confirmed via Vercel function logs showing foundedYear: undefined in LeaguePageShell
+- Diagnostic API route and console.logs removed before merge
+
+---
+
 *Phases 1–3 entries have been moved to `docs/completed-work-archive.md`.*
 
 ---
