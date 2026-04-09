@@ -21,6 +21,8 @@ import SeasonListPanel from '@/components/history/SeasonListPanel';
 import LeaguePageShell from '@/components/LeaguePageShell';
 import type { SeasonArchive } from '@/lib/seasonArchive';
 
+export const dynamic = 'force-dynamic';
+
 export default async function LeagueHistoryPage({
   params,
 }: {
@@ -33,6 +35,8 @@ export default async function LeagueHistoryPage({
     getLeague(slug),
   ]);
   if (!league) notFound();
+
+  console.log('[DIAG] league.foundedYear:', league.foundedYear);
 
   const isAdmin =
     (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })

@@ -122,7 +122,6 @@ export default function LeagueSettingsForm({
             step={1}
             placeholder={String(new Date().getFullYear())}
           />
-          <p className="mt-1 text-xs text-zinc-500">Override if your league predates this app</p>
         </div>
         <div className="flex items-center gap-3">
           <button
