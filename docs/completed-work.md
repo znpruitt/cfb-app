@@ -565,6 +565,43 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### Light/Dark Mode & Owner Color System — Complete
+
+**Status:** Complete. Branch `claude/audit-light-mode-styles-aVA8S`.
+**PROMPT_IDs:** DIAG-LIGHT-MODE-AUDIT-v1, LIGHT-MODE-FIX-v1, LIGHT-MODE-FIX-BUILD-v1, OWNER-COLOR-PALETTE-v2, OWNER-COLOR-CALLSITE-UPDATE-v1, LANDING-LIGHT-MODE-FIX-v1, OWNER-COLOR-PALETTE-v3, OWNER-COLOR-PALETTE-TARGETED-FIX-v1, OWNER-COLOR-PALETTE-TARGETED-FIX-v2, DIAG-OWNER-COLOR-ARCHITECTURE-v1, OWNER-COLOR-CENTRALIZE-v1, OWNER-COLOR-LIGHT-PALETTE-FIX-v1
+
+**Goals completed:**
+- App responds to OS `prefers-color-scheme` preference instead of hardcoded dark mode
+- Light mode is fully styled across all surfaces (cards, tables, navigation, landing page)
+- Owner color system rebuilt with research-validated Tableau-derived 20-color palette
+- Owner colors are consistent across all surfaces (single centralized color map)
+
+**Key outcomes:**
+- Switched Tailwind from class-based to `darkMode: 'media'` strategy; removed hardcoded `.dark` class from `<html>`
+- CSS custom properties moved from `.dark {}` to `@media (prefers-color-scheme: dark)`
+- Card surfaces use `bg-gray-50 border-gray-300` in light mode for visible separation from white page background
+- Navigation tabs, text, borders all have proper light/dark variants across 14+ component files
+- Landing page (`RootPageClient`) converted from dark-only to theme-aware
+- Owner color palette: replaced algorithmic HSL generation with handpicked 20-color Tableau-derived categorical palette (PALETTE_DARK + PALETTE_LIGHT), optimized for perceptual separation
+- Light palette uses rich saturated colors at 40-55% lightness for readability on white backgrounds
+- Centralized `ownerColorMap` built once in `CFBScheduleApp.tsx` from full standings owner list, passed via props to all consumers (StandingsPanel, OverviewPanel, MiniTrendsGrid, TrendsDetailSurface)
+- Eliminated per-component `buildOwnerColorMap()` calls that used owner subsets, fixing color inconsistency where the same owner got different colors on different surfaces
+- Added `isDark` state with `matchMedia` listener for live theme switching reactivity
+- Deleted dead `src/app/trends/presentationColors.ts` (duplicate incompatible implementation, zero imports)
+- `withColorAlpha` updated to work with hex colors (appends 2-digit hex alpha)
+
+**Files changed (key):**
+- `tailwind.config.ts`, `src/app/layout.tsx`, `src/app/globals.css` — media strategy switch
+- `src/lib/ownerColors.ts` — palette and API redesign
+- `src/components/CFBScheduleApp.tsx` — centralized ownerColorMap
+- `src/components/StandingsPanel.tsx`, `OverviewPanel.tsx`, `MiniTrendsGrid.tsx` — prop threading
+- `src/app/trends/TrendsDetailSurface.tsx` — prop threading
+- `src/components/RootPageClient.tsx` — landing page light mode
+- `src/components/WeekViewTabs.tsx`, `LeaguePageShell.tsx`, `GameWeekPanel.tsx`, `RankingsPageContent.tsx`, `MatchupMatrixView.tsx` — light mode styling
+- `DESIGN.md` — documented light/dark mode design principles
+
+---
+
 *Phases 1–3 entries have been moved to `docs/completed-work-archive.md`.*
 
 ---
