@@ -30,7 +30,7 @@ export default function AliasEditorPanel({
   return (
     <section className="rounded border border-gray-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Team Alias Editor (Season {season})</h2>
+        <h2 className="text-lg font-semibold">{season > 0 ? `Team Alias Editor (Season ${season})` : 'Team Alias Editor'}</h2>
         <div className="flex gap-2">
           <button
             className="px-3 py-1 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"

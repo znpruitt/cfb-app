@@ -25,12 +25,16 @@ const platformCards = [
     title: 'Data Cache',
     desc: 'SP+ ratings, win totals, schedule, scores, historical data',
   },
+  {
+    href: '/admin/aliases',
+    title: 'Aliases',
+    desc: 'Manage team name corrections across all leagues',
+  },
 ];
 
 const commissionerTools = [
   { key: 'roster', title: 'Roster', desc: 'Manage team ownership for this season' },
   { key: 'draft', title: 'Draft', desc: 'Set up and run the season draft', external: true },
-  { key: 'data', title: 'Data', desc: 'Refresh data and manage team aliases' },
   { key: 'settings', title: 'Settings', desc: 'League name, season year, and founded year' },
 ] as const;
 

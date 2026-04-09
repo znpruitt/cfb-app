@@ -59,12 +59,6 @@ export default async function LeagueStatusPanel({
 
   const csvText = typeof rosterRecord?.value === 'string' ? rosterRecord.value : '';
   const hasRoster = csvText.trim().length > 0;
-  const ownerCount = hasRoster
-    ? csvText
-        .trim()
-        .split('\n')
-        .filter((l, i) => i > 0 && l.trim().length > 0).length
-    : 0;
 
   const hasSchedule = Boolean(scheduleRecord);
   const hasScores = Boolean(scoresRecord);
@@ -76,15 +70,16 @@ export default async function LeagueStatusPanel({
       <div className="space-y-2 text-sm">
         {/* Roster */}
         <div className="flex items-center gap-2">
-          <StatusDot ok={hasRoster} />
+          {hasRoster ? (
+            <StatusDot ok={true} />
+          ) : (
+            <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-red-500" />
+          )}
           <span className="w-20 text-gray-600 dark:text-zinc-300">Roster</span>
           {hasRoster ? (
-            <span className="text-gray-500 dark:text-zinc-400">
-              {ownerCount} owner{ownerCount !== 1 ? 's' : ''} &middot;{' '}
-              {formatAge(rosterRecord!.updatedAt)}
-            </span>
+            <span className="text-gray-500 dark:text-zinc-400">Roster set</span>
           ) : (
-            <span className="text-amber-600 dark:text-amber-400">no CSV uploaded</span>
+            <span className="text-red-600 dark:text-red-400">Not configured</span>
           )}
         </div>
 
