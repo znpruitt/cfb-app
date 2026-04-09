@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import AdminAuthPanel from 'components/AdminAuthPanel';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { League } from '@/lib/league';
@@ -25,6 +26,7 @@ type EditState = {
 };
 
 export default function AdminLeaguesPage() {
+  const router = useRouter();
   const [leagues, setLeagues] = useState<League[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -170,11 +172,7 @@ export default function AdminLeaguesPage() {
         setCreateError(text || `POST /api/admin/leagues ${res.status}`);
         return;
       }
-      const data = (await res.json()) as { leagues: League[] };
-      setLeagues(data.leagues);
-      setSlug('');
-      setDisplayName('');
-      setYear(String(new Date().getFullYear()));
+      router.push(`/admin/${trimmedSlug}`);
     } catch (err) {
       setCreateError((err as Error).message);
     } finally {

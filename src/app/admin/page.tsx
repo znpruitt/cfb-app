@@ -31,6 +31,7 @@ const commissionerTools = [
   { key: 'roster', title: 'Roster', desc: 'Manage team ownership for this season' },
   { key: 'draft', title: 'Draft', desc: 'Set up and run the season draft', external: true },
   { key: 'data', title: 'Data', desc: 'Refresh data and manage team aliases' },
+  { key: 'settings', title: 'Settings', desc: 'League name, season year, and founded year' },
 ] as const;
 
 export default async function AdminPage() {
@@ -91,7 +92,7 @@ export default async function AdminPage() {
                   {league.slug}
                 </span>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {commissionerTools.map((tool) => {
                   const href =
                     tool.key === 'draft'

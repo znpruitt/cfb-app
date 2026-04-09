@@ -2,6 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { getLeague } from '@/lib/leagueRegistry';
+import { draftScope, type DraftPhase } from '@/lib/draft';
+import { getAppState } from '@/lib/server/appStateStore';
+import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,9 +28,15 @@ const tools = [
   {
     key: 'settings',
     title: 'Settings',
-    desc: 'Edit league display name and season year',
+    desc: 'League name, season year, and founded year',
   },
 ] as const;
+
+type SetupStep = {
+  label: string;
+  done: boolean;
+  href: string | null;
+};
 
 export default async function AdminLeaguePage({
   params,
@@ -38,6 +47,52 @@ export default async function AdminLeaguePage({
   const league = await getLeague(slug);
 
   if (!league) notFound();
+
+  const year = league.year;
+
+  // Fetch status data for the checklist (same data LeagueStatusPanel uses)
+  let hasRoster = false;
+  let hasSchedule = false;
+  let hasScores = false;
+  let draftPhase: DraftPhase | null = null;
+
+  try {
+    const [rosterRecord, scheduleRecord, scoresRecord, draftRecord] = await Promise.all([
+      getAppState<string>(`owners:${slug}:${year}`, 'csv'),
+      getAppState<unknown>('schedule', `${year}-all-all`).then(
+        (r) => r ?? getAppState<unknown>('schedule', `${year}-all-regular`)
+      ),
+      getAppState<unknown>('scores', `${year}-all-regular`),
+      getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
+    ]);
+
+    const csvText = typeof rosterRecord?.value === 'string' ? rosterRecord.value : '';
+    hasRoster = csvText.trim().split('\n').filter((l, i) => i > 0 && l.trim().length > 0).length > 0;
+    hasSchedule = Boolean(scheduleRecord);
+    hasScores = Boolean(scoresRecord);
+    draftPhase = draftRecord?.value?.phase ?? null;
+  } catch {
+    // Storage unavailable — checklist will show all incomplete
+  }
+
+  const steps: SetupStep[] = [
+    { label: 'League created', done: true, href: null },
+    {
+      label: 'Owners configured',
+      done: hasRoster,
+      href: hasRoster ? null : `/admin/${slug}/roster`,
+    },
+    {
+      label: 'Draft confirmed',
+      done: draftPhase === 'complete' && hasRoster,
+      href: draftPhase === 'complete' && hasRoster ? null : `/league/${slug}/draft/setup`,
+    },
+    {
+      label: 'Season live',
+      done: hasSchedule && hasScores,
+      href: hasSchedule && hasScores ? null : `/admin/${slug}/data`,
+    },
+  ];
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -53,6 +108,33 @@ export default async function AdminLeaguePage({
         </h1>
       </div>
 
+      {/* Status panel */}
+      <LeagueStatusPanel slug={slug} year={year} />
+
+      {/* Setup checklist */}
+      <section className="rounded-lg border border-zinc-700 bg-zinc-900 p-5 space-y-3">
+        <h2 className="text-base font-medium text-zinc-100">Setup Progress</h2>
+        <ol className="space-y-2 text-sm">
+          {steps.map((step, i) => (
+            <li key={i} className="flex items-center gap-2">
+              <span className={step.done ? 'text-green-400' : 'text-zinc-600'}>
+                {step.done ? '✓' : '○'}
+              </span>
+              {step.done || !step.href ? (
+                <span className={step.done ? 'text-zinc-300' : 'text-zinc-500'}>
+                  {step.label}
+                </span>
+              ) : (
+                <Link href={step.href} className="text-blue-400 hover:underline">
+                  {step.label}
+                </Link>
+              )}
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* Tool cards */}
       <div className="grid gap-4 sm:grid-cols-2">
         {tools.map((tool) => {
           const href =
