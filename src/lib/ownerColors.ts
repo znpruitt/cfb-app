@@ -45,26 +45,26 @@ export const PALETTE_DARK: readonly string[] = [
  * for readable contrast on white backgrounds.
  */
 export const PALETTE_LIGHT: readonly string[] = [
-  '#2E5F8A', // steel blue
-  '#C46D0A', // orange
-  '#B83336', // red
-  '#4A8C87', // teal
-  '#357A2C', // green
-  '#C9A000', // yellow
-  '#8A5580', // purple
-  '#E06070', // pink
-  '#6E4F3A', // brown
-  '#7A7573', // gray
-  '#0E8A9A', // dark cyan
-  '#B5296A', // deep pink
-  '#8A7010', // dark yellow
-  '#0D5A8A', // dark navy
-  '#7C7C00', // dark olive
-  '#534F4E', // dark gray
-  '#5A9993', // light teal
-  '#A8836F', // tan
-  '#5AAAD4', // light blue
-  '#D4894A', // light orange
+  '#C0392B', // rich red
+  '#D35400', // rich orange
+  '#D4AC0D', // rich gold
+  '#1E8449', // rich green
+  '#1A5276', // rich navy
+  '#7D3C98', // rich purple
+  '#CB4335', // rich coral
+  '#117A65', // rich teal
+  '#B7950B', // rich amber
+  '#1F618D', // rich blue
+  '#943126', // rich crimson
+  '#196F3D', // rich forest
+  '#6C3483', // rich violet
+  '#0E6655', // rich emerald
+  '#935116', // rich brown
+  '#1A237E', // rich indigo
+  '#880E4F', // rich magenta
+  '#4A235A', // rich plum
+  '#1B5E20', // rich dark green
+  '#BF360C', // rich burnt orange
 ];
 
 const PALETTE_SIZE = 20;
