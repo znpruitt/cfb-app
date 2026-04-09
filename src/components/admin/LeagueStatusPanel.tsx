@@ -59,11 +59,18 @@ export default async function LeagueStatusPanel({
 
   const csvText = typeof rosterRecord?.value === 'string' ? rosterRecord.value : '';
   const hasRoster = csvText.trim().length > 0;
-  const ownerCount = hasRoster
-    ? csvText
-        .trim()
-        .split('\n')
-        .filter((l, i) => i > 0 && l.trim().length > 0).length
+  const memberCount = hasRoster
+    ? new Set(
+        csvText
+          .trim()
+          .split('\n')
+          .slice(1)
+          .map((l) => {
+            const commaIdx = l.indexOf(',');
+            return commaIdx >= 0 ? l.slice(commaIdx + 1).trim() : '';
+          })
+          .filter((owner) => owner.length > 0)
+      ).size
     : 0;
 
   const hasSchedule = Boolean(scheduleRecord);
@@ -80,8 +87,7 @@ export default async function LeagueStatusPanel({
           <span className="w-20 text-gray-600 dark:text-zinc-300">Roster</span>
           {hasRoster ? (
             <span className="text-gray-500 dark:text-zinc-400">
-              {ownerCount} owner{ownerCount !== 1 ? 's' : ''} &middot;{' '}
-              {formatAge(rosterRecord!.updatedAt)}
+              {memberCount} member{memberCount !== 1 ? 's' : ''}
             </span>
           ) : (
             <span className="text-amber-600 dark:text-amber-400">no CSV uploaded</span>
