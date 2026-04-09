@@ -44,14 +44,13 @@ export default async function AdminLeaguePage({
 
   if (!league) notFound();
 
-  // Seed status if absent — ensures existing leagues get a default status on first hub load
-  let leagueStatus: LeagueStatus = league.status ?? { state: 'season', year: league.year };
+  const leagueStatus: LeagueStatus = league.status ?? { state: 'season', year: league.year };
+
+  // Seed status if absent — fire-and-forget; display uses in-memory value, write does not block render
   if (!league.status) {
-    try {
-      await updateLeagueStatus(slug, leagueStatus);
-    } catch {
-      // Non-fatal — status display still works from the default
-    }
+    updateLeagueStatus(slug, leagueStatus).catch(() => {
+      // Non-fatal
+    });
   }
 
   const year = league.year;
