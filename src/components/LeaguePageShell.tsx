@@ -7,6 +7,7 @@ type LeaguePageShellProps = {
   leagueSlug: string;
   leagueDisplayName: string;
   leagueYear?: number;
+  foundedYear?: number;
   isAdmin?: boolean;
   activeTab: LeagueTab;
   children: React.ReactNode;
@@ -29,6 +30,7 @@ export default function LeaguePageShell({
   leagueSlug,
   leagueDisplayName,
   leagueYear,
+  foundedYear,
   isAdmin,
   activeTab,
   children,
@@ -41,7 +43,7 @@ export default function LeaguePageShell({
           <div className="min-w-0 flex-1 md:flex-none">
             <h1 className="text-xl font-medium">{leagueDisplayName}</h1>
             <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
-              {activeTab === 'history' ? 'Est. 2021' : leagueYear != null ? `${leagueYear} season` : null}
+              {activeTab === 'history' ? (foundedYear != null ? `Est. ${foundedYear}` : null) : leagueYear != null ? `${leagueYear} season` : null}
             </p>
           </div>
 

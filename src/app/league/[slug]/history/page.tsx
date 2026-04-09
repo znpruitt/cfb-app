@@ -21,6 +21,8 @@ import SeasonListPanel from '@/components/history/SeasonListPanel';
 import LeaguePageShell from '@/components/LeaguePageShell';
 import type { SeasonArchive } from '@/lib/seasonArchive';
 
+export const dynamic = 'force-dynamic';
+
 export default async function LeagueHistoryPage({
   params,
 }: {
@@ -47,6 +49,7 @@ export default async function LeagueHistoryPage({
           leagueSlug={slug}
           leagueDisplayName={league.displayName}
           leagueYear={league.year}
+          foundedYear={league.foundedYear}
           isAdmin={isAdmin}
           activeTab="history"
         >

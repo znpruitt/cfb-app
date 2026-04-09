@@ -33,6 +33,7 @@ export default async function AdminLeagueSettingsPage({
         slug={slug}
         initialDisplayName={league.displayName}
         initialYear={league.year}
+        initialFoundedYear={league.foundedYear}
       />
     </main>
   );

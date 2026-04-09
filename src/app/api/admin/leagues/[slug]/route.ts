@@ -27,7 +27,7 @@ export async function PATCH(
   }
 
   const obj = body as Record<string, unknown>;
-  const updates: { displayName?: string; year?: number } = {};
+  const updates: { displayName?: string; year?: number; foundedYear?: number } = {};
 
   if ('displayName' in obj) {
     if (typeof obj.displayName !== 'string' || !obj.displayName.trim()) {
@@ -49,8 +49,21 @@ export async function PATCH(
     updates.year = year;
   }
 
+  if ('foundedYear' in obj) {
+    const fy =
+      typeof obj.foundedYear === 'number'
+        ? obj.foundedYear
+        : typeof obj.foundedYear === 'string'
+          ? Number(obj.foundedYear)
+          : NaN;
+    if (!Number.isFinite(fy) || fy < 1900 || fy > new Date().getFullYear()) {
+      return new Response('foundedYear must be between 1900 and the current year', { status: 400 });
+    }
+    updates.foundedYear = fy;
+  }
+
   if (Object.keys(updates).length === 0) {
-    return new Response('No updatable fields provided (displayName, year)', { status: 400 });
+    return new Response('No updatable fields provided (displayName, year, foundedYear)', { status: 400 });
   }
 
   const updated = await updateLeague(slug, updates);
