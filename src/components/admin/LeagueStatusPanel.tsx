@@ -22,12 +22,12 @@ function StatusDot({ ok }: { ok: boolean }) {
 }
 
 const PHASE_COLOR: Record<DraftPhase, string> = {
-  setup: 'text-zinc-400',
-  settings: 'text-zinc-400',
-  preview: 'text-blue-400',
-  live: 'text-green-400',
-  paused: 'text-amber-400',
-  complete: 'text-zinc-300',
+  setup: 'text-gray-500 dark:text-zinc-400',
+  settings: 'text-gray-500 dark:text-zinc-400',
+  preview: 'text-blue-600 dark:text-blue-400',
+  live: 'text-green-600 dark:text-green-400',
+  paused: 'text-amber-600 dark:text-amber-400',
+  complete: 'text-gray-600 dark:text-zinc-300',
 };
 
 export default async function LeagueStatusPanel({
@@ -71,53 +71,53 @@ export default async function LeagueStatusPanel({
   const draftPhase = draftRecord?.value?.phase ?? null;
 
   return (
-    <section className="rounded-lg border border-zinc-700 bg-zinc-900 p-5 space-y-3">
-      <h2 className="text-base font-medium text-zinc-100">Status</h2>
+    <section className="rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
+      <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">Status</h2>
       <div className="space-y-2 text-sm">
         {/* Roster */}
         <div className="flex items-center gap-2">
           <StatusDot ok={hasRoster} />
-          <span className="w-20 text-zinc-300">Roster</span>
+          <span className="w-20 text-gray-600 dark:text-zinc-300">Roster</span>
           {hasRoster ? (
-            <span className="text-zinc-400">
+            <span className="text-gray-500 dark:text-zinc-400">
               {ownerCount} owner{ownerCount !== 1 ? 's' : ''} &middot;{' '}
               {formatAge(rosterRecord!.updatedAt)}
             </span>
           ) : (
-            <span className="text-amber-400">no CSV uploaded</span>
+            <span className="text-amber-600 dark:text-amber-400">no CSV uploaded</span>
           )}
         </div>
 
         {/* Schedule */}
         <div className="flex items-center gap-2">
           <StatusDot ok={hasSchedule} />
-          <span className="w-20 text-zinc-300">Schedule</span>
+          <span className="w-20 text-gray-600 dark:text-zinc-300">Schedule</span>
           {hasSchedule ? (
-            <span className="text-zinc-400">{formatAge(scheduleRecord!.updatedAt)}</span>
+            <span className="text-gray-500 dark:text-zinc-400">{formatAge(scheduleRecord!.updatedAt)}</span>
           ) : (
-            <span className="text-amber-400">not cached</span>
+            <span className="text-amber-600 dark:text-amber-400">not cached</span>
           )}
         </div>
 
         {/* Scores */}
         <div className="flex items-center gap-2">
           <StatusDot ok={hasScores} />
-          <span className="w-20 text-zinc-300">Scores</span>
+          <span className="w-20 text-gray-600 dark:text-zinc-300">Scores</span>
           {hasScores ? (
-            <span className="text-zinc-400">{formatAge(scoresRecord!.updatedAt)}</span>
+            <span className="text-gray-500 dark:text-zinc-400">{formatAge(scoresRecord!.updatedAt)}</span>
           ) : (
-            <span className="text-amber-400">not cached</span>
+            <span className="text-amber-600 dark:text-amber-400">not cached</span>
           )}
         </div>
 
         {/* Draft */}
         <div className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-zinc-600" />
-          <span className="w-20 text-zinc-300">Draft</span>
+          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-gray-200 dark:bg-zinc-600" />
+          <span className="w-20 text-gray-600 dark:text-zinc-300">Draft</span>
           {draftPhase ? (
             <span className={`font-mono text-xs ${PHASE_COLOR[draftPhase]}`}>{draftPhase}</span>
           ) : (
-            <span className="text-zinc-500">not started</span>
+            <span className="text-gray-400 dark:text-zinc-500">not started</span>
           )}
         </div>
       </div>

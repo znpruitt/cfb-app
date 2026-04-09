@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import LeagueDataPanel from '@/components/admin/LeagueDataPanel';
-import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
 import { getLeague } from '@/lib/leagueRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -22,15 +21,14 @@ export default async function AdminLeagueDataPage({
       <div className="space-y-1">
         <Link
           href={`/admin/${slug}`}
-          className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+          className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
         >
           ← {league.displayName}
         </Link>
-        <h1 className="text-2xl font-semibold text-zinc-100">
+        <h1 className="text-2xl font-semibold">
           {league.displayName} — Data
         </h1>
       </div>
-      <LeagueStatusPanel slug={slug} year={league.year} />
       <LeagueDataPanel slug={slug} year={league.year} />
     </main>
   );

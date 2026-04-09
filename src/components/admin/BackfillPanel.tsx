@@ -27,7 +27,7 @@ type BackfillConfirmationRequired = {
 const primaryButtonClass =
   'px-4 py-2 rounded border border-blue-600 bg-blue-600 text-sm font-medium text-white transition-colors hover:bg-blue-700 hover:border-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700';
 const controlButtonClass =
-  'px-3 py-2 rounded border border-zinc-700 bg-zinc-800 text-sm text-zinc-100 transition-colors hover:bg-zinc-700';
+  'px-3 py-2 rounded border border-gray-300 bg-gray-50 text-sm text-gray-900 transition-colors hover:bg-gray-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
 
 export default function BackfillPanel({ leagues }: Props) {
   const [selectedSlug, setSelectedSlug] = useState(leagues[0]?.slug ?? '');
@@ -55,10 +55,8 @@ export default function BackfillPanel({ leagues }: Props) {
       }
       const data = (await res.json()) as BackfillSuccess | BackfillConfirmationRequired;
       if ('success' in data && data.success) {
-        // No existing archive — data was written on this call. Treat as terminal.
         setResult(data);
       } else {
-        // Existing archive found — show diff and require explicit confirmation.
         setPreview(data as BackfillConfirmationRequired);
       }
     } catch (err) {
@@ -94,14 +92,14 @@ export default function BackfillPanel({ leagues }: Props) {
   if (leagues.length === 0) return null;
 
   return (
-    <section className="rounded-lg border border-zinc-700 bg-zinc-900 p-5">
-      <h2 className="mb-2 text-base font-medium text-zinc-100">Archive a Past Season</h2>
-      <p className="mb-4 text-sm text-zinc-400">
+    <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
+      <h2 className="mb-2 text-base font-medium text-gray-900 dark:text-zinc-100">Archive a Past Season</h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-zinc-400">
         Save a completed past season to the history archive without advancing the active season year.
       </p>
 
       <div className="mb-4 flex flex-wrap gap-4">
-        <label className="flex flex-col gap-1 text-sm text-zinc-300">
+        <label className="flex flex-col gap-1 text-sm text-gray-600 dark:text-zinc-300">
           League
           <select
             value={selectedSlug}
@@ -111,7 +109,7 @@ export default function BackfillPanel({ leagues }: Props) {
               setResult(null);
               setError(null);
             }}
-            className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+            className="rounded border border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           >
             {leagues.map((l) => (
               <option key={l.slug} value={l.slug}>
@@ -121,7 +119,7 @@ export default function BackfillPanel({ leagues }: Props) {
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-sm text-zinc-300">
+        <label className="flex flex-col gap-1 text-sm text-gray-600 dark:text-zinc-300">
           Year
           <input
             type="number"
@@ -133,14 +131,14 @@ export default function BackfillPanel({ leagues }: Props) {
               setResult(null);
               setError(null);
             }}
-            className="w-24 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+            className="w-24 rounded border border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
           />
         </label>
       </div>
 
       {result ? (
         <div className="space-y-2">
-          <p className="text-sm text-green-400">
+          <p className="text-sm text-green-600 dark:text-green-400">
             Season {result.year} archived for {result.leagueSlug}.
           </p>
           <button
@@ -155,7 +153,7 @@ export default function BackfillPanel({ leagues }: Props) {
         </div>
       ) : preview ? (
         <div className="space-y-3">
-          <p className="text-sm text-zinc-300">
+          <p className="text-sm text-gray-600 dark:text-zinc-300">
             An existing {year} archive for {selectedSlug} will be overwritten.
           </p>
           <div className="flex gap-2">
@@ -177,7 +175,7 @@ export default function BackfillPanel({ leagues }: Props) {
               Cancel
             </button>
           </div>
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -188,7 +186,7 @@ export default function BackfillPanel({ leagues }: Props) {
           >
             {previewing ? 'Checking…' : 'Preview Backfill'}
           </button>
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
       )}
     </section>
