@@ -47,6 +47,7 @@ export default async function LeagueHistoryPage({
           leagueSlug={slug}
           leagueDisplayName={league.displayName}
           leagueYear={league.year}
+          foundedYear={league.foundedYear}
           isAdmin={isAdmin}
           activeTab="history"
         >

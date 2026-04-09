@@ -64,6 +64,7 @@ export async function POST(req: Request): Promise<Response> {
     displayName,
     year,
     createdAt: new Date().toISOString(),
+    foundedYear: new Date().getFullYear(),
   };
 
   const updated = await addLeague(league);

@@ -10,13 +10,16 @@ export default function LeagueSettingsForm({
   slug,
   initialDisplayName,
   initialYear,
+  initialFoundedYear,
 }: {
   slug: string;
   initialDisplayName: string;
   initialYear: number;
+  initialFoundedYear?: number;
 }): React.ReactElement {
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [year, setYear] = useState(String(initialYear));
+  const [foundedYear, setFoundedYear] = useState(String(initialFoundedYear ?? new Date().getFullYear()));
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | undefined>();
 
@@ -36,6 +39,12 @@ export default function LeagueSettingsForm({
       setStatus('error');
       return;
     }
+    const foundedYearNum = Number(foundedYear);
+    if (!Number.isFinite(foundedYearNum) || foundedYearNum < 1900 || foundedYearNum > new Date().getFullYear()) {
+      setError('Founded year must be between 1900 and the current year');
+      setStatus('error');
+      return;
+    }
 
     try {
       const res = await fetch(`/api/admin/leagues/${encodeURIComponent(slug)}`, {
@@ -44,7 +53,7 @@ export default function LeagueSettingsForm({
           'content-type': 'application/json',
           ...(requireAdminAuthHeaders() as Record<string, string>),
         },
-        body: JSON.stringify({ displayName: displayName.trim(), year: yearNum }),
+        body: JSON.stringify({ displayName: displayName.trim(), year: yearNum, foundedYear: foundedYearNum }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -99,6 +108,21 @@ export default function LeagueSettingsForm({
             step={1}
             placeholder="e.g. 2025"
           />
+        </div>
+        <div>
+          <label className={labelClass}>Founded Year</label>
+          <input
+            type="number"
+            value={foundedYear}
+            onChange={(e) => setFoundedYear(e.target.value)}
+            disabled={status === 'loading'}
+            className={inputClass}
+            min={1900}
+            max={new Date().getFullYear()}
+            step={1}
+            placeholder={String(new Date().getFullYear())}
+          />
+          <p className="mt-1 text-xs text-zinc-500">Override if your league predates this app</p>
         </div>
         <div className="flex items-center gap-3">
           <button
