@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { getLeague } from '@/lib/leagueRegistry';
+import { getLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { draftScope, type DraftPhase } from '@/lib/draft';
+import type { LeagueStatus } from '@/lib/league';
 import { getAppState } from '@/lib/server/appStateStore';
 import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
 
@@ -42,6 +43,16 @@ export default async function AdminLeaguePage({
   const league = await getLeague(slug);
 
   if (!league) notFound();
+
+  // Seed status if absent — ensures existing leagues get a default status on first hub load
+  let leagueStatus: LeagueStatus = league.status ?? { state: 'season', year: league.year };
+  if (!league.status) {
+    try {
+      await updateLeagueStatus(slug, leagueStatus);
+    } catch {
+      // Non-fatal — status display still works from the default
+    }
+  }
 
   const year = league.year;
 
@@ -89,6 +100,13 @@ export default async function AdminLeaguePage({
     },
   ];
 
+  const statusLabel =
+    leagueStatus.state === 'season'
+      ? `${leagueStatus.year} Season`
+      : leagueStatus.state === 'offseason'
+        ? 'Offseason'
+        : `${leagueStatus.year} Pre-Season`;
+
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
       <div className="space-y-1">
@@ -101,6 +119,7 @@ export default async function AdminLeaguePage({
         <h1 className="text-2xl font-semibold">
           {league.displayName} — Commissioner Tools
         </h1>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
       </div>
 
       {/* Status panel */}
