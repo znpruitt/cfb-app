@@ -2,7 +2,6 @@ import React from 'react';
 import Link from 'next/link';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
-import { buildOwnerColorMap } from '../lib/ownerColors';
 import {
   deriveLeagueInsights,
   deriveStandingsInsights,
@@ -19,6 +18,7 @@ type StandingsPanelProps = {
   rows: OwnerStandingsRow[];
   season: number;
   coverage: StandingsCoverage;
+  ownerColorMap: Record<string, string>;
   onOwnerSelect?: (owner: string) => void;
   focusedOwner?: string | null;
   standingsHistory?: StandingsHistory | null;
@@ -68,8 +68,9 @@ function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function withColorAlpha(hslColor: string, alpha: number): string {
-  return hslColor.replace(/^hsl\(/, 'hsla(').replace(/\)$/, `, ${alpha})`);
+function withColorAlpha(hexColor: string, alpha: number): string {
+  const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  return `${hexColor}${alphaHex}`;
 }
 
 function deriveMovementPresentation(rankDelta: number | null): {
@@ -112,6 +113,7 @@ export default function StandingsPanel({
   rows,
   season,
   coverage,
+  ownerColorMap,
   onOwnerSelect,
   focusedOwner = null,
   standingsHistory = null,
@@ -156,12 +158,8 @@ export default function StandingsPanel({
     [rows, seasonContext, standingsHistory]
   );
 
-  const ownerColorMap = React.useMemo(
-    () => buildOwnerColorMap(visibleRows.map((r) => r.owner)),
-    [visibleRows]
-  );
   const ownerColorFn = React.useCallback(
-    (ownerId: string): string => ownerColorMap.get(ownerId) ?? '#888',
+    (ownerId: string): string => ownerColorMap[ownerId] ?? '#888',
     [ownerColorMap]
   );
 
@@ -201,7 +199,7 @@ export default function StandingsPanel({
   }, [initialSubview]);
 
   return (
-    <section className="space-y-3 sm:rounded-xl sm:border sm:border-gray-300 sm:bg-white sm:p-4 sm:shadow-sm sm:dark:border-zinc-700 sm:dark:bg-zinc-900">
+    <section className="space-y-3 sm:rounded-xl sm:border sm:border-gray-300 sm:bg-gray-50 sm:p-4 sm:shadow-sm sm:dark:border-zinc-700 sm:dark:bg-zinc-900">
       {coverage.message ? (
         <p
           className={`text-sm ${
@@ -403,6 +401,7 @@ export default function StandingsPanel({
             season={season}
             seasonContext={seasonContext}
             issues={trendIssues}
+            ownerColorMap={ownerColorMap}
             layoutMode="embedded"
             compact
             showMomentum={false}

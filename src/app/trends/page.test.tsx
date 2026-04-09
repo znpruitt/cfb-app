@@ -1098,29 +1098,31 @@ test('chart auto-scrolls to the most recent week only once on initial mount', ()
 
 test('owner color map is deterministic for ordered owners', () => {
   const orderedOwners = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
-  const firstMap = buildOwnerColorMap(orderedOwners);
-  const secondMap = buildOwnerColorMap(orderedOwners);
+  const firstMap = buildOwnerColorMap(orderedOwners, true);
+  const secondMap = buildOwnerColorMap(orderedOwners, true);
 
   for (const owner of orderedOwners) {
-    assert.equal(firstMap.get(owner), secondMap.get(owner));
+    assert.equal(firstMap[owner], secondMap[owner]);
   }
 });
 
 test('owner color map provides distinct colors for top 5 owners', () => {
   const orderedOwners = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
-  const colorMap = buildOwnerColorMap(orderedOwners);
-  const topFiveColors = orderedOwners.map((owner) => colorMap.get(owner));
+  const colorMap = buildOwnerColorMap(orderedOwners, true);
+  const topFiveColors = orderedOwners.map((owner) => colorMap[owner]);
   const uniqueColors = new Set(topFiveColors);
 
   assert.equal(uniqueColors.size, orderedOwners.length);
 });
 
 test('getOwnerColor is stable for same owner name', () => {
-  assert.equal(getOwnerColor('Alice'), getOwnerColor('Alice'));
+  const owners = ['Alice'];
+  assert.equal(getOwnerColor('Alice', owners, true), getOwnerColor('Alice', owners, true));
 });
 
 test('getOwnerColor returns different colors for different owners', () => {
-  const colors = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'].map((n) => getOwnerColor(n));
+  const owners = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve'];
+  const colors = owners.map((n) => getOwnerColor(n, owners, true));
   const unique = new Set(colors);
   assert.equal(unique.size, 5);
 });

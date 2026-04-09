@@ -93,6 +93,7 @@ const history: StandingsHistory = {
 test('standings panel renders expected columns and metrics', () => {
   const html = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[
@@ -242,6 +243,7 @@ test('standings panel renders compact rank movement indicators from standings hi
 
   const html = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       standingsHistory={movementHistory}
@@ -306,6 +308,7 @@ test('standings panel renders compact rank movement indicators from standings hi
 test('standings panel renders secondary coverage warning when standings are partial', () => {
   const html = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{
         state: 'partial',
@@ -336,6 +339,7 @@ test('standings panel renders secondary coverage warning when standings are part
 test('standings panel embeds shared trend charts alongside table', () => {
   const html = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[]}
@@ -357,6 +361,7 @@ test('standings panel embeds shared trend charts alongside table', () => {
 test('standings panel renders contextual insights below table in left column', () => {
   const html = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[
@@ -628,6 +633,7 @@ test('standings panel renders at most two standings-relevant shared insights and
 
   const html = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={richHistory.byWeek[3]!.standings}
@@ -651,6 +657,7 @@ test('standings panel renders at most two standings-relevant shared insights and
 test('standings panel renders trends section regardless of deep-link initial subview', () => {
   const tableHtml = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[]}
@@ -659,6 +666,7 @@ test('standings panel renders trends section regardless of deep-link initial sub
   );
   const trendsHtml = renderToStaticMarkup(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[]}
@@ -676,6 +684,7 @@ test('standings panel renders trends section regardless of deep-link initial sub
 test('standings panel keeps embedded trends rendered when initialSubview prop changes on rerender', () => {
   const rendered = render(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[]}
@@ -690,6 +699,7 @@ test('standings panel keeps embedded trends rendered when initialSubview prop ch
 
   rendered.rerender(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[]}
@@ -713,6 +723,7 @@ test('deep-link trends initial subview highlights and anchors embedded trends pa
 
   const rendered = render(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[
@@ -756,6 +767,7 @@ test('query param view=trends deep link highlights and scrolls to embedded trend
 
   const rendered = render(
     <StandingsPanel
+      ownerColorMap={{}}
       season={2025}
       coverage={{ state: 'complete', message: null }}
       rows={[]}

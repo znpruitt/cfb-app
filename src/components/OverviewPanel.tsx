@@ -2,7 +2,6 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
-import { buildOwnerColorMap } from '../lib/ownerColors';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
@@ -218,7 +217,7 @@ function SectionCard({
         ? 'border-blue-200/70 bg-gradient-to-br from-blue-50/70 to-white dark:border-blue-900/60 dark:from-blue-950/20 dark:to-zinc-900'
         : tone === 'secondary'
           ? 'border-gray-200 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-950/60'
-          : 'border-gray-300 bg-white dark:border-zinc-700 dark:bg-zinc-900';
+          : 'border-gray-300 bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900';
 
   return (
     <section
@@ -293,10 +292,12 @@ function GbChangeTable({
   standingsHistory,
   standingsLeaders,
   weekLabel,
+  ownerColorMap,
 }: {
   standingsHistory: StandingsHistory;
   standingsLeaders: OwnerStandingsRow[];
   weekLabel?: (week: number) => string;
+  ownerColorMap: Record<string, string>;
 }): React.ReactElement | null {
   const data = React.useMemo((): GbChangeData | null => {
     const allSeries = selectGamesBackTrend({ standingsHistory });
@@ -325,11 +326,6 @@ function GbChangeTable({
     return { weeks: recentWeeks, rows };
   }, [standingsHistory, standingsLeaders]);
 
-  const ownerColorMap = React.useMemo(
-    () => (data ? buildOwnerColorMap(data.rows.map((r) => r.ownerName)) : new Map<string, string>()),
-    [data]
-  );
-
   if (!data) return null;
 
   const labelFn = weekLabel ?? ((w: number) => `W${w}`);
@@ -357,7 +353,7 @@ function GbChangeTable({
       </div>
       {/* Owner rows */}
       {data.rows.map((row, i) => {
-        const nameColor = ownerColorMap.get(row.ownerName) ?? '#888';
+        const nameColor = ownerColorMap[row.ownerName] ?? '#888';
         return (
           <div
             key={row.ownerId}
@@ -428,7 +424,7 @@ function PodiumCard({
       className={`rounded-xl border px-3 py-3 ${
         isChampion
           ? 'border-[1.5px] border-[#BA7517]/60 bg-gradient-to-b from-amber-50/80 to-white dark:border-[#BA7517]/50 dark:from-amber-950/25 dark:to-zinc-900'
-          : 'border-gray-200/60 bg-white dark:border-zinc-800/60 dark:bg-zinc-900'
+          : 'border-gray-300/60 bg-gray-50 dark:border-zinc-800/60 dark:bg-zinc-900'
       }`}
     >
       <p
@@ -470,7 +466,7 @@ function LeagueSummaryHero({
 }): React.ReactElement {
   if (!leader) {
     return (
-      <section className="rounded-xl border border-gray-200 bg-gray-50/90 px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60 sm:px-6">
+      <section className="rounded-xl border border-gray-300 bg-gray-50/90 px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60 sm:px-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
           League summary
         </p>
@@ -744,7 +740,7 @@ function GameSummaryList({
             className={`rounded-lg border ${
               prioritized.hasPriorityHighlight
                 ? 'border-blue-300/80 bg-blue-50/40 dark:border-blue-900/70 dark:bg-blue-950/15'
-                : 'border-gray-200 bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/70'
+                : 'border-gray-300 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-950/70'
             } ${density === 'featured' ? 'p-3.5 sm:p-4' : 'p-2.5 sm:p-3'}`}
           >
             <div className="grid grid-cols-[minmax(0,1fr)_3.8rem] gap-x-2 sm:grid-cols-[minmax(0,1fr)_4rem]">
@@ -758,7 +754,7 @@ function GameSummaryList({
                       {highlightTags.map((tag) => (
                         <span
                           key={tag.id}
-                          className="inline-flex rounded-full border border-gray-300 bg-white/85 px-1.5 py-0.5 text-xs font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                          className="inline-flex rounded-full border border-gray-300 bg-white px-1.5 py-0.5 text-xs font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
                         >
                           {tag.text}
                         </span>
@@ -785,7 +781,7 @@ function GameSummaryList({
                 </div>
               </div>
               <div className="flex items-start justify-end pt-0.5">
-                <span className="w-[3.7rem] rounded-md border border-gray-200 bg-white/85 px-1 py-1 text-center text-sm font-semibold tabular-nums text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 sm:w-[4rem]">
+                <span className="w-[3.7rem] rounded-md border border-gray-300 bg-white px-1 py-1 text-center text-sm font-semibold tabular-nums text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 sm:w-[4rem]">
                   {awayScore}–{homeScore}
                 </span>
               </div>
@@ -843,7 +839,7 @@ function FeaturedGamesList({
         return (
           <article
             key={game.key}
-            className="rounded-lg bg-gray-100/60 p-2.5 sm:p-3 dark:bg-zinc-800/40"
+            className="rounded-lg bg-gray-100/80 p-2.5 sm:p-3 dark:bg-zinc-800/40"
           >
             <div className="flex items-start gap-2">
               <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-gray-950 dark:text-zinc-50">
@@ -1100,6 +1096,7 @@ type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
   rosterByTeam?: Map<string, string>;
+  ownerColorMap?: Record<string, string>;
   standingsLeaders: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
   matchupMatrix: OwnerMatchupMatrix;
@@ -1121,6 +1118,7 @@ export default function OverviewPanel({
   games = [],
   scoresByKey = {},
   rosterByTeam = new Map(),
+  ownerColorMap = {},
   standingsLeaders,
   standingsCoverage,
   matchupMatrix,
@@ -1363,6 +1361,7 @@ export default function OverviewPanel({
                 <MiniTrendsGrid
                   standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
                   weekLabel={weekLabelFn}
+                  ownerColorMap={ownerColorMap}
                 />
               </div>
               <div className="shrink-0">
@@ -1370,6 +1369,7 @@ export default function OverviewPanel({
                   standingsHistory={standingsHistory}
                   standingsLeaders={standingsLeaders}
                   weekLabel={weekLabelFn}
+                  ownerColorMap={ownerColorMap}
                 />
               </div>
             </div>

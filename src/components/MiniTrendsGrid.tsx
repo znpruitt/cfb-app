@@ -1,6 +1,5 @@
 import React from 'react';
 
-import { buildOwnerColorMap } from '../lib/ownerColors';
 import { selectGamesBackTrend } from '../lib/selectors/trends';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
@@ -39,11 +38,13 @@ type Props = {
   standingsHistory: StandingsHistory;
   /** Optional label override — e.g. "Bowl", "CFP", "CCG" for postseason weeks. */
   weekLabel?: (week: number) => string;
+  ownerColorMap: Record<string, string>;
 };
 
 export default function MiniTrendsGrid({
   standingsHistory,
   weekLabel,
+  ownerColorMap,
 }: Props): React.ReactElement | null {
   const allSeries = React.useMemo(
     () => selectGamesBackTrend({ standingsHistory }),
@@ -54,11 +55,6 @@ export default function MiniTrendsGrid({
 
   const weeks = standingsHistory.weeks;
   if (weeks.length === 0 || series.length === 0) return null;
-
-  const ownerColorMap = React.useMemo(
-    () => buildOwnerColorMap(series.map((s) => s.ownerName)),
-    [series]
-  );
 
   // Y scale: max GB across all owners + 10% padding
   const maxGb = Math.max(1, ...series.flatMap((s) => s.points.map((p) => p.value)));
@@ -122,7 +118,7 @@ export default function MiniTrendsGrid({
 
       {/* Series paths — leader slightly thicker */}
       {series.map((s, i) => {
-        const color = ownerColorMap.get(s.ownerName) ?? '#888';
+        const color = ownerColorMap[s.ownerName] ?? '#888';
         const d = buildPath(s.points, weeks, paddedMax);
         return d ? (
           <path

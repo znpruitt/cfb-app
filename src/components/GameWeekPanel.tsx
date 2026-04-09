@@ -232,7 +232,7 @@ export default function GameWeekPanel({
                       }
                       gameCardRefs.current.set(g.key, element);
                     }}
-                    className={`group overflow-hidden rounded border border-gray-200 bg-white text-gray-900 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${
+                    className={`group overflow-hidden rounded border border-gray-300 bg-gray-50 text-gray-900 transition-colors hover:border-gray-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${
                       card.isLiveState ? 'ring-1 ring-amber-300/70 dark:ring-amber-800/60' : ''
                     } ${cardEmphasisClasses(card.emphasisTone)} ${
                       focusedGameId === g.key ? 'ring-1 ring-blue-500 dark:ring-blue-500' : ''
@@ -367,7 +367,7 @@ export default function GameWeekPanel({
       </div>
 
       {!hideByes && (
-        <div className="rounded border border-gray-300 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="rounded border border-gray-300 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
           <div className="font-medium mb-2">Byes</div>
           <div className="text-sm">{byes.length ? byes.join(', ') : '—'}</div>
         </div>

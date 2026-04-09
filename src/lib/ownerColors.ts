@@ -5,93 +5,136 @@
  * of owner color across the entire app — charts, tables, and any future
  * owner references must use these functions.
  *
- * Colors are hardcoded per TSC League owner so the same name always
- * maps to the same color regardless of which owners appear in a given
- * component's dataset. Unknown names fall back to a deterministic hash.
+ * Colors are assigned by sorted index (not by name) so the palette
+ * supports any league with up to 20 owners. Beyond 20, colors wrap.
  */
 
 /**
- * Hardcoded owner → color map.
+ * 20-color dark mode palette.
  *
- * Colors are the original Standings page HSL palette (14-slot hue-distributed,
- * lightness-varied) assigned in alphabetical order, plus a distinct 15th color
- * for Whited to avoid the palette wrap collision.
+ * Tableau-derived categorical palette extended to 20 colors.
+ * Optimized for perceptual separation on dark backgrounds.
  */
-const OWNER_COLORS: Record<string, string> = {
-  Ballard:   'hsl(0.00, 70%, 52%)',    // red
-  BHooper:   'hsl(25.71, 70%, 58%)',   // orange
-  Carter:    'hsl(51.43, 70%, 64%)',   // yellow
-  Chumley:   'hsl(77.14, 70%, 70%)',   // yellow-green
-  Ciprys:    'hsl(102.86, 70%, 52%)',  // green
-  Jackson:   'hsl(128.57, 70%, 58%)',  // green
-  Jordan:    'hsl(154.29, 70%, 64%)',  // teal
-  LHooper:   'hsl(180.00, 70%, 70%)',  // cyan
-  Maleski:   'hsl(205.71, 70%, 52%)',  // blue
-  NoClaim:   'hsl(231.43, 70%, 58%)',  // indigo
-  Pruitt:    'hsl(257.14, 70%, 64%)',  // purple
-  Shambaugh: 'hsl(282.86, 70%, 70%)', // violet
-  Stevens:   'hsl(308.57, 70%, 52%)',  // magenta
-  Surowiec:  'hsl(334.29, 70%, 58%)', // rose
-  Whited:    'hsl(345, 70%, 46%)',     // deep crimson (distinct 15th slot)
-};
-
-/** Fallback palette for unknown owner names — same 14-slot HSL distribution. */
-const FALLBACK_PALETTE: readonly string[] = [
-  'hsl(0.00, 70%, 52%)',
-  'hsl(25.71, 70%, 58%)',
-  'hsl(51.43, 70%, 64%)',
-  'hsl(77.14, 70%, 70%)',
-  'hsl(102.86, 70%, 52%)',
-  'hsl(128.57, 70%, 58%)',
-  'hsl(154.29, 70%, 64%)',
-  'hsl(180.00, 70%, 70%)',
-  'hsl(205.71, 70%, 52%)',
-  'hsl(231.43, 70%, 58%)',
-  'hsl(257.14, 70%, 64%)',
-  'hsl(282.86, 70%, 70%)',
-  'hsl(308.57, 70%, 52%)',
-  'hsl(334.29, 70%, 58%)',
+export const PALETTE_DARK: readonly string[] = [
+  '#4E79A7', // steel blue
+  '#F28E2B', // orange
+  '#E15759', // red
+  '#76B7B2', // teal
+  '#59A14F', // green
+  '#EDC948', // yellow
+  '#B07AA1', // purple
+  '#FF9DA7', // pink
+  '#9C755F', // brown
+  '#BAB0AC', // gray
+  '#17BECF', // bright cyan
+  '#E377C2', // hot pink
+  '#B6992D', // dark yellow
+  '#1F77B4', // navy blue
+  '#BCBD22', // yellow-green
+  '#79706E', // dark gray
+  '#86BCB6', // light teal
+  '#D7B5A6', // tan
+  '#A0CBE8', // light blue
+  '#FFBE7D', // light orange
 ];
 
-const FALLBACK_SIZE = FALLBACK_PALETTE.length;
+/**
+ * 20-color light mode palette.
+ *
+ * Same hues as PALETTE_DARK with reduced lightness (~25% darker)
+ * for readable contrast on white backgrounds.
+ */
+export const PALETTE_LIGHT: readonly string[] = [
+  '#C0392B', // rich red
+  '#D35400', // rich orange
+  '#D4AC0D', // rich gold
+  '#1E8449', // rich green
+  '#1A5276', // rich navy
+  '#7D3C98', // rich purple
+  '#CB4335', // rich coral
+  '#117A65', // rich teal
+  '#B7950B', // rich amber
+  '#1F618D', // rich blue
+  '#943126', // rich crimson
+  '#196F3D', // rich forest
+  '#6C3483', // rich violet
+  '#0E6655', // rich emerald
+  '#935116', // rich brown
+  '#1A237E', // rich indigo
+  '#880E4F', // rich magenta
+  '#4A235A', // rich plum
+  '#1B5E20', // rich dark green
+  '#BF360C', // rich burnt orange
+];
+
+const PALETTE_SIZE = 20;
+
+/**
+ * Detect whether the user prefers dark mode via media query.
+ * Returns true for dark mode, false for light mode.
+ * Server-side (SSR) defaults to dark to match prior behavior.
+ */
+export function prefersDarkMode(): boolean {
+  if (typeof window === 'undefined') return true;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+/**
+ * djb2 hash — deterministic fallback for owners not in the sorted list.
+ */
+function djb2(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
 
 /**
  * Returns a deterministic color for a single owner name.
  *
- * Known TSC League owners get their hardcoded color. Unknown names
- * fall back to a djb2 hash into the 14-slot palette.
+ * Sorts allOwners alphabetically (case-insensitive) and assigns
+ * palette slots by index. If ownerName is not in allOwners, falls
+ * back to a djb2 hash of the name for a stable index.
  */
-export function getOwnerColor(ownerName: string): string {
+export function getOwnerColor(ownerName: string, allOwners: string[], isDark: boolean): string {
+  const palette = isDark ? PALETTE_DARK : PALETTE_LIGHT;
   const trimmed = ownerName.trim();
-  if (!trimmed) return FALLBACK_PALETTE[0];
+  if (!trimmed) return palette[0];
 
-  // Direct lookup — case-sensitive match on canonical owner names
-  const direct = OWNER_COLORS[trimmed];
-  if (direct) return direct;
+  const sorted = [...allOwners].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
 
-  // Hash fallback for unknown names
-  const normalized = trimmed.toLowerCase();
-  let hash = 5381;
-  for (let i = 0; i < normalized.length; i++) {
-    hash = ((hash << 5) + hash + normalized.charCodeAt(i)) | 0;
+  const idx = sorted.findIndex(
+    (o) => o.toLowerCase() === trimmed.toLowerCase()
+  );
+
+  if (idx >= 0) {
+    return palette[idx % PALETTE_SIZE];
   }
-  const index = ((hash % FALLBACK_SIZE) + FALLBACK_SIZE) % FALLBACK_SIZE;
-  return FALLBACK_PALETTE[index];
+
+  // Deterministic hash fallback for unknown names
+  const hash = djb2(trimmed.toLowerCase());
+  const fallbackIdx = ((hash % PALETTE_SIZE) + PALETTE_SIZE) % PALETTE_SIZE;
+  return palette[fallbackIdx];
 }
 
 /**
- * Builds a Map of owner name → color for a list of owners.
+ * Builds a Record of owner name → color for a list of owners.
  *
- * Delegates to getOwnerColor() per owner so colors are stable
- * regardless of which owners appear in the list.
+ * Sorts owners alphabetically (case-insensitive) and assigns
+ * palette slots by index.
  */
-export function buildOwnerColorMap(owners: string[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const owner of owners) {
-    map.set(owner, getOwnerColor(owner));
+export function buildOwnerColorMap(owners: string[], isDark: boolean): Record<string, string> {
+  const palette = isDark ? PALETTE_DARK : PALETTE_LIGHT;
+  const sorted = [...owners].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
+  const map: Record<string, string> = {};
+  for (let i = 0; i < sorted.length; i++) {
+    map[sorted[i]] = palette[i % PALETTE_SIZE];
   }
   return map;
 }
 
-/** The full 14-color fallback palette, exported for components that need direct access. */
-export { FALLBACK_PALETTE as OWNER_COLOR_PALETTE };

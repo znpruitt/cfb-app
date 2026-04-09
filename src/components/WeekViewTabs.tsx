@@ -31,8 +31,8 @@ function canonicalTab(mode: WeekViewMode): 'overview' | 'matchups' | 'standings'
 }
 
 const tabBase = 'pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2';
-const tabActive = `${tabBase} border-white text-white`;
-const tabInactive = `${tabBase} border-transparent text-zinc-400 hover:text-zinc-200`;
+const tabActive = `${tabBase} border-gray-900 text-gray-900 dark:border-white dark:text-white`;
+const tabInactive = `${tabBase} border-transparent text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200`;
 
 export default function WeekViewTabs({
   value,
@@ -43,7 +43,7 @@ export default function WeekViewTabs({
 
   return (
     <div style={{ overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none' } as React.CSSProperties}>
-      <div className="flex items-center gap-6 border-b border-zinc-700">
+      <div className="flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700">
         {(
           [
             { key: 'overview', label: 'Overview' },
@@ -64,7 +64,7 @@ export default function WeekViewTabs({
         {leagueSlug && (
           <>
             <div
-              className="self-center bg-zinc-600"
+              className="self-center bg-gray-300 dark:bg-zinc-600"
               style={{ width: '0.5px', height: 16 }}
               aria-hidden="true"
             />
