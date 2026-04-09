@@ -103,3 +103,15 @@ Never start at the UI when an upstream layer may be wrong.
 - Check `AGENTS.md` and `docs/next-tasks.md` for current phase status before planning work.
 - Reference all prior prompts by explicit `PROMPT_ID` — never use vague references like "that earlier prompt."
 - When generating a new prompt, verify the candidate ID does not collide with an existing one in `docs/prompt-registry.md`.
+
+---
+
+## Preview branch
+
+After completing any implementation and pushing to the feature branch, always run the following command before ending the session:
+
+```
+git push origin HEAD:preview --force
+```
+
+This keeps the `preview` branch current for UI validation on a stable Vercel URL. The `--force` flag is intentional — `preview` is a throwaway testing surface that always reflects the latest work in progress. Never open a PR from `preview`. Never merge `preview` into `main`.

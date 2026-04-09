@@ -252,6 +252,18 @@ These rules apply from Phase 6 onward and must not be violated:
 
 ---
 
+## Preview branch
+
+After completing any implementation and pushing to the feature branch, always run the following command before ending the session:
+
+```
+git push origin HEAD:preview --force
+```
+
+This keeps the `preview` branch current for UI validation on a stable Vercel URL. The `--force` flag is intentional — `preview` is a throwaway testing surface that always reflects the latest work in progress. Never open a PR from `preview`. Never merge `preview` into `main`.
+
+---
+
 ## Guiding principle
 
 Optimize for:
