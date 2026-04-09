@@ -35,6 +35,7 @@ export default function LeaguePageShell({
   activeTab,
   children,
 }: LeaguePageShellProps): React.ReactElement {
+  console.log('[DIAG] LeaguePageShell foundedYear:', foundedYear, 'activeTab:', activeTab);
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
       <header className="flex flex-col gap-2">
