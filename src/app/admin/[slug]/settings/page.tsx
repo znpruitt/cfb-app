@@ -21,11 +21,11 @@ export default async function AdminLeagueSettingsPage({
       <div className="space-y-1">
         <Link
           href={`/admin/${slug}`}
-          className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+          className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
         >
           ← {league.displayName}
         </Link>
-        <h1 className="text-2xl font-semibold text-zinc-100">
+        <h1 className="text-2xl font-semibold">
           {league.displayName} — Settings
         </h1>
       </div>
