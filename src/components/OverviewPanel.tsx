@@ -2,7 +2,6 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
-import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
@@ -293,10 +292,12 @@ function GbChangeTable({
   standingsHistory,
   standingsLeaders,
   weekLabel,
+  ownerColorMap,
 }: {
   standingsHistory: StandingsHistory;
   standingsLeaders: OwnerStandingsRow[];
   weekLabel?: (week: number) => string;
+  ownerColorMap: Record<string, string>;
 }): React.ReactElement | null {
   const data = React.useMemo((): GbChangeData | null => {
     const allSeries = selectGamesBackTrend({ standingsHistory });
@@ -324,11 +325,6 @@ function GbChangeTable({
 
     return { weeks: recentWeeks, rows };
   }, [standingsHistory, standingsLeaders]);
-
-  const ownerColorMap = React.useMemo(
-    () => (data ? buildOwnerColorMap(data.rows.map((r) => r.ownerName), prefersDarkMode()) : {}),
-    [data]
-  );
 
   if (!data) return null;
 
@@ -1100,6 +1096,7 @@ type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
   rosterByTeam?: Map<string, string>;
+  ownerColorMap?: Record<string, string>;
   standingsLeaders: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
   matchupMatrix: OwnerMatchupMatrix;
@@ -1121,6 +1118,7 @@ export default function OverviewPanel({
   games = [],
   scoresByKey = {},
   rosterByTeam = new Map(),
+  ownerColorMap = {},
   standingsLeaders,
   standingsCoverage,
   matchupMatrix,
@@ -1363,6 +1361,7 @@ export default function OverviewPanel({
                 <MiniTrendsGrid
                   standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
                   weekLabel={weekLabelFn}
+                  ownerColorMap={ownerColorMap}
                 />
               </div>
               <div className="shrink-0">
@@ -1370,6 +1369,7 @@ export default function OverviewPanel({
                   standingsHistory={standingsHistory}
                   standingsLeaders={standingsLeaders}
                   weekLabel={weekLabelFn}
+                  ownerColorMap={ownerColorMap}
                 />
               </div>
             </div>

@@ -7,7 +7,6 @@ import { type SeasonContext } from '../../lib/selectors/seasonContext';
 import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../../lib/selectors/trends';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import { deriveFocusedOwners, type FocusMode } from '../../lib/trendsFocus';
-import { buildOwnerColorMap, prefersDarkMode } from '../../lib/ownerColors';
 
 type MetricKind = 'games-back' | 'win-pct';
 type LayoutMode = 'standalone' | 'embedded';
@@ -1038,6 +1037,7 @@ export default function TrendsDetailSurface({
   season,
   seasonContext,
   issues,
+  ownerColorMap = {},
   layoutMode = 'standalone',
   compact = false,
   showMomentum = true,
@@ -1050,6 +1050,7 @@ export default function TrendsDetailSurface({
   season: number;
   seasonContext: SeasonContext | null;
   issues: string[];
+  ownerColorMap?: Record<string, string>;
   layoutMode?: LayoutMode;
   compact?: boolean;
   showMomentum?: boolean;
@@ -1135,7 +1136,6 @@ export default function TrendsDetailSurface({
     [winBars]
   );
   const orderedOwners = React.useMemo(() => winBars.map((row) => row.ownerId), [winBars]);
-  const ownerColorMap = React.useMemo(() => buildOwnerColorMap(orderedOwners, prefersDarkMode()), [orderedOwners]);
   const getOwnerTrendColor = React.useCallback(
     (ownerId: string) => ownerColorMap[ownerId] ?? '#888',
     [ownerColorMap]

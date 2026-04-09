@@ -2,7 +2,6 @@ import React from 'react';
 import Link from 'next/link';
 
 import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
-import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import {
   deriveLeagueInsights,
   deriveStandingsInsights,
@@ -19,6 +18,7 @@ type StandingsPanelProps = {
   rows: OwnerStandingsRow[];
   season: number;
   coverage: StandingsCoverage;
+  ownerColorMap: Record<string, string>;
   onOwnerSelect?: (owner: string) => void;
   focusedOwner?: string | null;
   standingsHistory?: StandingsHistory | null;
@@ -113,6 +113,7 @@ export default function StandingsPanel({
   rows,
   season,
   coverage,
+  ownerColorMap,
   onOwnerSelect,
   focusedOwner = null,
   standingsHistory = null,
@@ -157,10 +158,6 @@ export default function StandingsPanel({
     [rows, seasonContext, standingsHistory]
   );
 
-  const ownerColorMap = React.useMemo(
-    () => buildOwnerColorMap(visibleRows.map((r) => r.owner), prefersDarkMode()),
-    [visibleRows]
-  );
   const ownerColorFn = React.useCallback(
     (ownerId: string): string => ownerColorMap[ownerId] ?? '#888',
     [ownerColorMap]
@@ -404,6 +401,7 @@ export default function StandingsPanel({
             season={season}
             seasonContext={seasonContext}
             issues={trendIssues}
+            ownerColorMap={ownerColorMap}
             layoutMode="embedded"
             compact
             showMomentum={false}

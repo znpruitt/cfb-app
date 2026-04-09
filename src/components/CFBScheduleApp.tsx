@@ -78,6 +78,7 @@ import {
   type RankingsResponse,
 } from '../lib/rankings';
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
+import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
@@ -609,6 +610,20 @@ export default function CFBScheduleApp({
     () => deriveStandings(games, rosterByTeam, scoresByKey),
     [games, rosterByTeam, scoresByKey]
   );
+
+  const [isDark, setIsDark] = useState(prefersDarkMode());
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const ownerColorMap = useMemo(() => {
+    const allOwners = standingsSnapshot.rows.map((r) => r.owner);
+    return buildOwnerColorMap(allOwners, isDark);
+  }, [standingsSnapshot.rows, isDark]);
 
   const hasScoreLoadError = useMemo(
     () =>
@@ -1507,6 +1522,7 @@ export default function CFBScheduleApp({
                   games={games}
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
+                  ownerColorMap={ownerColorMap}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsHistory={standingsHistory}
                   standingsCoverage={standingsCoverage}
@@ -1534,6 +1550,7 @@ export default function CFBScheduleApp({
                   rows={standingsSnapshot.rows}
                   season={selectedSeason}
                   coverage={standingsCoverage}
+                  ownerColorMap={ownerColorMap}
                   focusedOwner={focusedOwner}
                   standingsHistory={standingsHistory}
                   seasonContext={seasonContext}
