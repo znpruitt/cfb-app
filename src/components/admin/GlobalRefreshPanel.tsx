@@ -8,15 +8,15 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
 type SectionStatus = 'idle' | 'loading' | 'success' | 'error';
 
 function StatusBadge({ status, error }: { status: SectionStatus; error?: string }) {
-  if (status === 'loading') return <span className="text-xs text-zinc-400">Working…</span>;
-  if (status === 'success') return <span className="text-xs text-green-400">Done</span>;
-  if (status === 'error') return <span className="text-xs text-red-400">{error ?? 'Failed'}</span>;
+  if (status === 'loading') return <span className="text-xs text-gray-500 dark:text-zinc-400">Working…</span>;
+  if (status === 'success') return <span className="text-xs text-green-600 dark:text-green-400">Done</span>;
+  if (status === 'error') return <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>;
   return null;
 }
 
-const sectionClass = 'rounded-lg border border-zinc-700 bg-zinc-900 p-5 space-y-3';
+const sectionClass = 'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
 const buttonClass =
-  'rounded border border-zinc-600 bg-zinc-800 px-4 py-1.5 text-sm text-zinc-100 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed';
+  'rounded border border-gray-300 bg-gray-50 px-4 py-1.5 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
 
 export default function GlobalRefreshPanel(): React.ReactElement {
   const [year, setYear] = useState(seasonYearForToday());
@@ -75,21 +75,21 @@ export default function GlobalRefreshPanel(): React.ReactElement {
   return (
     <>
       <div className="flex items-center gap-3">
-        <label className="text-xs font-medium text-zinc-400">Season year</label>
+        <label className="text-xs font-medium text-gray-500 dark:text-zinc-400">Season year</label>
         <input
           type="number"
           value={year}
           onChange={(e) => setYear(Number(e.target.value))}
           min={2000}
           step={1}
-          className="w-24 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-sm text-zinc-100 focus:border-zinc-500 focus:outline-none"
+          className="w-24 rounded border border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-900 focus:border-gray-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-500"
         />
       </div>
 
       <section className={sectionClass}>
         <div>
-          <h2 className="text-base font-medium text-zinc-100">Schedule</h2>
-          <p className="mt-1 text-sm text-zinc-400">
+          <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">Schedule</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
             Fetch the latest schedule from the data provider. Run when games appear missing or
             incorrect.
           </p>
@@ -108,8 +108,8 @@ export default function GlobalRefreshPanel(): React.ReactElement {
 
       <section className={sectionClass}>
         <div>
-          <h2 className="text-base font-medium text-zinc-100">Scores</h2>
-          <p className="mt-1 text-sm text-zinc-400">
+          <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">Scores</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
             Fetch the latest scores from the data provider for regular season and postseason.
           </p>
         </div>

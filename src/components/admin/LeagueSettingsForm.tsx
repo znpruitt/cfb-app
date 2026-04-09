@@ -69,12 +69,12 @@ export default function LeagueSettingsForm({
   }
 
   const inputClass =
-    'w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none disabled:opacity-40';
-  const labelClass = 'block text-xs font-medium text-zinc-400 mb-1';
+    'w-full rounded border border-gray-300 bg-gray-50 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-500 focus:outline-none disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-zinc-500';
+  const labelClass = 'block text-xs font-medium text-gray-500 dark:text-zinc-400 mb-1';
 
   return (
-    <section className="rounded-lg border border-zinc-700 bg-zinc-900 p-5 space-y-4">
-      <h2 className="text-base font-medium text-zinc-100">League Settings</h2>
+    <section className="rounded-lg border border-gray-200 bg-white p-5 space-y-4 dark:border-zinc-700 dark:bg-zinc-900">
+      <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">League Settings</h2>
       <form onSubmit={(e) => void handleSave(e)} className="space-y-4">
         <div>
           <label className={labelClass}>Slug (read-only)</label>
@@ -82,7 +82,7 @@ export default function LeagueSettingsForm({
             type="text"
             value={slug}
             readOnly
-            className={`${inputClass} cursor-default text-zinc-500`}
+            className={`${inputClass} cursor-default text-gray-400 dark:text-zinc-500`}
           />
         </div>
         <div>
@@ -127,13 +127,13 @@ export default function LeagueSettingsForm({
           <button
             type="submit"
             disabled={status === 'loading'}
-            className="rounded border border-zinc-600 bg-zinc-800 px-4 py-1.5 text-sm text-zinc-100 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded border border-gray-300 bg-gray-50 px-4 py-1.5 text-sm text-gray-900 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
           >
             {status === 'loading' ? 'Saving…' : 'Save'}
           </button>
-          {status === 'success' && <span className="text-xs text-green-400">Saved</span>}
+          {status === 'success' && <span className="text-xs text-green-600 dark:text-green-400">Saved</span>}
           {status === 'error' && (
-            <span className="text-xs text-red-400">{error ?? 'Failed'}</span>
+            <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>
           )}
         </div>
       </form>
