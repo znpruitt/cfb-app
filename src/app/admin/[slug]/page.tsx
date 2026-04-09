@@ -21,11 +21,6 @@ const tools = [
     external: true,
   },
   {
-    key: 'data',
-    title: 'Data',
-    desc: 'Manage league status and team aliases',
-  },
-  {
     key: 'settings',
     title: 'Settings',
     desc: 'League name, season year, and founded year',
@@ -90,7 +85,7 @@ export default async function AdminLeaguePage({
     {
       label: 'Season live',
       done: hasSchedule && hasScores,
-      href: hasSchedule && hasScores ? null : `/admin/${slug}/data`,
+      href: hasSchedule && hasScores ? null : '/admin/data/cache',
     },
   ];
 
