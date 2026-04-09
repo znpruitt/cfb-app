@@ -86,6 +86,30 @@ The registry should remain:
 - Scope: Read-only. All files modified in admin polish pass.
 - Notes: Found `useAuth()` usage in `CFBScheduleApp` violating auth architecture invariant. Addressed by P6-ADMIN-POLISH-FIX-v1.
 
+### P7A-1-FOUNDED-YEAR-v1
+- Purpose: Add foundedYear to league data model, settings form, and History page subtitle.
+- Scope: `src/lib/league.ts`, league API routes, `LeagueSettingsForm.tsx`, `LeaguePageShell.tsx`, `history/page.tsx`.
+- Notes: Optional field, auto-populated on creation. PRs #252–#253.
+
+### P7A-2-LEAGUE-HUB-STATUS-v1
+- Purpose: Surface LeagueStatusPanel and setup checklist on league hub, restore Settings card, add post-creation redirect.
+- Scope: `src/app/admin/page.tsx`, `src/app/admin/[slug]/page.tsx`, `src/app/admin/leagues/page.tsx`.
+- Notes: PR #255.
+
+### P7A-3-ADMIN-POLISH-v1
+- Purpose: Fix admin pages for light mode, link league names, remove redundant status panel from Data page.
+- Scope: 8 admin page files + all 10 `src/components/admin/` components.
+- Notes: PR #255.
+
+### P7A-4
+- Purpose: Promote aliases from league-scoped to platform-scoped storage and UI.
+- Scope: New `src/app/admin/aliases/page.tsx`, `src/app/admin/page.tsx`, `src/app/admin/[slug]/page.tsx`, `src/app/admin/[slug]/data/page.tsx`.
+- Notes: Uses existing `aliases:global` store. PR #256.
+
+### P7A-CLOSEOUT
+- Purpose: Update project docs to reflect Phase 7A completion.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+
 ### P6-ADMIN-POLISH-v1
 - Purpose: Admin nav consistency, plain English copy, gear icon in league view header linking to `/admin/[slug]`.
 - Scope: `src/app/admin/page.tsx`, `src/app/admin/season/page.tsx`, `src/app/admin/diagnostics/page.tsx`, `src/app/admin/draft/page.tsx`, `src/app/admin/[slug]/layout.tsx`, `src/components/CFBScheduleApp.tsx`, `src/components/AdminUsagePanel.tsx`, `src/components/AdminTeamDatabasePanel.tsx`, `src/components/AdminStorageStatusPanel.tsx`, `src/components/ScoreAttachmentDebugPanel.tsx`, `src/components/admin/BackfillPanel.tsx`, `src/components/SpRatingsCachePanel.tsx`, `src/components/admin/HistoricalCachePanel.tsx`.

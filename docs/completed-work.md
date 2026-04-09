@@ -626,6 +626,45 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### Phase 7A — Commissioner Self-Service
+
+**PROMPT_IDs:** P7A-1-FOUNDED-YEAR-v1, P7A-1-FOUNDED-YEAR-FIX-v1 through v3, P7A-1-FOUNDED-YEAR-CLEANUP-v1 through v3, P7A-2-LEAGUE-HUB-STATUS-v1, P7A-3-ADMIN-POLISH-v1, P7A-3-FIX, P7A-4, P7A-4-FIX, P7A-4-FIX-2
+
+**foundedYear field (P7A-1)**
+- Added optional `foundedYear?: number` to League type
+- Auto-populated on league creation from current year
+- Editable in league settings via PATCH API (validated 1900–current year)
+- History page subtitle shows "Est. {foundedYear}" when set, nothing when unset
+- Bug fix: second LeaguePageShell render path was missing the prop due to partial find-and-replace
+
+**League hub improvements (P7A-2)**
+- LeagueStatusPanel surfaced on league hub (`/admin/{slug}`) above tool cards
+- Setup progress checklist: league created, owners configured, draft confirmed, season live — incomplete steps link to relevant tools
+- Settings card restored to Platform Admin hub commissioner tools
+- Post-creation redirect sends commissioner to league hub instead of staying on leagues list
+
+**Admin light mode (P7A-3)**
+- All 10 admin shared components converted from hardcoded dark-only classes to theme-aware light/dark variants
+- All 8 admin page files similarly fixed
+- Pattern: bg-white/dark:bg-zinc-900 backgrounds, border-gray-200/dark:border-zinc-700 borders, text-gray-900/dark:text-zinc-100 text
+
+**Aliases promoted to platform scope (P7A-4)**
+- New `/admin/aliases` page loads and saves from `aliases:global` scope
+- Aliases card added to Platform Admin hub
+- Alias section removed from league Data page (replaced with redirect notice)
+- Data card removed from commissioner tools on both hubs
+- Existing `migrateYearScopedAliasesToGlobal()` handles legacy data migration automatically
+
+**Status panel fixes (P7A-4-FIX, P7A-4-FIX-2)**
+- Roster status simplified to "Roster set" (green) / "Not configured" (red) — no count, no timestamp
+- "Not configured" indicator changed from amber to red (amber reserved for champion signals)
+
+**Key decisions**
+- `aliases:global` chosen over `aliases:{year}` — team names are stable across seasons, year-scoping added unnecessary complexity
+- League Data page retained as redirect stub rather than deleted — preserves existing bookmarks and links
+
+---
+
 *Phases 1–3 entries have been moved to `docs/completed-work-archive.md`.*
 
 ---

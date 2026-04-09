@@ -31,6 +31,7 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 - **Phase 6 — Admin Cleanup and Auth** is **complete**. All subphases P6A–P6E shipped.
 - **Phase 6 — Admin Polish and Commissioner UX** is **complete**. Gear icon, `isAdmin` prop pattern, per-league commissioner bucket (Roster/Draft/Data/Settings), `LeagueStatusPanel`, `LeagueSettingsForm`, `GlobalRefreshPanel` with explicit year. PRs #230–#233.
 - **Phase 7 — Product Design Audit** is **active**. Subphases 7A–7F complete. 7G (Matchups) is next. Design principles codified in `DESIGN.md`.
+- **Phase 7A — Commissioner Self-Service** is **complete**. foundedYear field, league hub status panel + setup checklist, admin light mode, aliases promoted to platform scope. PRs #252–#256.
 
 ## Production data policy
 

@@ -106,9 +106,13 @@ All subphases P6A–P6E and Admin Polish complete. See `docs/completed-work.md` 
 - **7H — History page** — Review history landing, season detail, owner career for design consistency
 - **7I — Members page** — Review member-facing views
 
+## Phase 7A — Commissioner Self-Service ✅ Complete
+
+PRs #252–#256. foundedYear field, league hub status panel + setup checklist, admin light mode (all 10 components + 8 pages), aliases promoted to platform scope (`/admin/aliases`), roster status simplified. See `docs/completed-work.md` for full record.
+
 ## Upcoming phases
 
-### Phase 8 — Commissioner Self-Service (planned)
+### Phase 8 — Commissioner Self-Service: Auth (planned)
 
 - Commissioner role enforcement on `/league/[slug]/draft/*` and `/admin/[slug]/*` routes
 - Commissioner self-registration and invite link flow
