@@ -36,8 +36,6 @@ export default async function LeagueHistoryPage({
   ]);
   if (!league) notFound();
 
-  console.log('[DIAG] league.foundedYear:', league.foundedYear);
-
   const isAdmin =
     (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
       ?.publicMetadata?.role === 'platform_admin';
