@@ -26,7 +26,11 @@ export default async function SpectatorBoardPage({
   const league = await getLeague(slug);
   if (!league) notFound();
 
-  const year = league.year;
+  const status = league.status;
+  const year =
+    status?.state === 'preseason' || status?.state === 'season'
+      ? status.year
+      : league.year;
 
   // Load draft state — show waiting state if not started
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));

@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
+import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { draftScope, type DraftPhase } from '@/lib/draft';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { goLive } from '../actions';
@@ -31,17 +32,12 @@ export default async function PreseasonPage({
   let teamsAssigned = false;
 
   try {
-    const [rosterRecord, draftRecord] = await Promise.all([
-      getAppState<string>(`owners:${slug}:${year}`, 'csv'),
+    const [preseasonOwners, draftRecord] = await Promise.all([
+      getPreseasonOwners(slug, year),
       getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
     ]);
 
-    const csvText = typeof rosterRecord?.value === 'string' ? rosterRecord.value : '';
-    hasRoster =
-      csvText
-        .trim()
-        .split('\n')
-        .filter((l, i) => i > 0 && l.trim().length > 0).length > 0;
+    hasRoster = preseasonOwners !== null && preseasonOwners.length >= 2;
 
     const draftPhase = draftRecord?.value?.phase ?? null;
     if (league.assignmentMethod === 'draft') {
@@ -59,9 +55,11 @@ export default async function PreseasonPage({
 
   // Teams assigned link target depends on chosen assignment method
   const teamsHref =
-    league.assignmentMethod === 'manual'
-      ? `/admin/${slug}/preseason`
-      : `/league/${slug}/draft/setup`;
+    league.assignmentMethod === 'draft'
+      ? `/league/${slug}/draft/setup`
+      : league.assignmentMethod === 'manual'
+        ? `/admin/${slug}/preseason`
+        : `/admin/${slug}/preseason`;
 
   const goLiveAction = goLive.bind(null, slug, year);
 
@@ -106,10 +104,15 @@ export default async function PreseasonPage({
               {hasRoster ? '✓' : '○'}
             </span>
             {hasRoster ? (
-              <span className="text-gray-700 dark:text-zinc-300">Owners confirmed</span>
+              <Link
+                href={`/admin/${slug}/preseason/owners`}
+                className="text-gray-700 hover:underline dark:text-zinc-300"
+              >
+                Owners confirmed
+              </Link>
             ) : (
               <Link
-                href={`/admin/${slug}/roster`}
+                href={`/admin/${slug}/preseason/owners`}
                 className="text-blue-600 hover:underline dark:text-blue-400"
               >
                 Owners confirmed

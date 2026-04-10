@@ -3,6 +3,9 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
+import { listAppStateKeys, deleteAppState } from '@/lib/server/appStateStore';
+import { draftScope } from '@/lib/draft';
 
 /**
  * Set the lifecycle status of the test league. Only valid for slug='test'.
@@ -37,6 +40,24 @@ export async function setTestLeagueStatus(
   revalidatePath('/admin/test');
 }
 
+/**
+ * Clear all draft state for the test league. Only valid for slug='test'.
+ * Deletes every year key under draft:test and the corresponding owner CSV
+ * written by draft confirmation (owners:test:{year} / 'csv').
+ */
+export async function resetTestDraft(): Promise<void> {
+  const scope = draftScope('test');
+  const years = await listAppStateKeys(scope);
+  await Promise.all(
+    years.map(async (year) => {
+      await deleteAppState(scope, year);
+      // Also clear the owner CSV written when the draft was confirmed
+      await deleteAppState(`owners:test:${year}`, 'csv');
+    })
+  );
+  revalidatePath('/admin/test');
+}
+
 /** Hard-reset the test league to { state: 'season', year: 2025 }, syncing league.year too. */
 export async function resetTestLeague(): Promise<void> {
   await updateLeague('test', { year: 2025 });
@@ -59,6 +80,17 @@ export async function setAssignmentMethod(
 ): Promise<void> {
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);
+}
+
+/** Persist the confirmed owner list for the preseason and redirect back to setup. */
+export async function confirmPreseasonOwners(
+  slug: string,
+  year: number,
+  owners: string[]
+): Promise<void> {
+  if (owners.length < 2) throw new Error('At least 2 owners required');
+  await savePreseasonOwners(slug, year, owners);
+  redirect(`/admin/${slug}/preseason`);
 }
 
 /** Transition a league from preseason to season and redirect to the league hub. */

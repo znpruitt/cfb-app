@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useUser } from '@clerk/nextjs';
 import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
@@ -25,17 +26,26 @@ export default function DraftBoardClient({
   teamInsights,
 }: DraftBoardClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
-  const [isAdmin] = useState(() => hasStoredAdminToken());
+
+  // Auth priority: Clerk platform_admin session → sessionStorage token → spectator redirect
+  const { user, isLoaded: clerkLoaded } = useUser();
+  const [isTokenAdmin] = useState(() => hasStoredAdminToken());
+  const clerkRole = (user?.publicMetadata as { role?: string } | undefined)?.role;
+  const isAdmin = isTokenAdmin || (clerkLoaded && clerkRole === 'platform_admin');
+
   const [search, setSearch] = useState('');
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
 
-  // Redirect non-admins to the spectator view
+  // Redirect non-admins to the spectator view.
+  // If no sessionStorage token, wait for Clerk to finish loading before deciding.
   useEffect(() => {
+    if (isTokenAdmin) return; // sessionStorage token confirms admin — no redirect
+    if (!clerkLoaded) return; // Clerk not yet resolved — wait
     if (!isAdmin) {
       window.location.replace(`/league/${slug}/draft/board`);
     }
-  }, [isAdmin, slug]);
+  }, [isTokenAdmin, clerkLoaded, isAdmin, slug]);
 
   const refresh = useCallback(async () => {
     try {
