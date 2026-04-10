@@ -1,5 +1,5 @@
 import { getAppState, setAppState } from './server/appStateStore.ts';
-import type { League } from './league.ts';
+import type { League, LeagueStatus } from './league.ts';
 
 const REGISTRY_SCOPE = 'leagues';
 const REGISTRY_KEY = 'registry';
@@ -42,6 +42,10 @@ export async function updateLeague(
   const updated = leagues.map((l, i) => (i === idx ? { ...l, ...updates } : l));
   await setAppState(REGISTRY_SCOPE, REGISTRY_KEY, updated);
   return updated[idx];
+}
+
+export async function updateLeagueStatus(slug: string, status: LeagueStatus): Promise<League | null> {
+  return updateLeague(slug, { status });
 }
 
 export async function removeLeague(slug: string): Promise<{ removed: boolean; leagues: League[] }> {

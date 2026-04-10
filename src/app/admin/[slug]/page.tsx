@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { getLeague } from '@/lib/leagueRegistry';
+import { getLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { draftScope, type DraftPhase } from '@/lib/draft';
+import type { LeagueStatus } from '@/lib/league';
 import { getAppState } from '@/lib/server/appStateStore';
 import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
+import TestLeagueControls from './components/TestLeagueControls';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,7 +45,21 @@ export default async function AdminLeaguePage({
 
   if (!league) notFound();
 
-  const year = league.year;
+  const leagueStatus: LeagueStatus = league.status ?? { state: 'season', year: league.year };
+
+  // Seed status if absent — fire-and-forget; display uses in-memory value, write does not block render
+  if (!league.status) {
+    updateLeagueStatus(slug, leagueStatus).catch(() => {
+      // Non-fatal
+    });
+  }
+
+  // Derive the lookup year from lifecycle state:
+  // season/preseason → use status.year; offseason → fall back to league.year (no active year in status)
+  const year =
+    leagueStatus.state === 'season' || leagueStatus.state === 'preseason'
+      ? leagueStatus.year
+      : league.year;
 
   // Fetch status data for the checklist (same data LeagueStatusPanel uses)
   let hasRoster = false;
@@ -78,7 +94,7 @@ export default async function AdminLeaguePage({
       href: hasRoster ? null : `/admin/${slug}/roster`,
     },
     {
-      label: 'Draft confirmed',
+      label: 'Teams assigned',
       done: draftPhase === 'complete' && hasRoster,
       href: draftPhase === 'complete' && hasRoster ? null : `/league/${slug}/draft/setup`,
     },
@@ -88,6 +104,13 @@ export default async function AdminLeaguePage({
       href: hasSchedule && hasScores ? null : '/admin/data/cache',
     },
   ];
+
+  const statusLabel =
+    leagueStatus.state === 'season'
+      ? `${leagueStatus.year} Season`
+      : leagueStatus.state === 'offseason'
+        ? 'Offseason'
+        : `${leagueStatus.year} Pre-Season`;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -101,7 +124,32 @@ export default async function AdminLeaguePage({
         <h1 className="text-2xl font-semibold">
           {league.displayName} — Commissioner Tools
         </h1>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
       </div>
+
+      {/* Status action panel — offseason and preseason only */}
+      {leagueStatus.state === 'offseason' && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
+          <h2 className="text-base font-medium">Ready for next season?</h2>
+          <p className="text-sm text-gray-500 dark:text-zinc-400">
+            The season has been archived. Start pre-season setup to configure the next season.
+          </p>
+          <button
+            disabled
+            className="px-4 py-2 rounded border border-gray-200 bg-gray-100 text-sm text-gray-400 cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500"
+          >
+            Coming in next update
+          </button>
+        </div>
+      )}
+      {leagueStatus.state === 'preseason' && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
+          <h2 className="text-base font-medium">{leagueStatus.year} Pre-Season Setup</h2>
+          <p className="text-sm text-gray-500 dark:text-zinc-400">
+            Complete the steps below to get the season ready.
+          </p>
+        </div>
+      )}
 
       {/* Status panel */}
       <LeagueStatusPanel slug={slug} year={year} />
@@ -148,6 +196,8 @@ export default async function AdminLeaguePage({
           );
         })}
       </div>
+      {/* Test league lifecycle controls — hardcoded to slug='test', never shown for production leagues */}
+      {slug === 'test' && <TestLeagueControls />}
     </main>
   );
 }

@@ -18,7 +18,6 @@ export default function LeagueSettingsForm({
   initialFoundedYear?: number;
 }): React.ReactElement {
   const [displayName, setDisplayName] = useState(initialDisplayName);
-  const [year, setYear] = useState(String(initialYear));
   const [foundedYear, setFoundedYear] = useState(String(initialFoundedYear ?? new Date().getFullYear()));
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | undefined>();
@@ -28,12 +27,6 @@ export default function LeagueSettingsForm({
     setStatus('loading');
     setError(undefined);
 
-    const yearNum = Number(year);
-    if (!Number.isFinite(yearNum) || yearNum < 2000) {
-      setError('Year must be a valid season year (2000 or later)');
-      setStatus('error');
-      return;
-    }
     if (!displayName.trim()) {
       setError('Display name cannot be empty');
       setStatus('error');
@@ -53,7 +46,7 @@ export default function LeagueSettingsForm({
           'content-type': 'application/json',
           ...(requireAdminAuthHeaders() as Record<string, string>),
         },
-        body: JSON.stringify({ displayName: displayName.trim(), year: yearNum, foundedYear: foundedYearNum }),
+        body: JSON.stringify({ displayName: displayName.trim(), foundedYear: foundedYearNum }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -99,14 +92,10 @@ export default function LeagueSettingsForm({
         <div>
           <label className={labelClass}>Season Year</label>
           <input
-            type="number"
-            value={year}
-            onChange={(e) => setYear(e.target.value)}
-            disabled={status === 'loading'}
-            className={inputClass}
-            min={2000}
-            step={1}
-            placeholder="e.g. 2025"
+            type="text"
+            value={initialYear}
+            readOnly
+            className={`${inputClass} cursor-default text-gray-400 dark:text-zinc-500`}
           />
         </div>
         <div>
