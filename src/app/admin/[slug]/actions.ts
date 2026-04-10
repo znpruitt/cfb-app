@@ -22,9 +22,25 @@ export async function setTestLeagueStatus(
   } else if (state === 'offseason') {
     await updateLeagueStatus('test', { state: 'offseason' });
   } else {
-    await updateLeagueStatus('test', { state: 'preseason', year: league.year + 1 });
+    // Derive preseason year from the current resolved season year to avoid double-increment:
+    // season(N) → preseason(N+1); offseason/none → league.year+1; preseason(N) → stay at N
+    const cur = league.status;
+    const preseasonYear =
+      cur?.state === 'season'
+        ? cur.year + 1
+        : cur?.state === 'preseason'
+          ? cur.year
+          : league.year + 1;
+    await updateLeagueStatus('test', { state: 'preseason', year: preseasonYear });
   }
 
+  revalidatePath('/admin/test');
+}
+
+/** Hard-reset the test league to { state: 'season', year: 2025 }, syncing league.year too. */
+export async function resetTestLeague(): Promise<void> {
+  await updateLeague('test', { year: 2025 });
+  await updateLeagueStatus('test', { state: 'season', year: 2025 });
   revalidatePath('/admin/test');
 }
 
