@@ -109,10 +109,7 @@ export default async function AdminLeaguePage({
       {/* Tool cards */}
       <div className="grid gap-4 sm:grid-cols-2">
         {tools.map((tool) => {
-          const href =
-            tool.key === 'draft'
-              ? `/league/${league.slug}/draft/setup`
-              : `/admin/${slug}/${tool.key}`;
+          const href = `/admin/${slug}/${tool.key}`;
           return (
             <Link
               key={tool.key}
