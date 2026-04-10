@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
+import { listAppStateKeys, deleteAppState } from '@/lib/server/appStateStore';
+import { draftScope } from '@/lib/draft';
 
 /**
  * Set the lifecycle status of the test league. Only valid for slug='test'.
@@ -35,6 +37,24 @@ export async function setTestLeagueStatus(
     await updateLeagueStatus('test', { state: 'preseason', year: preseasonYear });
   }
 
+  revalidatePath('/admin/test');
+}
+
+/**
+ * Clear all draft state for the test league. Only valid for slug='test'.
+ * Deletes every year key under draft:test and the corresponding owner CSV
+ * written by draft confirmation (owners:test:{year} / 'csv').
+ */
+export async function resetTestDraft(): Promise<void> {
+  const scope = draftScope('test');
+  const years = await listAppStateKeys(scope);
+  await Promise.all(
+    years.map(async (year) => {
+      await deleteAppState(scope, year);
+      // Also clear the owner CSV written when the draft was confirmed
+      await deleteAppState(`owners:test:${year}`, 'csv');
+    })
+  );
   revalidatePath('/admin/test');
 }
 
