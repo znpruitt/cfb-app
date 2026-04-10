@@ -4,6 +4,7 @@ import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
+import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { draftScope, type DraftState } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
@@ -32,20 +33,32 @@ export default async function DraftSetupPage({
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
   const draftState = draftRecord?.value ?? null;
 
-  // Auto-populate prior year owners from most recent archive
+  // Pre-populate owners: prefer confirmed preseason owners, fall back to most recent archive
   let priorOwners: string[] = [];
   let priorChampOrder: string[] | null = null;
 
-  const years = await listSeasonArchives(slug);
-  const priorYears = years.filter((y) => y < year).sort((a, b) => b - a);
-  if (priorYears.length > 0) {
-    const priorArchive = await getSeasonArchive(slug, priorYears[0]!);
-    if (priorArchive) {
-      const rows = parseOwnersCsv(priorArchive.ownerRosterSnapshot);
-      const uniqueOwners = Array.from(new Set(rows.map((r) => r.owner).filter(Boolean)));
-      priorOwners = uniqueOwners.filter((o) => o !== 'NoClaim');
+  const confirmedOwners = await getPreseasonOwners(slug, year);
+  if (confirmedOwners !== null) {
+    priorOwners = confirmedOwners;
+  } else {
+    const years = await listSeasonArchives(slug);
+    const priorYears = years.filter((y) => y < year).sort((a, b) => b - a);
+    if (priorYears.length > 0) {
+      const priorArchive = await getSeasonArchive(slug, priorYears[0]!);
+      if (priorArchive) {
+        const rows = parseOwnersCsv(priorArchive.ownerRosterSnapshot);
+        const uniqueOwners = Array.from(new Set(rows.map((r) => r.owner).filter(Boolean)));
+        priorOwners = uniqueOwners.filter((o) => o !== 'NoClaim');
+      }
+    }
+  }
 
-      // Build reverse championship order: last place picks first in round 1
+  // Build reverse championship order from most recent archive: last place picks first
+  const archiveYears = await listSeasonArchives(slug);
+  const priorArchiveYears = archiveYears.filter((y) => y < year).sort((a, b) => b - a);
+  if (priorArchiveYears.length > 0) {
+    const priorArchive = await getSeasonArchive(slug, priorArchiveYears[0]!);
+    if (priorArchive) {
       const finalStandings = priorArchive.finalStandings;
       if (finalStandings.length > 0) {
         priorChampOrder = [...finalStandings]

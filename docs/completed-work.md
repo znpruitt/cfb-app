@@ -9,6 +9,28 @@
 
 ## Completed phases / milestones
 
+### P7B-4 — Pre-Season Setup Flow: Complete
+
+**Status:** Complete. Branch `claude/add-league-status-field-jPzcQ`.
+**PROMPT_IDs:** P7B-4, P7B-4-FIX, P7B-4-FIX-2, P7B-4-FIX-3, P7B-4-FIX-4, P7B-4-FIX-5
+
+**Key outcomes:**
+- Pre-season setup page at `/admin/[slug]/preseason` with three-item checklist: Owners confirmed / Teams assigned / Season live
+- Assignment method selection card (Run a Draft / Assign Manually) persisted to `league.assignmentMethod`
+- Go Live button gated by checklist completion — transitions league to season and syncs `league.year`
+- Draft card removed from league hub tool cards; draft accessible only through pre-season flow
+- Draft setup page year derivation fixed to use lifecycle status year (`status.year`) rather than `league.year`
+- Test league controls: idempotent preseason year (no double-increment), Reset to 2025 Season button
+- `manualAssignmentComplete?: boolean` added to `League` type for method-aware team assignment check
+- `teamsHref` on preseason page is method-aware: draft → draft setup, manual → `/assign` (P7B-6), null → self
+
+**Key architectural decisions:**
+- "League created" dropped from checklist — not meaningful for recurring season resets
+- Pre-season checklist is the single model for both initial setup and recurring season transitions
+- `goLive` action syncs both `status` and `league.year` atomically so downstream year derivation always resolves correctly
+
+---
+
 ### Phase 7F — Overview Featured Games: Complete
 
 **Status:** Complete. Branch `claude/fix-standings-ui-re94y`. PR #241.

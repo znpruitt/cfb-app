@@ -110,6 +110,20 @@ All subphases P6A–P6E and Admin Polish complete. See `docs/completed-work.md` 
 
 PRs #252–#256. foundedYear field, league hub status panel + setup checklist, admin light mode (all 10 components + 8 pages), aliases promoted to platform scope (`/admin/aliases`), roster status simplified. See `docs/completed-work.md` for full record.
 
+## P7B — Season Lifecycle
+
+### P7B-4 ✅ Complete
+
+Preseason setup flow: `/admin/[slug]/preseason` page, three-item checklist (Owners confirmed / Teams assigned / Season live), assignment method selection, Go Live transitions league to season and syncs `league.year`. See `docs/completed-work.md`.
+
+### P7B-5 — Owner Confirmation Flow (active)
+
+Owner confirmation page at `/admin/[slug]/preseason/owners`, `preseason-owners` store, draft auto-populate from confirmed owners, checklist links updated.
+
+### P7B-6 — Manual Assignment Page (next)
+
+Manual team assignment at `/admin/[slug]/assign`. Sets `manualAssignmentComplete` on league record when commissioner confirms. Unblocks Go Live for leagues using manual assignment method.
+
 ## Upcoming phases
 
 ### Phase 8 — Commissioner Self-Service: Auth (planned)

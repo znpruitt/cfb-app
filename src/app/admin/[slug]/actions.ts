@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 
 /**
  * Set the lifecycle status of the test league. Only valid for slug='test'.
@@ -59,6 +60,17 @@ export async function setAssignmentMethod(
 ): Promise<void> {
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);
+}
+
+/** Persist the confirmed owner list for the preseason and redirect back to setup. */
+export async function confirmPreseasonOwners(
+  slug: string,
+  year: number,
+  owners: string[]
+): Promise<void> {
+  if (owners.length < 2) throw new Error('At least 2 owners required');
+  await savePreseasonOwners(slug, year, owners);
+  redirect(`/admin/${slug}/preseason`);
 }
 
 /** Transition a league from preseason to season and redirect to the league hub. */
