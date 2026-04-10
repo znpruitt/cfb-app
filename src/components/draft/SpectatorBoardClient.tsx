@@ -63,8 +63,7 @@ export default function SpectatorBoardClient({
     );
 
   return (
-    <div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_210px]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_210px]">
         {/* Left column: board */}
         <div className="space-y-4">
           <PickNavigator draft={draft} />
@@ -104,7 +103,6 @@ export default function SpectatorBoardClient({
             )}
           </div>
         </aside>
-      </div>
     </div>
   );
 }

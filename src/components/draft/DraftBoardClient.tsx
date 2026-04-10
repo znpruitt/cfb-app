@@ -170,8 +170,7 @@ export default function DraftBoardClient({
     );
 
   return (
-    <div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_210px]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_210px]">
         {/* Left column: board + controls */}
         <div className="space-y-4">
           <PickNavigator draft={draft} />
@@ -237,7 +236,6 @@ export default function DraftBoardClient({
             )}
           </div>
         </aside>
-      </div>
     </div>
   );
 }
