@@ -23,7 +23,7 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
   const onDeckPickNum = draft.currentPickIndex + 2;
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" style={{ scrollbarGutter: 'stable both-edges' }}>
       <table className="min-w-full text-xs">
         <thead>
           <tr>
