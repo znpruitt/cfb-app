@@ -90,7 +90,7 @@ export default function LeagueSettingsForm({
           />
         </div>
         <div>
-          <label className={labelClass}>Season Year (read-only)</label>
+          <label className={labelClass}>Season Year</label>
           <input
             type="text"
             value={initialYear}
