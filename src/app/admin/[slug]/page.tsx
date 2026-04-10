@@ -6,6 +6,7 @@ import { draftScope, type DraftPhase } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import { getAppState } from '@/lib/server/appStateStore';
 import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
+import TestLeagueControls from './components/TestLeagueControls';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,6 +122,30 @@ export default async function AdminLeaguePage({
         <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
       </div>
 
+      {/* Status action panel — offseason and preseason only */}
+      {leagueStatus.state === 'offseason' && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
+          <h2 className="text-base font-medium">Ready for next season?</h2>
+          <p className="text-sm text-gray-500 dark:text-zinc-400">
+            The season has been archived. Start pre-season setup to configure the next season.
+          </p>
+          <button
+            disabled
+            className="px-4 py-2 rounded border border-gray-200 bg-gray-100 text-sm text-gray-400 cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500"
+          >
+            Coming in next update
+          </button>
+        </div>
+      )}
+      {leagueStatus.state === 'preseason' && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
+          <h2 className="text-base font-medium">{leagueStatus.year} Pre-Season Setup</h2>
+          <p className="text-sm text-gray-500 dark:text-zinc-400">
+            Complete the steps below to get the season ready.
+          </p>
+        </div>
+      )}
+
       {/* Status panel */}
       <LeagueStatusPanel slug={slug} year={year} />
 
@@ -166,6 +191,8 @@ export default async function AdminLeaguePage({
           );
         })}
       </div>
+      {/* Test league lifecycle controls — hardcoded to slug='test', never shown for production leagues */}
+      {slug === 'test' && <TestLeagueControls />}
     </main>
   );
 }

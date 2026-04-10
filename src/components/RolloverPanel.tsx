@@ -28,14 +28,12 @@ type LeaguePreview = {
 
 type PreviewData = {
   currentYear: number;
-  nextYear: number;
   leagues: LeaguePreview[];
 };
 
 type RolloverResult = {
   success: boolean;
   archivedLeagues: string[];
-  newYear: number;
   errors: Array<{ leagueSlug: string; error: string }>;
 };
 
@@ -145,7 +143,6 @@ export default function RolloverPanel() {
   if (!status || !status.seasonComplete) return null;
 
   const { currentYear } = status;
-  const nextYear = currentYear + 1;
 
   return (
     <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50/80 p-4 shadow-sm dark:border-amber-700/60 dark:bg-amber-950/20">
@@ -160,14 +157,14 @@ export default function RolloverPanel() {
           The CFP National Championship has been played. Clicking{' '}
           <strong>Preview Rollover</strong> will show what will be archived for each league.
           Clicking <strong>Confirm Rollover</strong> will archive the {currentYear} season for all
-          leagues and advance all leagues to {nextYear}.
+          leagues and set them to offseason status.
         </p>
       </div>
 
       {result ? (
         <div className="mt-4 space-y-3">
           <p className="text-sm font-medium text-green-700 dark:text-green-400">
-            Season {currentYear} archived. All leagues advanced to {result.newYear}.
+            Season {currentYear} archived. All leagues set to offseason.
           </p>
           {result.archivedLeagues.length > 0 && (
             <p className="text-sm text-gray-600 dark:text-zinc-400">
@@ -204,7 +201,7 @@ export default function RolloverPanel() {
           {preview && (
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                Rollover preview — {preview.currentYear} → {preview.nextYear}
+                Rollover preview — {preview.currentYear} season
               </h3>
 
               <div className="space-y-3">
@@ -274,7 +271,7 @@ export default function RolloverPanel() {
                 >
                   {confirming
                     ? 'Archiving…'
-                    : `Confirm Rollover — archive ${preview.currentYear}, advance to ${preview.nextYear}`}
+                    : `Confirm Rollover — archive ${preview.currentYear} season`}
                 </button>
                 <button
                   className={controlButtonClass}

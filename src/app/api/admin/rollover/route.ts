@@ -1,14 +1,20 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getLeagues, updateLeague } from '@/lib/leagueRegistry';
+import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
 import { isSeasonComplete, buildSeasonArchive } from '@/lib/seasonRollover';
+
+// Test league is excluded from global rollover — it has its own independent lifecycle controls
+const TEST_LEAGUE_SLUG = 'test';
 
 // GET — season completion status and platform year, admin-gated
 export async function GET(req: Request): Promise<Response> {
   const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
-  const leagues = await getLeagues();
+  const allLeagues = await getLeagues();
+  // Exclude test league from global rollover
+  const leagues = allLeagues.filter((l) => l.slug !== TEST_LEAGUE_SLUG);
+  // All non-test leagues are assumed to be on the same year (global rollover model)
   const currentYear = leagues[0]?.year ?? new Date().getUTCFullYear();
   const seasonComplete = await isSeasonComplete(currentYear);
 
@@ -65,13 +71,16 @@ export async function POST(req: Request): Promise<Response> {
     body = {};
   }
 
-  const leagues = await getLeagues();
+  const allLeagues = await getLeagues();
+  // Test league is excluded from global rollover — it has its own independent lifecycle controls
+  const leagues = allLeagues.filter((l) => l.slug !== TEST_LEAGUE_SLUG);
+
   if (leagues.length === 0) {
     return new Response('No leagues registered — nothing to roll over', { status: 400 });
   }
 
+  // All non-test leagues are assumed to be on the same year (global rollover model)
   const currentYear = leagues[0]!.year;
-  const nextYear = currentYear + 1;
 
   // Phase 1 — Preview: build per-league archive status and diff without writing
   if (!body.confirmed) {
@@ -81,14 +90,14 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({
       preview: {
         currentYear,
-        nextYear,
         leagues: previews,
       },
     });
   }
 
-  // Phase 2 — Confirmed: two-stage to avoid mixed-year registry state
-  // Stage 1: build and save all archives — do NOT increment any year yet
+  // Phase 2 — Confirmed: two-stage execution
+  // Stage 1: build and save all archives
+  // Year increment belongs in the preseason transition (P7B-4), not here
   const archivedLeagues: string[] = [];
   const errors: Array<{ leagueSlug: string; error: string }> = [];
 
@@ -105,21 +114,26 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  // Stage 2: commit year updates only if every archive succeeded
+  // Bail out before status writes if any archive failed
   if (errors.length > 0) {
     return Response.json({
       success: false,
       archivedLeagues: [],
-      newYear: null,
       errors,
       message:
-        'One or more leagues failed to archive. No year updates were made. Resolve errors and retry.',
+        'One or more leagues failed to archive. No status updates were made. Resolve errors and retry.',
     });
   }
 
+  // Stage 2: transition all archived leagues to offseason
+  // Status write failures are non-fatal — archive is the source of truth
   for (const league of leagues) {
-    await updateLeague(league.slug, { year: nextYear });
+    try {
+      await updateLeagueStatus(league.slug, { state: 'offseason' });
+    } catch (err) {
+      console.error(`Failed to write offseason status for ${league.slug}:`, err);
+    }
   }
 
-  return Response.json({ success: true, archivedLeagues, newYear: nextYear, errors: [] });
+  return Response.json({ success: true, archivedLeagues, errors: [] });
 }
