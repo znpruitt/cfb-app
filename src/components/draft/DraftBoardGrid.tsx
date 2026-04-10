@@ -27,7 +27,7 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
       <table className="min-w-full text-xs">
         <thead>
           <tr>
-            <th className="w-12 py-1 pr-2 text-right font-medium text-gray-400 dark:text-zinc-500">
+            <th className="w-6 py-1 pr-1 text-right font-medium text-gray-400 dark:text-zinc-500">
               Rd
             </th>
             {draftOrder.map((owner) => (
@@ -46,7 +46,7 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
 
             return (
               <tr key={roundIdx} className="border-t border-gray-100 dark:border-zinc-800">
-                <td className="py-1 pr-2 text-right font-medium text-gray-400 dark:text-zinc-500">
+                <td className="py-1 pr-1 text-right font-medium text-gray-400 dark:text-zinc-500">
                   {roundIdx + 1}
                 </td>
                 {Array.from({ length: n }, (_, colIdx) => {
