@@ -14,7 +14,7 @@ import {
   type NormalizedScoreRow,
   type SeasonPhase,
 } from '@/lib/scoreAttachment';
-import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
+import { createTeamIdentityResolver } from '@/lib/teamIdentity';
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
