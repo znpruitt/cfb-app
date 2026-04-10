@@ -14,7 +14,10 @@ export async function setTestLeagueStatus(
   if (!league) throw new Error('Test league not found');
 
   if (state === 'season') {
-    await updateLeagueStatus('test', { state: 'season', year: league.year });
+    // Carry forward the year from preseason so the increment set by 'Set: Pre-Season' is preserved
+    const seasonYear =
+      league.status?.state === 'preseason' ? league.status.year : league.year;
+    await updateLeagueStatus('test', { state: 'season', year: seasonYear });
   } else if (state === 'offseason') {
     await updateLeagueStatus('test', { state: 'offseason' });
   } else {

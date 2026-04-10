@@ -54,7 +54,12 @@ export default async function AdminLeaguePage({
     });
   }
 
-  const year = league.year;
+  // Derive the lookup year from lifecycle state:
+  // season/preseason → use status.year; offseason → fall back to league.year (no active year in status)
+  const year =
+    leagueStatus.state === 'season' || leagueStatus.state === 'preseason'
+      ? leagueStatus.year
+      : league.year;
 
   // Fetch status data for the checklist (same data LeagueStatusPanel uses)
   let hasRoster = false;
