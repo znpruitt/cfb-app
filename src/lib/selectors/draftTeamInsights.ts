@@ -35,6 +35,7 @@ export type DraftTeamInsights = {
   teamId: string;
   teamName: string;
   conference: string | null;
+  teamColor: string | null;
   spRating: number | null;
   spTier: SpTier | null;
   winTotalLow: number | null;
@@ -258,6 +259,7 @@ export function selectDraftTeamInsights(params: {
       teamId: school,
       teamName: team.displayName ?? school,
       conference: team.conference ?? null,
+      teamColor: team.color ?? null,
       spRating,
       spTier,
       winTotalLow,

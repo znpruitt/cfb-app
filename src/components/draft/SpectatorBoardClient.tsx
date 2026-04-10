@@ -5,7 +5,6 @@ import type { DraftState } from '@/lib/draft';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import DraftBoardGrid from './DraftBoardGrid';
 import DraftCard from './DraftCard';
-import OwnerRosterPanel from './OwnerRosterPanel';
 import PickNavigator from './PickNavigator';
 import TimerDisplay from './TimerDisplay';
 
@@ -23,6 +22,7 @@ export default function SpectatorBoardClient({
   teamInsights,
 }: SpectatorBoardClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
+  const [search, setSearch] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -44,22 +44,30 @@ export default function SpectatorBoardClient({
 
   const pickedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 
+  // Build teamId → color map for DraftBoardGrid completed-cell tinting
+  const teamColorMap = Object.fromEntries(
+    teamInsights
+      .filter((t) => t.teamColor !== null)
+      .map((t) => [t.teamId, t.teamColor as string])
+  );
+
+  const availableInsights = teamInsights
+    .filter((t) => !pickedTeamsLower.has(t.teamId.toLowerCase()))
+    .filter((t) =>
+      search
+        ? t.teamName.toLowerCase().includes(search.toLowerCase()) ||
+          t.teamId.toLowerCase().includes(search.toLowerCase())
+        : true
+    );
+
   return (
     <div>
       <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-2 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-800/40 dark:text-zinc-400">
         Spectator view — updates every 3 seconds
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr_280px]">
-        {/* Left: rosters */}
-        <aside>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
-            Rosters
-          </h2>
-          <OwnerRosterPanel draft={draft} />
-        </aside>
-
-        {/* Center: board */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_280px]">
+        {/* Left column: board */}
         <div className="space-y-4">
           <PickNavigator draft={draft} />
           {draft.settings.pickTimerSeconds && <TimerDisplay draft={draft} />}
@@ -67,26 +75,35 @@ export default function SpectatorBoardClient({
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
               Draft Board
             </h2>
-            <DraftBoardGrid draft={draft} />
+            <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
           </div>
         </div>
 
-        {/* Right: available teams (read-only) */}
+        {/* Right column: available teams (read-only) */}
         <aside>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
             Available Teams
           </h2>
+          <input
+            type="search"
+            placeholder="Search teams…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="mb-3 w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          />
           <div className="space-y-2">
-            {teamInsights
-              .filter((t) => !pickedTeamsLower.has(t.teamId.toLowerCase()))
-              .slice(0, 30)
-              .map((insights) => (
-                <DraftCard
-                  key={insights.teamId}
-                  insights={insights}
-                  isDrafted={false}
-                />
-              ))}
+            {availableInsights.map((insights) => (
+              <DraftCard
+                key={insights.teamId}
+                insights={insights}
+                isDrafted={false}
+              />
+            ))}
+            {availableInsights.length === 0 && (
+              <p className="text-sm text-gray-400 dark:text-zinc-500">
+                {search ? 'No teams match.' : 'All teams have been drafted.'}
+              </p>
+            )}
           </div>
         </aside>
       </div>

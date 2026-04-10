@@ -9,6 +9,28 @@
 
 ## Completed phases / milestones
 
+### P7B-5 — Owner Confirmation Flow: Complete
+
+**Status:** Complete. Branch `claude/add-league-status-field-jPzcQ`.
+**PROMPT_IDs:** P7B-5, P7B-5-FIX, P7B-5-FIX-2, P7B-5-FIX-3, P7B-5-FIX-4, P7B-5-FIX-5, P7B-5-FIX-6
+
+**Key outcomes:**
+- Owner confirmation page at `/admin/[slug]/preseason/owners` with three-step pre-population fallback: saved preseason-owners list → archive ownerRosterSnapshot → live owner CSV (fixes test league)
+- `preseasonOwnerStore.ts` — `getPreseasonOwners` / `savePreseasonOwners` with key `preseason-owners:{slug}` / `{year}`
+- `OwnerConfirmationShell.tsx` client component — add/remove owners, duplicate guard, min-2 gate on Save
+- `confirmPreseasonOwners` server action — saves and redirects back to preseason checklist
+- Preseason checklist "Owners confirmed" now reads from `preseasonOwnerStore`, not raw owners CSV
+- Draft setup page (`/league/[slug]/draft/setup`) prefers confirmed preseason-owners list for `priorOwners` population
+- Reset Draft button added to TestLeagueControls — deletes all `draft:test/{year}` keys and corresponding owner CSVs
+- Lifecycle year derivation (`status.year` pattern) applied to all four draft pages: commissioner board, spectator board, setup, and summary
+- Clerk session bridge in `DraftBoardClient` — auth reads both `sessionStorage` token and Clerk `publicMetadata.role` with async-safe loading guards to prevent premature redirect
+
+**Key architectural decisions:**
+- Third fallback (live owner CSV at `owners:{slug}:{year-1}/csv`) solves test league structurally — test league has no `standings-archive:test` entries, so archive-based pre-population is permanently broken for it; live CSV is always available
+- `teamsHref` for manual assignment points to `/admin/${slug}/preseason` (not `/assign`) since manual flow is coming soon on that page; this prevents a 404
+
+---
+
 ### P7B-4 — Pre-Season Setup Flow: Complete
 
 **Status:** Complete. Branch `claude/add-league-status-field-jPzcQ`.

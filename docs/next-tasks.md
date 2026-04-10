@@ -116,13 +116,17 @@ PRs #252–#256. foundedYear field, league hub status panel + setup checklist, a
 
 Preseason setup flow: `/admin/[slug]/preseason` page, three-item checklist (Owners confirmed / Teams assigned / Season live), assignment method selection, Go Live transitions league to season and syncs `league.year`. See `docs/completed-work.md`.
 
-### P7B-5 — Owner Confirmation Flow (active)
+### P7B-5 — Owner Confirmation Flow ✅ Complete
 
-Owner confirmation page at `/admin/[slug]/preseason/owners`, `preseason-owners` store, draft auto-populate from confirmed owners, checklist links updated.
+Owner confirmation page, preseason-owners store, draft auto-populate, lifecycle year fixes across all four draft pages, Clerk auth bridge in DraftBoardClient. See `docs/completed-work.md`.
 
-### P7B-6 — Manual Assignment Page (next)
+### P7B-6 — Draft Board UI Polish (active)
 
-Manual team assignment at `/admin/[slug]/assign`. Sets `manualAssignmentComplete` on league record when commissioner confirms. Unblocks Go Live for leagues using manual assignment method.
+- Rosters left column removed from commissioner and spectator boards (2-col grid)
+- DraftCard simplified: name + conference + team color dot only (all stats removed)
+- DraftBoardGrid colors: active=solid blue, on-deck=light blue tint, completed=team color tint
+- Spectator board: search/filter added to Available Teams panel
+- Landing page (`/`): "Draft Setup →" link removed, owner count excludes NoClaim, status label derives from `league.status`
 
 ## Upcoming phases
 
