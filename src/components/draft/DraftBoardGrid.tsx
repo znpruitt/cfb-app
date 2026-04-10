@@ -5,7 +5,7 @@ import type { DraftState } from '@/lib/draft';
 
 type DraftBoardGridProps = {
   draft: DraftState;
-  /** Optional map of teamId (school name) → hex color for completed-cell tinting. */
+  /** Optional map of lowercase teamId → hex color for completed-cell left bar. */
   teamColorMap?: Record<string, string>;
 };
 
@@ -60,9 +60,11 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
                   const isCurrent = pickNum === currentPickNum && draft.phase !== 'complete';
                   const isOnDeck = pickNum === onDeckPickNum && draft.phase !== 'complete';
 
-                  // Completed cell: team color tint via inline style
+                  // Completed cell: left color bar via inset box-shadow (no background tint)
+                  // Lookup is lowercase-normalized to tolerate name casing differences
+                  // between the CFBD catalog (used for insights) and the pick API (static catalog).
                   const completedColor =
-                    pick && teamColorMap ? teamColorMap[pick.team] ?? null : null;
+                    pick && teamColorMap ? teamColorMap[pick.team.toLowerCase()] ?? null : null;
 
                   return (
                     <td
@@ -76,7 +78,7 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
                       }`}
                       style={
                         completedColor && !isCurrent && !isOnDeck
-                          ? { backgroundColor: completedColor + '33' } // 20% opacity hex
+                          ? { boxShadow: `inset 3px 0 0 0 ${completedColor}` }
                           : undefined
                       }
                     >

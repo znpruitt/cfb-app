@@ -13,12 +13,12 @@ type DraftCardProps = {
 export default function DraftCard({ insights, isDrafted, onSelect }: DraftCardProps) {
   const { teamName, conference, teamColor } = insights;
   const isClickable = !!onSelect && !isDrafted;
-  const dotColor = teamColor ?? '#94a3b8'; // slate-400 fallback
+  const barColor = teamColor ?? '#94a3b8'; // slate-400 fallback
 
   return (
     <div
       className={[
-        'relative flex items-center gap-2.5 rounded-lg border bg-white px-3 py-2 text-sm dark:bg-slate-900',
+        'relative flex items-stretch overflow-hidden rounded-lg border bg-white text-sm dark:bg-slate-900',
         isDrafted
           ? 'border-slate-200 opacity-40 dark:border-slate-700'
           : 'border-slate-200 dark:border-slate-700',
@@ -30,14 +30,14 @@ export default function DraftCard({ insights, isDrafted, onSelect }: DraftCardPr
         .join(' ')}
       onClick={isClickable ? onSelect : undefined}
     >
-      {/* Team color dot */}
+      {/* Left color bar — flush to card edge, full card height */}
       <span
-        className="h-3 w-3 shrink-0 rounded-full"
-        style={{ backgroundColor: dotColor }}
+        className="w-1 shrink-0"
+        style={{ backgroundColor: barColor }}
       />
 
       {/* Name + conference */}
-      <div className="min-w-0">
+      <div className="min-w-0 px-2.5 py-1.5">
         <p className="truncate font-semibold text-slate-900 dark:text-slate-100">{teamName}</p>
         {conference && (
           <p className="truncate text-xs text-slate-500 dark:text-slate-400">{conference}</p>

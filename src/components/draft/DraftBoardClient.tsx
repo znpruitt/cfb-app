@@ -124,11 +124,13 @@ export default function DraftBoardClient({
 
   const pickedTeamsLower = new Set(draft.picks.map((p: DraftPick) => p.team.toLowerCase()));
 
-  // Build teamId → color map for DraftBoardGrid completed-cell tinting
+  // Build lowercase teamId → color map for DraftBoardGrid completed-cell left bars.
+  // Lowercase keys tolerate casing differences between the CFBD catalog (used for
+  // insights) and the pick API (which resolves via the static teams catalog).
   const teamColorMap = Object.fromEntries(
     teamInsights
       .filter((t) => t.teamColor !== null)
-      .map((t) => [t.teamId, t.teamColor as string])
+      .map((t) => [t.teamId.toLowerCase(), t.teamColor as string])
   );
 
   const canPick = isAdmin && draft.phase === 'live';
@@ -169,7 +171,7 @@ export default function DraftBoardClient({
 
   return (
     <div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_210px]">
         {/* Left column: board + controls */}
         <div className="space-y-4">
           <PickNavigator draft={draft} />

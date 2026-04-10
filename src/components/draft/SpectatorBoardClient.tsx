@@ -44,11 +44,13 @@ export default function SpectatorBoardClient({
 
   const pickedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 
-  // Build teamId → color map for DraftBoardGrid completed-cell tinting
+  // Build lowercase teamId → color map for DraftBoardGrid completed-cell left bars.
+  // Lowercase keys tolerate casing differences between the CFBD catalog (insights)
+  // and the pick API (static catalog).
   const teamColorMap = Object.fromEntries(
     teamInsights
       .filter((t) => t.teamColor !== null)
-      .map((t) => [t.teamId, t.teamColor as string])
+      .map((t) => [t.teamId.toLowerCase(), t.teamColor as string])
   );
 
   const availableInsights = teamInsights
@@ -62,7 +64,7 @@ export default function SpectatorBoardClient({
 
   return (
     <div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_280px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_210px]">
         {/* Left column: board */}
         <div className="space-y-4">
           <PickNavigator draft={draft} />
