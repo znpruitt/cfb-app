@@ -58,7 +58,7 @@ export default async function PreseasonPage({
     league.assignmentMethod === 'draft'
       ? `/league/${slug}/draft/setup`
       : league.assignmentMethod === 'manual'
-        ? `/admin/${slug}/assign`
+        ? `/admin/${slug}/preseason`
         : `/admin/${slug}/preseason`;
 
   const goLiveAction = goLive.bind(null, slug, year);
