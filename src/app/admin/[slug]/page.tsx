@@ -16,12 +16,6 @@ const tools = [
     desc: 'Manage team ownership for this season',
   },
   {
-    key: 'draft',
-    title: 'Draft',
-    desc: 'Set up and run the season draft',
-    external: true,
-  },
-  {
     key: 'settings',
     title: 'Settings',
     desc: 'League name, season year, and founded year',
