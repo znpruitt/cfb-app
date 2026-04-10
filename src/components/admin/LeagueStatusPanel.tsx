@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 
 import { draftScope, type DraftPhase } from '@/lib/draft';
 import { getAppState } from '@/lib/server/appStateStore';
@@ -13,6 +14,21 @@ function formatAge(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function formatScheduledAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function StatusDot({ ok }: { ok: boolean }) {
   return (
     <span
@@ -21,13 +37,23 @@ function StatusDot({ ok }: { ok: boolean }) {
   );
 }
 
-const PHASE_COLOR: Record<DraftPhase, string> = {
-  setup: 'text-gray-500 dark:text-zinc-400',
-  settings: 'text-gray-500 dark:text-zinc-400',
-  preview: 'text-blue-600 dark:text-blue-400',
-  live: 'text-green-600 dark:text-green-400',
-  paused: 'text-amber-600 dark:text-amber-400',
-  complete: 'text-gray-600 dark:text-zinc-300',
+function GrayDot() {
+  return <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-gray-200 dark:bg-zinc-600" />;
+}
+
+function GreenDot() {
+  return <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-green-500" />;
+}
+
+function AmberDot() {
+  return <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-amber-400" />;
+}
+
+type StoredDraftState = {
+  phase: DraftPhase;
+  settings?: {
+    scheduledAt?: string | null;
+  };
 };
 
 export default async function LeagueStatusPanel({
@@ -40,7 +66,7 @@ export default async function LeagueStatusPanel({
   let rosterRecord: Awaited<ReturnType<typeof getAppState<string>>> = null;
   let scheduleRecord: Awaited<ReturnType<typeof getAppState<unknown>>> = null;
   let scoresRecord: Awaited<ReturnType<typeof getAppState<unknown>>> = null;
-  let draftRecord: Awaited<ReturnType<typeof getAppState<{ phase: DraftPhase }>>> = null;
+  let draftRecord: Awaited<ReturnType<typeof getAppState<StoredDraftState>>> = null;
 
   try {
     [rosterRecord, scheduleRecord, scoresRecord, draftRecord] = await Promise.all([
@@ -50,7 +76,7 @@ export default async function LeagueStatusPanel({
         (r) => r ?? getAppState<unknown>('schedule', `${year}-all-regular`)
       ),
       getAppState<unknown>('scores', `${year}-all-regular`),
-      getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
+      getAppState<StoredDraftState>(draftScope(slug), String(year)),
     ]);
   } catch {
     // Storage not available (e.g. production-misconfigured); skip panel
@@ -63,6 +89,53 @@ export default async function LeagueStatusPanel({
   const hasSchedule = Boolean(scheduleRecord);
   const hasScores = Boolean(scoresRecord);
   const draftPhase = draftRecord?.value?.phase ?? null;
+  const scheduledAt = draftRecord?.value?.settings?.scheduledAt ?? null;
+
+  // Derive draft dot and label
+  const isSetupPhase =
+    draftPhase === 'setup' || draftPhase === 'settings' || draftPhase === 'preview';
+
+  let draftDot: React.ReactElement;
+  let draftLabel: React.ReactElement;
+
+  if (!draftPhase) {
+    draftDot = <GrayDot />;
+    draftLabel = <span className="text-gray-400 dark:text-zinc-500">not started</span>;
+  } else if (isSetupPhase && !scheduledAt) {
+    draftDot = <GrayDot />;
+    draftLabel = <span className="text-gray-500 dark:text-zinc-400">configured, not started</span>;
+  } else if (isSetupPhase && scheduledAt) {
+    draftDot = <GrayDot />;
+    draftLabel = (
+      <span className="text-gray-500 dark:text-zinc-400">
+        Scheduled &middot; {formatScheduledAt(scheduledAt)}
+      </span>
+    );
+  } else if (draftPhase === 'live') {
+    draftDot = <GreenDot />;
+    draftLabel = (
+      <Link
+        href={`/league/${slug}/draft`}
+        className="text-green-600 hover:underline dark:text-green-400"
+      >
+        live →
+      </Link>
+    );
+  } else if (draftPhase === 'paused') {
+    draftDot = <AmberDot />;
+    draftLabel = (
+      <Link
+        href={`/league/${slug}/draft`}
+        className="text-amber-600 hover:underline dark:text-amber-400"
+      >
+        paused →
+      </Link>
+    );
+  } else {
+    // complete
+    draftDot = <GreenDot />;
+    draftLabel = <span className="text-gray-600 dark:text-zinc-300">complete</span>;
+  }
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
@@ -107,13 +180,9 @@ export default async function LeagueStatusPanel({
 
         {/* Draft */}
         <div className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-gray-200 dark:bg-zinc-600" />
+          {draftDot}
           <span className="w-20 text-gray-600 dark:text-zinc-300">Draft</span>
-          {draftPhase ? (
-            <span className={`font-mono text-xs ${PHASE_COLOR[draftPhase]}`}>{draftPhase}</span>
-          ) : (
-            <span className="text-gray-400 dark:text-zinc-500">not started</span>
-          )}
+          {draftLabel}
         </div>
       </div>
     </section>

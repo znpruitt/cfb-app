@@ -62,10 +62,6 @@ export default function SpectatorBoardClient({
 
   return (
     <div>
-      <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-2 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-800/40 dark:text-zinc-400">
-        Spectator view — updates every 3 seconds
-      </div>
-
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_280px]">
         {/* Left column: board */}
         <div className="space-y-4">
