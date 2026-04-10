@@ -67,5 +67,6 @@ export async function goLive(slug: string, year: number): Promise<void> {
   if (!league) throw new Error('League not found');
   if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
   await updateLeagueStatus(slug, { state: 'season', year });
+  await updateLeague(slug, { year });
   redirect(`/admin/${slug}`);
 }

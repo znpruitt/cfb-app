@@ -44,8 +44,13 @@ export default async function PreseasonPage({
         .filter((l, i) => i > 0 && l.trim().length > 0).length > 0;
 
     const draftPhase = draftRecord?.value?.phase ?? null;
-    // P7B-5 will add: || (league.assignmentMethod === 'manual' && manualAssignmentComplete)
-    teamsAssigned = draftPhase === 'complete';
+    if (league.assignmentMethod === 'draft') {
+      teamsAssigned = draftPhase === 'complete';
+    } else if (league.assignmentMethod === 'manual') {
+      teamsAssigned = league.manualAssignmentComplete === true;
+    } else {
+      teamsAssigned = false;
+    }
   } catch {
     // Storage unavailable — checklist shows incomplete
   }
@@ -55,7 +60,7 @@ export default async function PreseasonPage({
   // Teams assigned link target depends on chosen assignment method
   const teamsHref =
     league.assignmentMethod === 'manual'
-      ? `/admin/${slug}/assign`
+      ? `/admin/${slug}/preseason`
       : `/league/${slug}/draft/setup`;
 
   const goLiveAction = goLive.bind(null, slug, year);
@@ -151,6 +156,13 @@ export default async function PreseasonPage({
           slug={slug}
           currentMethod={league.assignmentMethod ?? null}
         />
+      )}
+
+      {/* Manual assignment coming soon notice */}
+      {!teamsAssigned && league.assignmentMethod === 'manual' && (
+        <p className="text-sm text-gray-500 dark:text-zinc-400">
+          Manual team assignment is coming soon. Once available, you&apos;ll be able to assign teams directly from this page.
+        </p>
       )}
 
       {/* Go Live */}
