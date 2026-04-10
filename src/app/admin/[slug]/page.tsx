@@ -89,7 +89,7 @@ export default async function AdminLeaguePage({
       href: hasRoster ? null : `/admin/${slug}/roster`,
     },
     {
-      label: 'Draft confirmed',
+      label: 'Teams assigned',
       done: draftPhase === 'complete' && hasRoster,
       href: draftPhase === 'complete' && hasRoster ? null : `/league/${slug}/draft/setup`,
     },
