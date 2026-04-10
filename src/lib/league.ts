@@ -10,4 +10,6 @@ export type League = {
   createdAt: string; // ISO timestamp
   foundedYear?: number; // Year the league was founded — auto-set on creation, commissioner-editable
   status?: LeagueStatus;
+  assignmentMethod?: 'draft' | 'manual' | null; // How teams are assigned each preseason
+  manualAssignmentComplete?: boolean; // Set to true when commissioner finishes manual team assignment
 };
