@@ -270,7 +270,6 @@ export default function CFBScheduleApp({
   const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
   const [draftScheduledAt, setDraftScheduledAt] = useState<string | null>(null);
   const [draftCurrentRound, setDraftCurrentRound] = useState<number | null>(null);
-  const [draftBannerDismissed, setDraftBannerDismissed] = useState<boolean>(false);
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
@@ -475,16 +474,6 @@ export default function CFBScheduleApp({
     setTimeout(() => setAliasToast(null), timeoutMs);
   }, []);
 
-  const dismissDraftBanner = useCallback(() => {
-    const draftYear = leagueYear ?? selectedSeason;
-    if (leagueSlug && typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        `cfb-draft-banner-dismissed:${leagueSlug}:${draftYear}`,
-        '1'
-      );
-    }
-    setDraftBannerDismissed(true);
-  }, [leagueSlug, leagueYear, selectedSeason]);
 
   useScheduleBootstrap({
     hasBootstrappedRef,
@@ -978,10 +967,6 @@ export default function CFBScheduleApp({
   useEffect(() => {
     if (!leagueSlug) return;
     const draftYear = leagueYear ?? selectedSeason;
-    const dismissKey = `cfb-draft-banner-dismissed:${leagueSlug}:${draftYear}`;
-    if (typeof window !== 'undefined' && window.localStorage.getItem(dismissKey) === '1') {
-      setDraftBannerDismissed(true);
-    }
     fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftYear}`)
       .then((res) => (res.ok ? (res.json() as Promise<{ draft?: { phase?: string; settings?: { scheduledAt?: string | null; totalRounds?: number }; currentPickIndex?: number; owners?: string[] } }>) : null))
       .then((data) => {
