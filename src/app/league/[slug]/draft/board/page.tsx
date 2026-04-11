@@ -122,7 +122,7 @@ export default async function SpectatorBoardPage({
   });
 
   return (
-    <main className="px-4 py-8">
+    <main className="mx-auto px-4 py-8">
       <div className="mb-6">
         <Link
           href={`/league/${slug}/`}
