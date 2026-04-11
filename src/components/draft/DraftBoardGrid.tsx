@@ -9,6 +9,8 @@ type DraftBoardGridProps = {
   teamColorMap?: Record<string, string>;
 };
 
+const ROUND_COL_WIDTH = 120;
+
 export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridProps): React.ReactElement {
   const { draftOrder, totalRounds } = draft.settings;
   const n = draftOrder.length;
@@ -25,35 +27,48 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
   const isComplete = draft.phase === 'complete';
 
   /** Column background tint for alternating shading + active round highlight. */
-  function colBg(roundIdx: number): React.CSSProperties | undefined {
-    if (roundIdx === activeRound && !isComplete) {
-      return { backgroundColor: 'rgba(37,99,235,0.06)' };
-    }
+  function colBg(roundIdx: number): string | undefined {
+    if (roundIdx === activeRound && !isComplete) return 'rgba(37,99,235,0.06)';
     // Even-numbered rounds (R2, R4, …) get subtle alternating tint
-    if ((roundIdx + 1) % 2 === 0) {
-      return { backgroundColor: 'rgba(255,255,255,0.02)' };
-    }
+    if ((roundIdx + 1) % 2 === 0) return 'rgba(255,255,255,0.02)';
     return undefined;
   }
 
+  // Shared sticky styles for the owner column (header + body cells)
+  const stickyBase: React.CSSProperties = {
+    position: 'sticky',
+    left: 0,
+    zIndex: 10,
+    borderRight: '0.5px solid #374151',
+    whiteSpace: 'nowrap',
+    padding: '4px 16px 4px 0',
+  };
+
   return (
-    <div className="max-w-full overflow-x-auto" style={{ scrollbarGutter: 'stable both-edges' }}>
-      <table className="min-w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+    <div style={{ minWidth: 0, overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            {/* Owner column header (empty — names are in body rows) */}
-            <th className="sticky left-0 z-10 border-r border-gray-200 bg-white py-1 pr-3 text-left dark:border-zinc-700 dark:bg-zinc-900" />
+            {/* Owner column header — empty, auto-sized to longest name */}
+            <th className="bg-white dark:bg-zinc-900" style={stickyBase} />
             {Array.from({ length: totalRounds }, (_, roundIdx) => {
               const isActive = roundIdx === activeRound && !isComplete;
+              const bg = colBg(roundIdx);
               return (
                 <th
                   key={roundIdx}
-                  className={`px-1.5 py-1 text-center font-medium ${
-                    isActive ? 'text-blue-400' : 'text-gray-400 dark:text-zinc-500'
-                  }`}
-                  style={colBg(roundIdx)}
+                  style={{
+                    width: ROUND_COL_WIDTH,
+                    minWidth: ROUND_COL_WIDTH,
+                    maxWidth: ROUND_COL_WIDTH,
+                    fontSize: 10,
+                    textAlign: 'center',
+                    color: isActive ? '#60a5fa' : '#6b7280',
+                    padding: '4px 6px',
+                    backgroundColor: bg,
+                  }}
                 >
-                  {isActive && <span className="mr-0.5">▸</span>}R{roundIdx + 1}
+                  {isActive ? '▸ ' : ''}R{roundIdx + 1}
                 </th>
               );
             })}
@@ -61,9 +76,17 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
         </thead>
         <tbody>
           {draftOrder.map((owner, ownerIdx) => (
-            <tr key={owner} className="border-t border-gray-100 dark:border-zinc-800">
-              {/* Sticky owner name cell */}
-              <td className="sticky left-0 z-10 border-r border-gray-200 bg-white py-1 pr-3 font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+            <tr key={owner} style={{ borderBottom: '0.5px solid #1a2233' }}>
+              {/* Sticky owner name cell — column auto-sizes to longest name */}
+              <td
+                className="bg-white dark:bg-zinc-900"
+                style={{
+                  ...stickyBase,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: '#9ca3af',
+                }}
+              >
                 {owner}
               </td>
               {Array.from({ length: totalRounds }, (_, roundIdx) => {
@@ -78,45 +101,54 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
                 const completedColor =
                   pick && teamColorMap ? teamColorMap[pick.team.toLowerCase()] ?? null : null;
 
-                // Build cell style: column tint + optional team color bar
-                const cellStyle: React.CSSProperties = {};
-                if (!isCurrent && !isOnDeck) {
-                  const bg = colBg(roundIdx);
-                  if (bg) Object.assign(cellStyle, bg);
+                // Build cell style: fixed column width + state-dependent bg
+                const bg = colBg(roundIdx);
+                const cellStyle: React.CSSProperties = {
+                  width: ROUND_COL_WIDTH,
+                  minWidth: ROUND_COL_WIDTH,
+                  maxWidth: ROUND_COL_WIDTH,
+                  padding: '4px 6px',
+                  fontSize: 11,
+                };
+
+                if (isCurrent) {
+                  cellStyle.backgroundColor = '#2563eb';
+                  cellStyle.borderRadius = 4;
+                } else if (isOnDeck) {
+                  cellStyle.backgroundColor = 'rgba(37,99,235,0.25)';
+                  cellStyle.borderRadius = 4;
+                } else {
+                  if (bg) cellStyle.backgroundColor = bg;
                   if (completedColor) {
                     cellStyle.boxShadow = `inset 3px 0 0 0 ${completedColor}`;
                   }
                 }
 
                 return (
-                  <td
-                    key={roundIdx}
-                    className={`px-1.5 py-1 ${
-                      isCurrent
-                        ? 'rounded bg-blue-600'
-                        : isOnDeck
-                          ? 'rounded bg-blue-100 dark:bg-blue-900/30'
-                          : ''
-                    }`}
-                    style={Object.keys(cellStyle).length > 0 ? cellStyle : undefined}
-                  >
+                  <td key={roundIdx} style={cellStyle}>
                     {pick ? (
                       <span
-                        className={`block max-w-[100px] truncate ${
-                          isCurrent
-                            ? 'text-white'
-                            : pick.autoSelected
-                              ? 'text-amber-700 dark:text-amber-400'
-                              : 'text-gray-900 dark:text-zinc-100'
-                        }`}
+                        style={{
+                          display: 'block',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          color: isCurrent
+                            ? '#ffffff'
+                            : isOnDeck
+                              ? '#93c5fd'
+                              : pick.autoSelected
+                                ? '#fbbf24'
+                                : '#e5e7eb',
+                        }}
                         title={pick.team + (pick.autoSelected ? ' (auto)' : '')}
                       >
                         {pick.team}
                       </span>
                     ) : isCurrent ? (
-                      <span className="text-white">…</span>
+                      <span style={{ color: '#ffffff' }}>…</span>
                     ) : (
-                      <span className="text-[10px] text-gray-200 dark:text-zinc-700">—</span>
+                      <span style={{ color: '#1f2937' }}>—</span>
                     )}
                   </td>
                 );
