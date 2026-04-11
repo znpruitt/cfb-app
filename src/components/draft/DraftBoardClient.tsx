@@ -273,7 +273,7 @@ export default function DraftBoardClient({
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
         {/* Left column: header + board */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <DraftHeaderArea
             draft={draft}
             isAdmin={isAdmin}

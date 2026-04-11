@@ -219,7 +219,7 @@ export default async function DraftBoardPage({
   });
 
   return (
-    <main className="mx-auto max-w-screen-xl overflow-x-hidden px-4 py-8">
+    <main className="mx-auto max-w-screen-xl px-4 py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <Link
