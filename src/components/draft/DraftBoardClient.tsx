@@ -308,7 +308,7 @@ export default function DraftBoardClient({
           </span>
           <input
             type="search"
-            placeholder="Search or filter by conference…"
+            placeholder="Search by Team or Conference"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{

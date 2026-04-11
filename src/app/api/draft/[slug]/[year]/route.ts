@@ -412,50 +412,10 @@ export async function PUT(
 
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
 
-        const metric = draft.settings.autoPickMetric ?? 'sp-plus';
-        if (metric === 'preseason-rank') {
-          // Build preseason rank map from cached rankings
-          const rankBySchoolLower = new Map<string, number>();
-          try {
-            type RankCacheEntry = {
-              at: number;
-              response: {
-                latestWeek: {
-                  teams: Array<{ teamName: string; primaryRank: number | null }>;
-                } | null;
-              };
-            };
-            const rankRecord = await getAppState<RankCacheEntry>('rankings', String(year));
-            for (const t of rankRecord?.value?.response?.latestWeek?.teams ?? []) {
-              if (t.primaryRank == null) continue;
-              const match = fbsTeams.find(
-                (team) =>
-                  team.school.toLowerCase() === t.teamName.toLowerCase() ||
-                  (team.alts ?? []).some((a) => a.toLowerCase() === t.teamName.toLowerCase())
-              );
-              if (match) rankBySchoolLower.set(match.school.toLowerCase(), t.primaryRank);
-            }
-          } catch {
-            // rankings unavailable — fall back to alphabetical
-          }
-          available.sort((a, b) => {
-            const ra = rankBySchoolLower.get(a.school.toLowerCase());
-            const rb = rankBySchoolLower.get(b.school.toLowerCase());
-            if (ra != null && rb != null) return ra - rb;
-            if (ra != null) return -1; // ranked teams first
-            if (rb != null) return 1;
-            return a.school.localeCompare(b.school);
-          });
-        } else {
-          // 'sp-plus' (default) or null
-          available.sort((a, b) => {
-            const ra = spBySchoolLower.get(a.school.toLowerCase()) ?? -Infinity;
-            const rb = spBySchoolLower.get(b.school.toLowerCase()) ?? -Infinity;
-            return rb - ra || a.school.localeCompare(b.school);
-          });
-        }
-
-        const bestTeam = available[0];
+        // Random selection from all available teams
+        const bestTeam = available.length > 0
+          ? available[Math.floor(Math.random() * available.length)]
+          : undefined;
         if (!bestTeam) {
           return NextResponse.json({ error: 'No teams available for auto-pick' }, { status: 422 });
         }
