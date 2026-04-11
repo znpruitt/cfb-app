@@ -285,7 +285,11 @@ export function selectDraftTeamInsights(params: {
         : null;
 
     const teamName = team.displayName ?? school;
-    const shortName = team.shortDisplayName ?? team.abbreviation ?? teamName;
+    const shortName = team.shortDisplayName
+      ? team.shortDisplayName
+      : teamName.length <= 14
+        ? teamName
+        : (team.abbreviation ?? teamName);
 
     return {
       teamId: school,

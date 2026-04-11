@@ -280,8 +280,9 @@ export default function DraftBoardClient({
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
-        {/* Left column: header + board */}
-        <div className="min-w-0 space-y-4">
+        {/* Left column: header + board — single scroll container so header
+             matches table width rather than driving the column wider */}
+        <div className="min-w-0 space-y-4" style={{ overflowX: 'auto' }}>
           <DraftHeaderArea
             draft={draft}
             isAdmin={isAdmin}
