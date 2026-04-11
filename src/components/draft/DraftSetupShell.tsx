@@ -5,6 +5,14 @@ import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState } from '@/lib/draft';
 import DraftSettingsPanel from './DraftSettingsPanel';
 
+const TIMER_OPTIONS: { label: string; value: number | null }[] = [
+  { label: 'No timer', value: null },
+  { label: '30 seconds', value: 30 },
+  { label: '60 seconds', value: 60 },
+  { label: '90 seconds', value: 90 },
+  { label: '2 minutes', value: 120 },
+];
+
 type DraftSetupShellProps = {
   slug: string;
   year: number;
@@ -27,6 +35,9 @@ export default function DraftSetupShell({
   const [backError, setBackError] = useState<string | null>(null);
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const autoAdvancedRef = useRef(false);
+  const [resetConfirm, setResetConfirm] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const phase = draftState?.phase ?? 'setup';
 
@@ -107,18 +118,134 @@ export default function DraftSetupShell({
     }
   }
 
+  async function handleTimerUpdate(newTimer: number | null) {
+    setSettingsError(null);
+    setSettingsLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ settings: { pickTimerSeconds: newTimer } }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { draft: DraftState };
+        setDraftState(data.draft);
+      } else {
+        const data = (await res.json()) as { error?: string };
+        setSettingsError(data.error ?? 'Failed to update timer');
+      }
+    } catch (err) {
+      setSettingsError((err as Error).message);
+    } finally {
+      setSettingsLoading(false);
+    }
+  }
+
+  async function handleResetDraft() {
+    if (!resetConfirm) {
+      setResetConfirm(true);
+      return;
+    }
+    setResetConfirm(false);
+    setSettingsError(null);
+    setSettingsLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: '{}',
+      });
+      const data = (await res.json()) as { draft?: DraftState; error?: string };
+      if (res.ok && data.draft) {
+        setDraftState(data.draft);
+      } else {
+        setSettingsError(data.error ?? 'Failed to reset draft');
+      }
+    } catch (err) {
+      setSettingsError((err as Error).message);
+    } finally {
+      setSettingsLoading(false);
+    }
+  }
+
   if (phase === 'live' || phase === 'paused' || phase === 'complete') {
+    const currentTimer = draftState?.settings.pickTimerSeconds ?? null;
     return (
-      <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-6 dark:border-blue-800/40 dark:bg-blue-950/20">
-        <p className="font-semibold text-blue-900 dark:text-blue-100">
-          Draft is {phase === 'live' ? 'in progress' : phase}.
-        </p>
-        <a
-          href={`/league/${slug}/draft`}
-          className="mt-3 inline-block rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          Go to Draft Board
-        </a>
+      <div className="space-y-6">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 dark:border-zinc-700 dark:bg-zinc-900">
+          <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
+            Draft Settings
+          </h2>
+          <p className="mt-1 text-sm text-gray-600 dark:text-zinc-400">
+            Draft is {phase === 'live' ? 'in progress' : phase}.
+            {phase !== 'complete' && ' Changes apply to future picks.'}
+          </p>
+
+          {/* Pick timer selector */}
+          <div className="mt-5">
+            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300">
+              Pick timer
+            </label>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {TIMER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  disabled={settingsLoading}
+                  onClick={() => void handleTimerUpdate(opt.value)}
+                  className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
+                    currentTimer === opt.value
+                      ? 'border-blue-600 bg-blue-600 font-medium text-white'
+                      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {settingsError && (
+            <p className="mt-3 text-sm text-red-700 dark:text-red-400">{settingsError}</p>
+          )}
+
+          {/* Actions */}
+          <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4 dark:border-zinc-700">
+            <a
+              href={`/league/${slug}/draft`}
+              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Go to Draft Board
+            </a>
+            {phase !== 'complete' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleResetDraft()}
+                  disabled={settingsLoading}
+                  className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
+                    resetConfirm
+                      ? 'border-red-600 bg-red-600 font-medium text-white hover:bg-red-700'
+                      : 'border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30'
+                  }`}
+                >
+                  {resetConfirm ? 'Confirm reset — all picks will be lost' : 'Reset Draft'}
+                </button>
+                {resetConfirm && (
+                  <button
+                    type="button"
+                    onClick={() => setResetConfirm(false)}
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:text-zinc-500"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     );
   }

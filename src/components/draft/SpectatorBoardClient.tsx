@@ -5,8 +5,7 @@ import type { DraftState } from '@/lib/draft';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import DraftBoardGrid from './DraftBoardGrid';
 import DraftCard from './DraftCard';
-import PickNavigator from './PickNavigator';
-import TimerDisplay from './TimerDisplay';
+import DraftHeaderArea from './DraftHeaderArea';
 
 type SpectatorBoardClientProps = {
   slug: string;
@@ -62,37 +61,12 @@ export default function SpectatorBoardClient({
         : true
     );
 
-  // Detect round-boundary pause
-  const n = draft.owners.length;
-  const idx = draft.currentPickIndex;
-  const totalPicks = draft.settings.totalRounds * n;
-  const isExpired = draft.timerState === 'expired';
-  const isRoundPause = draft.phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && !isExpired;
-  const nextRound = Math.floor(idx / n) + 1;
-
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
-        {/* Left column: board */}
-        <div className="space-y-0">
-          <PickNavigator draft={draft} />
-          {isRoundPause && (
-            <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50/80 px-4 py-3 dark:border-blue-800/40 dark:bg-blue-950/30">
-              <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">
-                Round {nextRound} starting soon…
-              </p>
-            </div>
-          )}
-          {draft.settings.pickTimerSeconds && (
-            <div className="border-t border-gray-200 pt-3 mt-3 dark:border-zinc-700">
-              <TimerDisplay draft={draft} />
-            </div>
-          )}
-          <div className="border-t border-gray-200 pt-4 mt-4 dark:border-zinc-700">
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.15em] text-gray-600 border-b border-gray-200 pb-1.5 dark:text-zinc-300 dark:border-zinc-700">
-              Draft Board
-            </h2>
-            <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
-          </div>
+        {/* Left column: header + board */}
+        <div className="space-y-4">
+          <DraftHeaderArea draft={draft} />
+          <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
         </div>
 
         {/* Right column: available teams (read-only) */}

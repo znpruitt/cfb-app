@@ -7,9 +7,7 @@ import type { DraftState, DraftPick } from '@/lib/draft';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import DraftCard from './DraftCard';
 import DraftBoardGrid from './DraftBoardGrid';
-import DraftControls from './DraftControls';
-import PickNavigator from './PickNavigator';
-import TimerDisplay from './TimerDisplay';
+import DraftHeaderArea from './DraftHeaderArea';
 
 type DraftBoardClientProps = {
   slug: string;
@@ -35,6 +33,7 @@ export default function DraftBoardClient({
   const [search, setSearch] = useState('');
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
+  const [controlsLoading, setControlsLoading] = useState(false);
 
   // Redirect non-admins to the spectator view.
   // If no sessionStorage token, wait for Clerk to finish loading before deciding.
@@ -203,41 +202,91 @@ export default function DraftBoardClient({
         : true
     );
 
+  // --- Draft control helpers (admin-only, used by DraftHeaderArea) ---
+
+  async function draftPut(body: Record<string, unknown>) {
+    setControlsLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as { draft?: DraftState };
+      if (res.ok && data.draft) {
+        if (data.draft.phase === 'setup') {
+          window.location.href = `/league/${slug}/draft/setup`;
+          return;
+        }
+        setDraft(data.draft);
+      }
+    } catch { /* network error — polling will recover */ }
+    finally { setControlsLoading(false); }
+  }
+
+  async function draftPost(path: string) {
+    setControlsLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: '{}',
+      });
+      const data = (await res.json()) as { draft?: DraftState };
+      if (res.ok && data.draft) {
+        if (data.draft.phase === 'setup') {
+          window.location.href = `/league/${slug}/draft/setup`;
+          return;
+        }
+        setDraft(data.draft);
+      }
+    } catch { /* network error — polling will recover */ }
+    finally { setControlsLoading(false); }
+  }
+
+  function handlePause() { void draftPut({ timerAction: 'pause' }); }
+
+  function handleResume() {
+    if (draft.phase === 'paused') {
+      const body: Record<string, unknown> = { phase: 'live' };
+      if (draft.settings.pickTimerSeconds) body.timerAction = 'start';
+      void draftPut(body);
+    } else if (draft.timerState === 'paused') {
+      void draftPut({ timerAction: 'resume' });
+    } else if (draft.timerState === 'off' && draft.settings.pickTimerSeconds) {
+      void draftPut({ timerAction: 'start' });
+    }
+  }
+
+  function handleUndo() { void draftPost('unpick'); }
+  function handleAutoPick() { void draftPut({ timerAction: 'expire' }); }
+  function handleSelectManually() { void draftPut({ phase: 'live' }); }
+
+  function handleStartRound() {
+    const body: Record<string, unknown> = { phase: 'live' };
+    if (draft.settings.pickTimerSeconds) body.timerAction = 'start';
+    void draftPut(body);
+  }
+
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
-        {/* Left column: board + controls */}
-        <div className="space-y-0">
-          <PickNavigator draft={draft} />
-
-          {draft.settings.pickTimerSeconds && (
-            <div className="border-t border-gray-200 pt-3 mt-3 dark:border-zinc-700">
-              <TimerDisplay draft={draft} />
-            </div>
-          )}
-
-          {isAdmin && (
-            <div className="border-t border-gray-200 pt-3 mt-3 dark:border-zinc-700">
-              <DraftControls
-                slug={slug}
-                year={year}
-                draft={draft}
-                onUpdate={(updated) => {
-                  if (updated.phase === 'setup') {
-                    window.location.href = `/league/${slug}/draft/setup`;
-                    return;
-                  }
-                  setDraft(updated);
-                }}
-              />
-            </div>
-          )}
-
-          <div className="border-t border-gray-200 pt-4 mt-4 dark:border-zinc-700">
-            <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.15em] text-gray-600 border-b border-gray-200 pb-1.5 dark:text-zinc-300 dark:border-zinc-700">
-              Draft Board
-            </h2>
-            <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
-          </div>
+        {/* Left column: header + board */}
+        <div className="space-y-4">
+          <DraftHeaderArea
+            draft={draft}
+            isAdmin={isAdmin}
+            onPause={handlePause}
+            onResume={handleResume}
+            onUndo={handleUndo}
+            onAutoPick={handleAutoPick}
+            onSelectManually={handleSelectManually}
+            onStartRound={handleStartRound}
+            settingsHref={`/league/${slug}/draft/setup`}
+            controlsLoading={controlsLoading}
+          />
+          <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
         </div>
 
         {/* Right column: available teams */}
