@@ -8,11 +8,8 @@ import { loadSeasonRankings } from '@/lib/server/rankings';
 import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import type { SpRatingEntry, WinTotalEntry, ApPollEntry } from '@/lib/selectors/draftTeamInsights';
-import teamsData from '@/data/teams.json';
-import type { TeamCatalogItem } from '@/lib/teamIdentity';
+import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import SpectatorBoardClient from '@/components/draft/SpectatorBoardClient';
-
-type TeamsJson = { items: TeamCatalogItem[] };
 
 export const dynamic = 'force-dynamic';
 
@@ -55,8 +52,8 @@ export default async function SpectatorBoardPage({
     );
   }
 
-  // Load team catalog
-  const { items: teams } = teamsData as TeamsJson;
+  // Load team catalog (enriched with color data when admin team sync has been run)
+  const teams = await getTeamDatabaseItems();
 
   // Load SP+ ratings
   let spRatings: SpRatingEntry[] | null = null;

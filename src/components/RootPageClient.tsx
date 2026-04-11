@@ -81,7 +81,14 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
                           {league.displayName}
                         </div>
                         <div className="mt-1 text-xs text-gray-400 dark:text-zinc-500">
-                          /{league.slug} &middot; {league.year} season
+                          /{league.slug} &middot;{' '}
+                          {league.status?.state === 'season'
+                            ? `${league.status.year} season`
+                            : league.status?.state === 'preseason'
+                              ? `${league.status.year} pre-season`
+                              : league.status?.state === 'offseason'
+                                ? 'offseason'
+                                : `${league.year} season`}
                           {label !== null && <> &middot; {label}</>}
                         </div>
                       </div>
@@ -91,12 +98,6 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
                           className="text-sm text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
                         >
                           View League →
-                        </Link>
-                        <Link
-                          href={`/league/${league.slug}/draft/setup`}
-                          className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-500 dark:hover:text-zinc-300"
-                        >
-                          Draft Setup →
                         </Link>
                       </div>
                     </div>

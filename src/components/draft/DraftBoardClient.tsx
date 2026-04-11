@@ -8,7 +8,6 @@ import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import DraftCard from './DraftCard';
 import DraftBoardGrid from './DraftBoardGrid';
 import DraftControls from './DraftControls';
-import OwnerRosterPanel from './OwnerRosterPanel';
 import PickNavigator from './PickNavigator';
 import TimerDisplay from './TimerDisplay';
 
@@ -125,6 +124,15 @@ export default function DraftBoardClient({
 
   const pickedTeamsLower = new Set(draft.picks.map((p: DraftPick) => p.team.toLowerCase()));
 
+  // Build lowercase teamId → color map for DraftBoardGrid completed-cell left bars.
+  // Lowercase keys tolerate casing differences between the CFBD catalog (used for
+  // insights) and the pick API (which resolves via the static teams catalog).
+  const teamColorMap = Object.fromEntries(
+    teamInsights
+      .filter((t) => t.teamColor !== null)
+      .map((t) => [t.teamId.toLowerCase(), t.teamColor as string])
+  );
+
   const canPick = isAdmin && draft.phase === 'live';
 
   async function handlePick(teamId: string) {
@@ -162,17 +170,8 @@ export default function DraftBoardClient({
     );
 
   return (
-    <div>
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr_300px]">
-        {/* Left column: owner rosters */}
-        <aside>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
-            Rosters
-          </h2>
-          <OwnerRosterPanel draft={draft} />
-        </aside>
-
-        {/* Center column: board + controls */}
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
+        {/* Left column: board + controls */}
         <div className="space-y-4">
           <PickNavigator draft={draft} />
 
@@ -198,7 +197,7 @@ export default function DraftBoardClient({
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
               Draft Board
             </h2>
-            <DraftBoardGrid draft={draft} />
+            <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
           </div>
         </div>
 
@@ -237,7 +236,6 @@ export default function DraftBoardClient({
             )}
           </div>
         </aside>
-      </div>
     </div>
   );
 }

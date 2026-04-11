@@ -24,7 +24,7 @@ export default async function Page() {
           const commaIdx = line.indexOf(',');
           if (commaIdx === -1) continue;
           const owner = line.slice(commaIdx + 1).trim();
-          if (owner) owners.add(owner);
+          if (owner && owner !== 'NoClaim') owners.add(owner);
         }
         ownerCountBySlug[league.slug] = owners.size;
       } catch {

@@ -35,6 +35,7 @@ export type DraftTeamInsights = {
   teamId: string;
   teamName: string;
   conference: string | null;
+  teamColor: string | null;
   spRating: number | null;
   spTier: SpTier | null;
   winTotalLow: number | null;
@@ -48,6 +49,33 @@ export type DraftTeamInsights = {
   rankedOpponentCount: number;
   awaitingRatings: boolean;
 };
+
+// ---------------------------------------------------------------------------
+// Conference color map — used as team color source since TeamCatalogItem.color
+// is not populated in the static teams.json catalog. Each conference gets a
+// distinct hue so the draft board provides meaningful visual grouping.
+// ---------------------------------------------------------------------------
+
+const CONFERENCE_COLORS: Record<string, string> = {
+  SEC: '#2563EB',             // blue-600
+  'Big Ten': '#16A34A',       // green-600
+  ACC: '#DC2626',             // red-600
+  'Big 12': '#D97706',        // amber-600
+  'Pac-12': '#9333EA',        // purple-600
+  'Mountain West': '#7C3AED', // violet-600
+  'Sun Belt': '#0891B2',      // cyan-600
+  'American Athletic': '#EA580C', // orange-600
+  'Mid-American': '#B45309',  // amber-700
+  'Conference USA': '#0D9488', // teal-600
+  'FBS Independents': '#6B7280', // gray-500
+};
+
+const CONFERENCE_COLOR_FALLBACK = '#6B7280'; // gray-500
+
+function conferenceColor(conference: string | null | undefined): string {
+  if (!conference) return CONFERENCE_COLOR_FALLBACK;
+  return CONFERENCE_COLORS[conference] ?? CONFERENCE_COLOR_FALLBACK;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -258,6 +286,7 @@ export function selectDraftTeamInsights(params: {
       teamId: school,
       teamName: team.displayName ?? school,
       conference: team.conference ?? null,
+      teamColor: team.color ?? conferenceColor(team.conference),
       spRating,
       spTier,
       winTotalLow,

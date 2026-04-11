@@ -14,13 +14,11 @@ import {
   type NormalizedScoreRow,
   type SeasonPhase,
 } from '@/lib/scoreAttachment';
-import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
+import { createTeamIdentityResolver } from '@/lib/teamIdentity';
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
-import teamsData from '@/data/teams.json';
+import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftBoardClient from '@/components/draft/DraftBoardClient';
-
-type TeamsJson = { items: TeamCatalogItem[] };
 
 export const dynamic = 'force-dynamic';
 
@@ -57,8 +55,8 @@ export default async function DraftBoardPage({
   // draft is non-null past this point (redirect() throws)
   const liveDraft = draft as DraftState;
 
-  // Load team catalog
-  const { items: teams } = teamsData as TeamsJson;
+  // Load team catalog (enriched with color data when admin team sync has been run)
+  const teams = await getTeamDatabaseItems();
 
   // Load SP+ ratings
   let spRatings: SpRatingEntry[] | null = null;
