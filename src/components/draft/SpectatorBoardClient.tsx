@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { DraftState } from '@/lib/draft';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import DraftBoardGrid from './DraftBoardGrid';
-import DraftCard from './DraftCard';
 import DraftHeaderArea from './DraftHeaderArea';
 
 type SpectatorBoardClientProps = {
@@ -70,44 +69,83 @@ export default function SpectatorBoardClient({
     });
 
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
-        {/* Left column: header + board — single scroll container so header
-             matches table width rather than driving the column wider */}
-        <div className="min-w-0 space-y-4" style={{ overflowX: 'auto' }}>
-          <DraftHeaderArea draft={draft} />
-          <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
-        </div>
+    <div>
+      {/* Header + board — single scroll container so header matches table width */}
+      <div className="min-w-0 space-y-4" style={{ overflowX: 'auto' }}>
+        <DraftHeaderArea draft={draft} />
+        <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
+      </div>
 
-        {/* Right column: available teams — sticky, independently scrollable */}
-        <aside
-          className="flex flex-col rounded-lg border border-gray-100 bg-gray-50/40 p-3 dark:border-zinc-800 dark:bg-zinc-800/30"
-          style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)' }}
-        >
-          <h2 className="mb-2 shrink-0 text-xs font-bold uppercase tracking-[0.15em] text-gray-600 border-b border-gray-200 pb-1.5 dark:text-zinc-300 dark:border-zinc-700">
+      {/* Available Teams — horizontal bottom strip (spectator: non-clickable) */}
+      <div style={{ borderTop: '0.5px solid #1f2937', paddingTop: 10, marginTop: 16 }}>
+        {/* Header row: label + search */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#6b7280' }}>
             Available Teams
-          </h2>
+          </span>
           <input
             type="search"
-            placeholder="Search teams…"
+            placeholder="Search or filter by conference…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="mb-3 w-full shrink-0 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            style={{
+              width: 220,
+              fontSize: 12,
+              padding: '4px 8px',
+              background: '#111827',
+              border: '0.5px solid #374151',
+              borderRadius: 6,
+              color: '#e5e7eb',
+              outline: 'none',
+            }}
           />
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-            {availableInsights.map((insights) => (
-              <DraftCard
-                key={insights.teamId}
-                insights={insights}
-                isDrafted={false}
-              />
-            ))}
-            {availableInsights.length === 0 && (
-              <p className="text-sm text-gray-400 dark:text-zinc-500">
-                {search ? 'No teams match.' : 'All teams have been drafted.'}
-              </p>
-            )}
-          </div>
-        </aside>
+        </div>
+        {/* Chip row — horizontally scrollable */}
+        <div
+          className="draft-chip-scroll"
+          style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}
+        >
+          {availableInsights.map((t) => {
+            const barColor = t.teamColor ?? '#94a3b8';
+            return (
+              <div
+                key={t.teamId}
+                style={{
+                  display: 'flex',
+                  alignItems: 'stretch',
+                  flexShrink: 0,
+                  background: '#1f2937',
+                  border: '0.5px solid #374151',
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                }}
+              >
+                <span style={{ width: 3, flexShrink: 0, backgroundColor: barColor }} />
+                <div style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#e5e7eb' }}>
+                    {t.shortName}
+                  </span>
+                  {t.conference && (
+                    <span style={{ fontSize: 10, color: '#6b7280', marginLeft: 6 }}>
+                      {t.conference}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {availableInsights.length === 0 && (
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              {search ? 'No teams match.' : 'All teams have been drafted.'}
+            </span>
+          )}
+        </div>
+      </div>
+      <style>{`
+        .draft-chip-scroll::-webkit-scrollbar { height: 3px; }
+        .draft-chip-scroll::-webkit-scrollbar-track { background: transparent; }
+        .draft-chip-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+      `}</style>
     </div>
   );
 }
