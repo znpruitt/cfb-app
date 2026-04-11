@@ -119,25 +119,10 @@ export default function DraftBoardClient({
     return () => clearInterval(id);
   }, [draft.phase, draft.timerState, draft.timerExpiresAt, isAdmin, slug, year]);
 
-  // Return nothing while redirecting non-admins to spectator view
-  if (!isAdmin) return <></>;
-
-  const pickedTeamsLower = new Set(draft.picks.map((p: DraftPick) => p.team.toLowerCase()));
-
-  // Build lowercase teamId → color map for DraftBoardGrid completed-cell left bars.
-  // Lowercase keys tolerate casing differences between the CFBD catalog (used for
-  // insights) and the pick API (which resolves via the static teams catalog).
-  const teamColorMap = Object.fromEntries(
-    teamInsights
-      .filter((t) => t.teamColor !== null)
-      .map((t) => [t.teamId.toLowerCase(), t.teamColor as string])
-  );
-
-  const canPick = isAdmin && draft.phase === 'live';
-
   // Auto-pause at round boundaries: if the draft is live and currentPickIndex
   // sits exactly on a round boundary (i.e. the previous pick completed a round),
   // pause the draft so the commissioner must explicitly start the next round.
+  // Must be declared before the early return to satisfy Rules of Hooks.
   const autoPauseRef = useRef<number | null>(null);
 
   const maybeAutoPauseForRound = useCallback(async (d: DraftState) => {
@@ -164,6 +149,23 @@ export default function DraftBoardClient({
     } catch { /* non-fatal */ }
     return d;
   }, [slug, year]);
+
+  // Return nothing while redirecting non-admins to spectator view.
+  // Placed after all hooks so Rules of Hooks are satisfied.
+  if (!isAdmin) return <></>;
+
+  const pickedTeamsLower = new Set(draft.picks.map((p: DraftPick) => p.team.toLowerCase()));
+
+  // Build lowercase teamId → color map for DraftBoardGrid completed-cell left bars.
+  // Lowercase keys tolerate casing differences between the CFBD catalog (used for
+  // insights) and the pick API (which resolves via the static teams catalog).
+  const teamColorMap = Object.fromEntries(
+    teamInsights
+      .filter((t) => t.teamColor !== null)
+      .map((t) => [t.teamId.toLowerCase(), t.teamColor as string])
+  );
+
+  const canPick = isAdmin && draft.phase === 'live';
 
   async function handlePick(teamId: string) {
     if (!canPick) return;
