@@ -164,6 +164,10 @@ export default function DraftBoardClient({
       .map((t) => [t.teamId.toLowerCase(), t.teamColor as string])
   );
 
+  const teamShortNameMap = Object.fromEntries(
+    teamInsights.map((t) => [t.teamId.toLowerCase(), t.shortName])
+  );
+
   const canPick = isAdmin && draft.phase === 'live';
 
   async function handlePick(teamId: string) {
@@ -286,7 +290,7 @@ export default function DraftBoardClient({
             settingsHref={`/league/${slug}/draft/setup`}
             controlsLoading={controlsLoading}
           />
-          <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
+          <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
         </div>
 
         {/* Right column: available teams */}

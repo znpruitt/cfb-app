@@ -7,11 +7,13 @@ type DraftBoardGridProps = {
   draft: DraftState;
   /** Optional map of lowercase teamId → hex color for completed-cell left bar. */
   teamColorMap?: Record<string, string>;
+  /** Optional map of lowercase teamId → abbreviated display name. */
+  teamShortNameMap?: Record<string, string>;
 };
 
-const ROUND_COL_WIDTH = 120;
+const ROUND_COL_WIDTH = 90;
 
-export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridProps): React.ReactElement {
+export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }: DraftBoardGridProps): React.ReactElement {
   const { draftOrder, totalRounds } = draft.settings;
   const n = draftOrder.length;
 
@@ -98,8 +100,11 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
                 const isCurrent = pickNum === currentPickNum && !isComplete;
                 const isOnDeck = pickNum === onDeckPickNum && !isComplete;
 
+                const teamLower = pick?.team.toLowerCase() ?? '';
                 const completedColor =
-                  pick && teamColorMap ? teamColorMap[pick.team.toLowerCase()] ?? null : null;
+                  pick && teamColorMap ? teamColorMap[teamLower] ?? null : null;
+                const displayName =
+                  pick && teamShortNameMap ? teamShortNameMap[teamLower] ?? pick.team : pick?.team ?? '';
 
                 // Build cell style: fixed column width + state-dependent bg
                 const bg = colBg(roundIdx);
@@ -143,7 +148,7 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
                         }}
                         title={pick.team + (pick.autoSelected ? ' (auto)' : '')}
                       >
-                        {pick.team}
+                        {displayName}
                       </span>
                     ) : isCurrent ? (
                       <span style={{ color: '#ffffff' }}>…</span>
