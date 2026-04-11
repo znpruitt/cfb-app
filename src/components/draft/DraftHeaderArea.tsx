@@ -136,18 +136,18 @@ export default function DraftHeaderArea({
         {/* Left: previous pick */}
         <div className="rounded-[10px] border border-gray-800 bg-[#161d2a] px-3 py-2 flex flex-col gap-0.5">
           {isFirstPickOfRound && previousRound && (
-            <span className="mb-0.5 self-start rounded bg-[#1e3a5f] px-1.5 py-0.5 text-[9px] tracking-[0.04em] text-blue-700">
+            <span className="mb-0.5 text-[9px] uppercase tracking-[0.06em] text-gray-400">
               End of Round {previousRound}
             </span>
           )}
-          <span className="text-[10px] uppercase tracking-[0.06em] text-gray-700">Previous</span>
+          <span className="text-[10px] uppercase tracking-[0.06em] text-gray-600">Previous</span>
           {lastPick ? (
             <>
               <span className="text-xs font-medium text-gray-500">{lastPick.team}</span>
-              <span className="text-[11px] text-gray-700">{lastPick.owner}</span>
+              <span className="text-[11px] text-gray-600">{lastPick.owner}</span>
             </>
           ) : (
-            <span className="text-[11px] text-gray-700">—</span>
+            <span className="text-[11px] text-gray-600">—</span>
           )}
         </div>
 
@@ -208,15 +208,15 @@ export default function DraftHeaderArea({
         {/* Right: on deck */}
         <div className="rounded-[10px] border border-gray-800 bg-[#161d2a] px-3 py-2 flex flex-col items-end gap-0.5">
           {isLastPickOfRound && nextPickRound !== currentRound && (
-            <span className="mb-0.5 self-end rounded bg-[#1e3a5f] px-1.5 py-0.5 text-[9px] tracking-[0.04em] text-blue-700">
+            <span className="mb-0.5 text-[9px] uppercase tracking-[0.06em] text-gray-400">
               Round {nextPickRound}
             </span>
           )}
-          <span className="text-[10px] uppercase tracking-[0.06em] text-gray-700">On deck</span>
+          <span className="text-[10px] uppercase tracking-[0.06em] text-gray-600">On deck</span>
           {nextOwner ? (
             <span className="text-xs font-medium text-gray-500">{nextOwner}</span>
           ) : (
-            <span className="text-[11px] text-gray-700">—</span>
+            <span className="text-[11px] text-gray-600">—</span>
           )}
         </div>
       </div>
