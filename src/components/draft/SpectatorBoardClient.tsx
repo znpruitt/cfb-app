@@ -69,17 +69,20 @@ export default function SpectatorBoardClient({
     });
 
   return (
-    <div>
-      {/* Header + board — single scroll container so header matches table width */}
-      <div className="min-w-0 space-y-4" style={{ overflowX: 'auto' }}>
+    <div style={{ height: 'calc(100dvh - 10rem)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* TOP — fixed header area (cards, banners) */}
+      <div style={{ flexShrink: 0 }}>
         <DraftHeaderArea draft={draft} />
+      </div>
+
+      {/* MIDDLE — table scrolls both axes within remaining space */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', marginTop: 12 }}>
         <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
       </div>
 
-      {/* Available Teams — horizontal bottom strip (spectator: non-clickable) */}
-      <div style={{ borderTop: '0.5px solid #1f2937', paddingTop: 10, marginTop: 16 }}>
-        {/* Header row: label + search */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+      {/* BOTTOM — Available Teams strip, fixed at bottom (spectator: non-clickable) */}
+      <div style={{ flexShrink: 0, borderTop: '0.5px solid #1f2937', paddingTop: 8, marginTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#6b7280' }}>
             Available Teams
           </span>
@@ -100,7 +103,6 @@ export default function SpectatorBoardClient({
             }}
           />
         </div>
-        {/* Chip row — horizontally scrollable */}
         <div
           className="draft-chip-scroll"
           style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}
