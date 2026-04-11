@@ -199,12 +199,16 @@ export default function DraftBoardClient({
   // F4: exclude already-drafted teams from the available panel entirely
   const availableInsights = teamInsights
     .filter((t) => !pickedTeamsLower.has(t.teamId.toLowerCase()))
-    .filter((t) =>
-      search
-        ? t.teamName.toLowerCase().includes(search.toLowerCase()) ||
-          t.teamId.toLowerCase().includes(search.toLowerCase())
-        : true
-    );
+    .filter((t) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        t.teamName.toLowerCase().includes(q) ||
+        t.teamId.toLowerCase().includes(q) ||
+        t.shortName.toLowerCase().includes(q) ||
+        (t.conference?.toLowerCase().includes(q) ?? false)
+      );
+    });
 
   // --- Draft control helpers (admin-only, used by DraftHeaderArea) ---
 
@@ -293,9 +297,12 @@ export default function DraftBoardClient({
           <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
         </div>
 
-        {/* Right column: available teams */}
-        <aside className="rounded-lg border border-gray-100 bg-gray-50/40 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-          <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.15em] text-gray-600 border-b border-gray-200 pb-1.5 dark:text-zinc-300 dark:border-zinc-700">
+        {/* Right column: available teams — sticky, independently scrollable */}
+        <aside
+          className="flex flex-col rounded-lg border border-gray-100 bg-gray-50/40 p-3 dark:border-zinc-800 dark:bg-zinc-800/30"
+          style={{ position: 'sticky', top: '1rem', maxHeight: 'calc(100vh - 2rem)' }}
+        >
+          <h2 className="mb-2 shrink-0 text-xs font-bold uppercase tracking-[0.15em] text-gray-600 border-b border-gray-200 pb-1.5 dark:text-zinc-300 dark:border-zinc-700">
             Available Teams
           </h2>
           <input
@@ -303,12 +310,12 @@ export default function DraftBoardClient({
             placeholder="Search teams…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="mb-3 w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            className="mb-3 w-full shrink-0 rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
           />
           {pickError && (
-            <p className="mb-2 text-sm text-red-700 dark:text-red-400">{pickError}</p>
+            <p className="mb-2 shrink-0 text-sm text-red-700 dark:text-red-400">{pickError}</p>
           )}
-          <div className="space-y-2">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {availableInsights.map((insights) => (
               <DraftCard
                 key={insights.teamId}

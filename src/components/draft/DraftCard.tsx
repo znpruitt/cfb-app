@@ -11,7 +11,7 @@ type DraftCardProps = {
 };
 
 export default function DraftCard({ insights, isDrafted, onSelect }: DraftCardProps) {
-  const { teamName, conference, teamColor } = insights;
+  const { teamName, shortName, conference, teamColor } = insights;
   const isClickable = !!onSelect && !isDrafted;
   const barColor = teamColor ?? '#94a3b8'; // slate-400 fallback
 
@@ -38,7 +38,7 @@ export default function DraftCard({ insights, isDrafted, onSelect }: DraftCardPr
 
       {/* Name + conference */}
       <div className="min-w-0 px-2.5 py-1.5">
-        <p className="truncate font-semibold text-gray-900 dark:text-zinc-100">{teamName}</p>
+        <p className="truncate font-semibold text-gray-900 dark:text-zinc-100" title={teamName}>{shortName}</p>
         {conference && (
           <p className="truncate text-xs text-gray-500 dark:text-zinc-400">{conference}</p>
         )}

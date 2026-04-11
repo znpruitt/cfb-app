@@ -43,7 +43,7 @@ export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }
     zIndex: 10,
     borderRight: '0.5px solid #374151',
     whiteSpace: 'nowrap',
-    padding: '4px 16px 4px 0',
+    padding: '4px 8px 4px 0',
   };
 
   return (
@@ -89,7 +89,12 @@ export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }
                   color: '#9ca3af',
                 }}
               >
-                {owner}
+                <div
+                  style={{ maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={owner}
+                >
+                  {owner}
+                </div>
               </td>
               {Array.from({ length: totalRounds }, (_, roundIdx) => {
                 const isEvenRound = roundIdx % 2 === 0;
