@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState } from '@/lib/draft';
-import RosterSetupPanel from './RosterSetupPanel';
 import DraftSettingsPanel from './DraftSettingsPanel';
 
 type DraftSetupShellProps = {
@@ -26,8 +25,63 @@ export default function DraftSetupShell({
   const [draftState, setDraftState] = useState<DraftState | null>(initialDraftState);
   const [backLoading, setBackLoading] = useState(false);
   const [backError, setBackError] = useState<string | null>(null);
+  const [autoAdvancing, setAutoAdvancing] = useState(false);
+  const autoAdvancedRef = useRef(false);
 
   const phase = draftState?.phase ?? 'setup';
+
+  // Auto-advance: when phase is 'setup' or draft is null, auto-create/advance to settings
+  // using preseason owners (or existing draft owners as fallback).
+  useEffect(() => {
+    if (autoAdvancedRef.current) return;
+    if (phase !== 'setup' && draftState !== null) return;
+
+    const owners =
+      priorOwners.length >= 2
+        ? priorOwners
+        : draftState?.owners && draftState.owners.length >= 2
+          ? draftState.owners
+          : null;
+
+    if (!owners) return; // Not enough owners to auto-advance — will show settings with empty state
+
+    autoAdvancedRef.current = true;
+    setAutoAdvancing(true);
+
+    void (async () => {
+      try {
+        const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+
+        // Create draft if it doesn't exist
+        if (!draftState) {
+          const createRes = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...authHeaders },
+            body: JSON.stringify({ owners }),
+          });
+          if (!createRes.ok && createRes.status !== 409) {
+            setAutoAdvancing(false);
+            return;
+          }
+        }
+
+        // Advance to settings phase
+        const putRes = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ owners, phase: 'settings' }),
+        });
+        if (putRes.ok) {
+          const data = (await putRes.json()) as { draft: DraftState };
+          setDraftState(data.draft);
+        }
+      } catch {
+        // Non-fatal — user can still interact with settings
+      } finally {
+        setAutoAdvancing(false);
+      }
+    })();
+  }, [phase, draftState, priorOwners, slug, year]);
 
   async function handleBackToSettings() {
     setBackError(null);
@@ -69,27 +123,48 @@ export default function DraftSetupShell({
     );
   }
 
-  if (phase === 'setup' || draftState === null) {
+  // Show loading state while auto-advancing from setup → settings
+  if (autoAdvancing || (phase === 'setup' && priorOwners.length >= 2)) {
     return (
-      <RosterSetupPanel
-        slug={slug}
-        year={year}
-        draftState={draftState}
-        priorOwners={priorOwners}
-        onAdvance={(updated) => setDraftState(updated)}
-      />
+      <div className="rounded-2xl border border-gray-300 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <p className="text-sm text-gray-500 dark:text-zinc-400">Loading draft settings…</p>
+      </div>
     );
   }
 
-  if (phase === 'settings') {
+  if (phase === 'setup' || phase === 'settings' || draftState === null) {
+    // Build a synthetic draft state for the settings panel when we have no draft yet
+    // or when the draft is still in 'setup' phase (no preseason owners available)
+    const effectiveDraftState: DraftState = draftState ?? {
+      leagueSlug: slug,
+      year,
+      phase: 'settings',
+      owners: priorOwners.length >= 2 ? priorOwners : [],
+      settings: {
+        style: 'snake',
+        draftOrder: priorOwners.length >= 2 ? priorOwners : [],
+        pickTimerSeconds: 60,
+        timerExpiryBehavior: 'pause-and-prompt',
+        autoPickMetric: null,
+        totalRounds: 1,
+        scheduledAt: null,
+      },
+      picks: [],
+      currentPickIndex: 0,
+      timerState: 'off',
+      timerExpiresAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
     return (
       <DraftSettingsPanel
         slug={slug}
         year={year}
-        draftState={draftState}
+        draftState={effectiveDraftState}
+        priorOwners={priorOwners}
         priorChampOrder={priorChampOrder}
         fbsTeamCount={fbsTeamCount}
-        onBack={(updated) => setDraftState(updated)}
         onAdvance={(updated) => setDraftState(updated)}
       />
     );

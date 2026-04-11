@@ -9,6 +9,30 @@
 
 ## Completed phases / milestones
 
+### P7B-6 — Draft Board UI Polish: Complete
+
+**Status:** Complete. Branch `claude/polish-draft-flow-Rv5AF`.
+**PROMPT_IDs:** P7B-6, P7B-6-FIX, P7B-6-FIX-2, P7B-6-FIX-3, P7B-6-FIX-3-HOTFIX, P7B-6-FIX-4, P7B-6-FIX-5, P7B-6-FIX-5B, P7B-6-FIX-5C, P7B-6-FIX-5D
+
+**Key outcomes:**
+- Rosters column removed from commissioner and spectator draft boards (2-col grid: board + available teams)
+- On-the-clock cell uses consistent solid blue (`bg-blue-600`)
+- Active/on-deck cell colors: active=solid blue, on-deck=light blue tint
+- Left color bar added to Available Teams cards and pick cells via `teamColorMap` from `getTeamDatabaseItems()`
+- Available Teams panel narrowed to 210px
+- Search/filter added to spectator board Available Teams panel
+- Landing page cleanup: "Draft Setup →" link removed, NoClaim excluded from owner count, status label derived from `league.status`
+- Draft status row on league hub links to draft board when live/paused
+- Spectator standalone banner removed
+- `md` breakpoint (instead of `lg`) used for two-column layout
+
+**Key architectural decisions:**
+- Left bar with no background chosen over tinted background for pick cells — team color is the only signal, no competing background tint
+- Conference colors used as fallback when team sync has not been run
+- `md` breakpoint instead of `lg` for two-column layout to accommodate smaller screens
+
+---
+
 ### P7B-5 — Owner Confirmation Flow: Complete
 
 **Status:** Complete. Branch `claude/add-league-status-field-jPzcQ`.

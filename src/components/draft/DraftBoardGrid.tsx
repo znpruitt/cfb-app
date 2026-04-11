@@ -98,7 +98,7 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
                       ) : isCurrent ? (
                         <span className="text-white">…</span>
                       ) : (
-                        <span className="text-gray-300 dark:text-zinc-600">—</span>
+                        <span className="text-gray-200 text-[10px] dark:text-zinc-700">—</span>
                       )}
                     </td>
                   );

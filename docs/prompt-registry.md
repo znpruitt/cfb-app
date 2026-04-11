@@ -16,10 +16,51 @@ The registry should remain:
 
 ## Active Prompts
 
+### P7B-7
+- Purpose: Polish the draft flow — remove redundant setup step, add drag-and-drop reordering, auto-pause between rounds, context-aware draft banner, neutral Available Teams background, visual hierarchy improvements.
+- Scope: `src/components/draft/DraftSetupShell.tsx`, `src/components/draft/DraftSettingsPanel.tsx`, `src/components/draft/DraftBoardClient.tsx`, `src/components/draft/SpectatorBoardClient.tsx`, `src/components/draft/DraftBoardGrid.tsx`, `src/components/draft/DraftCard.tsx`, `src/components/draft/DraftControls.tsx`, `src/components/CFBScheduleApp.tsx`, doc updates.
+- Notes: Setup step 1 (RosterSetupPanel) removed — auto-advance from preseason-owners; DraftSettingsPanel gains inline owner management + drag-and-drop + number entry for manual order; auto-pause at round boundaries with "Start Round X" button; spectator shows "Round X starting soon…"; league overview banner is blue-tinted with scheduled date or round info; DraftCard uses neutral bg-white/bg-zinc-800; section labels bolded with bottom borders; Available Teams panel gets subtle surface tint.
+
 ### P7B-6
 - Purpose: Draft board UI polish — remove Rosters column, simplify DraftCard to name/conference/dot, update DraftBoardGrid cell colors, add spectator search, clean up landing page.
 - Scope: `src/lib/selectors/draftTeamInsights.ts`, `src/components/draft/DraftCard.tsx`, `src/components/draft/DraftBoardGrid.tsx`, `src/components/draft/DraftBoardClient.tsx`, `src/components/draft/SpectatorBoardClient.tsx`, `src/components/RootPageClient.tsx`, `src/app/page.tsx`, doc updates.
 - Notes: `teamColor: string | null` added to `DraftTeamInsights`; DraftCard stripped to 3 fields; `teamColorMap` passed to DraftBoardGrid for completed-cell tinting; active cell `bg-blue-600`, on-deck `bg-blue-100`; spectator now has search input; "Draft Setup →" removed from landing card; NoClaim filtered from owner count; status label derives from `league.status`.
+
+### P7B-6-FIX
+- Purpose: Follow-up fixes to draft board polish — on-the-clock consistent blue, active/on-deck cell colors.
+- Scope: `src/components/draft/DraftBoardGrid.tsx`, `src/components/draft/DraftBoardClient.tsx`.
+
+### P7B-6-FIX-2
+- Purpose: Left color bar on Available Teams cards and pick cells.
+- Scope: `src/components/draft/DraftCard.tsx`, `src/components/draft/DraftBoardGrid.tsx`.
+
+### P7B-6-FIX-3
+- Purpose: Team colors sourced from `getTeamDatabaseItems()`, conference colors as fallback.
+- Scope: `src/lib/selectors/draftTeamInsights.ts`.
+
+### P7B-6-FIX-3-HOTFIX
+- Purpose: Hotfix for team color lookup casing mismatch.
+- Scope: `src/components/draft/DraftBoardGrid.tsx`.
+
+### P7B-6-FIX-4
+- Purpose: Available Teams panel narrowed to 210px, search added to spectator view.
+- Scope: `src/components/draft/SpectatorBoardClient.tsx`, `src/components/draft/DraftBoardClient.tsx`.
+
+### P7B-6-FIX-5
+- Purpose: Landing page cleanup — "Draft Setup →" link removed, NoClaim excluded from owner count.
+- Scope: `src/components/RootPageClient.tsx`, `src/app/page.tsx`.
+
+### P7B-6-FIX-5B
+- Purpose: Draft status row links to draft when live/paused.
+- Scope: `src/components/RootPageClient.tsx`.
+
+### P7B-6-FIX-5C
+- Purpose: Spectator banner removed.
+- Scope: `src/components/draft/SpectatorBoardClient.tsx`.
+
+### P7B-6-FIX-5D
+- Purpose: md breakpoint fix for two-column layout.
+- Scope: `src/components/draft/DraftBoardClient.tsx`, `src/components/draft/SpectatorBoardClient.tsx`.
 
 ### P7B-5-FIX-6
 - Purpose: Fix manual assignment `teamsHref` re-introduced 404 — was set to `/admin/${slug}/assign`, corrected to `/admin/${slug}/preseason`.

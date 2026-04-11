@@ -135,6 +135,36 @@ export default function DraftBoardClient({
 
   const canPick = isAdmin && draft.phase === 'live';
 
+  // Auto-pause at round boundaries: if the draft is live and currentPickIndex
+  // sits exactly on a round boundary (i.e. the previous pick completed a round),
+  // pause the draft so the commissioner must explicitly start the next round.
+  const autoPauseRef = useRef<number | null>(null);
+
+  const maybeAutoPauseForRound = useCallback(async (d: DraftState) => {
+    const n = d.owners.length;
+    const idx = d.currentPickIndex;
+    const totalPicks = d.settings.totalRounds * n;
+    const atRoundBoundary = idx > 0 && idx % n === 0 && idx < totalPicks;
+    if (!atRoundBoundary || d.phase !== 'live') return d;
+    if (autoPauseRef.current === idx) return d; // already paused for this boundary
+    autoPauseRef.current = idx;
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const body: Record<string, unknown> = { phase: 'paused' };
+      if (d.settings.pickTimerSeconds) body.timerAction = 'pause';
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { draft?: DraftState };
+        if (data.draft) return data.draft;
+      }
+    } catch { /* non-fatal */ }
+    return d;
+  }, [slug, year]);
+
   async function handlePick(teamId: string) {
     if (!canPick) return;
     setPickError(null);
@@ -151,7 +181,9 @@ export default function DraftBoardClient({
         setPickError(data.error ?? `Pick failed (${res.status})`);
         return;
       }
-      setDraft(data.draft);
+      // Auto-pause at round boundary
+      const finalDraft = await maybeAutoPauseForRound(data.draft);
+      setDraft(finalDraft);
     } catch (err) {
       setPickError((err as Error).message);
     } finally {
@@ -172,29 +204,34 @@ export default function DraftBoardClient({
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
         {/* Left column: board + controls */}
-        <div className="space-y-4">
+        <div className="space-y-0">
           <PickNavigator draft={draft} />
 
-          {draft.settings.pickTimerSeconds && <TimerDisplay draft={draft} />}
-
-          {isAdmin && (
-            <DraftControls
-              slug={slug}
-              year={year}
-              draft={draft}
-              onUpdate={(updated) => {
-                // F5: after reset, draft returns to 'setup' — redirect to setup page
-                if (updated.phase === 'setup') {
-                  window.location.href = `/league/${slug}/draft/setup`;
-                  return;
-                }
-                setDraft(updated);
-              }}
-            />
+          {draft.settings.pickTimerSeconds && (
+            <div className="border-t border-gray-200 pt-3 mt-3 dark:border-zinc-700">
+              <TimerDisplay draft={draft} />
+            </div>
           )}
 
-          <div>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
+          {isAdmin && (
+            <div className="border-t border-gray-200 pt-3 mt-3 dark:border-zinc-700">
+              <DraftControls
+                slug={slug}
+                year={year}
+                draft={draft}
+                onUpdate={(updated) => {
+                  if (updated.phase === 'setup') {
+                    window.location.href = `/league/${slug}/draft/setup`;
+                    return;
+                  }
+                  setDraft(updated);
+                }}
+              />
+            </div>
+          )}
+
+          <div className="border-t border-gray-200 pt-4 mt-4 dark:border-zinc-700">
+            <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.15em] text-gray-600 border-b border-gray-200 pb-1.5 dark:text-zinc-300 dark:border-zinc-700">
               Draft Board
             </h2>
             <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
@@ -202,8 +239,8 @@ export default function DraftBoardClient({
         </div>
 
         {/* Right column: available teams */}
-        <aside>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
+        <aside className="rounded-lg border border-gray-100 bg-gray-50/40 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+          <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.15em] text-gray-600 border-b border-gray-200 pb-1.5 dark:text-zinc-300 dark:border-zinc-700">
             Available Teams
           </h2>
           <input
