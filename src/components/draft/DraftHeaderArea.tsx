@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { DraftState } from '@/lib/draft';
 
 type DraftHeaderAreaProps = {
@@ -62,6 +62,12 @@ export default function DraftHeaderArea({
     return () => clearInterval(id);
   }, [draft.timerState, draft.timerExpiresAt]);
 
+  // --- Crossfade slot tracking (useRef to avoid re-render timing issues) ---
+  const activeSlotRef = useRef<'a' | 'b'>('a');
+  const prevIdxRef = useRef(idx);
+  const slotARef = useRef({ owner: '', pickNum: 0 });
+  const slotBRef = useRef({ owner: '', pickNum: 0 });
+
   // Complete state
   if (draft.phase === 'complete') {
     return (
@@ -79,11 +85,7 @@ export default function DraftHeaderArea({
   const overallPickNumber = idx + 1;
 
   const nextIdx = idx + 1;
-  const nextOwner = nextIdx < totalPicks ? getPickOwner(draftOrder, nextIdx) : null;
   const nextPickRound = Math.floor(nextIdx / n) + 1;
-
-  const lastPick = draft.picks.length > 0 ? draft.picks[draft.picks.length - 1]! : null;
-  const previousRound = lastPick ? lastPick.round + 1 : null; // lastPick.round is 0-based
 
   // Round boundary detection
   const isFirstPickOfRound = idx > 0 && idx % n === 0;
@@ -103,10 +105,8 @@ export default function DraftHeaderArea({
     displaySeconds = secondsLeft;
     timerFraction = totalSecs > 0 ? secondsLeft / totalSecs : 1;
   } else if (draft.timerState === 'paused' && draft.timerExpiresAt) {
-    // When paused, show the frozen time
     const remaining = Math.max(0, new Date(draft.timerExpiresAt).getTime() - Date.now());
     displaySeconds = Math.ceil(remaining / 1000);
-    // If paused timer shows 0 or negative, use last known from picks context
     if (displaySeconds <= 0 && pickTimerSeconds) displaySeconds = pickTimerSeconds;
     timerFraction = totalSecs > 0 ? displaySeconds / totalSecs : 1;
   } else if (pickTimerSeconds) {
@@ -121,47 +121,109 @@ export default function DraftHeaderArea({
   const showClock = !!pickTimerSeconds;
   const isPausedVisual = isPaused || isRoundPause || isExpired;
 
+  // --- Crossfade slot content update ---
+  if (idx !== prevIdxRef.current) {
+    // Pick index changed (advance or undo) — flip to inactive slot with new content
+    const newSlot = activeSlotRef.current === 'a' ? 'b' : 'a';
+    if (newSlot === 'a') {
+      slotARef.current = { owner: activeOwner, pickNum: overallPickNumber };
+    } else {
+      slotBRef.current = { owner: activeOwner, pickNum: overallPickNumber };
+    }
+    activeSlotRef.current = newSlot;
+    prevIdxRef.current = idx;
+  } else {
+    // No idx change — keep active slot content in sync with current state
+    if (activeSlotRef.current === 'a') {
+      slotARef.current = { owner: activeOwner, pickNum: overallPickNumber };
+    } else {
+      slotBRef.current = { owner: activeOwner, pickNum: overallPickNumber };
+    }
+  }
+
+  const slotA = slotARef.current;
+  const slotB = slotBRef.current;
+  const isSlotA = activeSlotRef.current === 'a';
+
+  // --- Card data for flanking positions ---
+  function getCardData(pickIdx: number) {
+    if (pickIdx < 0 || pickIdx >= totalPicks) return null;
+    return { owner: getPickOwner(draftOrder, pickIdx) ?? '—', pickNum: pickIdx + 1 };
+  }
+
+  const farLeft = getCardData(idx - 2);
+  const nearLeft = getCardData(idx - 1);
+  const nearRight = getCardData(idx + 1);
+  const farRight = getCardData(idx + 2);
+
+  // --- Text colors for center card (dimmed when paused) ---
+  const labelColor = isPausedVisual ? '#4b5563' : '#6b7280';
+  const ownerColor = isPausedVisual ? '#4b5563' : '#f9fafb';
+  const pickNumColor = isPausedVisual ? '#374151' : '#6b7280';
+
   return (
     <div>
       {/* Round header */}
-      <div className="mb-2.5 flex items-center gap-3">
-        <span className="whitespace-nowrap text-[11px] font-medium uppercase tracking-[0.1em] text-blue-400">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <span style={{ whiteSpace: 'nowrap', fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#60a5fa' }}>
           Round {currentRound}
         </span>
-        <div className="h-px flex-1 bg-gray-800" />
+        <div style={{ height: 1, flex: 1, background: '#1f2937' }} />
       </div>
 
-      {/* Three-card grid: previous / active / on-deck */}
-      <div className="grid grid-cols-[1fr_3fr_1fr] gap-2 items-stretch">
-        {/* Left: previous pick */}
-        <div className="rounded-[10px] border border-gray-800 bg-[#161d2a] px-3 py-2 flex flex-col gap-0.5">
-          {isFirstPickOfRound && previousRound && (
-            <span className="mb-0.5 text-[9px] uppercase tracking-[0.06em] text-gray-400">
-              End of Round {previousRound}
-            </span>
-          )}
-          <span className="text-[10px] uppercase tracking-[0.06em] text-gray-600">Previous</span>
-          {lastPick ? (
+      {/* Five-card carousel */}
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+
+        {/* Far-left card (idx-2) */}
+        <div style={{
+          width: 110, height: 90, flexShrink: 0,
+          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 12,
+          opacity: 0.5, transform: 'scale(0.82)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+        }}>
+          {farLeft ? (
             <>
-              <span className="text-xs font-medium text-gray-500">{lastPick.team}</span>
-              <span className="text-[11px] text-gray-600">{lastPick.owner}</span>
+              <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farLeft.pickNum}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>{farLeft.owner}</span>
             </>
           ) : (
-            <span className="text-[11px] text-gray-600">—</span>
+            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
           )}
         </div>
 
-        {/* Center: active pick with clock */}
-        <div
-          className={`rounded-[10px] border px-4 py-3 flex items-center gap-4 ${
-            isPausedVisual
-              ? 'border-gray-700 bg-[#1a1f2a]'
-              : 'border-blue-600 bg-[#1a2540]'
-          }`}
-        >
+        {/* Near-left card (idx-1) — "Previous" */}
+        <div style={{
+          width: 140, height: 100, flexShrink: 0,
+          background: '#161616', border: '0.5px solid #252525', borderRadius: 12,
+          opacity: 0.75, transform: 'scale(0.91)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+        }}>
+          {isFirstPickOfRound && currentRound > 1 && (
+            <span style={{ fontSize: 9, color: '#9ca3af', textTransform: 'uppercase' }}>End of Round {currentRound - 1}</span>
+          )}
+          <span style={{ fontSize: 10, color: '#4b5563', textTransform: 'uppercase' }}>Previous</span>
+          {nearLeft ? (
+            <>
+              <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>{nearLeft.owner}</span>
+              <span style={{ fontSize: 11, color: '#374151' }}>Pick {nearLeft.pickNum}</span>
+            </>
+          ) : (
+            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+          )}
+        </div>
+
+        {/* Center card — active pick with clock + crossfade content */}
+        <div style={{
+          flexShrink: 0,
+          background: '#1f2937',
+          border: `0.5px solid ${isPausedVisual ? '#374151' : '#2563eb'}`,
+          borderRadius: 12,
+          padding: '14px 18px',
+          display: 'flex', alignItems: 'center', gap: 16,
+        }}>
           {showClock && (
-            <div className="relative flex shrink-0 items-center justify-center">
-              <svg width="76" height="76" viewBox="0 0 76 76" className="block">
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="76" height="76" viewBox="0 0 76 76" style={{ display: 'block' }}>
                 {/* Track */}
                 <circle cx="38" cy="38" r="32" fill="none" stroke={isPausedVisual ? '#1f2937' : '#1e3a5f'} strokeWidth="5" />
                 {/* Progress */}
@@ -185,38 +247,77 @@ export default function DraftHeaderArea({
               </svg>
               {/* Pause icon overlay */}
               {isPausedVisual && (
-                <div className="absolute inset-0 flex items-center justify-center gap-1">
-                  <div className="h-[18px] w-[5px] rounded-sm bg-amber-600" />
-                  <div className="h-[18px] w-[5px] rounded-sm bg-amber-600" />
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                  <div style={{ height: 18, width: 5, borderRadius: 2, background: '#d97706' }} />
+                  <div style={{ height: 18, width: 5, borderRadius: 2, background: '#d97706' }} />
                 </div>
               )}
             </div>
           )}
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className={`text-[10px] font-medium uppercase tracking-[0.08em] ${isPausedVisual ? 'text-gray-500' : 'text-blue-400'}`}>
-              On the clock
-            </span>
-            <span className={`text-[26px] font-medium leading-tight ${isPausedVisual ? 'text-gray-500' : 'text-gray-50'}`}>
-              {activeOwner}
-            </span>
-            <span className={`mt-0.5 text-xs ${isPausedVisual ? 'text-gray-700' : 'text-gray-500'}`}>
-              Pick {overallPickNumber}
-            </span>
+          {/* Crossfade content area */}
+          <div style={{ position: 'relative', width: 140, height: 58, overflow: 'hidden' }}>
+            {/* Slot A */}
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1,
+              opacity: isSlotA ? 1 : 0,
+              pointerEvents: isSlotA ? 'auto' : 'none',
+              transition: 'opacity 0.2s ease',
+            }}>
+              <span style={{ fontSize: 10, color: labelColor, textTransform: 'uppercase', fontWeight: 500, letterSpacing: '0.08em' }}>On the clock</span>
+              <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slotA.owner}</span>
+              <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotA.pickNum}</span>
+            </div>
+            {/* Slot B */}
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1,
+              opacity: isSlotA ? 0 : 1,
+              pointerEvents: isSlotA ? 'none' : 'auto',
+              transition: 'opacity 0.2s ease',
+            }}>
+              <span style={{ fontSize: 10, color: labelColor, textTransform: 'uppercase', fontWeight: 500, letterSpacing: '0.08em' }}>On the clock</span>
+              <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slotB.owner}</span>
+              <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotB.pickNum}</span>
+            </div>
           </div>
         </div>
 
-        {/* Right: on deck */}
-        <div className="rounded-[10px] border border-gray-800 bg-[#161d2a] px-3 py-2 flex flex-col items-end gap-0.5">
+        {/* Near-right card (idx+1) — "On deck" */}
+        <div style={{
+          width: 140, height: 100, flexShrink: 0,
+          background: '#161616', border: '0.5px solid #252525', borderRadius: 12,
+          opacity: 0.75, transform: 'scale(0.91)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+        }}>
           {isLastPickOfRound && nextPickRound !== currentRound && (
-            <span className="mb-0.5 text-[9px] uppercase tracking-[0.06em] text-gray-400">
-              Round {nextPickRound}
-            </span>
+            <span style={{ fontSize: 9, color: '#9ca3af', textTransform: 'uppercase' }}>Round {nextPickRound}</span>
           )}
-          <span className="text-[10px] uppercase tracking-[0.06em] text-gray-600">On deck</span>
-          {nextOwner ? (
-            <span className="text-xs font-medium text-gray-500">{nextOwner}</span>
+          <span style={{ fontSize: 10, color: '#4b5563', textTransform: 'uppercase' }}>On deck</span>
+          {nearRight ? (
+            <>
+              <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>{nearRight.owner}</span>
+              <span style={{ fontSize: 11, color: '#374151' }}>Pick {nearRight.pickNum}</span>
+            </>
           ) : (
-            <span className="text-[11px] text-gray-600">—</span>
+            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+          )}
+        </div>
+
+        {/* Far-right card (idx+2) */}
+        <div style={{
+          width: 110, height: 90, flexShrink: 0,
+          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 12,
+          opacity: 0.5, transform: 'scale(0.82)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+        }}>
+          {farRight ? (
+            <>
+              <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farRight.pickNum}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>{farRight.owner}</span>
+            </>
+          ) : (
+            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
           )}
         </div>
       </div>
