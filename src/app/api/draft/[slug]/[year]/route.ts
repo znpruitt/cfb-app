@@ -13,7 +13,6 @@ import {
 } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
-import type { SpRatingEntry } from '@/lib/selectors/draftTeamInsights';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
