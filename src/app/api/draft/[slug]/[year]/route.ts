@@ -377,42 +377,26 @@ export async function PUT(
       }
 
       // Paused-expired phase means the commissioner is explicitly requesting auto-pick
-      // from the pause-and-prompt overlay, so always auto-pick regardless of configured behavior
-      const effectiveBehavior = isPausedExpire ? 'auto-pick' : draft.settings.timerExpiryBehavior;
+      // from the pause-and-prompt overlay. Live phase means the timer expired naturally.
+      // Natural expiry always pauses and prompts — no automatic auto-pick.
 
-      if (effectiveBehavior === 'pause-and-prompt') {
+      if (isLiveExpire) {
+        // Timer expired naturally — always pause and prompt the commissioner
         draft = {
           ...draft,
           phase: 'paused',
           timerState: 'expired',
           timerExpiresAt: null,
         };
-      } else if (effectiveBehavior === 'auto-pick') {
-        // Auto-pick: select best available team by SP+ (or alphabetically if no ratings)
-        const spRecord = await getAppState<{ ratings: SpRatingEntry[]; cachedAt: string }>(
-          'sp-ratings',
-          String(year)
-        );
-        const spRatings = spRecord?.value?.ratings ?? [];
+      } else {
+        // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay
+        // Select a random available team
         const { items } = teamsData as TeamsJson;
         const fbsTeams = items.filter((t) => t.school !== 'NoClaim');
         const pickedLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 
-        // Build SP+ rating map using alts for matching
-        const spBySchoolLower = new Map<string, number>();
-        for (const r of spRatings) {
-          if (r.rating == null) continue;
-          const match = fbsTeams.find(
-            (t) =>
-              t.school.toLowerCase() === r.team.toLowerCase() ||
-              (t.alts ?? []).some((a) => a.toLowerCase() === r.team.toLowerCase())
-          );
-          if (match) spBySchoolLower.set(match.school.toLowerCase(), r.rating);
-        }
-
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
 
-        // Random selection from all available teams
         const bestTeam = available.length > 0
           ? available[Math.floor(Math.random() * available.length)]
           : undefined;
