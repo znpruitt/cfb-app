@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { DraftState } from '@/lib/draft';
 
 type DraftBoardGridProps = {
@@ -16,6 +16,17 @@ const OWNER_COL_WIDTH = 100;
 export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }: DraftBoardGridProps): React.ReactElement {
   const { draftOrder, totalRounds } = draft.settings;
   const n = draftOrder.length;
+
+  // Mobile breakpoint for responsive font sizing
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    function check() { setIsMobile(window.innerWidth < 768); }
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  const cellFontSize = isMobile ? 11 : 12;
 
   // Index picks by pick number for quick lookup
   const pickByNumber = new Map<number, { team: string; autoSelected: boolean }>();
@@ -123,7 +134,7 @@ export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }
                     minWidth: OWNER_COL_WIDTH,
                     maxWidth: OWNER_COL_WIDTH,
                     padding: '4px 6px',
-                    fontSize: 11,
+                    fontSize: cellFontSize,
                   };
 
                   if (isCurrent) {
