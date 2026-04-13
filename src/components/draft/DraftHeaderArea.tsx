@@ -84,13 +84,6 @@ export default function DraftHeaderArea({
   const activeOwner = getPickOwner(draftOrder, idx) ?? '—';
   const overallPickNumber = idx + 1;
 
-  const nextIdx = idx + 1;
-  const nextPickRound = Math.floor(nextIdx / n) + 1;
-
-  // Round boundary detection
-  const isFirstPickOfRound = idx > 0 && idx % n === 0;
-  const isLastPickOfRound = nextIdx < totalPicks && nextIdx % n === 0;
-
   // Paused states
   const isPaused = draft.phase === 'paused' || (draft.phase === 'live' && draft.timerState === 'paused');
   const isExpired = draft.timerState === 'expired';
@@ -145,10 +138,13 @@ export default function DraftHeaderArea({
   const slotB = slotBRef.current;
   const isSlotA = activeSlotRef.current === 'a';
 
-  // --- Card data for flanking positions ---
+  // --- Card data for flanking positions (with team name for completed picks) ---
   function getCardData(pickIdx: number) {
     if (pickIdx < 0 || pickIdx >= totalPicks) return null;
-    return { owner: getPickOwner(draftOrder, pickIdx) ?? '—', pickNum: pickIdx + 1 };
+    const owner = getPickOwner(draftOrder, pickIdx) ?? '—';
+    const pickNum = pickIdx + 1;
+    const team = pickIdx < draft.picks.length ? (draft.picks[pickIdx]?.team ?? null) : null;
+    return { owner, pickNum, team };
   }
 
   const farLeft = getCardData(idx - 2);
@@ -161,6 +157,40 @@ export default function DraftHeaderArea({
   const ownerColor = isPausedVisual ? '#4b5563' : '#f9fafb';
   const pickNumColor = isPausedVisual ? '#374151' : '#6b7280';
 
+  // --- Round boundary sidebar ---
+  function isRoundStart(pickIdx: number): boolean {
+    return pickIdx >= 0 && pickIdx < totalPicks && pickIdx % n === 0;
+  }
+
+  function renderRoundSidebar(pickIdx: number) {
+    const round = Math.floor(pickIdx / n) + 1;
+    return (
+      <div style={{
+        width: 16, flexShrink: 0,
+        borderRight: '1px solid rgba(255,255,255,0.12)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <span style={{
+          writingMode: 'vertical-rl' as const,
+          transform: 'rotate(180deg)',
+          fontSize: 9,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase' as const,
+          color: 'rgba(255,255,255,0.3)',
+          whiteSpace: 'nowrap' as const,
+        }}>
+          Rd {round}
+        </span>
+      </div>
+    );
+  }
+
+  const sidebarFarLeft = isRoundStart(idx - 2);
+  const sidebarNearLeft = isRoundStart(idx - 1);
+  const sidebarCenter = isRoundStart(idx);
+  const sidebarNearRight = isRoundStart(idx + 1);
+  const sidebarFarRight = isRoundStart(idx + 2);
+
   return (
     <div>
       {/* Round header */}
@@ -171,154 +201,186 @@ export default function DraftHeaderArea({
         <div style={{ height: 1, flex: 1, background: '#1f2937' }} />
       </div>
 
-      {/* Five-card carousel */}
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+      {/* Five-card landscape strip — full content width */}
+      <div style={{ display: 'flex', width: '100%', alignItems: 'stretch', gap: 8 }}>
 
         {/* Far-left card (idx-2) */}
         <div style={{
-          width: 110, height: 90, flexShrink: 0,
-          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 12,
-          opacity: 0.5, transform: 'scale(0.82)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+          flex: '0.65', minWidth: 0,
+          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 10,
+          opacity: 0.5,
+          display: 'flex', alignItems: 'stretch', overflow: 'hidden',
         }}>
-          {farLeft ? (
-            <>
-              <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farLeft.pickNum}</span>
-              <span style={{ fontSize: 13, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>{farLeft.owner}</span>
-            </>
-          ) : (
-            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
-          )}
+          {sidebarFarLeft && renderRoundSidebar(idx - 2)}
+          <div style={{
+            flex: 1, minWidth: 0,
+            padding: sidebarFarLeft ? '9px 10px 9px 6px' : '9px 10px',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+          }}>
+            {farLeft ? (
+              <>
+                <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farLeft.pickNum}</span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{farLeft.owner}</span>
+                <span style={{ fontSize: 10, color: '#374151' }}>{farLeft.team ?? '—'}</span>
+              </>
+            ) : (
+              <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+            )}
+          </div>
         </div>
 
-        {/* Near-left card (idx-1) — "Previous" */}
+        {/* Near-left card (idx-1) */}
         <div style={{
-          width: 140, height: 100, flexShrink: 0,
-          background: '#161616', border: '0.5px solid #252525', borderRadius: 12,
-          opacity: 0.75, transform: 'scale(0.91)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+          flex: '0.85', minWidth: 0,
+          background: '#161616', border: '0.5px solid #252525', borderRadius: 10,
+          opacity: 0.75,
+          display: 'flex', alignItems: 'stretch', overflow: 'hidden',
         }}>
-          {isFirstPickOfRound && currentRound > 1 && (
-            <span style={{ fontSize: 9, color: '#9ca3af', textTransform: 'uppercase' }}>End of Round {currentRound - 1}</span>
-          )}
-          <span style={{ fontSize: 10, color: '#4b5563', textTransform: 'uppercase' }}>Previous</span>
-          {nearLeft ? (
-            <>
-              <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>{nearLeft.owner}</span>
-              <span style={{ fontSize: 11, color: '#374151' }}>Pick {nearLeft.pickNum}</span>
-            </>
-          ) : (
-            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
-          )}
+          {sidebarNearLeft && renderRoundSidebar(idx - 1)}
+          <div style={{
+            flex: 1, minWidth: 0,
+            padding: sidebarNearLeft ? '11px 12px 11px 6px' : '11px 12px',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+          }}>
+            {nearLeft ? (
+              <>
+                <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {nearLeft.pickNum}</span>
+                <span style={{ fontSize: 14, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nearLeft.owner}</span>
+                <span style={{ fontSize: 12, color: '#4b5563' }}>{nearLeft.team ?? '—'}</span>
+              </>
+            ) : (
+              <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+            )}
+          </div>
         </div>
 
         {/* Center card — active pick with clock + crossfade content */}
         <div style={{
-          flexShrink: 0,
+          flex: '2', minWidth: 0,
           background: '#1f2937',
           border: `0.5px solid ${isPausedVisual ? '#374151' : '#2563eb'}`,
-          borderRadius: 12,
-          padding: '14px 18px',
-          display: 'flex', alignItems: 'center', gap: 16,
+          borderRadius: 10,
+          display: 'flex', alignItems: 'stretch', overflow: 'hidden',
         }}>
-          {showClock && (
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="76" height="76" viewBox="0 0 76 76" style={{ display: 'block' }}>
-                {/* Track */}
-                <circle cx="38" cy="38" r="32" fill="none" stroke={isPausedVisual ? '#1f2937' : '#1e3a5f'} strokeWidth="5" />
-                {/* Progress */}
-                <circle
-                  cx="38" cy="38" r="32" fill="none"
-                  stroke={isPausedVisual ? '#d97706' : '#2563eb'}
-                  strokeWidth="5"
-                  strokeDasharray={CIRCUMFERENCE}
-                  strokeDashoffset={dashOffset}
-                  strokeLinecap="round"
-                  transform="rotate(-90 38 38)"
-                />
-                {/* Time text */}
-                <text
-                  x="38" y="44" textAnchor="middle"
-                  fontSize="22" fontWeight="500"
-                  fill={isPausedVisual ? '#374151' : '#f9fafb'}
-                >
-                  {displaySeconds}
-                </text>
-              </svg>
-              {/* Pause icon overlay */}
-              {isPausedVisual && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                  <div style={{ height: 18, width: 5, borderRadius: 2, background: '#d97706' }} />
-                  <div style={{ height: 18, width: 5, borderRadius: 2, background: '#d97706' }} />
+          {sidebarCenter && renderRoundSidebar(idx)}
+          <div style={{
+            flex: 1, minWidth: 0,
+            padding: sidebarCenter ? '13px 16px 13px 8px' : '13px 16px',
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            {showClock && (
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="76" height="76" viewBox="0 0 76 76" style={{ display: 'block' }}>
+                  {/* Track */}
+                  <circle cx="38" cy="38" r="32" fill="none" stroke={isPausedVisual ? '#1f2937' : '#1e3a5f'} strokeWidth="5" />
+                  {/* Progress */}
+                  <circle
+                    cx="38" cy="38" r="32" fill="none"
+                    stroke={isPausedVisual ? '#d97706' : '#2563eb'}
+                    strokeWidth="5"
+                    strokeDasharray={CIRCUMFERENCE}
+                    strokeDashoffset={dashOffset}
+                    strokeLinecap="round"
+                    transform="rotate(-90 38 38)"
+                  />
+                  {/* Time text */}
+                  <text
+                    x="38" y="44" textAnchor="middle"
+                    fontSize="22" fontWeight="500"
+                    fill={isPausedVisual ? '#374151' : '#f9fafb'}
+                  >
+                    {displaySeconds}
+                  </text>
+                </svg>
+                {/* Pause icon overlay */}
+                {isPausedVisual && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                    <div style={{ height: 18, width: 5, borderRadius: 2, background: '#d97706' }} />
+                    <div style={{ height: 18, width: 5, borderRadius: 2, background: '#d97706' }} />
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Text column: static label + crossfade owner/pick */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 10, color: labelColor, textTransform: 'uppercase', fontWeight: 500, letterSpacing: '0.07em' }}>On the clock</span>
+              {/* Crossfade area — grid overlay for owner + pick number */}
+              <div style={{ display: 'grid' }}>
+                {/* Slot A */}
+                <div style={{
+                  gridRow: 1, gridColumn: 1,
+                  display: 'flex', flexDirection: 'column', gap: 1,
+                  opacity: isSlotA ? 1 : 0,
+                  pointerEvents: isSlotA ? 'auto' : 'none',
+                  transition: 'opacity 0.2s ease',
+                }}>
+                  <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap' }}>{slotA.owner}</span>
+                  <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotA.pickNum}</span>
                 </div>
-              )}
-            </div>
-          )}
-          {/* Crossfade content area */}
-          <div style={{ position: 'relative', width: 140, height: 58, overflow: 'hidden' }}>
-            {/* Slot A */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1,
-              opacity: isSlotA ? 1 : 0,
-              pointerEvents: isSlotA ? 'auto' : 'none',
-              transition: 'opacity 0.2s ease',
-            }}>
-              <span style={{ fontSize: 10, color: labelColor, textTransform: 'uppercase', fontWeight: 500, letterSpacing: '0.08em' }}>On the clock</span>
-              <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slotA.owner}</span>
-              <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotA.pickNum}</span>
-            </div>
-            {/* Slot B */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1,
-              opacity: isSlotA ? 0 : 1,
-              pointerEvents: isSlotA ? 'none' : 'auto',
-              transition: 'opacity 0.2s ease',
-            }}>
-              <span style={{ fontSize: 10, color: labelColor, textTransform: 'uppercase', fontWeight: 500, letterSpacing: '0.08em' }}>On the clock</span>
-              <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slotB.owner}</span>
-              <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotB.pickNum}</span>
+                {/* Slot B */}
+                <div style={{
+                  gridRow: 1, gridColumn: 1,
+                  display: 'flex', flexDirection: 'column', gap: 1,
+                  opacity: isSlotA ? 0 : 1,
+                  pointerEvents: isSlotA ? 'none' : 'auto',
+                  transition: 'opacity 0.2s ease',
+                }}>
+                  <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap' }}>{slotB.owner}</span>
+                  <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotB.pickNum}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Near-right card (idx+1) — "On deck" */}
+        {/* Near-right card (idx+1) */}
         <div style={{
-          width: 140, height: 100, flexShrink: 0,
-          background: '#161616', border: '0.5px solid #252525', borderRadius: 12,
-          opacity: 0.75, transform: 'scale(0.91)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+          flex: '0.85', minWidth: 0,
+          background: '#161616', border: '0.5px solid #252525', borderRadius: 10,
+          opacity: 0.75,
+          display: 'flex', alignItems: 'stretch', overflow: 'hidden',
         }}>
-          {isLastPickOfRound && nextPickRound !== currentRound && (
-            <span style={{ fontSize: 9, color: '#9ca3af', textTransform: 'uppercase' }}>Round {nextPickRound}</span>
-          )}
-          <span style={{ fontSize: 10, color: '#4b5563', textTransform: 'uppercase' }}>On deck</span>
-          {nearRight ? (
-            <>
-              <span style={{ fontSize: 15, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>{nearRight.owner}</span>
-              <span style={{ fontSize: 11, color: '#374151' }}>Pick {nearRight.pickNum}</span>
-            </>
-          ) : (
-            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
-          )}
+          {sidebarNearRight && renderRoundSidebar(idx + 1)}
+          <div style={{
+            flex: 1, minWidth: 0,
+            padding: sidebarNearRight ? '11px 12px 11px 6px' : '11px 12px',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+          }}>
+            {nearRight ? (
+              <>
+                <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {nearRight.pickNum}</span>
+                <span style={{ fontSize: 14, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nearRight.owner}</span>
+                <span style={{ fontSize: 12, color: '#4b5563' }}>{nearRight.team ?? '—'}</span>
+              </>
+            ) : (
+              <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+            )}
+          </div>
         </div>
 
         {/* Far-right card (idx+2) */}
         <div style={{
-          width: 110, height: 90, flexShrink: 0,
-          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 12,
-          opacity: 0.5, transform: 'scale(0.82)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+          flex: '0.65', minWidth: 0,
+          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 10,
+          opacity: 0.5,
+          display: 'flex', alignItems: 'stretch', overflow: 'hidden',
         }}>
-          {farRight ? (
-            <>
-              <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farRight.pickNum}</span>
-              <span style={{ fontSize: 13, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 90 }}>{farRight.owner}</span>
-            </>
-          ) : (
-            <span style={{ fontSize: 13, color: '#374151' }}>—</span>
-          )}
+          {sidebarFarRight && renderRoundSidebar(idx + 2)}
+          <div style={{
+            flex: 1, minWidth: 0,
+            padding: sidebarFarRight ? '9px 10px 9px 6px' : '9px 10px',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+          }}>
+            {farRight ? (
+              <>
+                <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farRight.pickNum}</span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{farRight.owner}</span>
+                <span style={{ fontSize: 10, color: '#374151' }}>{farRight.team ?? '—'}</span>
+              </>
+            ) : (
+              <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+            )}
+          </div>
         </div>
       </div>
 
