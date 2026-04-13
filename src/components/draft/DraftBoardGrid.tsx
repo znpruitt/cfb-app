@@ -11,7 +11,7 @@ type DraftBoardGridProps = {
   teamShortNameMap?: Record<string, string>;
 };
 
-const OWNER_COL_WIDTH = 100;
+const OWNER_COL_WIDTH = 86;
 
 export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }: DraftBoardGridProps): React.ReactElement {
   const { draftOrder, totalRounds } = draft.settings;
