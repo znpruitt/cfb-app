@@ -220,7 +220,7 @@ export default async function DraftBoardPage({
 
   return (
     <main className="py-8" style={{ width: '100%' }}>
-      <div style={{ maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', width: '100%', boxSizing: 'border-box' as const, paddingLeft: 24, paddingRight: 24 }}>
+      <div className="px-2 md:px-6" style={{ maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', width: '100%', boxSizing: 'border-box' as const }}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <Link
