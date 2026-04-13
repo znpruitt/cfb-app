@@ -251,7 +251,7 @@ export default function DraftSetupShell({
   }
 
   // Show loading state while auto-advancing from setup → settings
-  if (autoAdvancing || (phase === 'setup' && priorOwners.length >= 2)) {
+  if (autoAdvancing || (!autoAdvancedRef.current && phase === 'setup' && priorOwners.length >= 2)) {
     return (
       <div className="rounded-2xl border border-gray-300 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <p className="text-sm text-gray-500 dark:text-zinc-400">Loading draft settings…</p>

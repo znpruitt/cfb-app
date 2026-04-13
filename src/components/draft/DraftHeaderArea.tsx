@@ -67,6 +67,27 @@ export default function DraftHeaderArea({
   const slotARef = useRef({ owner: '', pickNum: 0 });
   const slotBRef = useRef({ owner: '', pickNum: 0 });
 
+  // --- Auto-fire auto-pick when expired and timerExpiryBehavior is 'auto-pick' ---
+  const autoPickFiredRef = useRef(false);
+
+  useEffect(() => {
+    autoPickFiredRef.current = false;
+  }, [idx]);
+
+  useEffect(() => {
+    if (
+      draft.timerState === 'expired' &&
+      draft.phase === 'paused' &&
+      draft.settings.timerExpiryBehavior === 'auto-pick' &&
+      isAdmin &&
+      onAutoPick &&
+      !autoPickFiredRef.current
+    ) {
+      autoPickFiredRef.current = true;
+      onAutoPick();
+    }
+  }, [draft.timerState, draft.phase, draft.settings.timerExpiryBehavior, isAdmin, onAutoPick, idx]);
+
   // Complete state
   if (draft.phase === 'complete') {
     return (
@@ -407,8 +428,8 @@ export default function DraftHeaderArea({
         </div>
       )}
 
-      {/* Timer-expired overlay */}
-      {isExpired && draft.phase === 'paused' && isAdmin && (
+      {/* Timer-expired overlay — only when behavior is pause-and-prompt */}
+      {isExpired && draft.phase === 'paused' && isAdmin && draft.settings.timerExpiryBehavior !== 'auto-pick' && (
         <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-amber-700/40 bg-amber-950/30 px-4 py-2.5">
           <span className="text-sm font-semibold text-amber-300">Timer expired</span>
           <div className="ml-auto flex gap-2">
