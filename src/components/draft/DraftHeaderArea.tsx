@@ -202,7 +202,7 @@ export default function DraftHeaderArea({
       </div>
 
       {/* Five-card landscape strip — full content width */}
-      <div style={{ display: 'flex', width: '100%', alignItems: 'stretch', gap: 8 }}>
+      <div style={{ display: 'flex', width: '100%', maxWidth: 900, marginLeft: 'auto', marginRight: 'auto', alignItems: 'stretch', gap: 8 }}>
 
         {/* Far-left card (idx-2) */}
         <div style={{
