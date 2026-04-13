@@ -219,7 +219,7 @@ export default async function DraftBoardPage({
   });
 
   return (
-    <main className="mx-auto px-4 py-8" style={{ maxWidth: 1400, width: '100%' }}>
+    <main className="mx-auto px-4 py-8" style={{ maxWidth: 1920, width: '100%' }}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <Link
