@@ -219,7 +219,8 @@ export default async function DraftBoardPage({
   });
 
   return (
-    <main className="py-8" style={{ width: '100%', maxWidth: 1920, marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, boxSizing: 'border-box' as const }}>
+    <main className="py-8" style={{ width: '100%' }}>
+      <div style={{ maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', width: '100%', boxSizing: 'border-box' as const, paddingLeft: 24, paddingRight: 24 }}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <Link
@@ -266,6 +267,7 @@ export default async function DraftBoardPage({
         initialDraft={liveDraft}
         teamInsights={teamInsights}
       />
+      </div>
     </main>
   );
 }
