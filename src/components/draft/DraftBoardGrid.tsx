@@ -48,7 +48,7 @@ export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }
 
   return (
     <div style={{ minWidth: 0 }}>
-      <table style={{ borderCollapse: 'collapse' }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr>
             {/* Rd column header — empty */}

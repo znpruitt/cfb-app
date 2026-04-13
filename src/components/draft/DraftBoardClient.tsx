@@ -278,7 +278,7 @@ export default function DraftBoardClient({
   }
 
   return (
-    <div style={{ height: 'calc(100dvh - 10rem)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: 'calc(100dvh - 10rem)', display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
       {/* TOP — fixed header area (cards, controls, banners) */}
       <div style={{ flexShrink: 0 }}>
         <DraftHeaderArea
@@ -296,7 +296,7 @@ export default function DraftBoardClient({
       </div>
 
       {/* MIDDLE — table scrolls both axes within remaining space */}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', marginTop: 12 }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', marginTop: 12, width: '100%' }}>
         <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
       </div>
 
