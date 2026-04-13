@@ -37,7 +37,6 @@ export default function DraftHeaderArea({
   onAutoPick,
   onSelectManually,
   onStartRound,
-  settingsHref,
   controlsLoading,
 }: DraftHeaderAreaProps): React.ReactElement {
   const { draftOrder, totalRounds, pickTimerSeconds } = draft.settings;
@@ -483,18 +482,6 @@ export default function DraftHeaderArea({
             >
               Undo
             </button>
-          )}
-          {/* Settings gear — right-aligned */}
-          {settingsHref && (
-            <a
-              href={settingsHref}
-              className="ml-auto flex h-8 w-8 items-center justify-center rounded border border-zinc-700 bg-zinc-800 text-zinc-400 transition hover:bg-zinc-700 hover:text-zinc-200"
-              title="Settings"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M7.068 1a1 1 0 0 0-.98.804l-.264 1.32a5.53 5.53 0 0 0-.952.55l-1.27-.43a1 1 0 0 0-1.194.46l-.932 1.614a1 1 0 0 0 .214 1.264l1.006.89a5.6 5.6 0 0 0 0 1.1l-1.006.89a1 1 0 0 0-.214 1.264l.932 1.614a1 1 0 0 0 1.194.46l1.27-.43c.294.214.613.4.952.55l.264 1.32a1 1 0 0 0 .98.804h1.864a1 1 0 0 0 .98-.804l.264-1.32c.34-.15.658-.336.952-.55l1.27.43a1 1 0 0 0 1.194-.46l.932-1.614a1 1 0 0 0-.214-1.264l-1.006-.89a5.6 5.6 0 0 0 0-1.1l1.006-.89a1 1 0 0 0 .214-1.264l-.932-1.614a1 1 0 0 0-1.194-.46l-1.27.43a5.53 5.53 0 0 0-.952-.55l-.264-1.32A1 1 0 0 0 8.932 1H7.068ZM8 10.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5Z" />
-              </svg>
-            </a>
           )}
         </div>
       )}
