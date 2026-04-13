@@ -88,6 +88,16 @@ export default function DraftHeaderArea({
     }
   }, [draft.timerState, draft.phase, draft.settings.timerExpiryBehavior, isAdmin, onAutoPick, idx]);
 
+  // --- Mobile breakpoint ---
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    function check() { setIsMobile(window.innerWidth < 768); }
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
   // Complete state
   if (draft.phase === 'complete') {
     return (
@@ -178,6 +188,9 @@ export default function DraftHeaderArea({
   const pickNumColor = isPausedVisual ? '#374151' : '#6b7280';
 
   // --- Round boundary sidebar ---
+  const sidebarWidth = isMobile ? 12 : 16;
+  const sidebarFontSize = isMobile ? 8 : 9;
+
   function isRoundStart(pickIdx: number): boolean {
     return pickIdx >= 0 && pickIdx < totalPicks && pickIdx % n === 0;
   }
@@ -186,14 +199,14 @@ export default function DraftHeaderArea({
     const round = Math.floor(pickIdx / n) + 1;
     return (
       <div style={{
-        width: 16, flexShrink: 0,
+        width: sidebarWidth, flexShrink: 0,
         borderRight: '1px solid rgba(255,255,255,0.12)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         <span style={{
           writingMode: 'vertical-rl' as const,
           transform: 'rotate(180deg)',
-          fontSize: 9,
+          fontSize: sidebarFontSize,
           letterSpacing: '0.1em',
           textTransform: 'uppercase' as const,
           color: 'rgba(255,255,255,0.3)',
@@ -211,6 +224,15 @@ export default function DraftHeaderArea({
   const sidebarNearRight = isRoundStart(idx + 1);
   const sidebarFarRight = isRoundStart(idx + 2);
 
+  // --- Mobile-responsive values ---
+  const flankFlex = isMobile ? '0.6' : '0.85';
+  const centerFlex = isMobile ? '1.8' : '2';
+  const flankPad = isMobile ? '6px 8px' : '11px 12px';
+  const flankPadSidebar = isMobile ? '6px 8px 6px 4px' : '11px 12px 11px 6px';
+  const centerPad = isMobile ? '10px 12px' : '13px 16px';
+  const centerPadSidebar = isMobile ? '10px 12px 10px 6px' : '13px 16px 13px 8px';
+  const ownerFontSize = isMobile ? 18 : 22;
+
   return (
     <div>
       {/* Round header */}
@@ -221,37 +243,39 @@ export default function DraftHeaderArea({
         <div style={{ height: 1, flex: 1, background: '#1f2937' }} />
       </div>
 
-      {/* Five-card landscape strip — full content width */}
-      <div style={{ display: 'flex', width: '100%', maxWidth: 900, marginLeft: 'auto', marginRight: 'auto', alignItems: 'stretch', gap: 8 }}>
+      {/* Card landscape strip — 3 cards on mobile, 5 on desktop */}
+      <div style={{ display: 'flex', width: '100%', maxWidth: isMobile ? undefined : 900, marginLeft: 'auto', marginRight: 'auto', alignItems: 'stretch', gap: 8 }}>
 
-        {/* Far-left card (idx-2) */}
-        <div style={{
-          flex: '0.65', minWidth: 0,
-          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 10,
-          opacity: 0.5,
-          display: 'flex', alignItems: 'stretch', overflow: 'hidden',
-        }}>
-          {sidebarFarLeft && renderRoundSidebar(idx - 2)}
+        {/* Far-left card (idx-2) — desktop only */}
+        {!isMobile && (
           <div style={{
-            flex: 1, minWidth: 0,
-            padding: sidebarFarLeft ? '9px 10px 9px 6px' : '9px 10px',
-            display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+            flex: '0.65', minWidth: 0,
+            background: '#111111', border: '0.5px solid #1f2937', borderRadius: 10,
+            opacity: 0.5,
+            display: 'flex', alignItems: 'stretch', overflow: 'hidden',
           }}>
-            {farLeft ? (
-              <>
-                <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farLeft.pickNum}</span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{farLeft.owner}</span>
-                <span style={{ fontSize: 10, color: '#374151' }}>{farLeft.team ?? '—'}</span>
-              </>
-            ) : (
-              <span style={{ fontSize: 13, color: '#374151' }}>—</span>
-            )}
+            {sidebarFarLeft && renderRoundSidebar(idx - 2)}
+            <div style={{
+              flex: 1, minWidth: 0,
+              padding: sidebarFarLeft ? '9px 10px 9px 6px' : '9px 10px',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+            }}>
+              {farLeft ? (
+                <>
+                  <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farLeft.pickNum}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{farLeft.owner}</span>
+                  <span style={{ fontSize: 10, color: '#374151' }}>{farLeft.team ?? '—'}</span>
+                </>
+              ) : (
+                <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Near-left card (idx-1) */}
         <div style={{
-          flex: '0.85', minWidth: 0,
+          flex: flankFlex, minWidth: 0,
           background: '#161616', border: '0.5px solid #252525', borderRadius: 10,
           opacity: 0.75,
           display: 'flex', alignItems: 'stretch', overflow: 'hidden',
@@ -259,14 +283,14 @@ export default function DraftHeaderArea({
           {sidebarNearLeft && renderRoundSidebar(idx - 1)}
           <div style={{
             flex: 1, minWidth: 0,
-            padding: sidebarNearLeft ? '11px 12px 11px 6px' : '11px 12px',
+            padding: sidebarNearLeft ? flankPadSidebar : flankPad,
             display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
           }}>
             {nearLeft ? (
               <>
                 <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {nearLeft.pickNum}</span>
-                <span style={{ fontSize: 14, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nearLeft.owner}</span>
-                <span style={{ fontSize: 12, color: '#4b5563' }}>{nearLeft.team ?? '—'}</span>
+                <span style={{ fontSize: isMobile ? 12 : 14, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nearLeft.owner}</span>
+                <span style={{ fontSize: isMobile ? 10 : 12, color: '#4b5563' }}>{nearLeft.team ?? '—'}</span>
               </>
             ) : (
               <span style={{ fontSize: 13, color: '#374151' }}>—</span>
@@ -276,7 +300,7 @@ export default function DraftHeaderArea({
 
         {/* Center card — active pick with clock + crossfade content */}
         <div style={{
-          flex: '2', minWidth: 0,
+          flex: centerFlex, minWidth: 0,
           background: '#1f2937',
           border: `0.5px solid ${isPausedVisual ? '#374151' : '#2563eb'}`,
           borderRadius: 10,
@@ -285,7 +309,7 @@ export default function DraftHeaderArea({
           {sidebarCenter && renderRoundSidebar(idx)}
           <div style={{
             flex: 1, minWidth: 0,
-            padding: sidebarCenter ? '13px 16px 13px 8px' : '13px 16px',
+            padding: sidebarCenter ? centerPadSidebar : centerPad,
             display: 'flex', alignItems: 'center', gap: 12,
           }}>
             {showClock && (
@@ -334,7 +358,7 @@ export default function DraftHeaderArea({
                   pointerEvents: isSlotA ? 'auto' : 'none',
                   transition: 'opacity 0.2s ease',
                 }}>
-                  <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap' }}>{slotA.owner}</span>
+                  <span style={{ fontSize: ownerFontSize, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap' }}>{slotA.owner}</span>
                   <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotA.pickNum}</span>
                 </div>
                 {/* Slot B */}
@@ -345,7 +369,7 @@ export default function DraftHeaderArea({
                   pointerEvents: isSlotA ? 'none' : 'auto',
                   transition: 'opacity 0.2s ease',
                 }}>
-                  <span style={{ fontSize: 22, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap' }}>{slotB.owner}</span>
+                  <span style={{ fontSize: ownerFontSize, fontWeight: 500, color: ownerColor, whiteSpace: 'nowrap' }}>{slotB.owner}</span>
                   <span style={{ fontSize: 12, color: pickNumColor }}>Pick {slotB.pickNum}</span>
                 </div>
               </div>
@@ -355,7 +379,7 @@ export default function DraftHeaderArea({
 
         {/* Near-right card (idx+1) */}
         <div style={{
-          flex: '0.85', minWidth: 0,
+          flex: flankFlex, minWidth: 0,
           background: '#161616', border: '0.5px solid #252525', borderRadius: 10,
           opacity: 0.75,
           display: 'flex', alignItems: 'stretch', overflow: 'hidden',
@@ -363,14 +387,14 @@ export default function DraftHeaderArea({
           {sidebarNearRight && renderRoundSidebar(idx + 1)}
           <div style={{
             flex: 1, minWidth: 0,
-            padding: sidebarNearRight ? '11px 12px 11px 6px' : '11px 12px',
+            padding: sidebarNearRight ? flankPadSidebar : flankPad,
             display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
           }}>
             {nearRight ? (
               <>
                 <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {nearRight.pickNum}</span>
-                <span style={{ fontSize: 14, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nearRight.owner}</span>
-                <span style={{ fontSize: 12, color: '#4b5563' }}>{nearRight.team ?? '—'}</span>
+                <span style={{ fontSize: isMobile ? 12 : 14, fontWeight: 500, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nearRight.owner}</span>
+                <span style={{ fontSize: isMobile ? 10 : 12, color: '#4b5563' }}>{nearRight.team ?? '—'}</span>
               </>
             ) : (
               <span style={{ fontSize: 13, color: '#374151' }}>—</span>
@@ -378,30 +402,32 @@ export default function DraftHeaderArea({
           </div>
         </div>
 
-        {/* Far-right card (idx+2) */}
-        <div style={{
-          flex: '0.65', minWidth: 0,
-          background: '#111111', border: '0.5px solid #1f2937', borderRadius: 10,
-          opacity: 0.5,
-          display: 'flex', alignItems: 'stretch', overflow: 'hidden',
-        }}>
-          {sidebarFarRight && renderRoundSidebar(idx + 2)}
+        {/* Far-right card (idx+2) — desktop only */}
+        {!isMobile && (
           <div style={{
-            flex: 1, minWidth: 0,
-            padding: sidebarFarRight ? '9px 10px 9px 6px' : '9px 10px',
-            display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+            flex: '0.65', minWidth: 0,
+            background: '#111111', border: '0.5px solid #1f2937', borderRadius: 10,
+            opacity: 0.5,
+            display: 'flex', alignItems: 'stretch', overflow: 'hidden',
           }}>
-            {farRight ? (
-              <>
-                <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farRight.pickNum}</span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{farRight.owner}</span>
-                <span style={{ fontSize: 10, color: '#374151' }}>{farRight.team ?? '—'}</span>
-              </>
-            ) : (
-              <span style={{ fontSize: 13, color: '#374151' }}>—</span>
-            )}
+            {sidebarFarRight && renderRoundSidebar(idx + 2)}
+            <div style={{
+              flex: 1, minWidth: 0,
+              padding: sidebarFarRight ? '9px 10px 9px 6px' : '9px 10px',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2,
+            }}>
+              {farRight ? (
+                <>
+                  <span style={{ fontSize: 10, color: '#374151', textTransform: 'uppercase' }}>Pick {farRight.pickNum}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#4b5563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{farRight.owner}</span>
+                  <span style={{ fontSize: 10, color: '#374151' }}>{farRight.team ?? '—'}</span>
+                </>
+              ) : (
+                <span style={{ fontSize: 13, color: '#374151' }}>—</span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Round pause banner */}
