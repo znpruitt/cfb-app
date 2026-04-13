@@ -5,11 +5,8 @@ import { useUser } from '@clerk/nextjs';
 import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
-import DraftCard from './DraftCard';
 import DraftBoardGrid from './DraftBoardGrid';
-import DraftControls from './DraftControls';
-import PickNavigator from './PickNavigator';
-import TimerDisplay from './TimerDisplay';
+import DraftHeaderArea from './DraftHeaderArea';
 
 type DraftBoardClientProps = {
   slug: string;
@@ -35,6 +32,7 @@ export default function DraftBoardClient({
   const [search, setSearch] = useState('');
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
+  const [controlsLoading, setControlsLoading] = useState(false);
 
   // Redirect non-admins to the spectator view.
   // If no sessionStorage token, wait for Clerk to finish loading before deciding.
@@ -119,7 +117,39 @@ export default function DraftBoardClient({
     return () => clearInterval(id);
   }, [draft.phase, draft.timerState, draft.timerExpiresAt, isAdmin, slug, year]);
 
-  // Return nothing while redirecting non-admins to spectator view
+  // Auto-pause at round boundaries: if the draft is live and currentPickIndex
+  // sits exactly on a round boundary (i.e. the previous pick completed a round),
+  // pause the draft so the commissioner must explicitly start the next round.
+  // Must be declared before the early return to satisfy Rules of Hooks.
+  const autoPauseRef = useRef<number | null>(null);
+
+  const maybeAutoPauseForRound = useCallback(async (d: DraftState) => {
+    const n = d.owners.length;
+    const idx = d.currentPickIndex;
+    const totalPicks = d.settings.totalRounds * n;
+    const atRoundBoundary = idx > 0 && idx % n === 0 && idx < totalPicks;
+    if (!atRoundBoundary || d.phase !== 'live') return d;
+    if (autoPauseRef.current === idx) return d; // already paused for this boundary
+    autoPauseRef.current = idx;
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const body: Record<string, unknown> = { phase: 'paused' };
+      if (d.settings.pickTimerSeconds) body.timerAction = 'pause';
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { draft?: DraftState };
+        if (data.draft) return data.draft;
+      }
+    } catch { /* non-fatal */ }
+    return d;
+  }, [slug, year]);
+
+  // Return nothing while redirecting non-admins to spectator view.
+  // Placed after all hooks so Rules of Hooks are satisfied.
   if (!isAdmin) return <></>;
 
   const pickedTeamsLower = new Set(draft.picks.map((p: DraftPick) => p.team.toLowerCase()));
@@ -131,6 +161,10 @@ export default function DraftBoardClient({
     teamInsights
       .filter((t) => t.teamColor !== null)
       .map((t) => [t.teamId.toLowerCase(), t.teamColor as string])
+  );
+
+  const teamShortNameMap = Object.fromEntries(
+    teamInsights.map((t) => [t.teamId.toLowerCase(), t.shortName])
   );
 
   const canPick = isAdmin && draft.phase === 'live';
@@ -151,7 +185,9 @@ export default function DraftBoardClient({
         setPickError(data.error ?? `Pick failed (${res.status})`);
         return;
       }
-      setDraft(data.draft);
+      // Auto-pause at round boundary
+      const finalDraft = await maybeAutoPauseForRound(data.draft);
+      setDraft(finalDraft);
     } catch (err) {
       setPickError((err as Error).message);
     } finally {
@@ -162,80 +198,184 @@ export default function DraftBoardClient({
   // F4: exclude already-drafted teams from the available panel entirely
   const availableInsights = teamInsights
     .filter((t) => !pickedTeamsLower.has(t.teamId.toLowerCase()))
-    .filter((t) =>
-      search
-        ? t.teamName.toLowerCase().includes(search.toLowerCase()) ||
-          t.teamId.toLowerCase().includes(search.toLowerCase())
-        : true
-    );
+    .filter((t) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        t.teamName.toLowerCase().includes(q) ||
+        t.teamId.toLowerCase().includes(q) ||
+        t.shortName.toLowerCase().includes(q) ||
+        (t.conference?.toLowerCase().includes(q) ?? false)
+      );
+    });
+
+  // --- Draft control helpers (admin-only, used by DraftHeaderArea) ---
+
+  async function draftPut(body: Record<string, unknown>) {
+    setControlsLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as { draft?: DraftState };
+      if (res.ok && data.draft) {
+        if (data.draft.phase === 'setup') {
+          window.location.href = `/league/${slug}/draft/setup`;
+          return;
+        }
+        setDraft(data.draft);
+      }
+    } catch { /* network error — polling will recover */ }
+    finally { setControlsLoading(false); }
+  }
+
+  async function draftPost(path: string) {
+    setControlsLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: '{}',
+      });
+      const data = (await res.json()) as { draft?: DraftState };
+      if (res.ok && data.draft) {
+        if (data.draft.phase === 'setup') {
+          window.location.href = `/league/${slug}/draft/setup`;
+          return;
+        }
+        setDraft(data.draft);
+      }
+    } catch { /* network error — polling will recover */ }
+    finally { setControlsLoading(false); }
+  }
+
+  function handlePause() { void draftPut({ timerAction: 'pause' }); }
+
+  function handleResume() {
+    if (draft.phase === 'paused') {
+      const body: Record<string, unknown> = { phase: 'live' };
+      if (draft.settings.pickTimerSeconds) body.timerAction = 'start';
+      void draftPut(body);
+    } else if (draft.timerState === 'paused') {
+      void draftPut({ timerAction: 'resume' });
+    } else if (draft.timerState === 'off' && draft.settings.pickTimerSeconds) {
+      void draftPut({ timerAction: 'start' });
+    }
+  }
+
+  function handleUndo() { void draftPost('unpick'); }
+  function handleAutoPick() { void draftPut({ timerAction: 'expire' }); }
+  function handleSelectManually() { void draftPut({ phase: 'live' }); }
+
+  function handleStartRound() {
+    const body: Record<string, unknown> = { phase: 'live' };
+    if (draft.settings.pickTimerSeconds) body.timerAction = 'start';
+    void draftPut(body);
+  }
 
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_210px]">
-        {/* Left column: board + controls */}
-        <div className="space-y-4">
-          <PickNavigator draft={draft} />
+    <div style={{ height: 'calc(100dvh - 10rem)', display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
+      {/* TOP — fixed header area (cards, controls, banners) */}
+      <div style={{ flexShrink: 0 }}>
+        <DraftHeaderArea
+          draft={draft}
+          isAdmin={isAdmin}
+          onPause={handlePause}
+          onResume={handleResume}
+          onUndo={handleUndo}
+          onAutoPick={handleAutoPick}
+          onSelectManually={handleSelectManually}
+          onStartRound={handleStartRound}
+          settingsHref={`/league/${slug}/draft/setup`}
+          controlsLoading={controlsLoading}
+        />
+      </div>
 
-          {draft.settings.pickTimerSeconds && <TimerDisplay draft={draft} />}
+      {/* MIDDLE — table scrolls both axes within remaining space */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', marginTop: 12, width: '100%' }}>
+        <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
+      </div>
 
-          {isAdmin && (
-            <DraftControls
-              slug={slug}
-              year={year}
-              draft={draft}
-              onUpdate={(updated) => {
-                // F5: after reset, draft returns to 'setup' — redirect to setup page
-                if (updated.phase === 'setup') {
-                  window.location.href = `/league/${slug}/draft/setup`;
-                  return;
-                }
-                setDraft(updated);
-              }}
-            />
-          )}
-
-          <div>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
-              Draft Board
-            </h2>
-            <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} />
-          </div>
-        </div>
-
-        {/* Right column: available teams */}
-        <aside>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
+      {/* BOTTOM — Available Teams strip, fixed at bottom */}
+      <div style={{ flexShrink: 0, borderTop: '0.5px solid #1f2937', paddingTop: 8, marginTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#6b7280' }}>
             Available Teams
-          </h2>
+          </span>
           <input
             type="search"
-            placeholder="Search teams…"
+            placeholder="Search by Team or Conference"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="mb-3 w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            style={{
+              width: 220,
+              fontSize: 12,
+              padding: '4px 8px',
+              background: '#111827',
+              border: '0.5px solid #374151',
+              borderRadius: 6,
+              color: '#e5e7eb',
+              outline: 'none',
+            }}
           />
-          {pickError && (
-            <p className="mb-2 text-sm text-red-700 dark:text-red-400">{pickError}</p>
+        </div>
+        {pickError && (
+          <p style={{ fontSize: 12, color: '#ef4444', marginBottom: 6 }}>{pickError}</p>
+        )}
+        <div
+          className="draft-chip-scroll"
+          style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}
+        >
+          {availableInsights.map((t) => {
+            const barColor = t.teamColor ?? '#94a3b8';
+            const clickable = canPick && !pickLoading;
+            return (
+              <div
+                key={t.teamId}
+                style={{
+                  display: 'flex',
+                  alignItems: 'stretch',
+                  flexShrink: 0,
+                  background: '#1f2937',
+                  border: '0.5px solid #374151',
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  cursor: clickable ? 'pointer' : 'default',
+                }}
+                onMouseEnter={clickable ? (e) => { e.currentTarget.style.borderColor = '#4b5563'; } : undefined}
+                onMouseLeave={clickable ? (e) => { e.currentTarget.style.borderColor = '#374151'; } : undefined}
+                onClick={clickable ? () => void handlePick(t.teamId) : undefined}
+              >
+                <span style={{ width: 3, flexShrink: 0, backgroundColor: barColor }} />
+                <div style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#e5e7eb' }}>
+                    {t.shortName}
+                  </span>
+                  {t.conference && (
+                    <span style={{ fontSize: 10, color: '#6b7280', marginLeft: 6 }}>
+                      {t.conference}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {availableInsights.length === 0 && (
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              {search ? 'No teams match.' : 'All teams have been drafted.'}
+            </span>
           )}
-          <div className="space-y-2">
-            {availableInsights.map((insights) => (
-              <DraftCard
-                key={insights.teamId}
-                insights={insights}
-                isDrafted={false}
-                onSelect={
-                  canPick && !pickLoading
-                    ? () => void handlePick(insights.teamId)
-                    : undefined
-                }
-              />
-            ))}
-            {availableInsights.length === 0 && (
-              <p className="text-sm text-gray-400 dark:text-zinc-500">
-                {search ? 'No teams match.' : 'All teams have been drafted.'}
-              </p>
-            )}
-          </div>
-        </aside>
+        </div>
+      </div>
+      <style>{`
+        .draft-chip-scroll::-webkit-scrollbar { height: 3px; }
+        .draft-chip-scroll::-webkit-scrollbar-track { background: transparent; }
+        .draft-chip-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+      `}</style>
     </div>
   );
 }

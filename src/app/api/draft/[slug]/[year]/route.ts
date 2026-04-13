@@ -13,7 +13,6 @@ import {
 } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
-import type { SpRatingEntry } from '@/lib/selectors/draftTeamInsights';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -377,85 +376,29 @@ export async function PUT(
       }
 
       // Paused-expired phase means the commissioner is explicitly requesting auto-pick
-      // from the pause-and-prompt overlay, so always auto-pick regardless of configured behavior
-      const effectiveBehavior = isPausedExpire ? 'auto-pick' : draft.settings.timerExpiryBehavior;
+      // from the pause-and-prompt overlay. Live phase means the timer expired naturally.
+      // Natural expiry always pauses and prompts — no automatic auto-pick.
 
-      if (effectiveBehavior === 'pause-and-prompt') {
+      if (isLiveExpire) {
+        // Timer expired naturally — always pause and prompt the commissioner
         draft = {
           ...draft,
           phase: 'paused',
           timerState: 'expired',
           timerExpiresAt: null,
         };
-      } else if (effectiveBehavior === 'auto-pick') {
-        // Auto-pick: select best available team by SP+ (or alphabetically if no ratings)
-        const spRecord = await getAppState<{ ratings: SpRatingEntry[]; cachedAt: string }>(
-          'sp-ratings',
-          String(year)
-        );
-        const spRatings = spRecord?.value?.ratings ?? [];
+      } else {
+        // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay
+        // Select a random available team
         const { items } = teamsData as TeamsJson;
         const fbsTeams = items.filter((t) => t.school !== 'NoClaim');
         const pickedLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 
-        // Build SP+ rating map using alts for matching
-        const spBySchoolLower = new Map<string, number>();
-        for (const r of spRatings) {
-          if (r.rating == null) continue;
-          const match = fbsTeams.find(
-            (t) =>
-              t.school.toLowerCase() === r.team.toLowerCase() ||
-              (t.alts ?? []).some((a) => a.toLowerCase() === r.team.toLowerCase())
-          );
-          if (match) spBySchoolLower.set(match.school.toLowerCase(), r.rating);
-        }
-
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
 
-        const metric = draft.settings.autoPickMetric ?? 'sp-plus';
-        if (metric === 'preseason-rank') {
-          // Build preseason rank map from cached rankings
-          const rankBySchoolLower = new Map<string, number>();
-          try {
-            type RankCacheEntry = {
-              at: number;
-              response: {
-                latestWeek: {
-                  teams: Array<{ teamName: string; primaryRank: number | null }>;
-                } | null;
-              };
-            };
-            const rankRecord = await getAppState<RankCacheEntry>('rankings', String(year));
-            for (const t of rankRecord?.value?.response?.latestWeek?.teams ?? []) {
-              if (t.primaryRank == null) continue;
-              const match = fbsTeams.find(
-                (team) =>
-                  team.school.toLowerCase() === t.teamName.toLowerCase() ||
-                  (team.alts ?? []).some((a) => a.toLowerCase() === t.teamName.toLowerCase())
-              );
-              if (match) rankBySchoolLower.set(match.school.toLowerCase(), t.primaryRank);
-            }
-          } catch {
-            // rankings unavailable — fall back to alphabetical
-          }
-          available.sort((a, b) => {
-            const ra = rankBySchoolLower.get(a.school.toLowerCase());
-            const rb = rankBySchoolLower.get(b.school.toLowerCase());
-            if (ra != null && rb != null) return ra - rb;
-            if (ra != null) return -1; // ranked teams first
-            if (rb != null) return 1;
-            return a.school.localeCompare(b.school);
-          });
-        } else {
-          // 'sp-plus' (default) or null
-          available.sort((a, b) => {
-            const ra = spBySchoolLower.get(a.school.toLowerCase()) ?? -Infinity;
-            const rb = spBySchoolLower.get(b.school.toLowerCase()) ?? -Infinity;
-            return rb - ra || a.school.localeCompare(b.school);
-          });
-        }
-
-        const bestTeam = available[0];
+        const bestTeam = available.length > 0
+          ? available[Math.floor(Math.random() * available.length)]
+          : undefined;
         if (!bestTeam) {
           return NextResponse.json({ error: 'No teams available for auto-pick' }, { status: 422 });
         }

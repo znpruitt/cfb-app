@@ -120,13 +120,18 @@ Preseason setup flow: `/admin/[slug]/preseason` page, three-item checklist (Owne
 
 Owner confirmation page, preseason-owners store, draft auto-populate, lifecycle year fixes across all four draft pages, Clerk auth bridge in DraftBoardClient. See `docs/completed-work.md`.
 
-### P7B-6 — Draft Board UI Polish (active)
+### P7B-6 — Draft Board UI Polish ✅ Complete
 
-- Rosters left column removed from commissioner and spectator boards (2-col grid)
-- DraftCard simplified: name + conference + team color dot only (all stats removed)
-- DraftBoardGrid colors: active=solid blue, on-deck=light blue tint, completed=team color tint
-- Spectator board: search/filter added to Available Teams panel
-- Landing page (`/`): "Draft Setup →" link removed, owner count excludes NoClaim, status label derives from `league.status`
+See `docs/completed-work.md` for full record.
+
+### P7B-7 — Draft Flow Polish (active)
+
+- Setup step 1 (League Roster) removed — opens directly on Draft Settings, owners auto-populated from preseason-owners
+- Drag-and-drop + direct number entry for manual draft order reordering
+- Auto-pause between rounds with commissioner-controlled "Start Round X" button
+- Context-aware live draft banner on league overview (scheduled date, live round, paused state)
+- Available Teams card background changed to neutral (no dark blue)
+- Draft board visual hierarchy: section dividers, distinct Available Teams panel surface, recessive empty-cell placeholders, anchored section labels
 
 ## Upcoming phases
 

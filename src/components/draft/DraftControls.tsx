@@ -103,8 +103,38 @@ export default function DraftControls({
   const hasPicks = draft.picks.length > 0;
   const isExpired = timerState === 'expired';
 
+  // Detect round-boundary pause: draft is paused and currentPickIndex is at a round boundary
+  const n = draft.owners.length;
+  const idx = draft.currentPickIndex;
+  const totalPicks = draft.settings.totalRounds * n;
+  const isRoundPause = phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && !isExpired;
+  const nextRound = Math.floor(idx / n) + 1;
+
+  function handleStartNextRound() {
+    void callPut({ phase: 'live' });
+  }
+
   return (
     <div className="space-y-3">
+      {/* Round pause overlay — Start Round X */}
+      {isRoundPause && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-4 dark:border-blue-800/40 dark:bg-blue-950/30">
+          <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">
+            Round {nextRound - 1} complete
+          </p>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={handleStartNextRound}
+              disabled={loading}
+              className="rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              Start Round {nextRound}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Pause-and-prompt overlay */}
       {phase === 'paused' && isExpired && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 dark:border-amber-700/40 dark:bg-amber-950/30">

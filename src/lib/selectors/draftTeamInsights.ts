@@ -48,6 +48,8 @@ export type DraftTeamInsights = {
   neutralGames: number;
   rankedOpponentCount: number;
   awaitingRatings: boolean;
+  /** Shortest available display name: shortDisplayName → abbreviation → teamName. */
+  shortName: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -282,9 +284,16 @@ export function selectDraftTeamInsights(params: {
         ? deriveSosTier(avgOp, validAvgOpRatings)
         : null;
 
+    const teamName = team.displayName ?? school;
+    const shortName = team.shortDisplayName
+      ? team.shortDisplayName
+      : teamName.length <= 14
+        ? teamName
+        : (team.abbreviation ?? teamName);
+
     return {
       teamId: school,
-      teamName: team.displayName ?? school,
+      teamName,
       conference: team.conference ?? null,
       teamColor: team.color ?? conferenceColor(team.conference),
       spRating,
@@ -299,6 +308,7 @@ export function selectDraftTeamInsights(params: {
       neutralGames,
       rankedOpponentCount: rankedOpponents.size,
       awaitingRatings,
+      shortName,
     };
   });
 }

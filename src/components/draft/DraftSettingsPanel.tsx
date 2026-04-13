@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftSettings } from '@/lib/draft';
 
@@ -10,9 +10,9 @@ type DraftSettingsPanelProps = {
   slug: string;
   year: number;
   draftState: DraftState;
+  priorOwners: string[];
   priorChampOrder: string[] | null;
   fbsTeamCount: number;
-  onBack: (draft: DraftState) => void;
   onAdvance: (draft: DraftState) => void;
 };
 
@@ -42,12 +42,16 @@ export default function DraftSettingsPanel({
   slug,
   year,
   draftState,
+  priorOwners,
   priorChampOrder,
   fbsTeamCount,
-  onBack,
   onAdvance,
 }: DraftSettingsPanelProps): React.ReactElement {
-  const owners = draftState.owners;
+  const [owners, setOwners] = useState<string[]>(() => {
+    if (draftState.owners.length > 0) return draftState.owners;
+    return priorOwners.length > 0 ? priorOwners : [];
+  });
+  const [newOwner, setNewOwner] = useState('');
   const existing = draftState.settings;
 
   // Detect initial order mode
@@ -83,22 +87,95 @@ export default function DraftSettingsPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function handleMoveUp(idx: number) {
-    if (idx === 0) return;
+  // --- Drag and drop state ---
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dropTargetIdx, setDropTargetIdx] = useState<number | null>(null);
+  const dragCounterRef = useRef(0);
+
+  const handleDragStart = useCallback((e: React.DragEvent, idx: number) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(idx));
+    // Make the dragged element semi-transparent
+    if (e.currentTarget instanceof HTMLElement) {
+      requestAnimationFrame(() => {
+        (e.currentTarget as HTMLElement).style.opacity = '0.4';
+      });
+    }
+  }, []);
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '1';
+    }
+    setDragIdx(null);
+    setDropTargetIdx(null);
+    dragCounterRef.current = 0;
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleDragEnter = useCallback((_e: React.DragEvent, idx: number) => {
+    dragCounterRef.current++;
+    setDropTargetIdx(idx);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      setDropTargetIdx(null);
+      dragCounterRef.current = 0;
+    }
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    const sourceIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (isNaN(sourceIdx) || sourceIdx === targetIdx) {
+      setDragIdx(null);
+      setDropTargetIdx(null);
+      dragCounterRef.current = 0;
+      return;
+    }
     setManualOrder((prev) => {
       const next = [...prev];
-      [next[idx - 1], next[idx]] = [next[idx]!, next[idx - 1]!];
+      const [moved] = next.splice(sourceIdx, 1);
+      next.splice(targetIdx, 0, moved!);
       return next;
     });
+    setDragIdx(null);
+    setDropTargetIdx(null);
+    dragCounterRef.current = 0;
+  }, []);
+
+  // --- Direct number entry ---
+  const handlePositionChange = useCallback((currentIdx: number, newPosition: number) => {
+    setManualOrder((prev) => {
+      const clamped = Math.max(1, Math.min(prev.length, newPosition)) - 1;
+      if (clamped === currentIdx) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(currentIdx, 1);
+      next.splice(clamped, 0, moved!);
+      return next;
+    });
+  }, []);
+
+  // --- Owner management ---
+  function handleAddOwner() {
+    const trimmed = newOwner.trim();
+    if (!trimmed || owners.includes(trimmed)) return;
+    setOwners((prev) => [...prev, trimmed]);
+    setManualOrder((prev) => [...prev, trimmed]);
+    setNewOwner('');
   }
 
-  function handleMoveDown(idx: number) {
-    setManualOrder((prev) => {
-      if (idx >= prev.length - 1) return prev;
-      const next = [...prev];
-      [next[idx], next[idx + 1]] = [next[idx + 1]!, next[idx]!];
-      return next;
-    });
+  function handleRemoveOwner(idx: number) {
+    const removed = owners[idx]!;
+    setOwners((prev) => prev.filter((_, i) => i !== idx));
+    setManualOrder((prev) => prev.filter((o) => o !== removed));
   }
 
   function buildDraftOrder(): string[] {
@@ -107,14 +184,12 @@ export default function DraftSettingsPanel({
         return shuffleArray(owners);
       case 'reverse-champ':
         if (priorChampOrder && priorChampOrder.length > 0) {
-          // Include any new owners not in prior champ order at the front
           const newOwners = owners.filter((o) => !priorChampOrder.includes(o));
           const existing = priorChampOrder.filter((o) => owners.includes(o));
           return [...newOwners, ...existing];
         }
         return shuffleArray(owners);
       case 'manual':
-        // Ensure manual order only includes current owners
         return manualOrder.filter((o) => owners.includes(o));
       default:
         return shuffleArray(owners);
@@ -123,10 +198,32 @@ export default function DraftSettingsPanel({
 
   async function handleSave(targetPhase: 'settings' | 'preview' | 'live') {
     setError(null);
+
+    const trimmedOwners = owners.map((o) => o.trim()).filter(Boolean);
+    if (trimmedOwners.length < 2) {
+      setError('At least 2 owners are required.');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+
+      // Ensure draft exists (auto-create if needed)
+      if (!draftState.createdAt || draftState.phase === 'settings' && draftState.owners.length === 0) {
+        const createRes = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ owners: trimmedOwners }),
+        });
+        // 409 = draft already exists, that's fine
+        if (!createRes.ok && createRes.status !== 409) {
+          const data = (await createRes.json()) as { error?: string };
+          setError(data.error ?? `Failed to create draft (${createRes.status})`);
+          return;
+        }
+      }
 
       const draftOrder = buildDraftOrder();
       const settings: DraftSettings = {
@@ -139,7 +236,10 @@ export default function DraftSettingsPanel({
         scheduledAt: scheduledAt.trim() ? new Date(scheduledAt).toISOString() : null,
       };
 
-      const body: { settings: DraftSettings; phase?: string } = { settings };
+      const body: { owners: string[]; settings: DraftSettings; phase?: string } = {
+        owners: trimmedOwners,
+        settings,
+      };
       if (targetPhase !== 'settings') {
         body.phase = targetPhase;
       }
@@ -171,42 +271,69 @@ export default function DraftSettingsPanel({
     }
   }
 
-  async function handleBack() {
-    setError(null);
-    setLoading(true);
-    try {
-      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
-      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ phase: 'setup' }),
-      });
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
-        setError(data.error ?? 'Failed to go back');
-        return;
-      }
-      const data = (await res.json()) as { draft: DraftState };
-      onBack(data.draft);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   const suggestedRounds = suggestRounds(fbsTeamCount, owners.length);
+  const trimmedOwners = owners.map((o) => o.trim()).filter(Boolean);
+  const canSave = trimmedOwners.length >= 2 && !loading;
 
   return (
     <div className="rounded-2xl border border-gray-300 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
-        Step 2 of 2
-      </p>
       <h2 className="mb-4 text-lg font-semibold text-gray-950 dark:text-zinc-50">
         Draft Settings
       </h2>
 
       <div className="space-y-6">
+        {/* Owners */}
+        <section>
+          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-zinc-100">
+            Owners
+          </h3>
+          {owners.length === 0 && (
+            <p className="mb-2 rounded-lg border border-dashed border-gray-300 px-4 py-4 text-center text-sm text-gray-500 dark:border-zinc-600 dark:text-zinc-400">
+              No owners yet — add at least 2 owners below.
+            </p>
+          )}
+          <ul className="mb-3 space-y-1.5">
+            {owners.map((owner, idx) => (
+              <li key={idx} className="flex items-center gap-2">
+                <span className="w-5 shrink-0 text-right text-xs text-gray-400 dark:text-zinc-500">
+                  {idx + 1}.
+                </span>
+                <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-zinc-100">{owner}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveOwner(idx)}
+                  disabled={owners.length <= 2}
+                  className="rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-30 dark:text-red-400 dark:hover:bg-red-950/30"
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newOwner}
+              onChange={(e) => setNewOwner(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddOwner(); }}
+              placeholder="Add owner…"
+              className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            />
+            <button
+              type="button"
+              onClick={handleAddOwner}
+              disabled={!newOwner.trim()}
+              className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60"
+            >
+              Add
+            </button>
+          </div>
+          {trimmedOwners.length < 2 && (
+            <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">At least 2 owners required.</p>
+          )}
+        </section>
+
         {/* Draft Order */}
         <section>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-zinc-100">
@@ -241,7 +368,12 @@ export default function DraftSettingsPanel({
               type="button"
               onClick={() => {
                 setOrderMode('manual');
-                setManualOrder([...owners]);
+                // Sync manual order with current owners
+                setManualOrder((prev) => {
+                  const inOwners = prev.filter((o) => owners.includes(o));
+                  const missing = owners.filter((o) => !prev.includes(o));
+                  return [...inOwners, ...missing];
+                });
               }}
               className={`rounded border px-3 py-1.5 text-sm transition ${
                 orderMode === 'manual'
@@ -274,34 +406,60 @@ export default function DraftSettingsPanel({
             </div>
           )}
           {orderMode === 'manual' && (
-            <ul className="mt-2 space-y-1.5">
-              {manualOrder
-                .filter((o) => owners.includes(o))
-                .map((owner, idx) => (
-                  <li key={owner} className="flex items-center gap-2">
-                    <span className="w-5 shrink-0 text-right text-xs text-gray-400 dark:text-zinc-500">
-                      {idx + 1}.
-                    </span>
-                    <span className="flex-1 text-sm text-gray-900 dark:text-zinc-100">{owner}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleMoveUp(idx)}
-                      disabled={idx === 0}
-                      className="rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-700"
+            <div className="mt-2">
+              <p className="mb-1.5 text-xs text-gray-500 dark:text-zinc-400">
+                Drag to reorder, or type a position number to move an owner.
+              </p>
+              <ul className="space-y-1">
+                {manualOrder
+                  .filter((o) => owners.includes(o))
+                  .map((owner, idx) => (
+                    <li
+                      key={owner}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, idx)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={handleDragOver}
+                      onDragEnter={(e) => handleDragEnter(e, idx)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, idx)}
+                      className={`flex items-center gap-2 rounded-md border px-2 py-1.5 transition-colors ${
+                        dragIdx === idx
+                          ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30'
+                          : dropTargetIdx === idx
+                            ? 'border-blue-400 bg-blue-50/60 dark:border-blue-600 dark:bg-blue-950/20'
+                            : 'border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800'
+                      }`}
                     >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleMoveDown(idx)}
-                      disabled={idx === manualOrder.filter((o) => owners.includes(o)).length - 1}
-                      className="rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-30 dark:text-zinc-400 dark:hover:bg-zinc-700"
-                    >
-                      ↓
-                    </button>
-                  </li>
-                ))}
-            </ul>
+                      {/* Drag handle */}
+                      <span className="cursor-grab text-gray-400 dark:text-zinc-500" title="Drag to reorder">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                          <circle cx="4" cy="2" r="1" />
+                          <circle cx="8" cy="2" r="1" />
+                          <circle cx="4" cy="6" r="1" />
+                          <circle cx="8" cy="6" r="1" />
+                          <circle cx="4" cy="10" r="1" />
+                          <circle cx="8" cy="10" r="1" />
+                        </svg>
+                      </span>
+                      {/* Position number input */}
+                      <input
+                        type="number"
+                        min={1}
+                        max={manualOrder.filter((o) => owners.includes(o)).length}
+                        value={idx + 1}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val)) handlePositionChange(idx, val);
+                        }}
+                        className="w-8 rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-center text-xs text-gray-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200"
+                        title="Type a position number"
+                      />
+                      <span className="flex-1 text-sm text-gray-900 dark:text-zinc-100">{owner}</span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
           )}
         </section>
 
@@ -411,9 +569,11 @@ export default function DraftSettingsPanel({
               onChange={(e) => setTotalRounds(Math.max(1, Number(e.target.value)))}
               className="w-20 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             />
-            <span className="text-xs text-gray-500 dark:text-zinc-400">
-              Suggested: {suggestedRounds} ({fbsTeamCount} FBS teams ÷ {owners.length} owners)
-            </span>
+            {owners.length > 0 && (
+              <span className="text-xs text-gray-500 dark:text-zinc-400">
+                Suggested: {suggestedRounds} ({fbsTeamCount} FBS teams ÷ {owners.length} owners)
+              </span>
+            )}
           </div>
         </section>
 
@@ -442,7 +602,7 @@ export default function DraftSettingsPanel({
         <button
           type="button"
           onClick={() => void handleSave('preview')}
-          disabled={loading}
+          disabled={!canSave}
           className="rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? 'Saving…' : 'Save and Preview'}
@@ -450,18 +610,10 @@ export default function DraftSettingsPanel({
         <button
           type="button"
           onClick={() => void handleSave('live')}
-          disabled={loading}
+          disabled={!canSave}
           className="rounded border border-green-600 bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Start Draft Now
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleBack()}
-          disabled={loading}
-          className="rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-        >
-          Back
         </button>
       </div>
     </div>

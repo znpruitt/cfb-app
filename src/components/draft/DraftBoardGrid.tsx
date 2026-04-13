@@ -7,9 +7,13 @@ type DraftBoardGridProps = {
   draft: DraftState;
   /** Optional map of lowercase teamId → hex color for completed-cell left bar. */
   teamColorMap?: Record<string, string>;
+  /** Optional map of lowercase teamId → abbreviated display name. */
+  teamShortNameMap?: Record<string, string>;
 };
 
-export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridProps): React.ReactElement {
+const OWNER_COL_WIDTH = 100;
+
+export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }: DraftBoardGridProps): React.ReactElement {
   const { draftOrder, totalRounds } = draft.settings;
   const n = draftOrder.length;
 
@@ -21,84 +25,145 @@ export default function DraftBoardGrid({ draft, teamColorMap }: DraftBoardGridPr
 
   const currentPickNum = draft.currentPickIndex + 1;
   const onDeckPickNum = draft.currentPickIndex + 2;
+  const activeRound = Math.floor(draft.currentPickIndex / n); // 0-based
+  const isComplete = draft.phase === 'complete';
+
+  /** Row background tint for alternating shading + active round highlight. */
+  function rowBg(roundIdx: number): string | undefined {
+    if (roundIdx === activeRound && !isComplete) return 'rgba(37,99,235,0.06)';
+    // Even-numbered rounds (R2, R4, …) get subtle alternating tint
+    if ((roundIdx + 1) % 2 === 0) return 'rgba(255,255,255,0.02)';
+    return undefined;
+  }
+
+  // Shared sticky styles for the Rd column (header + body cells)
+  const stickyBase: React.CSSProperties = {
+    position: 'sticky',
+    left: 0,
+    zIndex: 10,
+    borderRight: '0.5px solid #374151',
+    whiteSpace: 'nowrap',
+    padding: '4px 6px',
+  };
 
   return (
-    <div className="overflow-x-auto" style={{ scrollbarGutter: 'stable both-edges' }}>
-      <table className="min-w-full text-xs">
+    <div style={{ minWidth: 0 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr>
-            <th className="w-6 py-1 pr-1 text-right font-medium text-gray-400 dark:text-zinc-500">
-              Rd
-            </th>
+            {/* Rd column header — empty */}
+            <th
+              className="bg-white dark:bg-zinc-900"
+              style={{ ...stickyBase, width: 24, minWidth: 24, maxWidth: 24 }}
+            />
             {draftOrder.map((owner) => (
               <th
                 key={owner}
-                className="px-1.5 py-1 text-left font-semibold text-gray-700 dark:text-zinc-300"
+                style={{
+                  width: OWNER_COL_WIDTH,
+                  minWidth: OWNER_COL_WIDTH,
+                  maxWidth: OWNER_COL_WIDTH,
+                  fontSize: 10,
+                  textAlign: 'center',
+                  color: '#6b7280',
+                  padding: '4px 6px',
+                }}
               >
-                {owner}
+                <div
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={owner}
+                >
+                  {owner}
+                </div>
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {Array.from({ length: totalRounds }, (_, roundIdx) => {
-            const isEvenRound = roundIdx % 2 === 0;
-
+            const isActive = roundIdx === activeRound && !isComplete;
+            const bg = rowBg(roundIdx);
             return (
-              <tr key={roundIdx} className="border-t border-gray-100 dark:border-zinc-800">
-                <td className="py-1 pr-1 text-right font-medium text-gray-400 dark:text-zinc-500">
-                  {roundIdx + 1}
+              <tr key={roundIdx} style={{ borderBottom: '0.5px solid #1a2233' }}>
+                {/* Sticky Rd cell */}
+                <td
+                  className="bg-white dark:bg-zinc-900"
+                  style={{
+                    ...stickyBase,
+                    width: 24,
+                    minWidth: 24,
+                    maxWidth: 24,
+                    fontSize: 10,
+                    fontWeight: 500,
+                    color: isActive ? '#60a5fa' : '#4b5563',
+                    textAlign: 'center',
+                  }}
+                >
+                  {isActive ? '▸' : ''}{roundIdx + 1}
                 </td>
-                {Array.from({ length: n }, (_, colIdx) => {
-                  // In snake draft: even rounds owner[0..n-1] picks in order,
-                  // odd rounds owner[n-1..0] picks in order.
-                  // Column colIdx always represents owner[colIdx].
-                  const posInRound = isEvenRound ? colIdx : n - 1 - colIdx;
+                {draftOrder.map((_, ownerIdx) => {
+                  // Snake draft: even rounds pick left→right, odd rounds right→left
+                  const isEvenRound = roundIdx % 2 === 0;
+                  const posInRound = isEvenRound ? ownerIdx : n - 1 - ownerIdx;
                   const globalIdx = roundIdx * n + posInRound;
                   const pickNum = globalIdx + 1;
                   const pick = pickByNumber.get(pickNum);
-                  const isCurrent = pickNum === currentPickNum && draft.phase !== 'complete';
-                  const isOnDeck = pickNum === onDeckPickNum && draft.phase !== 'complete';
+                  const isCurrent = pickNum === currentPickNum && !isComplete;
+                  const isOnDeck = pickNum === onDeckPickNum && !isComplete;
 
-                  // Completed cell: left color bar via inset box-shadow (no background tint)
-                  // Lookup is lowercase-normalized to tolerate name casing differences
-                  // between the CFBD catalog (used for insights) and the pick API (static catalog).
+                  const teamLower = pick?.team.toLowerCase() ?? '';
                   const completedColor =
-                    pick && teamColorMap ? teamColorMap[pick.team.toLowerCase()] ?? null : null;
+                    pick && teamColorMap ? teamColorMap[teamLower] ?? null : null;
+                  const displayName =
+                    pick && teamShortNameMap ? teamShortNameMap[teamLower] ?? pick.team : pick?.team ?? '';
+
+                  // Build cell style: fixed column width + state-dependent bg
+                  const cellStyle: React.CSSProperties = {
+                    width: OWNER_COL_WIDTH,
+                    minWidth: OWNER_COL_WIDTH,
+                    maxWidth: OWNER_COL_WIDTH,
+                    padding: '4px 6px',
+                    fontSize: 11,
+                  };
+
+                  if (isCurrent) {
+                    cellStyle.backgroundColor = '#2563eb';
+                    cellStyle.borderRadius = 4;
+                  } else if (isOnDeck) {
+                    cellStyle.backgroundColor = 'rgba(37,99,235,0.25)';
+                    cellStyle.borderRadius = 4;
+                  } else {
+                    if (bg) cellStyle.backgroundColor = bg;
+                    if (completedColor) {
+                      cellStyle.boxShadow = `inset 3px 0 0 0 ${completedColor}`;
+                    }
+                  }
 
                   return (
-                    <td
-                      key={colIdx}
-                      className={`px-1.5 py-1 ${
-                        isCurrent
-                          ? 'rounded bg-blue-600'
-                          : isOnDeck
-                            ? 'rounded bg-blue-100 dark:bg-blue-900/30'
-                            : ''
-                      }`}
-                      style={
-                        completedColor && !isCurrent && !isOnDeck
-                          ? { boxShadow: `inset 3px 0 0 0 ${completedColor}` }
-                          : undefined
-                      }
-                    >
+                    <td key={ownerIdx} style={cellStyle}>
                       {pick ? (
                         <span
-                          className={`block max-w-[100px] truncate ${
-                            isCurrent
-                              ? 'text-white'
-                              : pick.autoSelected
-                                ? 'text-amber-700 dark:text-amber-400'
-                                : 'text-gray-900 dark:text-zinc-100'
-                          }`}
+                          style={{
+                            display: 'block',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            color: isCurrent
+                              ? '#ffffff'
+                              : isOnDeck
+                                ? '#93c5fd'
+                                : pick.autoSelected
+                                  ? '#fbbf24'
+                                  : '#e5e7eb',
+                          }}
                           title={pick.team + (pick.autoSelected ? ' (auto)' : '')}
                         >
-                          {pick.team}
+                          {displayName}
                         </span>
                       ) : isCurrent ? (
-                        <span className="text-white">…</span>
+                        <span style={{ color: '#ffffff' }}>…</span>
                       ) : (
-                        <span className="text-gray-300 dark:text-zinc-600">—</span>
+                        <span style={{ color: '#1f2937' }}>—</span>
                       )}
                     </td>
                   );

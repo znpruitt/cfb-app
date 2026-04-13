@@ -34,7 +34,8 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 - **Phase 7A — Commissioner Self-Service** is **complete**. foundedYear field, league hub status panel + setup checklist, admin light mode, aliases promoted to platform scope. PRs #252–#256.
 - **P7B-4 — Pre-Season Setup Flow** is **complete**. Preseason page, assignment method selection, Go Live, lifecycle year sync. Branch `claude/add-league-status-field-jPzcQ`.
 - **P7B-5 — Owner Confirmation Flow** is **complete**. Owner confirmation page, preseason-owners store, draft auto-populate, lifecycle year fixes, Clerk auth bridge.
-- **P7B-6 — Draft Board UI Polish** is **active**. Rosters column removed, DraftCard simplified to name/conference/dot, DraftBoardGrid color update, landing page cleanup.
+- **P7B-6 — Draft Board UI Polish** is **complete**. Rosters column removed, DraftCard simplified to name/conference/dot, DraftBoardGrid color update, landing page cleanup.
+- **P7B-7 — Draft Flow Polish** is **active**. Setup step 1 removed, drag-and-drop reordering, auto-pause between rounds, live draft banner, visual hierarchy improvements.
 
 ## Production data policy
 

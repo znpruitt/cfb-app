@@ -268,7 +268,8 @@ export default function CFBScheduleApp({
   );
 
   const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
-  const [draftBannerDismissed, setDraftBannerDismissed] = useState<boolean>(false);
+  const [draftScheduledAt, setDraftScheduledAt] = useState<string | null>(null);
+  const [draftCurrentRound, setDraftCurrentRound] = useState<number | null>(null);
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
@@ -473,16 +474,6 @@ export default function CFBScheduleApp({
     setTimeout(() => setAliasToast(null), timeoutMs);
   }, []);
 
-  const dismissDraftBanner = useCallback(() => {
-    const draftYear = leagueYear ?? selectedSeason;
-    if (leagueSlug && typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        `cfb-draft-banner-dismissed:${leagueSlug}:${draftYear}`,
-        '1'
-      );
-    }
-    setDraftBannerDismissed(true);
-  }, [leagueSlug, leagueYear, selectedSeason]);
 
   useScheduleBootstrap({
     hasBootstrappedRef,
@@ -976,15 +967,16 @@ export default function CFBScheduleApp({
   useEffect(() => {
     if (!leagueSlug) return;
     const draftYear = leagueYear ?? selectedSeason;
-    const dismissKey = `cfb-draft-banner-dismissed:${leagueSlug}:${draftYear}`;
-    if (typeof window !== 'undefined' && window.localStorage.getItem(dismissKey) === '1') {
-      setDraftBannerDismissed(true);
-    }
     fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftYear}`)
-      .then((res) => (res.ok ? (res.json() as Promise<{ draft?: { phase?: string } }>) : null))
+      .then((res) => (res.ok ? (res.json() as Promise<{ draft?: { phase?: string; settings?: { scheduledAt?: string | null; totalRounds?: number }; currentPickIndex?: number; owners?: string[] } }>) : null))
       .then((data) => {
-        const phase = data?.draft?.phase;
-        if (typeof phase === 'string') setDraftPhase(phase as DraftPhase);
+        const d = data?.draft;
+        if (!d) return;
+        if (typeof d.phase === 'string') setDraftPhase(d.phase as DraftPhase);
+        setDraftScheduledAt(d.settings?.scheduledAt ?? null);
+        if (typeof d.currentPickIndex === 'number' && Array.isArray(d.owners) && d.owners.length > 0) {
+          setDraftCurrentRound(Math.floor(d.currentPickIndex / d.owners.length) + 1);
+        }
       })
       .catch(() => {}); // non-fatal
   }, [leagueSlug, leagueYear, selectedSeason]);
@@ -1211,68 +1203,37 @@ export default function CFBScheduleApp({
       </header>
 
       {/* Draft banner — contextual, non-admin league surface only */}
-      {!isAdminSurface && leagueSlug && draftPhase && draftPhase !== 'setup' &&
-        !(draftPhase === 'complete' && draftBannerDismissed) ? (
-        <div
-          className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-sm ${
-            draftPhase === 'live' || draftPhase === 'paused'
-              ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
-              : 'border-gray-200 bg-gray-50 text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
-          }`}
-        >
-          <span className={`font-medium ${draftPhase === 'live' || draftPhase === 'paused' ? 'text-amber-800 dark:text-amber-200' : ''}`}>
-            {draftPhase === 'live' || draftPhase === 'paused'
-              ? 'Draft in progress'
-              : draftPhase === 'complete'
-                ? 'Draft complete'
-                : 'Draft scheduled'}
-          </span>
-          <div className="flex items-center gap-2">
-            {(draftPhase === 'settings' || draftPhase === 'preview') && (
-              <Link
-                href={`/league/${leagueSlug}/draft/board`}
-                className="rounded border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-              >
-                Draft Board
-              </Link>
-            )}
-            {(draftPhase === 'live' || draftPhase === 'paused') && (
-              <Link
-                href={`/league/${leagueSlug}/draft/board`}
-                className="rounded border border-amber-400 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/50 dark:text-amber-100 dark:hover:bg-amber-900"
-              >
-                Join Draft
-              </Link>
-            )}
-            {draftPhase === 'complete' && (
-              <>
-                <Link
-                  href={`/league/${leagueSlug}/draft/summary`}
-                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  View Summary
-                </Link>
-                <button
-                  type="button"
-                  onClick={dismissDraftBanner}
-                  aria-label="Dismiss draft banner"
-                  className="ml-1 text-gray-400 hover:text-gray-600 transition-colors dark:text-zinc-500 dark:hover:text-zinc-300"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    className="h-4 w-4"
-                    aria-hidden="true"
-                  >
-                    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
-                  </svg>
-                </button>
-              </>
-            )}
+      {!isAdminSurface && leagueSlug && draftPhase &&
+        draftPhase !== 'complete' && draftPhase !== 'setup' ? (() => {
+        const isScheduled = draftPhase === 'settings' || draftPhase === 'preview';
+        const isLiveOrPaused = draftPhase === 'live' || draftPhase === 'paused';
+        // Only show scheduled banner if scheduledAt exists
+        if (isScheduled && !draftScheduledAt) return null;
+        const formattedDate = draftScheduledAt
+          ? new Date(draftScheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+          : null;
+        return (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2.5 text-sm dark:border-blue-800/40 dark:bg-blue-950/20">
+            <span className="font-medium text-blue-900 dark:text-blue-100">
+              {isScheduled && formattedDate && (
+                <>Draft Day · {formattedDate}</>
+              )}
+              {draftPhase === 'live' && (
+                <>Draft is live{draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}</>
+              )}
+              {draftPhase === 'paused' && (
+                <>Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}</>
+              )}
+            </span>
+            <Link
+              href={`/league/${leagueSlug}/draft/board`}
+              className="rounded border border-blue-300 bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 transition hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/50 dark:text-blue-100 dark:hover:bg-blue-900"
+            >
+              {isLiveOrPaused ? 'Watch' : 'View Draft'} →
+            </Link>
           </div>
-        </div>
-      ) : null}
+        );
+      })() : null}
 
       {hasFatalLeagueBootstrapFailure ? (
         <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">

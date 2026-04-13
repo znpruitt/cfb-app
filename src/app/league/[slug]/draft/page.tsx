@@ -219,7 +219,8 @@ export default async function DraftBoardPage({
   });
 
   return (
-    <main className="mx-auto max-w-screen-xl px-4 py-8">
+    <main className="py-8" style={{ width: '100%' }}>
+      <div style={{ maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', width: '100%', boxSizing: 'border-box' as const, paddingLeft: 24, paddingRight: 24 }}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <Link
@@ -256,7 +257,7 @@ export default async function DraftBoardPage({
           href={`/league/${slug}/draft/setup`}
           className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
         >
-          Setup
+          Settings
         </Link>
       </div>
 
@@ -266,6 +267,7 @@ export default async function DraftBoardPage({
         initialDraft={liveDraft}
         teamInsights={teamInsights}
       />
+      </div>
     </main>
   );
 }
