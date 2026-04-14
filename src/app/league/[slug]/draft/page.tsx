@@ -240,17 +240,6 @@ export default async function DraftBoardPage({
             >
               Spectator view →
             </Link>
-            {liveDraft.phase === 'complete' && (
-              <>
-                {' · '}
-                <Link
-                  href={`/league/${slug}/draft/summary`}
-                  className="text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  Draft Summary →
-                </Link>
-              </>
-            )}
           </p>
         </div>
         <Link

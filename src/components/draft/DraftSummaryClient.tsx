@@ -68,6 +68,12 @@ export default function DraftSummaryClient({
     .filter((o) => (picksByOwner.get(o)?.length ?? 0) > 0)
     .sort((a, b) => a.localeCompare(b));
 
+  // Compute unclaimed teams (not assigned in draft picks)
+  const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  const unclaimedTeams = allTeamNames
+    .filter((name) => !draftedTeamsLower.has(name.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b));
+
   // The pick currently being edited (if any)
   const editingPick =
     editingPickNumber !== null
@@ -243,6 +249,42 @@ export default function DraftSummaryClient({
               </div>
             );
           })}
+          {/* NoClaim card — unclaimed FBS teams not assigned during the draft */}
+          {unclaimedTeams.length > 0 && (
+            <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-4 dark:border-zinc-700 dark:bg-zinc-900/50">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-400 dark:text-zinc-500">NoClaim</h3>
+                <span className="text-xs text-gray-400 dark:text-zinc-500">
+                  {unclaimedTeams.length} unclaimed
+                </span>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-zinc-800">
+                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Pick</th>
+                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Team</th>
+                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Conf</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unclaimedTeams.map((teamName) => {
+                    const teamLower = teamName.toLowerCase();
+                    const conf = conferenceMap[teamLower] ?? '';
+                    const displayName = displayNameMap[teamLower] ?? teamName;
+                    return (
+                      <tr key={teamName} className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
+                        <td className="py-1 pr-2 text-xs text-gray-300 dark:text-zinc-600">—</td>
+                        <td className="py-1 pr-2 text-gray-400 dark:text-zinc-500" title={teamName}>
+                          {displayName}
+                        </td>
+                        <td className="py-1 text-xs text-gray-400 dark:text-zinc-500">{conf}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </section>
 
