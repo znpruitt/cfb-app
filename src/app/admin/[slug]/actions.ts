@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
-import { listAppStateKeys, deleteAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState, listAppStateKeys, deleteAppState } from '@/lib/server/appStateStore';
 import { draftScope } from '@/lib/draft';
 
 /**
@@ -101,4 +101,21 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
   await updateLeagueStatus(slug, { state: 'preseason', year, setupComplete: true });
   await updateLeague(slug, { year });
   redirect(`/admin/${slug}`);
+}
+
+/**
+ * Copy owners CSV from one year key to the next. Only valid for slug='test'.
+ * Useful when draft was confirmed before the preseason year bump.
+ */
+export async function migrateTestOwnersCsv(
+  fromYear: number,
+  toYear: number
+): Promise<string> {
+  const record = await getAppState<string>(`owners:test:${fromYear}`, 'csv');
+  if (!record?.value) {
+    return `No owners CSV found at owners:test:${fromYear}`;
+  }
+  await setAppState(`owners:test:${toYear}`, 'csv', record.value);
+  revalidatePath('/admin/test');
+  return `Migrated owners CSV from ${fromYear} → ${toYear} (${record.value.length} chars)`;
 }
