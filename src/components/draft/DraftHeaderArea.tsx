@@ -61,14 +61,18 @@ export default function DraftHeaderArea({
       setSecondsLeft(null);
       return;
     }
+    const maxMs = (pickTimerSeconds ?? 60) * 1000 + 2000; // allow 2s tolerance
     function tick() {
-      const remaining = Math.max(0, new Date(draft.timerExpiresAt!).getTime() - Date.now());
+      const rawRemaining = new Date(draft.timerExpiresAt!).getTime() - Date.now();
+      // Clamp: never show more than the configured duration (defends against clock skew),
+      // and never go below 0.
+      const remaining = Math.max(0, Math.min(rawRemaining, maxMs));
       setSecondsLeft(Math.ceil(remaining / 1000));
     }
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [draft.timerState, draft.timerExpiresAt]);
+  }, [draft.timerState, draft.timerExpiresAt, pickTimerSeconds]);
 
   // --- Crossfade slot tracking (useRef to avoid re-render timing issues) ---
   const activeSlotRef = useRef<'a' | 'b'>('a');

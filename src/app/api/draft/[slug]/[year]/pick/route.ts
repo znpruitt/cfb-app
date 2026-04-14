@@ -136,23 +136,49 @@ export async function POST(
   const isComplete = newPickIndex >= totalPicks;
   const { pickTimerSeconds } = draft.settings;
 
-  const timerExpiresAt =
-    !isComplete && pickTimerSeconds
-      ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
-      : null;
-  const timerState = !isComplete && pickTimerSeconds ? 'running' : 'off';
+  // Detect round boundary: if the new pick index lands on a round start
+  // (and the draft isn't complete), pause so the commissioner must explicitly
+  // start the next round. This eliminates the client-side second round-trip
+  // that maybeAutoPauseForRound previously handled.
+  const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
 
+  // Determine phase and timer state for next pick.
+  // Timer expiry is stamped AFTER the DB write to minimize the gap between
+  // the server timestamp and client receipt.
+  let nextPhase: DraftState['phase'];
+  let nextTimerState: DraftState['timerState'];
+  let needsTimerStamp = false;
+
+  if (isComplete) {
+    nextPhase = 'complete';
+    nextTimerState = 'off';
+  } else if (atRoundBoundary) {
+    nextPhase = 'paused';
+    nextTimerState = pickTimerSeconds ? 'paused' : 'off';
+  } else {
+    nextPhase = 'live';
+    nextTimerState = pickTimerSeconds ? 'running' : 'off';
+    needsTimerStamp = !!pickTimerSeconds;
+  }
+
+  // Write with a placeholder timerExpiresAt — we'll overwrite it after the DB write
   const updated: DraftState = {
     ...draft,
     picks: [...draft.picks, pick],
     currentPickIndex: newPickIndex,
-    phase: isComplete ? 'complete' : 'live',
-    timerState,
-    timerExpiresAt,
+    phase: nextPhase,
+    timerState: nextTimerState,
+    timerExpiresAt: null, // placeholder
     updatedAt: new Date().toISOString(),
   };
 
   await setAppState<DraftState>(draftScope(slug), String(year), updated);
+
+  // Stamp timerExpiresAt AFTER the DB write — this is the latest possible moment
+  // before the HTTP response, minimizing the gap vs. client display.
+  if (needsTimerStamp) {
+    updated.timerExpiresAt = new Date(Date.now() + pickTimerSeconds! * 1000).toISOString();
+  }
 
   return NextResponse.json({ draft: updated, pick });
 }

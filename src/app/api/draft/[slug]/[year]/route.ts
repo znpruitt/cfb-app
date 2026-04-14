@@ -345,7 +345,9 @@ export async function PUT(
     }
   }
 
-  // Timer action
+  // Timer action — tracks whether we need a post-write timer stamp
+  let stampTimerAfterWrite = false;
+
   if (timerAction !== undefined) {
     if (typeof timerAction !== 'string') {
       return NextResponse.json({ error: 'timerAction must be a string' }, { status: 400 });
@@ -359,15 +361,15 @@ export async function PUT(
           { status: 422 }
         );
       }
-      const { pickTimerSeconds } = draft.settings;
-      if (!pickTimerSeconds) {
+      if (!draft.settings.pickTimerSeconds) {
         return NextResponse.json({ error: 'No pick timer configured' }, { status: 422 });
       }
       draft = {
         ...draft,
         timerState: 'running',
-        timerExpiresAt: new Date(Date.now() + pickTimerSeconds * 1000).toISOString(),
+        timerExpiresAt: null, // stamped after DB write
       };
+      stampTimerAfterWrite = true;
     } else if (action === 'pause') {
       draft = {
         ...draft,
@@ -449,18 +451,16 @@ export async function PUT(
         const newPickIndex = draft.currentPickIndex + 1;
         const isComplete = newPickIndex >= totalPicks;
         const { pickTimerSeconds } = draft.settings;
+        const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
 
-        draft = {
-          ...draft,
-          picks: [...draft.picks, pick],
-          currentPickIndex: newPickIndex,
-          phase: isComplete ? 'complete' : 'live',
-          timerState: !isComplete && pickTimerSeconds ? 'running' : 'off',
-          timerExpiresAt:
-            !isComplete && pickTimerSeconds
-              ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
-              : null,
-        };
+        if (isComplete) {
+          draft = { ...draft, picks: [...draft.picks, pick], currentPickIndex: newPickIndex, phase: 'complete', timerState: 'off', timerExpiresAt: null };
+        } else if (atRoundBoundary) {
+          draft = { ...draft, picks: [...draft.picks, pick], currentPickIndex: newPickIndex, phase: 'paused', timerState: pickTimerSeconds ? 'paused' : 'off', timerExpiresAt: null };
+        } else {
+          draft = { ...draft, picks: [...draft.picks, pick], currentPickIndex: newPickIndex, phase: 'live', timerState: pickTimerSeconds ? 'running' : 'off', timerExpiresAt: null };
+          stampTimerAfterWrite = !!pickTimerSeconds;
+        }
       }
     } else {
       return NextResponse.json(
@@ -472,6 +472,15 @@ export async function PUT(
 
   draft = { ...draft, updatedAt: new Date().toISOString() };
   await setAppState<DraftState>(draftScope(slug), String(year), draft);
+
+  // Stamp timerExpiresAt AFTER the DB write — latest possible moment before
+  // the HTTP response, minimizing the gap vs. client timer display.
+  if (stampTimerAfterWrite && draft.settings.pickTimerSeconds) {
+    draft = {
+      ...draft,
+      timerExpiresAt: new Date(Date.now() + draft.settings.pickTimerSeconds * 1000).toISOString(),
+    };
+  }
 
   return NextResponse.json({ draft });
 }

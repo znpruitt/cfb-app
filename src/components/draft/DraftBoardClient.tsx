@@ -120,36 +120,8 @@ export default function DraftBoardClient({
     return () => clearInterval(id);
   }, [draft.phase, draft.timerState, draft.timerExpiresAt, isAdmin, slug, year]);
 
-  // Auto-pause at round boundaries: if the draft is live and currentPickIndex
-  // sits exactly on a round boundary (i.e. the previous pick completed a round),
-  // pause the draft so the commissioner must explicitly start the next round.
-  // Must be declared before the early return to satisfy Rules of Hooks.
-  const autoPauseRef = useRef<number | null>(null);
-
-  const maybeAutoPauseForRound = useCallback(async (d: DraftState) => {
-    const n = d.owners.length;
-    const idx = d.currentPickIndex;
-    const totalPicks = d.settings.totalRounds * n;
-    const atRoundBoundary = idx > 0 && idx % n === 0 && idx < totalPicks;
-    if (!atRoundBoundary || d.phase !== 'live') return d;
-    if (autoPauseRef.current === idx) return d; // already paused for this boundary
-    autoPauseRef.current = idx;
-    try {
-      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
-      const body: Record<string, unknown> = { phase: 'paused' };
-      if (d.settings.pickTimerSeconds) body.timerAction = 'pause';
-      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { draft?: DraftState };
-        if (data.draft) return data.draft;
-      }
-    } catch { /* non-fatal */ }
-    return d;
-  }, [slug, year]);
+  // Round-boundary auto-pause is now handled server-side in the pick response,
+  // so no client-side second round-trip is needed.
 
   // Return nothing while redirecting non-admins to spectator view.
   // Placed after all hooks so Rules of Hooks are satisfied.
@@ -215,9 +187,8 @@ export default function DraftBoardClient({
         setPickError(data.error ?? `Pick failed (${res.status})`);
         return;
       }
-      // Auto-pause at round boundary
-      const finalDraft = await maybeAutoPauseForRound(data.draft);
-      setDraft(finalDraft);
+      // Server handles round-boundary pausing in the pick response
+      setDraft(data.draft);
     } catch (err) {
       setPickError((err as Error).message);
     } finally {
