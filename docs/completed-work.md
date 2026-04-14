@@ -733,7 +733,54 @@ Key architectural decisions across Phase 5:
 
 ---
 
-*Phases 1–3 entries have been moved to `docs/completed-work-archive.md`.*
+### P7B-7 — Draft Flow Polish
+
+**PROMPT_IDs:** P7B-7, P7B-7-FIX through FIX-35, P7B-7-FIX-25-AUDIT, P7B-7-FIX-25-AUDIT-2, P7B-7-AUDIT-ROUND-COUNT
+
+**Carousel redesign (FIX-3, FIX-17, FIX-18, FIX-19, FIX-28)**
+- Five-card landscape strip with CSS grid crossfade on center card only
+- Flex-ratio card sizing (far 0.65, near 0.85, center 2) replacing fixed-dimension absolute positioning
+- Round boundary sidebars with vertical "Rd X" labels
+- 900px max-width carousel, centered
+- Mobile: three-card layout with reduced padding and fonts (FIX-28)
+
+**Draft board table polish (FIX-8 through FIX-14, FIX-26, FIX-30, FIX-31)**
+- Horizontal table: owners as columns, rounds as rows (FIX-12 reverted earlier transposition)
+- Snake draft column ordering: even rounds L→R, odd rounds R→L
+- Sticky Rd column, team color left-bar, abbreviated team names
+- Fixed-frame layout: `calc(100dvh - 10rem)`, no vertical page scroll (FIX-14)
+- Bottom team strip replacing sidebar (FIX-13)
+- 86px column width to fit 14 owners without scroll at 1280px (FIX-31)
+- 12px font on desktop, 11px on mobile (FIX-30)
+
+**Page layout (FIX-20 through FIX-26, FIX-29)**
+- Centered at 1400px max-width with inner wrapper div
+- Responsive padding: 8px mobile, 24px desktop (Tailwind `px-2 md:px-6`)
+- Duplicate settings gear icon removed (FIX-20)
+- Full-width table and container (FIX-26)
+
+**Timer and state fixes (FIX-15, FIX-16, FIX-27)**
+- Random auto-pick selection from available teams (FIX-15)
+- Timer expiry always pauses and prompts commissioner (FIX-16)
+- `timerExpiryBehavior` setting honored: `pause-and-prompt` vs `auto-pick` (FIX-27)
+- Setup auto-advance error recovery: prevents permanent loading state (FIX-27)
+
+**Round control (FIX-32, FIX-33)**
+- Team selection during round-boundary pause implicitly starts next round (FIX-32)
+- Total rounds hard-capped at `Math.floor(fbsTeamCount / ownerCount)` — enforced in UI input, on save, and in API POST/PUT handlers (FIX-33)
+
+**Draft summary page (FIX-34, FIX-35)**
+- Summary page at `/league/[slug]/draft/summary` made publicly accessible (no auth required)
+- Admin features (edit picks, confirm, reopen) remain gated behind `isAdmin`
+- Owner roster cards sorted alphabetically with Pick #, Team, Conference columns
+- Short display name resolution (e.g. "FIU" instead of "Florida International") sourced from team database (FIX-35)
+- "View Draft Summary →" button on complete banner in both commissioner and spectator views
+- Draft-complete banner on league overview page, auto-hides once Week 1 starts (date derived from schedule game data)
+
+**Key decisions**
+- Existing URL pattern `/league/[slug]/draft/summary` preserved (no `[year]` segment) — year derived from league status, consistent with all other draft routes
+- DraftHeaderArea shared by both commissioner and spectator views — one component, one `summaryHref` prop covers both
+- Week 1 date derived from `games.filter(g => g.week === 1)` minimum date — no hardcoded dates
 
 ---
 

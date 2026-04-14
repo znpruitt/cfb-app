@@ -142,12 +142,26 @@ export async function POST(
     csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
   }
 
+  // Append NoClaim rows for undrafted FBS teams (remainder after even division).
+  const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  const undraftedFbsTeams = allTeams
+    .filter(
+      (t) =>
+        t.classification?.toLowerCase() === 'fbs' &&
+        !draftedTeamsLower.has(t.school.toLowerCase())
+    )
+    .map((t) => t.school);
+  for (const teamName of undraftedFbsTeams) {
+    csvLines.push(`${csvField(teamName)},NoClaim`);
+  }
+
   // Belt-and-suspenders: verify CSV row count before writing.
+  const expectedTotalRows = totalExpectedPicks + undraftedFbsTeams.length;
   const rowCount = csvLines.length - 1; // exclude header
-  if (rowCount !== totalExpectedPicks) {
+  if (rowCount !== expectedTotalRows) {
     return NextResponse.json(
       {
-        error: `CSV generation error — expected ${totalExpectedPicks} rows but produced ${rowCount}. Do not write partial data.`,
+        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedFbsTeams.length} unclaimed) but produced ${rowCount}. Do not write partial data.`,
       },
       { status: 422 }
     );

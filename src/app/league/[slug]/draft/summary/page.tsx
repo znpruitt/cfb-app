@@ -8,6 +8,7 @@ import { selectTopRivalries } from '@/lib/selectors/historySelectors';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
+import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftSummaryClient from '@/components/draft/DraftSummaryClient';
 
 type TeamsJson = { items: TeamCatalogItem[] };
@@ -110,7 +111,11 @@ export default async function DraftSummaryPage({
   const league = await getLeague(slug);
   if (!league) notFound();
 
-  const year = league.year;
+  const status = league.status;
+  const year =
+    status?.state === 'preseason' || status?.state === 'season'
+      ? status.year
+      : league.year;
 
   // Load draft state
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
@@ -129,6 +134,28 @@ export default async function DraftSummaryPage({
     .filter((t) => t.school !== 'NoClaim')
     .map((t) => t.school)
     .sort((a, b) => a.localeCompare(b));
+
+  // Build team→conference map for the summary display
+  const conferenceMap: Record<string, string> = {};
+  for (const t of items) {
+    if (t.school !== 'NoClaim' && t.conference) {
+      conferenceMap[t.school.toLowerCase()] = t.conference;
+    }
+  }
+
+  // Build team→display name map (same shortDisplayName resolution as draft board)
+  const dbTeams = await getTeamDatabaseItems();
+  const displayNameMap: Record<string, string> = {};
+  for (const t of dbTeams) {
+    if (t.school === 'NoClaim') continue;
+    const teamName = t.displayName ?? t.school;
+    const shortName = t.shortDisplayName
+      ? t.shortDisplayName
+      : teamName.length <= 14
+        ? teamName
+        : (t.abbreviation ?? teamName);
+    displayNameMap[t.school.toLowerCase()] = shortName;
+  }
 
   // Derive interesting facts from historical archives — fail silently if unavailable
   let facts: string[] = [];
@@ -152,7 +179,7 @@ export default async function DraftSummaryPage({
             ← {league.displayName}
           </Link>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
-            {year} Draft Summary
+            {league.displayName} — {year} Draft Results
           </h1>
         </div>
         <Link
@@ -168,6 +195,8 @@ export default async function DraftSummaryPage({
         year={year}
         initialDraft={liveDraft}
         allTeamNames={allTeamNames}
+        conferenceMap={conferenceMap}
+        displayNameMap={displayNameMap}
         facts={facts}
       />
     </main>

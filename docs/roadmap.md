@@ -35,7 +35,7 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 - **P7B-4 — Pre-Season Setup Flow** is **complete**. Preseason page, assignment method selection, Go Live, lifecycle year sync. Branch `claude/add-league-status-field-jPzcQ`.
 - **P7B-5 — Owner Confirmation Flow** is **complete**. Owner confirmation page, preseason-owners store, draft auto-populate, lifecycle year fixes, Clerk auth bridge.
 - **P7B-6 — Draft Board UI Polish** is **complete**. Rosters column removed, DraftCard simplified to name/conference/dot, DraftBoardGrid color update, landing page cleanup.
-- **P7B-7 — Draft Flow Polish** is **active**. Setup step 1 removed, drag-and-drop reordering, auto-pause between rounds, live draft banner, visual hierarchy improvements.
+- **P7B-7 — Draft Flow Polish** is **complete**. Carousel redesign, page layout/centering, timer/round fixes, draft summary page, display name resolution. PRs #262–#266.
 
 ## Production data policy
 
@@ -308,6 +308,29 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - No visibility controls — league URL is the access mechanism
 - League picker UI for commissioners managing multiple leagues
 - Only warranted if Phase 3 is actively used by multiple leagues **and** manual commissioner management becomes a bottleneck. Full SaaS auth is out of scope indefinitely.
+
+## Upcoming campaigns (post-P7B-7)
+
+### Draft Difficulty Settings (planned)
+- Auto-pick algorithm configuration (random, SP+ rating, preseason rank)
+- Team data visibility controls during draft (show/hide SP+ ratings, win totals, schedule insights)
+
+### Back Button Audit (planned)
+- App-wide review of back links: styling consistency, copy, destinations
+- Ensure all "← Back" links follow a single visual pattern and navigate to the correct parent
+
+### Clerk Production Instance Migration (planned)
+- Migrate from Clerk development instance to production instance
+- Re-configure session token and `publicMetadata` (role assignment) post-migration
+- Verify all auth flows (platform_admin, sessionStorage token fallback)
+
+### P7A-4: Aliases Platform Migration (planned)
+- Complete migration of aliases from year-scoped to global platform scope
+- Remove legacy year-scoped alias support code
+
+### Season State Transition Workflow (planned)
+- Draft confirm/lock action triggers season state transition
+- Formalize the preseason → season lifecycle with explicit confirmation steps
 
 ## Architecture rules
 

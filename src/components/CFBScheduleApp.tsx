@@ -1235,6 +1235,31 @@ export default function CFBScheduleApp({
         );
       })() : null}
 
+      {/* Draft complete banner — show until Week 1 starts */}
+      {!isAdminSurface && leagueSlug && draftPhase === 'complete' && (() => {
+        // Derive Week 1 start date from schedule data
+        const week1Dates = games
+          .filter((g) => g.week === 1 && g.date)
+          .map((g) => new Date(g.date!).getTime());
+        const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
+        // Hide banner once Week 1 has started
+        if (week1Start !== null && Date.now() >= week1Start) return null;
+        const draftYear = leagueYear ?? selectedSeason;
+        return (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50/60 px-4 py-2.5 text-sm dark:border-green-800/40 dark:bg-green-950/20">
+            <span className="font-medium text-green-900 dark:text-green-100">
+              {draftYear} Draft complete — view results
+            </span>
+            <Link
+              href={`/league/${leagueSlug}/draft/summary`}
+              className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
+            >
+              Draft Summary →
+            </Link>
+          </div>
+        );
+      })()}
+
       {hasFatalLeagueBootstrapFailure ? (
         <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
           <div className="space-y-1">

@@ -14,6 +14,7 @@ type DraftHeaderAreaProps = {
   onSelectManually?: () => void;
   onStartRound?: () => void;
   settingsHref?: string;
+  summaryHref?: string;
   controlsLoading?: boolean;
 };
 
@@ -37,6 +38,7 @@ export default function DraftHeaderArea({
   onAutoPick,
   onSelectManually,
   onStartRound,
+  summaryHref,
   controlsLoading,
 }: DraftHeaderAreaProps): React.ReactElement {
   const { draftOrder, totalRounds, pickTimerSeconds } = draft.settings;
@@ -101,10 +103,18 @@ export default function DraftHeaderArea({
   // Complete state
   if (draft.phase === 'complete') {
     return (
-      <div className="rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
+      <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
         <p className="text-sm font-semibold text-green-800 dark:text-green-300">
           Draft complete — all {totalPicks} picks made
         </p>
+        {summaryHref && (
+          <a
+            href={summaryHref}
+            className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
+          >
+            View Draft Summary →
+          </a>
+        )}
       </div>
     );
   }

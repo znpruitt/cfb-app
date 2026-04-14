@@ -72,7 +72,7 @@ export default function SpectatorBoardClient({
     <div style={{ height: 'calc(100dvh - 10rem)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* TOP — fixed header area (cards, banners) */}
       <div style={{ flexShrink: 0 }}>
-        <DraftHeaderArea draft={draft} />
+        <DraftHeaderArea draft={draft} summaryHref={`/league/${slug}/draft/summary`} />
       </div>
 
       {/* MIDDLE — table scrolls both axes within remaining space */}

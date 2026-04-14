@@ -884,6 +884,184 @@ The registry should remain:
 - Scope: docs only.
 - Notes: Ensures response-format expectations are restated at execution time, including Section 2 and Section 3.8 applicability.
 
+### P7B-7-FIX
+- Purpose: Remove unused `draftBannerDismissed` and `dismissDraftBanner` state.
+- Scope: `DraftBoardClient.tsx`.
+- Notes: Commit `daa477b`.
+
+### P7B-7-FIX-2
+- Purpose: Fix React hook violation — move `autoPauseRef` and `maybeAutoPauseForRound` before early return.
+- Scope: `DraftBoardClient.tsx`.
+- Notes: Commit `c1a0460`.
+
+### P7B-7-FIX-3
+- Purpose: Redesign draft header with three-card layout and circular countdown clock.
+- Scope: `DraftHeaderArea.tsx` (new), `DraftBoardClient.tsx`, `SpectatorBoardClient.tsx`.
+- Notes: Commit `21fcfb8`.
+
+### P7B-7-FIX-5
+- Purpose: Fix horizontal overflow on draft board pages.
+- Scope: Draft board page wrappers.
+- Notes: Commit `fcba082`.
+
+### P7B-7-FIX-5B
+- Purpose: Contain board table overflow without clipping sidebar.
+- Scope: Draft board layout.
+- Notes: Commit `1f33fe0`.
+
+### P7B-7-FIX-7
+- Purpose: Remove `max-w-screen-xl` and restore `mx-auto` on draft board page containers.
+- Scope: Draft board pages.
+- Notes: Commits `3d62546`, `3f72c9c`.
+
+### P7B-7-FIX-8
+- Purpose: Plain text badges, flanking card hierarchy, transposed draft board.
+- Scope: `DraftHeaderArea.tsx`, `DraftBoardGrid.tsx`.
+- Notes: Commits `2ebc6c3`, `8c529f5`.
+
+### P7B-7-FIX-9
+- Purpose: Abbreviated team names in draft board, 90px columns.
+- Scope: `DraftBoardGrid.tsx`.
+- Notes: Commit `f5223b1`.
+
+### P7B-7-FIX-10
+- Purpose: Narrow owner column, short names in sidebar, conference search, sticky sidebar.
+- Scope: `DraftBoardClient.tsx`, `DraftBoardGrid.tsx`.
+- Notes: Commit `d28aa08`.
+
+### P7B-7-FIX-11
+- Purpose: Team name resolution chain, header width constraint, sidebar names.
+- Scope: `DraftBoardClient.tsx`, `DraftBoardGrid.tsx`.
+- Notes: Commit `2342e56`.
+
+### P7B-7-FIX-12
+- Purpose: Revert to horizontal table orientation (owners as columns, rounds as rows).
+- Scope: `DraftBoardGrid.tsx`.
+- Notes: Commit `4fc41c2`.
+
+### P7B-7-FIX-13
+- Purpose: Replace sidebar with horizontal bottom team strip.
+- Scope: `DraftBoardClient.tsx`, `SpectatorBoardClient.tsx`.
+- Notes: Commit `d5784bc`.
+
+### P7B-7-FIX-14
+- Purpose: Fixed-frame layout — no vertical page scroll, `calc(100dvh - 10rem)`.
+- Scope: `DraftBoardClient.tsx`, `SpectatorBoardClient.tsx`.
+- Notes: Commit `47099d8`.
+
+### P7B-7-FIX-15
+- Purpose: Random auto-pick selection from available teams, updated search placeholder.
+- Scope: `route.ts` (draft API), `DraftBoardClient.tsx`.
+- Notes: Commit `299d064`.
+
+### P7B-7-FIX-16
+- Purpose: Timer expiry always pauses and prompts commissioner.
+- Scope: `route.ts` (draft API).
+- Notes: Commit `669e229`. Hotfix `edf8c41`.
+
+### P7B-7-FIX-17
+- Purpose: Carousel-based pick header with five cards and crossfade.
+- Scope: `DraftHeaderArea.tsx`.
+- Notes: Commit `59850c0`.
+
+### P7B-7-FIX-18
+- Purpose: Redesign carousel to compact landscape strip with round boundary labels.
+- Scope: `DraftHeaderArea.tsx`.
+- Notes: Commit `df5cd3c`. Flex-ratio card sizing, CSS grid crossfade, round boundary sidebars.
+
+### P7B-7-FIX-19
+- Purpose: Cap carousel strip at 900px max-width, centered.
+- Scope: `DraftHeaderArea.tsx`.
+- Notes: Commit `938cd9d`.
+
+### P7B-7-FIX-20
+- Purpose: Add 1400px max-width to draft page, remove duplicate gear icon.
+- Scope: Draft board `page.tsx`.
+- Notes: Commit `f24159d`.
+
+### P7B-7-FIX-21
+- Purpose: Widen page max-width to 1920px.
+- Scope: Draft board `page.tsx`.
+- Notes: Commit `d120557`.
+
+### P7B-7-FIX-22
+- Purpose: Remove max-width, add 24px horizontal padding.
+- Scope: Draft board `page.tsx`.
+- Notes: Commit `e94b543`.
+
+### P7B-7-FIX-23
+- Purpose: Fix page centering with explicit margin auto and max-width.
+- Scope: Draft board `page.tsx`.
+- Notes: Commit `3102d41`.
+
+### P7B-7-FIX-25-AUDIT
+- Purpose: Print exact JSX structure of draft page component for centering diagnosis.
+- Scope: Read-only audit. No commits.
+
+### P7B-7-FIX-25-AUDIT-2
+- Purpose: Identify parent layouts causing left-alignment.
+- Scope: Read-only audit. No commits.
+
+### P7B-7-FIX-25
+- Purpose: Center draft content at 1400px max-width with inner wrapper div.
+- Scope: Draft board `page.tsx`.
+- Notes: Commit `9dfa4fa`.
+
+### P7B-7-FIX-26
+- Purpose: Add `width: 100%` to draft board container, table wrapper, and table.
+- Scope: `DraftBoardClient.tsx`, `DraftBoardGrid.tsx`.
+- Notes: Commit `584858a`.
+
+### P7B-7-FIX-27
+- Purpose: Fix timer expiry behavior (honor `timerExpiryBehavior` setting) and setup auto-advance error recovery.
+- Scope: `DraftHeaderArea.tsx`, `DraftSetupShell.tsx`.
+- Notes: Commit `9606d2b`. Auto-fire auto-pick effect; `autoAdvancedRef` guard prevents permanent loading state.
+
+### P7B-7-FIX-28
+- Purpose: Mobile-responsive carousel — 3 cards on mobile, reduced padding/fonts.
+- Scope: `DraftHeaderArea.tsx`.
+- Notes: Commit `fbf8f0e`.
+
+### P7B-7-FIX-29
+- Purpose: Reduce horizontal padding to 8px on mobile, 24px on desktop.
+- Scope: Draft board `page.tsx`.
+- Notes: Commit `0995fa6`. Tailwind `px-2 md:px-6` (server component, no hooks).
+
+### P7B-7-FIX-30
+- Purpose: Increase draft board cell font to 12px on desktop, 11px on mobile.
+- Scope: `DraftBoardGrid.tsx`.
+- Notes: Commit `ea394f0`.
+
+### P7B-7-FIX-31
+- Purpose: Reduce owner column width from 100px to 86px for 14-column fit.
+- Scope: `DraftBoardGrid.tsx`.
+- Notes: Commit `66a9bc2`.
+
+### P7B-7-FIX-32
+- Purpose: Allow team selection during round-boundary pause — implicitly starts next round.
+- Scope: `DraftBoardClient.tsx`.
+- Notes: Commit `f7e2d1d`. Sequential PUT (resume) + POST (pick) when paused at round boundary.
+
+### P7B-7-FIX-33
+- Purpose: Hard-cap total rounds at `floor(fbsTeamCount / ownerCount)`.
+- Scope: `DraftSettingsPanel.tsx`, `route.ts` (draft API).
+- Notes: Commit `be4548d`. UI max, on-save clamp, and API validation in both POST and PUT.
+
+### P7B-7-FIX-34
+- Purpose: Draft summary page — public access, conference column, complete banners.
+- Scope: `DraftSummaryClient.tsx`, summary `page.tsx`, `DraftHeaderArea.tsx`, `DraftBoardClient.tsx`, `SpectatorBoardClient.tsx`, `CFBScheduleApp.tsx`.
+- Notes: Commit `edd7d4e`. Removed admin redirect; added conferenceMap; alphabetical owners; "View Draft Summary →" on complete banner; league overview draft-complete banner with Week 1 auto-hide.
+
+### P7B-7-FIX-35
+- Purpose: Use short display names on draft summary page (e.g. "FIU" instead of "Florida International").
+- Scope: Summary `page.tsx`, `DraftSummaryClient.tsx`.
+- Notes: Commit `b94c6f9`. `displayNameMap` built from `getTeamDatabaseItems()` with same resolution as `draftTeamInsights.ts`.
+
+### P7B-7-AUDIT-ROUND-COUNT
+- Purpose: Audit where total round count is defined, stored, and whether it's hardcoded or dynamic.
+- Scope: Read-only audit. No commits.
+- Notes: Found `totalRounds` is user-configurable (1–50), stored in draft state, with `ceil(fbsTeamCount/ownerCount)` suggestion. No hardcoded value of 10 found.
+
 ---
 
 ## Superseded Prompts
