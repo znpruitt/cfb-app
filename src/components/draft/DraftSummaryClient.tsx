@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import InterestingFactsPanel from './InterestingFactsPanel';
@@ -11,6 +11,8 @@ type DraftSummaryClientProps = {
   initialDraft: DraftState;
   /** All FBS canonical team names (NoClaim excluded) for the inline team picker. */
   allTeamNames: string[];
+  /** Lowercase team name → conference name for display. */
+  conferenceMap: Record<string, string>;
   /** Pre-derived interesting fact strings from the server page. */
   facts: string[];
 };
@@ -20,6 +22,7 @@ export default function DraftSummaryClient({
   year,
   initialDraft,
   allTeamNames,
+  conferenceMap,
   facts,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
@@ -41,15 +44,6 @@ export default function DraftSummaryClient({
   const [reopenLoading, setReopenLoading] = useState(false);
   const [reopenError, setReopenError] = useState<string | null>(null);
 
-  // Redirect non-admins to draft board
-  useEffect(() => {
-    if (!isAdmin) {
-      window.location.replace(`/league/${slug}/draft`);
-    }
-  }, [isAdmin, slug]);
-
-  if (!isAdmin) return <></>;
-
   // -------------------------------------------------------------------------
   // Derived state
   // -------------------------------------------------------------------------
@@ -67,7 +61,9 @@ export default function DraftSummaryClient({
   for (const picks of picksByOwner.values()) {
     picks.sort((a, b) => a.pickNumber - b.pickNumber);
   }
-  const owners = ownerOrder.filter((o) => (picksByOwner.get(o)?.length ?? 0) > 0);
+  const owners = ownerOrder
+    .filter((o) => (picksByOwner.get(o)?.length ?? 0) > 0)
+    .sort((a, b) => a.localeCompare(b));
 
   // The pick currently being edited (if any)
   const editingPick =
@@ -193,44 +189,60 @@ export default function DraftSummaryClient({
                     {picks.length} pick{picks.length !== 1 ? 's' : ''}
                   </span>
                 </div>
-                <ol className="space-y-1.5">
-                  {picks.map((pick) => (
-                    <li key={pick.pickNumber} className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">
-                          R{pick.round + 1}.{pick.roundPick + 1}{' '}
-                        </span>
-                        <span className="text-sm text-gray-800 dark:text-zinc-200">
-                          {pick.team}
-                        </span>
-                        {pick.autoSelected && (
-                          <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
-                            (auto)
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingPickNumber(pick.pickNumber);
-                          setEditSearch('');
-                          setEditError(null);
-                        }}
-                        className="shrink-0 text-xs text-blue-600 hover:underline dark:text-blue-400"
-                      >
-                        Edit
-                      </button>
-                    </li>
-                  ))}
-                </ol>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 dark:border-zinc-800">
+                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Pick</th>
+                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Team</th>
+                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Conf</th>
+                      {isAdmin && <th className="pb-1" />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {picks.map((pick) => {
+                      const conf = conferenceMap[pick.team.toLowerCase()] ?? '';
+                      return (
+                        <tr key={pick.pickNumber} className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
+                          <td className="py-1 pr-2 text-xs text-gray-400 dark:text-zinc-500">
+                            #{pick.pickNumber}
+                          </td>
+                          <td className="py-1 pr-2 text-gray-800 dark:text-zinc-200">
+                            {pick.team}
+                            {pick.autoSelected && (
+                              <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
+                                (auto)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-1 text-xs text-gray-500 dark:text-zinc-400">{conf}</td>
+                          {isAdmin && (
+                            <td className="py-1 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPickNumber(pick.pickNumber);
+                                  setEditSearch('');
+                                  setEditError(null);
+                                }}
+                                className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             );
           })}
         </div>
       </section>
 
-      {/* Inline Team Picker */}
-      {editingPickNumber !== null && (
+      {/* Inline Team Picker (admin only) */}
+      {isAdmin && editingPickNumber !== null && (
         <section className="rounded-lg border border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-950">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
@@ -284,8 +296,8 @@ export default function DraftSummaryClient({
       {/* Interesting Facts */}
       <InterestingFactsPanel facts={facts} />
 
-      {/* Confirm Draft — only shown when draft is not yet confirmed */}
-      {draft.phase !== 'complete' && (
+      {/* Confirm Draft — admin only, shown when draft is not yet confirmed */}
+      {isAdmin && draft.phase !== 'complete' && (
         <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
           {confirmError && (
             <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
@@ -327,8 +339,8 @@ export default function DraftSummaryClient({
         </section>
       )}
 
-      {/* Reopen Draft — only shown when draft is confirmed (phase === 'complete') */}
-      {draft.phase === 'complete' && (
+      {/* Reopen Draft — admin only, shown when draft is confirmed (phase === 'complete') */}
+      {isAdmin && draft.phase === 'complete' && (
         <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
           {reopenError && (
             <p className="mb-3 text-sm text-red-700 dark:text-red-400">{reopenError}</p>

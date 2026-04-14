@@ -110,7 +110,11 @@ export default async function DraftSummaryPage({
   const league = await getLeague(slug);
   if (!league) notFound();
 
-  const year = league.year;
+  const status = league.status;
+  const year =
+    status?.state === 'preseason' || status?.state === 'season'
+      ? status.year
+      : league.year;
 
   // Load draft state
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
@@ -129,6 +133,14 @@ export default async function DraftSummaryPage({
     .filter((t) => t.school !== 'NoClaim')
     .map((t) => t.school)
     .sort((a, b) => a.localeCompare(b));
+
+  // Build team→conference map for the summary display
+  const conferenceMap: Record<string, string> = {};
+  for (const t of items) {
+    if (t.school !== 'NoClaim' && t.conference) {
+      conferenceMap[t.school.toLowerCase()] = t.conference;
+    }
+  }
 
   // Derive interesting facts from historical archives — fail silently if unavailable
   let facts: string[] = [];
@@ -152,7 +164,7 @@ export default async function DraftSummaryPage({
             ← {league.displayName}
           </Link>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
-            {year} Draft Summary
+            {league.displayName} — {year} Draft Results
           </h1>
         </div>
         <Link
@@ -168,6 +180,7 @@ export default async function DraftSummaryPage({
         year={year}
         initialDraft={liveDraft}
         allTeamNames={allTeamNames}
+        conferenceMap={conferenceMap}
         facts={facts}
       />
     </main>

@@ -318,6 +318,7 @@ export default function DraftBoardClient({
           onSelectManually={handleSelectManually}
           onStartRound={handleStartRound}
           settingsHref={`/league/${slug}/draft/setup`}
+          summaryHref={`/league/${slug}/draft/summary`}
           controlsLoading={controlsLoading}
         />
       </div>
