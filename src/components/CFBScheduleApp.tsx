@@ -233,7 +233,9 @@ export default function CFBScheduleApp({
 }: CFBScheduleAppProps = {}): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
 
-  const [selectedSeason] = useState<number>(DEFAULT_SEASON);
+  const [selectedSeason] = useState<number>(
+    leagueStatus?.state === 'preseason' ? leagueStatus.year : DEFAULT_SEASON
+  );
   const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason, leagueSlug), [selectedSeason, leagueSlug]);
 
   const [games, setGames] = useState<AppGame[]>(initialGames);
@@ -1111,12 +1113,13 @@ export default function CFBScheduleApp({
   );
 
   const isAdminSurface = surface === 'admin';
+  const isPreseason = leagueStatus?.state === 'preseason';
   const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
   const canRenderPrimarySurface =
     canRenderLeagueSurface || weekViewMode === 'owner' || weekViewMode === 'rankings';
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
-    !isAdminSurface && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
+    !isAdminSurface && !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
   const leagueHref = leagueSlug ? `/league/${leagueSlug}` : '/';
   const visibleScoresCount = useMemo(
     () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
@@ -1395,6 +1398,57 @@ export default function CFBScheduleApp({
             >
               Open Data Management
             </Link>
+          </div>
+        </section>
+      ) : null}
+
+      {/* Pre-season overview — shown when in preseason state with no schedule data */}
+      {isPreseason && !canRenderLeagueSurface && !isAdminSurface ? (
+        <section className="space-y-6">
+          {/* Owner roster */}
+          {roster.length > 0 ? (() => {
+            const ownerTeams = new Map<string, string[]>();
+            for (const row of roster) {
+              const teams = ownerTeams.get(row.owner) ?? [];
+              teams.push(row.team);
+              ownerTeams.set(row.owner, teams);
+            }
+            return (
+              <div className="space-y-3">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-zinc-100">
+                  {selectedSeason} Rosters
+                </h2>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {Array.from(ownerTeams.entries()).map(([owner, teams]) => (
+                    <div
+                      key={owner}
+                      className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 dark:border-zinc-700 dark:bg-zinc-900/60"
+                    >
+                      <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                        {owner}
+                      </p>
+                      <ul className="mt-2 space-y-0.5">
+                        {teams.map((team) => (
+                          <li key={team} className="text-xs text-gray-600 dark:text-zinc-400">
+                            {team}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })() : draftPhase && draftPhase !== 'complete' ? null : null}
+
+          {/* Schedule placeholder */}
+          <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
+            <p className="text-sm font-medium text-gray-600 dark:text-zinc-400">
+              {selectedSeason} season schedule not yet available
+            </p>
+            <p className="mt-1 text-xs text-gray-400 dark:text-zinc-500">
+              Check back closer to kickoff. The schedule will load automatically once published.
+            </p>
           </div>
         </section>
       ) : null}

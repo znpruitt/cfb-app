@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
-import { listAppStateKeys, deleteAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState, listAppStateKeys, deleteAppState } from '@/lib/server/appStateStore';
 import { draftScope } from '@/lib/draft';
 
 /**
@@ -93,12 +93,29 @@ export async function confirmPreseasonOwners(
   redirect(`/admin/${slug}/preseason`);
 }
 
-/** Transition a league from preseason to season and redirect to the league hub. */
-export async function goLive(slug: string, year: number): Promise<void> {
+/** Mark preseason setup as complete. Season transition happens automatically via cron. */
+export async function completeSetup(slug: string, year: number): Promise<void> {
   const league = await getLeague(slug);
   if (!league) throw new Error('League not found');
   if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
-  await updateLeagueStatus(slug, { state: 'season', year });
+  await updateLeagueStatus(slug, { state: 'preseason', year, setupComplete: true });
   await updateLeague(slug, { year });
   redirect(`/admin/${slug}`);
+}
+
+/**
+ * Copy owners CSV from one year key to the next. Only valid for slug='test'.
+ * Useful when draft was confirmed before the preseason year bump.
+ */
+export async function migrateTestOwnersCsv(
+  fromYear: number,
+  toYear: number
+): Promise<string> {
+  const record = await getAppState<string>(`owners:test:${fromYear}`, 'csv');
+  if (!record?.value) {
+    return `No owners CSV found at owners:test:${fromYear}`;
+  }
+  await setAppState(`owners:test:${toYear}`, 'csv', record.value);
+  revalidatePath('/admin/test');
+  return `Migrated owners CSV from ${fromYear} → ${toYear} (${record.value.length} chars)`;
 }

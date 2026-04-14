@@ -18,8 +18,8 @@ const sectionClass = 'rounded-lg border border-gray-200 bg-white p-5 space-y-3 d
 const buttonClass =
   'rounded border border-gray-300 bg-gray-50 px-4 py-1.5 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
 
-export default function GlobalRefreshPanel(): React.ReactElement {
-  const [year, setYear] = useState(seasonYearForToday());
+export default function GlobalRefreshPanel({ defaultYear }: { defaultYear?: number } = {}): React.ReactElement {
+  const [year, setYear] = useState(defaultYear ?? seasonYearForToday());
 
   const [scheduleStatus, setScheduleStatus] = useState<SectionStatus>('idle');
   const [scheduleError, setScheduleError] = useState<string | undefined>();

@@ -784,6 +784,55 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### P7B Season Transition Architecture — Complete
+
+**Status:** Complete. Branch `claude/audit-season-transition-pwKfH`.
+**PROMPT_IDs:** P7B-AUDIT-HISTORY-AND-SEASON-TRANSITION, P7B-AUDIT-SCHEDULE-YEAR, P7B-SEASON-TRANSITION-A, P7B-SEASON-TRANSITION-B, P7B-SEASON-TRANSITION-B-FIX, P7B-SEASON-TRANSITION-C
+
+**Goals completed:**
+- Automatic season transition from preseason to season state
+- Decoupled "Go Live" button from immediate state transition
+- Fixed schedule year derivation for preseason state
+- Pre-season overview page with owner rosters and schedule placeholder
+
+**Key outcomes:**
+
+**Schedule year derivation fix (P7B-SEASON-TRANSITION-A)**
+- `seasonYearForToday()` threshold moved from August (`>= 7`) to July (`>= 6`) in all three copies (normalizers.ts, schedule/route.ts, HistoricalCachePanel.tsx)
+- `GlobalRefreshPanel` accepts `defaultYear` prop — admin Data Cache page passes preseason year when any league is in preseason
+- `CFBScheduleApp` overrides `selectedSeason` to `leagueStatus.year` when league is in preseason — all schedule fetches target the correct upcoming season
+
+**"Complete Setup" rename and decoupling (P7B-SEASON-TRANSITION-B)**
+- `goLive()` renamed to `completeSetup()` — no longer transitions to `state: 'season'`
+- Sets `setupComplete: true` on the preseason `LeagueStatus` variant
+- `LeagueStatus` preseason variant extended: `{ state: 'preseason'; year: number; setupComplete?: boolean }`
+- UI updated: button text, blocker text, checklist label, draft summary prompt
+- After setup complete: green "Setup Complete ✓" badge with "Season will go live automatically before the first game" note
+
+**Automatic season transition cron (P7B-SEASON-TRANSITION-B)**
+- `vercel.json` created with weekly cron: `0 0 * * 3` (Wednesday midnight UTC)
+- `/api/cron/season-transition` route secured via `CRON_SECRET` Bearer token
+- `ScheduleProbeState` type in `src/lib/scheduleProbe.ts`: tracks `baseCachedAt`, `firstGameDate` per year
+- Cron logic: find preseason leagues → probe CFBD for schedule → cache data → derive first game date → transition all preseason leagues the day before first game
+- Schedule probe refetch window: re-fetches within 7 days of first game for updated kickoff times
+- Manual schedule refresh (`bypassCache=1`) also updates probe state
+- `CRON_SECRET` auth: distinguishes "not configured" from "invalid token" with actionable error messages
+
+**Pre-season overview (P7B-SEASON-TRANSITION-C)**
+- During preseason with no schedule data, shows owner roster cards (owner name + drafted teams) in a responsive grid
+- Schedule placeholder: "2026 season schedule not yet available — check back closer to kickoff"
+- Fatal bootstrap error suppressed in preseason (expected state — no schedule data is normal)
+- No 2025 data bleed-through: `selectedSeason` set to `leagueStatus.year` (2026) during preseason, preventing any prior-year data from loading
+- When 2026 schedule IS cached, normal views render with that data
+
+**Key architectural decisions:**
+- `setupComplete` stored on `LeagueStatus.preseason` variant (not separate appStateStore key) — disappears naturally when league transitions to `season`
+- Schedule probe state stored in `appStateStore` scope `schedule-probe` — survives across deployments
+- Cron uses `fetchUpstreamJson` + `mapCfbdScheduleGame` directly (not internal API call) for reliability
+- Pre-season overview renders inline in `CFBScheduleApp.tsx` (no separate component) — consistent with existing preseason banner pattern
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
