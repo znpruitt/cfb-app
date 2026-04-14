@@ -198,6 +198,7 @@ export default async function DraftSummaryPage({
         conferenceMap={conferenceMap}
         displayNameMap={displayNameMap}
         facts={facts}
+        leagueStatus={league.status}
       />
     </main>
   );

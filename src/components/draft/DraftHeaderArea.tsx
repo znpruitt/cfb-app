@@ -2,11 +2,16 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { DraftState } from '@/lib/draft';
+import type { LeagueStatus } from '@/lib/league';
 
 type DraftHeaderAreaProps = {
   draft: DraftState;
   /** If true, show commissioner controls row (Pause/Resume, Undo, Settings gear). */
   isAdmin?: boolean;
+  /** League slug for constructing admin URLs. */
+  slug?: string;
+  /** League lifecycle status for conditional commissioner prompts. */
+  leagueStatus?: LeagueStatus;
   onPause?: () => void;
   onResume?: () => void;
   onUndo?: () => void;
@@ -32,6 +37,8 @@ const CIRCUMFERENCE = 2 * Math.PI * 32; // r=32 → ~201.06
 export default function DraftHeaderArea({
   draft,
   isAdmin,
+  slug,
+  leagueStatus,
   onPause,
   onResume,
   onUndo,
@@ -107,14 +114,24 @@ export default function DraftHeaderArea({
         <p className="text-sm font-semibold text-green-800 dark:text-green-300">
           Draft complete — all {totalPicks} picks made
         </p>
-        {summaryHref && (
-          <a
-            href={summaryHref}
-            className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
-          >
-            View Draft Summary →
-          </a>
-        )}
+        <div className="flex items-center gap-2">
+          {isAdmin && slug && leagueStatus?.state === 'preseason' && (
+            <a
+              href={`/admin/${slug}/preseason`}
+              className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
+            >
+              Continue Setup →
+            </a>
+          )}
+          {summaryHref && (
+            <a
+              href={summaryHref}
+              className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
+            >
+              View Draft Summary →
+            </a>
+          )}
+        </div>
       </div>
     );
   }

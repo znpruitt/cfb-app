@@ -33,6 +33,8 @@ export default function DraftSetupShell({
   const [draftState, setDraftState] = useState<DraftState | null>(initialDraftState);
   const [backLoading, setBackLoading] = useState(false);
   const [backError, setBackError] = useState<string | null>(null);
+  const [startLoading, setStartLoading] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const autoAdvancedRef = useRef(false);
   const [resetConfirm, setResetConfirm] = useState(false);
@@ -115,6 +117,29 @@ export default function DraftSetupShell({
       setBackError((err as Error).message);
     } finally {
       setBackLoading(false);
+    }
+  }
+
+  async function handleStartDraft() {
+    setStartError(null);
+    setStartLoading(true);
+    try {
+      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ phase: 'live' }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setStartError(data.error ?? `Failed to start draft (${res.status})`);
+        return;
+      }
+      window.location.href = `/league/${slug}/draft`;
+    } catch (err) {
+      setStartError((err as Error).message);
+    } finally {
+      setStartLoading(false);
     }
   }
 
@@ -324,12 +349,11 @@ export default function DraftSetupShell({
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="button"
-              className="rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              onClick={() => {
-                window.location.href = `/league/${slug}/draft`;
-              }}
+              className="rounded border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void handleStartDraft()}
+              disabled={startLoading}
             >
-              Start Draft
+              {startLoading ? 'Starting…' : 'Start Draft'}
             </button>
             <button
               type="button"
@@ -340,8 +364,8 @@ export default function DraftSetupShell({
               {backLoading ? 'Going back…' : 'Back to Settings'}
             </button>
           </div>
-          {backError && (
-            <p className="mt-2 text-sm text-red-700 dark:text-red-400">{backError}</p>
+          {(startError || backError) && (
+            <p className="mt-2 text-sm text-red-700 dark:text-red-400">{startError || backError}</p>
           )}
         </div>
 
