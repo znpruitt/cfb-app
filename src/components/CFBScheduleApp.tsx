@@ -82,6 +82,7 @@ import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
+import type { LeagueStatus } from '../lib/league';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -94,6 +95,7 @@ type CFBScheduleAppProps = {
   leagueSlug?: string;
   leagueDisplayName?: string;
   leagueYear?: number;
+  leagueStatus?: LeagueStatus;
   isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
@@ -209,6 +211,7 @@ export default function CFBScheduleApp({
   leagueSlug,
   leagueDisplayName,
   leagueYear,
+  leagueStatus,
   isAdmin = false,
   initialGames = [],
   initialIssues = [],
@@ -1157,7 +1160,11 @@ export default function CFBScheduleApp({
                   : 'League')}
             </h1>
             <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
-              {leagueYear ?? selectedSeason} season
+              {leagueStatus?.state === 'offseason'
+                ? 'Offseason'
+                : leagueStatus?.state === 'preseason'
+                  ? `${leagueStatus.year} Pre-Season`
+                  : `${leagueYear ?? selectedSeason} Season`}
             </p>
           </div>
           {/* Gear icon + back-to-league — right of name on mobile, far right on desktop */}
@@ -1202,62 +1209,84 @@ export default function CFBScheduleApp({
         </div>
       </header>
 
-      {/* Draft banner — contextual, non-admin league surface only */}
-      {!isAdminSurface && leagueSlug && draftPhase &&
-        draftPhase !== 'complete' && draftPhase !== 'setup' ? (() => {
-        const isScheduled = draftPhase === 'settings' || draftPhase === 'preview';
-        const isLiveOrPaused = draftPhase === 'live' || draftPhase === 'paused';
-        // Only show scheduled banner if scheduledAt exists
-        if (isScheduled && !draftScheduledAt) return null;
-        const formattedDate = draftScheduledAt
-          ? new Date(draftScheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-          : null;
-        return (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2.5 text-sm dark:border-blue-800/40 dark:bg-blue-950/20">
-            <span className="font-medium text-blue-900 dark:text-blue-100">
-              {isScheduled && formattedDate && (
-                <>Draft Day · {formattedDate}</>
-              )}
-              {draftPhase === 'live' && (
-                <>Draft is live{draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}</>
-              )}
-              {draftPhase === 'paused' && (
-                <>Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}</>
-              )}
-            </span>
-            <Link
-              href={`/league/${leagueSlug}/draft/board`}
-              className="rounded border border-blue-300 bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 transition hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/50 dark:text-blue-100 dark:hover:bg-blue-900"
-            >
-              {isLiveOrPaused ? 'Watch' : 'View Draft'} →
-            </Link>
-          </div>
-        );
-      })() : null}
+      {/* State-driven league banner — one banner at a time, directly below header */}
+      {!isAdminSurface && leagueSlug && (() => {
+        const bannerYear = leagueYear ?? selectedSeason;
 
-      {/* Draft complete banner — show until Week 1 starts */}
-      {!isAdminSurface && leagueSlug && draftPhase === 'complete' && (() => {
-        // Derive Week 1 start date from schedule data
-        const week1Dates = games
-          .filter((g) => g.week === 1 && g.date)
-          .map((g) => new Date(g.date!).getTime());
-        const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
-        // Hide banner once Week 1 has started
-        if (week1Start !== null && Date.now() >= week1Start) return null;
-        const draftYear = leagueYear ?? selectedSeason;
-        return (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50/60 px-4 py-2.5 text-sm dark:border-green-800/40 dark:bg-green-950/20">
-            <span className="font-medium text-green-900 dark:text-green-100">
-              {draftYear} Draft complete — view results
-            </span>
-            <Link
-              href={`/league/${leagueSlug}/draft/summary`}
-              className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
-            >
-              Draft Summary →
-            </Link>
-          </div>
-        );
+        // Offseason banner
+        if (leagueStatus?.state === 'offseason') {
+          const now = new Date();
+          const marchFirst = new Date(now.getFullYear(), 2, 1); // month is 0-indexed
+          const message = now < marchFirst
+            ? `${bannerYear} Season complete — see you next year`
+            : `${bannerYear + 1} Season coming soon`;
+          return (
+            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-800/40">
+              <span className="font-medium text-gray-600 dark:text-zinc-300">{message}</span>
+            </div>
+          );
+        }
+
+        // Preseason / draft banners
+        if (leagueStatus?.state === 'preseason' || draftPhase) {
+          // Draft in progress — live or paused
+          if (draftPhase === 'live' || draftPhase === 'paused') {
+            return (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2.5 text-sm dark:border-blue-800/40 dark:bg-blue-950/20">
+                <span className="font-medium text-blue-900 dark:text-blue-100">
+                  {draftPhase === 'live'
+                    ? <>Draft is live{draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}</>
+                    : <>Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}</>}
+                </span>
+                <Link
+                  href={`/league/${leagueSlug}/draft/board`}
+                  className="rounded border border-blue-300 bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 transition hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/50 dark:text-blue-100 dark:hover:bg-blue-900"
+                >
+                  Join Draft Board →
+                </Link>
+              </div>
+            );
+          }
+
+          // Draft complete — show until Week 1 starts
+          if (draftPhase === 'complete') {
+            const week1Dates = games
+              .filter((g) => g.week === 1 && g.date)
+              .map((g) => new Date(g.date!).getTime());
+            const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
+            if (week1Start !== null && Date.now() >= week1Start) return null;
+            return (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50/60 px-4 py-2.5 text-sm dark:border-green-800/40 dark:bg-green-950/20">
+                <span className="font-medium text-green-900 dark:text-green-100">
+                  {bannerYear} Draft complete — view results
+                </span>
+                <Link
+                  href={`/league/${leagueSlug}/draft/summary`}
+                  className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
+                >
+                  Draft Summary →
+                </Link>
+              </div>
+            );
+          }
+
+          // Draft scheduled or not yet started (setup, settings, preview, or null)
+          if (leagueStatus?.state === 'preseason') {
+            const formattedDate = draftScheduledAt
+              ? new Date(draftScheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+              : null;
+            return (
+              <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2.5 text-sm dark:border-blue-800/40 dark:bg-blue-950/20">
+                <span className="font-medium text-blue-900 dark:text-blue-100">
+                  {bannerYear} Draft scheduled{formattedDate ? ` · ${formattedDate}` : ' · Date TBD'}
+                </span>
+              </div>
+            );
+          }
+        }
+
+        // Season state — no banner
+        return null;
       })()}
 
       {hasFatalLeagueBootstrapFailure ? (
