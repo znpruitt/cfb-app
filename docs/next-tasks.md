@@ -152,6 +152,10 @@ Season transition architecture shipped. Branch `claude/audit-season-transition-p
 
 See `docs/roadmap.md` for full Phase 8 scope.
 
+### Preseason Insights Panel (planned)
+
+Replace the empty insights area during preseason with data-driven content that upgrades automatically as data becomes available. Three tiers: Tier 1 (history + draft — always available), Tier 2 (AP poll — August), Tier 3 (schedule — cron-driven). See `docs/roadmap.md` for full scope definition.
+
 ## Out of scope for this queue
 
 - New matching systems or changes to schedule-first identity rules.
