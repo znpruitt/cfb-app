@@ -6,7 +6,7 @@ export type ScheduleProbeState = {
   year: number;
   /** ISO timestamp when base schedule was first cached for this year */
   baseCachedAt: string | null;
-  /** ISO timestamp of the earliest Week 1 game */
+  /** ISO timestamp of the earliest game across all weeks */
   firstGameDate: string | null;
 };
 
@@ -25,16 +25,18 @@ export async function saveScheduleProbeState(
 
 /**
  * Derive the first game date from cached schedule items.
- * Returns an ISO string or null if no Week 1 games have dates.
+ * Checks ALL weeks (including Week 0) — not just Week 1 — so early-season
+ * games are never excluded from the transition trigger.
+ * Returns an ISO string or null if no games have dates.
  */
 export function deriveFirstGameDate(
   items: Array<{ week: number; startDate: string | null }>
 ): string | null {
-  const week1Dates = items
-    .filter((item) => item.week === 1 && item.startDate)
+  const dates = items
+    .filter((item) => item.startDate)
     .map((item) => new Date(item.startDate!).getTime())
     .filter((t) => Number.isFinite(t));
 
-  if (week1Dates.length === 0) return null;
-  return new Date(Math.min(...week1Dates)).toISOString();
+  if (dates.length === 0) return null;
+  return new Date(Math.min(...dates)).toISOString();
 }

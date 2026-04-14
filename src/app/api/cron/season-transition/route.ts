@@ -25,13 +25,17 @@ const RETRY_POLICY = {
   retryOnHttpStatuses: [408, 429, 500, 502, 503, 504],
 } as const;
 
-type CronResult = {
-  targetYear: number | null;
+type YearResult = {
+  year: number;
   probed: boolean;
   cached: boolean;
   transitioned: boolean;
   leagues: string[];
   firstGameDate: string | null;
+};
+
+type CronResult = {
+  years: YearResult[];
   error?: string;
 };
 
@@ -51,22 +55,15 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         ? 'CRON_SECRET is not configured on the server — set it in Vercel environment variables'
         : 'unauthorized: Bearer token did not match CRON_SECRET';
     return NextResponse.json(
-      { targetYear: null, probed: false, cached: false, transitioned: false, leagues: [], firstGameDate: null, error },
+      { years: [], error },
       { status: 401 }
     );
   }
 
-  const result: CronResult = {
-    targetYear: null,
-    probed: false,
-    cached: false,
-    transitioned: false,
-    leagues: [],
-    firstGameDate: null,
-  };
+  const result: CronResult = { years: [] };
 
   try {
-    // A. Find target year from preseason leagues
+    // A. Find preseason leagues and group by year
     const leagues = await getLeagues();
     const preseasonLeagues = leagues.filter(
       (l) => l.status?.state === 'preseason'
@@ -75,71 +72,91 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       return NextResponse.json(result);
     }
 
-    const targetYear = preseasonLeagues[0].status!.state === 'preseason'
-      ? (preseasonLeagues[0].status as { state: 'preseason'; year: number }).year
-      : preseasonLeagues[0].year;
-    result.targetYear = targetYear;
+    // Group leagues by their preseason year so each year is probed/transitioned independently
+    const byYear = new Map<number, typeof preseasonLeagues>();
+    for (const league of preseasonLeagues) {
+      const year = (league.status as { state: 'preseason'; year: number }).year;
+      const group = byYear.get(year) ?? [];
+      group.push(league);
+      byYear.set(year, group);
+    }
 
-    // B. Schedule probe logic
-    let probeState = await getScheduleProbeState(targetYear);
     const now = new Date();
     const nowMs = now.getTime();
 
-    const shouldFetch = !probeState?.baseCachedAt || (
-      probeState.firstGameDate &&
-      nowMs >= new Date(probeState.firstGameDate).getTime() - 7 * 24 * 60 * 60 * 1000
-    );
+    // B. Process each year group independently
+    for (const [targetYear, yearLeagues] of byYear) {
+      const yearResult: YearResult = {
+        year: targetYear,
+        probed: false,
+        cached: false,
+        transitioned: false,
+        leagues: [],
+        firstGameDate: null,
+      };
 
-    if (shouldFetch) {
-      result.probed = true;
+      // Schedule probe logic
+      let probeState = await getScheduleProbeState(targetYear);
 
-      // Fetch schedule from CFBD for both regular and postseason
-      const items = await fetchCfbdSchedule(targetYear);
+      // Fetch when:
+      // 1. No cached data yet (baseCachedAt is null/missing), OR
+      // 2. firstGameDate is still unknown (need to keep probing until CFBD publishes dates), OR
+      // 3. Within 7 days of first game (refresh for latest schedule updates)
+      const shouldFetch =
+        !probeState?.baseCachedAt ||
+        !probeState.firstGameDate ||
+        nowMs >= new Date(probeState.firstGameDate).getTime() - 7 * 24 * 60 * 60 * 1000;
 
-      if (items.length > 0) {
-        // Cache via appStateStore under the same key the schedule route uses
-        const cacheKey = `${targetYear}-all-all`;
-        const cacheEntry: CacheEntry = {
-          at: nowMs,
-          items,
-          partialFailure: false,
-          failedSeasonTypes: [],
-        };
-        await setAppState('schedule', cacheKey, cacheEntry);
-        result.cached = true;
+      if (shouldFetch) {
+        yearResult.probed = true;
 
-        // Derive first game date
-        const firstGameDate = deriveFirstGameDate(items);
+        // Fetch schedule from CFBD for both regular and postseason
+        const items = await fetchCfbdSchedule(targetYear);
 
-        // Save probe state
-        const newProbeState: ScheduleProbeState = {
-          year: targetYear,
-          baseCachedAt: probeState?.baseCachedAt ?? now.toISOString(),
-          firstGameDate,
-        };
-        await saveScheduleProbeState(newProbeState);
-        probeState = newProbeState;
-      }
-    }
+        if (items.length > 0) {
+          // Cache via appStateStore under the same key the schedule route uses
+          const cacheKey = `${targetYear}-all-all`;
+          const cacheEntry: CacheEntry = {
+            at: nowMs,
+            items,
+            partialFailure: false,
+            failedSeasonTypes: [],
+          };
+          await setAppState('schedule', cacheKey, cacheEntry);
+          yearResult.cached = true;
 
-    result.firstGameDate = probeState?.firstGameDate ?? null;
+          // Derive first game date
+          const firstGameDate = deriveFirstGameDate(items);
 
-    // C. Season transition check
-    if (probeState?.firstGameDate) {
-      const firstGameMs = new Date(probeState.firstGameDate).getTime();
-      const oneDayBeforeMs = firstGameMs - 24 * 60 * 60 * 1000;
-
-      if (nowMs >= oneDayBeforeMs) {
-        for (const league of preseasonLeagues) {
-          const year = league.status?.state === 'preseason'
-            ? (league.status as { state: 'preseason'; year: number }).year
-            : league.year;
-          await updateLeagueStatus(league.slug, { state: 'season', year });
-          await updateLeague(league.slug, { year });
-          result.leagues.push(league.slug);
+          // Save probe state
+          const newProbeState: ScheduleProbeState = {
+            year: targetYear,
+            baseCachedAt: probeState?.baseCachedAt ?? now.toISOString(),
+            firstGameDate,
+          };
+          await saveScheduleProbeState(newProbeState);
+          probeState = newProbeState;
         }
-        result.transitioned = result.leagues.length > 0;
       }
+
+      yearResult.firstGameDate = probeState?.firstGameDate ?? null;
+
+      // Season transition check — only for THIS year's leagues
+      if (probeState?.firstGameDate) {
+        const firstGameMs = new Date(probeState.firstGameDate).getTime();
+        const oneDayBeforeMs = firstGameMs - 24 * 60 * 60 * 1000;
+
+        if (nowMs >= oneDayBeforeMs) {
+          for (const league of yearLeagues) {
+            await updateLeagueStatus(league.slug, { state: 'season', year: targetYear });
+            await updateLeague(league.slug, { year: targetYear });
+            yearResult.leagues.push(league.slug);
+          }
+          yearResult.transitioned = yearResult.leagues.length > 0;
+        }
+      }
+
+      result.years.push(yearResult);
     }
   } catch (err) {
     result.error = err instanceof Error ? err.message : 'unknown error';
