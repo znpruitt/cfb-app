@@ -21,7 +21,7 @@
 - **Phase 5 (draft/owner assignment tool):** ✅ Complete. All subphases (P5A–P5D) shipped. PR #214 open. See `docs/completed-work.md`.
 - **Phase 6 (admin cleanup and auth):** ✅ Complete. All subphases P6A–P6E shipped. See `docs/completed-work.md`.
 - **Phase 7 (product design audit):** Active. Subphases 7A–7F complete. See `docs/completed-work.md`.
-- **Active execution focus: Phase 7G — Matchups page review.**
+- **Active execution focus: Dry run preparation and app naming.**
 
 ## Hosted deployment runbook
 
@@ -124,14 +124,16 @@ Owner confirmation page, preseason-owners store, draft auto-populate, lifecycle 
 
 See `docs/completed-work.md` for full record.
 
-### P7B-7 — Draft Flow Polish (active)
+### P7B-7 — Draft Flow Polish ✅ Complete
 
-- Setup step 1 (League Roster) removed — opens directly on Draft Settings, owners auto-populated from preseason-owners
-- Drag-and-drop + direct number entry for manual draft order reordering
-- Auto-pause between rounds with commissioner-controlled "Start Round X" button
-- Context-aware live draft banner on league overview (scheduled date, live round, paused state)
-- Available Teams card background changed to neutral (no dark blue)
-- Draft board visual hierarchy: section dividers, distinct Available Teams panel surface, recessive empty-cell placeholders, anchored section labels
+Carousel redesign (5-card landscape strip, crossfade, round boundary sidebars, mobile 3-card), page layout (1400px centered, responsive padding), timer/round fixes (timerExpiryBehavior, round-boundary pick-through, round-count hard-cap), draft summary page (public, conference column, display name resolution), complete banners on all surfaces. PRs #262–#266. See `docs/completed-work.md`.
+
+## Next priorities
+
+1. **Dry run with league organizer colleague** — End-to-end walkthrough of draft setup → live draft → summary → season start
+2. **App naming decision** — Finalize product name for deployment
+3. **Test League reset for next dry run** — Clear test data, reset lifecycle state
+4. **Begin next campaign** — Priority TBD based on dry run feedback (likely Draft Difficulty Settings or Back Button Audit)
 
 ## Upcoming phases
 
