@@ -13,12 +13,13 @@ type DraftHeaderAreaProps = {
   /** League lifecycle status for conditional commissioner prompts. */
   leagueStatus?: LeagueStatus;
   /**
-   * Client-local timestamp (Date.now()) recorded the instant the pick POST fires.
-   * When set, the timer displays an optimistic countdown from pickTimerSeconds
-   * without waiting for the server round-trip. Cleared when the server response
-   * arrives and timerExpiresAt becomes authoritative.
+   * Ref holding the client-local timestamp (Date.now()) recorded the instant the
+   * pick POST fires. The timer effect reads .current each tick to show an optimistic
+   * countdown without waiting for the server round-trip. Set to null when the server
+   * response arrives and timerExpiresAt becomes authoritative.
+   * Passed as a ref so mutations don't cause unnecessary re-renders or effect restarts.
    */
-  localTimerStart?: number | null;
+  localTimerStartRef?: React.MutableRefObject<number | null>;
   onPause?: () => void;
   onResume?: () => void;
   onUndo?: () => void;
@@ -46,7 +47,7 @@ export default function DraftHeaderArea({
   isAdmin,
   slug,
   leagueStatus,
-  localTimerStart,
+  localTimerStartRef,
   onPause,
   onResume,
   onUndo,
@@ -66,36 +67,38 @@ export default function DraftHeaderArea({
 
   useEffect(() => {
     const timerDurationMs = (pickTimerSeconds ?? 60) * 1000;
-
-    // Local optimistic countdown: starts immediately on pick click, before the
-    // server round-trip completes. Takes priority over server state.
-    if (localTimerStart != null && pickTimerSeconds) {
-      function tick() {
-        const elapsed = Date.now() - localTimerStart!;
-        const remaining = Math.max(0, Math.min(timerDurationMs - elapsed, timerDurationMs));
-        setSecondsLeft(Math.min(pickTimerSeconds!, Math.ceil(remaining / 1000)));
-      }
-      tick();
-      const id = setInterval(tick, 500);
-      return () => clearInterval(id);
-    }
-
-    // Server-authoritative countdown: used once the server response arrives
-    // and localTimerStart is cleared.
-    if (draft.timerState !== 'running' || !draft.timerExpiresAt) {
-      setSecondsLeft(null);
-      return;
-    }
     const maxSecs = pickTimerSeconds ?? 60;
+
+    // Single interval — each tick checks localTimerStartRef.current first (optimistic
+    // local countdown), then falls back to the server-authoritative timerExpiresAt.
+    // The ref is read inside the tick so it always sees the latest value without
+    // needing to be in the dependency array (refs are stable and never restart effects).
     function tick() {
-      const rawRemaining = new Date(draft.timerExpiresAt!).getTime() - Date.now();
+      const localStart = localTimerStartRef?.current ?? null;
+
+      if (localStart != null && pickTimerSeconds) {
+        // Optimistic path: count down from pickTimerSeconds starting at pick click time
+        const elapsed = Date.now() - localStart;
+        const remaining = Math.max(0, timerDurationMs - elapsed);
+        setSecondsLeft(Math.min(pickTimerSeconds, Math.ceil(remaining / 1000)));
+        return;
+      }
+
+      // Server-authoritative path
+      if (draft.timerState !== 'running' || !draft.timerExpiresAt) {
+        setSecondsLeft(null);
+        return;
+      }
+      const rawRemaining = new Date(draft.timerExpiresAt).getTime() - Date.now();
       const remaining = Math.max(0, rawRemaining);
       setSecondsLeft(Math.min(maxSecs, Math.ceil(remaining / 1000)));
     }
+
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [localTimerStart, draft.timerState, draft.timerExpiresAt, pickTimerSeconds]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.timerState, draft.timerExpiresAt, pickTimerSeconds]);
 
   // --- Crossfade slot tracking (useRef to avoid re-render timing issues) ---
   const activeSlotRef = useRef<'a' | 'b'>('a');
@@ -169,7 +172,7 @@ export default function DraftHeaderArea({
   const overallPickNumber = idx + 1;
 
   // Paused states — local countdown override: treat as running during optimistic window
-  const isLocalCountdown = localTimerStart != null && !!pickTimerSeconds;
+  const isLocalCountdown = (localTimerStartRef?.current ?? null) != null && !!pickTimerSeconds;
   const isPaused = !isLocalCountdown && (draft.phase === 'paused' || (draft.phase === 'live' && draft.timerState === 'paused'));
   const isExpired = !isLocalCountdown && draft.timerState === 'expired';
   const isRoundPause = !isLocalCountdown && draft.phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && draft.timerState !== 'expired';

@@ -39,8 +39,9 @@ export default function DraftBoardClient({
 
   // Local timer start: set to Date.now() right before the pick POST fires so
   // DraftHeaderArea can begin counting down immediately without waiting for the
-  // server round-trip. Cleared when the server response arrives.
-  const [localTimerStart, setLocalTimerStart] = useState<number | null>(null);
+  // server round-trip. Cleared when the server response arrives. Stored as a
+  // ref so mutations don't trigger re-renders and won't restart the timer effect.
+  const localTimerStartRef = useRef<number | null>(null);
 
   // Redirect non-admins to the spectator view.
   // If no sessionStorage token, wait for Clerk to finish loading before deciding.
@@ -182,10 +183,10 @@ export default function DraftBoardClient({
         }
       }
 
-      // Start local countdown immediately — DraftHeaderArea will show the timer
-      // from this moment, eliminating the server round-trip gap.
+      // Start local countdown immediately — DraftHeaderArea reads this ref each
+      // interval tick to show the timer without waiting for the server round-trip.
       if (draft.settings.pickTimerSeconds) {
-        setLocalTimerStart(Date.now());
+        localTimerStartRef.current = Date.now();
       }
 
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/pick`, {
@@ -195,16 +196,15 @@ export default function DraftBoardClient({
       });
       const data = (await res.json()) as { draft?: DraftState; error?: string };
       if (!res.ok || !data.draft) {
-        setLocalTimerStart(null);
+        localTimerStartRef.current = null;
         setPickError(data.error ?? `Pick failed (${res.status})`);
         return;
       }
       // Server response arrived — hand off to server-authoritative timerExpiresAt.
-      // Both state updates are batched into a single React re-render.
-      setLocalTimerStart(null);
+      localTimerStartRef.current = null;
       setDraft(data.draft);
     } catch (err) {
-      setLocalTimerStart(null);
+      localTimerStartRef.current = null;
       setPickError((err as Error).message);
     } finally {
       setPickLoading(false);
@@ -302,7 +302,7 @@ export default function DraftBoardClient({
           isAdmin={isAdmin}
           slug={slug}
           leagueStatus={leagueStatus}
-          localTimerStart={localTimerStart}
+          localTimerStartRef={localTimerStartRef}
           onPause={handlePause}
           onResume={handleResume}
           onUndo={handleUndo}
