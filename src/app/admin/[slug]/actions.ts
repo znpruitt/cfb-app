@@ -93,12 +93,12 @@ export async function confirmPreseasonOwners(
   redirect(`/admin/${slug}/preseason`);
 }
 
-/** Transition a league from preseason to season and redirect to the league hub. */
-export async function goLive(slug: string, year: number): Promise<void> {
+/** Mark preseason setup as complete. Season transition happens automatically via cron. */
+export async function completeSetup(slug: string, year: number): Promise<void> {
   const league = await getLeague(slug);
   if (!league) throw new Error('League not found');
   if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
-  await updateLeagueStatus(slug, { state: 'season', year });
+  await updateLeagueStatus(slug, { state: 'preseason', year, setupComplete: true });
   await updateLeague(slug, { year });
   redirect(`/admin/${slug}`);
 }

@@ -1,7 +1,7 @@
 export type LeagueStatus =
   | { state: 'season'; year: number }
   | { state: 'offseason' }
-  | { state: 'preseason'; year: number };
+  | { state: 'preseason'; year: number; setupComplete?: boolean };
 
 export type League = {
   slug: string; // URL identifier — permanent, lowercase alphanumeric with hyphens
