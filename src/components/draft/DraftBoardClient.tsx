@@ -167,7 +167,17 @@ export default function DraftBoardClient({
     teamInsights.map((t) => [t.teamId.toLowerCase(), t.shortName])
   );
 
-  const canPick = isAdmin && draft.phase === 'live';
+  // Detect round-boundary pause: paused, at a round boundary, timer not expired
+  const n = draft.owners.length;
+  const totalPicks = draft.settings.totalRounds * n;
+  const isRoundBoundaryPause =
+    draft.phase === 'paused' &&
+    draft.currentPickIndex > 0 &&
+    draft.currentPickIndex % n === 0 &&
+    draft.currentPickIndex < totalPicks &&
+    draft.timerState !== 'expired';
+
+  const canPick = isAdmin && (draft.phase === 'live' || isRoundBoundaryPause);
 
   async function handlePick(teamId: string) {
     if (!canPick) return;
@@ -175,6 +185,23 @@ export default function DraftBoardClient({
     setPickLoading(true);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+
+      // If paused at a round boundary, resume to live first (API requires phase === 'live')
+      if (isRoundBoundaryPause) {
+        const body: Record<string, unknown> = { phase: 'live' };
+        if (draft.settings.pickTimerSeconds) body.timerAction = 'start';
+        const resumeRes = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', ...authHeaders },
+          body: JSON.stringify(body),
+        });
+        if (!resumeRes.ok) {
+          const data = (await resumeRes.json()) as { error?: string };
+          setPickError(data.error ?? `Failed to start round (${resumeRes.status})`);
+          return;
+        }
+      }
+
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/pick`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
