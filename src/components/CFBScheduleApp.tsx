@@ -104,6 +104,18 @@ type CFBScheduleAppProps = {
   initialStandingsSubview?: StandingsSubview;
 };
 
+/** Returns a human-readable countdown string for the draft date, or null if past. */
+function getDraftCountdown(scheduledAt: string): string | null {
+  const diff = new Date(scheduledAt).getTime() - Date.now();
+  if (diff <= 0) return null;
+  const hours = diff / (1000 * 60 * 60);
+  if (hours < 1) return 'Starting soon';
+  if (hours < 24) return 'Today';
+  const days = Math.floor(hours / 24);
+  if (days <= 1) return 'Tomorrow';
+  return `${days} days away`;
+}
+
 export function deriveWeeklyMatchupsDrilldownState(params: {
   selectedTab: number | 'postseason' | null;
   selectedWeek: number | null;
@@ -1322,10 +1334,17 @@ export default function CFBScheduleApp({
             const formattedDate = draftScheduledAt
               ? new Date(draftScheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
               : null;
+            const countdown = draftScheduledAt ? getDraftCountdown(draftScheduledAt) : null;
+            let suffix = '';
+            if (formattedDate) {
+              suffix = countdown ? ` · ${formattedDate} · ${countdown}` : ` · ${formattedDate}`;
+            } else {
+              suffix = ' · Date TBD';
+            }
             return (
               <div style={{ ...bannerBase, borderLeftColor: '#1e3a5f', background: '#111827' }}>
                 <span style={{ fontWeight: 500, color: '#bfdbfe' }}>
-                  {bannerYear} Draft scheduled{formattedDate ? ` · ${formattedDate}` : ' · Date TBD'}
+                  {bannerYear} Draft scheduled{suffix}
                 </span>
               </div>
             );
