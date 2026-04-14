@@ -35,18 +35,23 @@ type CronResult = {
   error?: string;
 };
 
-function verifyCronSecret(req: Request): boolean {
+function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
   const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return false;
+  if (!cronSecret) return 'not-configured';
   const authHeader = req.headers.get('authorization') ?? '';
-  return authHeader === `Bearer ${cronSecret}`;
+  return authHeader === `Bearer ${cronSecret}` ? 'ok' : 'invalid';
 }
 
 export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   // Secure: require CRON_SECRET
-  if (!verifyCronSecret(req)) {
+  const authResult = verifyCronSecret(req);
+  if (authResult !== 'ok') {
+    const error =
+      authResult === 'not-configured'
+        ? 'CRON_SECRET is not configured on the server — set it in Vercel environment variables'
+        : 'unauthorized: Bearer token did not match CRON_SECRET';
     return NextResponse.json(
-      { targetYear: null, probed: false, cached: false, transitioned: false, leagues: [], firstGameDate: null, error: 'unauthorized' },
+      { targetYear: null, probed: false, cached: false, transitioned: false, leagues: [], firstGameDate: null, error },
       { status: 401 }
     );
   }
