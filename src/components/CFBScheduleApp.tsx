@@ -233,7 +233,9 @@ export default function CFBScheduleApp({
 }: CFBScheduleAppProps = {}): React.ReactElement {
   const hasBootstrappedRef = useRef<boolean>(false);
 
-  const [selectedSeason] = useState<number>(DEFAULT_SEASON);
+  const [selectedSeason] = useState<number>(
+    leagueStatus?.state === 'preseason' ? leagueStatus.year : DEFAULT_SEASON
+  );
   const storageKeys = useMemo(() => seasonStorageKeys(selectedSeason, leagueSlug), [selectedSeason, leagueSlug]);
 
   const [games, setGames] = useState<AppGame[]>(initialGames);

@@ -75,7 +75,7 @@ function parseBooleanQueryParam(raw: string | null): boolean {
 function seasonYearForToday(now = new Date()): number {
   const month = now.getUTCMonth();
   const year = now.getUTCFullYear();
-  return month >= 7 ? year : year - 1;
+  return month >= 6 ? year : year - 1;
 }
 
 function pruneCache(cache: typeof SCHEDULE_ROUTE_CACHE, label: string) {

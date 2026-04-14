@@ -3,7 +3,7 @@ import type { CfbdGameLoose, EspnEvent, ScorePack, SeasonType } from './types.ts
 export function seasonYearForToday(now = new Date()): number {
   const month = now.getUTCMonth();
   const year = now.getUTCFullYear();
-  return month >= 7 ? year : year - 1;
+  return month >= 6 ? year : year - 1;
 }
 
 function firstStr(fields: Array<string | undefined | null>): string | undefined {
