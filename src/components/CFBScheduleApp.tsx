@@ -967,10 +967,14 @@ export default function CFBScheduleApp({
   }, []);
 
   // Load draft phase for contextual banner (non-blocking, best-effort).
+  // Use leagueStatus.year when available (preseason/season) so the fetch
+  // targets the correct draft year, not the lagging league.year value.
+  const draftLookupYear = (leagueStatus?.state === 'preseason' || leagueStatus?.state === 'season')
+    ? leagueStatus.year
+    : (leagueYear ?? selectedSeason);
   useEffect(() => {
     if (!leagueSlug) return;
-    const draftYear = leagueYear ?? selectedSeason;
-    fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftYear}`)
+    fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftLookupYear}`)
       .then((res) => (res.ok ? (res.json() as Promise<{ draft?: { phase?: string; settings?: { scheduledAt?: string | null; totalRounds?: number }; currentPickIndex?: number; owners?: string[] } }>) : null))
       .then((data) => {
         const d = data?.draft;
@@ -982,7 +986,7 @@ export default function CFBScheduleApp({
         }
       })
       .catch(() => {}); // non-fatal
-  }, [leagueSlug, leagueYear, selectedSeason]);
+  }, [leagueSlug, draftLookupYear]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
@@ -1211,7 +1215,9 @@ export default function CFBScheduleApp({
 
       {/* State-driven league banner — one banner at a time, directly below header */}
       {!isAdminSurface && leagueSlug && (() => {
-        const bannerYear = leagueYear ?? selectedSeason;
+        const bannerYear = (leagueStatus?.state === 'preseason' || leagueStatus?.state === 'season')
+          ? leagueStatus.year
+          : (leagueYear ?? selectedSeason);
 
         // Shared banner wrapper: left-border accent, dark bg, right-side radius only
         const bannerBase: React.CSSProperties = {
