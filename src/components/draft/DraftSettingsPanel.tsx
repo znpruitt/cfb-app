@@ -33,9 +33,9 @@ function shuffleArray<T>(arr: T[]): T[] {
   return result;
 }
 
-function suggestRounds(fbsTeamCount: number, ownerCount: number): number {
+function maxRounds(fbsTeamCount: number, ownerCount: number): number {
   if (ownerCount === 0) return 1;
-  return Math.ceil(fbsTeamCount / ownerCount);
+  return Math.floor(fbsTeamCount / ownerCount);
 }
 
 export default function DraftSettingsPanel({
@@ -79,9 +79,11 @@ export default function DraftSettingsPanel({
   const [autoPickMetric, setAutoPickMetric] = useState<DraftSettings['autoPickMetric']>(
     existing.autoPickMetric
   );
-  const [totalRounds, setTotalRounds] = useState<number>(
-    existing.totalRounds > 1 ? existing.totalRounds : suggestRounds(fbsTeamCount, owners.length)
-  );
+  const maxRoundsValue = maxRounds(fbsTeamCount, owners.length);
+  const [totalRounds, setTotalRounds] = useState<number>(() => {
+    const initial = existing.totalRounds > 1 ? existing.totalRounds : maxRoundsValue;
+    return Math.min(initial, maxRoundsValue);
+  });
   const [scheduledAt, setScheduledAt] = useState<string>(existing.scheduledAt ?? '');
 
   const [loading, setLoading] = useState(false);
@@ -232,7 +234,7 @@ export default function DraftSettingsPanel({
         pickTimerSeconds: timerSeconds,
         timerExpiryBehavior: expiryBehavior,
         autoPickMetric: expiryBehavior === 'auto-pick' ? autoPickMetric : null,
-        totalRounds: Math.max(1, totalRounds),
+        totalRounds: Math.max(1, Math.min(totalRounds, suggestedRounds)),
         scheduledAt: scheduledAt.trim() ? new Date(scheduledAt).toISOString() : null,
       };
 
@@ -271,7 +273,7 @@ export default function DraftSettingsPanel({
     }
   }
 
-  const suggestedRounds = suggestRounds(fbsTeamCount, owners.length);
+  const suggestedRounds = maxRounds(fbsTeamCount, owners.length);
   const trimmedOwners = owners.map((o) => o.trim()).filter(Boolean);
   const canSave = trimmedOwners.length >= 2 && !loading;
 
@@ -565,13 +567,13 @@ export default function DraftSettingsPanel({
               type="number"
               value={totalRounds}
               min={1}
-              max={50}
-              onChange={(e) => setTotalRounds(Math.max(1, Number(e.target.value)))}
+              max={suggestedRounds}
+              onChange={(e) => setTotalRounds(Math.max(1, Math.min(suggestedRounds, Number(e.target.value))))}
               className="w-20 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             />
             {owners.length > 0 && (
               <span className="text-xs text-gray-500 dark:text-zinc-400">
-                Suggested: {suggestedRounds} ({fbsTeamCount} FBS teams ÷ {owners.length} owners)
+                Max: {suggestedRounds} ({fbsTeamCount} FBS teams ÷ {owners.length} owners)
               </span>
             )}
           </div>

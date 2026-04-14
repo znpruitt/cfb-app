@@ -163,6 +163,17 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (s.totalRounds !== undefined && s.totalRounds >= 1) {
+      const { items } = teamsData as TeamsJson;
+      const fbsCount = items.filter((t) => t.school !== 'NoClaim').length;
+      const maxRounds = Math.floor(fbsCount / ownerNames.length);
+      if (s.totalRounds > maxRounds) {
+        return NextResponse.json(
+          { error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerNames.length} owners)`, field: 'settings.totalRounds' },
+          { status: 400 }
+        );
+      }
+    }
     // Validate draftOrder matches owners exactly when provided
     if (s.draftOrder !== undefined) {
       if (!Array.isArray(s.draftOrder)) {
@@ -289,6 +300,22 @@ export async function PUT(
         style: 'snake',
       },
     };
+
+    // Validate totalRounds does not exceed max full rounds
+    if (incoming.totalRounds !== undefined) {
+      const { items } = teamsData as TeamsJson;
+      const fbsCount = items.filter((t) => t.school !== 'NoClaim').length;
+      const ownerCount = draft.owners.length;
+      if (ownerCount > 0) {
+        const maxRounds = Math.floor(fbsCount / ownerCount);
+        if (draft.settings.totalRounds > maxRounds) {
+          return NextResponse.json(
+            { error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerCount} owners)`, field: 'settings.totalRounds' },
+            { status: 400 }
+          );
+        }
+      }
+    }
   }
 
   // Phase transition
