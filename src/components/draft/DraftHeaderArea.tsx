@@ -73,7 +73,7 @@ export default function DraftHeaderArea({
       function tick() {
         const elapsed = Date.now() - localTimerStart!;
         const remaining = Math.max(0, Math.min(timerDurationMs - elapsed, timerDurationMs));
-        setSecondsLeft(Math.ceil(remaining / 1000));
+        setSecondsLeft(Math.min(pickTimerSeconds!, Math.ceil(remaining / 1000)));
       }
       tick();
       const id = setInterval(tick, 500);
@@ -86,11 +86,11 @@ export default function DraftHeaderArea({
       setSecondsLeft(null);
       return;
     }
-    const maxMs = timerDurationMs + 2000; // allow 2s clock-skew tolerance
+    const maxSecs = pickTimerSeconds ?? 60;
     function tick() {
       const rawRemaining = new Date(draft.timerExpiresAt!).getTime() - Date.now();
-      const remaining = Math.max(0, Math.min(rawRemaining, maxMs));
-      setSecondsLeft(Math.ceil(remaining / 1000));
+      const remaining = Math.max(0, rawRemaining);
+      setSecondsLeft(Math.min(maxSecs, Math.ceil(remaining / 1000)));
     }
     tick();
     const id = setInterval(tick, 500);
