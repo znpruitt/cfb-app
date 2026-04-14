@@ -82,6 +82,7 @@ import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
+import type { LeagueStatus } from '../lib/league';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -94,6 +95,7 @@ type CFBScheduleAppProps = {
   leagueSlug?: string;
   leagueDisplayName?: string;
   leagueYear?: number;
+  leagueStatus?: LeagueStatus;
   isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
@@ -101,6 +103,18 @@ type CFBScheduleAppProps = {
   initialWeekViewMode?: WeekViewMode;
   initialStandingsSubview?: StandingsSubview;
 };
+
+/** Returns a human-readable countdown string for the draft date, or null if past. */
+function getDraftCountdown(scheduledAt: string): string | null {
+  const diff = new Date(scheduledAt).getTime() - Date.now();
+  if (diff <= 0) return null;
+  const hours = diff / (1000 * 60 * 60);
+  if (hours < 1) return 'Starting soon';
+  if (hours < 24) return 'Today';
+  const days = Math.floor(hours / 24);
+  if (days <= 1) return 'Tomorrow';
+  return `${days} days away`;
+}
 
 export function deriveWeeklyMatchupsDrilldownState(params: {
   selectedTab: number | 'postseason' | null;
@@ -209,6 +223,7 @@ export default function CFBScheduleApp({
   leagueSlug,
   leagueDisplayName,
   leagueYear,
+  leagueStatus,
   isAdmin = false,
   initialGames = [],
   initialIssues = [],
@@ -964,10 +979,14 @@ export default function CFBScheduleApp({
   }, []);
 
   // Load draft phase for contextual banner (non-blocking, best-effort).
+  // Use leagueStatus.year when available (preseason/season) so the fetch
+  // targets the correct draft year, not the lagging league.year value.
+  const draftLookupYear = (leagueStatus?.state === 'preseason' || leagueStatus?.state === 'season')
+    ? leagueStatus.year
+    : (leagueYear ?? selectedSeason);
   useEffect(() => {
     if (!leagueSlug) return;
-    const draftYear = leagueYear ?? selectedSeason;
-    fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftYear}`)
+    fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftLookupYear}`)
       .then((res) => (res.ok ? (res.json() as Promise<{ draft?: { phase?: string; settings?: { scheduledAt?: string | null; totalRounds?: number }; currentPickIndex?: number; owners?: string[] } }>) : null))
       .then((data) => {
         const d = data?.draft;
@@ -979,7 +998,7 @@ export default function CFBScheduleApp({
         }
       })
       .catch(() => {}); // non-fatal
-  }, [leagueSlug, leagueYear, selectedSeason]);
+  }, [leagueSlug, draftLookupYear]);
 
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
@@ -1157,7 +1176,11 @@ export default function CFBScheduleApp({
                   : 'League')}
             </h1>
             <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
-              {leagueYear ?? selectedSeason} season
+              {leagueStatus?.state === 'offseason'
+                ? 'Offseason'
+                : leagueStatus?.state === 'preseason'
+                  ? `${leagueStatus.year} Pre-Season`
+                  : `${leagueYear ?? selectedSeason} Season`}
             </p>
           </div>
           {/* Gear icon + back-to-league — right of name on mobile, far right on desktop */}
@@ -1202,62 +1225,134 @@ export default function CFBScheduleApp({
         </div>
       </header>
 
-      {/* Draft banner — contextual, non-admin league surface only */}
-      {!isAdminSurface && leagueSlug && draftPhase &&
-        draftPhase !== 'complete' && draftPhase !== 'setup' ? (() => {
-        const isScheduled = draftPhase === 'settings' || draftPhase === 'preview';
-        const isLiveOrPaused = draftPhase === 'live' || draftPhase === 'paused';
-        // Only show scheduled banner if scheduledAt exists
-        if (isScheduled && !draftScheduledAt) return null;
-        const formattedDate = draftScheduledAt
-          ? new Date(draftScheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-          : null;
-        return (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2.5 text-sm dark:border-blue-800/40 dark:bg-blue-950/20">
-            <span className="font-medium text-blue-900 dark:text-blue-100">
-              {isScheduled && formattedDate && (
-                <>Draft Day · {formattedDate}</>
-              )}
-              {draftPhase === 'live' && (
-                <>Draft is live{draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}</>
-              )}
-              {draftPhase === 'paused' && (
-                <>Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}</>
-              )}
-            </span>
-            <Link
-              href={`/league/${leagueSlug}/draft/board`}
-              className="rounded border border-blue-300 bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 transition hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/50 dark:text-blue-100 dark:hover:bg-blue-900"
-            >
-              {isLiveOrPaused ? 'Watch' : 'View Draft'} →
-            </Link>
-          </div>
-        );
-      })() : null}
+      {/* State-driven league banner — one banner at a time, directly below header */}
+      {!isAdminSurface && leagueSlug && (() => {
+        const bannerYear = (leagueStatus?.state === 'preseason' || leagueStatus?.state === 'season')
+          ? leagueStatus.year
+          : (leagueYear ?? selectedSeason);
 
-      {/* Draft complete banner — show until Week 1 starts */}
-      {!isAdminSurface && leagueSlug && draftPhase === 'complete' && (() => {
-        // Derive Week 1 start date from schedule data
-        const week1Dates = games
-          .filter((g) => g.week === 1 && g.date)
-          .map((g) => new Date(g.date!).getTime());
-        const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
-        // Hide banner once Week 1 has started
-        if (week1Start !== null && Date.now() >= week1Start) return null;
-        const draftYear = leagueYear ?? selectedSeason;
-        return (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50/60 px-4 py-2.5 text-sm dark:border-green-800/40 dark:bg-green-950/20">
-            <span className="font-medium text-green-900 dark:text-green-100">
-              {draftYear} Draft complete — view results
-            </span>
-            <Link
-              href={`/league/${leagueSlug}/draft/summary`}
-              className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
-            >
-              Draft Summary →
-            </Link>
-          </div>
-        );
+        // Shared banner wrapper: left-border accent, dark bg, right-side radius only
+        const bannerBase: React.CSSProperties = {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          borderLeft: '3px solid',
+          borderRadius: '0 8px 8px 0',
+          padding: '10px 16px',
+          fontSize: '14px',
+        };
+
+        // Offseason banner
+        if (leagueStatus?.state === 'offseason') {
+          const now = new Date();
+          const marchFirst = new Date(now.getFullYear(), 2, 1); // month is 0-indexed
+          const message = now < marchFirst
+            ? `${bannerYear} Season complete — see you next year`
+            : `${bannerYear + 1} Season coming soon`;
+          return (
+            <div style={{ ...bannerBase, borderLeftColor: '#374151', background: '#111111' }}>
+              <span style={{ fontWeight: 500, color: '#9ca3af' }}>{message}</span>
+            </div>
+          );
+        }
+
+        // Preseason / draft banners
+        if (leagueStatus?.state === 'preseason' || draftPhase) {
+          // Draft in progress — live or paused
+          if (draftPhase === 'live' || draftPhase === 'paused') {
+            return (
+              <>
+                <style>{`
+                  @keyframes cfb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+                  @keyframes cfb-pulse-ring { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.2); opacity: 0; } }
+                `}</style>
+                <div style={{ ...bannerBase, borderLeftColor: '#1e3a5f', background: '#111827' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {/* Pulsing live indicator dot */}
+                    <div style={{ position: 'relative', width: '8px', height: '8px', flexShrink: 0 }}>
+                      <div style={{
+                        position: 'absolute', inset: 0, borderRadius: '50%',
+                        background: '#2563eb', opacity: 0.4,
+                        animation: 'cfb-pulse-ring 2s ease-out infinite',
+                      }} />
+                      <div style={{
+                        position: 'absolute', inset: 0, borderRadius: '50%',
+                        background: '#2563eb',
+                        animation: 'cfb-pulse 2s ease-in-out infinite',
+                      }} />
+                    </div>
+                    <span style={{ fontWeight: 500, color: '#bfdbfe' }}>
+                      {draftPhase === 'live'
+                        ? <>Draft is live{draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}</>
+                        : <>Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}</>}
+                    </span>
+                  </div>
+                  <Link
+                    href={`/league/${leagueSlug}/draft/board`}
+                    style={{
+                      borderRadius: '4px', border: '1px solid #1d4ed8', background: '#1e3a5f',
+                      padding: '4px 10px', fontSize: '12px', fontWeight: 500, color: '#bfdbfe',
+                      textDecoration: 'none', transition: 'background 0.15s',
+                    }}
+                  >
+                    Join Draft Board →
+                  </Link>
+                </div>
+              </>
+            );
+          }
+
+          // Draft complete — show until Week 1 starts
+          if (draftPhase === 'complete') {
+            const week1Dates = games
+              .filter((g) => g.week === 1 && g.date)
+              .map((g) => new Date(g.date!).getTime());
+            const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
+            if (week1Start !== null && Date.now() >= week1Start) return null;
+            return (
+              <div style={{ ...bannerBase, borderLeftColor: '#14532d', background: '#052e16' }}>
+                <span style={{ fontWeight: 500, color: '#86efac' }}>
+                  {bannerYear} Draft complete — view results
+                </span>
+                <Link
+                  href={`/league/${leagueSlug}/draft/summary`}
+                  style={{
+                    borderRadius: '4px', border: '1px solid #166534', background: '#14532d',
+                    padding: '4px 10px', fontSize: '12px', fontWeight: 500, color: '#86efac',
+                    textDecoration: 'none', transition: 'background 0.15s',
+                  }}
+                >
+                  Draft Summary →
+                </Link>
+              </div>
+            );
+          }
+
+          // Draft scheduled or not yet started (setup, settings, preview, or null)
+          if (leagueStatus?.state === 'preseason') {
+            const formattedDate = draftScheduledAt
+              ? new Date(draftScheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+              : null;
+            const countdown = draftScheduledAt ? getDraftCountdown(draftScheduledAt) : null;
+            let suffix = '';
+            if (formattedDate) {
+              suffix = countdown ? ` · ${formattedDate} · ${countdown}` : ` · ${formattedDate}`;
+            } else {
+              suffix = ' · Date TBD';
+            }
+            return (
+              <div style={{ ...bannerBase, borderLeftColor: '#1e3a5f', background: '#111827' }}>
+                <span style={{ fontWeight: 500, color: '#bfdbfe' }}>
+                  {bannerYear} Draft scheduled{suffix}
+                </span>
+              </div>
+            );
+          }
+        }
+
+        // Season state — no banner
+        return null;
       })()}
 
       {hasFatalLeagueBootstrapFailure ? (
