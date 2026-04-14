@@ -8,6 +8,7 @@ import { selectTopRivalries } from '@/lib/selectors/historySelectors';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
+import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftSummaryClient from '@/components/draft/DraftSummaryClient';
 
 type TeamsJson = { items: TeamCatalogItem[] };
@@ -142,6 +143,20 @@ export default async function DraftSummaryPage({
     }
   }
 
+  // Build team→display name map (same shortDisplayName resolution as draft board)
+  const dbTeams = await getTeamDatabaseItems();
+  const displayNameMap: Record<string, string> = {};
+  for (const t of dbTeams) {
+    if (t.school === 'NoClaim') continue;
+    const teamName = t.displayName ?? t.school;
+    const shortName = t.shortDisplayName
+      ? t.shortDisplayName
+      : teamName.length <= 14
+        ? teamName
+        : (t.abbreviation ?? teamName);
+    displayNameMap[t.school.toLowerCase()] = shortName;
+  }
+
   // Derive interesting facts from historical archives — fail silently if unavailable
   let facts: string[] = [];
   try {
@@ -181,6 +196,7 @@ export default async function DraftSummaryPage({
         initialDraft={liveDraft}
         allTeamNames={allTeamNames}
         conferenceMap={conferenceMap}
+        displayNameMap={displayNameMap}
         facts={facts}
       />
     </main>

@@ -13,6 +13,8 @@ type DraftSummaryClientProps = {
   allTeamNames: string[];
   /** Lowercase team name → conference name for display. */
   conferenceMap: Record<string, string>;
+  /** Lowercase team name → short display name for display. */
+  displayNameMap: Record<string, string>;
   /** Pre-derived interesting fact strings from the server page. */
   facts: string[];
 };
@@ -23,6 +25,7 @@ export default function DraftSummaryClient({
   initialDraft,
   allTeamNames,
   conferenceMap,
+  displayNameMap,
   facts,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
@@ -200,14 +203,16 @@ export default function DraftSummaryClient({
                   </thead>
                   <tbody>
                     {picks.map((pick) => {
-                      const conf = conferenceMap[pick.team.toLowerCase()] ?? '';
+                      const teamLower = pick.team.toLowerCase();
+                      const conf = conferenceMap[teamLower] ?? '';
+                      const displayName = displayNameMap[teamLower] ?? pick.team;
                       return (
                         <tr key={pick.pickNumber} className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
                           <td className="py-1 pr-2 text-xs text-gray-400 dark:text-zinc-500">
                             #{pick.pickNumber}
                           </td>
-                          <td className="py-1 pr-2 text-gray-800 dark:text-zinc-200">
-                            {pick.team}
+                          <td className="py-1 pr-2 text-gray-800 dark:text-zinc-200" title={pick.team}>
+                            {displayName}
                             {pick.autoSelected && (
                               <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
                                 (auto)
