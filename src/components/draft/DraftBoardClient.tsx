@@ -37,6 +37,11 @@ export default function DraftBoardClient({
   const [pickLoading, setPickLoading] = useState(false);
   const [controlsLoading, setControlsLoading] = useState(false);
 
+  // Local timer start: set to Date.now() right before the pick POST fires so
+  // DraftHeaderArea can begin counting down immediately without waiting for the
+  // server round-trip. Cleared when the server response arrives.
+  const [localTimerStart, setLocalTimerStart] = useState<number | null>(null);
+
   // Redirect non-admins to the spectator view.
   // If no sessionStorage token, wait for Clerk to finish loading before deciding.
   useEffect(() => {
@@ -177,6 +182,12 @@ export default function DraftBoardClient({
         }
       }
 
+      // Start local countdown immediately — DraftHeaderArea will show the timer
+      // from this moment, eliminating the server round-trip gap.
+      if (draft.settings.pickTimerSeconds) {
+        setLocalTimerStart(Date.now());
+      }
+
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/pick`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
@@ -184,12 +195,16 @@ export default function DraftBoardClient({
       });
       const data = (await res.json()) as { draft?: DraftState; error?: string };
       if (!res.ok || !data.draft) {
+        setLocalTimerStart(null);
         setPickError(data.error ?? `Pick failed (${res.status})`);
         return;
       }
-      // Server handles round-boundary pausing in the pick response
+      // Server response arrived — hand off to server-authoritative timerExpiresAt.
+      // Both state updates are batched into a single React re-render.
+      setLocalTimerStart(null);
       setDraft(data.draft);
     } catch (err) {
+      setLocalTimerStart(null);
       setPickError((err as Error).message);
     } finally {
       setPickLoading(false);
@@ -287,6 +302,7 @@ export default function DraftBoardClient({
           isAdmin={isAdmin}
           slug={slug}
           leagueStatus={leagueStatus}
+          localTimerStart={localTimerStart}
           onPause={handlePause}
           onResume={handleResume}
           onUndo={handleUndo}

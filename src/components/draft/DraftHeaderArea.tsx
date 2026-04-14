@@ -12,6 +12,13 @@ type DraftHeaderAreaProps = {
   slug?: string;
   /** League lifecycle status for conditional commissioner prompts. */
   leagueStatus?: LeagueStatus;
+  /**
+   * Client-local timestamp (Date.now()) recorded the instant the pick POST fires.
+   * When set, the timer displays an optimistic countdown from pickTimerSeconds
+   * without waiting for the server round-trip. Cleared when the server response
+   * arrives and timerExpiresAt becomes authoritative.
+   */
+  localTimerStart?: number | null;
   onPause?: () => void;
   onResume?: () => void;
   onUndo?: () => void;
@@ -39,6 +46,7 @@ export default function DraftHeaderArea({
   isAdmin,
   slug,
   leagueStatus,
+  localTimerStart,
   onPause,
   onResume,
   onUndo,
@@ -57,22 +65,37 @@ export default function DraftHeaderArea({
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
   useEffect(() => {
+    const timerDurationMs = (pickTimerSeconds ?? 60) * 1000;
+
+    // Local optimistic countdown: starts immediately on pick click, before the
+    // server round-trip completes. Takes priority over server state.
+    if (localTimerStart != null && pickTimerSeconds) {
+      function tick() {
+        const elapsed = Date.now() - localTimerStart!;
+        const remaining = Math.max(0, Math.min(timerDurationMs - elapsed, timerDurationMs));
+        setSecondsLeft(Math.ceil(remaining / 1000));
+      }
+      tick();
+      const id = setInterval(tick, 500);
+      return () => clearInterval(id);
+    }
+
+    // Server-authoritative countdown: used once the server response arrives
+    // and localTimerStart is cleared.
     if (draft.timerState !== 'running' || !draft.timerExpiresAt) {
       setSecondsLeft(null);
       return;
     }
-    const maxMs = (pickTimerSeconds ?? 60) * 1000 + 2000; // allow 2s tolerance
+    const maxMs = timerDurationMs + 2000; // allow 2s clock-skew tolerance
     function tick() {
       const rawRemaining = new Date(draft.timerExpiresAt!).getTime() - Date.now();
-      // Clamp: never show more than the configured duration (defends against clock skew),
-      // and never go below 0.
       const remaining = Math.max(0, Math.min(rawRemaining, maxMs));
       setSecondsLeft(Math.ceil(remaining / 1000));
     }
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [draft.timerState, draft.timerExpiresAt, pickTimerSeconds]);
+  }, [localTimerStart, draft.timerState, draft.timerExpiresAt, pickTimerSeconds]);
 
   // --- Crossfade slot tracking (useRef to avoid re-render timing issues) ---
   const activeSlotRef = useRef<'a' | 'b'>('a');
@@ -145,17 +168,18 @@ export default function DraftHeaderArea({
   const activeOwner = getPickOwner(draftOrder, idx) ?? '—';
   const overallPickNumber = idx + 1;
 
-  // Paused states
-  const isPaused = draft.phase === 'paused' || (draft.phase === 'live' && draft.timerState === 'paused');
-  const isExpired = draft.timerState === 'expired';
-  const isRoundPause = draft.phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && !isExpired;
+  // Paused states — local countdown override: treat as running during optimistic window
+  const isLocalCountdown = localTimerStart != null && !!pickTimerSeconds;
+  const isPaused = !isLocalCountdown && (draft.phase === 'paused' || (draft.phase === 'live' && draft.timerState === 'paused'));
+  const isExpired = !isLocalCountdown && draft.timerState === 'expired';
+  const isRoundPause = !isLocalCountdown && draft.phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && draft.timerState !== 'expired';
 
   // Timer values for the circular clock
   const totalSecs = pickTimerSeconds ?? 60;
   let displaySeconds: number;
   let timerFraction: number;
 
-  if (draft.timerState === 'running' && secondsLeft !== null) {
+  if ((draft.timerState === 'running' || isLocalCountdown) && secondsLeft !== null) {
     displaySeconds = secondsLeft;
     timerFraction = totalSecs > 0 ? secondsLeft / totalSecs : 1;
   } else if (draft.timerState === 'paused' && draft.timerExpiresAt) {
