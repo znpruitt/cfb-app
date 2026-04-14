@@ -1213,6 +1213,18 @@ export default function CFBScheduleApp({
       {!isAdminSurface && leagueSlug && (() => {
         const bannerYear = leagueYear ?? selectedSeason;
 
+        // Shared banner wrapper: left-border accent, dark bg, right-side radius only
+        const bannerBase: React.CSSProperties = {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          borderLeft: '3px solid',
+          borderRadius: '0 8px 8px 0',
+          padding: '10px 16px',
+          fontSize: '14px',
+        };
+
         // Offseason banner
         if (leagueStatus?.state === 'offseason') {
           const now = new Date();
@@ -1221,8 +1233,8 @@ export default function CFBScheduleApp({
             ? `${bannerYear} Season complete — see you next year`
             : `${bannerYear + 1} Season coming soon`;
           return (
-            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-2.5 text-sm dark:border-zinc-700 dark:bg-zinc-800/40">
-              <span className="font-medium text-gray-600 dark:text-zinc-300">{message}</span>
+            <div style={{ ...bannerBase, borderLeftColor: '#374151', background: '#111111' }}>
+              <span style={{ fontWeight: 500, color: '#9ca3af' }}>{message}</span>
             </div>
           );
         }
@@ -1232,19 +1244,44 @@ export default function CFBScheduleApp({
           // Draft in progress — live or paused
           if (draftPhase === 'live' || draftPhase === 'paused') {
             return (
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2.5 text-sm dark:border-blue-800/40 dark:bg-blue-950/20">
-                <span className="font-medium text-blue-900 dark:text-blue-100">
-                  {draftPhase === 'live'
-                    ? <>Draft is live{draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}</>
-                    : <>Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}</>}
-                </span>
-                <Link
-                  href={`/league/${leagueSlug}/draft/board`}
-                  className="rounded border border-blue-300 bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 transition hover:bg-blue-200 dark:border-blue-700 dark:bg-blue-900/50 dark:text-blue-100 dark:hover:bg-blue-900"
-                >
-                  Join Draft Board →
-                </Link>
-              </div>
+              <>
+                <style>{`
+                  @keyframes cfb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+                  @keyframes cfb-pulse-ring { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.2); opacity: 0; } }
+                `}</style>
+                <div style={{ ...bannerBase, borderLeftColor: '#1e3a5f', background: '#111827' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {/* Pulsing live indicator dot */}
+                    <div style={{ position: 'relative', width: '8px', height: '8px', flexShrink: 0 }}>
+                      <div style={{
+                        position: 'absolute', inset: 0, borderRadius: '50%',
+                        background: '#2563eb', opacity: 0.4,
+                        animation: 'cfb-pulse-ring 2s ease-out infinite',
+                      }} />
+                      <div style={{
+                        position: 'absolute', inset: 0, borderRadius: '50%',
+                        background: '#2563eb',
+                        animation: 'cfb-pulse 2s ease-in-out infinite',
+                      }} />
+                    </div>
+                    <span style={{ fontWeight: 500, color: '#bfdbfe' }}>
+                      {draftPhase === 'live'
+                        ? <>Draft is live{draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}</>
+                        : <>Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}</>}
+                    </span>
+                  </div>
+                  <Link
+                    href={`/league/${leagueSlug}/draft/board`}
+                    style={{
+                      borderRadius: '4px', border: '1px solid #1d4ed8', background: '#1e3a5f',
+                      padding: '4px 10px', fontSize: '12px', fontWeight: 500, color: '#bfdbfe',
+                      textDecoration: 'none', transition: 'background 0.15s',
+                    }}
+                  >
+                    Join Draft Board →
+                  </Link>
+                </div>
+              </>
             );
           }
 
@@ -1256,13 +1293,17 @@ export default function CFBScheduleApp({
             const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
             if (week1Start !== null && Date.now() >= week1Start) return null;
             return (
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50/60 px-4 py-2.5 text-sm dark:border-green-800/40 dark:bg-green-950/20">
-                <span className="font-medium text-green-900 dark:text-green-100">
+              <div style={{ ...bannerBase, borderLeftColor: '#14532d', background: '#052e16' }}>
+                <span style={{ fontWeight: 500, color: '#86efac' }}>
                   {bannerYear} Draft complete — view results
                 </span>
                 <Link
                   href={`/league/${leagueSlug}/draft/summary`}
-                  className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"
+                  style={{
+                    borderRadius: '4px', border: '1px solid #166534', background: '#14532d',
+                    padding: '4px 10px', fontSize: '12px', fontWeight: 500, color: '#86efac',
+                    textDecoration: 'none', transition: 'background 0.15s',
+                  }}
                 >
                   Draft Summary →
                 </Link>
@@ -1276,8 +1317,8 @@ export default function CFBScheduleApp({
               ? new Date(draftScheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
               : null;
             return (
-              <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50/60 px-4 py-2.5 text-sm dark:border-blue-800/40 dark:bg-blue-950/20">
-                <span className="font-medium text-blue-900 dark:text-blue-100">
+              <div style={{ ...bannerBase, borderLeftColor: '#1e3a5f', background: '#111827' }}>
+                <span style={{ fontWeight: 500, color: '#bfdbfe' }}>
                   {bannerYear} Draft scheduled{formattedDate ? ` · ${formattedDate}` : ' · Date TBD'}
                 </span>
               </div>
