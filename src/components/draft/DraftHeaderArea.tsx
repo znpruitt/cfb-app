@@ -97,7 +97,7 @@ export default function DraftHeaderArea({
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // ref is intentionally omitted — stable by identity, read fresh inside tick closure
   }, [draft.timerState, draft.timerExpiresAt, pickTimerSeconds]);
 
   // --- Crossfade slot tracking (useRef to avoid re-render timing issues) ---
