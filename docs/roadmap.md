@@ -328,9 +328,13 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - Complete migration of aliases from year-scoped to global platform scope
 - Remove legacy year-scoped alias support code
 
-### Season State Transition Workflow (planned)
-- Draft confirm/lock action triggers season state transition
-- Formalize the preseason → season lifecycle with explicit confirmation steps
+### Season State Transition Workflow ✓ Complete
+- "Go Live" renamed to "Complete Setup" — decoupled from state transition
+- Automatic season transition via Vercel cron job (weekly Wednesday midnight UTC)
+- Schedule probe: CFBD fetch → cache → derive first game date → transition the day before
+- `setupComplete` flag on preseason `LeagueStatus` variant
+- Pre-season overview with owner rosters and schedule placeholder
+- See `docs/completed-work.md` for full record
 
 ## Architecture rules
 
