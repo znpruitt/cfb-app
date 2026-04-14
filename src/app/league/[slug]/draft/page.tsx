@@ -255,6 +255,7 @@ export default async function DraftBoardPage({
         year={year}
         initialDraft={liveDraft}
         teamInsights={teamInsights}
+        leagueStatus={league.status}
       />
       </div>
     </main>

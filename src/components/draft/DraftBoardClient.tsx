@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
+import type { LeagueStatus } from '@/lib/league';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import DraftBoardGrid from './DraftBoardGrid';
 import DraftHeaderArea from './DraftHeaderArea';
@@ -13,6 +14,7 @@ type DraftBoardClientProps = {
   year: number;
   initialDraft: DraftState;
   teamInsights: DraftTeamInsights[];
+  leagueStatus?: LeagueStatus;
 };
 
 export default function DraftBoardClient({
@@ -20,6 +22,7 @@ export default function DraftBoardClient({
   year,
   initialDraft,
   teamInsights,
+  leagueStatus,
 }: DraftBoardClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
 
@@ -311,6 +314,8 @@ export default function DraftBoardClient({
         <DraftHeaderArea
           draft={draft}
           isAdmin={isAdmin}
+          slug={slug}
+          leagueStatus={leagueStatus}
           onPause={handlePause}
           onResume={handleResume}
           onUndo={handleUndo}

@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useUser } from '@clerk/nextjs';
 import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
+import type { LeagueStatus } from '@/lib/league';
 import InterestingFactsPanel from './InterestingFactsPanel';
 
 type DraftSummaryClientProps = {
@@ -17,6 +19,8 @@ type DraftSummaryClientProps = {
   displayNameMap: Record<string, string>;
   /** Pre-derived interesting fact strings from the server page. */
   facts: string[];
+  /** League lifecycle status for conditional commissioner prompts. */
+  leagueStatus?: LeagueStatus;
 };
 
 export default function DraftSummaryClient({
@@ -27,9 +31,15 @@ export default function DraftSummaryClient({
   conferenceMap,
   displayNameMap,
   facts,
+  leagueStatus,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
-  const [isAdmin] = useState(() => hasStoredAdminToken());
+
+  // Auth: dual check — sessionStorage token OR Clerk platform_admin role
+  const { user, isLoaded: clerkLoaded } = useUser();
+  const [isTokenAdmin] = useState(() => hasStoredAdminToken());
+  const clerkRole = (user?.publicMetadata as { role?: string } | undefined)?.role;
+  const isAdmin = isTokenAdmin || (clerkLoaded && clerkRole === 'platform_admin');
 
   // Edit state
   const [editingPickNumber, setEditingPickNumber] = useState<number | null>(null);
@@ -426,6 +436,23 @@ export default function DraftSummaryClient({
               Reopen Draft
             </button>
           )}
+        </section>
+      )}
+
+      {/* Continue Setup prompt — commissioner only, preseason only */}
+      {isAdmin && leagueStatus?.state === 'preseason' && (
+        <section className="border-t border-gray-200 pt-6 dark:border-zinc-700">
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/40">
+            <span className="text-sm text-gray-600 dark:text-zinc-400">
+              Ready to go live?
+            </span>
+            <a
+              href={`/admin/${slug}/preseason`}
+              className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Continue Setup →
+            </a>
+          </div>
         </section>
       )}
     </div>
