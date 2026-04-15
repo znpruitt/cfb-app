@@ -16,6 +16,41 @@ The registry should remain:
 
 ## Active Prompts
 
+### P7B-LAUNCH-DOCS-CLOSEOUT
+- Purpose: Update completed-work, roadmap, next-tasks, and prompt-registry to reflect all launch preparation work completed since P7B-DRY-RUN-DOCS-CLOSEOUT.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Documents comprehensive audit, UI/UX polish, force-dynamic fix, demo UI polish, Clerk migration, domain setup, and branding update.
+
+### P7B-BRANDING-UPDATE
+- Purpose: Rename all user-facing references from "CFB League Dashboard" / "CFB App" to "Turf War"; update URL examples to `turfwar.games`.
+- Scope: `src/app/layout.tsx`, `src/app/login/[[...sign-in]]/page.tsx`, `src/components/RootPageClient.tsx`, `src/components/__tests__/CFBScheduleApp.test.tsx`.
+- Notes: PR #272. No config, env var, or internal doc references changed. `cfb-app-preview.vercel.app` left unchanged (dev URL).
+
+### P7B-CLERK-MIGRATION-AUDIT
+- Purpose: Audit all Clerk configuration, session token claims, publicMetadata role patterns, and auth flows in preparation for production instance migration.
+- Scope: Read-only audit. No code changes.
+- Notes: Identified session token claim key (`platform_admin` in publicMetadata), all Clerk-dependent routes, and migration steps required.
+
+### P7B-UI-POLISH-DEMO-FIXES
+- Purpose: Fix demo-blocking UI issues identified in the comprehensive audit: custom not-found/error pages, light mode fix on cache admin, autoPickMetric dropdown removal.
+- Scope: `src/app/not-found.tsx` (new), `src/app/error.tsx` (new), `src/app/admin/data/cache/page.tsx`, `src/components/draft/DraftSettingsPanel.tsx`.
+- Notes: Resolves four items from P7B-UI-UX-POLISH-AUDIT top-10 list.
+
+### P7B-FORCE-DYNAMIC-FIX
+- Purpose: Add `export const dynamic = 'force-dynamic'` to all pages that read from the database or call server-side APIs at request time, resolving a Vercel build blocker.
+- Scope: 11 pages across `src/app/`.
+- Notes: Build blocker identified in P7B-COMPREHENSIVE-AUDIT. All affected pages now correctly opt out of static generation.
+
+### P7B-UI-UX-POLISH-AUDIT
+- Purpose: Full page-by-page UI/UX audit of the app; rate each surface and identify the top 10 improvements.
+- Scope: Read-only audit. No code changes.
+- Notes: 10 improvements prioritized; several addressed immediately in P7B-UI-POLISH-DEMO-FIXES.
+
+### P7B-APP-WIDE-AUDIT
+- Purpose: Comprehensive 16-section app-wide audit covering architecture, auth, data flows, API usage, build config, and deployment readiness.
+- Scope: Read-only audit. No code changes.
+- Notes: One build blocker identified (force-dynamic missing on 11 pages), resolved in P7B-FORCE-DYNAMIC-FIX.
+
 ### MERGE-CONFLICT-FIX
 - Purpose: Resolve merge conflicts in three files after merging origin/main into polish-draft-flow branch.
 - Scope: `src/app/admin/[slug]/actions.ts`, `src/app/admin/[slug]/components/TestLeagueControls.tsx`, `src/app/admin/[slug]/preseason/page.tsx`.

@@ -311,6 +311,14 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 
 ## Upcoming campaigns (post-P7B-7)
 
+### Copy / UX Writing Audit (planned)
+Systematic review and rewrite of all user-facing strings for consistent voice and quality before public launch.
+- Inventory all UI copy: headings, subheadings, labels, empty states, error messages, button text, tooltips, banners
+- Apply a single consistent voice: concise, direct, league-aware, no filler phrases
+- Identify and fix copy that is generic, redundant, inconsistent, or that reveals implementation details to members
+- Flag any places where new-name "Turf War" branding can be reinforced
+- No logic changes — copy only
+
 ### Draft Difficulty Settings (planned)
 - Auto-pick algorithm configuration (random, SP+ rating, preseason rank)
 - Team data visibility controls during draft (show/hide SP+ ratings, win totals, schedule insights)
@@ -319,10 +327,10 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - App-wide review of back links: styling consistency, copy, destinations
 - Ensure all "← Back" links follow a single visual pattern and navigate to the correct parent
 
-### Clerk Production Instance Migration (planned)
-- Migrate from Clerk development instance to production instance
-- Re-configure session token and `publicMetadata` (role assignment) post-migration
-- Verify all auth flows (platform_admin, sessionStorage token fallback)
+### Clerk Production Instance Migration ✓ Complete
+- Migrated from Clerk development instance to production instance
+- DNS configured, session token customized, production keys set in Vercel
+- Commissioner account created with `platform_admin` role; all auth flows verified
 
 ### P7A-4: Aliases Platform Migration (planned)
 - Complete migration of aliases from year-scoped to global platform scope
@@ -335,6 +343,16 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - `setupComplete` flag on preseason `LeagueStatus` variant
 - Pre-season overview with owner rosters and schedule placeholder
 - See `docs/completed-work.md` for full record
+
+### Custom Domain Setup ✓ Complete
+- `turfwar.games` and `tscturfwar.com` registered via Porkbun
+- `turfwar.games` connected to Vercel production via A record
+- `tscturfwar.com` → `https://turfwar.games/league/tsc` permanent 301 redirect in `vercel.json`
+
+### App Naming: Turf War ✓ Complete
+- "CFB League Dashboard" renamed to "Turf War" across all user-facing surfaces
+- URL examples updated to `turfwar.games`
+- Landing page tagline: "Your league, upgraded."
 
 ### P7B Dry Run Polish ✓ Complete
 - Overview lifecycle banners: state-driven, left-border accent, pulsing live dot, draft countdown

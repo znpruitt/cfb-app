@@ -897,6 +897,34 @@ Key architectural decisions across Phase 5:
 
 ---
 
+---
+
+### P7B Launch Preparation — Complete
+
+**Status:** Complete. Branch `claude/update-turf-war-branding-gVu4z`. PR #272.
+**PROMPT_IDs:** P7B-APP-WIDE-AUDIT, P7B-UI-UX-POLISH-AUDIT, P7B-FORCE-DYNAMIC-FIX, P7B-UI-POLISH-DEMO-FIXES, P7B-CLERK-MIGRATION-AUDIT, P7B-BRANDING-UPDATE, P7B-LAUNCH-DOCS-CLOSEOUT
+
+**Goals completed:**
+- Comprehensive app-wide audit covering 16 sections; one build blocker identified and resolved
+- Full UI/UX polish audit — page-by-page rating, top 10 improvements identified
+- Force-dynamic build blocker fixed across 11 pages
+- Demo UI polish: custom `not-found.tsx` and `error.tsx` added, light mode fix on cache admin page, `autoPickMetric` dropdown removed
+- Clerk production instance migration: DNS configured, session token customized, production keys set in Vercel, commissioner account created with `platform_admin` role
+- Domain acquisition: `turfwar.games` and `tscturfwar.com` registered via Porkbun
+- Custom domain connected: `turfwar.games` pointed to Vercel production via A record
+- TSC redirect: `tscturfwar.com` → `https://turfwar.games/league/tsc` via permanent 301 in `vercel.json`
+- Branding update: "CFB League Dashboard" → "Turf War" across all user-facing surfaces (`layout.tsx`, `RootPageClient.tsx`, login page, test assertion); URL example updated to `turfwar.games`
+- Landing page tagline updated to "Your league, upgraded."
+
+**Key outcomes:**
+- App is publicly live at `turfwar.games`
+- TSC league accessible at `turfwar.games/league/tsc` and via `tscturfwar.com` redirect
+- Production Clerk instance active; development instance retired
+- All user-facing branding consistently reads "Turf War"
+- Build is clean — no force-dynamic blockers remain
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
