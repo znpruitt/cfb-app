@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'CFB League Dashboard',
+  title: 'Turf War',
   description:
     'College football league dashboard for schedules, matchups, standings, and commissioner diagnostics.',
 };
