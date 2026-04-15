@@ -5,7 +5,8 @@ import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { listAppStateKeys, deleteAppState, getAppState, setAppState } from '@/lib/server/appStateStore';
-import { draftScope } from '@/lib/draft';
+import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
+import teamsData from '@/data/teams.json';
 
 /**
  * Set the lifecycle status of the test league. Only valid for slug='test'.
@@ -142,4 +143,113 @@ export async function migrateTestOwnersCsv(fromYear: number, toYear: number): Pr
 
   await setAppState(`owners:test:${toYear}`, 'csv', csvText);
   revalidatePath('/admin/test');
+}
+
+/**
+ * Auto-complete the test league draft by filling all remaining picks randomly,
+ * then writing the owners CSV. Test league only.
+ *
+ * Returns the number of picks that were auto-filled.
+ */
+export async function autoCompleteDraft(): Promise<number> {
+  const league = await getLeague('test');
+  if (!league) throw new Error('Test league not found');
+
+  const year =
+    league.status?.state === 'preseason' || league.status?.state === 'season'
+      ? league.status.year
+      : league.year;
+
+  const record = await getAppState<DraftState>(draftScope('test'), String(year));
+  if (!record?.value) throw new Error(`No draft found for test league year ${year}`);
+
+  const draft = record.value;
+  if (draft.phase === 'complete') throw new Error('Draft is already complete');
+  if (!draft.settings.draftOrder.length) throw new Error('Draft has no draft order configured');
+
+  // All FBS teams from the catalog (same filter as the main draft route)
+  const allTeams = (teamsData as { items: { school: string }[] }).items
+    .map((t) => t.school)
+    .filter((s) => s !== 'NoClaim');
+
+  const pickedTeams = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  const available = allTeams.filter((t) => !pickedTeams.has(t.toLowerCase()));
+
+  // Shuffle available teams (Fisher-Yates)
+  for (let i = available.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [available[i], available[j]] = [available[j]!, available[i]!];
+  }
+
+  // Calculate total picks: totalRounds * ownerCount
+  const n = draft.settings.draftOrder.length;
+  const totalPicks = draft.settings.totalRounds * n;
+  const remainingSlots = totalPicks - draft.picks.length;
+
+  if (remainingSlots <= 0) throw new Error('All pick slots are already filled');
+  if (available.length < remainingSlots) {
+    throw new Error(
+      `Not enough available teams (${available.length}) to fill ${remainingSlots} remaining picks`
+    );
+  }
+
+  // Fill remaining picks using snake draft order
+  const newPicks: DraftPick[] = [];
+  const now = new Date().toISOString();
+  for (let i = 0; i < remainingSlots; i++) {
+    const pickIndex = draft.currentPickIndex + i;
+    const round = Math.floor(pickIndex / n);
+    const posInRound = pickIndex % n;
+    const ownerIdx = round % 2 === 0 ? posInRound : n - 1 - posInRound;
+    const owner = draft.settings.draftOrder[ownerIdx]!;
+
+    newPicks.push({
+      pickNumber: pickIndex + 1,
+      round,
+      roundPick: posInRound,
+      owner,
+      team: available[i]!,
+      pickedAt: now,
+      autoSelected: true,
+    });
+  }
+
+  const allPicks = [...draft.picks, ...newPicks];
+
+  // Write completed draft state
+  const completed: DraftState = {
+    ...draft,
+    picks: allPicks,
+    currentPickIndex: totalPicks,
+    phase: 'complete',
+    timerState: 'off',
+    timerExpiresAt: null,
+    updatedAt: now,
+  };
+  await setAppState<DraftState>(draftScope('test'), String(year), completed);
+
+  // Write owners CSV (same format as confirm route)
+  const csvLines = ['team,owner'];
+  for (const pick of allPicks) {
+    const team = pick.team.includes(',') || pick.team.includes('"')
+      ? `"${pick.team.replace(/"/g, '""')}"` : pick.team;
+    const owner = pick.owner.includes(',') || pick.owner.includes('"')
+      ? `"${pick.owner.replace(/"/g, '""')}"` : pick.owner;
+    csvLines.push(`${team},${owner}`);
+  }
+
+  // Append NoClaim rows for undrafted teams
+  const draftedLower = new Set(allPicks.map((p) => p.team.toLowerCase()));
+  for (const teamName of allTeams) {
+    if (!draftedLower.has(teamName.toLowerCase())) {
+      const field = teamName.includes(',') || teamName.includes('"')
+        ? `"${teamName.replace(/"/g, '""')}"` : teamName;
+      csvLines.push(`${field},NoClaim`);
+    }
+  }
+
+  await setAppState(`owners:test:${year}`, 'csv', csvLines.join('\n'));
+
+  revalidatePath('/admin/test');
+  return newPicks.length;
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { useTransition } from 'react';
-import { setTestLeagueStatus, resetTestLeague, resetTestDraft, migrateTestOwnersCsv } from '../actions';
+import { useState, useTransition } from 'react';
+import { setTestLeagueStatus, resetTestLeague, resetTestDraft, migrateTestOwnersCsv, autoCompleteDraft } from '../actions';
 
 const btnClass =
   'px-3 py-1.5 rounded border border-gray-300 bg-white text-sm text-gray-900 transition-colors hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60';
@@ -11,6 +11,7 @@ const resetBtnClass =
 
 export default function TestLeagueControls() {
   const [pending, startTransition] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
 
   function handle(state: 'season' | 'offseason' | 'preseason') {
     startTransition(async () => {
@@ -36,6 +37,18 @@ export default function TestLeagueControls() {
     });
   }
 
+  function handleAutoCompleteDraft() {
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const count = await autoCompleteDraft();
+        setMessage(`Auto-completed ${count} picks`);
+      } catch (err) {
+        setMessage((err as Error).message);
+      }
+    });
+  }
+
   return (
     <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
       <div>
@@ -57,6 +70,9 @@ export default function TestLeagueControls() {
         <button className={btnClass} disabled={pending} onClick={handleMigrateOwners}>
           Migrate Owners →
         </button>
+        <button className={btnClass} disabled={pending} onClick={handleAutoCompleteDraft}>
+          Auto-complete Draft →
+        </button>
         <button className={resetBtnClass} disabled={pending} onClick={handleResetDraft}>
           Reset Draft
         </button>
@@ -64,6 +80,9 @@ export default function TestLeagueControls() {
           Reset to 2025 Season
         </button>
       </div>
+      {message && (
+        <p className="text-xs text-gray-600 dark:text-zinc-400">{message}</p>
+      )}
     </div>
   );
 }
