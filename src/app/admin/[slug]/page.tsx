@@ -89,7 +89,7 @@ export default async function AdminLeaguePage({
           </form>
         </div>
       )}
-      {leagueStatus.state === 'preseason' && (
+      {leagueStatus.state === 'preseason' && !leagueStatus.setupComplete && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
           <h2 className="text-base font-medium">
             {leagueStatus.year} Pre-Season Setup in Progress
@@ -100,6 +100,16 @@ export default async function AdminLeaguePage({
           >
             Continue Setup
           </Link>
+        </div>
+      )}
+      {leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-5 space-y-1 dark:border-green-900 dark:bg-green-950/30">
+          <h2 className="text-base font-medium text-green-800 dark:text-green-300">
+            {leagueStatus.year} Pre-Season Setup Complete ✓
+          </h2>
+          <p className="text-sm text-green-700 dark:text-green-400">
+            Season will go live automatically before the first game.
+          </p>
         </div>
       )}
 
