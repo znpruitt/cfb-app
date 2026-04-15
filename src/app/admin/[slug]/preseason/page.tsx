@@ -6,7 +6,7 @@ import { getAppState } from '@/lib/server/appStateStore';
 import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { draftScope, type DraftPhase } from '@/lib/draft';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
-import { goLive } from '../actions';
+import { completeSetup } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +61,7 @@ export default async function PreseasonPage({
         ? `/admin/${slug}/preseason`
         : `/admin/${slug}/preseason`;
 
-  const goLiveAction = goLive.bind(null, slug, year);
+  const completeSetupAction = completeSetup.bind(null, slug, year);
 
   // Helper text for disabled Go Live button
   const blockers = [
@@ -164,7 +164,7 @@ export default async function PreseasonPage({
 
       {/* Go Live */}
       <div className="space-y-2">
-        <form action={goLiveAction}>
+        <form action={completeSetupAction}>
           <button
             type="submit"
             disabled={!canGoLive}
