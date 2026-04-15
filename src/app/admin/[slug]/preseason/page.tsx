@@ -144,12 +144,6 @@ export default async function PreseasonPage({
               <span className="text-gray-400 dark:text-zinc-500">Teams assigned</span>
             )}
           </li>
-
-          {/* Season live — always incomplete here, satisfied by Go Live */}
-          <li className="flex items-center gap-2">
-            <span className="text-gray-300 dark:text-zinc-600">○</span>
-            <span className="text-gray-400 dark:text-zinc-500">Season live</span>
-          </li>
         </ol>
       </section>
 
