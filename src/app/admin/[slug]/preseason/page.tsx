@@ -174,7 +174,7 @@ export default async function PreseasonPage({
                 : 'px-4 py-2 rounded border border-gray-200 bg-gray-100 text-sm text-gray-400 cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500'
             }
           >
-            Go Live
+            Complete Setup
           </button>
         </form>
         {!canGoLive && blockerText && (

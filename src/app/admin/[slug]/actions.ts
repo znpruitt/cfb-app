@@ -4,7 +4,8 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
-import { listAppStateKeys, deleteAppState } from '@/lib/server/appStateStore';
+import { listAppStateKeys, deleteAppState, getAppState } from '@/lib/server/appStateStore';
+import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { draftScope } from '@/lib/draft';
 
 /**
@@ -101,4 +102,26 @@ export async function goLive(slug: string, year: number): Promise<void> {
   await updateLeagueStatus(slug, { state: 'season', year });
   await updateLeague(slug, { year });
   redirect(`/admin/${slug}`);
+}
+
+/**
+ * Copy owner names from the previous season's roster CSV into the preseason
+ * owners store for the target year. Test league only.
+ */
+export async function migrateTestOwners(): Promise<void> {
+  const league = await getLeague('test');
+  if (!league) throw new Error('Test league not found');
+  const fromYear = league.year;
+  const toYear = fromYear + 1;
+
+  const csvRecord = await getAppState<string>(`owners:test:${fromYear}`, 'csv');
+  const csvText = typeof csvRecord?.value === 'string' ? csvRecord.value : '';
+  if (!csvText) throw new Error(`No owner CSV found for test league year ${fromYear}`);
+
+  const rows = parseOwnersCsv(csvText);
+  const uniqueOwners = Array.from(new Set(rows.map((r) => r.owner).filter((o) => o !== 'NoClaim')));
+  if (uniqueOwners.length < 2) throw new Error('Not enough owners to migrate');
+
+  await savePreseasonOwners('test', toYear, uniqueOwners);
+  revalidatePath('/admin/test');
 }
