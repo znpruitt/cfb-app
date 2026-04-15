@@ -833,6 +833,70 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### P7B Dry Run Polish — Complete
+
+**Status:** Complete. Branch `claude/polish-draft-flow-Rv5AF`. PR #270.
+**PROMPT_IDs:** P7B-AUDIT-SEASON-STATE, P7B-AUDIT-ROSTER-CHECK, P7B-AUDIT-COMPLETE-SETUP-GUARD, P7B-OVERVIEW-BANNER, P7B-OVERVIEW-BANNER-STYLE, P7B-OVERVIEW-BANNER-STYLE-FIX, P7B-OVERVIEW-BANNER-COUNTDOWN, P7B-DRAFT-START-FIX, P7B-AUDIT-COMMISH-URL, P7B-CONTINUE-SETUP-LINK, P7B-PRESEASON-CHECKLIST-FIX, P7B-PRESEASON-REGRESSION-FIX, P7B-PRESEASON-REGRESSION-FIX-2, P7B-ROSTER-CHECK-FIX, P7B-SANDBOX-RESET-FIX, P7B-SANDBOX-AUTO-COMPLETE-DRAFT, P7B-DRAFT-SETUP-OWNERS-REMOVE, P7B-COMPLETE-SETUP-REVALIDATE, P7B-COMPLETE-SETUP-REVALIDATE-2, P7B-COMPLETE-SETUP-REVALIDATE-3, P7B-COMPLETE-SETUP-HUB-FIX, P7B-RESET-RACE-FIX, MERGE-CONFLICT-AUDIT, MERGE-CONFLICT-FIX
+
+**Goals completed:**
+- Full end-to-end dry run readiness: preseason setup → draft → complete setup flow works without manual workarounds
+- All sandbox reset controls work correctly for repeated dry runs
+- Admin hub reflects league state accurately
+
+**Overview lifecycle banners (P7B-OVERVIEW-BANNER series)**
+- State-driven banner system in `CFBScheduleApp.tsx` driven by `leagueStatus` prop
+- States: offseason early/late, preseason (no draft / draft scheduled / draft in progress / draft complete), season (in progress / live)
+- Left-border accent styling (3px inline border, dark backgrounds, right-side-only border radius)
+- Pulsing live indicator dot on draft-in-progress state via CSS keyframe animation
+- Draft scheduled countdown: adaptive label (days away / tomorrow / today / starting soon)
+- Header subtitle reflects current league state ("Offseason" / "Pre-Season" / "Season")
+- Banner year and draft lookup year derived from `leagueStatus.year` (not `league.year`) — fixes 2025→2026 bleed
+
+**Draft start fix (P7B-DRAFT-START-FIX)**
+- "Start Draft" button in `DraftSetupShell` now calls `PUT phase: 'live'` before navigating to board
+- Previous behavior did bare redirect — draft board redirected back to setup (redirect loop)
+
+**Commissioner setup links (P7B-CONTINUE-SETUP-LINK)**
+- "Continue Setup →" link added to draft complete banner in `DraftHeaderArea`
+- "Ready to complete setup? Continue Setup →" prompt added to `DraftSummaryClient`
+- `DraftSummaryClient` auth fixed to dual-auth pattern: `useUser()` from Clerk + `hasStoredAdminToken()`
+
+**Preseason checklist fixes**
+- "Season live" item removed from checklist (was circular — Complete Setup button couldn't satisfy it)
+- Button renamed from "Go Live" to "Complete Setup", bound to `completeSetup()` which sets `setupComplete: true` without transitioning to season state
+- `LeagueStatus` preseason variant extended with `setupComplete?: boolean`
+- Checklist uses `canCompleteSetup` guard; shows "Setup Complete ✓" badge post-completion
+
+**Roster check fix (P7B-ROSTER-CHECK-FIX)**
+- `hasRoster` check in `preseason/page.tsx` now falls back to owners CSV (`owners:${slug}:${year}/csv`)
+- A completed draft satisfies the roster requirement without a separate preseason owners confirmation step
+- Preseason owners list still checked first; either source sufficient
+
+**Admin hub setup complete state (P7B-COMPLETE-SETUP-HUB-FIX)**
+- Admin hub (`/admin/[slug]/page.tsx`) renders two distinct preseason states:
+  - `setupComplete=false`: "Setup in Progress" + "Continue Setup" link
+  - `setupComplete=true`: green "Setup Complete ✓" card with "Season will go live automatically" note
+
+**Sandbox improvements**
+- "Set: Pre-Season" now clears preseason-owners, owners CSV, and draft state for the target year (fresh start every time)
+- "Reset to 2025 Season" now also clears all 2026 preseason/draft/owners/schedule-probe state
+- "Reset Draft" unchanged — clears draft + owners CSV, leaves preseason owners intact
+- New "Auto-complete Draft →" button: fills all remaining picks randomly (snake order), marks complete, writes owners CSV with NoClaim rows
+- `migrateTestOwnersCsv` returns descriptive string message shown in UI
+- Race condition fixed in `resetTestLeague()` — `updateLeague` and `updateLeagueStatus` serialized (both write same registry array)
+
+**Draft settings cleanup (P7B-DRAFT-SETUP-OWNERS-REMOVE)**
+- Owners add/remove section removed from `DraftSettingsPanel` — redundant with preseason owners confirmation flow
+- Draft order section (drag-to-reorder, Random/Reverse Champ/Manual modes) unchanged
+- `owners` state initialized from draft state or `priorOwners`; used by draft order and save logic
+
+**Key architectural decisions:**
+- `setupComplete` stored on `LeagueStatus.preseason` variant — disappears naturally on season transition
+- `hasRoster` satisfied by either preseason owners list OR owners CSV — draft confirmation is sufficient
+- Sandbox "Set: Pre-Season" always clears state to ensure idempotent dry runs
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:

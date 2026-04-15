@@ -8,6 +8,8 @@ import SeasonFinishHistory from '@/components/history/SeasonFinishHistory';
 import AllTimeOwnerHeadToHeadPanel from '@/components/history/AllTimeOwnerHeadToHeadPanel';
 import type { SeasonArchive } from '@/lib/seasonArchive';
 
+export const dynamic = 'force-dynamic';
+
 export default async function OwnerCareerPage({
   params,
 }: {

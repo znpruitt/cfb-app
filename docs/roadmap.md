@@ -336,6 +336,15 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - Pre-season overview with owner rosters and schedule placeholder
 - See `docs/completed-work.md` for full record
 
+### P7B Dry Run Polish ✓ Complete
+- Overview lifecycle banners: state-driven, left-border accent, pulsing live dot, draft countdown
+- Preseason setup flow: "Complete Setup" button, `setupComplete` state, green admin hub badge
+- Roster check satisfied by owners CSV (draft completion sufficient)
+- Draft start fix: phase transition before redirect to board
+- Commissioner setup links from draft board banner and summary page
+- Sandbox reset controls: idempotent dry runs, auto-complete draft button
+- See `docs/completed-work.md` for full record
+
 ### Preseason Insights Panel (planned)
 Replace the empty insights area during preseason with meaningful, data-driven content that upgrades automatically as data becomes available. No commissioner action needed beyond what the cron already handles.
 

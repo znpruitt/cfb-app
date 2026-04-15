@@ -3,6 +3,8 @@ import CFBScheduleApp from 'components/CFBScheduleApp';
 import type { StandingsSubview } from '../../../../components/StandingsPanel';
 import { getLeague } from '../../../../lib/leagueRegistry';
 
+export const dynamic = 'force-dynamic';
+
 function resolveStandingsSubview(view: string | undefined): StandingsSubview {
   return view === 'trends' ? 'trends' : 'table';
 }

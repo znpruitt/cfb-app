@@ -75,9 +75,6 @@ export default function DraftSettingsPanel({
   const [expiryBehavior, setExpiryBehavior] = useState<DraftSettings['timerExpiryBehavior']>(
     existing.timerExpiryBehavior
   );
-  const [autoPickMetric, setAutoPickMetric] = useState<DraftSettings['autoPickMetric']>(
-    existing.autoPickMetric
-  );
   const maxRoundsValue = maxRounds(fbsTeamCount, owners.length);
   const [totalRounds, setTotalRounds] = useState<number>(() => {
     const initial = existing.totalRounds > 1 ? existing.totalRounds : maxRoundsValue;
@@ -217,7 +214,7 @@ export default function DraftSettingsPanel({
         draftOrder,
         pickTimerSeconds: timerSeconds,
         timerExpiryBehavior: expiryBehavior,
-        autoPickMetric: expiryBehavior === 'auto-pick' ? autoPickMetric : null,
+        autoPickMetric: null,
         totalRounds: Math.max(1, Math.min(totalRounds, suggestedRounds)),
         scheduledAt: scheduledAt.trim() ? new Date(scheduledAt).toISOString() : null,
       };
@@ -455,37 +452,6 @@ export default function DraftSettingsPanel({
                 ? 'Draft pauses — commissioner chooses to auto-pick or select manually.'
                 : 'Pick is made automatically when timer expires.'}
             </p>
-            {expiryBehavior === 'auto-pick' && (
-              <div className="mt-2">
-                <p className="mb-1 text-xs font-medium text-gray-700 dark:text-zinc-300">
-                  Auto-pick metric
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAutoPickMetric('sp-plus')}
-                    className={`rounded border px-3 py-1.5 text-sm transition ${
-                      autoPickMetric === 'sp-plus'
-                        ? 'border-blue-600 bg-blue-600 text-white'
-                        : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60'
-                    }`}
-                  >
-                    SP+ (highest available)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAutoPickMetric('preseason-rank')}
-                    className={`rounded border px-3 py-1.5 text-sm transition ${
-                      autoPickMetric === 'preseason-rank'
-                        ? 'border-blue-600 bg-blue-600 text-white'
-                        : 'border-gray-300 bg-white text-gray-900 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60'
-                    }`}
-                  >
-                    Preseason rank (best available)
-                  </button>
-                </div>
-              </div>
-            )}
           </section>
         )}
 

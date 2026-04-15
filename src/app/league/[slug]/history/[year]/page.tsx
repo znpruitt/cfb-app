@@ -13,6 +13,8 @@ import FinalStandingsTable from '@/components/history/FinalStandingsTable';
 import SeasonArcChart from '@/components/history/SeasonArcChart';
 import SuperlativesPanel from '@/components/history/SuperlativesPanel';
 import HeadToHeadPanel from '@/components/history/HeadToHeadPanel';
+
+export const dynamic = 'force-dynamic';
 import OwnerRosterCard from '@/components/history/OwnerRosterCard';
 
 export default async function SeasonDetailPage({
