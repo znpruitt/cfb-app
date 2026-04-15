@@ -10,6 +10,8 @@ import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import DraftSetupShell from '@/components/draft/DraftSetupShell';
 
+export const dynamic = 'force-dynamic';
+
 type TeamsJson = { items: TeamCatalogItem[] };
 
 export default async function DraftSetupPage({

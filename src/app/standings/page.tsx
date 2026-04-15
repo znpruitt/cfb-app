@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 
 import { getLeagues } from '../../lib/leagueRegistry';
 
+export const dynamic = 'force-dynamic';
+
 export default async function StandingsPage({
   searchParams,
 }: {

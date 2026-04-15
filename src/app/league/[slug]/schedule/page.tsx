@@ -2,6 +2,8 @@ import { auth } from '@clerk/nextjs/server';
 import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../../lib/leagueRegistry';
 
+export const dynamic = 'force-dynamic';
+
 export default async function LeagueSchedulePage({
   params,
 }: {
