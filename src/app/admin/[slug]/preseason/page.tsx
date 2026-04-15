@@ -32,12 +32,16 @@ export default async function PreseasonPage({
   let teamsAssigned = false;
 
   try {
-    const [preseasonOwners, draftRecord] = await Promise.all([
+    const [preseasonOwners, draftRecord, ownersCsvRecord] = await Promise.all([
       getPreseasonOwners(slug, year),
       getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
+      getAppState<string>(`owners:${slug}:${year}`, 'csv'),
     ]);
 
-    hasRoster = preseasonOwners !== null && preseasonOwners.length >= 2;
+    const hasCsvRoster =
+      typeof ownersCsvRecord?.value === 'string' &&
+      ownersCsvRecord.value.trim().split('\n').length > 2; // header + at least 2 owners
+    hasRoster = (preseasonOwners !== null && preseasonOwners.length >= 2) || hasCsvRoster;
 
     const draftPhase = draftRecord?.value?.phase ?? null;
     if (league.assignmentMethod === 'draft') {
@@ -211,6 +215,7 @@ export default async function PreseasonPage({
               <p className="text-xs text-gray-400 dark:text-zinc-500">{blockerText}</p>
             )}
           </>
+
         )}
       </div>
     </main>
