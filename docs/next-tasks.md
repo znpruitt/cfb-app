@@ -132,13 +132,18 @@ Carousel redesign (5-card landscape strip, crossfade, round boundary sidebars, m
 
 Season transition architecture shipped. Branch `claude/audit-season-transition-pwKfH`. See `docs/completed-work.md` for full record.
 
+## P7B Dry Run Polish ✅ Complete
+
+End-to-end dry run readiness shipped. Branch `claude/polish-draft-flow-Rv5AF`. PR #270. See `docs/completed-work.md` for full record.
+
 ## Next priorities
 
-1. **Generate and set `CRON_SECRET` in Vercel dashboard** — Required for the season transition cron job to authenticate. Run `openssl rand -base64 32` and add as `CRON_SECRET` env var in Vercel project settings (Production scope). Also add to `.env.local` for local testing.
-2. **Dry run with league organizer** — End-to-end walkthrough: offseason → begin preseason → confirm owners → draft → complete setup → verify cron transition
-3. **App naming decision** — Finalize product name for deployment
+1. **Test league reset for next dry run** — Use "Reset to 2025 Season" → "Set: Offseason" → "Begin Pre-Season Setup" flow from the admin test controls to start clean
+2. **Dry run with league organizer** — End-to-end walkthrough: offseason → begin preseason → confirm owners → draft → complete setup → verify `setupComplete` state and cron transition
+3. **App naming decision** — Finalize product name for deployment (involve league organizer)
 4. **Clerk production instance migration** — Migrate from development to production Clerk instance, re-configure session token and `publicMetadata`
-5. **Begin next campaign** — Priority TBD based on dry run feedback (likely Draft Difficulty Settings, Back Button Audit, or P7A-4 Aliases Platform Migration)
+5. **Generate and set `CRON_SECRET` in Vercel dashboard** — Run `openssl rand -base64 32` and add as `CRON_SECRET` env var in Vercel project settings (Production scope)
+6. **Begin next campaign** — Priority TBD based on dry run feedback (likely Draft Difficulty Settings, Back Button Audit, or P7A-4 Aliases Platform Migration)
 
 ## Upcoming phases
 

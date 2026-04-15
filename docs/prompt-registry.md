@@ -16,6 +16,116 @@ The registry should remain:
 
 ## Active Prompts
 
+### MERGE-CONFLICT-FIX
+- Purpose: Resolve merge conflicts in three files after merging origin/main into polish-draft-flow branch.
+- Scope: `src/app/admin/[slug]/actions.ts`, `src/app/admin/[slug]/components/TestLeagueControls.tsx`, `src/app/admin/[slug]/preseason/page.tsx`.
+- Notes: 7 conflict hunks resolved. Kept ours' `autoCompleteDraft` and revalidatePaths; took theirs' `updateLeague` in `completeSetup`, string return from `migrateTestOwnersCsv`, `isSetupComplete` checklist item, two-state button rendering.
+
+### MERGE-CONFLICT-AUDIT
+- Purpose: Read-only audit of all conflict markers in three conflicted files before resolution.
+- Scope: Read-only audit.
+- Notes: Identified 5 compatible conflicts (keep both) and 2 mutually exclusive conflicts (take theirs — more complete implementation).
+
+### P7B-RESET-RACE-FIX
+- Purpose: Fix lost-update race in `resetTestLeague()` — `updateLeague` and `updateLeagueStatus` both write the same registry array and must not run in parallel.
+- Scope: `src/app/admin/[slug]/actions.ts` only.
+- Notes: Sequential awaits for the two registry writes; four `deleteAppState` calls remain parallel (independent keys).
+
+### P7B-COMPLETE-SETUP-HUB-FIX
+- Purpose: Admin hub now shows "Setup Complete ✓" green state when `setupComplete === true`.
+- Scope: `src/app/admin/[slug]/page.tsx` only.
+- Notes: Two distinct preseason cards: in-progress shows "Continue Setup" link; complete shows green badge with "Season will go live automatically" note.
+
+### P7B-COMPLETE-SETUP-REVALIDATE-3
+- Purpose: Audit async call chain in `completeSetup()` — confirmed all awaits correct, no missing awaits.
+- Scope: Read-only audit of `completeSetup()` and `updateLeagueStatus()` internals.
+
+### P7B-COMPLETE-SETUP-REVALIDATE-2
+- Purpose: Add `revalidatePath('/admin/${slug}', 'layout')` to bust full route segment cache after setup complete.
+- Scope: `src/app/admin/[slug]/actions.ts`.
+
+### P7B-COMPLETE-SETUP-REVALIDATE
+- Purpose: Add `revalidatePath` calls to `completeSetup()` so Next.js cache is busted before redirect.
+- Scope: `src/app/admin/[slug]/actions.ts`.
+
+### P7B-SANDBOX-AUTO-COMPLETE-DRAFT
+- Purpose: Add "Auto-complete Draft" sandbox button that fills all remaining picks randomly and writes owners CSV.
+- Scope: `src/app/admin/[slug]/actions.ts`, `src/app/admin/[slug]/components/TestLeagueControls.tsx`.
+- Notes: Fisher-Yates shuffle; snake draft order via `getPickOwner` logic; writes `draft:test/{year}` as complete + `owners:test:{year}/csv` with NoClaim rows. Test league only.
+
+### P7B-SANDBOX-RESET-FIX
+- Purpose: Fix sandbox reset controls to clear all preseason state for clean dry runs.
+- Scope: `src/app/admin/[slug]/actions.ts`.
+- Notes: "Set: Pre-Season" clears preseason-owners, owners CSV, draft state for target year. "Reset to 2025 Season" also clears all 2026 state including schedule-probe. "Reset Draft" unchanged (draft + owners CSV only).
+
+### P7B-ROSTER-CHECK-FIX
+- Purpose: `hasRoster` falls back to owners CSV so a completed draft satisfies roster requirement.
+- Scope: `src/app/admin/[slug]/preseason/page.tsx`.
+- Notes: Fetches `owners:${slug}:${year}/csv` in parallel; `hasCsvRoster` = header + ≥2 data lines. Either source satisfies the check.
+
+### P7B-AUDIT-ROSTER-CHECK
+- Purpose: Read-only audit of `hasRoster` check — identified that confirm route writes owners CSV but `hasRoster` only reads preseason-owners store (different scope).
+- Scope: Read-only audit.
+
+### P7B-AUDIT-COMPLETE-SETUP-GUARD
+- Purpose: Verify Complete Setup button is disabled when roster not configured — confirmed `canGoLive` guard is correct.
+- Scope: Read-only audit of `src/app/admin/[slug]/preseason/page.tsx`.
+
+### P7B-DRAFT-SETUP-OWNERS-REMOVE
+- Purpose: Remove redundant owners add/remove section from `DraftSettingsPanel`.
+- Scope: `src/components/draft/DraftSettingsPanel.tsx`.
+- Notes: Owners initialized from `draftState.owners` or `priorOwners`; `setOwners` setter removed; handlers `handleAddOwner`/`handleRemoveOwner` removed. Draft order section unchanged.
+
+### P7B-CONTINUE-SETUP-LINK
+- Purpose: Add "Continue Setup →" links on draft board complete banner and draft summary page; fix `DraftSummaryClient` to use dual-auth pattern.
+- Scope: `src/components/draft/DraftHeaderArea.tsx`, `src/components/draft/DraftSummaryClient.tsx`, `src/components/draft/DraftBoardClient.tsx`, `src/app/admin/[slug]/page.tsx`.
+- Notes: "Continue Setup →" only shown when admin + league in preseason. `DraftSummaryClient` now uses `useUser()` from Clerk alongside `hasStoredAdminToken()`.
+
+### P7B-AUDIT-COMMISH-URL
+- Purpose: Read-only audit of commissioner URL patterns and auth detection across draft components.
+- Scope: Read-only audit.
+
+### P7B-DRAFT-START-FIX
+- Purpose: Fix "Start Draft" button causing redirect loop — phase not transitioned to `live` before navigation.
+- Scope: `src/components/draft/DraftSetupShell.tsx`.
+- Notes: `handleStartDraft()` now calls `PUT /api/draft/${slug}/${year}` with `{ phase: 'live' }` before `window.location.href` redirect.
+
+### P7B-OVERVIEW-BANNER-COUNTDOWN
+- Purpose: Add adaptive countdown label to draft scheduled banner (days away / tomorrow / today / starting soon).
+- Scope: `src/components/CFBScheduleApp.tsx`.
+
+### P7B-OVERVIEW-BANNER-STYLE-FIX
+- Purpose: Fix banner using wrong year (2025 vs 2026) and draft fetch not finding draft — both caused by using `league.year` instead of `leagueStatus.year`.
+- Scope: `src/components/CFBScheduleApp.tsx`, `src/app/league/[slug]/page.tsx`.
+- Notes: `bannerYear` and `draftLookupYear` now derived from `leagueStatus.year` when in preseason/season.
+
+### P7B-OVERVIEW-BANNER-STYLE
+- Purpose: Apply left-border accent styling and pulsing live indicator dot to overview lifecycle banners.
+- Scope: `src/components/CFBScheduleApp.tsx`.
+- Notes: 3px left border via inline styles; dark backgrounds; right-side-only border radius. CSS keyframes `cfb-pulse` and `cfb-pulse-ring` injected via `<style>` tag.
+
+### P7B-OVERVIEW-BANNER
+- Purpose: Add state-driven lifecycle banners and header subtitle to league overview page.
+- Scope: `src/components/CFBScheduleApp.tsx`, `src/app/league/[slug]/page.tsx`.
+- Notes: Banner system driven by `leagueStatus` prop. States: offseason, preseason (no draft/scheduled/in-progress/complete), season.
+
+### P7B-AUDIT-SEASON-STATE
+- Purpose: Read-only audit of league lifecycle state implementation — status storage, transition actions, UI rendering, year derivation.
+- Scope: Read-only audit.
+
+### P7B-PRESEASON-REGRESSION-FIX-2
+- Purpose: Bind "Complete Setup" button to `completeSetup()` (not `goLive()`); restore raw CSV migration in `migrateTestOwnersCsv`.
+- Scope: `src/app/admin/[slug]/preseason/page.tsx`, `src/app/admin/[slug]/components/TestLeagueControls.tsx`, `src/app/admin/[slug]/actions.ts`, `src/lib/league.ts`.
+- Notes: `completeSetup()` sets `{ state: 'preseason', setupComplete: true }` — no season transition. `migrateTestOwnersCsv` reads/writes raw CSV without parsing.
+
+### P7B-PRESEASON-REGRESSION-FIX
+- Purpose: Rename "Go Live" button label to "Complete Setup"; add "Migrate Owners →" button to TestLeagueControls.
+- Scope: `src/app/admin/[slug]/preseason/page.tsx`, `src/app/admin/[slug]/components/TestLeagueControls.tsx`.
+
+### P7B-PRESEASON-CHECKLIST-FIX
+- Purpose: Remove "Season live" item from preseason checklist — it was circular and unsatisfiable via the checklist flow.
+- Scope: `src/app/admin/[slug]/preseason/page.tsx`.
+
 ### P7B-SEASON-TRANSITION-C
 - Purpose: Pre-season overview page with owner rosters and schedule placeholder. Prevent prior season data bleed-through. Update all project documentation.
 - Scope: `src/components/CFBScheduleApp.tsx`, `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`.
