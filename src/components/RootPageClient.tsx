@@ -22,13 +22,13 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
       <Show when="signed-out">
         <main className="relative flex min-h-screen flex-col items-center justify-center bg-white px-6 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
           <div className="max-w-lg space-y-5 text-center">
-            <h1 className="text-4xl font-bold tracking-tight">CFB League Dashboard</h1>
+            <h1 className="text-4xl font-bold tracking-tight">Turf War</h1>
             <p className="text-lg text-gray-500 dark:text-zinc-400">
               College football pool management for your league
             </p>
             <p className="text-sm text-gray-400 dark:text-zinc-500">Enter your league URL to get started</p>
             <code className="block rounded border border-gray-300 bg-gray-100 px-4 py-2 font-mono text-sm text-gray-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-              cfb-app.vercel.app/league/your-league-slug
+              turfwar.games/league/your-league-slug
             </code>
           </div>
 
@@ -50,7 +50,7 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
           <div className="mx-auto max-w-4xl">
             <div className="mb-8 flex items-center justify-between">
               <div>
-                <h1 className="text-2xl font-bold">CFB League Dashboard</h1>
+                <h1 className="text-2xl font-bold">Turf War</h1>
                 <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">Platform admin</p>
               </div>
               <UserButton />

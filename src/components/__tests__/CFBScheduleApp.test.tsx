@@ -80,7 +80,7 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
 test('league surface keeps admin tooling off the landing page when a schedule can render', () => {
   const html = renderToStaticMarkup(<CFBScheduleApp initialGames={[game()]} />);
 
-  assert.match(html, /CFB League Dashboard/);
+  assert.match(html, /Turf War/);
   assert.match(html, /League overview/);
   assert.match(html, /Overview/);
   assert.match(html, /Admin \/ Debug/);
