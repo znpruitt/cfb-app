@@ -47,11 +47,10 @@ export default function DraftSettingsPanel({
   fbsTeamCount,
   onAdvance,
 }: DraftSettingsPanelProps): React.ReactElement {
-  const [owners, setOwners] = useState<string[]>(() => {
+  const [owners] = useState<string[]>(() => {
     if (draftState.owners.length > 0) return draftState.owners;
     return priorOwners.length > 0 ? priorOwners : [];
   });
-  const [newOwner, setNewOwner] = useState('');
   const existing = draftState.settings;
 
   // Detect initial order mode
@@ -165,21 +164,6 @@ export default function DraftSettingsPanel({
     });
   }, []);
 
-  // --- Owner management ---
-  function handleAddOwner() {
-    const trimmed = newOwner.trim();
-    if (!trimmed || owners.includes(trimmed)) return;
-    setOwners((prev) => [...prev, trimmed]);
-    setManualOrder((prev) => [...prev, trimmed]);
-    setNewOwner('');
-  }
-
-  function handleRemoveOwner(idx: number) {
-    const removed = owners[idx]!;
-    setOwners((prev) => prev.filter((_, i) => i !== idx));
-    setManualOrder((prev) => prev.filter((o) => o !== removed));
-  }
-
   function buildDraftOrder(): string[] {
     switch (orderMode) {
       case 'random':
@@ -284,58 +268,6 @@ export default function DraftSettingsPanel({
       </h2>
 
       <div className="space-y-6">
-        {/* Owners */}
-        <section>
-          <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-zinc-100">
-            Owners
-          </h3>
-          {owners.length === 0 && (
-            <p className="mb-2 rounded-lg border border-dashed border-gray-300 px-4 py-4 text-center text-sm text-gray-500 dark:border-zinc-600 dark:text-zinc-400">
-              No owners yet — add at least 2 owners below.
-            </p>
-          )}
-          <ul className="mb-3 space-y-1.5">
-            {owners.map((owner, idx) => (
-              <li key={idx} className="flex items-center gap-2">
-                <span className="w-5 shrink-0 text-right text-xs text-gray-400 dark:text-zinc-500">
-                  {idx + 1}.
-                </span>
-                <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-zinc-100">{owner}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveOwner(idx)}
-                  disabled={owners.length <= 2}
-                  className="rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-30 dark:text-red-400 dark:hover:bg-red-950/30"
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newOwner}
-              onChange={(e) => setNewOwner(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleAddOwner(); }}
-              placeholder="Add owner…"
-              className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-            />
-            <button
-              type="button"
-              onClick={handleAddOwner}
-              disabled={!newOwner.trim()}
-              className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60"
-            >
-              Add
-            </button>
-          </div>
-          {trimmedOwners.length < 2 && (
-            <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">At least 2 owners required.</p>
-          )}
-        </section>
-
         {/* Draft Order */}
         <section>
           <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-zinc-100">
