@@ -70,9 +70,9 @@ export async function resetTestDraft(): Promise<void> {
  * Also clears all 2026 preseason/draft state so the next dry run starts clean.
  */
 export async function resetTestLeague(): Promise<void> {
+  await updateLeague('test', { year: 2025 });
+  await updateLeagueStatus('test', { state: 'season', year: 2025 });
   await Promise.all([
-    updateLeague('test', { year: 2025 }),
-    updateLeagueStatus('test', { state: 'season', year: 2025 }),
     deleteAppState('preseason-owners:test', '2026'),
     deleteAppState('owners:test:2026', 'csv'),
     deleteAppState(draftScope('test'), '2026'),
