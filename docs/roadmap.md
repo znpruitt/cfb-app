@@ -328,9 +328,37 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - Complete migration of aliases from year-scoped to global platform scope
 - Remove legacy year-scoped alias support code
 
-### Season State Transition Workflow (planned)
-- Draft confirm/lock action triggers season state transition
-- Formalize the preseason → season lifecycle with explicit confirmation steps
+### Season State Transition Workflow ✓ Complete
+- "Go Live" renamed to "Complete Setup" — decoupled from state transition
+- Automatic season transition via Vercel cron job (weekly Wednesday midnight UTC)
+- Schedule probe: CFBD fetch → cache → derive first game date → transition the day before
+- `setupComplete` flag on preseason `LeagueStatus` variant
+- Pre-season overview with owner rosters and schedule placeholder
+- See `docs/completed-work.md` for full record
+
+### Preseason Insights Panel (planned)
+Replace the empty insights area during preseason with meaningful, data-driven content that upgrades automatically as data becomes available. No commissioner action needed beyond what the cron already handles.
+
+**Tier 1 — Always available (static data from history archives + draft results)**
+- Defending champion, runner-up, longest championship drought, most titles
+- Biggest collapse (highest finish drop year-over-year)
+- Draft-based: conference concentration per owner, most/least diversity, owner with most teams from one conference
+
+**Tier 2 — August (once CFBD publishes preseason AP poll)**
+- Most preseason top-25 teams per owner
+- Highest-ranked team drafted
+- Owner with the most ranked opponents on their schedule
+
+**Tier 3 — Schedule cached (cron-driven, before first game)**
+- Schedule strength per owner (ranked opponent count, aggregate SP+)
+- Most home games, most rivalry games per owner
+- Earliest/latest bye weeks
+- Peak exposure weeks (most owner-relevant games in one week)
+- Owner vs owner matchup frequency ("Ballard plays himself 18 times")
+- Most common rivalry matchup across owners
+- Defending champion gauntlet (most games against last year's champion's teams)
+
+**Scope:** Insights selectors, rankings data, schedule data, overview panel, owner vs owner matchup derivation. Panel gracefully upgrades itself as each tier's data becomes available.
 
 ## Architecture rules
 

@@ -55,7 +55,8 @@ export default async function PreseasonPage({
     // Storage unavailable — checklist shows incomplete
   }
 
-  const canGoLive = hasRoster && teamsAssigned;
+  const canCompleteSetup = hasRoster && teamsAssigned;
+  const isSetupComplete = league.status.setupComplete === true;
 
   // Teams assigned link target depends on chosen assignment method
   const teamsHref =
@@ -67,16 +68,16 @@ export default async function PreseasonPage({
 
   const completeSetupAction = completeSetup.bind(null, slug, year);
 
-  // Helper text for disabled Go Live button
+  // Helper text for disabled Complete Setup button
   const blockers = [
     !hasRoster && 'owners',
     !teamsAssigned && 'team assignment',
   ].filter(Boolean);
   const blockerText =
     blockers.length === 2
-      ? 'Complete owners and team assignment before going live.'
+      ? 'Complete owners and team assignment before finishing setup.'
       : blockers.length === 1
-        ? `Complete ${blockers[0]} before going live.`
+        ? `Complete ${blockers[0]} before finishing setup.`
         : '';
 
   return (
@@ -148,6 +149,24 @@ export default async function PreseasonPage({
               <span className="text-gray-400 dark:text-zinc-500">Teams assigned</span>
             )}
           </li>
+
+          {/* Setup complete — satisfied by Complete Setup action */}
+          <li className="flex items-center gap-2">
+            <span
+              className={
+                isSetupComplete ? 'text-green-600 dark:text-green-400' : 'text-gray-300 dark:text-zinc-600'
+              }
+            >
+              {isSetupComplete ? '✓' : '○'}
+            </span>
+            <span
+              className={
+                isSetupComplete ? 'text-gray-700 dark:text-zinc-300' : 'text-gray-400 dark:text-zinc-500'
+              }
+            >
+              Setup complete
+            </span>
+          </li>
         </ol>
       </section>
 
@@ -166,23 +185,37 @@ export default async function PreseasonPage({
         </p>
       )}
 
-      {/* Go Live */}
+      {/* Complete Setup */}
       <div className="space-y-2">
-        <form action={completeSetupAction}>
-          <button
-            type="submit"
-            disabled={!canGoLive}
-            className={
-              canGoLive
-                ? 'px-4 py-2 rounded border border-blue-600 bg-blue-600 text-sm font-medium text-white transition-colors hover:bg-blue-700 hover:border-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700'
-                : 'px-4 py-2 rounded border border-gray-200 bg-gray-100 text-sm text-gray-400 cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500'
-            }
-          >
-            Complete Setup
-          </button>
-        </form>
-        {!canGoLive && blockerText && (
-          <p className="text-xs text-gray-400 dark:text-zinc-500">{blockerText}</p>
+        {isSetupComplete ? (
+          <div className="flex items-center gap-2">
+            <span className="px-4 py-2 rounded border border-green-600 bg-green-50 text-sm font-medium text-green-700 dark:border-green-700 dark:bg-green-950 dark:text-green-400">
+              Setup Complete ✓
+            </span>
+            <span className="text-xs text-gray-500 dark:text-zinc-400">
+              Season will go live automatically before the first game.
+            </span>
+          </div>
+        ) : (
+          <>
+            <form action={completeSetupAction}>
+              <button
+                type="submit"
+                disabled={!canCompleteSetup}
+                className={
+                  canCompleteSetup
+                    ? 'px-4 py-2 rounded border border-blue-600 bg-blue-600 text-sm font-medium text-white transition-colors hover:bg-blue-700 hover:border-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700'
+                    : 'px-4 py-2 rounded border border-gray-200 bg-gray-100 text-sm text-gray-400 cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500'
+                }
+              >
+                Complete Setup
+              </button>
+            </form>
+            {!canCompleteSetup && blockerText && (
+              <p className="text-xs text-gray-400 dark:text-zinc-500">{blockerText}</p>
+            )}
+          </>
+
         )}
       </div>
     </main>

@@ -19,6 +19,11 @@ import {
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import {
+  getScheduleProbeState,
+  saveScheduleProbeState,
+  deriveFirstGameDate,
+} from '@/lib/scheduleProbe';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 3600;
@@ -75,7 +80,7 @@ function parseBooleanQueryParam(raw: string | null): boolean {
 function seasonYearForToday(now = new Date()): number {
   const month = now.getUTCMonth();
   const year = now.getUTCFullYear();
-  return month >= 7 ? year : year - 1;
+  return month >= 6 ? year : year - 1;
 }
 
 function pruneCache(cache: typeof SCHEDULE_ROUTE_CACHE, label: string) {
@@ -445,6 +450,21 @@ export async function GET(req: Request) {
   SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
   pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
   await setAppState('schedule', cacheKey, nextCacheEntry);
+
+  // Update schedule probe state when a full-season admin refresh completes
+  if (bypassCache && week === null && requestedSeasonType === 'all' && items.length > 0) {
+    try {
+      const existingProbe = await getScheduleProbeState(year);
+      const firstGameDate = deriveFirstGameDate(items);
+      await saveScheduleProbeState({
+        year,
+        baseCachedAt: existingProbe?.baseCachedAt ?? new Date(now).toISOString(),
+        firstGameDate,
+      });
+    } catch {
+      // Non-fatal — probe state update failure should not block the schedule response
+    }
+  }
 
   if (IS_DEBUG) {
     console.log('schedule route summary', {

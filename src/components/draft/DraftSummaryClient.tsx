@@ -444,7 +444,7 @@ export default function DraftSummaryClient({
         <section className="border-t border-gray-200 pt-6 dark:border-zinc-700">
           <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/40">
             <span className="text-sm text-gray-600 dark:text-zinc-400">
-              Ready to go live?
+              Ready to complete setup?
             </span>
             <a
               href={`/admin/${slug}/preseason`}

@@ -128,12 +128,17 @@ See `docs/completed-work.md` for full record.
 
 Carousel redesign (5-card landscape strip, crossfade, round boundary sidebars, mobile 3-card), page layout (1400px centered, responsive padding), timer/round fixes (timerExpiryBehavior, round-boundary pick-through, round-count hard-cap), draft summary page (public, conference column, display name resolution), complete banners on all surfaces. PRs #262–#266. See `docs/completed-work.md`.
 
+## P7B Season Transition ✅ Complete
+
+Season transition architecture shipped. Branch `claude/audit-season-transition-pwKfH`. See `docs/completed-work.md` for full record.
+
 ## Next priorities
 
-1. **Dry run with league organizer colleague** — End-to-end walkthrough of draft setup → live draft → summary → season start
-2. **App naming decision** — Finalize product name for deployment
-3. **Test League reset for next dry run** — Clear test data, reset lifecycle state
-4. **Begin next campaign** — Priority TBD based on dry run feedback (likely Draft Difficulty Settings or Back Button Audit)
+1. **Generate and set `CRON_SECRET` in Vercel dashboard** — Required for the season transition cron job to authenticate. Run `openssl rand -base64 32` and add as `CRON_SECRET` env var in Vercel project settings (Production scope). Also add to `.env.local` for local testing.
+2. **Dry run with league organizer** — End-to-end walkthrough: offseason → begin preseason → confirm owners → draft → complete setup → verify cron transition
+3. **App naming decision** — Finalize product name for deployment
+4. **Clerk production instance migration** — Migrate from development to production Clerk instance, re-configure session token and `publicMetadata`
+5. **Begin next campaign** — Priority TBD based on dry run feedback (likely Draft Difficulty Settings, Back Button Audit, or P7A-4 Aliases Platform Migration)
 
 ## Upcoming phases
 
@@ -146,6 +151,10 @@ Carousel redesign (5-card landscape strip, crossfade, round boundary sidebars, m
 - `ADMIN_API_TOKEN` full removal
 
 See `docs/roadmap.md` for full Phase 8 scope.
+
+### Preseason Insights Panel (planned)
+
+Replace the empty insights area during preseason with data-driven content that upgrades automatically as data becomes available. Three tiers: Tier 1 (history + draft — always available), Tier 2 (AP poll — August), Tier 3 (schedule — cron-driven). See `docs/roadmap.md` for full scope definition.
 
 ## Out of scope for this queue
 

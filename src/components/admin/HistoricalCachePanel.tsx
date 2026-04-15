@@ -21,8 +21,9 @@ type CacheResult = {
 
 export default function HistoricalCachePanel({ leagues }: Props) {
   const now = new Date();
-  // CFB season starts in late August. Month >= 7 (Aug) means the current year is the active season.
-  const currentSeasonYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  // CFB season starts in late August. Month >= 6 (Jul) means the current year is the active season
+  // to cover preseason setup which begins before August.
+  const currentSeasonYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
   const defaultHistoricalYear = currentSeasonYear - 1;
   const [year, setYear] = useState(defaultHistoricalYear);
   const [scheduleLoading, setScheduleLoading] = useState(false);

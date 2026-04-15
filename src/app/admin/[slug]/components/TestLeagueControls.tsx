@@ -12,6 +12,7 @@ const resetBtnClass =
 export default function TestLeagueControls() {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
+  const [migrateMsg, setMigrateMsg] = useState<string | null>(null);
 
   function handle(state: 'season' | 'offseason' | 'preseason') {
     startTransition(async () => {
@@ -33,7 +34,9 @@ export default function TestLeagueControls() {
 
   function handleMigrateOwners() {
     startTransition(async () => {
-      await migrateTestOwnersCsv(2025, 2026);
+      setMigrateMsg(null);
+      const result = await migrateTestOwnersCsv(2025, 2026);
+      setMigrateMsg(result);
     });
   }
 
@@ -68,7 +71,7 @@ export default function TestLeagueControls() {
           Set: Pre-Season
         </button>
         <button className={btnClass} disabled={pending} onClick={handleMigrateOwners}>
-          Migrate Owners →
+          Migrate Owners 2025 → 2026
         </button>
         <button className={btnClass} disabled={pending} onClick={handleAutoCompleteDraft}>
           Auto-complete Draft →
@@ -80,6 +83,9 @@ export default function TestLeagueControls() {
           Reset to 2025 Season
         </button>
       </div>
+      {migrateMsg && (
+        <p className="text-xs text-gray-600 dark:text-zinc-400">{migrateMsg}</p>
+      )}
       {message && (
         <p className="text-xs text-gray-600 dark:text-zinc-400">{message}</p>
       )}

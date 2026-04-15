@@ -109,26 +109,13 @@ export async function confirmPreseasonOwners(
   redirect(`/admin/${slug}/preseason`);
 }
 
-/** Transition a league from preseason to season and redirect to the league hub. */
-export async function goLive(slug: string, year: number): Promise<void> {
-  const league = await getLeague(slug);
-  if (!league) throw new Error('League not found');
-  if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
-  await updateLeagueStatus(slug, { state: 'season', year });
-  await updateLeague(slug, { year });
-  redirect(`/admin/${slug}`);
-}
-
-/**
- * Mark preseason setup as complete without transitioning to season state.
- * The season transition is handled separately (e.g. by the commissioner
- * clicking Go Live or by an automated process).
- */
+/** Mark preseason setup as complete. Season transition happens automatically via cron. */
 export async function completeSetup(slug: string, year: number): Promise<void> {
   const league = await getLeague(slug);
   if (!league) throw new Error('League not found');
   if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
   await updateLeagueStatus(slug, { state: 'preseason', year, setupComplete: true });
+  await updateLeague(slug, { year });
   revalidatePath(`/admin/${slug}`);
   revalidatePath(`/admin/${slug}`, 'layout');
   revalidatePath(`/admin/${slug}/preseason`);
@@ -136,16 +123,20 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
 }
 
 /**
- * Copy the raw owner CSV verbatim from one year to another.
- * Test league only — sandbox control for quickly populating a new season's roster.
+ * Copy owners CSV from one year key to the next. Only valid for slug='test'.
+ * Useful when draft was confirmed before the preseason year bump.
  */
-export async function migrateTestOwnersCsv(fromYear: number, toYear: number): Promise<void> {
-  const csvRecord = await getAppState<string>(`owners:test:${fromYear}`, 'csv');
-  const csvText = typeof csvRecord?.value === 'string' ? csvRecord.value : '';
-  if (!csvText) throw new Error(`No owner CSV found for test league year ${fromYear}`);
-
-  await setAppState(`owners:test:${toYear}`, 'csv', csvText);
+export async function migrateTestOwnersCsv(
+  fromYear: number,
+  toYear: number
+): Promise<string> {
+  const record = await getAppState<string>(`owners:test:${fromYear}`, 'csv');
+  if (!record?.value) {
+    return `No owners CSV found at owners:test:${fromYear}`;
+  }
+  await setAppState(`owners:test:${toYear}`, 'csv', record.value);
   revalidatePath('/admin/test');
+  return `Migrated owners CSV from ${fromYear} → ${toYear} (${record.value.length} chars)`;
 }
 
 /**
