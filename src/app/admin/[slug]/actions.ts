@@ -34,7 +34,13 @@ export async function setTestLeagueStatus(
         : cur?.state === 'preseason'
           ? cur.year
           : league.year + 1;
-    await updateLeagueStatus('test', { state: 'preseason', year: preseasonYear });
+    // Clear preseason state for the target year so each test starts fresh
+    await Promise.all([
+      updateLeagueStatus('test', { state: 'preseason', year: preseasonYear }),
+      deleteAppState('preseason-owners:test', String(preseasonYear)),
+      deleteAppState(`owners:test:${preseasonYear}`, 'csv'),
+      deleteAppState(draftScope('test'), String(preseasonYear)),
+    ]);
   }
 
   revalidatePath('/admin/test');
@@ -58,10 +64,19 @@ export async function resetTestDraft(): Promise<void> {
   revalidatePath('/admin/test');
 }
 
-/** Hard-reset the test league to { state: 'season', year: 2025 }, syncing league.year too. */
+/**
+ * Hard-reset the test league to { state: 'season', year: 2025 }, syncing league.year too.
+ * Also clears all 2026 preseason/draft state so the next dry run starts clean.
+ */
 export async function resetTestLeague(): Promise<void> {
-  await updateLeague('test', { year: 2025 });
-  await updateLeagueStatus('test', { state: 'season', year: 2025 });
+  await Promise.all([
+    updateLeague('test', { year: 2025 }),
+    updateLeagueStatus('test', { state: 'season', year: 2025 }),
+    deleteAppState('preseason-owners:test', '2026'),
+    deleteAppState('owners:test:2026', 'csv'),
+    deleteAppState(draftScope('test'), '2026'),
+    deleteAppState('schedule-probe', '2026'),
+  ]);
   revalidatePath('/admin/test');
 }
 
