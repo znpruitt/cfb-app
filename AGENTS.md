@@ -16,11 +16,11 @@ The app is now **API-first** for game loading and live enrichment:
 
 Changes should favor low-risk, behavior-preserving refactors unless explicitly asked otherwise.
 
-## Phase status
+## Project status
 
-- Phase 1 (architecture stabilization): Complete.
-- Phase 2 (core league surfaces + UX/engagement + visual sweep): Substantially complete. Phase 2D form dots polish in PR #183.
-- Active focus: Phase 2D close-out, then planning pause before Phase 3.
+All foundational phases are complete (architecture, production hardening, league UX, multi-league, historical analytics, draft tool, admin auth, design audit, commissioner self-service, season lifecycle, launch prep). Work is now organized into named workstream campaigns — see `docs/roadmap.md` and `docs/next-tasks.md`.
+
+Active campaigns: INSIGHTS (Game Stats Pipeline → Insights Engine), DRAFT (Slow Draft Mode), POLISH (Copy/UX Writing Audit), PLATFORM (Auth Hardening).
 
 ---
 
@@ -147,7 +147,10 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
      - `PROMPT_ID`
      - `PURPOSE`
      - `SCOPE`
-   - Use this standard ID format: `<PHASE>-<AREA>-<SHORT_NAME>-v<version>`
+   - Use this standard ID format: `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
+   - Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`.
+   - Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
+   - Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
    - IDs should be human-readable and stable for later reference.
    - Bump the version when behavior or scope changes materially.
    - Minor wording-only edits may keep the same version if task intent is unchanged.
