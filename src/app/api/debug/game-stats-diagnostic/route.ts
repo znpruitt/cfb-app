@@ -115,6 +115,43 @@ export async function GET(req: Request): Promise<Response> {
   const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
+  // Raw cache inspection: load 2025:1:regular directly from appStateStore
+  const rawCacheRecord = await getAppState<unknown>('game-stats', '2025:1:regular');
+  const rawCacheValue = rawCacheRecord?.value as Record<string, unknown> | null;
+
+  let rawInspection: unknown = null;
+  if (rawCacheValue && Array.isArray(rawCacheValue.games) && rawCacheValue.games.length > 0) {
+    const firstGame = rawCacheValue.games[0] as Record<string, unknown>;
+    rawInspection = {
+      topLevelKeys: Object.keys(rawCacheValue),
+      gamesCount: (rawCacheValue.games as unknown[]).length,
+      firstGame,
+    };
+  } else {
+    rawInspection = {
+      hasRecord: !!rawCacheRecord,
+      hasValue: !!rawCacheValue,
+      topLevelKeys: rawCacheValue ? Object.keys(rawCacheValue) : null,
+      gamesField: rawCacheValue?.games ?? 'missing',
+    };
+  }
+
+  // Also load via typed getter for comparison
+  const typedStats = await getCachedGameStats(2025, 1, 'regular');
+  let typedInspection: unknown = null;
+  if (typedStats && typedStats.games.length > 0) {
+    const g = typedStats.games[0];
+    typedInspection = {
+      homeSchool: g.home.school,
+      awaySchool: g.away.school,
+      homeSchoolId: g.home.schoolId,
+      awaySchoolId: g.away.schoolId,
+      providerGameId: g.providerGameId,
+    };
+  } else {
+    typedInspection = { hasStats: !!typedStats, gamesCount: typedStats?.games?.length ?? 0 };
+  }
+
   const teams = await getTeamDatabaseItems();
   const seasons: Record<string, SeasonDiagnostic | { error: string }> = {};
 
@@ -252,5 +289,5 @@ export async function GET(req: Request): Promise<Response> {
     }
   }
 
-  return NextResponse.json({ seasons });
+  return NextResponse.json({ rawCacheInspection: rawInspection, typedCacheInspection: typedInspection, seasons });
 }
