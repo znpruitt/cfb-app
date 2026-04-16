@@ -98,6 +98,17 @@ type SeasonDiagnostic = {
   weeksLoaded: number;
   totalGames: number;
   owners: OwnerSeasonSummary[];
+  debug?: {
+    ownersCsvRows: number;
+    ownersCsvTeamsSample: string[];
+    gameStatsTeamsSample: string[];
+    rosterMapKeys: string[];
+    resolvedTeams: number;
+    unresolvedTeams: number;
+    unresolvedSample: string[];
+    aliasCount: number;
+    teamDatabaseCount: number;
+  };
 };
 
 export async function GET(req: Request): Promise<Response> {
@@ -146,6 +157,11 @@ export async function GET(req: Request): Promise<Response> {
       let totalGames = 0;
       let weeksLoaded = 0;
 
+      // Debug: track resolution hits/misses for first year only
+      const debugResolved = new Set<string>();
+      const debugUnresolved = new Set<string>();
+      const debugGameTeamNames = new Set<string>();
+
       for (const key of weekKeys) {
         const parts = key.split(':');
         if (parts.length !== 3) continue;
@@ -164,8 +180,13 @@ export async function GET(req: Request): Promise<Response> {
           ];
 
           for (const { team, opponent } of sides) {
+            debugGameTeamNames.add(team.school);
             const owner = resolveOwner(team, rosterByTeam, resolver);
-            if (!owner) continue;
+            if (!owner) {
+              debugUnresolved.add(team.school);
+              continue;
+            }
+            debugResolved.add(team.school);
 
             const acc = accumulators.get(owner) ?? emptyAccumulator();
             addTeamToAccumulator(acc, team, opponent);
@@ -210,7 +231,22 @@ export async function GET(req: Request): Promise<Response> {
 
       owners.sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0));
 
-      seasons[String(year)] = { weeksLoaded, totalGames, owners };
+      seasons[String(year)] = {
+        weeksLoaded,
+        totalGames,
+        owners,
+        debug: {
+          ownersCsvRows: ownerRows.length,
+          ownersCsvTeamsSample: ownerRows.slice(0, 5).map((r) => r.team),
+          gameStatsTeamsSample: Array.from(debugGameTeamNames).slice(0, 5),
+          rosterMapKeys: Array.from(rosterByTeam.keys()).slice(0, 5),
+          resolvedTeams: debugResolved.size,
+          unresolvedTeams: debugUnresolved.size,
+          unresolvedSample: Array.from(debugUnresolved).slice(0, 10),
+          aliasCount: Object.keys(aliasMap).length,
+          teamDatabaseCount: teams.length,
+        },
+      };
     } catch (err) {
       seasons[String(year)] = { error: err instanceof Error ? err.message : 'unknown error' };
     }
