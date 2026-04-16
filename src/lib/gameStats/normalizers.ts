@@ -78,6 +78,12 @@ function normalizeTeam(team: RawGameTeamStatsTeam): TeamGameStats {
     penaltyCount,
     penaltyYards,
     possessionSeconds: parsePossessionTime(raw.possessionTime),
+    interceptionReturnYards: safeInt(raw.interceptionYards),
+    interceptionReturnTDs: safeInt(raw.interceptionTDs),
+    kickReturnYards: safeInt(raw.kickReturnYards),
+    kickReturnTDs: safeInt(raw.kickReturnTDs),
+    puntReturnYards: safeInt(raw.puntReturnYards),
+    puntReturnTDs: safeInt(raw.puntReturnTDs),
     raw,
   };
 }

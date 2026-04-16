@@ -51,6 +51,12 @@ export type TeamGameStats = {
   penaltyCount: number;
   penaltyYards: number;
   possessionSeconds: number;
+  interceptionReturnYards: number;
+  interceptionReturnTDs: number;
+  kickReturnYards: number;
+  kickReturnTDs: number;
+  puntReturnYards: number;
+  puntReturnTDs: number;
   raw: Record<string, string>;
 };
 
