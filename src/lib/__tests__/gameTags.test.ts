@@ -4,12 +4,11 @@ import test from 'node:test';
 import {
   computeGameTags,
   computeStandings,
-  computeWeeklyInsights,
   prioritizeGameTags,
   deriveGameHighlightTags,
   deriveLeagueInsights,
   deriveOverviewHighlightSignals,
-} from '../leagueInsights.ts';
+} from '../gameTags.ts';
 import type { OverviewGameItem } from '../overview.ts';
 import type { TeamRankingEnrichment } from '../rankings.ts';
 import type { AppGame } from '../schedule.ts';
@@ -665,64 +664,6 @@ test('computeStandings sorts by win pct, wins, then point differential', () => {
   );
 });
 
-test('computeWeeklyInsights returns owner activity and owned game totals', () => {
-  const gamesList = [
-    game({ key: 'w1', csvAway: 'A-Team', csvHome: 'B-Team' }),
-    game({ key: 'w2', csvAway: 'A-Team', csvHome: 'Open' }),
-    game({ key: 'w3', csvAway: 'C-Team', csvHome: 'D-Team' }),
-  ];
-  const ownership = new Map([
-    ['A-Team', 'Alex'],
-    ['B-Team', 'Blake'],
-    ['C-Team', 'Casey'],
-  ]);
-  const scores = {
-    w1: {
-      status: 'Final',
-      away: { team: 'A-Team', score: 31 },
-      home: { team: 'B-Team', score: 20 },
-      time: null,
-    },
-    w2: {
-      status: 'In Progress',
-      away: { team: 'A-Team', score: 14 },
-      home: { team: 'Open', score: 7 },
-      time: '09:33',
-    },
-  };
-
-  const insights = computeWeeklyInsights(gamesList, scores, ownership);
-  assert.equal(insights.mostActiveOwner, 'Alex');
-  assert.equal(insights.mostActiveGames, 2);
-  assert.equal(insights.ownedVsOwnedGames, 1);
-  assert.equal(insights.totalOwnedGames, 3);
-  assert.equal(insights.leaderThisWeek, 'Alex');
-});
-
-test('computeWeeklyInsights excludes same-owner matchups from owner-vs-owner totals', () => {
-  const gamesList = [game({ key: 'same-owner', csvAway: 'A-Team', csvHome: 'B-Team' })];
-  const ownership = new Map([
-    ['A-Team', 'Alex'],
-    ['B-Team', 'Alex'],
-  ]);
-
-  const insights = computeWeeklyInsights(gamesList, {}, ownership);
-  assert.equal(insights.totalOwnedGames, 1);
-  assert.equal(insights.ownedVsOwnedGames, 0);
-});
-
-test('computeWeeklyInsights counts owner-vs-owner games when owners differ', () => {
-  const gamesList = [game({ key: 'different-owner', csvAway: 'A-Team', csvHome: 'B-Team' })];
-  const ownership = new Map([
-    ['A-Team', 'Alex'],
-    ['B-Team', 'Blair'],
-  ]);
-
-  const insights = computeWeeklyInsights(gamesList, {}, ownership);
-  assert.equal(insights.totalOwnedGames, 1);
-  assert.equal(insights.ownedVsOwnedGames, 1);
-});
-
 test('computeGameTags marks Top 25 when both teams are ranked', () => {
   const taggedGame = game({ key: 'top-25', csvAway: 'Dogs', csvHome: 'Cats' });
   const ownership = new Map<string, string>();
@@ -874,27 +815,6 @@ test('computeGameTags does not emit Top 25 when rankings are unavailable', () =>
   };
 
   assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), []);
-});
-
-test('computeWeeklyInsights reports no live leader when games are not live', () => {
-  const insights = computeWeeklyInsights(
-    [game({ key: 'no-live', csvAway: 'A-Team', csvHome: 'B-Team' })],
-    {
-      'no-live': {
-        status: 'Scheduled',
-        away: { team: 'A-Team', score: null },
-        home: { team: 'B-Team', score: null },
-        time: null,
-      },
-    },
-    new Map([
-      ['A-Team', 'Alex'],
-      ['B-Team', 'Blair'],
-    ])
-  );
-
-  assert.equal(insights.mostLiveGames, 0);
-  assert.equal(insights.mostLiveOwner, null);
 });
 
 test('prioritizeGameTags applies upset > upset_watch > top_25_matchup ordering with dedupe', () => {

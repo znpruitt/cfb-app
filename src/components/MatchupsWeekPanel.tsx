@@ -8,7 +8,7 @@ import {
   computeStandings,
   LEAGUE_TAG_LABELS,
   prioritizeGameTags,
-} from '../lib/leagueInsights';
+} from '../lib/gameTags';
 import {
   deriveOwnerWeekSlates,
   deriveWeekMatchupSections,

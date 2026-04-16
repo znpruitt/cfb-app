@@ -4,7 +4,7 @@ import {
   formatScoreSummaryLabel,
   isDisruptedStatusLabel,
 } from '../gameStatus';
-import { computeGameTags, prioritizeGameTags, type LeagueGameTag } from '../leagueInsights';
+import { computeGameTags, prioritizeGameTags, type LeagueGameTag } from '../gameTags';
 import type { CombinedOdds } from '../odds';
 import type { TeamRankingEnrichment } from '../rankings';
 import type { ScorePack } from '../scores';

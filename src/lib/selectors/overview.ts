@@ -3,7 +3,7 @@ import {
   deriveLeagueInsights,
   deriveOverviewHighlightSignals,
   type OverviewHighlightSignals,
-} from '../leagueInsights';
+} from '../gameTags';
 import { gameStateFromScore } from '../gameUi';
 import type { HighlightDrilldownTarget } from '../highlightDrilldown';
 import { isTruePostseasonGame } from '../postseason-display';
