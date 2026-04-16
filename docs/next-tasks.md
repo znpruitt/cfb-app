@@ -165,6 +165,14 @@ End-to-end dry run readiness shipped. Branch `claude/polish-draft-flow-Rv5AF`. P
 
 See `docs/roadmap.md` for full Phase 8 scope.
 
+### Game Stats Pipeline (planned)
+
+Fetch and cache weekly CFBD `game_team_stats` by week (same pattern as scores). Monday 11am UTC cron job. ~19 API calls/season. Owner stat aggregation derived at query time. Prerequisite for Insights Engine. See `docs/roadmap.md` for full scope.
+
+### Insights Engine (planned)
+
+Two weekly pulses (Monday look-back + Thursday forward-look) generating contextual narrative insights from standings, game stats, history, and owner rosters. 2–3 highlights on overview; full pulse on dedicated tab. AP poll and in-season stats require August start — Tier 1 history/roster insights can ship earlier. Requires Game Stats Pipeline. See `docs/roadmap.md` for full scope.
+
 ### Preseason Insights Panel (planned)
 
 Replace the empty insights area during preseason with data-driven content that upgrades automatically as data becomes available. Three tiers: Tier 1 (history + draft — always available), Tier 2 (AP poll — August), Tier 3 (schedule — cron-driven). See `docs/roadmap.md` for full scope definition.

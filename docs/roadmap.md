@@ -311,6 +311,44 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 
 ## Upcoming campaigns (post-P7B-7)
 
+### Game Stats Pipeline (planned)
+Fetch and cache weekly game-level team stats from CFBD to power the Insights Engine.
+
+- **Data source:** CFBD `game_team_stats` endpoint — one call per week, returns all team stats for all games in that week
+- **Storage:** Cached in `appStateStore` by week, same pattern as scores
+- **Cron:** Monday 11am UTC — fetch weekend game stats (complements existing Wednesday cron for season transition)
+- **Owner aggregation:** Sum/average stats across all teams owned by each owner, derived at query time using existing team→owner mapping
+- **Stats available:** Yards gained/allowed, turnovers, third-down conversion %, red zone efficiency, time of possession
+- **API cost:** ~19 additional calls per season — well within 1,000/month free tier
+- **Prerequisite for:** Insights Engine
+
+### Insights Engine (planned)
+Generate contextual, data-driven narrative insights that add value beyond what's visible in standings and tables.
+
+**Core principle:** Every insight must tell the user something they couldn't figure out just by reading the table. No restating visible data without a compelling angle.
+
+**Placement:** 2–3 highlight insights on overview page; full pulse on dedicated tab.
+
+**Two weekly pulses:**
+- **Monday 6am ET (11am UTC) — Look Back:** Weekend recap, notable results, standings movement, trash-talk fodder, owner vs owner outcomes, surprising performances
+- **Thursday 6am ET (11am UTC) — Forward Look:** Games to watch this weekend, owner vs owner collision preview, rivalry implications, who needs a win
+
+**Data sources (tiered by availability):**
+- **Always available:** League history archive, current standings, owner rosters, head-to-head records
+- **August onward:** AP poll rankings per owner, preseason projections vs actual
+- **In-season:** Game stats (via Game Stats Pipeline), schedule strength, owner vs owner matchup frequency, form/momentum
+
+**Insight categories:**
+- Historical context ("Maleski's runner-up finish is the closest gap in 4 years")
+- Cross-table connections ("Pruitt leads standings but has the hardest remaining schedule")
+- Owner vs owner narrative ("Ballard has never beaten Pruitt in 6 matchups")
+- Championship race ("Three owners within 2 games of first with 4 weeks remaining")
+- Trash-talk fodder ("Shambaugh's teams have been outgained in 3 straight weeks")
+- Projection vs reality ("Jordan's roster was rated highest by SP+ but sits 8th")
+
+**Tone:** Mix of dry stats, narrative storytelling, and light humor.
+**Prerequisite:** Game Stats Pipeline
+
 ### Copy / UX Writing Audit (planned)
 Systematic review and rewrite of all user-facing strings for consistent voice and quality before public launch.
 - Inventory all UI copy: headings, subheadings, labels, empty states, error messages, button text, tooltips, banners
