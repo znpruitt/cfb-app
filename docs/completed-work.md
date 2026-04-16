@@ -9,6 +9,55 @@
 
 ## Completed phases / milestones
 
+### Insights Engine Foundation — Complete
+
+**Status:** Complete. PR #276 (`claude/review-insights-architecture-AAynV`).
+**PROMPT_IDs:** INSIGHTS-006-ARCHITECTURE-REVIEW, INSIGHTS-007-EXISTING-AUDIT, INSIGHTS-008-DEAD-CODE-CLEANUP, INSIGHTS-009-GENERATOR-RESTRUCTURE, POLISH-001-QUALITY-BASELINE, POLISH-002-RUNBOOK-UPDATE
+
+**Key outcomes:**
+- POLISH-001: Lint/typecheck baseline fully restored — 86 files reformatted, 1 test fixed, zero ESLint and TypeScript errors
+- POLISH-002: `docs/deployment-runbook.md` rewritten to reflect Clerk-based auth model (removed all `ADMIN_API_TOKEN` references)
+- INSIGHTS-007: Full audit of all existing insight logic — mapped every import site, consumer, and dead-code path before touching anything
+- INSIGHTS-008: Dead code removal — orphaned `computeWeeklyInsights` function and `WeeklyInsights` type deleted from `leagueInsights.ts`; active exports moved to new `src/lib/gameTags.ts`; 252 lines of dead code removed; all 5 import sites updated
+- INSIGHTS-009: Generator interface established:
+  - `src/lib/insights/types.ts` — `LifecycleState` (7 states), `InsightCategory` (9 categories), `InsightGenerator`, `InsightContext`, `OwnerSeasonStats`
+  - `src/lib/insights/engine.ts` — `registerGenerator()`, `runInsightsEngine()` (filters by lifecycle, try/catch isolation, sorted by priority, capped at 10)
+  - `src/lib/insights/generators/existing.ts` — trajectory, season_wrap, championship_race generators (self-registered at module load)
+  - `Insight` type extended with optional `category`, `lifecycle`, `stat` fields
+  - All 8 existing derive functions annotated with appropriate category and lifecycle
+  - Naming conflict resolved: legacy `deriveLeagueInsights` (gameTags.ts, `{id, text, priority}` shape) renamed to `deriveGameMovementInsights`; canonical `deriveLeagueInsights` (selectors/insights.ts, rich shape) retains its name
+
+**Key architectural decisions:**
+- Architecture audit (INSIGHTS-006, INSIGHTS-007) confirmed: extend `selectors/insights.ts`, do not replace it — the existing derive functions are sophisticated and well-tested
+- `deriveLeagueInsights` in `selectors/overview.ts` was incorrectly flagged as orphaned in the audit; discovered it feeds `shouldShowFeaturedMatchups` rendering gate via `deriveLeagueHighlights`
+- Three dead view model properties identified as future cleanup candidates: `viewModel.keyMovements`, `viewModel.leaguePulse`, `viewModel.shouldShowLeaguePulse` — computed but never read by any UI component
+
+---
+
+### Game Stats Pipeline — Complete
+
+**Status:** Complete. PRs #274–#275 (`claude/audit-cfbd-game-stats-06YHO`).
+**PROMPT_IDs:** P7B-GAME-STATS-PIPELINE-A, P7B-GAME-STATS-AUDIT, P7B-GAME-STATS-CACHE-PANEL, P7B-GAME-STATS-BACKFILL, P7B-GAME-STATS-NORMALIZE, INSIGHTS-002-LATEST-WEEK-FIX, INSIGHTS-003-DATA-DIAGNOSTIC, INSIGHTS-004-SCHOOL-NAME-FIX
+
+**Key outcomes:**
+- CFBD `/games/teams` endpoint integrated — one call per week, returns all team stats for all games in that week
+- Normalized fields: `totalYards`, `rushingYards`, `passingYards`, `turnovers`, `turnoverMargin`, `thirdDownPct`, `possessionSeconds`, plus 6 return stat fields (`interceptionReturnYards/TDs`, `kickReturnYards/TDs`, `puntReturnYards/TDs`)
+- Cache: `appStateStore` scope `game-stats`, key `${year}:${week}:${seasonType}`
+- Monday 11am UTC cron (`/api/cron/game-stats`) auto-fetches latest completed week
+- Admin cache panel: `GameStatsCachePanel` with "Refresh Game Stats" and "Backfill Full Season" buttons
+- Owner aggregation module: `aggregateOwnerGameStats()` resolves teams via `TeamIdentityResolver`, attributes per-game stats to each owner
+- Bug fixed (INSIGHTS-004): CFBD response uses `team` field not `school` for school name — corrected in normalizer
+- Bug fixed (INSIGHTS-002): Latest week detection uses calendar date (not week number) to avoid picking the current in-progress week
+- Diagnostic route: `GET /api/debug/game-stats-diagnostic` (admin-gated) for live inspection
+- 2021–2025 fully backfilled (5 seasons × ~19 weeks = 95 weeks cached)
+
+**Key architectural decisions:**
+- Stats accumulated at query time from per-game data — no pre-aggregated owner totals stored in the cache
+- `TeamIdentityResolver` (existing) used for team→owner resolution — no duplicate matching logic
+- API cost: ~19 additional CFBD calls per season — well within the 1,000/month free tier
+
+---
+
 ### P7B-6 — Draft Board UI Polish: Complete
 
 **Status:** Complete. Branch `claude/polish-draft-flow-Rv5AF`.

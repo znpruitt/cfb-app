@@ -52,19 +52,29 @@ Keep this intentionally small:
 
 ### Data & Intelligence
 
-#### Game Stats Pipeline (in progress)
+#### Game Stats Pipeline ✓ Complete
 Fetch and cache weekly game-level team stats from CFBD to power the Insights Engine.
 
 - **Data source:** CFBD `game_team_stats` endpoint — one call per week, returns all team stats for all games in that week
 - **Storage:** Cached in `appStateStore` by week, same pattern as scores
 - **Cron:** Monday 11am UTC — fetch weekend game stats (complements existing Wednesday cron for season transition)
-- **Owner aggregation:** Sum/average stats across all teams owned by each owner, derived at query time using existing team→owner mapping
-- **Stats available:** Yards gained/allowed, turnovers, third-down conversion %, red zone efficiency, time of possession, special teams return stats
+- **Owner aggregation:** `aggregateOwnerGameStats()` resolves teams via `TeamIdentityResolver`, attributes stats per owner at query time
+- **Stats available:** Yards gained/allowed, turnovers, turnover margin, third-down conversion %, time of possession, plus 6 special teams return stat fields
 - **API cost:** ~19 additional calls per season — well within 1,000/month free tier
-- **Prerequisite for:** Insights Engine
-- **Status:** Pipeline built (types, normalizers, cache, API route, cron route, admin panel with backfill). Six additional normalized fields (return stats) added.
+- **2021–2025 backfilled** (5 seasons × ~19 weeks = 95 weeks cached)
+- See `docs/completed-work.md` for full detail.
 
-#### Insights Engine (planned)
+#### Insights Engine Foundation ✓ Complete
+Generator interface, type system, and engine scaffolding for the Insights Engine.
+
+- `src/lib/insights/types.ts` — `LifecycleState` (7 states), `InsightCategory` (9 categories), `InsightGenerator`, `InsightContext`, `OwnerSeasonStats`
+- `src/lib/insights/engine.ts` — `registerGenerator()`, `runInsightsEngine()` with lifecycle filtering, try/catch isolation, priority sorting
+- `src/lib/insights/generators/existing.ts` — existing insights ported as registered generators (trajectory, season_wrap, championship_race)
+- Naming conflict resolved: legacy `deriveLeagueInsights` renamed to `deriveGameMovementInsights`
+- `Insight` type extended with `category`, `lifecycle`, `stat` optional fields
+- See `docs/completed-work.md` for full detail.
+
+#### Insights Engine (in progress)
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
 **Core principle:** Every insight must tell the user something they couldn't figure out just by reading the table. No restating visible data without a compelling angle.
@@ -94,7 +104,15 @@ Enrich the existing insights panel on the overview page with contextual, data-dr
 - Projection vs reality ("Jordan's roster was rated highest by SP+ but sits 8th")
 
 **Tone:** Mix of dry stats, narrative storytelling, and light humor.
-**Prerequisite:** Game Stats Pipeline
+**Prerequisite:** Game Stats Pipeline ✓, Insights Engine Foundation ✓
+
+**Remaining work:**
+- `buildInsightContext()` — assemble `InsightContext` from available data sources
+- `deriveLifecycleState()` — map `LeagueStatus` + `SeasonContext` + calendar to `LifecycleState`
+- New generators: Historical, Rivalry, Stats Outliers
+- API route to serve engine output to the UI
+
+**Future polish (non-blocking):** Remove dead view model properties `keyMovements`, `leaguePulse`, `shouldShowLeaguePulse` from `selectOverviewViewModel` — computed but never read by any component.
 
 ---
 
@@ -205,6 +223,9 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | App Naming: Turf War | ✅ Complete |
 | Clerk Production Migration | ✅ Complete |
 | Custom Domain Setup | ✅ Complete |
+| Game Stats Pipeline | ✅ Complete (PRs #274–#275) |
+| Insights Engine Foundation | ✅ Complete (PR #276) |
+| Insights Engine | 🔄 In Progress |
 
 ## Architecture rules
 

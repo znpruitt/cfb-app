@@ -16,6 +16,95 @@ The registry should remain:
 
 ## Active Prompts
 
+### DOCS-CLOSEOUT-002
+- Purpose: Update all project documentation to reflect Game Stats Pipeline completion and Insights Engine Foundation work.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Covers INSIGHTS-006 through INSIGHTS-009, POLISH-001/002, ROADMAP-RESTRUCTURE, DOCS-CLOSEOUT-001.
+
+### INSIGHTS-009-GENERATOR-RESTRUCTURE-v1
+- Purpose: Restructure `selectors/insights.ts` around a formal generator interface. Resolve the `deriveLeagueInsights` naming conflict. Add `category`, `lifecycle`, `stat` fields to `Insight` type. Port existing functions as registered generators.
+- Scope: `src/lib/insights/types.ts` (new), `src/lib/insights/engine.ts` (new), `src/lib/insights/generators/existing.ts` (new), `src/lib/selectors/insights.ts`, `src/lib/gameTags.ts`, `src/lib/selectors/overview.ts`, `src/lib/__tests__/gameTags.test.ts`.
+- Notes: PR #276. `deriveLeagueInsights` in `gameTags.ts` renamed to `deriveGameMovementInsights`. Canonical `deriveLeagueInsights` in `selectors/insights.ts` retains its name. All 8 derive functions annotated with category + lifecycle. 43/43 tests pass.
+
+### INSIGHTS-008-DEAD-CODE-CLEANUP-v1
+- Purpose: Remove orphaned narrative insight logic from `leagueInsights.ts`, relocate all actively-consumed exports to `gameTags.ts`, clean up associated orphaned tests.
+- Scope: `src/lib/gameTags.ts` (new, rename from `leagueInsights.ts`), `src/lib/__tests__/gameTags.test.ts` (renamed), `src/lib/selectors/gameWeek.ts`, `src/lib/selectors/overview.ts`, `src/components/GameWeekPanel.tsx`, `src/components/MatchupsWeekPanel.tsx`.
+- Notes: PR #276. Removed `computeWeeklyInsights`, `WeeklyInsights`, `addOwnerCount`, `scoreForSide`, `projectedWinsForOwner` (252 lines). Discovered `overview.ts` was an undiscovered active consumer of `deriveLeagueInsights` — kept and moved, not deleted.
+
+### INSIGHTS-007-EXISTING-AUDIT-v1
+- Purpose: Fully map all existing insight logic before building the Insights Engine. Read-only audit.
+- Scope: Read-only. All insight-related files: `selectors/insights.ts`, `leagueInsights.ts`, `selectors/overview.ts`, `StandingsPanel.tsx`, `OverviewPanel.tsx`, all test files.
+- Notes: Identified two functions named `deriveLeagueInsights` (naming conflict). Found `deriveLeagueInsights` in `leagueInsights.ts` was incorrectly flagged as orphaned — `overview.ts` actively consumes it at line 947.
+
+### INSIGHTS-006-ARCHITECTURE-REVIEW-v1
+- Purpose: Read-only review of proposed Insights Engine architecture. Validate design against codebase, identify gaps, naming conflicts, missing types.
+- Scope: Read-only audit.
+- Notes: Confirmed the two-`Insight`-type naming collision as a blocker requiring resolution before generator work begins. Recommended extending `selectors/insights.ts` rather than replacing it.
+
+### POLISH-002-RUNBOOK-UPDATE-v1
+- Purpose: Update `docs/deployment-runbook.md` to reflect current Clerk-based auth model.
+- Scope: `docs/deployment-runbook.md` only.
+- Notes: PR #276. Removed all `ADMIN_API_TOKEN` references. Added Clerk production instance setup, `platform_admin` role configuration, and Vercel environment variable checklist.
+
+### POLISH-001-QUALITY-BASELINE-v1
+- Purpose: Restore passing lint and TypeScript baseline. Fix all existing lint violations and type errors without changing any logic.
+- Scope: 86 source files reformatted (Prettier), 1 test fixed (`selectors-overview.test.ts`), zero ESLint violations.
+- Notes: PR #276. No logic changes. Type fixes were structural (missing `as const`, narrowing patterns); formatter fixes were style-only.
+
+### ROADMAP-RESTRUCTURE-v1
+- Purpose: Replace phase-based naming with campaign-based workstream organization in all project docs.
+- Scope: `docs/roadmap.md`, `docs/next-tasks.md`, `docs/completed-work.md`. No code changes.
+- Notes: Phase numbering retired. Existing `P{n}` prompt IDs grandfathered. New prompts use `{CAMPAIGN}-{###}` format. Campaign prefixes: INSIGHTS, DRAFT, PLATFORM, POLISH.
+
+### DOCS-CLOSEOUT-001-v1
+- Purpose: Update project docs after Game Stats Pipeline completion (P7B-GAME-STATS-PIPELINE-A through INSIGHTS-004).
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Captured pipeline build, backfill, normalization, school name fix, and latest week fix.
+
+### INSIGHTS-004-SCHOOL-NAME-FIX-v1
+- Purpose: Fix CFBD school name field — normalizer was reading `school` field but CFBD response uses `team` field name.
+- Scope: `src/lib/gameStats/normalizers.ts` only.
+- Notes: PR #275. Corrected field reference from `.school` to `.team` in `normalizeGameTeamStats()`.
+
+### INSIGHTS-003-DATA-DIAGNOSTIC-v1
+- Purpose: Add temporary diagnostic route for owner game stats to inspect raw cached structure and resolution chain.
+- Scope: `src/app/api/debug/game-stats-diagnostic/route.ts` (new). Admin-gated.
+- Notes: PR #275. Three build fixes (`INSIGHTS-003-BUILD-FIX`, `-FIX-2`, `-FIX-3`) applied. Debug-FIX applied for raw cache inspection.
+
+### INSIGHTS-002-LATEST-WEEK-FIX-v1
+- Purpose: Fix latest week detection — was using week number comparison which could pick the current in-progress week instead of the most recently completed one.
+- Scope: `src/app/api/cron/game-stats/route.ts`, `src/lib/gameStats/cache.ts`.
+- Notes: PR #274. Use calendar date to determine last completed week — compare against `new Date()` to exclude current week.
+
+### P7B-ROADMAP-INSIGHTS-CONSOLIDATE-v1
+- Purpose: Merge Preseason Insights Panel into Insights Engine campaign in roadmap.
+- Scope: `docs/roadmap.md` only. No code changes.
+
+### P7B-GAME-STATS-NORMALIZE-v1
+- Purpose: Add 6 special teams and defensive return fields to `TeamGameStats` and normalizer.
+- Scope: `src/lib/gameStats/types.ts`, `src/lib/gameStats/normalizers.ts`.
+- Notes: Fields: `interceptionReturnYards`, `interceptionReturnTDs`, `kickReturnYards`, `kickReturnTDs`, `puntReturnYards`, `puntReturnTDs`.
+
+### P7B-GAME-STATS-BACKFILL-v1
+- Purpose: Add "Backfill Full Season" button to game stats admin panel.
+- Scope: `src/components/admin/GameStatsCachePanel.tsx`.
+- Notes: Iterates all weeks 1–19 sequentially; progress shown inline.
+
+### P7B-GAME-STATS-CACHE-PANEL-v1
+- Purpose: Add `GameStatsCachePanel` with "Refresh Game Stats" button to admin cache page.
+- Scope: `src/components/admin/GameStatsCachePanel.tsx` (new), `src/app/admin/data/cache/page.tsx`.
+- Notes: Shows cache freshness per week. Refresh triggers `/api/game-stats` route.
+
+### P7B-GAME-STATS-PIPELINE-A-v1
+- Purpose: Build game stats data pipeline — types, normalizers, cache layer, owner aggregation, API route, cron route.
+- Scope: `src/lib/gameStats/types.ts` (new), `src/lib/gameStats/normalizers.ts` (new), `src/lib/gameStats/cache.ts` (new), `src/lib/gameStats/ownerStats.ts` (new), `src/app/api/game-stats/route.ts` (new), `src/app/api/cron/game-stats/route.ts` (new).
+- Notes: PR #274. One call per week to CFBD. `aggregateOwnerGameStats()` uses `TeamIdentityResolver`. Cache key `${year}:${week}:${seasonType}`.
+
+### P7B-GAME-STATS-AUDIT-v1
+- Purpose: Document CFBD game team stats endpoint shape and integration plan.
+- Scope: `docs/game-stats-audit.md` (new). Read-only analysis.
+- Notes: Confirmed endpoint `GET /games/teams`, documented all available stat categories, identified owner aggregation strategy.
+
 ### P7B-LAUNCH-DOCS-CLOSEOUT
 - Purpose: Update completed-work, roadmap, next-tasks, and prompt-registry to reflect all launch preparation work completed since P7B-DRY-RUN-DOCS-CLOSEOUT.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
