@@ -104,7 +104,7 @@ type DiagnosticResponse = {
   seasons: Record<string, SeasonDiagnostic | { error: string }>;
 };
 
-export async function GET(req: Request): Promise<NextResponse<DiagnosticResponse | { error: string }>> {
+export async function GET(req: Request): Promise<Response> {
   const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
 
