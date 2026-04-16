@@ -14,8 +14,9 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 | Workstream | Campaign | Status |
 |------------|----------|--------|
-| Data & Intelligence | Game Stats Pipeline | In progress |
-| Data & Intelligence | Insights Engine | Planned |
+| Data & Intelligence | Game Stats Pipeline | ✅ Complete |
+| Data & Intelligence | Insights Engine Foundation | ✅ Complete |
+| Data & Intelligence | Insights Engine | In progress |
 | Draft | Slow Draft Mode | Planned |
 | Draft | Draft Difficulty Settings | Planned |
 | Platform | Multi-tenant Commissioner Sign-up | Planned |
@@ -27,15 +28,20 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 ## Active priorities
 
-### 1. INSIGHTS — Game Stats normalization → Insights Engine
+### 1. INSIGHTS — Insights Engine generators and context assembler
 
-**Game Stats Pipeline** is in progress. Core pipeline shipped (types, normalizers, cache, API route, cron route, admin panel with backfill). Six additional normalized return stat fields added.
+**Foundation complete (PR #276).** Generator interface, types, engine, and existing insights ported as generators.
 
-**Next steps:**
-- Verify raw stat categories against live CFBD data (run a single backfill to confirm category list)
-- Build Insights Engine selector layer — derive owner-level insights from game stats + standings + history
-- Two weekly pulse system (Monday look-back, Thursday forward-look)
-- Preseason insights tier (history + draft stats — always available, no API dependency)
+**Next steps (new Claude Code session):**
+- `buildInsightContext()` — assemble `InsightContext` from all available data sources (standings history, games, game stats, archives, rosters, rankings)
+- `deriveLifecycleState()` — map `LeagueStatus` + `SeasonContext` + calendar to `LifecycleState` union
+- Historical generator — league history, drought streaks, defending champion context
+- Rivalry generator — owner vs owner head-to-head records
+- Stats outliers generator — leverages Game Stats Pipeline data
+- API route to serve engine output to the UI
+- Two weekly pulse system (Monday look-back, Thursday forward-look) — future milestone
+
+**Non-blocking future polish:** Remove dead view model properties (`keyMovements`, `leaguePulse`, `shouldShowLeaguePulse`) from `selectOverviewViewModel`.
 
 ### 2. DRAFT — Slow Draft Mode
 
@@ -65,6 +71,8 @@ All foundational work is complete. See `docs/completed-work.md` for full records
 - Season Lifecycle (P7B-4 through P7B-7)
 - Season Transition + Dry Run Polish
 - Launch Prep (Turf War naming, Clerk production, custom domain)
+- Game Stats Pipeline (PRs #274–#275)
+- Insights Engine Foundation (PR #276): generator interface, types, engine, naming conflict resolved
 
 ## Hosted deployment runbook
 
