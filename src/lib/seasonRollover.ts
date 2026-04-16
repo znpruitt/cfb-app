@@ -62,10 +62,7 @@ function scoresCacheItemToNormalizedRow(
  */
 export async function isSeasonComplete(year: number): Promise<boolean> {
   try {
-    const cached = await getAppState<{ items: ScheduleCacheItem[] }>(
-      'schedule',
-      `${year}-all-all`
-    );
+    const cached = await getAppState<{ items: ScheduleCacheItem[] }>('schedule', `${year}-all-all`);
     let items = cached?.value?.items ?? [];
 
     // Fall back to postseason-only cache if the combined key is absent
@@ -91,10 +88,7 @@ export async function isSeasonComplete(year: number): Promise<boolean> {
  * Does NOT write anything — pure assembly function.
  * Called by the rollover route for both the preview diff and the confirmed write.
  */
-export async function buildSeasonArchive(
-  leagueSlug: string,
-  year: number
-): Promise<SeasonArchive> {
+export async function buildSeasonArchive(leagueSlug: string, year: number): Promise<SeasonArchive> {
   // Load schedule items from cache (CacheEntry.items is ScheduleItem[] from cfbdSchedule.ts,
   // which is a structural subtype of ScheduleWireItem[] from schedule.ts — cast is safe)
   let scheduleItems: ScheduleWireItem[];
@@ -125,9 +119,7 @@ export async function buildSeasonArchive(
   // Load alias map
   const aliasRecord = await getAppState<AliasMap>(`aliases:${leagueSlug}:${year}`, 'map');
   const aliasMap: AliasMap =
-    aliasRecord?.value &&
-    typeof aliasRecord.value === 'object' &&
-    !Array.isArray(aliasRecord.value)
+    aliasRecord?.value && typeof aliasRecord.value === 'object' && !Array.isArray(aliasRecord.value)
       ? aliasRecord.value
       : {};
 
@@ -140,12 +132,11 @@ export async function buildSeasonArchive(
     `postseason-overrides:${leagueSlug}:${year}`,
     'map'
   );
-  const manualOverrides: Record<string, Partial<AppGame>> =
-    overridesRecord?.value &&
-    typeof overridesRecord.value === 'object' &&
-    !Array.isArray(overridesRecord.value)
-      ? overridesRecord.value
-      : {};
+  const manualOverrides: Record<string, Partial<AppGame>> = overridesRecord?.value &&
+  typeof overridesRecord.value === 'object' &&
+  !Array.isArray(overridesRecord.value)
+    ? overridesRecord.value
+    : {};
 
   // Build AppGame[] via the full schedule pipeline
   const { games } = buildScheduleFromApi({

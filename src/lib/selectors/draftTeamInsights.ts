@@ -59,15 +59,15 @@ export type DraftTeamInsights = {
 // ---------------------------------------------------------------------------
 
 const CONFERENCE_COLORS: Record<string, string> = {
-  SEC: '#2563EB',             // blue-600
-  'Big Ten': '#16A34A',       // green-600
-  ACC: '#DC2626',             // red-600
-  'Big 12': '#D97706',        // amber-600
-  'Pac-12': '#9333EA',        // purple-600
+  SEC: '#2563EB', // blue-600
+  'Big Ten': '#16A34A', // green-600
+  ACC: '#DC2626', // red-600
+  'Big 12': '#D97706', // amber-600
+  'Pac-12': '#9333EA', // purple-600
   'Mountain West': '#7C3AED', // violet-600
-  'Sun Belt': '#0891B2',      // cyan-600
+  'Sun Belt': '#0891B2', // cyan-600
   'American Athletic': '#EA580C', // orange-600
-  'Mid-American': '#B45309',  // amber-700
+  'Mid-American': '#B45309', // amber-700
   'Conference USA': '#0D9488', // teal-600
   'FBS Independents': '#6B7280', // gray-500
 };

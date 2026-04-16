@@ -17,7 +17,10 @@ export default async function AdminDataPage() {
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-zinc-100">Data Management</h1>
-          <Link href="/admin" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+          <Link
+            href="/admin"
+            className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
             ← Admin
           </Link>
         </div>

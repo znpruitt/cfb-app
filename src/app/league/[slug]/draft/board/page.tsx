@@ -25,9 +25,7 @@ export default async function SpectatorBoardPage({
 
   const status = league.status;
   const year =
-    status?.state === 'preseason' || status?.state === 'season'
-      ? status.year
-      : league.year;
+    status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
 
   // Load draft state — show waiting state if not started
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
@@ -83,7 +81,12 @@ export default async function SpectatorBoardPage({
     const schedItems = (schedRecord?.value?.items ?? []) as ScheduleWireItem[];
     if (schedItems.length > 0) {
       const aliasMap = await loadAliasMap();
-      const built = buildScheduleFromApi({ scheduleItems: schedItems, teams, aliasMap, season: year });
+      const built = buildScheduleFromApi({
+        scheduleItems: schedItems,
+        teams,
+        aliasMap,
+        season: year,
+      });
       games = built.games;
     }
   } catch {
@@ -133,9 +136,7 @@ export default async function SpectatorBoardPage({
         <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
           {league.displayName} — {year} Draft
         </h1>
-        <p className="text-sm text-gray-500 dark:text-zinc-400">
-          Spectator view
-        </p>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">Spectator view</p>
       </div>
 
       <SpectatorBoardClient

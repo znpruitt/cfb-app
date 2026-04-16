@@ -15,7 +15,14 @@ import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/se
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
-import { getTeamRanking, type TeamRankingEnrichment, type RankingsResponse, type RankingsWeek, type CanonicalPollEntry, type RankSource } from '../lib/rankings';
+import {
+  getTeamRanking,
+  type TeamRankingEnrichment,
+  type RankingsResponse,
+  type RankingsWeek,
+  type CanonicalPollEntry,
+  type RankSource,
+} from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -90,9 +97,15 @@ function renderMatchupLabel(
 
   return (
     <>
-      <RankedTeamName teamName={game.csvAway} ranking={getTeamRanking(rankingsByTeamId, awayTeamId)} />
+      <RankedTeamName
+        teamName={game.csvAway}
+        ranking={getTeamRanking(rankingsByTeamId, awayTeamId)}
+      />
       {separator}
-      <RankedTeamName teamName={game.csvHome} ranking={getTeamRanking(rankingsByTeamId, homeTeamId)} />
+      <RankedTeamName
+        teamName={game.csvHome}
+        ranking={getTeamRanking(rankingsByTeamId, homeTeamId)}
+      />
     </>
   );
 }
@@ -148,9 +161,7 @@ function stateBadgeClasses(state: 'final' | 'inprogress' | 'scheduled' | 'unknow
   return 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
 }
 
-function deriveFeaturedGameBadge(
-  game: AppGame
-): { label: string; classes: string } | null {
+function deriveFeaturedGameBadge(game: AppGame): { label: string; classes: string } | null {
   const role = game.postseasonRole;
 
   if (role === 'national_championship' || role === 'playoff') {
@@ -429,9 +440,7 @@ function PodiumCard({
     >
       <p
         className={`text-[10px] font-semibold uppercase tracking-wider ${
-          isChampion
-            ? 'text-amber-700 dark:text-amber-400'
-            : 'text-gray-400 dark:text-zinc-500'
+          isChampion ? 'text-amber-700 dark:text-amber-400' : 'text-gray-400 dark:text-zinc-500'
         }`}
       >
         {isChampion ? `#${rank} · ${label}` : `#${rank}`}
@@ -491,9 +500,10 @@ function LeagueSummaryHero({
   if (!summary) return <></>;
 
   const isComplete = summary.phase === 'complete';
-  const top3 = heroMode === 'podium' && podiumLeaders.length === 3
-    ? podiumLeaders
-    : standingsLeaders.slice(0, 3);
+  const top3 =
+    heroMode === 'podium' && podiumLeaders.length === 3
+      ? podiumLeaders
+      : standingsLeaders.slice(0, 3);
 
   const rankLabels = isComplete
     ? ['CHAMPION', '2ND', '3RD']
@@ -545,12 +555,14 @@ function CondensedStandingsTable({
   const labelFn = weekLabel ?? ((w: number) => `W${w}`);
   const deltaCount = hasDeltaCols ? deltaWeeks.length : 0;
   // Grid template: flexible content column + fixed-width delta columns (1.75rem each)
-  const gridCols = deltaCount > 0
-    ? `minmax(0, 1fr) repeat(${deltaCount}, 1.75rem)`
-    : 'minmax(0, 1fr)';
+  const gridCols =
+    deltaCount > 0 ? `minmax(0, 1fr) repeat(${deltaCount}, 1.75rem)` : 'minmax(0, 1fr)';
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <div className="min-w-full text-sm" style={{ display: 'grid', gridTemplateColumns: gridCols }}>
+      <div
+        className="min-w-full text-sm"
+        style={{ display: 'grid', gridTemplateColumns: gridCols }}
+      >
         {/* Week header row for delta columns */}
         {hasDeltaCols ? (
           <>
@@ -626,23 +638,23 @@ function CondensedStandingsTable({
                 </div>
               </div>
               {/* Delta cells — one per week column, aligned to grid */}
-              {hasDeltaCols && ownerDeltas ? (
-                deltaWeeks.map((w) => {
-                  const d = ownerDeltas.get(w) ?? null;
-                  return (
-                    <span
-                      key={w}
-                      className={`flex items-center justify-center border-b border-gray-100 text-[11px] font-medium tabular-nums dark:border-zinc-800 ${deltaTextColor(d)}`}
-                    >
-                      {deltaLabel(d)}
-                    </span>
-                  );
-                })
-              ) : hasDeltaCols ? (
-                deltaWeeks.map((w) => (
-                  <span key={w} className="border-b border-gray-100 dark:border-zinc-800" />
-                ))
-              ) : null}
+              {hasDeltaCols && ownerDeltas
+                ? deltaWeeks.map((w) => {
+                    const d = ownerDeltas.get(w) ?? null;
+                    return (
+                      <span
+                        key={w}
+                        className={`flex items-center justify-center border-b border-gray-100 text-[11px] font-medium tabular-nums dark:border-zinc-800 ${deltaTextColor(d)}`}
+                      >
+                        {deltaLabel(d)}
+                      </span>
+                    );
+                  })
+                : hasDeltaCols
+                  ? deltaWeeks.map((w) => (
+                      <span key={w} className="border-b border-gray-100 dark:border-zinc-800" />
+                    ))
+                  : null}
             </React.Fragment>
           );
         })}
@@ -821,8 +833,10 @@ function FeaturedGamesList({
         const gameBadge = deriveFeaturedGameBadge(game);
         const awayScore = score?.away.score ?? null;
         const homeScore = score?.home.score ?? null;
-        const awayWon = state === 'final' && awayScore !== null && homeScore !== null && awayScore > homeScore;
-        const homeWon = state === 'final' && awayScore !== null && homeScore !== null && homeScore > awayScore;
+        const awayWon =
+          state === 'final' && awayScore !== null && homeScore !== null && awayScore > homeScore;
+        const homeWon =
+          state === 'final' && awayScore !== null && homeScore !== null && homeScore > awayScore;
 
         // Strip NoClaim from owner display lines
         const awayOwner = item.bucket.awayOwner === NO_CLAIM ? null : item.bucket.awayOwner;
@@ -870,18 +884,26 @@ function FeaturedGamesList({
             {awayScore !== null || homeScore !== null ? (
               <div className="mt-1.5 space-y-0.5 rounded-md bg-white/60 px-2 py-1.5 dark:bg-zinc-900/60">
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className={`min-w-0 truncate ${awayWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}>
+                  <span
+                    className={`min-w-0 truncate ${awayWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}
+                  >
                     {game.csvAway}
                   </span>
-                  <span className={`tabular-nums ${awayWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}>
+                  <span
+                    className={`tabular-nums ${awayWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}
+                  >
                     {awayScore}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className={`min-w-0 truncate ${homeWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}>
+                  <span
+                    className={`min-w-0 truncate ${homeWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}
+                  >
                     {game.csvHome}
                   </span>
-                  <span className={`tabular-nums ${homeWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}>
+                  <span
+                    className={`tabular-nums ${homeWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}
+                  >
                     {homeScore}
                   </span>
                 </div>
@@ -991,9 +1013,13 @@ function derivePollSnapshotFromEntries(
   // to the final entry. indexOf may fail on reference inequality, so match
   // by week/season identity instead.
   const latestIdx = weeks.findIndex(
-    (w) => w.season === latestWeek.season && w.week === latestWeek.week && w.seasonType === latestWeek.seasonType
+    (w) =>
+      w.season === latestWeek.season &&
+      w.week === latestWeek.week &&
+      w.seasonType === latestWeek.seasonType
   );
-  const previousWeek = latestIdx > 0 ? weeks[latestIdx - 1] : (weeks.length >= 2 ? weeks[weeks.length - 2] : null);
+  const previousWeek =
+    latestIdx > 0 ? weeks[latestIdx - 1] : weeks.length >= 2 ? weeks[weeks.length - 2] : null;
   const pollSource = currentEntries[0]?.rankSource ?? 'ap';
   const previousEntries = previousWeek?.polls[pollSource] ?? [];
   const prevByTeam = new Map(previousEntries.map((e) => [e.teamId, e.rank]));
@@ -1011,7 +1037,12 @@ function derivePollSnapshotFromEntries(
       const prevRank = prevByTeam.get(entry.teamId);
       // Team was not ranked in previous week → NR
       if (prevRank == null) {
-        return { rank: entry.rank, teamName: entry.teamName, teamId: entry.teamId, delta: 'new' as const };
+        return {
+          rank: entry.rank,
+          teamName: entry.teamName,
+          teamId: entry.teamId,
+          delta: 'new' as const,
+        };
       }
       // Compute delta: positive = moved up, negative = moved down
       const delta = prevRank === entry.rank ? null : prevRank - entry.rank;
@@ -1029,11 +1060,7 @@ function PollMovementBadge({ delta }: { delta: number | 'new' | null }): React.R
     );
   }
   if (delta === null || delta === 0) {
-    return (
-      <span className="w-7 text-right text-[11px] text-gray-400 dark:text-zinc-500">
-        —
-      </span>
-    );
+    return <span className="w-7 text-right text-[11px] text-gray-400 dark:text-zinc-500">—</span>;
   }
   if (delta > 0) {
     return (
@@ -1217,7 +1244,8 @@ export default function OverviewPanel({
 
   const standingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
   const rankingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/rankings`;
-  const ctaClasses = 'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200';
+  const ctaClasses =
+    'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200';
 
   return (
     <div className="space-y-5">
@@ -1277,11 +1305,10 @@ export default function OverviewPanel({
             {/* Column 3: Insights */}
             {sharedInsights.length > 0 ? (
               <div className="min-w-0">
-                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">Insights</p>
-                <HighlightList
-                  insights={sharedInsights}
-                  leagueSlug={leagueSlug}
-                />
+                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">
+                  Insights
+                </p>
+                <HighlightList insights={sharedInsights} leagueSlug={leagueSlug} />
               </div>
             ) : null}
           </div>

@@ -53,10 +53,7 @@ export async function POST(
 
   const record = await getAppState<DraftState>(draftScope(slug), String(year));
   if (!record?.value) {
-    return NextResponse.json(
-      { error: `No draft found for ${slug} ${year}` },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: `No draft found for ${slug} ${year}` }, { status: 404 });
   }
 
   const draft = record.value;
@@ -65,9 +62,7 @@ export async function POST(
   // teamsPerOwner = floor(fbsTeamCount / ownerCount); totalExpectedPicks = teamsPerOwner * ownerCount.
   // NoClaim teams fill the remainder and are not assigned to any owner.
   const { items: allTeams } = teamsData as TeamsJson;
-  const fbsTeamCount = allTeams.filter(
-    (t) => t.classification?.toLowerCase() === 'fbs'
-  ).length;
+  const fbsTeamCount = allTeams.filter((t) => t.classification?.toLowerCase() === 'fbs').length;
   const ownerCount = draft.owners.length;
   const teamsPerOwner = Math.floor(fbsTeamCount / ownerCount);
   const totalExpectedPicks = teamsPerOwner * ownerCount;
@@ -147,8 +142,7 @@ export async function POST(
   const undraftedFbsTeams = allTeams
     .filter(
       (t) =>
-        t.classification?.toLowerCase() === 'fbs' &&
-        !draftedTeamsLower.has(t.school.toLowerCase())
+        t.classification?.toLowerCase() === 'fbs' && !draftedTeamsLower.has(t.school.toLowerCase())
     )
     .map((t) => t.school);
   for (const teamName of undraftedFbsTeams) {
@@ -222,17 +216,16 @@ export async function DELETE(
 
   const record = await getAppState<DraftState>(draftScope(slug), String(year));
   if (!record?.value) {
-    return NextResponse.json(
-      { error: `No draft found for ${slug} ${year}` },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: `No draft found for ${slug} ${year}` }, { status: 404 });
   }
 
   const draft = record.value;
 
   if (draft.phase !== 'complete') {
     return NextResponse.json(
-      { error: `Cannot reopen draft in phase: ${draft.phase}. Only a confirmed (complete) draft can be reopened.` },
+      {
+        error: `Cannot reopen draft in phase: ${draft.phase}. Only a confirmed (complete) draft can be reopened.`,
+      },
       { status: 422 }
     );
   }

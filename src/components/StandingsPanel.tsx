@@ -69,7 +69,9 @@ function formatDiff(value: number): string {
 }
 
 function withColorAlpha(hexColor: string, alpha: number): string {
-  const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+  const alphaHex = Math.round(alpha * 255)
+    .toString(16)
+    .padStart(2, '0');
   return `${hexColor}${alphaHex}`;
 }
 
@@ -230,28 +232,33 @@ export default function StandingsPanel({
                   >
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-                        {['Rank', ...(showMoveColumn ? ['Move'] : []), 'Team', 'Record', 'Win %', 'PF', 'PA', 'Diff', 'GB'].map(
-                          (label) => {
-                            const isNumericMetric =
-                              label === 'PF' ||
-                              label === 'PA' ||
-                              label === 'Diff' ||
-                              label === 'GB';
-                            const isRank = label === 'Rank';
-                            const isCompact = isRank || label === 'Move';
-                            const isTeam = label === 'Team';
-                            const isDeEmphasized = label === 'PF' || label === 'PA' || label === 'GB';
-                            return (
-                              <th
-                                key={label}
-                                className={`whitespace-nowrap border-b border-gray-200 px-1 py-2 font-semibold dark:border-zinc-700 ${isRank ? 'w-6' : !isRank && isCompact ? 'w-[1.9rem]' : ''} ${isTeam ? 'sm:w-[7rem] sm:max-w-[7rem]' : ''}${isNumericMetric ? 'w-[3.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${label === 'Win %' ? 'w-[3rem]' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
-                                data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
-                              >
-                                {isRank ? null : label}
-                              </th>
-                            );
-                          }
-                        )}
+                        {[
+                          'Rank',
+                          ...(showMoveColumn ? ['Move'] : []),
+                          'Team',
+                          'Record',
+                          'Win %',
+                          'PF',
+                          'PA',
+                          'Diff',
+                          'GB',
+                        ].map((label) => {
+                          const isNumericMetric =
+                            label === 'PF' || label === 'PA' || label === 'Diff' || label === 'GB';
+                          const isRank = label === 'Rank';
+                          const isCompact = isRank || label === 'Move';
+                          const isTeam = label === 'Team';
+                          const isDeEmphasized = label === 'PF' || label === 'PA' || label === 'GB';
+                          return (
+                            <th
+                              key={label}
+                              className={`whitespace-nowrap border-b border-gray-200 px-1 py-2 font-semibold dark:border-zinc-700 ${isRank ? 'w-6' : !isRank && isCompact ? 'w-[1.9rem]' : ''} ${isTeam ? 'sm:w-[7rem] sm:max-w-[7rem]' : ''}${isNumericMetric ? 'w-[3.2rem] text-right text-xs text-gray-400 dark:text-zinc-500' : ''} ${label === 'Win %' ? 'w-[3rem]' : ''} ${isDeEmphasized ? 'hidden sm:table-cell' : ''}`}
+                              data-standings-column={label.toLowerCase().replace(/\s+/gu, '-')}
+                            >
+                              {isRank ? null : label}
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
@@ -263,7 +270,8 @@ export default function StandingsPanel({
                         const color = ownerColorFn(row.owner);
                         const isHovered = hoveredOwner === row.owner;
                         const isSelected = selectedOwnerSet.has(row.owner);
-                        const hasActiveHighlight = hoveredOwner !== null || selectedOwnerSet.size > 0;
+                        const hasActiveHighlight =
+                          hoveredOwner !== null || selectedOwnerSet.size > 0;
                         const isHighlighted = isHovered || isSelected;
                         return (
                           <tr
@@ -311,7 +319,10 @@ export default function StandingsPanel({
                                   <button
                                     type="button"
                                     className="text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-500 dark:decoration-zinc-600 dark:hover:decoration-zinc-300"
-                                    onClick={(e) => { e.stopPropagation(); onOwnerSelect(row.owner); }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOwnerSelect(row.owner);
+                                    }}
                                   >
                                     {row.owner}
                                   </button>
@@ -332,7 +343,9 @@ export default function StandingsPanel({
                             <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                               {row.pointsAgainst}
                             </td>
-                            <td className={`w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums dark:border-zinc-800 ${row.pointDifferential > 0 ? 'text-emerald-700 dark:text-emerald-400' : row.pointDifferential < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-gray-500 dark:text-zinc-400'}`}>
+                            <td
+                              className={`w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums dark:border-zinc-800 ${row.pointDifferential > 0 ? 'text-emerald-700 dark:text-emerald-400' : row.pointDifferential < 0 ? 'text-rose-700 dark:text-rose-400' : 'text-gray-500 dark:text-zinc-400'}`}
+                            >
                               {formatDiff(row.pointDifferential)}
                             </td>
                             <td className="hidden sm:table-cell w-[3.2rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 text-right tabular-nums text-gray-500 dark:border-zinc-800 dark:text-zinc-400">

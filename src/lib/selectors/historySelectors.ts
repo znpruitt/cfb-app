@@ -611,9 +611,7 @@ export function selectAllTimeStandings(
     })
     .sort(
       (a, b) =>
-        b.championships - a.championships ||
-        b.winPct - a.winPct ||
-        b.totalWins - a.totalWins
+        b.championships - a.championships || b.winPct - a.winPct || b.totalWins - a.totalWins
     );
 }
 

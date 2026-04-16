@@ -159,11 +159,7 @@ export async function GET(req: Request): Promise<Response> {
     try {
       // Load alias map — try league-scoped, year-only, and global; merge all
       let aliasMap: AliasMap = {};
-      for (const scope of [
-        `aliases:${LEAGUE_SLUG}:${year}`,
-        `aliases:${year}`,
-        'aliases:global',
-      ]) {
+      for (const scope of [`aliases:${LEAGUE_SLUG}:${year}`, `aliases:${year}`, 'aliases:global']) {
         const record = await getAppState<AliasMap>(scope, 'map');
         if (record?.value && typeof record.value === 'object' && !Array.isArray(record.value)) {
           aliasMap = { ...record.value, ...aliasMap };
@@ -259,9 +255,8 @@ export async function GET(req: Request): Promise<Response> {
           turnoverMargin: acc.turnoversForced - acc.turnovers,
           thirdDownConversions: acc.thirdDownConversions,
           thirdDownAttempts: acc.thirdDownAttempts,
-          thirdDownPct: acc.thirdDownAttempts > 0
-            ? acc.thirdDownConversions / acc.thirdDownAttempts
-            : 0,
+          thirdDownPct:
+            acc.thirdDownAttempts > 0 ? acc.thirdDownConversions / acc.thirdDownAttempts : 0,
           possessionSeconds: acc.possessionSeconds,
         });
       }
@@ -289,5 +284,9 @@ export async function GET(req: Request): Promise<Response> {
     }
   }
 
-  return NextResponse.json({ rawCacheInspection: rawInspection, typedCacheInspection: typedInspection, seasons });
+  return NextResponse.json({
+    rawCacheInspection: rawInspection,
+    typedCacheInspection: typedInspection,
+    seasons,
+  });
 }

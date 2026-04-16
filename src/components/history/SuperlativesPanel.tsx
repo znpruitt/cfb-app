@@ -89,11 +89,7 @@ export default function SuperlativesPanel({ superlatives }: Props): React.ReactE
               ? `${biggestUpset.winner} over ${biggestUpset.loser} (+${biggestUpset.rankDiff} ranks)`
               : null
           }
-          detail={
-            biggestUpset
-              ? `Week ${biggestUpset.week} · margin ${biggestUpset.margin}`
-              : null
-          }
+          detail={biggestUpset ? `Week ${biggestUpset.week} · margin ${biggestUpset.margin}` : null}
         />
         <SuperlativeCard
           label="Most dominant stretch"

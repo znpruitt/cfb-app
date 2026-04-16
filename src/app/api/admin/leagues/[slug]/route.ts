@@ -63,7 +63,9 @@ export async function PATCH(
   }
 
   if (Object.keys(updates).length === 0) {
-    return new Response('No updatable fields provided (displayName, year, foundedYear)', { status: 400 });
+    return new Response('No updatable fields provided (displayName, year, foundedYear)', {
+      status: 400,
+    });
   }
 
   const updated = await updateLeague(slug, updates);

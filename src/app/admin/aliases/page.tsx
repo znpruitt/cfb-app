@@ -73,13 +73,17 @@ export default function AdminAliasesPage(): React.ReactElement {
     }
   }
 
-  const sectionClass = 'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
+  const sectionClass =
+    'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
 
   return (
     <div className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="space-y-1">
-          <Link href="/admin" className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300">
+          <Link
+            href="/admin"
+            className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
+          >
             ← Admin
           </Link>
           <h1 className="text-2xl font-semibold">Aliases</h1>
@@ -106,7 +110,9 @@ export default function AdminAliasesPage(): React.ReactElement {
           {editorOpen && (
             <>
               {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-              {status === 'success' && <p className="text-xs text-green-600 dark:text-green-400">Saved</p>}
+              {status === 'success' && (
+                <p className="text-xs text-green-600 dark:text-green-400">Saved</p>
+              )}
               <AliasEditorPanel
                 open={editorOpen}
                 season={0}
@@ -115,7 +121,9 @@ export default function AdminAliasesPage(): React.ReactElement {
                 onAddRow={() => setAliasDraft((prev) => [...prev, { key: '', value: '' }])}
                 onSave={() => void saveAliases()}
                 onUpdateKey={(idx, value) =>
-                  setAliasDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, key: value } : r)))
+                  setAliasDraft((prev) =>
+                    prev.map((r, i) => (i === idx ? { ...r, key: value } : r))
+                  )
                 }
                 onUpdateValue={(idx, value) =>
                   setAliasDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, value } : r)))

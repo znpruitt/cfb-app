@@ -16,7 +16,13 @@ export default async function LeagueMembersPage({
       ?.publicMetadata?.role === 'platform_admin';
   return (
     <main>
-      <CFBScheduleApp leagueSlug={slug} leagueDisplayName={league?.displayName} leagueYear={league?.year} isAdmin={isAdmin} initialWeekViewMode="owner" />
+      <CFBScheduleApp
+        leagueSlug={slug}
+        leagueDisplayName={league?.displayName}
+        leagueYear={league?.year}
+        isAdmin={isAdmin}
+        initialWeekViewMode="owner"
+      />
     </main>
   );
 }

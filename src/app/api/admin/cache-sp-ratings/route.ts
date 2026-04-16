@@ -61,7 +61,11 @@ export async function POST(req: Request): Promise<Response> {
   if (!force) {
     const existing = await getAppState<SpRatingCacheEntry>('sp-ratings', String(year));
     if (existing) {
-      return NextResponse.json({ alreadyCached: true, year, teamCount: existing.value.ratings.length });
+      return NextResponse.json({
+        alreadyCached: true,
+        year,
+        teamCount: existing.value.ratings.length,
+      });
     }
   }
 
@@ -88,7 +92,9 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'unknown error fetching SP+ ratings from CFBD' },
+      {
+        error: err instanceof Error ? err.message : 'unknown error fetching SP+ ratings from CFBD',
+      },
       { status: 502 }
     );
   }

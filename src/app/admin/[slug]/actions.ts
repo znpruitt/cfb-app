@@ -4,7 +4,12 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
-import { listAppStateKeys, deleteAppState, getAppState, setAppState } from '@/lib/server/appStateStore';
+import {
+  listAppStateKeys,
+  deleteAppState,
+  getAppState,
+  setAppState,
+} from '@/lib/server/appStateStore';
 import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 
@@ -20,8 +25,7 @@ export async function setTestLeagueStatus(
 
   if (state === 'season') {
     // Carry forward the year from preseason so the increment set by 'Set: Pre-Season' is preserved
-    const seasonYear =
-      league.status?.state === 'preseason' ? league.status.year : league.year;
+    const seasonYear = league.status?.state === 'preseason' ? league.status.year : league.year;
     await updateLeagueStatus('test', { state: 'season', year: seasonYear });
   } else if (state === 'offseason') {
     await updateLeagueStatus('test', { state: 'offseason' });
@@ -90,10 +94,7 @@ export async function beginPreseason(slug: string): Promise<void> {
 }
 
 /** Persist the commissioner's choice of how teams will be assigned this preseason. */
-export async function setAssignmentMethod(
-  slug: string,
-  method: 'draft' | 'manual'
-): Promise<void> {
+export async function setAssignmentMethod(slug: string, method: 'draft' | 'manual'): Promise<void> {
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);
 }
@@ -126,10 +127,7 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
  * Copy owners CSV from one year key to the next. Only valid for slug='test'.
  * Useful when draft was confirmed before the preseason year bump.
  */
-export async function migrateTestOwnersCsv(
-  fromYear: number,
-  toYear: number
-): Promise<string> {
+export async function migrateTestOwnersCsv(fromYear: number, toYear: number): Promise<string> {
   const record = await getAppState<string>(`owners:test:${fromYear}`, 'csv');
   if (!record?.value) {
     return `No owners CSV found at owners:test:${fromYear}`;
@@ -225,10 +223,14 @@ export async function autoCompleteDraft(): Promise<number> {
   // Write owners CSV (same format as confirm route)
   const csvLines = ['team,owner'];
   for (const pick of allPicks) {
-    const team = pick.team.includes(',') || pick.team.includes('"')
-      ? `"${pick.team.replace(/"/g, '""')}"` : pick.team;
-    const owner = pick.owner.includes(',') || pick.owner.includes('"')
-      ? `"${pick.owner.replace(/"/g, '""')}"` : pick.owner;
+    const team =
+      pick.team.includes(',') || pick.team.includes('"')
+        ? `"${pick.team.replace(/"/g, '""')}"`
+        : pick.team;
+    const owner =
+      pick.owner.includes(',') || pick.owner.includes('"')
+        ? `"${pick.owner.replace(/"/g, '""')}"`
+        : pick.owner;
     csvLines.push(`${team},${owner}`);
   }
 
@@ -236,8 +238,10 @@ export async function autoCompleteDraft(): Promise<number> {
   const draftedLower = new Set(allPicks.map((p) => p.team.toLowerCase()));
   for (const teamName of allTeams) {
     if (!draftedLower.has(teamName.toLowerCase())) {
-      const field = teamName.includes(',') || teamName.includes('"')
-        ? `"${teamName.replace(/"/g, '""')}"` : teamName;
+      const field =
+        teamName.includes(',') || teamName.includes('"')
+          ? `"${teamName.replace(/"/g, '""')}"`
+          : teamName;
       csvLines.push(`${field},NoClaim`);
     }
   }

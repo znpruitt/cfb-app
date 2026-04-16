@@ -49,7 +49,8 @@ export default async function AdminLeagueRosterPage({
             Edit Roster Directly
           </h2>
           <p className="mt-1 text-xs text-gray-400 dark:text-zinc-600">
-            Inline editor for team-owner assignments. Use for fixes, mid-season transfers, or leagues without a formal draft.
+            Inline editor for team-owner assignments. Use for fixes, mid-season transfers, or
+            leagues without a formal draft.
           </p>
         </div>
         <RosterEditorPanel slug={slug} year={year} teams={teams} />

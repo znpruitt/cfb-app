@@ -7,7 +7,12 @@ export type SeasonType = 'regular' | 'postseason';
 
 type GamePhase = 'regular' | 'conference_championship' | 'postseason';
 type PostseasonSubtype = 'bowl' | 'playoff';
-type PlayoffRound = 'first-round' | 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff';
+type PlayoffRound =
+  | 'first-round'
+  | 'quarterfinal'
+  | 'semifinal'
+  | 'national_championship'
+  | 'playoff';
 type NeutralSiteDisplay = 'vs' | 'home_away';
 
 export type VenueInfo = {

@@ -12,9 +12,12 @@ type AliasMap = Record<string, string>;
 type SectionStatus = 'idle' | 'loading' | 'success' | 'error';
 
 function StatusBadge({ status, error }: { status: SectionStatus; error?: string }) {
-  if (status === 'loading') return <span className="text-xs text-gray-500 dark:text-zinc-400">Working…</span>;
-  if (status === 'success') return <span className="text-xs text-green-600 dark:text-green-400">Done</span>;
-  if (status === 'error') return <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>;
+  if (status === 'loading')
+    return <span className="text-xs text-gray-500 dark:text-zinc-400">Working…</span>;
+  if (status === 'success')
+    return <span className="text-xs text-green-600 dark:text-green-400">Done</span>;
+  if (status === 'error')
+    return <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>;
   return null;
 }
 
@@ -35,15 +38,12 @@ export default function LeagueDataPanel({
     setAliasStatus('loading');
     setAliasError(undefined);
     try {
-      const res = await fetch(
-        `/api/aliases?league=${encodeURIComponent(slug)}&year=${year}`,
-        { cache: 'no-store' }
-      );
+      const res = await fetch(`/api/aliases?league=${encodeURIComponent(slug)}&year=${year}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error(`GET /api/aliases ${res.status}`);
       const data = (await res.json()) as { map: AliasMap };
-      setAliasDraft(
-        Object.entries(data.map).map(([k, v]) => ({ key: k, value: v }))
-      );
+      setAliasDraft(Object.entries(data.map).map(([k, v]) => ({ key: k, value: v })));
       setAliasStatus('idle');
       setAliasOpen(true);
     } catch (err) {
@@ -61,17 +61,14 @@ export default function LeagueDataPanel({
           .filter((r) => r.key.trim() && r.value.trim())
           .map((r) => [normalizeAliasLookup(r.key.trim()), r.value.trim()])
       );
-      const res = await fetch(
-        `/api/aliases?league=${encodeURIComponent(slug)}&year=${year}`,
-        {
-          method: 'PUT',
-          headers: {
-            'content-type': 'application/json',
-            ...(requireAdminAuthHeaders() as Record<string, string>),
-          },
-          body: JSON.stringify({ map }),
-        }
-      );
+      const res = await fetch(`/api/aliases?league=${encodeURIComponent(slug)}&year=${year}`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          ...(requireAdminAuthHeaders() as Record<string, string>),
+        },
+        body: JSON.stringify({ map }),
+      });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         setAliasError(`Error ${res.status}${text ? `: ${text.slice(0, 120)}` : ''}`);
@@ -102,7 +99,8 @@ export default function LeagueDataPanel({
     setAliasDraft((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  const sectionClass = 'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
+  const sectionClass =
+    'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
   const buttonClass =
     'rounded border border-gray-300 bg-gray-50 px-4 py-1.5 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
 
@@ -130,9 +128,7 @@ export default function LeagueDataPanel({
         )}
         {aliasOpen && (
           <>
-            {aliasError && (
-              <p className="text-xs text-red-600 dark:text-red-400">{aliasError}</p>
-            )}
+            {aliasError && <p className="text-xs text-red-600 dark:text-red-400">{aliasError}</p>}
             <AliasEditorPanel
               open={aliasOpen}
               season={year}

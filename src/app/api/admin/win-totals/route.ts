@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 
 import teamsData from '@/data/teams.json';
-import { createTeamIdentityResolver, type TeamCatalogItem, type TeamIdentityResolver } from '@/lib/teamIdentity';
+import {
+  createTeamIdentityResolver,
+  type TeamCatalogItem,
+  type TeamIdentityResolver,
+} from '@/lib/teamIdentity';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';

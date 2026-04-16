@@ -73,10 +73,7 @@ function deriveFacts(
   let rivalryCount = 0;
   for (const r of rivalries) {
     if (rivalryCount >= 3) break;
-    if (
-      draftOwnerSet.has(r.ownerA.toLowerCase()) &&
-      draftOwnerSet.has(r.ownerB.toLowerCase())
-    ) {
+    if (draftOwnerSet.has(r.ownerA.toLowerCase()) && draftOwnerSet.has(r.ownerB.toLowerCase())) {
       facts.push(`${r.ownerA} vs ${r.ownerB} — ${r.wins}–${r.losses} all time`);
       rivalryCount++;
     }
@@ -88,9 +85,7 @@ function deriveFacts(
   if (mostRecent && mostRecent.finalStandings.length > 0) {
     const champion = mostRecent.finalStandings[0]?.owner;
     if (champion && draftOwnerSet.has(champion.toLowerCase())) {
-      facts.push(
-        `${champion} returns as ${mostRecent.year} defending champion`
-      );
+      facts.push(`${champion} returns as ${mostRecent.year} defending champion`);
     }
   }
 
@@ -113,9 +108,7 @@ export default async function DraftSummaryPage({
 
   const status = league.status;
   const year =
-    status?.state === 'preseason' || status?.state === 'season'
-      ? status.year
-      : league.year;
+    status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
 
   // Load draft state
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));

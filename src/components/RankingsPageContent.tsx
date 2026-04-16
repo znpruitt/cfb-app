@@ -31,7 +31,10 @@ function MovementBadge({ delta }: { delta: RankDelta }): React.ReactElement {
   }
   if (delta === null || delta === 0) {
     return (
-      <span className="w-8 text-right text-xs text-gray-400 dark:text-zinc-600" aria-label="No change">
+      <span
+        className="w-8 text-right text-xs text-gray-400 dark:text-zinc-600"
+        aria-label="No change"
+      >
         —
       </span>
     );
@@ -80,9 +83,7 @@ function PollColumn({
               <li
                 key={`${entry.rankSource}:${entry.teamId}`}
                 className={`flex items-center gap-2 px-1 py-1.5 text-sm ${
-                  idx % 2 === 0
-                    ? 'bg-transparent'
-                    : 'rounded bg-gray-50/60 dark:bg-zinc-800/40'
+                  idx % 2 === 0 ? 'bg-transparent' : 'rounded bg-gray-50/60 dark:bg-zinc-800/40'
                 }`}
               >
                 <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums text-gray-500 dark:text-zinc-400">
@@ -121,9 +122,7 @@ function WeekPollsView({
           const current = week.polls[key] ?? [];
           const previous = previousWeek?.polls[key] ?? [];
           const deltas = deriveRankDeltas(current, previous);
-          return (
-            <PollColumn key={key} title={title} entries={current} deltas={deltas} />
-          );
+          return <PollColumn key={key} title={title} entries={current} deltas={deltas} />;
         })}
       </div>
     </section>
@@ -205,9 +204,7 @@ export default function RankingsPageContent({
             </div>
           ) : null}
 
-          {displayWeek ? (
-            <WeekPollsView week={displayWeek} previousWeek={previousWeek} />
-          ) : null}
+          {displayWeek ? <WeekPollsView week={displayWeek} previousWeek={previousWeek} /> : null}
         </>
       )}
     </div>

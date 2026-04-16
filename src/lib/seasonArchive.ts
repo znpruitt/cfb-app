@@ -1,5 +1,9 @@
 import { getAppState, setAppState, listAppStateKeys } from './server/appStateStore.ts';
-import type { StandingsHistory, StandingsHistoryStandingRow, OwnerStandingsSeriesPoint } from './standingsHistory.ts';
+import type {
+  StandingsHistory,
+  StandingsHistoryStandingRow,
+  OwnerStandingsSeriesPoint,
+} from './standingsHistory.ts';
 import type { AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
 
@@ -62,11 +66,7 @@ export async function listSeasonArchives(leagueSlug: string): Promise<number[]> 
 }
 
 export async function saveSeasonArchive(archive: SeasonArchive): Promise<void> {
-  await setAppState<SeasonArchive>(
-    archiveScope(archive.leagueSlug),
-    String(archive.year),
-    archive
-  );
+  await setAppState<SeasonArchive>(archiveScope(archive.leagueSlug), String(archive.year), archive);
 }
 
 function weeklyStats(

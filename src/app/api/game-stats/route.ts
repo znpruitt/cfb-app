@@ -57,7 +57,11 @@ export async function GET(req: Request) {
     const parsedYear = parseNonNegativeInt(yearParam);
     if (parsedYear == null || parsedYear < minYear || parsedYear > maxYear) {
       return NextResponse.json(
-        { error: `year must be an integer between ${minYear} and ${maxYear}`, field: 'year', value: yearParam },
+        {
+          error: `year must be an integer between ${minYear} and ${maxYear}`,
+          field: 'year',
+          value: yearParam,
+        },
         { status: 400 }
       );
     }
@@ -79,8 +83,7 @@ export async function GET(req: Request) {
     );
   }
 
-  const seasonType: CfbdSeasonType =
-    seasonTypeParam === 'postseason' ? 'postseason' : 'regular';
+  const seasonType: CfbdSeasonType = seasonTypeParam === 'postseason' ? 'postseason' : 'regular';
 
   // Admin auth check
   const adminAuthFailure = await requireAdminRequest(req);
@@ -119,10 +122,7 @@ export async function GET(req: Request) {
   // Fetch from CFBD
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
-    return NextResponse.json(
-      { error: 'CFBD_API_KEY not configured' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
   }
 
   try {

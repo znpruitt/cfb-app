@@ -119,7 +119,9 @@ export async function POST(
     );
   }
 
-  const ownerNames = owners.filter((o): o is string => typeof o === 'string' && o.trim().length > 0);
+  const ownerNames = owners.filter(
+    (o): o is string => typeof o === 'string' && o.trim().length > 0
+  );
   if (ownerNames.length < 2) {
     return NextResponse.json(
       { error: 'owners must contain at least 2 non-empty strings', field: 'owners' },
@@ -150,7 +152,10 @@ export async function POST(
       (typeof s.pickTimerSeconds !== 'number' || s.pickTimerSeconds <= 0)
     ) {
       return NextResponse.json(
-        { error: 'settings.pickTimerSeconds must be null or a positive number', field: 'settings.pickTimerSeconds' },
+        {
+          error: 'settings.pickTimerSeconds must be null or a positive number',
+          field: 'settings.pickTimerSeconds',
+        },
         { status: 400 }
       );
     }
@@ -169,7 +174,10 @@ export async function POST(
       const maxRounds = Math.floor(fbsCount / ownerNames.length);
       if (s.totalRounds > maxRounds) {
         return NextResponse.json(
-          { error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerNames.length} owners)`, field: 'settings.totalRounds' },
+          {
+            error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerNames.length} owners)`,
+            field: 'settings.totalRounds',
+          },
           { status: 400 }
         );
       }
@@ -184,11 +192,13 @@ export async function POST(
       }
       const orderSet = new Set(s.draftOrder);
       const setsMatch =
-        orderSet.size === ownerNames.length &&
-        ownerNames.every((o) => orderSet.has(o));
+        orderSet.size === ownerNames.length && ownerNames.every((o) => orderSet.has(o));
       if (!setsMatch) {
         return NextResponse.json(
-          { error: 'draftOrder must contain exactly the same owners as the owners array', field: 'settings.draftOrder' },
+          {
+            error: 'draftOrder must contain exactly the same owners as the owners array',
+            field: 'settings.draftOrder',
+          },
           { status: 400 }
         );
       }
@@ -246,10 +256,7 @@ export async function PUT(
 
   const record = await getAppState<DraftState>(draftScope(slug), String(year));
   if (!record?.value) {
-    return NextResponse.json(
-      { error: `No draft found for ${slug} ${year}` },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: `No draft found for ${slug} ${year}` }, { status: 404 });
   }
 
   let body: unknown;
@@ -310,7 +317,10 @@ export async function PUT(
         const maxRounds = Math.floor(fbsCount / ownerCount);
         if (draft.settings.totalRounds > maxRounds) {
           return NextResponse.json(
-            { error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerCount} owners)`, field: 'settings.totalRounds' },
+            {
+              error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerCount} owners)`,
+              field: 'settings.totalRounds',
+            },
             { status: 400 }
           );
         }
@@ -321,7 +331,10 @@ export async function PUT(
   // Phase transition
   if (phase !== undefined) {
     if (typeof phase !== 'string') {
-      return NextResponse.json({ error: 'phase must be a string', field: 'phase' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'phase must be a string', field: 'phase' },
+        { status: 400 }
+      );
     }
     const targetPhase = phase as DraftPhase;
     if (!isValidTransition(draft.phase, targetPhase)) {
@@ -423,9 +436,10 @@ export async function PUT(
 
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
 
-        const bestTeam = available.length > 0
-          ? available[Math.floor(Math.random() * available.length)]
-          : undefined;
+        const bestTeam =
+          available.length > 0
+            ? available[Math.floor(Math.random() * available.length)]
+            : undefined;
         if (!bestTeam) {
           return NextResponse.json({ error: 'No teams available for auto-pick' }, { status: 422 });
         }
@@ -463,10 +477,7 @@ export async function PUT(
         };
       }
     } else {
-      return NextResponse.json(
-        { error: `Unknown timerAction: "${action}"` },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: `Unknown timerAction: "${action}"` }, { status: 400 });
     }
   }
 

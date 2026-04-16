@@ -27,9 +27,7 @@ export default async function DraftSetupPage({
   // Derive year from lifecycle status — preseason/season use status.year, offseason falls back to league.year
   const status = league.status;
   const year =
-    status?.state === 'preseason' || status?.state === 'season'
-      ? status.year
-      : league.year;
+    status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
 
   // Load existing draft state if any
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));

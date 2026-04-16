@@ -1114,9 +1114,7 @@ test('selectOverviewViewModel removes noisy scope suffix and duplicated movement
   });
 
   // leagueHighlights retired — verify pulse items don't include noisy scope suffix
-  assert.ok(
-    model.leaguePulse.every((entry) => !/\(this postseason slate\)/i.test(entry.text))
-  );
+  assert.ok(model.leaguePulse.every((entry) => !/\(this postseason slate\)/i.test(entry.text)));
 });
 
 test('selectOverviewViewModel keeps featured games when finals dominate early candidates', () => {

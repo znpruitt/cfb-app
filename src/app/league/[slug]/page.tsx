@@ -14,10 +14,17 @@ export default async function LeaguePage({
   const isAdmin =
     (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
       ?.publicMetadata?.role === 'platform_admin';
-  const leagueStatus = league?.status ?? (league ? { state: 'season' as const, year: league.year } : undefined);
+  const leagueStatus =
+    league?.status ?? (league ? { state: 'season' as const, year: league.year } : undefined);
   return (
     <main>
-      <CFBScheduleApp leagueSlug={slug} leagueDisplayName={league?.displayName} leagueYear={league?.year} leagueStatus={leagueStatus} isAdmin={isAdmin} />
+      <CFBScheduleApp
+        leagueSlug={slug}
+        leagueDisplayName={league?.displayName}
+        leagueYear={league?.year}
+        leagueStatus={leagueStatus}
+        isAdmin={isAdmin}
+      />
     </main>
   );
 }

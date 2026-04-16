@@ -34,9 +34,7 @@ export default async function DraftBoardPage({
 
   const status = league.status;
   const year =
-    status?.state === 'preseason' || status?.state === 'season'
-      ? status.year
-      : league.year;
+    status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
 
   // Load draft state
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
@@ -91,10 +89,23 @@ export default async function DraftBoardPage({
       ]);
       const aliasMap: AliasMap = {
         ...SEED_ALIASES,
-        ...(globalAliasRec?.value && typeof globalAliasRec.value === 'object' && !Array.isArray(globalAliasRec.value) ? globalAliasRec.value : {}),
-        ...(leagueAliasRec?.value && typeof leagueAliasRec.value === 'object' && !Array.isArray(leagueAliasRec.value) ? leagueAliasRec.value : {}),
+        ...(globalAliasRec?.value &&
+        typeof globalAliasRec.value === 'object' &&
+        !Array.isArray(globalAliasRec.value)
+          ? globalAliasRec.value
+          : {}),
+        ...(leagueAliasRec?.value &&
+        typeof leagueAliasRec.value === 'object' &&
+        !Array.isArray(leagueAliasRec.value)
+          ? leagueAliasRec.value
+          : {}),
       };
-      const built = buildScheduleFromApi({ scheduleItems: schedItems, teams, aliasMap, season: year });
+      const built = buildScheduleFromApi({
+        scheduleItems: schedItems,
+        teams,
+        aliasMap,
+        season: year,
+      });
       games = built.games;
     }
   } catch {
@@ -132,8 +143,16 @@ export default async function DraftBoardPage({
       ]);
       const priorAliasMap: AliasMap = {
         ...SEED_ALIASES,
-        ...(priorGlobalAliasRec?.value && typeof priorGlobalAliasRec.value === 'object' && !Array.isArray(priorGlobalAliasRec.value) ? priorGlobalAliasRec.value : {}),
-        ...(priorLeagueAliasRec?.value && typeof priorLeagueAliasRec.value === 'object' && !Array.isArray(priorLeagueAliasRec.value) ? priorLeagueAliasRec.value : {}),
+        ...(priorGlobalAliasRec?.value &&
+        typeof priorGlobalAliasRec.value === 'object' &&
+        !Array.isArray(priorGlobalAliasRec.value)
+          ? priorGlobalAliasRec.value
+          : {}),
+        ...(priorLeagueAliasRec?.value &&
+        typeof priorLeagueAliasRec.value === 'object' &&
+        !Array.isArray(priorLeagueAliasRec.value)
+          ? priorLeagueAliasRec.value
+          : {}),
       };
       const priorBuilt = buildScheduleFromApi({
         scheduleItems: priorSchedItems,
@@ -220,43 +239,52 @@ export default async function DraftBoardPage({
 
   return (
     <main className="py-8" style={{ width: '100%' }}>
-      <div className="px-2 md:px-6" style={{ maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', width: '100%', boxSizing: 'border-box' as const }}>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <Link
-            href={`/league/${slug}/`}
-            className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-          >
-            ← {league.displayName}
-          </Link>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
-            {league.displayName} — {year} Draft
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-zinc-400">
-            Commissioner board ·{' '}
+      <div
+        className="px-2 md:px-6"
+        style={{
+          maxWidth: 1400,
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          width: '100%',
+          boxSizing: 'border-box' as const,
+        }}
+      >
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
             <Link
-              href={`/league/${slug}/draft/board`}
-              className="text-blue-600 hover:underline dark:text-blue-400"
+              href={`/league/${slug}/`}
+              className="text-sm text-blue-600 hover:underline dark:text-blue-400"
             >
-              Spectator view →
+              ← {league.displayName}
             </Link>
-          </p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
+              {league.displayName} — {year} Draft
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">
+              Commissioner board ·{' '}
+              <Link
+                href={`/league/${slug}/draft/board`}
+                className="text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Spectator view →
+              </Link>
+            </p>
+          </div>
+          <Link
+            href={`/league/${slug}/draft/setup`}
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          >
+            Settings
+          </Link>
         </div>
-        <Link
-          href={`/league/${slug}/draft/setup`}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-        >
-          Settings
-        </Link>
-      </div>
 
-      <DraftBoardClient
-        slug={slug}
-        year={year}
-        initialDraft={liveDraft}
-        teamInsights={teamInsights}
-        leagueStatus={league.status}
-      />
+        <DraftBoardClient
+          slug={slug}
+          year={year}
+          initialDraft={liveDraft}
+          teamInsights={teamInsights}
+          leagueStatus={league.status}
+        />
       </div>
     </main>
   );

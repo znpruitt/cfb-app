@@ -93,9 +93,12 @@ export default function BackfillPanel({ leagues }: Props) {
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-2 text-base font-medium text-gray-900 dark:text-zinc-100">Archive a Past Season</h2>
+      <h2 className="mb-2 text-base font-medium text-gray-900 dark:text-zinc-100">
+        Archive a Past Season
+      </h2>
       <p className="mb-4 text-sm text-gray-500 dark:text-zinc-400">
-        Save a completed past season to the history archive without advancing the active season year.
+        Save a completed past season to the history archive without advancing the active season
+        year.
       </p>
 
       <div className="mb-4 flex flex-wrap gap-4">

@@ -44,7 +44,10 @@ export async function updateLeague(
   return updated[idx];
 }
 
-export async function updateLeagueStatus(slug: string, status: LeagueStatus): Promise<League | null> {
+export async function updateLeagueStatus(
+  slug: string,
+  status: LeagueStatus
+): Promise<League | null> {
   return updateLeague(slug, { status });
 }
 

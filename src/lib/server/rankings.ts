@@ -239,17 +239,17 @@ export async function loadSeasonRankings(
   const [regularData, postseasonData] = await Promise.all([
     fetchUpstreamJson<CfbdPollWeek[]>(
       buildCfbdRankingsUrl({ year: season, seasonType: 'regular' }).toString(),
-      fetchOpts,
+      fetchOpts
     ),
     fetchUpstreamJson<CfbdPollWeek[]>(
       buildCfbdRankingsUrl({ year: season, seasonType: 'postseason' }).toString(),
-      fetchOpts,
+      fetchOpts
     ),
   ]);
 
   const rawWeeks = normalizeCfbdRankingsWeeks(
     [...(regularData ?? []), ...(postseasonData ?? [])],
-    resolver,
+    resolver
   );
   const weeks = remapPostseasonWeeks(rawWeeks);
 

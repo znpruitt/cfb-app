@@ -18,7 +18,9 @@ export default function LeagueSettingsForm({
   initialFoundedYear?: number;
 }): React.ReactElement {
   const [displayName, setDisplayName] = useState(initialDisplayName);
-  const [foundedYear, setFoundedYear] = useState(String(initialFoundedYear ?? new Date().getFullYear()));
+  const [foundedYear, setFoundedYear] = useState(
+    String(initialFoundedYear ?? new Date().getFullYear())
+  );
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | undefined>();
 
@@ -33,7 +35,11 @@ export default function LeagueSettingsForm({
       return;
     }
     const foundedYearNum = Number(foundedYear);
-    if (!Number.isFinite(foundedYearNum) || foundedYearNum < 1900 || foundedYearNum > new Date().getFullYear()) {
+    if (
+      !Number.isFinite(foundedYearNum) ||
+      foundedYearNum < 1900 ||
+      foundedYearNum > new Date().getFullYear()
+    ) {
       setError('Founded year must be between 1900 and the current year');
       setStatus('error');
       return;
@@ -120,7 +126,9 @@ export default function LeagueSettingsForm({
           >
             {status === 'loading' ? 'Saving…' : 'Save'}
           </button>
-          {status === 'success' && <span className="text-xs text-green-600 dark:text-green-400">Saved</span>}
+          {status === 'success' && (
+            <span className="text-xs text-green-600 dark:text-green-400">Saved</span>
+          )}
           {status === 'error' && (
             <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>
           )}

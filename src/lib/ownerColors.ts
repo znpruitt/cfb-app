@@ -102,13 +102,9 @@ export function getOwnerColor(ownerName: string, allOwners: string[], isDark: bo
   const trimmed = ownerName.trim();
   if (!trimmed) return palette[0];
 
-  const sorted = [...allOwners].sort((a, b) =>
-    a.toLowerCase().localeCompare(b.toLowerCase())
-  );
+  const sorted = [...allOwners].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
-  const idx = sorted.findIndex(
-    (o) => o.toLowerCase() === trimmed.toLowerCase()
-  );
+  const idx = sorted.findIndex((o) => o.toLowerCase() === trimmed.toLowerCase());
 
   if (idx >= 0) {
     return palette[idx % PALETTE_SIZE];
@@ -128,13 +124,10 @@ export function getOwnerColor(ownerName: string, allOwners: string[], isDark: bo
  */
 export function buildOwnerColorMap(owners: string[], isDark: boolean): Record<string, string> {
   const palette = isDark ? PALETTE_DARK : PALETTE_LIGHT;
-  const sorted = [...owners].sort((a, b) =>
-    a.toLowerCase().localeCompare(b.toLowerCase())
-  );
+  const sorted = [...owners].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   const map: Record<string, string> = {};
   for (let i = 0; i < sorted.length; i++) {
     map[sorted[i]] = palette[i % PALETTE_SIZE];
   }
   return map;
 }
-
