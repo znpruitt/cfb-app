@@ -51,8 +51,8 @@ function normalizeTeam(team: RawGameTeamStatsTeam): TeamGameStats {
   const [penaltyCount, penaltyYards] = parseFraction(raw.totalPenaltiesYards);
 
   return {
-    school: team.school ?? '',
-    schoolId: team.schoolId ?? 0,
+    school: team.team ?? '',
+    schoolId: team.teamId ?? 0,
     conference: team.conference ?? '',
     homeAway: team.homeAway === 'away' ? 'away' : 'home',
     points: typeof team.points === 'number' ? team.points : 0,

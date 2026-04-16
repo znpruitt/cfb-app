@@ -8,8 +8,8 @@ export type RawTeamStatEntry = {
 };
 
 export type RawGameTeamStatsTeam = {
-  schoolId: number;
-  school: string;
+  teamId: number;
+  team: string;
   conference: string;
   homeAway: string;
   points: number;
