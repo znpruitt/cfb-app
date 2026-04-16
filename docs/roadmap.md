@@ -311,6 +311,73 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 
 ## Upcoming campaigns (post-P7B-7)
 
+### Slow Draft Mode (planned)
+Enable async drafts where owners have a configurable window to make each pick rather than requiring everyone online simultaneously.
+
+- **Use case:** Family leagues, geographically distributed leagues, casual leagues where coordinating a live draft is impractical
+- **How it works:**
+  - Commissioner configures pick window duration (e.g. 24 or 48 hours) in draft settings
+  - When it's an owner's turn, they are notified (email or in-app) that they're on the clock
+  - Owner logs in within the window to make their pick
+  - If the window expires without a pick, auto-pick fires and advances to the next owner
+  - No live countdown timer — replaced with a deadline display ("Pick by Monday 6pm")
+  - Draft board shows all picks made so far and available teams, same as live draft
+  - Commissioner retains undo and override controls
+- **Settings additions:** Pick window duration (hours); notification timing (e.g. at 50% and 25% of window remaining)
+- **New infrastructure required:** Email notification pipeline — not currently in place
+- **Dependencies:** Email notification system (new), draft settings UI update
+
+### Game Stats Pipeline (planned)
+Fetch and cache weekly game-level team stats from CFBD to power the Insights Engine.
+
+- **Data source:** CFBD `game_team_stats` endpoint — one call per week, returns all team stats for all games in that week
+- **Storage:** Cached in `appStateStore` by week, same pattern as scores
+- **Cron:** Monday 11am UTC — fetch weekend game stats (complements existing Wednesday cron for season transition)
+- **Owner aggregation:** Sum/average stats across all teams owned by each owner, derived at query time using existing team→owner mapping
+- **Stats available:** Yards gained/allowed, turnovers, third-down conversion %, red zone efficiency, time of possession
+- **API cost:** ~19 additional calls per season — well within 1,000/month free tier
+- **Prerequisite for:** Insights Engine
+
+### Insights Engine (planned)
+Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
+
+**Core principle:** Every insight must tell the user something they couldn't figure out just by reading the table. No restating visible data without a compelling angle.
+
+**Placement:** 2–3 highlight insights on overview page (existing panel); full pulse on dedicated tab.
+
+**Content adapts by lifecycle state:**
+- **Offseason / Preseason:** History-based insights (defending champion, drought, collapse), draft-based insights (conference concentration, diversity, AP poll rankings per owner), schedule strength projections
+- **In-season:** Two weekly pulses — Look Back (Monday 6am ET) and Forward Look (Thursday 6am ET)
+- **Postseason:** Championship race narrative, bracket implications, owner vs owner outcomes
+
+**Two weekly in-season pulses:**
+- **Monday 6am ET (11am UTC) — Look Back:** Weekend recap, notable results, standings movement, trash-talk fodder, owner vs owner outcomes, surprising performances
+- **Thursday 6am ET (11am UTC) — Forward Look:** Games to watch this weekend, owner vs owner collision preview, rivalry implications, who needs a win
+
+**Data sources (tiered by availability):**
+- **Always available:** League history archive, current standings, owner rosters, head-to-head records
+- **August onward:** AP poll rankings per owner, preseason projections vs actual; schedule strength per owner (ranked opponent count, aggregate SP+)
+- **In-season:** Game stats (via Game Stats Pipeline), form/momentum, owner vs owner matchup frequency
+
+**Insight categories:**
+- Historical context ("Maleski's runner-up finish is the closest gap in 4 years")
+- Cross-table connections ("Pruitt leads standings but has the hardest remaining schedule")
+- Owner vs owner narrative ("Ballard has never beaten Pruitt in 6 matchups")
+- Championship race ("Three owners within 2 games of first with 4 weeks remaining")
+- Trash-talk fodder ("Shambaugh's teams have been outgained in 3 straight weeks")
+- Projection vs reality ("Jordan's roster was rated highest by SP+ but sits 8th")
+
+**Tone:** Mix of dry stats, narrative storytelling, and light humor.
+**Prerequisite:** Game Stats Pipeline
+
+### Copy / UX Writing Audit (planned)
+Systematic review and rewrite of all user-facing strings for consistent voice and quality before public launch.
+- Inventory all UI copy: headings, subheadings, labels, empty states, error messages, button text, tooltips, banners
+- Apply a single consistent voice: concise, direct, league-aware, no filler phrases
+- Identify and fix copy that is generic, redundant, inconsistent, or that reveals implementation details to members
+- Flag any places where new-name "Turf War" branding can be reinforced
+- No logic changes — copy only
+
 ### Draft Difficulty Settings (planned)
 - Auto-pick algorithm configuration (random, SP+ rating, preseason rank)
 - Team data visibility controls during draft (show/hide SP+ ratings, win totals, schedule insights)
@@ -319,10 +386,10 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - App-wide review of back links: styling consistency, copy, destinations
 - Ensure all "← Back" links follow a single visual pattern and navigate to the correct parent
 
-### Clerk Production Instance Migration (planned)
-- Migrate from Clerk development instance to production instance
-- Re-configure session token and `publicMetadata` (role assignment) post-migration
-- Verify all auth flows (platform_admin, sessionStorage token fallback)
+### Clerk Production Instance Migration ✓ Complete
+- Migrated from Clerk development instance to production instance
+- DNS configured, session token customized, production keys set in Vercel
+- Commissioner account created with `platform_admin` role; all auth flows verified
 
 ### P7A-4: Aliases Platform Migration (planned)
 - Complete migration of aliases from year-scoped to global platform scope
@@ -336,6 +403,16 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - Pre-season overview with owner rosters and schedule placeholder
 - See `docs/completed-work.md` for full record
 
+### Custom Domain Setup ✓ Complete
+- `turfwar.games` and `tscturfwar.com` registered via Porkbun
+- `turfwar.games` connected to Vercel production via A record
+- `tscturfwar.com` → `https://turfwar.games/league/tsc` permanent 301 redirect in `vercel.json`
+
+### App Naming: Turf War ✓ Complete
+- "CFB League Dashboard" renamed to "Turf War" across all user-facing surfaces
+- URL examples updated to `turfwar.games`
+- Landing page tagline: "Your league, upgraded."
+
 ### P7B Dry Run Polish ✓ Complete
 - Overview lifecycle banners: state-driven, left-border accent, pulsing live dot, draft countdown
 - Preseason setup flow: "Complete Setup" button, `setupComplete` state, green admin hub badge
@@ -344,30 +421,6 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 - Commissioner setup links from draft board banner and summary page
 - Sandbox reset controls: idempotent dry runs, auto-complete draft button
 - See `docs/completed-work.md` for full record
-
-### Preseason Insights Panel (planned)
-Replace the empty insights area during preseason with meaningful, data-driven content that upgrades automatically as data becomes available. No commissioner action needed beyond what the cron already handles.
-
-**Tier 1 — Always available (static data from history archives + draft results)**
-- Defending champion, runner-up, longest championship drought, most titles
-- Biggest collapse (highest finish drop year-over-year)
-- Draft-based: conference concentration per owner, most/least diversity, owner with most teams from one conference
-
-**Tier 2 — August (once CFBD publishes preseason AP poll)**
-- Most preseason top-25 teams per owner
-- Highest-ranked team drafted
-- Owner with the most ranked opponents on their schedule
-
-**Tier 3 — Schedule cached (cron-driven, before first game)**
-- Schedule strength per owner (ranked opponent count, aggregate SP+)
-- Most home games, most rivalry games per owner
-- Earliest/latest bye weeks
-- Peak exposure weeks (most owner-relevant games in one week)
-- Owner vs owner matchup frequency ("Ballard plays himself 18 times")
-- Most common rivalry matchup across owners
-- Defending champion gauntlet (most games against last year's champion's teams)
-
-**Scope:** Insights selectors, rankings data, schedule data, overview panel, owner vs owner matchup derivation. Panel gracefully upgrades itself as each tier's data becomes available.
 
 ## Architecture rules
 

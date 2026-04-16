@@ -21,7 +21,7 @@
 - **Phase 5 (draft/owner assignment tool):** ✅ Complete. All subphases (P5A–P5D) shipped. PR #214 open. See `docs/completed-work.md`.
 - **Phase 6 (admin cleanup and auth):** ✅ Complete. All subphases P6A–P6E shipped. See `docs/completed-work.md`.
 - **Phase 7 (product design audit):** Active. Subphases 7A–7F complete. See `docs/completed-work.md`.
-- **Active execution focus: Dry run preparation and app naming.**
+- **Active execution focus: Post-launch — TSC rollout, copy audit, auth hardening.**
 
 ## Hosted deployment runbook
 
@@ -136,14 +136,22 @@ Season transition architecture shipped. Branch `claude/audit-season-transition-p
 
 End-to-end dry run readiness shipped. Branch `claude/polish-draft-flow-Rv5AF`. PR #270. See `docs/completed-work.md` for full record.
 
+## Completed launch prep ✅
+
+- App naming: "Turf War" — complete
+- Clerk production instance migration — complete
+- `turfwar.games` custom domain connected — complete
+- `tscturfwar.com` → `turfwar.games/league/tsc` redirect — complete
+- Force-dynamic build blocker resolved — complete
+- Demo UI polish (not-found, error pages, light mode cache admin fix) — complete
+- Branding update across all user-facing surfaces — complete
+
 ## Next priorities
 
-1. **Test league reset for next dry run** — Use "Reset to 2025 Season" → "Set: Offseason" → "Begin Pre-Season Setup" flow from the admin test controls to start clean
-2. **Dry run with league organizer** — End-to-end walkthrough: offseason → begin preseason → confirm owners → draft → complete setup → verify `setupComplete` state and cron transition
-3. **App naming decision** — Finalize product name for deployment (involve league organizer)
-4. **Clerk production instance migration** — Migrate from development to production Clerk instance, re-configure session token and `publicMetadata`
-5. **Generate and set `CRON_SECRET` in Vercel dashboard** — Run `openssl rand -base64 32` and add as `CRON_SECRET` env var in Vercel project settings (Production scope)
-6. **Begin next campaign** — Priority TBD based on dry run feedback (likely Draft Difficulty Settings, Back Button Audit, or P7A-4 Aliases Platform Migration)
+1. **Share `turfwar.games/league/tsc` with TSC league members** — Distribute the URL; confirm the league view renders correctly for members on mobile and desktop
+2. **Copy / UX Writing Audit** — Systematic review and rewrite of all user-facing strings for consistent voice before broader rollout. See `docs/roadmap.md` for campaign scope.
+3. **Server action auth hardening** — Phase 8 prerequisite: enforce commissioner role on all mutating server actions; remove `ADMIN_API_TOKEN` fallback from public routes
+4. **Preseason Insights Panel** — August timeline; requires AP poll data from CFBD. Tier 1 (history + draft stats) can start earlier. See `docs/roadmap.md` for full tier breakdown.
 
 ## Upcoming phases
 
@@ -156,6 +164,18 @@ End-to-end dry run readiness shipped. Branch `claude/polish-draft-flow-Rv5AF`. P
 - `ADMIN_API_TOKEN` full removal
 
 See `docs/roadmap.md` for full Phase 8 scope.
+
+### Game Stats Pipeline (planned)
+
+Fetch and cache weekly CFBD `game_team_stats` by week (same pattern as scores). Monday 11am UTC cron job. ~19 API calls/season. Owner stat aggregation derived at query time. Prerequisite for Insights Engine. See `docs/roadmap.md` for full scope.
+
+### Insights Engine (planned)
+
+Two weekly pulses (Monday look-back + Thursday forward-look) generating contextual narrative insights from standings, game stats, history, and owner rosters. 2–3 highlights on overview; full pulse on dedicated tab. AP poll and in-season stats require August start — Tier 1 history/roster insights can ship earlier. Requires Game Stats Pipeline. See `docs/roadmap.md` for full scope.
+
+### Slow Draft Mode (planned)
+
+Async draft mode with configurable per-pick window (e.g. 24–48 hours). Owners notified when on the clock; auto-pick fires on expiry. Deadline display replaces live countdown. Requires new email notification infrastructure. See `docs/roadmap.md` for full scope.
 
 ### Preseason Insights Panel (planned)
 
