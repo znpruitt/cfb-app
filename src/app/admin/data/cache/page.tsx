@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import GlobalRefreshPanel from '@/components/admin/GlobalRefreshPanel';
+import GameStatsCachePanel from '@/components/admin/GameStatsCachePanel';
 import SpRatingsCachePanel from '@/components/SpRatingsCachePanel';
 import WinTotalsUploadPanel from '@/components/WinTotalsUploadPanel';
 import HistoricalCachePanel from '@/components/admin/HistoricalCachePanel';
@@ -27,6 +28,7 @@ export default async function AdminDataCachePage() {
         </div>
 
         <GlobalRefreshPanel defaultYear={leagueAwareYear} />
+        <GameStatsCachePanel defaultYear={leagueAwareYear} />
         <SpRatingsCachePanel />
         <WinTotalsUploadPanel />
         <HistoricalCachePanel leagues={leagues} />
