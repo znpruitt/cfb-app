@@ -154,10 +154,10 @@ export default function RolloverPanel() {
           Season {currentYear} is complete — ready to archive
         </h2>
         <p className="max-w-2xl text-sm text-gray-600 dark:text-zinc-300">
-          The CFP National Championship has been played. Clicking{' '}
-          <strong>Preview Rollover</strong> will show what will be archived for each league.
-          Clicking <strong>Confirm Rollover</strong> will archive the {currentYear} season for all
-          leagues and set them to offseason status.
+          The CFP National Championship has been played. Clicking <strong>Preview Rollover</strong>{' '}
+          will show what will be archived for each league. Clicking{' '}
+          <strong>Confirm Rollover</strong> will archive the {currentYear} season for all leagues
+          and set them to offseason status.
         </p>
       </div>
 
@@ -243,10 +243,7 @@ export default function RolloverPanel() {
                             <>
                               changed —{' '}
                               {league.diff.standingsMovement
-                                .map(
-                                  (m) =>
-                                    `${m.ownerName} ${m.previousPosition}→${m.newPosition}`
-                                )
+                                .map((m) => `${m.ownerName} ${m.previousPosition}→${m.newPosition}`)
                                 .join(', ')}
                             </>
                           ) : (

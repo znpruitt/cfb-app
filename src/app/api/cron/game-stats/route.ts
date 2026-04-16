@@ -73,8 +73,7 @@ async function findLatestCompletedWeek(
     const gameTime = new Date(item.startDate).getTime();
     if (gameTime > completedThreshold) continue;
 
-    const seasonType: CfbdSeasonType =
-      item.seasonType === 'postseason' ? 'postseason' : 'regular';
+    const seasonType: CfbdSeasonType = item.seasonType === 'postseason' ? 'postseason' : 'regular';
     const key = `${item.week}:${seasonType}`;
     const prev = slateMaxDate.get(key) ?? 0;
     if (gameTime > prev) slateMaxDate.set(key, gameTime);

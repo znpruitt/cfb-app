@@ -54,10 +54,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       authResult === 'not-configured'
         ? 'CRON_SECRET is not configured on the server — set it in Vercel environment variables'
         : 'unauthorized: Bearer token did not match CRON_SECRET';
-    return NextResponse.json(
-      { years: [], error },
-      { status: 401 }
-    );
+    return NextResponse.json({ years: [], error }, { status: 401 });
   }
 
   const result: CronResult = { years: [] };
@@ -65,9 +62,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   try {
     // A. Find preseason leagues and group by year
     const leagues = await getLeagues();
-    const preseasonLeagues = leagues.filter(
-      (l) => l.status?.state === 'preseason'
-    );
+    const preseasonLeagues = leagues.filter((l) => l.status?.state === 'preseason');
     if (preseasonLeagues.length === 0) {
       return NextResponse.json(result);
     }

@@ -92,9 +92,7 @@ export default function DraftSummaryClient({
 
   // Teams already assigned to other picks (the replaced pick remains selectable)
   const pickedTeamsLower = new Set(
-    draft.picks
-      .filter((p) => p.pickNumber !== editingPickNumber)
-      .map((p) => p.team.toLowerCase())
+    draft.picks.filter((p) => p.pickNumber !== editingPickNumber).map((p) => p.team.toLowerCase())
   );
 
   // Available teams for the inline picker: not drafted by another pick, optionally filtered by search
@@ -211,9 +209,15 @@ export default function DraftSummaryClient({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-zinc-800">
-                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Pick</th>
-                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Team</th>
-                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Conf</th>
+                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">
+                        Pick
+                      </th>
+                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">
+                        Team
+                      </th>
+                      <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">
+                        Conf
+                      </th>
                       {isAdmin && <th className="pb-1" />}
                     </tr>
                   </thead>
@@ -223,11 +227,17 @@ export default function DraftSummaryClient({
                       const conf = conferenceMap[teamLower] ?? '';
                       const displayName = displayNameMap[teamLower] ?? pick.team;
                       return (
-                        <tr key={pick.pickNumber} className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
+                        <tr
+                          key={pick.pickNumber}
+                          className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50"
+                        >
                           <td className="py-1 pr-2 text-xs text-gray-400 dark:text-zinc-500">
                             #{pick.pickNumber}
                           </td>
-                          <td className="py-1 pr-2 text-gray-800 dark:text-zinc-200" title={pick.team}>
+                          <td
+                            className="py-1 pr-2 text-gray-800 dark:text-zinc-200"
+                            title={pick.team}
+                          >
                             {displayName}
                             {pick.autoSelected && (
                               <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
@@ -271,9 +281,15 @@ export default function DraftSummaryClient({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-zinc-800">
-                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Pick</th>
-                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Team</th>
-                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">Conf</th>
+                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">
+                      Pick
+                    </th>
+                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">
+                      Team
+                    </th>
+                    <th className="pb-1 text-left text-xs font-medium text-gray-400 dark:text-zinc-500">
+                      Conf
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -282,7 +298,10 @@ export default function DraftSummaryClient({
                     const conf = conferenceMap[teamLower] ?? '';
                     const displayName = displayNameMap[teamLower] ?? teamName;
                     return (
-                      <tr key={teamName} className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
+                      <tr
+                        key={teamName}
+                        className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50"
+                      >
                         <td className="py-1 pr-2 text-xs text-gray-300 dark:text-zinc-600">—</td>
                         <td className="py-1 pr-2 text-gray-400 dark:text-zinc-500" title={teamName}>
                           {displayName}
@@ -325,9 +344,7 @@ export default function DraftSummaryClient({
             onChange={(e) => setEditSearch(e.target.value)}
             className="mb-3 w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
           />
-          {editError && (
-            <p className="mb-2 text-sm text-red-700 dark:text-red-400">{editError}</p>
-          )}
+          {editError && <p className="mb-2 text-sm text-red-700 dark:text-red-400">{editError}</p>}
           <div className="max-h-52 overflow-y-auto rounded border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
             {availableForPicker.length === 0 ? (
               <p className="px-3 py-2 text-sm text-gray-400 dark:text-zinc-500">

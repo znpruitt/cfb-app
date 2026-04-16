@@ -7,7 +7,9 @@ export default async function ArchiveListPanel() {
   if (leagues.length === 0) {
     return (
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
-        <h2 className="mb-2 text-base font-semibold text-gray-900 dark:text-zinc-100">Season Archives</h2>
+        <h2 className="mb-2 text-base font-semibold text-gray-900 dark:text-zinc-100">
+          Season Archives
+        </h2>
         <p className="text-sm text-gray-500 dark:text-zinc-400">No leagues configured.</p>
       </section>
     );
@@ -22,7 +24,9 @@ export default async function ArchiveListPanel() {
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-zinc-100">Season Archives</h2>
+      <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-zinc-100">
+        Season Archives
+      </h2>
       <div className="space-y-4">
         {archiveData.map(({ league, archivedYears }) => {
           const sorted = [...archivedYears].sort((a, b) => b - a);
@@ -30,7 +34,9 @@ export default async function ArchiveListPanel() {
             <div key={league.slug}>
               <p className="mb-1 text-sm font-medium text-gray-800 dark:text-zinc-200">
                 {league.displayName}
-                <span className="ml-2 font-mono text-xs text-gray-400 dark:text-zinc-500">/{league.slug}</span>
+                <span className="ml-2 font-mono text-xs text-gray-400 dark:text-zinc-500">
+                  /{league.slug}
+                </span>
               </p>
               {sorted.length === 0 ? (
                 <p className="text-sm text-gray-400 dark:text-zinc-500">No archives yet.</p>

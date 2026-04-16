@@ -10,11 +10,7 @@ import { completeSetup } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PreseasonPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export default async function PreseasonPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const league = await getLeague(slug);
 
@@ -69,10 +65,7 @@ export default async function PreseasonPage({
   const completeSetupAction = completeSetup.bind(null, slug, year);
 
   // Helper text for disabled Complete Setup button
-  const blockers = [
-    !hasRoster && 'owners',
-    !teamsAssigned && 'team assignment',
-  ].filter(Boolean);
+  const blockers = [!hasRoster && 'owners', !teamsAssigned && 'team assignment'].filter(Boolean);
   const blockerText =
     blockers.length === 2
       ? 'Complete owners and team assignment before finishing setup.'
@@ -103,7 +96,9 @@ export default async function PreseasonPage({
           <li className="flex items-center gap-2">
             <span
               className={
-                hasRoster ? 'text-green-600 dark:text-green-400' : 'text-gray-300 dark:text-zinc-600'
+                hasRoster
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-gray-300 dark:text-zinc-600'
               }
             >
               {hasRoster ? '✓' : '○'}
@@ -139,10 +134,7 @@ export default async function PreseasonPage({
             {teamsAssigned ? (
               <span className="text-gray-700 dark:text-zinc-300">Teams assigned</span>
             ) : league.assignmentMethod ? (
-              <Link
-                href={teamsHref}
-                className="text-blue-600 hover:underline dark:text-blue-400"
-              >
+              <Link href={teamsHref} className="text-blue-600 hover:underline dark:text-blue-400">
                 Teams assigned
               </Link>
             ) : (
@@ -154,14 +146,18 @@ export default async function PreseasonPage({
           <li className="flex items-center gap-2">
             <span
               className={
-                isSetupComplete ? 'text-green-600 dark:text-green-400' : 'text-gray-300 dark:text-zinc-600'
+                isSetupComplete
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-gray-300 dark:text-zinc-600'
               }
             >
               {isSetupComplete ? '✓' : '○'}
             </span>
             <span
               className={
-                isSetupComplete ? 'text-gray-700 dark:text-zinc-300' : 'text-gray-400 dark:text-zinc-500'
+                isSetupComplete
+                  ? 'text-gray-700 dark:text-zinc-300'
+                  : 'text-gray-400 dark:text-zinc-500'
               }
             >
               Setup complete
@@ -172,16 +168,14 @@ export default async function PreseasonPage({
 
       {/* Assignment method — hidden once teams are assigned */}
       {!teamsAssigned && (
-        <AssignmentMethodCard
-          slug={slug}
-          currentMethod={league.assignmentMethod ?? null}
-        />
+        <AssignmentMethodCard slug={slug} currentMethod={league.assignmentMethod ?? null} />
       )}
 
       {/* Manual assignment coming soon notice */}
       {!teamsAssigned && league.assignmentMethod === 'manual' && (
         <p className="text-sm text-gray-500 dark:text-zinc-400">
-          Manual team assignment is coming soon. Once available, you&apos;ll be able to assign teams directly from this page.
+          Manual team assignment is coming soon. Once available, you&apos;ll be able to assign teams
+          directly from this page.
         </p>
       )}
 
@@ -215,7 +209,6 @@ export default async function PreseasonPage({
               <p className="text-xs text-gray-400 dark:text-zinc-500">{blockerText}</p>
             )}
           </>
-
         )}
       </div>
     </main>

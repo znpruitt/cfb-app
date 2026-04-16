@@ -30,10 +30,7 @@ export default async function LeagueHistoryPage({
 }): Promise<React.ReactElement> {
   const { slug } = await params;
 
-  const [{ sessionClaims }, league] = await Promise.all([
-    auth(),
-    getLeague(slug),
-  ]);
+  const [{ sessionClaims }, league] = await Promise.all([auth(), getLeague(slug)]);
   if (!league) notFound();
 
   const isAdmin =

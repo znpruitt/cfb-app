@@ -4,10 +4,7 @@ function scope(slug: string): string {
   return `preseason-owners:${slug}`;
 }
 
-export async function getPreseasonOwners(
-  slug: string,
-  year: number
-): Promise<string[] | null> {
+export async function getPreseasonOwners(slug: string, year: number): Promise<string[] | null> {
   try {
     const record = await getAppState<string[]>(scope(slug), String(year));
     return record?.value ?? null;

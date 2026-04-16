@@ -34,21 +34,21 @@ export default function AllTimeStandingsTable({
             <table className="min-w-max border-separate border-spacing-0 text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-                  {(['#', 'Owner', 'Record', 'Win%', 'Titles', 'Seasons', 'Avg Finish'] as const).map(
-                    (label) => {
-                      const isNumeric = label !== '#' && label !== 'Owner';
-                      return (
-                        <th
-                          key={label}
-                          className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${
-                            label === '#' ? 'w-[2rem]' : ''
-                          } ${isNumeric ? 'text-right' : ''}`}
-                        >
-                          {label}
-                        </th>
-                      );
-                    }
-                  )}
+                  {(
+                    ['#', 'Owner', 'Record', 'Win%', 'Titles', 'Seasons', 'Avg Finish'] as const
+                  ).map((label) => {
+                    const isNumeric = label !== '#' && label !== 'Owner';
+                    return (
+                      <th
+                        key={label}
+                        className={`whitespace-nowrap border-b border-gray-200 px-1.5 py-2 font-semibold sm:px-2 dark:border-zinc-700 ${
+                          label === '#' ? 'w-[2rem]' : ''
+                        } ${isNumeric ? 'text-right' : ''}`}
+                      >
+                        {label}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>

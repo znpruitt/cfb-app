@@ -10,16 +10,12 @@ export type ScheduleProbeState = {
   firstGameDate: string | null;
 };
 
-export async function getScheduleProbeState(
-  year: number
-): Promise<ScheduleProbeState | null> {
+export async function getScheduleProbeState(year: number): Promise<ScheduleProbeState | null> {
   const record = await getAppState<ScheduleProbeState>(PROBE_SCOPE, String(year));
   return record?.value ?? null;
 }
 
-export async function saveScheduleProbeState(
-  state: ScheduleProbeState
-): Promise<void> {
+export async function saveScheduleProbeState(state: ScheduleProbeState): Promise<void> {
   await setAppState(PROBE_SCOPE, String(state.year), state);
 }
 

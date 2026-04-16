@@ -1,4 +1,10 @@
-import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import {
+  useEffect,
+  useRef,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from 'react';
 
 import { SEED_ALIASES, type AliasMap } from '../../lib/teamNames';
 import { bootstrapAliasesAndCaches } from '../../lib/bootstrap';

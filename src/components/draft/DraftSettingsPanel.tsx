@@ -194,7 +194,10 @@ export default function DraftSettingsPanel({
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
 
       // Ensure draft exists (auto-create if needed)
-      if (!draftState.createdAt || draftState.phase === 'settings' && draftState.owners.length === 0) {
+      if (
+        !draftState.createdAt ||
+        (draftState.phase === 'settings' && draftState.owners.length === 0)
+      ) {
         const createRes = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', ...authHeaders },
@@ -260,9 +263,7 @@ export default function DraftSettingsPanel({
 
   return (
     <div className="rounded-2xl border border-gray-300 bg-white p-6 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-4 text-lg font-semibold text-gray-950 dark:text-zinc-50">
-        Draft Settings
-      </h2>
+      <h2 className="mb-4 text-lg font-semibold text-gray-950 dark:text-zinc-50">Draft Settings</h2>
 
       <div className="space-y-6">
         {/* Draft Order */}
@@ -363,7 +364,10 @@ export default function DraftSettingsPanel({
                       }`}
                     >
                       {/* Drag handle */}
-                      <span className="cursor-grab text-gray-400 dark:text-zinc-500" title="Drag to reorder">
+                      <span
+                        className="cursor-grab text-gray-400 dark:text-zinc-500"
+                        title="Drag to reorder"
+                      >
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                           <circle cx="4" cy="2" r="1" />
                           <circle cx="8" cy="2" r="1" />
@@ -386,7 +390,9 @@ export default function DraftSettingsPanel({
                         className="w-8 rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-center text-xs text-gray-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200"
                         title="Type a position number"
                       />
-                      <span className="flex-1 text-sm text-gray-900 dark:text-zinc-100">{owner}</span>
+                      <span className="flex-1 text-sm text-gray-900 dark:text-zinc-100">
+                        {owner}
+                      </span>
                     </li>
                   ))}
               </ul>
@@ -466,7 +472,9 @@ export default function DraftSettingsPanel({
               value={totalRounds}
               min={1}
               max={suggestedRounds}
-              onChange={(e) => setTotalRounds(Math.max(1, Math.min(suggestedRounds, Number(e.target.value))))}
+              onChange={(e) =>
+                setTotalRounds(Math.max(1, Math.min(suggestedRounds, Number(e.target.value))))
+              }
               className="w-20 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             />
             {owners.length > 0 && (

@@ -1,9 +1,9 @@
 import {
   deriveGameHighlightTags,
-  deriveLeagueInsights,
+  deriveGameMovementInsights,
   deriveOverviewHighlightSignals,
   type OverviewHighlightSignals,
-} from '../leagueInsights';
+} from '../gameTags';
 import { gameStateFromScore } from '../gameUi';
 import type { HighlightDrilldownTarget } from '../highlightDrilldown';
 import { isTruePostseasonGame } from '../postseason-display';
@@ -165,7 +165,12 @@ function deriveHeroNarrative(params: {
   }
 
   const gbGap = runnerUp.gamesBack;
-  const gbLabel = gbGap === 1 ? '1 game' : Number.isInteger(gbGap) ? `${gbGap} games` : `${gbGap.toFixed(1)} games`;
+  const gbLabel =
+    gbGap === 1
+      ? '1 game'
+      : Number.isInteger(gbGap)
+        ? `${gbGap} games`
+        : `${gbGap.toFixed(1)} games`;
   const pctGap = Math.max(0, leader.winPct - runnerUp.winPct);
   return summary.phase === 'complete'
     ? `${leader.owner} won the title by ${gbLabel} over ${runnerUp.owner}`
@@ -855,9 +860,7 @@ function selectFeaturedGames(
     return !(a === NO_CLAIM_OWNER && h === NO_CLAIM_OWNER);
   });
 
-  const hasPostseasonGames = eligible.some(
-    (item) => item.item.bucket.game.postseasonRole != null
-  );
+  const hasPostseasonGames = eligible.some((item) => item.item.bucket.game.postseasonRole != null);
   if (!hasPostseasonGames) return eligible.slice(0, limit);
   // In postseason context, sort by postseasonRole tier, preserving original order within each tier
   const indexed = eligible.map((item, i) => ({ item, i }));
@@ -941,7 +944,7 @@ export function selectOverviewViewModel(params: {
     seasonContext,
   });
   const movementInsights = selectMovementInsightsForPulse(
-    deriveLeagueInsights({
+    deriveGameMovementInsights({
       standings: currentStandings,
       previousStandings: temporalStandings.previous,
       recentResults: keyMatchups,

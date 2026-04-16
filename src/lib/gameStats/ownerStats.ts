@@ -54,8 +54,7 @@ function toOwnerWeekStats(acc: OwnerAccumulator): OwnerWeekStats {
     passingYards: acc.passingYards,
     turnovers: acc.turnovers,
     turnoverMargin: acc.turnoversForced - acc.turnovers,
-    thirdDownPct:
-      acc.thirdDownAttempts > 0 ? acc.thirdDownConversions / acc.thirdDownAttempts : 0,
+    thirdDownPct: acc.thirdDownAttempts > 0 ? acc.thirdDownConversions / acc.thirdDownAttempts : 0,
     possessionSeconds: acc.possessionSeconds,
   };
 }

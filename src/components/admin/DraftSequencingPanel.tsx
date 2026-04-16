@@ -9,7 +9,9 @@ export default async function DraftSequencingPanel() {
   if (leagues.length === 0) {
     return (
       <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
-        <h2 className="mb-2 text-base font-semibold text-gray-900 dark:text-zinc-100">Draft Initiation Sequencing</h2>
+        <h2 className="mb-2 text-base font-semibold text-gray-900 dark:text-zinc-100">
+          Draft Initiation Sequencing
+        </h2>
         <p className="text-sm text-gray-500 dark:text-zinc-400">No leagues configured.</p>
       </section>
     );
@@ -30,7 +32,9 @@ export default async function DraftSequencingPanel() {
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-zinc-100">Draft Initiation Sequencing</h2>
+      <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-zinc-100">
+        Draft Initiation Sequencing
+      </h2>
       <div className="space-y-4">
         {statuses.map(({ league, rolloverNeeded, hasExistingRoster }) => (
           <div
@@ -39,8 +43,12 @@ export default async function DraftSequencingPanel() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <span className="font-medium text-gray-900 dark:text-zinc-100">{league.displayName}</span>
-                <span className="ml-2 font-mono text-xs text-gray-400 dark:text-zinc-500">/{league.slug}</span>
+                <span className="font-medium text-gray-900 dark:text-zinc-100">
+                  {league.displayName}
+                </span>
+                <span className="ml-2 font-mono text-xs text-gray-400 dark:text-zinc-500">
+                  /{league.slug}
+                </span>
               </div>
               <Link
                 href={`/league/${league.slug}/draft/setup`}
@@ -77,7 +85,9 @@ export default async function DraftSequencingPanel() {
             ) : (
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-green-600 dark:text-green-400">✓ Active roster guard</span>
-                <span className="text-gray-500 dark:text-zinc-400">No existing roster for {league.year}</span>
+                <span className="text-gray-500 dark:text-zinc-400">
+                  No existing roster for {league.year}
+                </span>
               </div>
             )}
           </div>

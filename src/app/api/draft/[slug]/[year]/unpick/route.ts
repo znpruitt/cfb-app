@@ -38,10 +38,7 @@ export async function POST(
   const draft = { ...record.value };
 
   if (draft.phase !== 'live' && draft.phase !== 'paused' && draft.phase !== 'complete') {
-    return NextResponse.json(
-      { error: `Cannot unpick in phase: ${draft.phase}` },
-      { status: 422 }
-    );
+    return NextResponse.json({ error: `Cannot unpick in phase: ${draft.phase}` }, { status: 422 });
   }
 
   if (draft.picks.length === 0) {

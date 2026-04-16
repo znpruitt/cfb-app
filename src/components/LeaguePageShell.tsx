@@ -21,8 +21,7 @@ const tabs: { key: LeagueTab; label: string; href: (slug: string) => string }[] 
   { key: 'history', label: 'History', href: (s) => `/league/${s}/history/` },
 ];
 
-const tabBase =
-  'pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2';
+const tabBase = 'pb-2.5 -mb-px text-sm font-medium transition-colors whitespace-nowrap border-b-2';
 const tabActive = `${tabBase} border-gray-900 text-gray-900 dark:border-white dark:text-white`;
 const tabInactive = `${tabBase} border-transparent text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200`;
 
@@ -43,7 +42,13 @@ export default function LeaguePageShell({
           <div className="min-w-0 flex-1 md:flex-none">
             <h1 className="text-xl font-medium">{leagueDisplayName}</h1>
             <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
-              {activeTab === 'history' ? (foundedYear != null ? `Est. ${foundedYear}` : null) : leagueYear != null ? `${leagueYear} season` : null}
+              {activeTab === 'history'
+                ? foundedYear != null
+                  ? `Est. ${foundedYear}`
+                  : null
+                : leagueYear != null
+                  ? `${leagueYear} season`
+                  : null}
             </p>
           </div>
 

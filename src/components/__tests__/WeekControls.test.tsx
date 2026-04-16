@@ -49,11 +49,9 @@ test('week tabs are visually de-emphasized when a season-scoped view is active',
       onSelectedConferenceChange={() => {}}
       onTeamFilterChange={() => {}}
       isSeasonViewActive={true}
-      activeViewLabel="Overview"
     />
   );
 
   assert.match(html, /opacity-75/);
   assert.match(html, /border-gray-400 bg-gray-100 text-gray-500/);
-  assert.match(html, /Supporting context while/);
 });

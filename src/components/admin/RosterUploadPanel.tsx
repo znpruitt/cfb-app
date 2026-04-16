@@ -217,7 +217,10 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
         if (aliasRes.ok) aliasesSaved = Object.keys(aliasesToSave).length;
       }
 
-      setUploadResult({ teams: val.resolved.length + val.needsConfirmation.length, aliases: aliasesSaved });
+      setUploadResult({
+        teams: val.resolved.length + val.needsConfirmation.length,
+        aliases: aliasesSaved,
+      });
       setPhase('done');
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Unexpected error');
@@ -238,13 +241,18 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
   }
 
   const confirmedCount = validation ? validation.resolved.length + resolutions.size : 0;
-  const totalCount = validation ? validation.resolved.length + validation.needsConfirmation.length : 0;
-  const allResolved = validation !== null && resolutions.size === validation.needsConfirmation.length;
+  const totalCount = validation
+    ? validation.resolved.length + validation.needsConfirmation.length
+    : 0;
+  const allResolved =
+    validation !== null && resolutions.size === validation.needsConfirmation.length;
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4 dark:border-zinc-700 dark:bg-zinc-900">
       <div>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">Owner Roster CSV Upload</h2>
+        <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+          Owner Roster CSV Upload
+        </h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
           Upload team-owner assignments. Format: Team, Owner (one row per team). This is the
           authoritative roster for the selected league and season.
@@ -254,7 +262,11 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
       {uploadError && (
         <div className="rounded border border-red-300/40 bg-red-50 p-3 dark:border-red-800/40 dark:bg-red-950/20">
           <p className="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
-          <button type="button" className="mt-2 text-xs underline text-red-600 dark:text-red-400" onClick={handleReset}>
+          <button
+            type="button"
+            className="mt-2 text-xs underline text-red-600 dark:text-red-400"
+            onClick={handleReset}
+          >
             Try again
           </button>
         </div>
@@ -266,7 +278,8 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
       {phase === 'done' && uploadResult && (
         <div className="space-y-3">
           <p className="text-sm font-medium text-green-600 dark:text-green-400">
-            Upload complete — {uploadResult.teams} team{uploadResult.teams !== 1 ? 's' : ''} uploaded
+            Upload complete — {uploadResult.teams} team{uploadResult.teams !== 1 ? 's' : ''}{' '}
+            uploaded
             {uploadResult.aliases > 0
               ? `, ${uploadResult.aliases} alias${uploadResult.aliases !== 1 ? 'es' : ''} saved`
               : ''}
@@ -313,7 +326,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">CSV File — columns: Team, Owner</label>
+              <label className="text-xs text-gray-500 dark:text-zinc-400">
+                CSV File — columns: Team, Owner
+              </label>
               <input
                 type="file"
                 accept=".csv,text/csv"
@@ -331,7 +346,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
             {validating ? 'Validating…' : 'Validate & Upload'}
           </button>
 
-          {validateError && <p className="text-sm text-red-600 dark:text-red-400">{validateError}</p>}
+          {validateError && (
+            <p className="text-sm text-red-600 dark:text-red-400">{validateError}</p>
+          )}
         </div>
       )}
 
@@ -341,7 +358,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
       {phase === 'review' && validation && (
         <div className="space-y-5">
           <p className="text-sm text-gray-500 dark:text-zinc-400">
-            <span className="font-semibold text-gray-900 dark:text-zinc-100">{confirmedCount} of {totalCount}</span>{' '}
+            <span className="font-semibold text-gray-900 dark:text-zinc-100">
+              {confirmedCount} of {totalCount}
+            </span>{' '}
             teams resolved
           </p>
 
@@ -354,17 +373,27 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
                 onClick={() => setConfirmedCollapsed((v) => !v)}
               >
                 <span>
-                  Confirmed automatically ({validation.resolved.length} team{validation.resolved.length !== 1 ? 's' : ''})
+                  Confirmed automatically ({validation.resolved.length} team
+                  {validation.resolved.length !== 1 ? 's' : ''})
                 </span>
                 <span aria-hidden="true">{confirmedCollapsed ? '▼' : '▲'}</span>
               </button>
               {!confirmedCollapsed && (
                 <ul className="divide-y divide-gray-200 px-4 pb-3 dark:divide-zinc-700">
                   {validation.resolved.map((r) => (
-                    <li key={r.inputName} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 text-xs">
-                      <span className="w-36 shrink-0 text-gray-500 dark:text-zinc-400">{r.inputName}</span>
-                      <span className="font-medium text-gray-900 dark:text-zinc-100">→ {r.canonicalName}</span>
-                      <span className="text-gray-400 dark:text-zinc-500">{r.method === 'alias' ? 'alias' : 'exact match'}</span>
+                    <li
+                      key={r.inputName}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 text-xs"
+                    >
+                      <span className="w-36 shrink-0 text-gray-500 dark:text-zinc-400">
+                        {r.inputName}
+                      </span>
+                      <span className="font-medium text-gray-900 dark:text-zinc-100">
+                        → {r.canonicalName}
+                      </span>
+                      <span className="text-gray-400 dark:text-zinc-500">
+                        {r.method === 'alias' ? 'alias' : 'exact match'}
+                      </span>
                       <span className="text-gray-500 dark:text-zinc-400">{r.owner}</span>
                     </li>
                   ))}
@@ -376,7 +405,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
           {/* Needs confirmation */}
           {validation.needsConfirmation.some((u) => u.suggestion !== null) && (
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Needs confirmation</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                Needs confirmation
+              </h3>
               <ul className="space-y-2">
                 {validation.needsConfirmation
                   .filter((u) => u.suggestion !== null)
@@ -384,21 +415,34 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
                     const resolved = resolutions.get(item.inputName);
                     const isPickerOpen = pickerFor === item.inputName;
                     return (
-                      <li key={item.inputName} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                      <li
+                        key={item.inputName}
+                        className="rounded-lg border border-gray-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900"
+                      >
                         <div className="flex flex-wrap items-start gap-3">
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <p className="text-xs text-gray-500 dark:text-zinc-400">
                               CSV name:{' '}
-                              <span className="font-medium text-gray-900 dark:text-zinc-100">{item.inputName}</span>{' '}
-                              <span className="text-gray-400 dark:text-zinc-500">({item.owner})</span>
+                              <span className="font-medium text-gray-900 dark:text-zinc-100">
+                                {item.inputName}
+                              </span>{' '}
+                              <span className="text-gray-400 dark:text-zinc-500">
+                                ({item.owner})
+                              </span>
                             </p>
                             {resolved ? (
-                              <p className="text-xs font-medium text-green-600 dark:text-green-400">✓ {resolved}</p>
+                              <p className="text-xs font-medium text-green-600 dark:text-green-400">
+                                ✓ {resolved}
+                              </p>
                             ) : (
                               <p className="text-xs">
                                 Suggested:{' '}
-                                <span className="font-medium text-gray-900 dark:text-zinc-100">{item.suggestion!.canonical}</span>{' '}
-                                <span className={`text-xs ${confidenceColor(item.suggestion!.confidence)}`}>
+                                <span className="font-medium text-gray-900 dark:text-zinc-100">
+                                  {item.suggestion!.canonical}
+                                </span>{' '}
+                                <span
+                                  className={`text-xs ${confidenceColor(item.suggestion!.confidence)}`}
+                                >
                                   {confidenceLabel(item.suggestion!.confidence)} confidence
                                 </span>
                               </p>
@@ -409,7 +453,12 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
                               <button
                                 type="button"
                                 className="rounded border border-green-600 bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700"
-                                onClick={() => handleConfirmSuggestion(item.inputName, item.suggestion!.canonical)}
+                                onClick={() =>
+                                  handleConfirmSuggestion(
+                                    item.inputName,
+                                    item.suggestion!.canonical
+                                  )
+                                }
                               >
                                 Confirm
                               </button>
@@ -417,7 +466,11 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
                             <button
                               type="button"
                               className="rounded border border-gray-300 bg-gray-50 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                              onClick={() => setPickerFor((prev) => (prev === item.inputName ? null : item.inputName))}
+                              onClick={() =>
+                                setPickerFor((prev) =>
+                                  prev === item.inputName ? null : item.inputName
+                                )
+                              }
                             >
                               {resolved ? 'Change' : 'Override'}
                             </button>
@@ -426,7 +479,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
                         {isPickerOpen && (
                           <TeamPicker
                             fbsTeams={validation.fbsTeams}
-                            onSelect={(canonical) => handleConfirmSuggestion(item.inputName, canonical)}
+                            onSelect={(canonical) =>
+                              handleConfirmSuggestion(item.inputName, canonical)
+                            }
                           />
                         )}
                       </li>
@@ -439,7 +494,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
           {/* No match found */}
           {validation.needsConfirmation.some((u) => u.suggestion === null) && (
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">No match found</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                No match found
+              </h3>
               <ul className="space-y-2">
                 {validation.needsConfirmation
                   .filter((u) => u.suggestion === null)
@@ -447,24 +504,39 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
                     const resolved = resolutions.get(item.inputName);
                     const isPickerOpen = pickerFor === item.inputName;
                     return (
-                      <li key={item.inputName} className="rounded-lg border border-orange-300/40 bg-orange-50 p-3 dark:border-orange-700/40 dark:bg-orange-950/20">
+                      <li
+                        key={item.inputName}
+                        className="rounded-lg border border-orange-300/40 bg-orange-50 p-3 dark:border-orange-700/40 dark:bg-orange-950/20"
+                      >
                         <div className="flex flex-wrap items-start gap-3">
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <p className="text-xs text-gray-500 dark:text-zinc-400">
                               CSV name:{' '}
-                              <span className="font-medium text-gray-900 dark:text-zinc-100">{item.inputName}</span>{' '}
-                              <span className="text-gray-400 dark:text-zinc-500">({item.owner})</span>
+                              <span className="font-medium text-gray-900 dark:text-zinc-100">
+                                {item.inputName}
+                              </span>{' '}
+                              <span className="text-gray-400 dark:text-zinc-500">
+                                ({item.owner})
+                              </span>
                             </p>
                             {resolved ? (
-                              <p className="text-xs font-medium text-green-600 dark:text-green-400">✓ {resolved}</p>
+                              <p className="text-xs font-medium text-green-600 dark:text-green-400">
+                                ✓ {resolved}
+                              </p>
                             ) : (
-                              <p className="text-xs text-orange-600 dark:text-orange-400">Select the correct FBS team below.</p>
+                              <p className="text-xs text-orange-600 dark:text-orange-400">
+                                Select the correct FBS team below.
+                              </p>
                             )}
                           </div>
                           <button
                             type="button"
                             className="shrink-0 rounded border border-gray-300 bg-gray-50 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                            onClick={() => setPickerFor((prev) => (prev === item.inputName ? null : item.inputName))}
+                            onClick={() =>
+                              setPickerFor((prev) =>
+                                prev === item.inputName ? null : item.inputName
+                              )
+                            }
                           >
                             {resolved ? 'Change' : 'Select team'}
                           </button>
@@ -472,7 +544,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
                         {isPickerOpen && (
                           <TeamPicker
                             fbsTeams={validation.fbsTeams}
-                            onSelect={(canonical) => handleConfirmSuggestion(item.inputName, canonical)}
+                            onSelect={(canonical) =>
+                              handleConfirmSuggestion(item.inputName, canonical)
+                            }
                           />
                         )}
                       </li>

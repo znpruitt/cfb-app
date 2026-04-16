@@ -72,9 +72,7 @@ export default function PickNavigator({ draft }: PickNavigatorProps): React.Reac
           <p className="text-xs font-semibold uppercase tracking-[0.15em] text-blue-600 dark:text-blue-400">
             On the clock
           </p>
-          <p className="mt-0.5 text-lg font-bold text-gray-900 dark:text-zinc-50">
-            {currentOwner}
-          </p>
+          <p className="mt-0.5 text-lg font-bold text-gray-900 dark:text-zinc-50">{currentOwner}</p>
           <p className="text-xs text-gray-500 dark:text-zinc-400">
             Round {currentRound}, Pick {currentPick} (Overall #{idx + 1})
           </p>

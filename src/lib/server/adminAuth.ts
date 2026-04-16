@@ -70,7 +70,9 @@ export async function requireAdminAuth(req: Request): Promise<Response | null> {
   try {
     const { userId, sessionClaims } = await auth();
     if (userId) {
-      const claims = sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> };
+      const claims = sessionClaims as Record<string, unknown> & {
+        publicMetadata?: Record<string, unknown>;
+      };
       const role = claims?.publicMetadata?.role;
       if (role === 'platform_admin') return null;
     }

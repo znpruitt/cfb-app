@@ -13,14 +13,20 @@ type DraftBoardGridProps = {
 
 const OWNER_COL_WIDTH = 86;
 
-export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }: DraftBoardGridProps): React.ReactElement {
+export default function DraftBoardGrid({
+  draft,
+  teamColorMap,
+  teamShortNameMap,
+}: DraftBoardGridProps): React.ReactElement {
   const { draftOrder, totalRounds } = draft.settings;
   const n = draftOrder.length;
 
   // Mobile breakpoint for responsive font sizing
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
-    function check() { setIsMobile(window.innerWidth < 768); }
+    function check() {
+      setIsMobile(window.innerWidth < 768);
+    }
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
@@ -110,7 +116,8 @@ export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }
                     textAlign: 'center',
                   }}
                 >
-                  {isActive ? '▸' : ''}{roundIdx + 1}
+                  {isActive ? '▸' : ''}
+                  {roundIdx + 1}
                 </td>
                 {draftOrder.map((_, ownerIdx) => {
                   // Snake draft: even rounds pick left→right, odd rounds right→left
@@ -124,9 +131,11 @@ export default function DraftBoardGrid({ draft, teamColorMap, teamShortNameMap }
 
                   const teamLower = pick?.team.toLowerCase() ?? '';
                   const completedColor =
-                    pick && teamColorMap ? teamColorMap[teamLower] ?? null : null;
+                    pick && teamColorMap ? (teamColorMap[teamLower] ?? null) : null;
                   const displayName =
-                    pick && teamShortNameMap ? teamShortNameMap[teamLower] ?? pick.team : pick?.team ?? '';
+                    pick && teamShortNameMap
+                      ? (teamShortNameMap[teamLower] ?? pick.team)
+                      : (pick?.team ?? '');
 
                   // Build cell style: fixed column width + state-dependent bg
                   const cellStyle: React.CSSProperties = {

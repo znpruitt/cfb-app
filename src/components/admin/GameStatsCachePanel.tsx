@@ -105,18 +105,24 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
         });
         if (!res.ok) {
           const text = await res.text().catch(() => '');
-          errors.push(`${step.seasonType} wk ${step.week}: ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}`);
+          errors.push(
+            `${step.seasonType} wk ${step.week}: ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}`
+          );
         } else {
           cached++;
         }
       } catch (err) {
-        errors.push(`${step.seasonType} wk ${step.week}: ${err instanceof Error ? err.message : 'unknown error'}`);
+        errors.push(
+          `${step.seasonType} wk ${step.week}: ${err instanceof Error ? err.message : 'unknown error'}`
+        );
       }
       if (i < total - 1) await delay(500);
     }
 
     setBackfillErrors(errors);
-    setBackfillSummary(`Backfill complete — ${cached} week${cached !== 1 ? 's' : ''} cached${errors.length > 0 ? `, ${errors.length} failed` : ''}`);
+    setBackfillSummary(
+      `Backfill complete — ${cached} week${cached !== 1 ? 's' : ''} cached${errors.length > 0 ? `, ${errors.length} failed` : ''}`
+    );
     setBackfillProgress('');
     setBackfillStatus('done');
   }
@@ -136,7 +142,13 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           <input
             type="number"
             value={year}
-            onChange={(e) => { setYear(Number(e.target.value)); setResult(null); setError(undefined); setBackfillSummary(''); setBackfillErrors([]); }}
+            onChange={(e) => {
+              setYear(Number(e.target.value));
+              setResult(null);
+              setError(undefined);
+              setBackfillSummary('');
+              setBackfillErrors([]);
+            }}
             min={2001}
             step={1}
             disabled={busy}
@@ -149,7 +161,11 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           <input
             type="number"
             value={week}
-            onChange={(e) => { setWeek(Number(e.target.value)); setResult(null); setError(undefined); }}
+            onChange={(e) => {
+              setWeek(Number(e.target.value));
+              setResult(null);
+              setError(undefined);
+            }}
             min={1}
             max={15}
             step={1}
@@ -162,7 +178,11 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           Season type
           <select
             value={seasonType}
-            onChange={(e) => { setSeasonType(e.target.value as 'regular' | 'postseason'); setResult(null); setError(undefined); }}
+            onChange={(e) => {
+              setSeasonType(e.target.value as 'regular' | 'postseason');
+              setResult(null);
+              setError(undefined);
+            }}
             disabled={busy}
             className="rounded border border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-900 focus:border-gray-500 focus:outline-none disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-500"
           >
@@ -173,11 +193,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          onClick={() => void handleRefresh()}
-          disabled={busy}
-          className={buttonClass}
-        >
+        <button onClick={() => void handleRefresh()} disabled={busy} className={buttonClass}>
           {status === 'loading' ? 'Fetching…' : 'Refresh Game Stats'}
         </button>
         {status === 'loading' && (
@@ -185,7 +201,8 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
         )}
         {status === 'success' && result && (
           <span className="text-xs text-green-600 dark:text-green-400">
-            Cached {result.games.length} game{result.games.length !== 1 ? 's' : ''} for week {result.week} ({result.seasonType})
+            Cached {result.games.length} game{result.games.length !== 1 ? 's' : ''} for week{' '}
+            {result.week} ({result.seasonType})
           </span>
         )}
         {status === 'error' && (
@@ -195,18 +212,16 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
 
       <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => void handleBackfill()}
-            disabled={busy}
-            className={buttonClass}
-          >
+          <button onClick={() => void handleBackfill()} disabled={busy} className={buttonClass}>
             {backfillStatus === 'running' ? 'Backfilling…' : 'Backfill Full Season'}
           </button>
           {backfillProgress && (
             <span className="text-xs text-gray-500 dark:text-zinc-400">{backfillProgress}</span>
           )}
           {backfillStatus === 'done' && backfillSummary && (
-            <span className={`text-xs ${backfillErrors.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}>
+            <span
+              className={`text-xs ${backfillErrors.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}`}
+            >
               {backfillSummary}
             </span>
           )}

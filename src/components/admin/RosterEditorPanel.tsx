@@ -115,10 +115,9 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(
-        `/api/owners?league=${encodeURIComponent(slug)}&year=${year}`,
-        { cache: 'no-store' }
-      );
+      const res = await fetch(`/api/owners?league=${encodeURIComponent(slug)}&year=${year}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error(`GET /api/owners ${res.status}`);
       const data = (await res.json()) as { csvText: string | null };
       const parsed = parseCsv(data.csvText);
@@ -156,18 +155,16 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
     setSaveSuccess(false);
     try {
       const csvText = buildCsv(teams, draftOwners);
-      const res = await fetch(
-        `/api/owners?league=${encodeURIComponent(slug)}&year=${year}`,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
-          body: JSON.stringify({ csvText }),
-        }
-      );
+      const res = await fetch(`/api/owners?league=${encodeURIComponent(slug)}&year=${year}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
+        body: JSON.stringify({ csvText }),
+      });
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { detail?: string; error?: string }
-          | null;
+        const data = (await res.json().catch(() => null)) as {
+          detail?: string;
+          error?: string;
+        } | null;
         setSaveError(data?.detail ?? data?.error ?? `Save failed (${res.status})`);
         return;
       }
@@ -248,7 +245,6 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
 
   return (
     <div className="rounded-lg border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-5 space-y-5">
-
       {/* ---- Toolbar ---- */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -260,9 +256,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
           {saveSuccess && !hasChanges && (
             <span className="text-sm text-green-600 dark:text-green-400">Saved successfully</span>
           )}
-          {saveError && (
-            <span className="text-sm text-red-600 dark:text-red-400">{saveError}</span>
-          )}
+          {saveError && <span className="text-sm text-red-600 dark:text-red-400">{saveError}</span>}
         </div>
         <div className="flex gap-2">
           <button
@@ -317,9 +311,20 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
               const saved = savedOwners.get(team.school) ?? '';
               const dirty = owner !== saved;
               return (
-                <tr key={team.school} className={dirty ? 'bg-amber-50 dark:bg-amber-950/20' : 'hover:bg-gray-50/50 dark:hover:bg-zinc-800/50'}>
-                  <td className="px-4 py-2 text-gray-900 dark:text-zinc-100 whitespace-nowrap">{team.school}</td>
-                  <td className="px-4 py-2 text-gray-500 dark:text-zinc-400 whitespace-nowrap">{team.conference}</td>
+                <tr
+                  key={team.school}
+                  className={
+                    dirty
+                      ? 'bg-amber-50 dark:bg-amber-950/20'
+                      : 'hover:bg-gray-50/50 dark:hover:bg-zinc-800/50'
+                  }
+                >
+                  <td className="px-4 py-2 text-gray-900 dark:text-zinc-100 whitespace-nowrap">
+                    {team.school}
+                  </td>
+                  <td className="px-4 py-2 text-gray-500 dark:text-zinc-400 whitespace-nowrap">
+                    {team.conference}
+                  </td>
                   <td className="px-4 py-1.5">
                     <input
                       type="text"
@@ -334,7 +339,10 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-4 text-center text-sm text-gray-400 dark:text-zinc-500">
+                <td
+                  colSpan={3}
+                  className="px-4 py-4 text-center text-sm text-gray-400 dark:text-zinc-500"
+                >
                   No teams match your search.
                 </td>
               </tr>
@@ -347,7 +355,8 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
       <div className="rounded border border-gray-200 dark:border-zinc-700 bg-gray-50/40 dark:bg-zinc-800/40 p-4 space-y-3">
         <h3 className="text-sm font-medium text-gray-900 dark:text-zinc-100">Bulk Reassign</h3>
         <p className="text-xs text-gray-500 dark:text-zinc-400">
-          Move all teams from one owner to another. Updates local state only — click Save Changes to persist.
+          Move all teams from one owner to another. Updates local state only — click Save Changes to
+          persist.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">

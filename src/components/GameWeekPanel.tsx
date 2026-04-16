@@ -4,7 +4,7 @@ import { deriveDisplayEventName } from '../lib/gameEventName';
 import { deriveExpandedMetadataLines } from '../lib/gameCardPresentation';
 import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
-import { LEAGUE_TAG_LABELS } from '../lib/leagueInsights';
+import { LEAGUE_TAG_LABELS } from '../lib/gameTags';
 import { deriveGameWeekPanelViewModel } from '../lib/selectors/gameWeek';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { getPresentationTimeZone } from '../lib/weekPresentation';

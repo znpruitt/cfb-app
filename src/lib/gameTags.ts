@@ -154,7 +154,7 @@ function deriveMovementInsights(params: {
   return insights;
 }
 
-export function deriveLeagueInsights({
+export function deriveGameMovementInsights({
   standings,
   previousStandings,
   recentResults,
@@ -465,19 +465,6 @@ export type LeagueStandingRow = {
   liveGames: number;
 };
 
-export type WeeklyInsights = {
-  mostActiveOwner: string | null;
-  mostActiveGames: number;
-  mostLiveOwner: string | null;
-  mostLiveGames: number;
-  totalLiveOwnedGames: number;
-  totalOwnedGames: number;
-  ownedVsOwnedGames: number;
-  leaderThisWeek: string | null;
-  leaderWins: number;
-  leaderProjectedWins: number;
-};
-
 export type LeagueGameTag = 'upset' | 'upset_watch' | 'top_25_matchup';
 export const LEAGUE_TAG_PRIORITY: Record<LeagueGameTag, number> = {
   upset: 3,
@@ -492,11 +479,6 @@ export const LEAGUE_TAG_LABELS: Record<LeagueGameTag, string> = {
 
 function getState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'unknown' {
   return gameStateFromScore(score);
-}
-
-function addOwnerCount(counter: Map<string, number>, owner: string | undefined): void {
-  if (!owner) return;
-  counter.set(owner, (counter.get(owner) ?? 0) + 1);
 }
 
 function sideIdentityCandidates(game: AppGame, side: 'away' | 'home'): string[] {
@@ -546,10 +528,6 @@ function ownerTeamSides(
   };
 }
 
-function scoreForSide(score: ScorePack, side: 'away' | 'home'): number | null {
-  return side === 'away' ? score.away.score : score.home.score;
-}
-
 function spreadMagnitude(odds?: CombinedOdds): number | null {
   if (!odds) return null;
   if (typeof odds.spread === 'number') return Math.abs(odds.spread);
@@ -573,30 +551,6 @@ function favoriteSideFromOdds(game: AppGame, odds?: CombinedOdds): 'away' | 'hom
   }
 
   return null;
-}
-
-function projectedWinsForOwner(
-  game: AppGame,
-  score: ScorePack,
-  owner: string,
-  ownershipMap: Map<string, string>,
-  includeFinals: boolean
-): number {
-  const { awayOwner, homeOwner } = ownerTeamSides(game, ownershipMap);
-  const awayScore = score.away.score;
-  const homeScore = score.home.score;
-  if (awayScore == null || homeScore == null) return 0;
-
-  const state = getState(score);
-  const awayWinning = awayScore > homeScore;
-  const homeWinning = homeScore > awayScore;
-
-  if (state !== 'inprogress' && (!includeFinals || state !== 'final')) return 0;
-
-  let wins = 0;
-  if (awayOwner === owner && awayWinning) wins += 1;
-  if (homeOwner === owner && homeWinning) wins += 1;
-  return wins;
 }
 
 export function computeStandings(
@@ -656,127 +610,6 @@ export function computeStandings(
       if (right.pointDiff !== left.pointDiff) return right.pointDiff - left.pointDiff;
       return left.owner.localeCompare(right.owner);
     });
-}
-
-export function computeWeeklyInsights(
-  games: AppGame[],
-  scores: Record<string, ScorePack>,
-  ownershipMap: Map<string, string>
-): WeeklyInsights {
-  const ownerGameCounts = new Map<string, number>();
-  const ownerLiveCounts = new Map<string, number>();
-  const ownerWins = new Map<string, number>();
-  const ownerProjected = new Map<string, number>();
-  let totalLiveOwnedGames = 0;
-  let totalOwnedGames = 0;
-  let ownedVsOwnedGames = 0;
-
-  for (const game of games) {
-    const score = scores[game.key];
-    const state = getState(score);
-    const { awayOwner, homeOwner } = ownerTeamSides(game, ownershipMap);
-
-    const hasOwnedAway = Boolean(awayOwner);
-    const hasOwnedHome = Boolean(homeOwner);
-    if (hasOwnedAway || hasOwnedHome) totalOwnedGames += 1;
-    if (awayOwner && homeOwner && awayOwner !== homeOwner) ownedVsOwnedGames += 1;
-
-    addOwnerCount(ownerGameCounts, awayOwner);
-    addOwnerCount(ownerGameCounts, homeOwner);
-
-    if (state === 'inprogress') {
-      if (hasOwnedAway || hasOwnedHome) totalLiveOwnedGames += 1;
-      addOwnerCount(ownerLiveCounts, awayOwner);
-      addOwnerCount(ownerLiveCounts, homeOwner);
-    }
-
-    if (!score) continue;
-    if (state === 'final') {
-      const awayScore = scoreForSide(score, 'away');
-      const homeScore = scoreForSide(score, 'home');
-      if (awayScore != null && homeScore != null) {
-        if (awayOwner && awayScore > homeScore)
-          ownerWins.set(awayOwner, (ownerWins.get(awayOwner) ?? 0) + 1);
-        if (homeOwner && homeScore > awayScore)
-          ownerWins.set(homeOwner, (ownerWins.get(homeOwner) ?? 0) + 1);
-      }
-    }
-
-    const owners = Array.from(
-      new Set([awayOwner, homeOwner].filter((v): v is string => Boolean(v)))
-    );
-    for (const owner of owners) {
-      const wins = projectedWinsForOwner(game, score, owner, ownershipMap, false);
-      if (wins > 0) ownerProjected.set(owner, (ownerProjected.get(owner) ?? 0) + wins);
-    }
-  }
-
-  const ownerPool = Array.from(
-    new Set([
-      ...ownershipMap.values(),
-      ...ownerGameCounts.keys(),
-      ...ownerLiveCounts.keys(),
-      ...ownerWins.keys(),
-      ...ownerProjected.keys(),
-    ])
-  );
-
-  const pickLeader = (counter: Map<string, number>): { owner: string | null; count: number } => {
-    let owner: string | null = null;
-    let count = 0;
-    for (const name of ownerPool) {
-      const value = counter.get(name) ?? 0;
-      if (
-        value > count ||
-        (value === count && value > 0 && owner && name.localeCompare(owner) < 0)
-      ) {
-        owner = name;
-        count = value;
-      }
-      if (owner == null && value > 0) {
-        owner = name;
-        count = value;
-      }
-    }
-    return { owner, count };
-  };
-
-  const activity = pickLeader(ownerGameCounts);
-  const live = pickLeader(ownerLiveCounts);
-
-  let leaderThisWeek: string | null = null;
-  let leaderWins = 0;
-  let leaderProjectedWins = 0;
-  for (const owner of ownerPool) {
-    const wins = ownerWins.get(owner) ?? 0;
-    const projected = (ownerProjected.get(owner) ?? 0) + wins;
-    if (
-      projected > leaderProjectedWins ||
-      (projected === leaderProjectedWins && wins > leaderWins) ||
-      (projected === leaderProjectedWins &&
-        wins === leaderWins &&
-        leaderThisWeek &&
-        owner.localeCompare(leaderThisWeek) < 0) ||
-      (leaderThisWeek == null && projected > 0)
-    ) {
-      leaderThisWeek = owner;
-      leaderWins = wins;
-      leaderProjectedWins = projected;
-    }
-  }
-
-  return {
-    mostActiveOwner: activity.owner,
-    mostActiveGames: activity.count,
-    mostLiveOwner: live.owner,
-    mostLiveGames: live.count,
-    totalLiveOwnedGames,
-    totalOwnedGames,
-    ownedVsOwnedGames,
-    leaderThisWeek,
-    leaderWins,
-    leaderProjectedWins,
-  };
 }
 
 function rankForSide(

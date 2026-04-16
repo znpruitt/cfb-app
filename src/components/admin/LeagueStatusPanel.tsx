@@ -38,7 +38,9 @@ function StatusDot({ ok }: { ok: boolean }) {
 }
 
 function GrayDot() {
-  return <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-gray-200 dark:bg-zinc-600" />;
+  return (
+    <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-gray-200 dark:bg-zinc-600" />
+  );
 }
 
 function GreenDot() {
@@ -161,7 +163,9 @@ export default async function LeagueStatusPanel({
           <StatusDot ok={hasSchedule} />
           <span className="w-20 text-gray-600 dark:text-zinc-300">Schedule</span>
           {hasSchedule ? (
-            <span className="text-gray-500 dark:text-zinc-400">{formatAge(scheduleRecord!.updatedAt)}</span>
+            <span className="text-gray-500 dark:text-zinc-400">
+              {formatAge(scheduleRecord!.updatedAt)}
+            </span>
           ) : (
             <span className="text-amber-600 dark:text-amber-400">not cached</span>
           )}
@@ -172,7 +176,9 @@ export default async function LeagueStatusPanel({
           <StatusDot ok={hasScores} />
           <span className="w-20 text-gray-600 dark:text-zinc-300">Scores</span>
           {hasScores ? (
-            <span className="text-gray-500 dark:text-zinc-400">{formatAge(scoresRecord!.updatedAt)}</span>
+            <span className="text-gray-500 dark:text-zinc-400">
+              {formatAge(scoresRecord!.updatedAt)}
+            </span>
           ) : (
             <span className="text-amber-600 dark:text-amber-400">not cached</span>
           )}

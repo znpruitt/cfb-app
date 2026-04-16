@@ -33,7 +33,10 @@ export async function PUT(
 
   const pickNumber = Number.parseInt(nParam, 10);
   if (!Number.isFinite(pickNumber) || pickNumber < 1) {
-    return NextResponse.json({ error: 'n must be a positive integer pick number' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'n must be a positive integer pick number' },
+      { status: 400 }
+    );
   }
 
   const league = await getLeague(slug);
@@ -98,8 +101,7 @@ export async function PUT(
 
   // Validate team not already picked at another position
   const conflicting = draft.picks.find(
-    (p, idx) =>
-      idx !== pickIndex && p.team.toLowerCase() === canonicalTeam.toLowerCase()
+    (p, idx) => idx !== pickIndex && p.team.toLowerCase() === canonicalTeam.toLowerCase()
   );
   if (conflicting) {
     return NextResponse.json(

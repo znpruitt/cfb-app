@@ -69,7 +69,14 @@ export default function SpectatorBoardClient({
     });
 
   return (
-    <div style={{ height: 'calc(100dvh - 10rem)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div
+      style={{
+        height: 'calc(100dvh - 10rem)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
       {/* TOP — fixed header area (cards, banners) */}
       <div style={{ flexShrink: 0 }}>
         <DraftHeaderArea draft={draft} summaryHref={`/league/${slug}/draft/summary`} />
@@ -77,13 +84,32 @@ export default function SpectatorBoardClient({
 
       {/* MIDDLE — table scrolls both axes within remaining space */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', marginTop: 12 }}>
-        <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
+        <DraftBoardGrid
+          draft={draft}
+          teamColorMap={teamColorMap}
+          teamShortNameMap={teamShortNameMap}
+        />
       </div>
 
       {/* BOTTOM — Available Teams strip, fixed at bottom (spectator: non-clickable) */}
       <div style={{ flexShrink: 0, borderTop: '0.5px solid #1f2937', paddingTop: 8, marginTop: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#6b7280' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 6,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              color: '#6b7280',
+            }}
+          >
             Available Teams
           </span>
           <input

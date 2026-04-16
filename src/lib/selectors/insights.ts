@@ -1,5 +1,6 @@
 import type { SeasonContext } from './seasonContext';
 import { selectResolvedStandingsWeeks } from './historyResolution';
+import type { InsightCategory, LifecycleState } from '../insights/types';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistory } from '../standingsHistory';
 
@@ -23,6 +24,9 @@ export type Insight = {
   priorityScore: number;
   week?: number;
   navigationTarget?: 'standings' | 'trends' | 'matchup';
+  category?: InsightCategory;
+  lifecycle?: LifecycleState[];
+  stat?: { label: string; value: string };
   // Backward-compatible aliases used by existing tests/UI until full migration.
   score?: number;
   owners?: string[];
@@ -62,6 +66,15 @@ const STANDINGS_TYPE_PRIORITY: Record<InsightType, number> = {
   champion_margin: 88,
 };
 
+const IN_SEASON_LIFECYCLES: LifecycleState[] = ['early_season', 'mid_season', 'late_season'];
+const RACE_LIFECYCLES: LifecycleState[] = [
+  'early_season',
+  'mid_season',
+  'late_season',
+  'postseason',
+];
+const SEASON_WRAP_LIFECYCLES: LifecycleState[] = ['postseason', 'fresh_offseason'];
+
 function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
 }
@@ -87,6 +100,9 @@ function toInsight(params: {
   priorityScore: number;
   week?: number;
   navigationTarget?: 'standings' | 'trends' | 'matchup';
+  category?: InsightCategory;
+  lifecycle?: LifecycleState[];
+  stat?: { label: string; value: string };
 }): Insight {
   const { owner, relatedOwners = [], priorityScore } = params;
   return {
@@ -119,7 +135,7 @@ function uniqueInsightsById(insights: Insight[]): Insight[] {
   });
 }
 
-function deriveMovementInsights(args: {
+export function deriveMovementInsights(args: {
   standingsHistory: StandingsHistory;
   resolvedWeeks: number[];
 }): Insight[] {
@@ -176,6 +192,8 @@ function deriveMovementInsights(args: {
         priorityScore: 55 + biggestRise.rankDelta * 10,
         week: latestWeek,
         navigationTarget: 'standings',
+        category: 'trajectory',
+        lifecycle: IN_SEASON_LIFECYCLES,
       })
     );
   }
@@ -194,6 +212,8 @@ function deriveMovementInsights(args: {
         priorityScore: 54 + dropMagnitude * 10,
         week: latestWeek,
         navigationTarget: 'standings',
+        category: 'trajectory',
+        lifecycle: IN_SEASON_LIFECYCLES,
       })
     );
   }
@@ -201,7 +221,7 @@ function deriveMovementInsights(args: {
   return insights;
 }
 
-function deriveToiletBowlInsight(args: {
+export function deriveToiletBowlInsight(args: {
   standingsHistory: StandingsHistory;
   resolvedWeeks: number[];
 }): Insight | null {
@@ -233,10 +253,12 @@ function deriveToiletBowlInsight(args: {
     owner,
     priorityScore: 50 + lastPlaceCount * 6,
     navigationTarget: 'trends',
+    category: 'season_wrap',
+    lifecycle: SEASON_WRAP_LIFECYCLES,
   });
 }
 
-function deriveTightRaceInsight(args: {
+export function deriveTightRaceInsight(args: {
   rows: OwnerStandingsRow[];
   seasonContext: SeasonContext | null | undefined;
 }): Insight | null {
@@ -264,10 +286,12 @@ function deriveTightRaceInsight(args: {
     relatedOwners: [runnerUp.owner],
     priorityScore: 76 - gap * 8,
     navigationTarget: 'standings',
+    category: 'championship_race',
+    lifecycle: RACE_LIFECYCLES,
   });
 }
 
-function deriveRecentSurgeInsight(args: {
+export function deriveRecentSurgeInsight(args: {
   standingsHistory: StandingsHistory;
   resolvedWeeks: number[];
   rows?: OwnerStandingsRow[];
@@ -339,10 +363,12 @@ function deriveRecentSurgeInsight(args: {
       (isLateStory ? 96 : 58) + top.deltaWins * 9 + Math.max(0, top.deltaGamesBack) * 4,
     week: latestWeek,
     navigationTarget: 'trends',
+    category: isLateStory ? 'season_wrap' : 'trajectory',
+    lifecycle: isLateStory ? SEASON_WRAP_LIFECYCLES : IN_SEASON_LIFECYCLES,
   });
 }
 
-function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null {
+export function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null {
   if (rows.length < 2) return null;
   const leader = rows[0];
   const runnerUp = rows[1];
@@ -367,10 +393,12 @@ function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null 
     relatedOwners: [runnerUp.owner],
     priorityScore: 125 + margin * 4,
     navigationTarget: 'standings',
+    category: 'season_wrap',
+    lifecycle: SEASON_WRAP_LIFECYCLES,
   });
 }
 
-function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | null {
+export function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | null {
   if (rows.length < 2) return null;
   const leader = rows[0];
   if (!leader || !canUseReferenceOwner(leader.owner)) return null;
@@ -399,10 +427,12 @@ function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | null {
     relatedOwners: [leader.owner],
     priorityScore: 108 + top.wins * 2 + Math.round(top.gamesBack * 2),
     navigationTarget: 'standings',
+    category: 'season_wrap',
+    lifecycle: SEASON_WRAP_LIFECYCLES,
   });
 }
 
-function deriveFinalCollapseInsight(args: {
+export function deriveFinalCollapseInsight(args: {
   standingsHistory: StandingsHistory;
   resolvedWeeks: number[];
   rows: OwnerStandingsRow[];
@@ -448,10 +478,12 @@ function deriveFinalCollapseInsight(args: {
     priorityScore: 100 + top.dropSpots * 7,
     week: latestWeek,
     navigationTarget: 'trends',
+    category: 'season_wrap',
+    lifecycle: SEASON_WRAP_LIFECYCLES,
   });
 }
 
-function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | null {
+export function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | null {
   const eligible = rows.filter((row) => isNarrativeEligibleOwner(row.owner));
   if (eligible.length < 3) return null;
 
@@ -487,6 +519,8 @@ function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | null {
     relatedOwners: bestCluster.owners.slice(1),
     priorityScore: 95 + bestCluster.count * 3 - bestCluster.gap,
     navigationTarget: 'standings',
+    category: 'championship_race',
+    lifecycle: RACE_LIFECYCLES,
   });
 }
 

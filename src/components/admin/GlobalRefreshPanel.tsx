@@ -8,17 +8,23 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
 type SectionStatus = 'idle' | 'loading' | 'success' | 'error';
 
 function StatusBadge({ status, error }: { status: SectionStatus; error?: string }) {
-  if (status === 'loading') return <span className="text-xs text-gray-500 dark:text-zinc-400">Working…</span>;
-  if (status === 'success') return <span className="text-xs text-green-600 dark:text-green-400">Done</span>;
-  if (status === 'error') return <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>;
+  if (status === 'loading')
+    return <span className="text-xs text-gray-500 dark:text-zinc-400">Working…</span>;
+  if (status === 'success')
+    return <span className="text-xs text-green-600 dark:text-green-400">Done</span>;
+  if (status === 'error')
+    return <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>;
   return null;
 }
 
-const sectionClass = 'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
+const sectionClass =
+  'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
 const buttonClass =
   'rounded border border-gray-300 bg-gray-50 px-4 py-1.5 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
 
-export default function GlobalRefreshPanel({ defaultYear }: { defaultYear?: number } = {}): React.ReactElement {
+export default function GlobalRefreshPanel({
+  defaultYear,
+}: { defaultYear?: number } = {}): React.ReactElement {
   const [year, setYear] = useState(defaultYear ?? seasonYearForToday());
 
   const [scheduleStatus, setScheduleStatus] = useState<SectionStatus>('idle');

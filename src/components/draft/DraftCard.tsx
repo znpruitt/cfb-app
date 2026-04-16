@@ -31,14 +31,13 @@ export default function DraftCard({ insights, isDrafted, onSelect }: DraftCardPr
       onClick={isClickable ? onSelect : undefined}
     >
       {/* Left color bar — flush to card edge, full card height */}
-      <span
-        className="w-1 shrink-0"
-        style={{ backgroundColor: barColor }}
-      />
+      <span className="w-1 shrink-0" style={{ backgroundColor: barColor }} />
 
       {/* Name + conference */}
       <div className="min-w-0 px-2.5 py-1.5">
-        <p className="truncate font-semibold text-gray-900 dark:text-zinc-100" title={teamName}>{shortName}</p>
+        <p className="truncate font-semibold text-gray-900 dark:text-zinc-100" title={teamName}>
+          {shortName}
+        </p>
         {conference && (
           <p className="truncate text-xs text-gray-500 dark:text-zinc-400">{conference}</p>
         )}

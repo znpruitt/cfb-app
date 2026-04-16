@@ -107,7 +107,8 @@ export default function DraftControls({
   const n = draft.owners.length;
   const idx = draft.currentPickIndex;
   const totalPicks = draft.settings.totalRounds * n;
-  const isRoundPause = phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && !isExpired;
+  const isRoundPause =
+    phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && !isExpired;
   const nextRound = Math.floor(idx / n) + 1;
 
   function handleStartNextRound() {
@@ -209,7 +210,10 @@ export default function DraftControls({
         )}
 
         {/* Reset */}
-        {(phase === 'live' || phase === 'paused' || phase === 'complete' || phase === 'preview') && (
+        {(phase === 'live' ||
+          phase === 'paused' ||
+          phase === 'complete' ||
+          phase === 'preview') && (
           <button
             type="button"
             onClick={handleReset}

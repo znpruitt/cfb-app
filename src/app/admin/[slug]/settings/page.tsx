@@ -25,9 +25,7 @@ export default async function AdminLeagueSettingsPage({
         >
           ← {league.displayName}
         </Link>
-        <h1 className="text-2xl font-semibold">
-          {league.displayName} — Settings
-        </h1>
+        <h1 className="text-2xl font-semibold">{league.displayName} — Settings</h1>
       </div>
       <LeagueSettingsForm
         slug={slug}

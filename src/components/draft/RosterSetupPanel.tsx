@@ -142,9 +142,7 @@ export default function RosterSetupPanel({
       <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
         Step 1 of 2
       </p>
-      <h2 className="mb-1 text-lg font-semibold text-gray-950 dark:text-zinc-50">
-        League Roster
-      </h2>
+      <h2 className="mb-1 text-lg font-semibold text-gray-950 dark:text-zinc-50">League Roster</h2>
       {priorOwners.length > 0 && !draftState && (
         <p className="mb-4 text-sm text-gray-500 dark:text-zinc-400">
           Auto-populated from last season. Remove or add owners as needed.
@@ -230,9 +228,7 @@ export default function RosterSetupPanel({
         </button>
       </div>
 
-      {error && (
-        <p className="mb-4 text-sm text-red-700 dark:text-red-400">{error}</p>
-      )}
+      {error && <p className="mb-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
       <div className="flex items-center gap-3">
         <button

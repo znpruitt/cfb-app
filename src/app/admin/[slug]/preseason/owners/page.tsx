@@ -46,9 +46,7 @@ export default async function PreseasonOwnersPage({
         const priorArchive = await getSeasonArchive(slug, priorYears[0]!);
         if (priorArchive) {
           const rows = parseOwnersCsv(priorArchive.ownerRosterSnapshot);
-          const uniqueOwners = Array.from(
-            new Set(rows.map((r) => r.owner).filter(Boolean))
-          );
+          const uniqueOwners = Array.from(new Set(rows.map((r) => r.owner).filter(Boolean)));
           initialOwners = uniqueOwners.filter((o) => o !== 'NoClaim');
         }
       }
@@ -62,9 +60,7 @@ export default async function PreseasonOwnersPage({
         const csvText = typeof csvRecord?.value === 'string' ? csvRecord.value : '';
         if (csvText.trim()) {
           const rows = parseOwnersCsv(csvText);
-          const uniqueOwners = Array.from(
-            new Set(rows.map((r) => r.owner).filter(Boolean))
-          );
+          const uniqueOwners = Array.from(new Set(rows.map((r) => r.owner).filter(Boolean)));
           initialOwners = uniqueOwners.filter((o) => o !== 'NoClaim');
         }
       }
@@ -84,8 +80,8 @@ export default async function PreseasonOwnersPage({
         </Link>
         <h1 className="text-2xl font-semibold">Confirm Owners for {year}</h1>
         <p className="text-sm text-gray-500 dark:text-zinc-400">
-          Review and update the owner list for the {year} season. Changes here will not affect
-          prior seasons.
+          Review and update the owner list for the {year} season. Changes here will not affect prior
+          seasons.
         </p>
       </div>
 

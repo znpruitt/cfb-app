@@ -126,30 +126,35 @@ export default function DraftBoardClient({
   // Must be declared before the early return to satisfy Rules of Hooks.
   const autoPauseRef = useRef<number | null>(null);
 
-  const maybeAutoPauseForRound = useCallback(async (d: DraftState) => {
-    const n = d.owners.length;
-    const idx = d.currentPickIndex;
-    const totalPicks = d.settings.totalRounds * n;
-    const atRoundBoundary = idx > 0 && idx % n === 0 && idx < totalPicks;
-    if (!atRoundBoundary || d.phase !== 'live') return d;
-    if (autoPauseRef.current === idx) return d; // already paused for this boundary
-    autoPauseRef.current = idx;
-    try {
-      const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
-      const body: Record<string, unknown> = { phase: 'paused' };
-      if (d.settings.pickTimerSeconds) body.timerAction = 'pause';
-      const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { draft?: DraftState };
-        if (data.draft) return data.draft;
+  const maybeAutoPauseForRound = useCallback(
+    async (d: DraftState) => {
+      const n = d.owners.length;
+      const idx = d.currentPickIndex;
+      const totalPicks = d.settings.totalRounds * n;
+      const atRoundBoundary = idx > 0 && idx % n === 0 && idx < totalPicks;
+      if (!atRoundBoundary || d.phase !== 'live') return d;
+      if (autoPauseRef.current === idx) return d; // already paused for this boundary
+      autoPauseRef.current = idx;
+      try {
+        const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+        const body: Record<string, unknown> = { phase: 'paused' };
+        if (d.settings.pickTimerSeconds) body.timerAction = 'pause';
+        const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', ...authHeaders },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { draft?: DraftState };
+          if (data.draft) return data.draft;
+        }
+      } catch {
+        /* non-fatal */
       }
-    } catch { /* non-fatal */ }
-    return d;
-  }, [slug, year]);
+      return d;
+    },
+    [slug, year]
+  );
 
   // Return nothing while redirecting non-admins to spectator view.
   // Placed after all hooks so Rules of Hooks are satisfied.
@@ -258,8 +263,11 @@ export default function DraftBoardClient({
         }
         setDraft(data.draft);
       }
-    } catch { /* network error — polling will recover */ }
-    finally { setControlsLoading(false); }
+    } catch {
+      /* network error — polling will recover */
+    } finally {
+      setControlsLoading(false);
+    }
   }
 
   async function draftPost(path: string) {
@@ -279,11 +287,16 @@ export default function DraftBoardClient({
         }
         setDraft(data.draft);
       }
-    } catch { /* network error — polling will recover */ }
-    finally { setControlsLoading(false); }
+    } catch {
+      /* network error — polling will recover */
+    } finally {
+      setControlsLoading(false);
+    }
   }
 
-  function handlePause() { void draftPut({ timerAction: 'pause' }); }
+  function handlePause() {
+    void draftPut({ timerAction: 'pause' });
+  }
 
   function handleResume() {
     if (draft.phase === 'paused') {
@@ -297,9 +310,15 @@ export default function DraftBoardClient({
     }
   }
 
-  function handleUndo() { void draftPost('unpick'); }
-  function handleAutoPick() { void draftPut({ timerAction: 'expire' }); }
-  function handleSelectManually() { void draftPut({ phase: 'live' }); }
+  function handleUndo() {
+    void draftPost('unpick');
+  }
+  function handleAutoPick() {
+    void draftPut({ timerAction: 'expire' });
+  }
+  function handleSelectManually() {
+    void draftPut({ phase: 'live' });
+  }
 
   function handleStartRound() {
     const body: Record<string, unknown> = { phase: 'live' };
@@ -308,7 +327,15 @@ export default function DraftBoardClient({
   }
 
   return (
-    <div style={{ height: 'calc(100dvh - 10rem)', display: 'flex', flexDirection: 'column', overflow: 'hidden', width: '100%' }}>
+    <div
+      style={{
+        height: 'calc(100dvh - 10rem)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        width: '100%',
+      }}
+    >
       {/* TOP — fixed header area (cards, controls, banners) */}
       <div style={{ flexShrink: 0 }}>
         <DraftHeaderArea
@@ -330,13 +357,32 @@ export default function DraftBoardClient({
 
       {/* MIDDLE — table scrolls both axes within remaining space */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', marginTop: 12, width: '100%' }}>
-        <DraftBoardGrid draft={draft} teamColorMap={teamColorMap} teamShortNameMap={teamShortNameMap} />
+        <DraftBoardGrid
+          draft={draft}
+          teamColorMap={teamColorMap}
+          teamShortNameMap={teamShortNameMap}
+        />
       </div>
 
       {/* BOTTOM — Available Teams strip, fixed at bottom */}
       <div style={{ flexShrink: 0, borderTop: '0.5px solid #1f2937', paddingTop: 8, marginTop: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#6b7280' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 6,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              color: '#6b7280',
+            }}
+          >
             Available Teams
           </span>
           <input
@@ -379,8 +425,20 @@ export default function DraftBoardClient({
                   overflow: 'hidden',
                   cursor: clickable ? 'pointer' : 'default',
                 }}
-                onMouseEnter={clickable ? (e) => { e.currentTarget.style.borderColor = '#4b5563'; } : undefined}
-                onMouseLeave={clickable ? (e) => { e.currentTarget.style.borderColor = '#374151'; } : undefined}
+                onMouseEnter={
+                  clickable
+                    ? (e) => {
+                        e.currentTarget.style.borderColor = '#4b5563';
+                      }
+                    : undefined
+                }
+                onMouseLeave={
+                  clickable
+                    ? (e) => {
+                        e.currentTarget.style.borderColor = '#374151';
+                      }
+                    : undefined
+                }
                 onClick={clickable ? () => void handlePick(t.teamId) : undefined}
               >
                 <span style={{ width: 3, flexShrink: 0, backgroundColor: barColor }} />

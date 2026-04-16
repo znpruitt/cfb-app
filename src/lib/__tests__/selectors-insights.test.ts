@@ -1339,7 +1339,10 @@ test('overview and standings insights are context differentiated', () => {
 
   assert.ok(overview.length <= 3);
   assert.ok(standings.length <= 3);
-  assert.equal(standings.some((entry) => entry.type === 'movement'), false);
+  assert.equal(
+    standings.some((entry) => entry.type === 'movement'),
+    false
+  );
 });
 
 test('deriveLeagueInsights remains deterministic for completed season ordering', () => {

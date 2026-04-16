@@ -24,9 +24,7 @@ export default async function AdminLeagueDataPage({
         >
           ← {league.displayName}
         </Link>
-        <h1 className="text-2xl font-semibold">
-          {league.displayName} — Data
-        </h1>
+        <h1 className="text-2xl font-semibold">{league.displayName} — Data</h1>
       </div>
       <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
         <p className="text-sm text-gray-500 dark:text-zinc-400">
@@ -37,7 +35,10 @@ export default async function AdminLeagueDataPage({
         </p>
         <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
           Schedule and scores are managed from{' '}
-          <Link href="/admin/data/cache" className="text-blue-600 hover:underline dark:text-blue-400">
+          <Link
+            href="/admin/data/cache"
+            className="text-blue-600 hover:underline dark:text-blue-400"
+          >
             Data Cache →
           </Link>
         </p>
