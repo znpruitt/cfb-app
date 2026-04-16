@@ -43,3 +43,19 @@ export function buildCfbdSpRatingsUrl(params: { year: number }): URL {
   url.searchParams.set('year', String(params.year));
   return url;
 }
+
+export function buildCfbdGameTeamStatsUrl(params: {
+  year: number;
+  week?: number | null;
+  seasonType?: CfbdSeasonType;
+}): URL {
+  const url = new URL('https://api.collegefootballdata.com/games/teams');
+  url.searchParams.set('year', String(params.year));
+  if (typeof params.week === 'number') {
+    url.searchParams.set('week', String(params.week));
+  }
+  if (params.seasonType) {
+    url.searchParams.set('seasonType', params.seasonType);
+  }
+  return url;
+}
