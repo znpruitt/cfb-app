@@ -339,20 +339,25 @@ Fetch and cache weekly game-level team stats from CFBD to power the Insights Eng
 - **Prerequisite for:** Insights Engine
 
 ### Insights Engine (planned)
-Generate contextual, data-driven narrative insights that add value beyond what's visible in standings and tables.
+Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
 **Core principle:** Every insight must tell the user something they couldn't figure out just by reading the table. No restating visible data without a compelling angle.
 
-**Placement:** 2–3 highlight insights on overview page; full pulse on dedicated tab.
+**Placement:** 2–3 highlight insights on overview page (existing panel); full pulse on dedicated tab.
 
-**Two weekly pulses:**
+**Content adapts by lifecycle state:**
+- **Offseason / Preseason:** History-based insights (defending champion, drought, collapse), draft-based insights (conference concentration, diversity, AP poll rankings per owner), schedule strength projections
+- **In-season:** Two weekly pulses — Look Back (Monday 6am ET) and Forward Look (Thursday 6am ET)
+- **Postseason:** Championship race narrative, bracket implications, owner vs owner outcomes
+
+**Two weekly in-season pulses:**
 - **Monday 6am ET (11am UTC) — Look Back:** Weekend recap, notable results, standings movement, trash-talk fodder, owner vs owner outcomes, surprising performances
 - **Thursday 6am ET (11am UTC) — Forward Look:** Games to watch this weekend, owner vs owner collision preview, rivalry implications, who needs a win
 
 **Data sources (tiered by availability):**
 - **Always available:** League history archive, current standings, owner rosters, head-to-head records
-- **August onward:** AP poll rankings per owner, preseason projections vs actual
-- **In-season:** Game stats (via Game Stats Pipeline), schedule strength, owner vs owner matchup frequency, form/momentum
+- **August onward:** AP poll rankings per owner, preseason projections vs actual; schedule strength per owner (ranked opponent count, aggregate SP+)
+- **In-season:** Game stats (via Game Stats Pipeline), form/momentum, owner vs owner matchup frequency
 
 **Insight categories:**
 - Historical context ("Maleski's runner-up finish is the closest gap in 4 years")
@@ -416,30 +421,6 @@ Systematic review and rewrite of all user-facing strings for consistent voice an
 - Commissioner setup links from draft board banner and summary page
 - Sandbox reset controls: idempotent dry runs, auto-complete draft button
 - See `docs/completed-work.md` for full record
-
-### Preseason Insights Panel (planned)
-Replace the empty insights area during preseason with meaningful, data-driven content that upgrades automatically as data becomes available. No commissioner action needed beyond what the cron already handles.
-
-**Tier 1 — Always available (static data from history archives + draft results)**
-- Defending champion, runner-up, longest championship drought, most titles
-- Biggest collapse (highest finish drop year-over-year)
-- Draft-based: conference concentration per owner, most/least diversity, owner with most teams from one conference
-
-**Tier 2 — August (once CFBD publishes preseason AP poll)**
-- Most preseason top-25 teams per owner
-- Highest-ranked team drafted
-- Owner with the most ranked opponents on their schedule
-
-**Tier 3 — Schedule cached (cron-driven, before first game)**
-- Schedule strength per owner (ranked opponent count, aggregate SP+)
-- Most home games, most rivalry games per owner
-- Earliest/latest bye weeks
-- Peak exposure weeks (most owner-relevant games in one week)
-- Owner vs owner matchup frequency ("Ballard plays himself 18 times")
-- Most common rivalry matchup across owners
-- Defending champion gauntlet (most games against last year's champion's teams)
-
-**Scope:** Insights selectors, rankings data, schedule data, overview panel, owner vs owner matchup derivation. Panel gracefully upgrades itself as each tier's data becomes available.
 
 ## Architecture rules
 
