@@ -173,6 +173,10 @@ Fetch and cache weekly CFBD `game_team_stats` by week (same pattern as scores). 
 
 Two weekly pulses (Monday look-back + Thursday forward-look) generating contextual narrative insights from standings, game stats, history, and owner rosters. 2–3 highlights on overview; full pulse on dedicated tab. AP poll and in-season stats require August start — Tier 1 history/roster insights can ship earlier. Requires Game Stats Pipeline. See `docs/roadmap.md` for full scope.
 
+### Slow Draft Mode (planned)
+
+Async draft mode with configurable per-pick window (e.g. 24–48 hours). Owners notified when on the clock; auto-pick fires on expiry. Deadline display replaces live countdown. Requires new email notification infrastructure. See `docs/roadmap.md` for full scope.
+
 ### Preseason Insights Panel (planned)
 
 Replace the empty insights area during preseason with data-driven content that upgrades automatically as data becomes available. Three tiers: Tier 1 (history + draft — always available), Tier 2 (AP poll — August), Tier 3 (schedule — cron-driven). See `docs/roadmap.md` for full scope definition.

@@ -311,6 +311,22 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 
 ## Upcoming campaigns (post-P7B-7)
 
+### Slow Draft Mode (planned)
+Enable async drafts where owners have a configurable window to make each pick rather than requiring everyone online simultaneously.
+
+- **Use case:** Family leagues, geographically distributed leagues, casual leagues where coordinating a live draft is impractical
+- **How it works:**
+  - Commissioner configures pick window duration (e.g. 24 or 48 hours) in draft settings
+  - When it's an owner's turn, they are notified (email or in-app) that they're on the clock
+  - Owner logs in within the window to make their pick
+  - If the window expires without a pick, auto-pick fires and advances to the next owner
+  - No live countdown timer — replaced with a deadline display ("Pick by Monday 6pm")
+  - Draft board shows all picks made so far and available teams, same as live draft
+  - Commissioner retains undo and override controls
+- **Settings additions:** Pick window duration (hours); notification timing (e.g. at 50% and 25% of window remaining)
+- **New infrastructure required:** Email notification pipeline — not currently in place
+- **Dependencies:** Email notification system (new), draft settings UI update
+
 ### Game Stats Pipeline (planned)
 Fetch and cache weekly game-level team stats from CFBD to power the Insights Engine.
 
