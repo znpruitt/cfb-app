@@ -1,6 +1,7 @@
 import type { CfbdSeasonType } from '../cfbd';
 import { getCachedGameStats, listCachedGameStatsWeeks } from '../gameStats/cache';
-import type { GameStats, TeamGameStats } from '../gameStats/types';
+import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
+import type { GameStats } from '../gameStats/types';
 import type { League } from '../league';
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
@@ -11,116 +12,11 @@ import { getTeamDatabaseItems } from '../server/teamDatabaseStore';
 import type { SeasonContext } from '../selectors/seasonContext';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistoryWeekSnapshot } from '../standingsHistory';
-import { createTeamIdentityResolver, type TeamIdentityResolver } from '../teamIdentity';
+import { createTeamIdentityResolver } from '../teamIdentity';
 import type { AliasMap } from '../teamNames';
-import { deriveRegularWeeks, chooseDefaultWeek } from '../weekSelection';
+import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from './lifecycle';
 import type { InsightContext, OwnerSeasonStats } from './types';
-
-type SeasonAccumulator = {
-  owner: string;
-  gamesPlayed: number;
-  points: number;
-  totalYards: number;
-  rushingYards: number;
-  passingYards: number;
-  turnovers: number;
-  turnoversForced: number;
-  thirdDownConversions: number;
-  thirdDownAttempts: number;
-  possessionSeconds: number;
-};
-
-function emptySeasonAccumulator(owner: string): SeasonAccumulator {
-  return {
-    owner,
-    gamesPlayed: 0,
-    points: 0,
-    totalYards: 0,
-    rushingYards: 0,
-    passingYards: 0,
-    turnovers: 0,
-    turnoversForced: 0,
-    thirdDownConversions: 0,
-    thirdDownAttempts: 0,
-    possessionSeconds: 0,
-  };
-}
-
-function addTeamToSeasonAccumulator(
-  acc: SeasonAccumulator,
-  team: TeamGameStats,
-  opponent: TeamGameStats
-): void {
-  acc.gamesPlayed += 1;
-  acc.points += team.points;
-  acc.totalYards += team.totalYards;
-  acc.rushingYards += team.rushingYards;
-  acc.passingYards += team.passingYards;
-  acc.turnovers += team.turnovers;
-  acc.turnoversForced += opponent.turnovers;
-  acc.thirdDownConversions += team.thirdDownConversions;
-  acc.thirdDownAttempts += team.thirdDownAttempts;
-  acc.possessionSeconds += team.possessionSeconds;
-}
-
-function resolveOwner(
-  team: TeamGameStats,
-  rosterByTeam: Map<string, string>,
-  resolver: TeamIdentityResolver
-): string | null {
-  const resolved = resolver.resolveName(team.school);
-  if (resolved.identityKey) {
-    const owner = rosterByTeam.get(resolved.identityKey);
-    if (owner) return owner;
-  }
-  const canonical = resolved.canonicalName ?? team.school;
-  return rosterByTeam.get(canonical) ?? null;
-}
-
-function toOwnerSeasonStats(acc: SeasonAccumulator, season: number): OwnerSeasonStats {
-  return {
-    owner: acc.owner,
-    season,
-    gamesPlayed: acc.gamesPlayed,
-    points: acc.points,
-    totalYards: acc.totalYards,
-    rushingYards: acc.rushingYards,
-    passingYards: acc.passingYards,
-    turnovers: acc.turnovers,
-    turnoversForced: acc.turnoversForced,
-    turnoverMargin: acc.turnoversForced - acc.turnovers,
-    thirdDownConversions: acc.thirdDownConversions,
-    thirdDownAttempts: acc.thirdDownAttempts,
-    thirdDownPct: acc.thirdDownAttempts > 0 ? acc.thirdDownConversions / acc.thirdDownAttempts : 0,
-    possessionSeconds: acc.possessionSeconds,
-  };
-}
-
-function aggregateOwnerSeasonStats(
-  games: GameStats[],
-  rosterByTeam: Map<string, string>,
-  resolver: TeamIdentityResolver,
-  season: number
-): OwnerSeasonStats[] {
-  const accumulators = new Map<string, SeasonAccumulator>();
-
-  for (const game of games) {
-    const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
-      { team: game.home, opponent: game.away },
-      { team: game.away, opponent: game.home },
-    ];
-    for (const { team, opponent } of sides) {
-      const owner = resolveOwner(team, rosterByTeam, resolver);
-      if (!owner) continue;
-      const acc = accumulators.get(owner) ?? emptySeasonAccumulator(owner);
-      addTeamToSeasonAccumulator(acc, team, opponent);
-      accumulators.set(owner, acc);
-    }
-  }
-
-  return Array.from(accumulators.values()).map((acc) => toOwnerSeasonStats(acc, season));
-}
 
 async function loadAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
   let aliasMap: AliasMap = {};
@@ -168,7 +64,7 @@ async function loadOwnerSeasonStats(
   );
   const resolver = createTeamIdentityResolver({ teams, aliasMap, observedNames });
 
-  const allGames: GameStats[] = [];
+  const weeklyGames: GameStats[][] = [];
   for (const key of weekKeys) {
     const parts = key.split(':');
     if (parts.length !== 3) continue;
@@ -177,11 +73,11 @@ async function loadOwnerSeasonStats(
     const seasonType = parts[2] as CfbdSeasonType;
     const stats = await getCachedGameStats(year, week, seasonType);
     if (!stats) continue;
-    allGames.push(...stats.games);
+    weeklyGames.push(stats.games);
   }
 
-  if (allGames.length === 0) return null;
-  return aggregateOwnerSeasonStats(allGames, currentRoster, resolver, year);
+  if (weeklyGames.length === 0) return null;
+  return aggregateOwnerSeasonStats(weeklyGames, currentRoster, resolver, year);
 }
 
 export async function buildInsightContext(
