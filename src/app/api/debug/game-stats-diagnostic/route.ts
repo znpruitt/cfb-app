@@ -9,7 +9,7 @@ import { listCachedGameStatsWeeks, getCachedGameStats } from '@/lib/gameStats/ca
 import { getSeasonArchive } from '@/lib/seasonArchive';
 import type { AliasMap } from '@/lib/teamNames';
 import type { CfbdSeasonType } from '@/lib/cfbd';
-import type { GameStats, TeamGameStats } from '@/lib/gameStats/types';
+import type { TeamGameStats } from '@/lib/gameStats/types';
 
 export const dynamic = 'force-dynamic';
 
