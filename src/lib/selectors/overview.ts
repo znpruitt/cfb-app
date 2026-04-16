@@ -1,6 +1,6 @@
 import {
   deriveGameHighlightTags,
-  deriveLeagueInsights,
+  deriveGameMovementInsights,
   deriveOverviewHighlightSignals,
   type OverviewHighlightSignals,
 } from '../gameTags';
@@ -944,7 +944,7 @@ export function selectOverviewViewModel(params: {
     seasonContext,
   });
   const movementInsights = selectMovementInsightsForPulse(
-    deriveLeagueInsights({
+    deriveGameMovementInsights({
       standings: currentStandings,
       previousStandings: temporalStandings.previous,
       recentResults: keyMatchups,

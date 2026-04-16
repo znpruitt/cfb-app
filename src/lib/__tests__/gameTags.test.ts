@@ -6,7 +6,7 @@ import {
   computeStandings,
   prioritizeGameTags,
   deriveGameHighlightTags,
-  deriveLeagueInsights,
+  deriveGameMovementInsights,
   deriveOverviewHighlightSignals,
 } from '../gameTags.ts';
 import type { OverviewGameItem } from '../overview.ts';
@@ -113,7 +113,7 @@ const standings: OwnerStandingsRow[] = [
   },
 ];
 
-test('deriveLeagueInsights includes leader gap and ranked matchup priority', () => {
+test('deriveGameMovementInsights includes leader gap and ranked matchup priority', () => {
   const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
     ['texas', { rank: 7, rankSource: 'ap' }],
     ['georgia', { rank: 14, rankSource: 'ap' }],
@@ -142,7 +142,7 @@ test('deriveLeagueInsights includes leader gap and ranked matchup priority', () 
     })
   );
 
-  const insights = deriveLeagueInsights({
+  const insights = deriveGameMovementInsights({
     standings,
     recentResults: [rankedGame],
     liveGames: [],
@@ -153,8 +153,8 @@ test('deriveLeagueInsights includes leader gap and ranked matchup priority', () 
   assert.ok(insights.some((insight) => insight.text.includes('#7 vs #14 matchup this week')));
 });
 
-test('deriveLeagueInsights adds leader gap widened cue when prior snapshot gap was smaller', () => {
-  const insights = deriveLeagueInsights({
+test('deriveGameMovementInsights adds leader gap widened cue when prior snapshot gap was smaller', () => {
+  const insights = deriveGameMovementInsights({
     standings,
     previousStandings: [
       {
@@ -188,7 +188,7 @@ test('deriveLeagueInsights adds leader gap widened cue when prior snapshot gap w
   assert.ok(insights.some((insight) => insight.text === 'Leader gap widened to 0.077'));
 });
 
-test('deriveLeagueInsights includes close-game count', () => {
+test('deriveGameMovementInsights includes close-game count', () => {
   const closeGame = item(
     game({
       key: 'close',
@@ -203,7 +203,7 @@ test('deriveLeagueInsights includes close-game count', () => {
     time: null,
   };
 
-  const insights = deriveLeagueInsights({
+  const insights = deriveGameMovementInsights({
     standings,
     recentResults: [closeGame],
     liveGames: [],
@@ -213,8 +213,8 @@ test('deriveLeagueInsights includes close-game count', () => {
   assert.ok(insights.some((insight) => insight.text === '1 close game this week'));
 });
 
-test('deriveLeagueInsights includes biggest gain movement signal from standings deltas', () => {
-  const insights = deriveLeagueInsights({
+test('deriveGameMovementInsights includes biggest gain movement signal from standings deltas', () => {
+  const insights = deriveGameMovementInsights({
     standings: [
       {
         owner: 'Alex',
@@ -271,8 +271,8 @@ test('deriveLeagueInsights includes biggest gain movement signal from standings 
   assert.ok(insights.some((insight) => insight.text === 'Biggest gain: Alex (+1 wins)'));
 });
 
-test('deriveLeagueInsights includes biggest drop movement signal from standings deltas', () => {
-  const insights = deriveLeagueInsights({
+test('deriveGameMovementInsights includes biggest drop movement signal from standings deltas', () => {
+  const insights = deriveGameMovementInsights({
     standings: [
       {
         owner: 'Alex',
@@ -329,8 +329,8 @@ test('deriveLeagueInsights includes biggest drop movement signal from standings 
   assert.ok(insights.some((insight) => insight.text === 'Biggest drop: Blair (-2)'));
 });
 
-test('deriveLeagueInsights movement signals are absent when no prior standings snapshot exists', () => {
-  const insights = deriveLeagueInsights({
+test('deriveGameMovementInsights movement signals are absent when no prior standings snapshot exists', () => {
+  const insights = deriveGameMovementInsights({
     standings,
     recentResults: [],
     liveGames: [],
@@ -341,8 +341,8 @@ test('deriveLeagueInsights movement signals are absent when no prior standings s
   assert.ok(!insights.some((insight) => insight.text.startsWith('Biggest drop:')));
 });
 
-test('deriveLeagueInsights uses previous standings snapshot for top-rank movement', () => {
-  const insights = deriveLeagueInsights({
+test('deriveGameMovementInsights uses previous standings snapshot for top-rank movement', () => {
+  const insights = deriveGameMovementInsights({
     standings: [
       {
         owner: 'Alex',
@@ -555,7 +555,7 @@ test('deriveOverviewHighlightSignals ignores non-rendered live items for top/ran
   assert.equal(signals.rankedHighlightKey, 'displayed-matchup');
 });
 
-test('deriveLeagueInsights shows top-two result only for final top-two head-to-head', () => {
+test('deriveGameMovementInsights shows top-two result only for final top-two head-to-head', () => {
   const finalTopTwoGame = item(game({ key: 'top-two-final' }), 'Pruitt', 'Maleski');
   finalTopTwoGame.score = {
     status: 'FINAL',
@@ -564,7 +564,7 @@ test('deriveLeagueInsights shows top-two result only for final top-two head-to-h
     time: null,
   };
 
-  const insights = deriveLeagueInsights({
+  const insights = deriveGameMovementInsights({
     standings,
     recentResults: [finalTopTwoGame],
     liveGames: [],
@@ -574,7 +574,7 @@ test('deriveLeagueInsights shows top-two result only for final top-two head-to-h
   assert.ok(insights.some((insight) => insight.text === 'Top 2 matchup result'));
 });
 
-test('deriveLeagueInsights does not show top-two result for scheduled or live top-two games', () => {
+test('deriveGameMovementInsights does not show top-two result for scheduled or live top-two games', () => {
   const scheduledTopTwoGame = item(game({ key: 'top-two-scheduled' }), 'Pruitt', 'Maleski');
   const liveTopTwoGame = item(game({ key: 'top-two-live' }), 'Pruitt', 'Maleski');
   liveTopTwoGame.score = {
@@ -584,13 +584,13 @@ test('deriveLeagueInsights does not show top-two result for scheduled or live to
     time: '05:44',
   };
 
-  const scheduledInsights = deriveLeagueInsights({
+  const scheduledInsights = deriveGameMovementInsights({
     standings,
     recentResults: [scheduledTopTwoGame],
     liveGames: [],
     rankingsByTeamId: new Map(),
   });
-  const liveInsights = deriveLeagueInsights({
+  const liveInsights = deriveGameMovementInsights({
     standings,
     recentResults: [liveTopTwoGame],
     liveGames: [liveTopTwoGame],
@@ -602,7 +602,7 @@ test('deriveLeagueInsights does not show top-two result for scheduled or live to
   assert.ok(liveInsights.some((insight) => insight.text === '1 live game affecting standings'));
 });
 
-test('deriveLeagueInsights does not show top-two result for final game with only one top-two owner', () => {
+test('deriveGameMovementInsights does not show top-two result for final game with only one top-two owner', () => {
   const finalOneTopTwoOwnerGame = item(game({ key: 'one-top-two-final' }), 'Pruitt', 'Whited');
   finalOneTopTwoOwnerGame.score = {
     status: 'FINAL',
@@ -611,7 +611,7 @@ test('deriveLeagueInsights does not show top-two result for final game with only
     time: null,
   };
 
-  const insights = deriveLeagueInsights({
+  const insights = deriveGameMovementInsights({
     standings,
     recentResults: [finalOneTopTwoOwnerGame],
     liveGames: [],

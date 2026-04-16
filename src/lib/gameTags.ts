@@ -154,7 +154,7 @@ function deriveMovementInsights(params: {
   return insights;
 }
 
-export function deriveLeagueInsights({
+export function deriveGameMovementInsights({
   standings,
   previousStandings,
   recentResults,
