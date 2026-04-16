@@ -29,7 +29,7 @@ Codex handles implementation. Claude generates the prompts Codex executes.
 | `docs/prompt-registry.md` | Prompt ID registry — check before assigning new IDs |
 | `docs/completed-work.md` | Append-only milestone log |
 | `DESIGN.md` | UI/UX design principles — read before any UI work |
-| `docs/roadmap.md` | Phase definitions and development philosophy |
+| `docs/roadmap.md` | Campaign definitions and development philosophy |
 | `docs/deployment-runbook.md` | Hosted deployment checklist |
 
 ---
@@ -51,10 +51,13 @@ Every Codex prompt Claude produces must:
 
 1. Begin with the standard header (Section 3.1 of Engineering Operating Instructions):
    ```
-   PROMPT_ID: <PHASE>-<AREA>-<SHORT_NAME>-v<version>
+   PROMPT_ID: <CAMPAIGN>-<###>-<SHORT_NAME>-v<version>
    PURPOSE: <1–2 sentences>
    SCOPE: <files/modules + constraints>
    ```
+   Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`.
+   Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
+   Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
 2. Include a **Final Response Requirement** section (Section 3.11) that restates the expected `PROMPT_ID` first-line and required response structure.
 3. Be registered in `docs/prompt-registry.md` after execution.
 
@@ -98,9 +101,9 @@ Never start at the UI when an upstream layer may be wrong.
 
 ---
 
-## Phase and task awareness
+## Campaign and task awareness
 
-- Check `AGENTS.md` and `docs/next-tasks.md` for current phase status before planning work.
+- Check `AGENTS.md` and `docs/next-tasks.md` for current campaign status before planning work.
 - Reference all prior prompts by explicit `PROMPT_ID` — never use vague references like "that earlier prompt."
 - When generating a new prompt, verify the candidate ID does not collide with an existing one in `docs/prompt-registry.md`.
 
