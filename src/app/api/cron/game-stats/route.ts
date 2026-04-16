@@ -64,28 +64,37 @@ async function findLatestCompletedWeek(
   const now = Date.now();
   const items = stored.value.items;
 
-  // Find the latest week that has games with start dates in the past
-  let latestWeek: number | null = null;
-  let latestSeasonType: CfbdSeasonType = 'regular';
+  // Build a map of (week, seasonType) → latest game startDate
+  const slateMaxDate = new Map<string, number>();
+  const completedThreshold = now - 6 * 60 * 60 * 1000;
 
   for (const item of items) {
     if (!item.startDate) continue;
     const gameTime = new Date(item.startDate).getTime();
-    // Game is considered completed if it started more than 6 hours ago
-    if (gameTime > now - 6 * 60 * 60 * 1000) continue;
+    if (gameTime > completedThreshold) continue;
 
-    const week = item.week;
     const seasonType: CfbdSeasonType =
       item.seasonType === 'postseason' ? 'postseason' : 'regular';
+    const key = `${item.week}:${seasonType}`;
+    const prev = slateMaxDate.get(key) ?? 0;
+    if (gameTime > prev) slateMaxDate.set(key, gameTime);
+  }
 
-    if (latestWeek === null || week > latestWeek || seasonType === 'postseason') {
-      latestWeek = week;
-      latestSeasonType = seasonType;
+  if (slateMaxDate.size === 0) return null;
+
+  // Select the slate whose most recent game is latest by calendar date
+  let bestKey: string | null = null;
+  let bestDate = 0;
+  for (const [key, maxDate] of slateMaxDate) {
+    if (maxDate > bestDate) {
+      bestDate = maxDate;
+      bestKey = key;
     }
   }
 
-  if (latestWeek === null) return null;
-  return { week: latestWeek, seasonType: latestSeasonType };
+  if (!bestKey) return null;
+  const [weekStr, seasonType] = bestKey.split(':');
+  return { week: parseInt(weekStr, 10), seasonType: seasonType as CfbdSeasonType };
 }
 
 export async function GET(req: Request): Promise<NextResponse<CronResult>> {
