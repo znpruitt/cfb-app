@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
 import { buildSeasonArchive } from '@/lib/seasonRollover';
+import { getAppState } from '@/lib/server/appStateStore';
+import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import {
   selectAllTimeStandings,
   selectChampionshipHistory,
@@ -85,6 +87,13 @@ export default async function LeagueHistoryPage({
     }
   }
 
+  // Derive active owners from current season's owners CSV
+  const ownersRecord = await getAppState<string>(`owners:${slug}:${activeYear}`, 'csv');
+  const ownersCsv = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
+  const activeOwnersList = parseOwnersCsv(ownersCsv)
+    .map((r) => r.owner)
+    .filter((o) => o !== 'NoClaim');
+
   const allTimeStandings = selectAllTimeStandings(archives, liveStandings);
   const championshipHistory = selectChampionshipHistory(archives);
   const allTimeH2H = selectAllTimeHeadToHead(archives);
@@ -117,6 +126,7 @@ export default async function LeagueHistoryPage({
                 rows={allTimeStandings}
                 slug={slug}
                 liveSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+                activeOwners={activeOwnersList.length > 0 ? activeOwnersList : undefined}
               />
               <SeasonListPanel history={championshipHistory} slug={slug} />
             </div>
@@ -124,7 +134,12 @@ export default async function LeagueHistoryPage({
             {/* Right column — 40% */}
             <div className="flex flex-col gap-6 lg:col-span-2">
               {topRivalries.length > 0 && (
-                <AllTimeHeadToHeadPanel rivalries={topRivalries} allH2H={allTimeH2H} slug={slug} />
+                <AllTimeHeadToHeadPanel
+                  rivalries={topRivalries}
+                  allH2H={allTimeH2H}
+                  slug={slug}
+                  activeOwners={activeOwnersList.length > 0 ? activeOwnersList : undefined}
+                />
               )}
               {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
               {dynastyDrought.rows.length > 0 && (
