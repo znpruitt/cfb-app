@@ -83,6 +83,7 @@ import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
+import type { Insight as EngineInsight } from '../lib/selectors/insights';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -290,6 +291,8 @@ export default function CFBScheduleApp({
   const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
   const [draftScheduledAt, setDraftScheduledAt] = useState<string | null>(null);
   const [draftCurrentRound, setDraftCurrentRound] = useState<number | null>(null);
+
+  const [engineInsights, setEngineInsights] = useState<EngineInsight[]>([]);
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
@@ -1020,6 +1023,28 @@ export default function CFBScheduleApp({
       .catch(() => {}); // non-fatal
   }, [leagueSlug, draftLookupYear]);
 
+  useEffect(() => {
+    if (!leagueSlug) {
+      setEngineInsights([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/insights/${encodeURIComponent(leagueSlug)}?year=${selectedSeason}`, {
+      cache: 'no-store',
+    })
+      .then((res) => (res.ok ? (res.json() as Promise<{ insights?: EngineInsight[] }>) : null))
+      .then((data) => {
+        if (cancelled) return;
+        setEngineInsights(Array.isArray(data?.insights) ? data!.insights! : []);
+      })
+      .catch(() => {
+        if (!cancelled) setEngineInsights([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [leagueSlug, selectedSeason]);
+
   const stageAliasWithToast = useCallback(
     (providerName: string, csvName: string) => {
       setAliasStaging((prev) => stageAliasFromMiss(providerName, csvName, prev));
@@ -1741,6 +1766,7 @@ export default function CFBScheduleApp({
                   onViewMatchups={openWeeklyMatchupsView}
                   onOpenHighlightTarget={onOpenHighlightTarget}
                   leagueSlug={leagueSlug}
+                  engineInsights={engineInsights}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel

@@ -1139,6 +1139,7 @@ type OverviewPanelProps = {
   rankings?: RankingsResponse | null;
   standingsHistory?: StandingsHistory | null;
   leagueSlug?: string;
+  engineInsights?: Insight[];
 };
 
 export default function OverviewPanel({
@@ -1160,6 +1161,7 @@ export default function OverviewPanel({
   rankings = null,
   standingsHistory = null,
   leagueSlug,
+  engineInsights = [],
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
@@ -1213,14 +1215,25 @@ export default function OverviewPanel({
         : standingsLeaders;
     const seasonContext = selectSeasonContext({ standingsHistory });
 
-    return deriveOverviewInsights(
+    const existing = deriveOverviewInsights(
       deriveLeagueInsights({
         rows: currentStandings,
         standingsHistory,
         seasonContext,
       })
     );
-  }, [standingsHistory, standingsLeaders]);
+
+    const ranked = [...engineInsights].sort((a, b) => b.priorityScore - a.priorityScore);
+    const seen = new Set(ranked.map((i) => i.id));
+    const merged: Insight[] = [...ranked];
+    for (const insight of existing) {
+      if (merged.length >= 3) break;
+      if (seen.has(insight.id)) continue;
+      seen.add(insight.id);
+      merged.push(insight);
+    }
+    return merged.slice(0, 3);
+  }, [standingsHistory, standingsLeaders, engineInsights]);
 
   const positionDeltaData = React.useMemo(() => {
     if (!standingsHistory) return null;
