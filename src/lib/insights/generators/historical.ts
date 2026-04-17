@@ -63,6 +63,15 @@ function activeOwnerSet(currentRoster: Map<string, string>): Set<string> {
   return set;
 }
 
+const TIE_SUPPRESSION_THRESHOLD = 4;
+
+function formatOwnerList(owners: string[]): string {
+  if (owners.length === 0) return '';
+  if (owners.length === 1) return owners[0]!;
+  if (owners.length === 2) return `${owners[0]} and ${owners[1]}`;
+  return `${owners.slice(0, -1).join(', ')}, and ${owners[owners.length - 1]}`;
+}
+
 function championOf(archive: SeasonArchive): string | null {
   const row = archive.finalStandings[0];
   if (!row) return null;
@@ -99,9 +108,8 @@ function deriveDroughtInsight(
     }
   }
 
-  let longestDrought = 0;
-  let droughtOwner: string | null = null;
-  let neverWon = false;
+  type DroughtEntry = { owner: string; drought: number; neverWon: boolean };
+  const entries: DroughtEntry[] = [];
 
   for (const owner of activeOwners) {
     const lastYear = lastTitleYear.get(owner);
@@ -110,7 +118,6 @@ function deriveDroughtInsight(
     let drought: number;
     let ownerNeverWon: boolean;
     if (lastYear === undefined) {
-      // Never won — drought equals seasons played
       drought = seasonsPlayed;
       ownerNeverWon = true;
     } else {
@@ -119,30 +126,47 @@ function deriveDroughtInsight(
     }
 
     if (drought <= 0) continue;
-    if (drought > longestDrought) {
-      longestDrought = drought;
-      droughtOwner = owner;
-      neverWon = ownerNeverWon;
-    }
+    entries.push({ owner, drought, neverWon: ownerNeverWon });
   }
 
-  if (!droughtOwner || longestDrought < 2) return null;
+  if (entries.length === 0) return null;
+
+  const longestDrought = entries.reduce((max, e) => (e.drought > max ? e.drought : max), 0);
+  if (longestDrought < 2) return null;
+
+  const tied = entries
+    .filter((e) => e.drought === longestDrought)
+    .sort((a, b) => a.owner.localeCompare(b.owner));
+
+  if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
 
   const priority = Math.min(
     DROUGHT_PRIORITY_CAP,
     DROUGHT_BASE_PRIORITY + DROUGHT_PER_SEASON_BONUS * longestDrought
   );
 
-  const description = neverWon
-    ? `${droughtOwner} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`
-    : `${droughtOwner} hasn't won a title in ${longestDrought} seasons.`;
+  const allNeverWon = tied.every((e) => e.neverWon);
+  const ownerNames = tied.map((e) => e.owner);
+  const nameList = formatOwnerList(ownerNames);
+
+  let description: string;
+  if (tied.length === 1) {
+    description = tied[0]!.neverWon
+      ? `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`
+      : `${nameList} hasn't won a title in ${longestDrought} seasons.`;
+  } else if (allNeverWon) {
+    description = `${nameList} have never won a title in ${longestDrought} seasons.`;
+  } else {
+    description = `${nameList} haven't won a title in ${longestDrought} seasons.`;
+  }
 
   return toInsight({
-    id: `historical-drought-${ownerSlug(droughtOwner)}`,
+    id: `historical-drought-${ownerNames.map(ownerSlug).join('-')}`,
     type: 'drought',
     title: 'Longest active title drought',
     description,
-    owner: droughtOwner,
+    owner: ownerNames[0],
+    relatedOwners: ownerNames.slice(1),
     priorityScore: priority,
     lifecycle: lifecycles,
   });
@@ -238,10 +262,8 @@ function deriveMostImprovedInsight(
   const prev = sorted[sorted.length - 2]!;
   const curr = sorted[sorted.length - 1]!;
 
-  let bestOwner: string | null = null;
-  let bestImprovement = 0;
-  let bestPrev = 0;
-  let bestCurr = 0;
+  type ImprovementEntry = { owner: string; improvement: number; prevPos: number; currPos: number };
+  const entries: ImprovementEntry[] = [];
 
   for (const row of curr.finalStandings) {
     if (!isEligibleOwner(row.owner)) continue;
@@ -251,27 +273,45 @@ function deriveMostImprovedInsight(
     if (prevPos === null || currPos === null) continue;
     const improvement = prevPos - currPos;
     if (improvement < MIN_IMPROVEMENT_POSITIONS) continue;
-    if (improvement > bestImprovement) {
-      bestImprovement = improvement;
-      bestOwner = row.owner;
-      bestPrev = prevPos;
-      bestCurr = currPos;
-    }
+    entries.push({ owner: row.owner, improvement, prevPos, currPos });
   }
 
-  if (!bestOwner) return null;
+  if (entries.length === 0) return null;
+
+  const bestImprovement = entries.reduce(
+    (max, e) => (e.improvement > max ? e.improvement : max),
+    0
+  );
+  if (bestImprovement < MIN_IMPROVEMENT_POSITIONS) return null;
+
+  const tied = entries
+    .filter((e) => e.improvement === bestImprovement)
+    .sort((a, b) => a.owner.localeCompare(b.owner));
+
+  if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
 
   const priority = Math.min(
     IMPROVEMENT_PRIORITY_CAP,
     IMPROVEMENT_BASE_PRIORITY + IMPROVEMENT_PER_POSITION_BONUS * bestImprovement
   );
 
+  const ownerNames = tied.map((e) => e.owner);
+  const nameList = formatOwnerList(ownerNames);
+  let description: string;
+  if (tied.length === 1) {
+    const only = tied[0]!;
+    description = `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year}.`;
+  } else {
+    description = `${nameList} each jumped ${bestImprovement} positions between ${prev.year} and ${curr.year}.`;
+  }
+
   return toInsight({
-    id: `historical-improvement-${ownerSlug(bestOwner)}-${curr.year}`,
+    id: `historical-improvement-${ownerNames.map(ownerSlug).join('-')}-${curr.year}`,
     type: 'improvement',
     title: 'Biggest year-over-year leap',
-    description: `${bestOwner} jumped from ${bestPrev} to ${bestCurr} between ${prev.year} and ${curr.year}.`,
-    owner: bestOwner,
+    description,
+    owner: ownerNames[0],
+    relatedOwners: ownerNames.slice(1),
     priorityScore: priority,
     lifecycle: lifecycles,
   });
@@ -301,29 +341,40 @@ function deriveConsistencyInsight(
     }
   }
 
-  let bestOwner: string | null = null;
-  let bestCount = 0;
+  const eligible: { owner: string; count: number }[] = [];
   for (const [owner, count] of topThreeCounts) {
     if (!activeOwners.has(owner)) continue;
     const seasonsPlayed = appearances.get(owner) ?? 0;
     if (seasonsPlayed < MIN_CONSISTENCY_SEASONS) continue;
     if (count < MIN_CONSISTENCY_SEASONS) continue;
-    if (count > bestCount || (count === bestCount && bestOwner !== null && owner < bestOwner)) {
-      if (count >= bestCount) {
-        bestOwner = owner;
-        bestCount = count;
-      }
-    }
+    eligible.push({ owner, count });
   }
 
-  if (!bestOwner || bestCount < MIN_CONSISTENCY_SEASONS) return null;
+  if (eligible.length === 0) return null;
+
+  const maxCount = eligible.reduce((max, e) => (e.count > max ? e.count : max), 0);
+  if (maxCount < MIN_CONSISTENCY_SEASONS) return null;
+
+  const tied = eligible
+    .filter((e) => e.count === maxCount)
+    .map((e) => e.owner)
+    .sort((a, b) => a.localeCompare(b));
+
+  if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
+
+  const nameList = formatOwnerList(tied);
+  const description =
+    tied.length === 1
+      ? `${nameList} has finished in the top three ${maxCount} seasons on record.`
+      : `${nameList} have each finished in the top three in ${maxCount} seasons.`;
 
   return toInsight({
-    id: `historical-consistency-${ownerSlug(bestOwner)}`,
+    id: `historical-consistency-${tied.map(ownerSlug).join('-')}`,
     type: 'consistency',
     title: 'Consistency award',
-    description: `${bestOwner} has finished in the top three ${bestCount} seasons on record.`,
-    owner: bestOwner,
+    description,
+    owner: tied[0],
+    relatedOwners: tied.slice(1),
     priorityScore: CONSISTENCY_PRIORITY,
     lifecycle: lifecycles,
   });
