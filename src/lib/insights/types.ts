@@ -28,6 +28,10 @@ export type InsightCategory =
   | 'season_performance'
   | 'narrative';
 
+// Time windows — generators may consume "season" or "career" data. Recent-window
+// variants are reserved for future weekly-pulse generators.
+export type InsightWindow = 'last_3_weeks' | 'last_4_weeks' | 'season' | 'career';
+
 // OwnerSeasonStats — accumulated from OwnerWeekStats across all weeks.
 export type OwnerSeasonStats = {
   owner: string;
@@ -87,9 +91,12 @@ export type InsightContext = {
 };
 
 // Generator interface — all generators must conform to this.
+// `tone` declares the narrative register used in generator copy (optional for
+// generators that don't need to distinguish).
 export type InsightGenerator = {
   id: string;
   category: InsightCategory;
   supportedLifecycles: LifecycleState[];
+  tone?: 'factual' | 'playful';
   generate: (context: InsightContext) => Insight[];
 };

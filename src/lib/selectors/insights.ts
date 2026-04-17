@@ -19,7 +19,24 @@ export type InsightType =
   | 'consistency'
   | 'lopsided_rivalry'
   | 'even_rivalry'
-  | 'dominance_streak';
+  | 'dominance_streak'
+  | 'career_points_leader'
+  | 'career_turnover_margin'
+  | 'volatility'
+  | 'never_last'
+  | 'title_chaser'
+  | 'rookie_benchmark'
+  | 'greatest_season'
+  | 'trending_up'
+  | 'trending_down'
+  | 'ball_security'
+  | 'takeaway_king'
+  | 'yards_per_win'
+  | 'clock_crusher'
+  | 'third_down'
+  | 'team_identity'
+  | 'milestone_watch'
+  | 'perfect_against';
 
 export type Insight = {
   id: string;
@@ -51,7 +68,7 @@ const FINAL_SURGE_MIN_WINS = 3;
 const FINAL_SURGE_MIN_GAMES_BACK_GAIN = 2;
 const STANDINGS_MIN_RACE_PRIORITY = 76;
 
-const OVERVIEW_TYPE_PRIORITY: Record<InsightType, number> = {
+const OVERVIEW_TYPE_PRIORITY: Partial<Record<InsightType, number>> = {
   champion_margin: 120,
   failed_chase: 110,
   collapse: 105,
@@ -69,7 +86,7 @@ const OVERVIEW_TYPE_PRIORITY: Record<InsightType, number> = {
   even_rivalry: 70,
 };
 
-const STANDINGS_TYPE_PRIORITY: Record<InsightType, number> = {
+const STANDINGS_TYPE_PRIORITY: Partial<Record<InsightType, number>> = {
   toilet_bowl: 120,
   collapse: 116,
   surge: 112,
