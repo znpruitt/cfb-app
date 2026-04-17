@@ -400,10 +400,12 @@ function deriveRookieBenchmark(context: InsightContext): Insight | null {
 function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
   type Candidate = { owner: string; year: number; winPct: number; games: number };
   const candidates: Candidate[] = [];
+  const activeOwners = activeOwnerSet(context.currentRoster);
 
   for (const archive of context.archives) {
     for (const row of archive.finalStandings) {
       if (!row.owner || row.owner === NO_CLAIM_OWNER) continue;
+      if (!activeOwners.has(row.owner)) continue;
       const games = row.wins + row.losses + row.ties;
       if (games < MIN_GAMES_GREATEST_SEASON) continue;
       const winPct = games > 0 ? row.wins / games : 0;

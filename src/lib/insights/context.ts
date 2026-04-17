@@ -178,9 +178,11 @@ export async function buildOwnerCareerStats(params: {
       (row) => row.owner && row.owner !== NO_CLAIM_OWNER && activeOwners.has(row.owner)
     );
 
-    for (let i = 0; i < standings.length; i++) {
-      const row = standings[i]!;
-      if (!row.owner || row.owner === NO_CLAIM_OWNER) continue;
+    const eligibleStandings = standings.filter(
+      (row) => row.owner && row.owner !== NO_CLAIM_OWNER
+    );
+    for (let i = 0; i < eligibleStandings.length; i++) {
+      const row = eligibleStandings[i]!;
       if (!activeOwners.has(row.owner)) continue;
 
       const acc = accumulators.get(row.owner)!;
