@@ -17,7 +17,11 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Data & Intelligence | Game Stats Pipeline | ✅ Complete |
 | Data & Intelligence | Insights Engine Foundation | ✅ Complete |
 | Data & Intelligence | Insights Engine — Generators and Wiring | ✅ Complete |
-| Data & Intelligence | Insights Engine — Next Generator Batch | In progress |
+| Data & Intelligence | Insights Engine — Context Extension | ✅ Complete |
+| Data & Intelligence | Insights Engine — Generator Batch 2 | ✅ Complete |
+| Data & Intelligence | Copy Variation Architecture | In progress |
+| Data & Intelligence | Pairing Cards | Planned |
+| Data & Intelligence | Luck Score + Bounce-Back Generators | Planned |
 | Data & Intelligence | Insights Engine — Two Weekly Pulses | Planned |
 | Platform | Season Rollover UI and Cron | ✅ Complete |
 | Polish | History Page Polish | ✅ Complete |
@@ -33,29 +37,32 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 ## Active priorities
 
-### 1. INSIGHTS — Next Generator Batch (12 Tier 1 insights)
+### 1. INSIGHTS — Copy Variation Architecture (new Claude Code session)
 
-**Generators and wiring complete (PR #278).** Historical + rivalry generators live on the overview panel, `buildInsightContext()` + `deriveLifecycleState()` in place, `GET /api/insights/[slug]` merged.
+**Generator Batch 2 complete.** 16 generators across `career.ts`, `stats.ts`, `milestones.ts` implemented. Next work: copy variation layer.
 
-**Next steps (new Claude Code session):**
-- **Stats Outliers generator** — first batch: yards-per-win efficiency, ball security (lowest turnovers), takeaway king (highest takeaways), team identity (run-heavy / pass-heavy / balanced)
-- Remaining Tier 1 insights (10): Clock Crusher, Third Down Specialist, Career Points Leader, Volatility Award, Never Finished Last, Title Chaser / Bridesmaid, Career Turnover Margin, Trending Up/Down
-- **Points-against data pipeline** — required to unlock Luck Score and a broader set of Tier 2 insights
-- See Insights Engine — Opus 1M Brainstorming in `docs/completed-work.md` for the full 18-idea inventory and tiering
+**Scope (new session):**
+- Add `newsHook` field to generator output: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `new_leader`, `returning_leader`
+- Copy template map: one template per `(generatorId, newsHook)` pair — hook drives template selection
+- Suppression gate: suppress if same owner + same hook + no threshold change since last fire
+- **Prompt ID to assign:** `INSIGHTS-016-COPY-VARIATION-v1`
 
-**Non-blocking future polish:** Remove dead view model properties (`keyMovements`, `leaguePulse`, `shouldShowLeaguePulse`) from `selectOverviewViewModel`.
+### 2. INSIGHTS — Pairing Cards
 
-### 2. INSIGHTS — Two Weekly In-Season Pulses (future)
+Post-processing pass after all generators run. Pairing priority = `max(A, B) + 10`. Natural pairings: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader.
+- AI copy for pairing cards: cache-time generation, curated subset only
+- **Prompt ID to assign:** `INSIGHTS-017-PAIRING-CARDS-v1`
 
-Monday Look Back + Thursday Forward Look. Deferred until the next generator batch lands and in-season lifecycle output is validated.
+### 3. INSIGHTS — Luck Score + Bounce-Back Generators
 
-### 3. DRAFT — Slow Draft Mode
+Both now unblocked by Context Extension (INSIGHTS-014).
+- Luck Score: points scored vs points allowed differential
+- Bounce-Back Candidate: Volatility + Trending Down signals combined
+- **Prompt ID to assign:** `INSIGHTS-018-LUCK-SCORE-v1`
+
+### 4. DRAFT — Slow Draft Mode
 
 Enable async drafts with configurable per-pick windows. Requires email notification infrastructure (new). See `docs/roadmap.md` for full scope.
-
-### 4. POLISH — Copy / UX Writing Audit
-
-Systematic review of all user-facing strings for consistent voice. No logic changes. See `docs/roadmap.md` for campaign scope.
 
 ### 5. PLATFORM — Server Action Auth Hardening
 
@@ -82,6 +89,8 @@ All foundational work is complete. See `docs/completed-work.md` for full records
 - Insights Engine — Generators and Wiring (PR #278): historical + rivalry generators, lifecycle derivation, context assembler, API route, tie suppression, active-owner filtering
 - Season Rollover UI and Cron (PR #278): two-phase admin panel + daily cron at championship + 7 days
 - History Page Polish (PR #278): all-time standings sort order, former-owner visual distinction
+- Insights Engine — Context Extension (INSIGHTS-014): `pointsAgainst` + `OwnerCareerStats` type + `buildOwnerCareerStats()` + career diagnostic route
+- Insights Engine — Generator Batch 2 (INSIGHTS-015): 16 generators across career.ts, stats.ts, milestones.ts; tone property; InsightWindow type; UTF-8 + trending direction bug fixes
 
 ## Hosted deployment runbook
 
