@@ -5,6 +5,10 @@
       "schedule": "0 0 * * *"
     },
     {
+      "path": "/api/cron/season-rollover",
+      "schedule": "0 0 * * *"
+    },
+    {
       "path": "/api/cron/game-stats",
       "schedule": "0 11 * * 1"
     }
