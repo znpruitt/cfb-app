@@ -85,13 +85,35 @@ Historical and rivalry generators wired through `GET /api/insights/[slug]` into 
 - `GET /api/insights/[slug]` API route merges league-scoped + global aliases server-side
 - See `docs/completed-work.md` for full detail.
 
-#### Insights Engine — Next Generator Batch (planned)
-Next generator batch drawn from the Opus 1M brainstorming output. See `docs/completed-work.md` for the full 18-idea inventory.
+#### Insights Engine — Context Extension ✓ Complete
+`pointsAgainst` added to `OwnerSeasonStats`; `OwnerCareerStats` type + `buildOwnerCareerStats()` assembles full career records from archive data. Diagnostic route `GET /api/debug/insights-career-diagnostic`. Unlocks Luck Score and all career-based generators.
 
-- **Tier 1 (12 immediately buildable):** Ball Security, Takeaway King, Clock Crusher, Team Identity, Third Down Specialist, Career Points Leader, Volatility Award, Never Finished Last, Title Chaser / Bridesmaid, Career Turnover Margin, Yards-Per-Win Efficiency, Trending Up/Down
-- **First generator target:** Stats Outliers — covers yards-per-win, ball security, takeaway king, team identity
-- **Tier 2 (needs upstream work):** Luck Score (points-against pipeline), Career Milestone Watch, Perfect Against, Rookie Benchmark, Greatest Single Season
-- **Prerequisites:** Game Stats Pipeline ✓, Insights Engine generators/wiring ✓
+#### Insights Engine — Generator Batch 2 ✓ Complete
+16 new generators across 3 new files (`career.ts`, `stats.ts`, `milestones.ts`). Generator-level `tone` property added. `InsightWindow` type defined. UTF-8 encoding and trending direction logic fixed. See `docs/completed-work.md` for full detail.
+
+- **career.ts:** career_points_leader, career_turnover_margin, volatility, never_last, title_chaser, rookie_benchmark, greatest_season, trending_up/down
+- **stats.ts:** ball_security, takeaway_king, yards_per_win, clock_crusher, third_down, team_identity
+- **milestones.ts:** milestone_watch, perfect_against
+- **Note:** in-season stats generators (ball_security, takeaways, yards_per_win, clock_crusher, third_down, team_identity) require an active season with game stats to validate end-to-end
+
+#### Copy Variation Architecture (planned)
+News hooks, dynamic emphasis, and suppression gate for all generators. AI copy reserved for pairing cards only.
+
+- News hook field on generators: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `new_leader`, `returning_leader`
+- Dynamic emphasis: copy template selected by news hook, not randomly rotated
+- Suppression gate: suppress if same owner, same hook, no threshold change since last fire
+- **Prerequisites:** Generator Batch 2 ✓
+
+#### Pairing Cards (planned)
+Post-processing pass after generator run; pairing priority = `max(A, B) + 10`; AI copy (cache-time, curated subset). Natural pairings: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader.
+
+- **Prerequisites:** Copy Variation Architecture
+
+#### Luck Score Generator (planned)
+Points scored vs points allowed differential — "lucky" or "unlucky" based on opponent scoring. `pointsAgainst` now available via Context Extension.
+
+#### Bounce-Back Candidate Generator (planned)
+Identifies owners trending down who historically recover — combines Volatility + Trending Down signals.
 
 #### Insights Engine — Two Weekly In-Season Pulses (planned)
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
@@ -252,7 +274,10 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Insights Engine — Generators and Wiring | ✅ Complete (PR #278) |
 | Season Rollover UI and Cron | ✅ Complete (PR #278) |
 | History Page Polish | ✅ Complete (PR #278) |
-| Insights Engine — Next Generator Batch | 🔄 Planned |
+| Insights Engine — Context Extension | ✅ Complete |
+| Insights Engine — Generator Batch 2 | ✅ Complete |
+| Copy Variation Architecture | 🔄 Planned |
+| Pairing Cards | 🔄 Planned |
 
 ## Architecture rules
 

@@ -9,6 +9,71 @@
 
 ## Completed phases / milestones
 
+### Insights Engine — Generator Batch 2 — Complete
+
+**Status:** Complete.
+**PROMPT_IDs:** INSIGHTS-015, INSIGHTS-015-BUG-FIXES
+
+**Key outcomes:**
+- INSIGHTS-015: 16 new generators across 3 new files:
+  - `career.ts`: career_points_leader, career_turnover_margin, volatility, never_last, title_chaser, rookie_benchmark, greatest_season, trending_up, trending_down
+  - `stats.ts`: ball_security, takeaway_king, yards_per_win, clock_crusher, third_down, team_identity
+  - `milestones.ts`: milestone_watch, perfect_against
+- Generator-level `tone: 'factual' | 'playful'` property added to all generators
+- `InsightWindow` type defined for future time window parameterization
+- INSIGHTS-015-BUG-FIXES: UTF-8 encoding fixed (charset header added to API response), trending direction logic fixed (strict monotonicity check replaces lenient comparison)
+
+**Key architectural decisions:**
+- `tone` property on generators enables copy-layer filtering without changing engine logic
+- `InsightWindow` is reserved/typed but not yet consumed — added to types.ts to lock the interface before copy variation work begins
+- Strict monotonicity for trending generators (must be strictly increasing/decreasing across all seasons, not just net direction)
+
+---
+
+### Insights Engine — Context Extension — Complete
+
+**Status:** Complete.
+**PROMPT_IDs:** INSIGHTS-014, INSIGHTS-014-CONTEXT-EXTENSION
+
+**Key outcomes:**
+- INSIGHTS-014: `pointsAgainst` added to `OwnerSeasonStats`; `OwnerCareerStats` type defined with: `seasons`, `totalWins`, `totalLosses`, `totalPoints`, `totalPointsAgainst`, `totalYards`, `turnovers`, `turnoverMargin`, `titles`, `titleYears`, `finishHistory`, `firstSeason`, `isRookie`
+- `buildOwnerCareerStats()` assembles career records from archive data across all seasons
+- Diagnostic route `GET /api/debug/insights-career-diagnostic` added (admin-gated) for live inspection of career stat assembly
+
+**Key architectural decisions:**
+- Career stats assembled at query time from per-season archive data — no pre-aggregated career totals stored
+- `isRookie` derived from `firstSeason === currentSeason` so generators can branch on rookie status without duplicating the check
+- `pointsAgainst` on `OwnerSeasonStats` unlocks Luck Score generator (points scored vs points allowed differential)
+
+---
+
+### Copy Variation Architecture — Decided (not yet built)
+
+**Status:** Architecture decision complete; implementation queued.
+
+**Key decisions:**
+- Templates + dynamic emphasis + suppression gate + news hooks — no AI copy except for pairing cards
+- News hook field to be added to all generators: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `new_leader`, `returning_leader`
+- Suppression gate: suppress if same owner, same hook, no threshold change since last fire
+- Dynamic emphasis: copy template selected by news hook, not randomly rotated
+- AI copy reserved for pairing cards only (highest narrative density)
+- Pairing architecture: post-processing pass after all generators run; pairing priority = `max(A, B) + 10`; pairings consume the constituent insights by default
+
+---
+
+### Insights Engine — Opus 1M Brainstorming Session 2
+
+**Status:** Complete. Planning artifacts recorded; implementation in progress.
+
+**Key outcomes:**
+- Data dependency audit: 17 of 18 insights ready with current pipeline (Luck Score requires points-against, now available via INSIGHTS-014)
+- Lifecycle fit table: all 18 insights mapped to optimal lifecycle states for display gating
+- Natural insight pairings identified: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader (emergent from trending + standings data)
+- Copy variation strategy finalized (see Copy Variation Architecture above)
+- AI copy architecture decided: cache-time generation, not request-time; curated subset (pairing cards) only
+
+---
+
 ### Insights Engine — Generators and Wiring — Complete
 
 **Status:** Complete. Branch `claude/review-insights-engine-p3j5v` (PR #278).
