@@ -36,7 +36,6 @@ const MIN_FLOOR_SEASONS = 3;
 const MIN_TOP3_FOR_CHASER = 2;
 const MIN_GAMES_GREATEST_SEASON = 100;
 const MIN_TRENDING_SEASONS = 3;
-const TRENDING_MIN_SLOPE = 1.0;
 const POINTS_CLOSE_RATIO = 0.05;
 const MIN_TURNOVER_MARGIN = 20;
 
@@ -439,77 +438,81 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
 
 // === H. Trending Up / Trending Down ===
 
-function computeSlope(ranks: number[]): number {
-  const n = ranks.length;
-  if (n < 2) return 0;
-  let sumX = 0;
-  let sumY = 0;
-  let sumXY = 0;
-  let sumXX = 0;
-  for (let i = 0; i < n; i++) {
-    sumX += i;
-    sumY += ranks[i]!;
-    sumXY += i * ranks[i]!;
-    sumXX += i * i;
-  }
-  const denom = n * sumXX - sumX * sumX;
-  if (denom === 0) return 0;
-  return (n * sumXY - sumX * sumY) / denom;
-}
-
 function renderFinishArrow(finishes: { year: number; rank: number }[]): string {
   return finishes
+    .slice()
     .sort((a, b) => a.year - b.year)
     .map((f) => ordinal(f.rank))
     .join(' → ');
 }
 
+/**
+ * Qualifies as a trend only when every adjacent transition across the owner's
+ * full finishHistory is consistent with `direction`: non-increasing ranks for
+ * 'up', non-decreasing ranks for 'down'. A history containing any reversal
+ * (e.g. 4th → 9th → 5th → 3rd) does not qualify.
+ */
 function deriveTrending(context: InsightContext, direction: 'up' | 'down'): Insight | null {
   const eligible = activeCareerStats(context, MIN_TRENDING_SEASONS);
   type Entry = {
     stats: OwnerCareerStats;
-    slope: number;
-    recent: { year: number; rank: number }[];
+    history: { year: number; rank: number }[];
+    netChange: number;
   };
   const entries: Entry[] = eligible
     .map((stats) => {
-      const sorted = [...stats.finishHistory].sort((a, b) => a.year - b.year);
-      const recent = sorted.slice(-3);
-      if (recent.length < MIN_TRENDING_SEASONS) return null;
-      const slope = computeSlope(recent.map((f) => f.rank));
-      return { stats, slope, recent: sorted } as Entry;
+      const history = [...stats.finishHistory].sort((a, b) => a.year - b.year);
+      if (history.length < MIN_TRENDING_SEASONS) return null;
+
+      let consistent = true;
+      for (let i = 1; i < history.length; i++) {
+        const prev = history[i - 1]!.rank;
+        const curr = history[i]!.rank;
+        if (direction === 'up' && curr > prev) {
+          consistent = false;
+          break;
+        }
+        if (direction === 'down' && curr < prev) {
+          consistent = false;
+          break;
+        }
+      }
+      if (!consistent) return null;
+
+      const netChange = history[history.length - 1]!.rank - history[0]!.rank;
+      if (netChange === 0) return null;
+
+      return { stats, history, netChange } as Entry;
     })
     .filter((e): e is Entry => e !== null);
 
   if (entries.length === 0) return null;
 
-  // Trending up = most negative slope (rank decreasing = improving).
-  // Trending down = most positive slope.
-  entries.sort((a, b) => (direction === 'up' ? a.slope - b.slope : b.slope - a.slope));
+  // Sort by magnitude of net change: trending up wants most negative netChange
+  // (largest improvement); trending down wants most positive netChange.
+  entries.sort((a, b) =>
+    direction === 'up' ? a.netChange - b.netChange : b.netChange - a.netChange
+  );
   const best = entries[0]!;
-  if (direction === 'up' && best.slope > -TRENDING_MIN_SLOPE) return null;
-  if (direction === 'down' && best.slope < TRENDING_MIN_SLOPE) return null;
-
-  const targetSlope = best.slope;
-  const tied = entries.filter((e) => Math.abs(e.slope - targetSlope) < 0.001);
+  const targetChange = best.netChange;
+  const tied = entries.filter((e) => e.netChange === targetChange);
   if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
 
   const ownerNames = tied.map((e) => e.stats.owner).sort((a, b) => a.localeCompare(b));
-
-  const sampleFinishes = best.recent;
-  const arrow = renderFinishArrow(sampleFinishes);
+  const arrow = renderFinishArrow(best.history);
+  const span = best.history.length;
 
   let description: string;
   if (direction === 'up') {
     description =
       tied.length === 1
         ? `${best.stats.owner} has climbed from ${arrow} — the league's steadiest ascent.`
-        : `${formatOwnerList(ownerNames)} are each climbing the standings over their last ${sampleFinishes.length} seasons.`;
+        : `${formatOwnerList(ownerNames)} have each climbed the standings every season over ${span} seasons.`;
   } else {
     description =
       tied.length === 1
         ? `${best.stats.owner} has fallen from ${arrow} — the steepest decline in league history.`
-        : `${formatOwnerList(ownerNames)} are each sliding down the standings over their last ${sampleFinishes.length} seasons.`;
+        : `${formatOwnerList(ownerNames)} have each slipped every season over ${span} seasons.`;
   }
 
   return toInsight({

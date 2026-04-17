@@ -147,13 +147,18 @@ export async function GET(
 
     const insights = runInsightsEngine(context);
 
-    return NextResponse.json<InsightsResponse>({
-      insights,
-      lifecycleState: context.lifecycleState,
-      generatedAt: new Date().toISOString(),
-    });
+    return NextResponse.json<InsightsResponse>(
+      {
+        insights,
+        lifecycleState: context.lifecycleState,
+        generatedAt: new Date().toISOString(),
+      },
+      { headers: { 'Content-Type': 'application/json; charset=utf-8' } }
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
-    return NextResponse.json<InsightsResponse>(emptyResponse('offseason', message));
+    return NextResponse.json<InsightsResponse>(emptyResponse('offseason', message), {
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
   }
 }
