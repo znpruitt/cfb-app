@@ -27,7 +27,7 @@ const DOMINANCE_BASE_PRIORITY = 72;
 const DOMINANCE_PER_WIN_BONUS = 4;
 const DOMINANCE_PRIORITY_CAP = 88;
 
-type HeadToHeadResult = {
+export type HeadToHeadResult = {
   year: number;
   week: number;
   date: string | null;
@@ -94,7 +94,7 @@ function resolveWinner(
     : { winner: awayOwner, loser: homeOwner };
 }
 
-function collectHeadToHead(
+export function collectHeadToHead(
   archives: SeasonArchive[],
   historicalRosters: Record<number, Map<string, string>>
 ): Map<string, HeadToHeadResult[]> {

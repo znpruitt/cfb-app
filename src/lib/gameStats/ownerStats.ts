@@ -6,6 +6,7 @@ type OwnerAccumulator = {
   owner: string;
   gamesPlayed: number;
   points: number;
+  pointsAgainst: number;
   totalYards: number;
   rushingYards: number;
   passingYards: number;
@@ -21,6 +22,7 @@ function emptyAccumulator(owner: string): OwnerAccumulator {
     owner,
     gamesPlayed: 0,
     points: 0,
+    pointsAgainst: 0,
     totalYards: 0,
     rushingYards: 0,
     passingYards: 0,
@@ -35,6 +37,7 @@ function emptyAccumulator(owner: string): OwnerAccumulator {
 function addTeamStats(acc: OwnerAccumulator, team: TeamGameStats, opponent: TeamGameStats): void {
   acc.gamesPlayed += 1;
   acc.points += team.points;
+  acc.pointsAgainst += opponent.points;
   acc.totalYards += team.totalYards;
   acc.rushingYards += team.rushingYards;
   acc.passingYards += team.passingYards;
@@ -153,6 +156,7 @@ export function aggregateOwnerSeasonStats(
     season,
     gamesPlayed: acc.gamesPlayed,
     points: acc.points,
+    pointsAgainst: acc.pointsAgainst,
     totalYards: acc.totalYards,
     rushingYards: acc.rushingYards,
     passingYards: acc.passingYards,
