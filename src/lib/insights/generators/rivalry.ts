@@ -239,11 +239,23 @@ function deriveEvenRivalryInsight(
 
   if (!bestKey || !bestOwnerA || !bestOwnerB) return null;
 
+  const winDiff = Math.abs(bestWinsA - bestWinsB);
+  let description: string;
+  if (winDiff === 0) {
+    description = `${bestOwnerA} and ${bestOwnerB} are tied at ${bestWinsA}–${bestWinsB} across ${bestMeetings} meetings.`;
+  } else {
+    const leader = bestWinsA > bestWinsB ? bestOwnerA : bestOwnerB;
+    const trailer = bestWinsA > bestWinsB ? bestOwnerB : bestOwnerA;
+    const leaderWins = Math.max(bestWinsA, bestWinsB);
+    const trailerWins = Math.min(bestWinsA, bestWinsB);
+    description = `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings — the closest rivalry in the league.`;
+  }
+
   return toInsight({
     id: `rivalry-even-${ownerSlug(bestOwnerA)}-${ownerSlug(bestOwnerB)}`,
     type: 'even_rivalry',
     title: 'Most evenly matched rivalry',
-    description: `${bestOwnerA} and ${bestOwnerB} are tied at ${bestWinsA}–${bestWinsB} across ${bestMeetings} meetings.`,
+    description,
     owner: bestOwnerA,
     relatedOwners: [bestOwnerB],
     priorityScore: EVEN_PRIORITY,

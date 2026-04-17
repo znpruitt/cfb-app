@@ -7,8 +7,10 @@ import { getLeague } from '@/lib/leagueRegistry';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { getAppState } from '@/lib/server/appStateStore';
+import { getGlobalAliases } from '@/lib/server/globalAliasStore';
 import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '@/lib/schedule';
 import { fetchScoresByGame, type ScorePack } from '@/lib/scores';
+import type { AliasMap } from '@/lib/teamNames';
 import { deriveStandings } from '@/lib/standings';
 import { deriveStandingsHistory } from '@/lib/standingsHistory';
 import { selectSeasonContext } from '@/lib/selectors/seasonContext';
@@ -73,19 +75,29 @@ export async function GET(
   const year = parseYear(url.searchParams.get('year'), league.year);
 
   try {
-    const [csvText, scheduleRes, teamsRes, aliasesRes, rankings] = await Promise.all([
-      loadOwnersCsv(slug, year),
-      fetchJson<{ items?: ScheduleWireItem[] }>(`${origin}/api/schedule?year=${year}`),
-      fetchJson<{ items?: Array<Record<string, unknown>> }>(`${origin}/api/teams`),
-      fetchJson<{ map?: Record<string, string> }>(`${origin}/api/aliases?year=${year}`),
-      loadSeasonRankings(year).catch(() => null),
-    ]);
+    const [csvText, scheduleRes, teamsRes, globalAliases, leagueAliasRecord, rankings] =
+      await Promise.all([
+        loadOwnersCsv(slug, year),
+        fetchJson<{ items?: ScheduleWireItem[] }>(`${origin}/api/schedule?year=${year}`),
+        fetchJson<{ items?: Array<Record<string, unknown>> }>(`${origin}/api/teams`),
+        getGlobalAliases().catch(() => ({}) as AliasMap),
+        getAppState<AliasMap>(`aliases:${slug}:${year}`, 'map').catch(() => null),
+        loadSeasonRankings(year).catch(() => null),
+      ]);
 
     const roster = parseOwnersCsv(csvText ?? '');
     const currentRoster = new Map(roster.map((r) => [r.team, r.owner]));
     const scheduleItems = scheduleRes?.items ?? [];
     const teams = (teamsRes?.items ?? []) as never[];
-    const aliasMap = aliasesRes?.map ?? {};
+    const leagueAliasMap = leagueAliasRecord?.value;
+    // Merge league-scoped aliases with global aliases; global takes precedence
+    // to stay consistent with the pattern used in /api/owners routes.
+    const aliasMap: AliasMap = {
+      ...(leagueAliasMap && typeof leagueAliasMap === 'object' && !Array.isArray(leagueAliasMap)
+        ? (leagueAliasMap as AliasMap)
+        : {}),
+      ...globalAliases,
+    };
 
     let games: AppGame[] = [];
     try {
