@@ -10,6 +10,8 @@ type Props = {
   /** Full all-time H2H list for the expandable matrix. */
   allH2H: AllTimeHeadToHeadEntry[];
   slug: string;
+  /** Active owner names — former owners are shown with muted styling. */
+  activeOwners?: string[];
 };
 
 function recordLabel(wins: number, losses: number): string {
@@ -22,9 +24,12 @@ export default function AllTimeHeadToHeadPanel({
   rivalries,
   allH2H,
   slug,
+  activeOwners,
 }: Props): React.ReactElement {
   const [showAll, setShowAll] = React.useState(false);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+
+  const activeSet = activeOwners ? new Set(activeOwners) : null;
 
   function toggleEntry(key: string): void {
     setExpanded((prev) => {
@@ -67,6 +72,8 @@ export default function AllTimeHeadToHeadPanel({
             const key = `${entry.ownerA}::${entry.ownerB}`;
             const isOpen = expanded.has(key);
             const total = entry.wins + entry.losses;
+            const aIsFormer = activeSet !== null && !activeSet.has(entry.ownerA);
+            const bIsFormer = activeSet !== null && !activeSet.has(entry.ownerB);
             return (
               <li key={key}>
                 <button
@@ -78,19 +85,29 @@ export default function AllTimeHeadToHeadPanel({
                   <span className="font-semibold text-gray-900 dark:text-zinc-50">
                     <Link
                       href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerA)}/`}
-                      className="hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+                      className={`hover:text-blue-600 hover:underline dark:hover:text-blue-400 ${aIsFormer ? 'text-gray-400 dark:text-zinc-500' : ''}`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       {entry.ownerA}
                     </Link>
+                    {aIsFormer && (
+                      <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 ring-1 ring-gray-200 dark:text-zinc-500 dark:ring-zinc-700">
+                        Former
+                      </span>
+                    )}
                     {' vs '}
                     <Link
                       href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerB)}/`}
-                      className="hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+                      className={`hover:text-blue-600 hover:underline dark:hover:text-blue-400 ${bIsFormer ? 'text-gray-400 dark:text-zinc-500' : ''}`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       {entry.ownerB}
                     </Link>
+                    {bIsFormer && (
+                      <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 ring-1 ring-gray-200 dark:text-zinc-500 dark:ring-zinc-700">
+                        Former
+                      </span>
+                    )}
                   </span>
                   <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
                     <span className="tabular-nums text-gray-800 dark:text-zinc-100">

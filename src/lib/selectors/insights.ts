@@ -12,7 +12,14 @@ export type InsightType =
   | 'race'
   | 'champion_margin'
   | 'failed_chase'
-  | 'tight_cluster';
+  | 'tight_cluster'
+  | 'drought'
+  | 'dynasty'
+  | 'improvement'
+  | 'consistency'
+  | 'lopsided_rivalry'
+  | 'even_rivalry'
+  | 'dominance_streak';
 
 export type Insight = {
   id: string;
@@ -53,6 +60,13 @@ const OVERVIEW_TYPE_PRIORITY: Record<InsightType, number> = {
   race: 96,
   toilet_bowl: 92,
   movement: 90,
+  dynasty: 85,
+  lopsided_rivalry: 82,
+  dominance_streak: 80,
+  drought: 78,
+  improvement: 74,
+  consistency: 72,
+  even_rivalry: 70,
 };
 
 const STANDINGS_TYPE_PRIORITY: Record<InsightType, number> = {
@@ -64,6 +78,13 @@ const STANDINGS_TYPE_PRIORITY: Record<InsightType, number> = {
   failed_chase: 96,
   movement: 92,
   champion_margin: 88,
+  dynasty: 70,
+  lopsided_rivalry: 66,
+  dominance_streak: 64,
+  drought: 62,
+  improvement: 58,
+  consistency: 56,
+  even_rivalry: 54,
 };
 
 const IN_SEASON_LIFECYCLES: LifecycleState[] = ['early_season', 'mid_season', 'late_season'];

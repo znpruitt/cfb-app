@@ -2,6 +2,7 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
 import { isSeasonComplete, buildSeasonArchive } from '@/lib/seasonRollover';
+import type { League } from '@/lib/league';
 
 // Test league is excluded from global rollover — it has its own independent lifecycle controls
 const TEST_LEAGUE_SLUG = 'test';
@@ -23,36 +24,56 @@ export async function GET(req: Request): Promise<Response> {
 
 type PostBody = { confirmed?: boolean };
 
+type TopStandingEntry = {
+  position: number;
+  owner: string;
+  wins: number;
+  losses: number;
+  ties: number;
+};
+
 type LeaguePreview = {
   leagueSlug: string;
   displayName: string;
+  status: League['status'];
   hasExistingArchive: boolean;
+  champion: string | null;
+  top3: TopStandingEntry[];
   diff: ReturnType<typeof diffSeasonArchives> | null;
   error: string | null;
 };
 
-async function buildLeaguePreview(
-  leagueSlug: string,
-  displayName: string,
-  currentYear: number
-): Promise<LeaguePreview> {
+async function buildLeaguePreview(league: League, currentYear: number): Promise<LeaguePreview> {
   try {
     const [existing, proposed] = await Promise.all([
-      getSeasonArchive(leagueSlug, currentYear),
-      buildSeasonArchive(leagueSlug, currentYear),
+      getSeasonArchive(league.slug, currentYear),
+      buildSeasonArchive(league.slug, currentYear),
     ]);
+    const top3: TopStandingEntry[] = proposed.finalStandings.slice(0, 3).map((row, i) => ({
+      position: i + 1,
+      owner: row.owner,
+      wins: row.wins,
+      losses: row.losses,
+      ties: row.ties,
+    }));
     return {
-      leagueSlug,
-      displayName,
+      leagueSlug: league.slug,
+      displayName: league.displayName,
+      status: league.status,
       hasExistingArchive: existing !== null,
+      champion: top3[0]?.owner ?? null,
+      top3,
       diff: existing !== null ? diffSeasonArchives(existing, proposed) : null,
       error: null,
     };
   } catch (err) {
     return {
-      leagueSlug,
-      displayName,
+      leagueSlug: league.slug,
+      displayName: league.displayName,
+      status: league.status,
       hasExistingArchive: false,
+      champion: null,
+      top3: [],
       diff: null,
       error: err instanceof Error ? err.message : 'Unknown error',
     };
@@ -85,7 +106,7 @@ export async function POST(req: Request): Promise<Response> {
   // Phase 1 — Preview: build per-league archive status and diff without writing
   if (!body.confirmed) {
     const previews = await Promise.all(
-      leagues.map((league) => buildLeaguePreview(league.slug, league.displayName, currentYear))
+      leagues.map((league) => buildLeaguePreview(league, currentYear))
     );
     return Response.json({
       preview: {

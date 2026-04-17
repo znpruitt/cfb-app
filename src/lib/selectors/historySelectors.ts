@@ -445,6 +445,7 @@ export type AllTimeStandingRow = {
   championships: number;
   seasonsPlayed: number;
   avgFinish: number;
+  totalPointDifferential: number;
 };
 
 export type ChampionshipEntry = {
@@ -550,6 +551,7 @@ export function selectAllTimeStandings(
     championships: number;
     seasonsPlayed: number;
     finishSum: number;
+    totalPointDifferential: number;
   };
   const accum = new Map<string, OwnerAccum>();
 
@@ -565,6 +567,7 @@ export function selectAllTimeStandings(
           championships: 0,
           seasonsPlayed: 0,
           finishSum: 0,
+          totalPointDifferential: 0,
         });
       }
       const a = accum.get(row.owner)!;
@@ -573,6 +576,7 @@ export function selectAllTimeStandings(
       a.championships += row.owner === champion ? 1 : 0;
       a.seasonsPlayed += 1;
       a.finishSum += finish;
+      a.totalPointDifferential += row.pointDifferential ?? 0;
     });
   }
 
@@ -587,11 +591,13 @@ export function selectAllTimeStandings(
           championships: 0,
           seasonsPlayed: 0,
           finishSum: 0,
+          totalPointDifferential: 0,
         });
       }
       const a = accum.get(row.owner)!;
       a.totalWins += row.wins;
       a.totalLosses += row.losses;
+      a.totalPointDifferential += row.pointDifferential ?? 0;
     }
   }
 
@@ -607,11 +613,14 @@ export function selectAllTimeStandings(
         championships: a.championships,
         seasonsPlayed: a.seasonsPlayed,
         avgFinish: a.seasonsPlayed > 0 ? a.finishSum / a.seasonsPlayed : 0,
+        totalPointDifferential: a.totalPointDifferential,
       };
     })
     .sort(
       (a, b) =>
-        b.championships - a.championships || b.winPct - a.winPct || b.totalWins - a.totalWins
+        b.totalWins - a.totalWins ||
+        b.winPct - a.winPct ||
+        b.totalPointDifferential - a.totalPointDifferential
     );
 }
 

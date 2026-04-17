@@ -56,6 +56,45 @@ function scoresCacheItemToNormalizedRow(
 }
 
 /**
+ * Locate the latest postseason game date from the schedule cache for the given year.
+ * Prefers a game flagged `playoffRound === 'national_championship'`, otherwise falls
+ * back to the latest `seasonType === 'postseason'` game. Returns ISO date or null.
+ */
+export async function findNationalChampionshipGameDate(year: number): Promise<string | null> {
+  try {
+    const cached = await getAppState<{ items: Array<Record<string, unknown>> }>(
+      'schedule',
+      `${year}-all-all`
+    );
+    let items = cached?.value?.items ?? [];
+    if (items.length === 0) {
+      const postseasonCached = await getAppState<{ items: Array<Record<string, unknown>> }>(
+        'schedule',
+        `${year}-all-postseason`
+      );
+      items = postseasonCached?.value?.items ?? [];
+    }
+    if (items.length === 0) return null;
+
+    const champ = items
+      .filter((i) => i.playoffRound === 'national_championship')
+      .map((i) => (typeof i.startDate === 'string' ? i.startDate : null))
+      .filter((d): d is string => Boolean(d))
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+    if (champ) return champ;
+
+    const latestPostseason = items
+      .filter((i) => i.seasonType === 'postseason')
+      .map((i) => (typeof i.startDate === 'string' ? i.startDate : null))
+      .filter((d): d is string => Boolean(d))
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+    return latestPostseason ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Returns true if the current season's CFP National Championship has been played and is final.
  * Reads from the schedule cache — does not make upstream API calls.
  * Returns false safely if data is unavailable.

@@ -1,3 +1,4 @@
+import type { OwnerSeasonStats } from '../insights/types.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
 import type { GameStats, OwnerWeekStats, TeamGameStats } from './types.ts';
 
@@ -101,4 +102,66 @@ export function aggregateOwnerGameStats(
   }
 
   return Array.from(accumulators.values()).map(toOwnerWeekStats);
+}
+
+/**
+ * Aggregate game stats across all weeks into per-owner season totals.
+ *
+ * @param weeklyGames - Array of per-week game stat arrays
+ * @param ownerRoster - Map of canonical team name → owner name
+ * @param resolver - Team identity resolver for matching CFBD school names to roster names
+ * @param season - Season year to stamp on each result
+ */
+export function aggregateOwnerSeasonStats(
+  weeklyGames: GameStats[][],
+  ownerRoster: Map<string, string>,
+  resolver: TeamIdentityResolver,
+  season: number
+): OwnerSeasonStats[] {
+  const accumulators = new Map<string, OwnerAccumulator>();
+
+  for (const games of weeklyGames) {
+    for (const game of games) {
+      const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
+        { team: game.home, opponent: game.away },
+        { team: game.away, opponent: game.home },
+      ];
+
+      for (const { team, opponent } of sides) {
+        const resolved = resolver.resolveName(team.school);
+        const canonicalName = resolved.canonicalName ?? team.school;
+        const identityKey = resolved.identityKey;
+
+        let owner: string | undefined;
+        if (identityKey) {
+          owner = ownerRoster.get(identityKey);
+        }
+        if (!owner) {
+          owner = ownerRoster.get(canonicalName);
+        }
+        if (!owner) continue;
+
+        const acc = accumulators.get(owner) ?? emptyAccumulator(owner);
+        addTeamStats(acc, team, opponent);
+        accumulators.set(owner, acc);
+      }
+    }
+  }
+
+  return Array.from(accumulators.values()).map((acc) => ({
+    owner: acc.owner,
+    season,
+    gamesPlayed: acc.gamesPlayed,
+    points: acc.points,
+    totalYards: acc.totalYards,
+    rushingYards: acc.rushingYards,
+    passingYards: acc.passingYards,
+    turnovers: acc.turnovers,
+    turnoversForced: acc.turnoversForced,
+    turnoverMargin: acc.turnoversForced - acc.turnovers,
+    thirdDownConversions: acc.thirdDownConversions,
+    thirdDownAttempts: acc.thirdDownAttempts,
+    thirdDownPct: acc.thirdDownAttempts > 0 ? acc.thirdDownConversions / acc.thirdDownAttempts : 0,
+    possessionSeconds: acc.possessionSeconds,
+  }));
 }

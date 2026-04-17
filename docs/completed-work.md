@@ -9,6 +9,70 @@
 
 ## Completed phases / milestones
 
+### Insights Engine — Generators and Wiring — Complete
+
+**Status:** Complete. Branch `claude/review-insights-engine-p3j5v` (PR #278).
+**PROMPT_IDs:** INSIGHTS-010, INSIGHTS-010-CLEANUP, INSIGHTS-011, INSIGHTS-012, INSIGHTS-013, INSIGHTS-013B, INSIGHTS-CR-001
+
+**Key outcomes:**
+- INSIGHTS-010: `deriveLifecycleState()` and `buildInsightContext()` — 7-state lifecycle derived from `LeagueStatus` + `SeasonContext` + calendar; full `InsightContext` assembled from standings history, games, game stats, season archives, historical rosters, current roster, and AP rankings.
+- INSIGHTS-010-CLEANUP: `aggregateOwnerSeasonStats()` canonicalized in `src/lib/gameStats/ownerStats.ts`; local mirror in `context.ts` removed.
+- INSIGHTS-011: Historical generator (drought, dynasty, most-improved, consistency) and Rivalry generator (lopsided, even, dominance streak) — both self-registering via `registerGenerator()`, active-owner filtering via current roster, per-generator try/catch isolation in the engine.
+- INSIGHTS-012: `GET /api/insights/[slug]` API route — loads owners CSV, schedule, scores, rankings, and season archives; builds context and runs the engine. Wired into `OverviewPanel` with merge strategy (engine insights first, existing insights fill up to 3).
+- INSIGHTS-013: Dynasty tie copy (e.g. "Pruitt now ties Whited for most titles"), drought never-won ranking (drought = seasons played when the owner has never won), active-owner filtering applied across all 7 insight types (drought, dynasty, improvement, consistency, lopsided_rivalry, even_rivalry, dominance_streak).
+- INSIGHTS-013B: Universal tie suppression — 4+ tied owners suppress the insight; 2–3 tied emit group copy ("X and Y have never won a title in N seasons"); 1 keeps existing copy. Applied to drought, consistency, and improvement; dynasty unchanged (already handled ties).
+- INSIGHTS-CR-001: Insights API now merges league-scoped aliases (`aliases:{slug}:{year}`) with `getGlobalAliases()` directly server-side, consistent with `/api/owners` routes (previously called `/api/aliases?year={year}` which returned only the legacy year-scoped map, empty after migration). Even rivalry copy branches on `winDiff` — `winDiff === 0` uses "tied at" phrasing, `winDiff === 1` uses "X leads Y N-M across K meetings — the closest rivalry in the league".
+
+**Key architectural decisions:**
+- Generators resolve active owners from `context.currentRoster` (roster CSV), never from archive standings — former owners are filtered from every derived insight.
+- Tie suppression thresholds live in `historical.ts` (`TIE_SUPPRESSION_THRESHOLD = 4`) and are uniform across drought / consistency / improvement.
+- `buildInsightContext()` centralizes owner aggregation so generators never reach into CFBD or CSV parsing directly.
+- API route uses direct server-side stores (`getGlobalAliases()`, `getAppState`) instead of HTTP sub-requests where possible — reduces one hop and matches existing server-to-server patterns.
+
+---
+
+### Season Rollover — Complete
+
+**Status:** Complete. Branch `claude/review-insights-engine-p3j5v` (PR #278).
+**PROMPT_IDs:** PLATFORM-001, INSIGHTS-012-LEAGUE-STATE-DIAGNOSTIC
+
+**Key outcomes:**
+- `SeasonRolloverPanel` added to `/admin/data/cache` — two-phase preview/execute flow. Preview shows, per league, the prospective champion, top 3 standings, archive existence, and any diff against an existing archive. Execute requires explicit `window.confirm` and a destructive red button.
+- `buildSeasonArchive()` extracted for reuse across preview/execute/cron paths; `findNationalChampionshipGameDate()` prefers `playoffRound === 'national_championship'` with a fallback to the latest postseason game date.
+- Automatic cron at `GET /api/cron/season-rollover` — runs daily, filters non-test leagues in `state: 'season'`, triggers when `championshipDate + 7 days` has passed, archives each league and transitions it to `state: 'offseason'` with per-league error isolation.
+- TSC League successfully rolled over to offseason via the new panel.
+- `vercel.json` now lists three cron jobs: season-transition (Wednesday preseason→season), game-stats (Monday weekly refresh), season-rollover (daily post-championship check).
+
+**Key architectural decisions:**
+- Two-phase UI (preview → confirm) chosen over single-click to protect against accidental rollovers; existing archives get a diff summary rather than silent overwrite.
+- Cron delay of 7 days after the national championship is a safety buffer for late corrections and any admin review before final archive.
+- Preview response includes `champion` and `top3` so the UI does not re-compute standings in the client — the server stays authoritative.
+
+---
+
+### History Page Polish — Complete
+
+**Status:** Complete. Branch `claude/review-insights-engine-p3j5v` (PR #278).
+**PROMPT_IDs:** POLISH-003
+
+**Key outcomes:**
+- All-time standings sort order corrected: Total Wins → Win% → Point Differential (previously championships-first, which buried owners who had dominated without winning a title). `totalPointDifferential` added to `AllTimeStandingRow`, accumulated from archived season rows.
+- Former owner visual distinction in All-Time Standings and Top Rivalries: active owners are derived server-side from the current roster CSV (`owners:{slug}:{year}`), former owners render with muted text and a "Former" badge. `activeOwners: string[]` passed as props (not `Set<string>`) to preserve server/client component serialization.
+
+---
+
+### Insights Engine — Opus 1M Brainstorming
+
+**Status:** Planning complete; implementation deferred to next campaign.
+
+**Key outcomes:**
+- 18 new insight ideas ranked and categorized in the Opus 1M brainstorming session.
+- Tier 1 (12 immediately buildable): Ball Security, Takeaway King, Clock Crusher, Team Identity, Third Down Specialist, Career Points Leader, Volatility Award, Never Finished Last, Title Chaser / Bridesmaid, Career Turnover Margin, Yards-Per-Win Efficiency, Trending Up/Down.
+- Tier 2 (special handling needed): Luck Score (requires points-against pipeline), Career Milestone Watch, Perfect Against, Rookie Benchmark, Greatest Single Season.
+- Next generator batch queued for the next Claude Code session — Stats Outliers generator covers the largest cluster of Tier 1 ideas (yards-per-win, ball security, takeaway king, team identity).
+
+---
+
 ### Insights Engine Foundation — Complete
 
 **Status:** Complete. PR #276 (`claude/review-insights-architecture-AAynV`).
