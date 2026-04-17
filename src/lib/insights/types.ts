@@ -34,6 +34,7 @@ export type OwnerSeasonStats = {
   season: number;
   gamesPlayed: number;
   points: number;
+  pointsAgainst: number;
   totalYards: number;
   rushingYards: number;
   passingYards: number;
@@ -44,6 +45,26 @@ export type OwnerSeasonStats = {
   thirdDownAttempts: number;
   thirdDownPct: number;
   possessionSeconds: number;
+};
+
+// OwnerCareerStats — accumulated across all archived seasons, scoped to owners
+// present in the current roster (including rookies who haven't appeared in any archive).
+export type OwnerCareerStats = {
+  owner: string;
+  seasons: number;
+  totalWins: number;
+  totalLosses: number;
+  totalPoints: number;
+  totalPointsAgainst: number;
+  totalYards: number;
+  totalTurnovers: number;
+  totalTurnoversForced: number;
+  totalTurnoverMargin: number;
+  titles: number;
+  titleYears: number[];
+  finishHistory: { year: number; rank: number }[];
+  firstSeason: number;
+  isRookie: boolean;
 };
 
 // InsightContext — assembled once, passed to all generators.
@@ -58,6 +79,7 @@ export type InsightContext = {
   weeklyStandings: StandingsHistoryWeekSnapshot[];
   games: AppGame[];
   ownerGameStats: OwnerSeasonStats[] | null;
+  ownerCareerStats: OwnerCareerStats[];
   archives: SeasonArchive[];
   historicalRosters: Record<number, Map<string, string>>;
   rankings: RankingsResponse | null;
