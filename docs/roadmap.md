@@ -74,7 +74,26 @@ Generator interface, type system, and engine scaffolding for the Insights Engine
 - `Insight` type extended with `category`, `lifecycle`, `stat` optional fields
 - See `docs/completed-work.md` for full detail.
 
-#### Insights Engine (in progress)
+#### Insights Engine — Generators and Wiring ✓ Complete
+Historical and rivalry generators wired through `GET /api/insights/[slug]` into the overview panel.
+
+- `deriveLifecycleState()` — maps `LeagueStatus` + `SeasonContext` + calendar to `LifecycleState`
+- `buildInsightContext()` — assembles `InsightContext` from standings history, games, game stats, archives, rosters, and AP rankings
+- Historical generator (drought, dynasty, most-improved, consistency) with universal tie suppression (4+ suppress, 2–3 group copy, 1 existing)
+- Rivalry generator (lopsided, even, dominance streak); even-rivalry copy branches on win differential
+- Active owner filtering across all seven insight types (former owners excluded)
+- `GET /api/insights/[slug]` API route merges league-scoped + global aliases server-side
+- See `docs/completed-work.md` for full detail.
+
+#### Insights Engine — Next Generator Batch (planned)
+Next generator batch drawn from the Opus 1M brainstorming output. See `docs/completed-work.md` for the full 18-idea inventory.
+
+- **Tier 1 (12 immediately buildable):** Ball Security, Takeaway King, Clock Crusher, Team Identity, Third Down Specialist, Career Points Leader, Volatility Award, Never Finished Last, Title Chaser / Bridesmaid, Career Turnover Margin, Yards-Per-Win Efficiency, Trending Up/Down
+- **First generator target:** Stats Outliers — covers yards-per-win, ball security, takeaway king, team identity
+- **Tier 2 (needs upstream work):** Luck Score (points-against pipeline), Career Milestone Watch, Perfect Against, Rookie Benchmark, Greatest Single Season
+- **Prerequisites:** Game Stats Pipeline ✓, Insights Engine generators/wiring ✓
+
+#### Insights Engine — Two Weekly In-Season Pulses (planned)
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
 **Core principle:** Every insight must tell the user something they couldn't figure out just by reading the table. No restating visible data without a compelling angle.
@@ -104,13 +123,7 @@ Enrich the existing insights panel on the overview page with contextual, data-dr
 - Projection vs reality ("Jordan's roster was rated highest by SP+ but sits 8th")
 
 **Tone:** Mix of dry stats, narrative storytelling, and light humor.
-**Prerequisite:** Game Stats Pipeline ✓, Insights Engine Foundation ✓
-
-**Remaining work:**
-- `buildInsightContext()` — assemble `InsightContext` from available data sources
-- `deriveLifecycleState()` — map `LeagueStatus` + `SeasonContext` + calendar to `LifecycleState`
-- New generators: Historical, Rivalry, Stats Outliers
-- API route to serve engine output to the UI
+**Prerequisite:** Game Stats Pipeline ✓, Insights Engine Foundation ✓, Insights Engine Generators and Wiring ✓
 
 **Future polish (non-blocking):** Remove dead view model properties `keyMovements`, `leaguePulse`, `shouldShowLeaguePulse` from `selectOverviewViewModel` — computed but never read by any component.
 
@@ -162,6 +175,13 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 #### Server Action Auth Hardening (planned)
 Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKEN` fallback from public routes.
 
+#### Season Rollover UI and Cron ✓ Complete
+- `SeasonRolloverPanel` in `/admin/data/cache` — two-phase preview/execute flow with per-league champion + top 3 display and destructive confirm guard
+- `GET /api/cron/season-rollover` — daily cron triggers when `championshipDate + 7 days` has passed, archives all non-test season-state leagues and transitions them to offseason
+- TSC successfully rolled over via the new panel
+- `vercel.json` now has three cron jobs: season-transition, game-stats, season-rollover
+- See `docs/completed-work.md` for full detail.
+
 #### Clerk Production Instance Migration ✓ Complete
 - Migrated from Clerk development instance to production instance
 - DNS configured, session token customized, production keys set in Vercel
@@ -198,6 +218,10 @@ Systematic review and rewrite of all user-facing strings for consistent voice an
 - Complete migration of aliases from year-scoped to global platform scope
 - Remove legacy year-scoped alias support code
 
+#### History Page — Filter Former Owners (planned)
+- Add a "filter former owners" tab or toggle on the history page so members can collapse the view to active roster only
+- Current state: former owners are visually distinguished (muted + badge) but still occupy table rows; some members will want a strict active-roster view
+
 ---
 
 ## Completed work (summary)
@@ -225,7 +249,10 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Custom Domain Setup | ✅ Complete |
 | Game Stats Pipeline | ✅ Complete (PRs #274–#275) |
 | Insights Engine Foundation | ✅ Complete (PR #276) |
-| Insights Engine | 🔄 In Progress |
+| Insights Engine — Generators and Wiring | ✅ Complete (PR #278) |
+| Season Rollover UI and Cron | ✅ Complete (PR #278) |
+| History Page Polish | ✅ Complete (PR #278) |
+| Insights Engine — Next Generator Batch | 🔄 Planned |
 
 ## Architecture rules
 

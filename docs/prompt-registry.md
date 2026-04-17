@@ -16,6 +16,61 @@ The registry should remain:
 
 ## Active Prompts
 
+### DOCS-CLOSEOUT-003
+- Purpose: Update all project docs after the Insights Engine generators, Season Rollover, History page polish, and code review fixes.
+- Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.
+- Notes: Covers INSIGHTS-010 through INSIGHTS-013B, INSIGHTS-CR-001, PLATFORM-001, POLISH-003.
+
+### INSIGHTS-CR-001-CODE-REVIEW-FIXES-v1
+- Purpose: Fix two bugs from code review — missing league-scoped aliases in the insights API, and incorrect "tied" copy for non-tied even rivalries.
+- Scope: `src/app/api/insights/[slug]/route.ts`, `src/lib/insights/generators/rivalry.ts`.
+- Notes: PR #278. API now uses `getGlobalAliases()` + `aliases:{slug}:{year}` merge server-side (matches `/api/owners` routes). Even rivalry copy branches on `winDiff` — 0 → "tied at", 1 → "X leads Y N-M across K meetings — the closest rivalry in the league".
+
+### INSIGHTS-013B-TIE-LOGIC-v1
+- Purpose: Apply universal tie suppression across historical generators — 4+ tied suppress; 2–3 use group copy; 1 keeps existing copy.
+- Scope: `src/lib/insights/generators/historical.ts`.
+- Notes: PR #278. Applied to drought (incl. never-won), consistency (max top-3), improvement (same positions jumped). Dynasty unchanged (already handled ties). Added `TIE_SUPPRESSION_THRESHOLD = 4` and `formatOwnerList()` helper.
+
+### INSIGHTS-013-GENERATOR-FIXES-v1
+- Purpose: Fix dynasty tie handling, drought ranking for never-won owners, and active-owner filtering across all seven insight types.
+- Scope: `src/lib/insights/generators/historical.ts`, `src/lib/insights/generators/rivalry.ts`.
+- Notes: PR #278. Dynasty emits three copy variants (sole / tied-with-recent / tied-equal-recency). Drought = seasons played when never-won. Active-owner filter via `context.currentRoster` applied to drought, dynasty, improvement, consistency, lopsided_rivalry, even_rivalry, dominance_streak.
+
+### POLISH-003-HISTORY-PAGE-FIXES-v1
+- Purpose: Fix all-time standings sort order and add visual distinction for former league owners.
+- Scope: `src/lib/selectors/historySelectors.ts`, `src/components/history/AllTimeStandingsTable.tsx`, `src/components/history/AllTimeHeadToHeadPanel.tsx`, `src/app/league/[slug]/history/page.tsx`.
+- Notes: PR #278. New sort: Total Wins → Win% → Point Differential. `totalPointDifferential` added to `AllTimeStandingRow`. Active owners derived from `owners:{slug}:{year}` CSV on the server; former owners render muted + "Former" badge in both the all-time standings table and the Top Rivalries panel. `activeOwners: string[]` props (not `Set<string>`) to preserve server/client serialization.
+
+### PLATFORM-001-ROLLOVER-UI-v1
+- Purpose: Build a Season Rollover admin panel at `/admin/data/cache` with a two-phase preview/execute flow, plus an automatic rollover cron triggered by national championship game date + 7 days.
+- Scope: `src/components/admin/SeasonRolloverPanel.tsx` (new), `src/app/api/admin/rollover/route.ts`, `src/app/api/cron/season-rollover/route.ts` (new), `src/lib/seasonRollover.ts`, `src/app/admin/data/cache/page.tsx`, `vercel.json`.
+- Notes: PR #278. Preview response extended with `champion` + `top3` per league for UI display. `findNationalChampionshipGameDate()` prefers `playoffRound === 'national_championship'` with postseason fallback. Cron runs daily, filters non-test leagues in `state: 'season'`, per-league error isolation. TSC successfully rolled over via the new panel.
+
+### INSIGHTS-012-LEAGUE-STATE-DIAGNOSTIC-v1
+- Purpose: Diagnose why TSC was still in `state: 'season'` after the 2025 season ended. Read-only.
+- Scope: Read-only diagnostic.
+- Notes: Identified that existing cron only handles preseason→season; season→offseason required a manual rollover. Informed PLATFORM-001-ROLLOVER-UI.
+
+### INSIGHTS-012-API-ROUTE-v1
+- Purpose: Build `GET /api/insights/[slug]` and wire the insights engine into the overview panel.
+- Scope: `src/app/api/insights/[slug]/route.ts` (new), `src/components/OverviewPanel.tsx`, `src/lib/selectors/overview.ts`.
+- Notes: PR #278. Merge strategy — engine insights first, existing insights fill up to 3. Owners CSV, schedule, scores, rankings, and archives loaded server-side; context built via `buildInsightContext()`.
+
+### INSIGHTS-011-GENERATORS-v1
+- Purpose: Add historical (drought, dynasty, improvement, consistency) and rivalry (lopsided, even, dominance streak) generators, both self-registering.
+- Scope: `src/lib/insights/generators/historical.ts` (new), `src/lib/insights/generators/rivalry.ts` (new), `src/lib/insights/generators/index.ts`.
+- Notes: PR #278. Engine-level try/catch isolates per-generator failures. Active-owner filter derived from current roster.
+
+### INSIGHTS-010-CLEANUP-v1
+- Purpose: Canonicalize `aggregateOwnerSeasonStats()` in `ownerStats.ts` and remove the local mirror from `context.ts`.
+- Scope: `src/lib/gameStats/ownerStats.ts`, `src/lib/insights/context.ts`.
+- Notes: PR #278. Single source of truth for owner season-stat aggregation; no duplicate logic in context builder.
+
+### INSIGHTS-010-CONTEXT-LIFECYCLE-v1
+- Purpose: Add `deriveLifecycleState()` and `buildInsightContext()` so generators receive a consistent, self-contained context.
+- Scope: `src/lib/insights/context.ts` (new), `src/lib/insights/types.ts`.
+- Notes: PR #278. Lifecycle derived from `LeagueStatus` + `SeasonContext` + calendar (7 states). Context assembles standings history, games, game stats, archives, historical rosters, current roster, AP rankings.
+
 ### DOCS-CLOSEOUT-002
 - Purpose: Update all project documentation to reflect Game Stats Pipeline completion and Insights Engine Foundation work.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.

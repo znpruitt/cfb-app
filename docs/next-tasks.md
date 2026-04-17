@@ -16,7 +16,11 @@ All foundational phases are complete. Work is now organized into named workstrea
 |------------|----------|--------|
 | Data & Intelligence | Game Stats Pipeline | ✅ Complete |
 | Data & Intelligence | Insights Engine Foundation | ✅ Complete |
-| Data & Intelligence | Insights Engine | In progress |
+| Data & Intelligence | Insights Engine — Generators and Wiring | ✅ Complete |
+| Data & Intelligence | Insights Engine — Next Generator Batch | In progress |
+| Data & Intelligence | Insights Engine — Two Weekly Pulses | Planned |
+| Platform | Season Rollover UI and Cron | ✅ Complete |
+| Polish | History Page Polish | ✅ Complete |
 | Draft | Slow Draft Mode | Planned |
 | Draft | Draft Difficulty Settings | Planned |
 | Platform | Multi-tenant Commissioner Sign-up | Planned |
@@ -25,33 +29,35 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Polish | Copy / UX Writing Audit | Planned |
 | Polish | Back Button Audit | Planned |
 | Polish | Aliases Platform Migration | Planned |
+| Polish | History Page — Filter Former Owners | Planned |
 
 ## Active priorities
 
-### 1. INSIGHTS — Insights Engine generators and context assembler
+### 1. INSIGHTS — Next Generator Batch (12 Tier 1 insights)
 
-**Foundation complete (PR #276).** Generator interface, types, engine, and existing insights ported as generators.
+**Generators and wiring complete (PR #278).** Historical + rivalry generators live on the overview panel, `buildInsightContext()` + `deriveLifecycleState()` in place, `GET /api/insights/[slug]` merged.
 
 **Next steps (new Claude Code session):**
-- `buildInsightContext()` — assemble `InsightContext` from all available data sources (standings history, games, game stats, archives, rosters, rankings)
-- `deriveLifecycleState()` — map `LeagueStatus` + `SeasonContext` + calendar to `LifecycleState` union
-- Historical generator — league history, drought streaks, defending champion context
-- Rivalry generator — owner vs owner head-to-head records
-- Stats outliers generator — leverages Game Stats Pipeline data
-- API route to serve engine output to the UI
-- Two weekly pulse system (Monday look-back, Thursday forward-look) — future milestone
+- **Stats Outliers generator** — first batch: yards-per-win efficiency, ball security (lowest turnovers), takeaway king (highest takeaways), team identity (run-heavy / pass-heavy / balanced)
+- Remaining Tier 1 insights (10): Clock Crusher, Third Down Specialist, Career Points Leader, Volatility Award, Never Finished Last, Title Chaser / Bridesmaid, Career Turnover Margin, Trending Up/Down
+- **Points-against data pipeline** — required to unlock Luck Score and a broader set of Tier 2 insights
+- See Insights Engine — Opus 1M Brainstorming in `docs/completed-work.md` for the full 18-idea inventory and tiering
 
 **Non-blocking future polish:** Remove dead view model properties (`keyMovements`, `leaguePulse`, `shouldShowLeaguePulse`) from `selectOverviewViewModel`.
 
-### 2. DRAFT — Slow Draft Mode
+### 2. INSIGHTS — Two Weekly In-Season Pulses (future)
+
+Monday Look Back + Thursday Forward Look. Deferred until the next generator batch lands and in-season lifecycle output is validated.
+
+### 3. DRAFT — Slow Draft Mode
 
 Enable async drafts with configurable per-pick windows. Requires email notification infrastructure (new). See `docs/roadmap.md` for full scope.
 
-### 3. POLISH — Copy / UX Writing Audit
+### 4. POLISH — Copy / UX Writing Audit
 
 Systematic review of all user-facing strings for consistent voice. No logic changes. See `docs/roadmap.md` for campaign scope.
 
-### 4. PLATFORM — Server Action Auth Hardening
+### 5. PLATFORM — Server Action Auth Hardening
 
 Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKEN` fallback from public routes.
 
@@ -73,6 +79,9 @@ All foundational work is complete. See `docs/completed-work.md` for full records
 - Launch Prep (Turf War naming, Clerk production, custom domain)
 - Game Stats Pipeline (PRs #274–#275)
 - Insights Engine Foundation (PR #276): generator interface, types, engine, naming conflict resolved
+- Insights Engine — Generators and Wiring (PR #278): historical + rivalry generators, lifecycle derivation, context assembler, API route, tie suppression, active-owner filtering
+- Season Rollover UI and Cron (PR #278): two-phase admin panel + daily cron at championship + 7 days
+- History Page Polish (PR #278): all-time standings sort order, former-owner visual distinction
 
 ## Hosted deployment runbook
 
