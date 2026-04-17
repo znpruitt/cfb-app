@@ -154,6 +154,7 @@ function countWins(results: HeadToHeadResult[]): Map<string, number> {
 
 function deriveLopsidedInsight(
   pairs: Map<string, HeadToHeadResult[]>,
+  activeOwners: Set<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   let bestKey: string | null = null;
@@ -166,6 +167,7 @@ function deriveLopsidedInsight(
   for (const [key, results] of pairs) {
     if (results.length < MIN_LOPSIDED_MEETINGS) continue;
     const [ownerA, ownerB] = pairOwners(key);
+    if (!activeOwners.has(ownerA) || !activeOwners.has(ownerB)) continue;
     const wins = countWins(results);
     const winsA = wins.get(ownerA) ?? 0;
     const winsB = wins.get(ownerB) ?? 0;
@@ -207,6 +209,7 @@ function deriveLopsidedInsight(
 
 function deriveEvenRivalryInsight(
   pairs: Map<string, HeadToHeadResult[]>,
+  activeOwners: Set<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   let bestKey: string | null = null;
@@ -219,6 +222,7 @@ function deriveEvenRivalryInsight(
   for (const [key, results] of pairs) {
     if (results.length < MIN_EVEN_MEETINGS) continue;
     const [ownerA, ownerB] = pairOwners(key);
+    if (!activeOwners.has(ownerA) || !activeOwners.has(ownerB)) continue;
     const wins = countWins(results);
     const winsA = wins.get(ownerA) ?? 0;
     const winsB = wins.get(ownerB) ?? 0;
@@ -263,6 +267,7 @@ function activeStreak(results: HeadToHeadResult[]): { winner: string; length: nu
 
 function deriveDominanceStreakInsight(
   pairs: Map<string, HeadToHeadResult[]>,
+  activeOwners: Set<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   let bestKey: string | null = null;
@@ -276,6 +281,7 @@ function deriveDominanceStreakInsight(
     if (streak.length < MIN_DOMINANCE_STREAK) continue;
     if (streak.length <= bestLength) continue;
     const [ownerA, ownerB] = pairOwners(key);
+    if (!activeOwners.has(ownerA) || !activeOwners.has(ownerB)) continue;
     bestLength = streak.length;
     bestKey = key;
     bestWinner = streak.winner;
@@ -310,14 +316,17 @@ export const rivalryGenerator: InsightGenerator = {
     const pairs = collectHeadToHead(context.archives, context.historicalRosters);
     if (pairs.size === 0) return [];
 
+    const activeOwners = new Set(context.currentRoster.values());
+    activeOwners.delete(NO_CLAIM_OWNER);
+
     const insights: Insight[] = [];
-    const lopsided = deriveLopsidedInsight(pairs, RIVALRY_LIFECYCLES);
+    const lopsided = deriveLopsidedInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
     if (lopsided) insights.push(lopsided);
 
-    const even = deriveEvenRivalryInsight(pairs, RIVALRY_LIFECYCLES);
+    const even = deriveEvenRivalryInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
     if (even) insights.push(even);
 
-    const dominance = deriveDominanceStreakInsight(pairs, RIVALRY_LIFECYCLES);
+    const dominance = deriveDominanceStreakInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
     if (dominance) insights.push(dominance);
 
     return insights;
