@@ -1,6 +1,12 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
-import type { InsightContext, InsightGenerator, LifecycleState, OwnerCareerStats } from '../types';
+import type {
+  InsightContext,
+  InsightGenerator,
+  LifecycleState,
+  NewsHook,
+  OwnerCareerStats,
+} from '../types';
 
 const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
@@ -75,6 +81,8 @@ function toInsight(params: {
   relatedOwners?: string[];
   priorityScore: number;
   lifecycle: LifecycleState[];
+  newsHook: NewsHook;
+  statValue: number;
 }): Insight {
   const { owner, relatedOwners = [], priorityScore } = params;
   return {
@@ -83,6 +91,63 @@ function toInsight(params: {
     score: priorityScore,
     owners: [owner, ...relatedOwners].filter((entry): entry is string => Boolean(entry)),
   };
+}
+
+// Compute year-by-year cumulative points leader using archives only. Returns the
+// owner who led in career points through end of prior season. Used to detect
+// new_leader / returning_leader / extending_lead / narrowing_gap transitions.
+function priorLeaderByPoints(
+  context: InsightContext
+): { owner: string; points: number; gap: number } | null {
+  const NO_CLAIM = 'NoClaim';
+  const archives = [...context.archives].sort((a, b) => a.year - b.year);
+  if (archives.length < 2) return null;
+
+  const cumulativePoints = new Map<string, number>();
+  // Sum points through all archives EXCEPT the most recent one.
+  for (let i = 0; i < archives.length - 1; i += 1) {
+    const archive = archives[i]!;
+    for (const row of archive.finalStandings) {
+      if (!row.owner || row.owner === NO_CLAIM) continue;
+      cumulativePoints.set(row.owner, (cumulativePoints.get(row.owner) ?? 0) + row.pointsFor);
+    }
+  }
+
+  let leader: { owner: string; points: number } | null = null;
+  let second = 0;
+  for (const [owner, pts] of cumulativePoints) {
+    if (!leader || pts > leader.points) {
+      if (leader) second = Math.max(second, leader.points);
+      leader = { owner, points: pts };
+    } else if (pts > second) {
+      second = pts;
+    }
+  }
+  if (!leader) return null;
+  return { owner: leader.owner, points: leader.points, gap: leader.points - second };
+}
+
+// Compute cumulative turnover margin leader through end of prior season.
+function priorLeaderByTurnoverMargin(
+  context: InsightContext,
+  currentStats: OwnerCareerStats[]
+): { owner: string; margin: number } | null {
+  // Approximation: subtract this season's single-season stats from current career
+  // totals for each owner that played this year.
+  const active = activeOwnerSet(context.currentRoster);
+  const currentYearStats = context.ownerGameStats ?? [];
+  const currentByOwner = new Map(currentYearStats.map((s) => [s.owner, s]));
+
+  let leader: { owner: string; margin: number } | null = null;
+  for (const stats of currentStats) {
+    if (!active.has(stats.owner)) continue;
+    const thisYearMargin = currentByOwner.get(stats.owner)?.turnoverMargin ?? 0;
+    const priorMargin = stats.totalTurnoverMargin - thisYearMargin;
+    if (!leader || priorMargin > leader.margin) {
+      leader = { owner: stats.owner, margin: priorMargin };
+    }
+  }
+  return leader;
 }
 
 function activeCareerStats(context: InsightContext, minSeasons = 0): OwnerCareerStats[] {
@@ -98,6 +163,20 @@ function tiedAtMax<T>(entries: T[], value: (t: T) => number): T[] {
 
 // === A. Career Points Leader ===
 
+const POINT_MILESTONES = [5_000, 10_000, 15_000, 20_000, 25_000, 30_000];
+
+function mostRecentMilestoneCrossed(
+  current: number,
+  prior: number,
+  milestones: number[]
+): number | null {
+  for (let i = milestones.length - 1; i >= 0; i -= 1) {
+    const m = milestones[i]!;
+    if (current >= m && prior < m) return m;
+  }
+  return null;
+}
+
 function deriveCareerPointsLeader(context: InsightContext): Insight | null {
   const eligible = activeCareerStats(context, MIN_CAREER_SEASONS).filter((s) => s.totalPoints > 0);
   if (eligible.length === 0) return null;
@@ -109,27 +188,84 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
 
   const leaderPoints = tied[0]!.totalPoints;
   const ownerNames = tied.map((s) => s.owner);
+  const leaderOwner = ownerNames[0]!;
+  const others = eligible
+    .filter((s) => !ownerNames.includes(s.owner))
+    .sort((a, b) => b.totalPoints - a.totalPoints);
+  const second = others[0] ?? null;
+  const gap = second ? leaderPoints - second.totalPoints : leaderPoints;
+
+  // Determine hook from archive data.
+  const prior = priorLeaderByPoints(context);
+  let hook: NewsHook = 'new_leader';
+  if (tied.length === 1 && prior) {
+    if (prior.owner === leaderOwner) {
+      // Same leader as last year: extending_lead if gap grew, narrowing_gap if shrank.
+      hook = gap >= prior.gap ? 'extending_lead' : 'narrowing_gap';
+    } else {
+      // Leader changed. Was this owner ever the leader previously?
+      // Walk archives year-by-year to check.
+      const archives = [...context.archives].sort((a, b) => a.year - b.year);
+      const cumulative = new Map<string, number>();
+      let wasLeader = false;
+      for (const archive of archives) {
+        for (const row of archive.finalStandings) {
+          if (!row.owner || row.owner === 'NoClaim') continue;
+          cumulative.set(row.owner, (cumulative.get(row.owner) ?? 0) + row.pointsFor);
+        }
+        let yearLeader: string | null = null;
+        let best = -Infinity;
+        for (const [o, p] of cumulative) {
+          if (p > best) {
+            best = p;
+            yearLeader = o;
+          }
+        }
+        if (yearLeader === leaderOwner) wasLeader = true;
+      }
+      hook = wasLeader ? 'returning_leader' : 'new_leader';
+    }
+  }
+
+  // Milestone check takes priority if a round-number threshold was just crossed.
+  if (tied.length === 1 && prior && prior.owner === leaderOwner) {
+    const crossed = mostRecentMilestoneCrossed(leaderPoints, prior.points, POINT_MILESTONES);
+    if (crossed) hook = 'milestone_crossed';
+  }
 
   let description: string;
-  if (tied.length === 1) {
-    const leader = tied[0]!;
-    const others = eligible
-      .filter((s) => s.owner !== leader.owner)
-      .sort((a, b) => b.totalPoints - a.totalPoints);
-    const second = others[0];
-    if (second) {
-      const gap = leader.totalPoints - second.totalPoints;
-      const ratio = gap / leader.totalPoints;
-      if (ratio <= POINTS_CLOSE_RATIO && gap > 0) {
-        description = `${leader.owner} leads ${second.owner} ${formatNumber(leader.totalPoints)} to ${formatNumber(second.totalPoints)} in the all-time scoring race — the closest it's ever been.`;
-      } else {
-        description = `${leader.owner} leads all-time with ${formatNumber(leader.totalPoints)} career league points — ${formatNumber(gap)} ahead of ${second.owner}.`;
-      }
-    } else {
-      description = `${leader.owner} leads all-time with ${formatNumber(leader.totalPoints)} career league points.`;
-    }
-  } else {
+  if (tied.length > 1) {
     description = `${formatOwnerList(ownerNames)} are tied for the all-time lead with ${formatNumber(leaderPoints)} career league points each.`;
+  } else {
+    switch (hook) {
+      case 'extending_lead':
+        description = second
+          ? `${leaderOwner} is pulling away — ${formatNumber(gap)} career points clear of ${second.owner} in the all-time scoring race.`
+          : `${leaderOwner} extends the all-time scoring lead with ${formatNumber(leaderPoints)} career league points.`;
+        break;
+      case 'narrowing_gap':
+        description = second
+          ? `${second.owner} is closing in — just ${formatNumber(gap)} career points behind ${leaderOwner} in the all-time scoring race.`
+          : `${leaderOwner} still leads all-time with ${formatNumber(leaderPoints)} career league points.`;
+        break;
+      case 'returning_leader':
+        description = `${leaderOwner} reclaims the all-time scoring lead with ${formatNumber(leaderPoints)} career points.`;
+        break;
+      case 'milestone_crossed':
+        description = `${leaderOwner} crosses ${formatNumber(leaderPoints)} career league points — leading the all-time scoring race.`;
+        break;
+      case 'new_leader':
+      default:
+        description = `${leaderOwner} takes the all-time scoring lead with ${formatNumber(leaderPoints)} career points.`;
+        break;
+    }
+    // If close gap triggers a special closing-race callout, override description.
+    if (hook !== 'milestone_crossed' && second) {
+      const ratio = gap / leaderPoints;
+      if (ratio <= POINTS_CLOSE_RATIO && gap > 0 && hook !== 'narrowing_gap') {
+        description = `${leaderOwner} leads ${second.owner} ${formatNumber(leaderPoints)} to ${formatNumber(second.totalPoints)} in the all-time scoring race — the closest it's ever been.`;
+      }
+    }
   }
 
   return toInsight({
@@ -141,10 +277,14 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 70,
     lifecycle: POINTS_LEADER_LIFECYCLES,
+    newsHook: hook,
+    statValue: leaderPoints,
   });
 }
 
 // === B. Career Turnover Margin Leader ===
+
+const CHALLENGER_RATIO = 0.2;
 
 function deriveCareerTurnoverMarginLeader(context: InsightContext): Insight | null {
   const eligible = activeCareerStats(context, MIN_CAREER_SEASONS).filter(
@@ -160,22 +300,59 @@ function deriveCareerTurnoverMarginLeader(context: InsightContext): Insight | nu
   const leaderMargin = tied[0]!.totalTurnoverMargin;
   const marginText = leaderMargin > 0 ? `+${leaderMargin}` : String(leaderMargin);
   const ownerNames = tied.map((s) => s.owner);
+  const leaderOwner = ownerNames[0]!;
+  const others = eligible
+    .filter((s) => !ownerNames.includes(s.owner))
+    .sort((a, b) => b.totalTurnoverMargin - a.totalTurnoverMargin);
+  const second = others[0] ?? null;
+  const gap = second ? leaderMargin - second.totalTurnoverMargin : leaderMargin;
+
+  const prior = priorLeaderByTurnoverMargin(context, eligible);
+  let hook: NewsHook = 'new_leader';
+  if (tied.length === 1 && prior) {
+    if (prior.owner === leaderOwner) {
+      hook = leaderMargin >= prior.margin ? 'extending_lead' : 'narrowing_gap';
+      if (
+        second &&
+        leaderMargin > 0 &&
+        gap / Math.max(1, leaderMargin) <= CHALLENGER_RATIO &&
+        hook !== 'narrowing_gap'
+      ) {
+        hook = 'challenger_emerging';
+      }
+    } else {
+      hook = 'new_leader';
+    }
+  }
 
   let description: string;
-  if (tied.length === 1) {
-    const leader = tied[0]!;
-    const others = eligible
-      .filter((s) => s.owner !== leader.owner)
-      .sort((a, b) => b.totalTurnoverMargin - a.totalTurnoverMargin);
-    const second = others[0];
-    if (second) {
-      const gap = leader.totalTurnoverMargin - second.totalTurnoverMargin;
-      description = `${leader.owner}'s ${marginText} career turnover margin is the largest on record — ${gap} ahead of ${second.owner}.`;
-    } else {
-      description = `${leader.owner}'s ${marginText} career turnover margin is the largest on record.`;
-    }
-  } else {
+  if (tied.length > 1) {
     description = `${formatOwnerList(ownerNames)} share the largest career turnover margin on record at ${marginText}.`;
+  } else {
+    switch (hook) {
+      case 'extending_lead':
+        description = second
+          ? `${leaderOwner}'s career turnover margin lead grows to ${marginText} — ${gap} ahead of ${second.owner}.`
+          : `${leaderOwner}'s ${marginText} career turnover margin is the largest on record.`;
+        break;
+      case 'narrowing_gap':
+        description = second
+          ? `${second.owner} is closing in on ${leaderOwner}'s career turnover margin lead — now just ${gap} apart.`
+          : `${leaderOwner}'s ${marginText} career turnover margin is the largest on record.`;
+        break;
+      case 'challenger_emerging': {
+        const secondMargin =
+          second && second.totalTurnoverMargin > 0
+            ? `+${second.totalTurnoverMargin}`
+            : String(second?.totalTurnoverMargin ?? 0);
+        description = `${leaderOwner} leads career turnover margin at ${marginText} but ${second?.owner ?? ''} (${secondMargin}) is within striking distance.`;
+        break;
+      }
+      case 'new_leader':
+      default:
+        description = `${leaderOwner} takes over the career turnover margin lead at ${marginText}.`;
+        break;
+    }
   }
 
   return toInsight({
@@ -187,6 +364,8 @@ function deriveCareerTurnoverMarginLeader(context: InsightContext): Insight | nu
     relatedOwners: ownerNames.slice(1),
     priorityScore: 68,
     lifecycle: TURNOVER_LEADER_LIFECYCLES,
+    newsHook: hook,
+    statValue: leaderMargin,
   });
 }
 
@@ -216,12 +395,26 @@ function deriveVolatilityAward(context: InsightContext): Insight | null {
 
   const ownerNames = tied.map((e) => e.stats.owner);
 
+  // Max range across ALL owners (including non-active) for record determination.
+  let allTimeMaxRange = 0;
+  for (const stats of context.ownerCareerStats) {
+    const ranks = stats.finishHistory.map((f) => f.rank);
+    if (ranks.length < MIN_VARIANCE_SEASONS) continue;
+    const range = Math.max(...ranks) - Math.min(...ranks);
+    if (range > allTimeMaxRange) allTimeMaxRange = range;
+  }
+  const leaderRange = tied[0]!.range;
+  const hook: NewsHook = leaderRange >= allTimeMaxRange ? 'new_record' : 'snapshot';
+
   let description: string;
   if (tied.length === 1) {
     const only = tied[0]!;
     const sortedFinishes = [...only.stats.finishHistory].sort((a, b) => a.year - b.year);
     const rankList = sortedFinishes.map((f) => ordinal(f.rank)).join(', ');
-    description = `${only.stats.owner} has finished ${rankList} — pick a lane.`;
+    description =
+      hook === 'new_record'
+        ? `${only.stats.owner} has finished ${rankList} — nobody swings harder year to year.`
+        : `${only.stats.owner} has finished ${rankList} — pick a lane.`;
   } else {
     const parts = tied.map(
       (e) =>
@@ -239,6 +432,8 @@ function deriveVolatilityAward(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 65,
     lifecycle: VOLATILITY_LIFECYCLES,
+    newsHook: hook,
+    statValue: leaderRange,
   });
 }
 
@@ -283,11 +478,19 @@ function deriveNeverFinishedLast(context: InsightContext): Insight | null {
 
   const ownerNames = tied.map((e) => e.stats.owner);
   const worstX = tied[0]!.worstRank;
-  const seasonsText =
-    tied.length === 1 ? `${tied[0]!.stats.seasons} seasons` : 'their league history';
+  const seasons = tied[0]!.stats.seasons;
+  const seasonsText = tied.length === 1 ? `${seasons} seasons` : 'their league history';
   const verb = tied.length === 1 ? 'has' : 'have each';
 
-  const description = `${formatOwnerList(ownerNames)} ${verb} never finished outside the top ${worstX} in ${seasonsText} — the league's most reliable floor.`;
+  // Hook: streak_extended if just added another qualifying season, else snapshot.
+  const latestArchiveYear = context.archives.map((a) => a.year).reduce((m, y) => Math.max(m, y), 0);
+  const justAddedSeason = tied[0]!.stats.finishHistory.some((f) => f.year === latestArchiveYear);
+  const hook: NewsHook = justAddedSeason ? 'streak_extended' : 'snapshot';
+
+  const description =
+    hook === 'streak_extended'
+      ? `${formatOwnerList(ownerNames)} ${verb} never finished outside the top ${worstX} — ${seasonsText} and counting.`
+      : `${formatOwnerList(ownerNames)} ${verb} never finished in the bottom three in ${seasonsText}.`;
 
   return toInsight({
     id: `never-last-${ownerNames.map(ownerSlug).join('-')}`,
@@ -298,6 +501,8 @@ function deriveNeverFinishedLast(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 60,
     lifecycle: NEVER_LAST_LIFECYCLES,
+    newsHook: hook,
+    statValue: seasons,
   });
 }
 
@@ -323,9 +528,24 @@ function deriveTitleChaser(context: InsightContext): Insight | null {
   const ownerNames = tied.map((e) => e.stats.owner);
   const top3Count = tied[0]!.top3Count;
 
+  // Hook: streak_extended if just added a top-3 this most recent archive year.
+  const latestArchiveYear = context.archives.map((a) => a.year).reduce((m, y) => Math.max(m, y), 0);
+  const justAddedTop3 = tied[0]!.stats.finishHistory.some(
+    (f) => f.year === latestArchiveYear && f.rank <= 3
+  );
+  const hook: NewsHook = justAddedTop3 ? 'streak_extended' : 'never_won';
+
   let description: string;
-  if (tied.length === 1) {
-    description = `${ownerNames[0]} owns ${top3Count} top-3 finishes but zero titles — the trophy case is immaculate. And empty.`;
+  if (hook === 'streak_extended') {
+    description =
+      tied.length === 1
+        ? `${ownerNames[0]} adds another top-3 finish — now ${top3Count} podiums with zero titles.`
+        : `${formatOwnerList(ownerNames)} each add another top-3 — now ${top3Count} podiums apiece with zero titles.`;
+  } else if (tied.length === 1) {
+    description =
+      top3Count >= 3
+        ? `${ownerNames[0]} owns ${top3Count} top-3 finishes but zero titles — the trophy case is immaculate. And empty.`
+        : `${ownerNames[0]} owns ${top3Count} top-3 finishes but zero titles — always the runner-up, never the winner.`;
   } else {
     description = `${formatOwnerList(ownerNames)} have each finished top-3 ${top3Count} times without a ring — the league's reigning bridesmaids.`;
   }
@@ -339,6 +559,8 @@ function deriveTitleChaser(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 75,
     lifecycle: TITLE_CHASER_LIFECYCLES,
+    newsHook: hook,
+    statValue: top3Count,
   });
 }
 
@@ -392,6 +614,8 @@ function deriveRookieBenchmark(context: InsightContext): Insight | null {
     owner: best.stats.owner,
     priorityScore: 65,
     lifecycle: ROOKIE_LIFECYCLES,
+    newsHook: 'new_record',
+    statValue: best.debutRank,
   });
 }
 
@@ -435,6 +659,8 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
     owner: best.owner,
     priorityScore: 62,
     lifecycle: GREATEST_SEASON_LIFECYCLES,
+    newsHook: 'snapshot',
+    statValue: Math.round(best.winPct * 1000),
   });
 }
 
@@ -526,6 +752,8 @@ function deriveTrending(context: InsightContext, direction: 'up' | 'down'): Insi
     relatedOwners: ownerNames.slice(1),
     priorityScore: direction === 'up' ? 70 : 68,
     lifecycle: TRENDING_LIFECYCLES,
+    newsHook: 'streak_extended',
+    statValue: Math.abs(targetChange),
   });
 }
 

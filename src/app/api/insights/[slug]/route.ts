@@ -145,7 +145,8 @@ export async function GET(
       currentRoster
     );
 
-    const insights = runInsightsEngine(context);
+    const bypassSuppression = url.searchParams.get('bypassSuppression') === '1';
+    const insights = await runInsightsEngine(context, { bypassSuppression });
 
     return NextResponse.json<InsightsResponse>(
       {

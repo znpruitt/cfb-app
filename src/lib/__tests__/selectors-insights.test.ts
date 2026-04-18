@@ -1061,6 +1061,8 @@ test('deriveOverviewInsights returns top 3 unique insights in input order', () =
       score: 90,
       owner: 'A',
       owners: ['A'],
+      newsHook: 'challenger_emerging',
+      statValue: 1,
     },
     {
       id: 'b',
@@ -1071,6 +1073,8 @@ test('deriveOverviewInsights returns top 3 unique insights in input order', () =
       score: 80,
       owner: 'B',
       owners: ['B'],
+      newsHook: 'streak_started',
+      statValue: 2,
     },
     {
       id: 'b',
@@ -1081,6 +1085,8 @@ test('deriveOverviewInsights returns top 3 unique insights in input order', () =
       score: 70,
       owner: 'B',
       owners: ['B'],
+      newsHook: 'streak_started',
+      statValue: 2,
     },
     {
       id: 'c',
@@ -1091,6 +1097,8 @@ test('deriveOverviewInsights returns top 3 unique insights in input order', () =
       score: 60,
       owner: 'C',
       owners: ['C'],
+      newsHook: 'streak_extended',
+      statValue: 2,
     },
     {
       id: 'd',
@@ -1101,6 +1109,8 @@ test('deriveOverviewInsights returns top 3 unique insights in input order', () =
       score: 50,
       owner: 'D',
       owners: ['D'],
+      newsHook: 'streak_started',
+      statValue: 2,
     },
   ];
 
@@ -1121,6 +1131,8 @@ test('deriveStandingsInsights filters to standings-relevant types and caps at 3 
       score: 90,
       owner: 'A',
       owners: ['A'],
+      newsHook: 'streak_started',
+      statValue: 2,
     },
     {
       id: 'race',
@@ -1132,6 +1144,8 @@ test('deriveStandingsInsights filters to standings-relevant types and caps at 3 
       owner: 'A',
       relatedOwners: ['B'],
       owners: ['A', 'B'],
+      newsHook: 'challenger_emerging',
+      statValue: 1,
     },
     {
       id: 'collapse',
@@ -1142,6 +1156,8 @@ test('deriveStandingsInsights filters to standings-relevant types and caps at 3 
       score: 86,
       owner: 'C',
       owners: ['C'],
+      newsHook: 'streak_extended',
+      statValue: 2,
     },
     {
       id: 'collapse',
@@ -1152,6 +1168,8 @@ test('deriveStandingsInsights filters to standings-relevant types and caps at 3 
       score: 85,
       owner: 'C',
       owners: ['C'],
+      newsHook: 'streak_extended',
+      statValue: 2,
     },
     {
       id: 'toilet',
@@ -1162,6 +1180,8 @@ test('deriveStandingsInsights filters to standings-relevant types and caps at 3 
       score: 84,
       owner: 'D',
       owners: ['D'],
+      newsHook: 'streak_extended',
+      statValue: 3,
     },
   ];
 

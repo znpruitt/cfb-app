@@ -32,6 +32,21 @@ export type InsightCategory =
 // variants are reserved for future weekly-pulse generators.
 export type InsightWindow = 'last_3_weeks' | 'last_4_weeks' | 'season' | 'career';
 
+// News hook — the reason an insight is firing this time. Every insight must
+// carry one; suppression compares current hook against the last-fired hook.
+export type NewsHook =
+  | 'extending_lead' // leader's advantage is growing
+  | 'narrowing_gap' // challenger closing in
+  | 'milestone_crossed' // round-number achieved
+  | 'streak_extended' // existing streak got longer
+  | 'streak_started' // new streak beginning (3+ consecutive)
+  | 'new_leader' // different owner leads vs last season
+  | 'returning_leader' // previous leader reclaims top spot
+  | 'never_won' // owner has zero titles
+  | 'new_record' // all-time best performance
+  | 'challenger_emerging' // someone closing within striking distance
+  | 'snapshot'; // current-state catch-all; aggressively suppressed after first fire
+
 // OwnerSeasonStats — accumulated from OwnerWeekStats across all weeks.
 export type OwnerSeasonStats = {
   owner: string;

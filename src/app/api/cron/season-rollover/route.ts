@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { buildSeasonArchive, findNationalChampionshipGameDate } from '@/lib/seasonRollover';
@@ -18,6 +19,7 @@ type CronResult = {
   year?: number;
   success?: boolean;
   leaguesRolledOver?: string[];
+  suppressionRecordsCleared?: number;
   errors?: RolloverError[];
 };
 
@@ -99,11 +101,21 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       }
     }
 
+    // Clear insights suppression records so the next season starts with a clean
+    // slate. Non-blocking — a failure here does not fail the rollover.
+    let suppressionRecordsCleared = 0;
+    try {
+      suppressionRecordsCleared = await clearAllSuppressionRecords();
+    } catch {
+      suppressionRecordsCleared = 0;
+    }
+
     return NextResponse.json({
       success: errors.length === 0,
       year,
       rolloverDate,
       leaguesRolledOver,
+      suppressionRecordsCleared,
       errors,
     });
   } catch (err) {
