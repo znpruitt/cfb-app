@@ -19,7 +19,8 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Data & Intelligence | Insights Engine — Generators and Wiring | ✅ Complete |
 | Data & Intelligence | Insights Engine — Context Extension | ✅ Complete |
 | Data & Intelligence | Insights Engine — Generator Batch 2 | ✅ Complete |
-| Data & Intelligence | Copy Variation Architecture | In progress |
+| Data & Intelligence | Copy Variation Architecture | ✅ Complete |
+| Data & Intelligence | Insights Panel UI Redesign | Planned |
 | Data & Intelligence | Pairing Cards | Planned |
 | Data & Intelligence | Luck Score + Bounce-Back Generators | Planned |
 | Data & Intelligence | Insights Engine — Two Weekly Pulses | Planned |
@@ -37,28 +38,33 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 ## Active priorities
 
-### 1. INSIGHTS — Copy Variation Architecture (new Claude Code session)
+### 1. INSIGHTS — Insights Panel UI Redesign
 
-**Generator Batch 2 complete.** 16 generators across `career.ts`, `stats.ts`, `milestones.ts` implemented. Next work: copy variation layer.
+Copy Variation Architecture complete. Next: redesign the insights panel UI.
 
-**Scope (new session):**
-- Add `newsHook` field to generator output: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `new_leader`, `returning_leader`
-- Copy template map: one template per `(generatorId, newsHook)` pair — hook drives template selection
-- Suppression gate: suppress if same owner + same hook + no threshold change since last fire
-- **Prompt ID to assign:** `INSIGHTS-016-COPY-VARIATION-v1`
+**Scope:**
+- Display 5 insights (not 3); first at 15px, rest at 14px
+- 10px uppercase category microlabel above each title
+- Owner names in assigned color, regular weight
+- Full row tappable; `→` always visible at 13px muted
+- "See all →" link to dedicated insights page
+- Mobile: full-width, no tab strip, no scroll strip
+- `fresh_offseason`: featured slot becomes Season Recap card
+- Owner color map prop from canonical standings source
+- **Prompt ID to assign:** `INSIGHTS-017-PANEL-UI-v1`
 
 ### 2. INSIGHTS — Pairing Cards
 
 Post-processing pass after all generators run. Pairing priority = `max(A, B) + 10`. Natural pairings: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader.
 - AI copy for pairing cards: cache-time generation, curated subset only
-- **Prompt ID to assign:** `INSIGHTS-017-PAIRING-CARDS-v1`
+- **Prompt ID to assign:** `INSIGHTS-018-PAIRING-CARDS-v1`
 
 ### 3. INSIGHTS — Luck Score + Bounce-Back Generators
 
-Both now unblocked by Context Extension (INSIGHTS-014).
+Both unblocked by Context Extension (INSIGHTS-014).
 - Luck Score: points scored vs points allowed differential
 - Bounce-Back Candidate: Volatility + Trending Down signals combined
-- **Prompt ID to assign:** `INSIGHTS-018-LUCK-SCORE-v1`
+- **Prompt ID to assign:** `INSIGHTS-019-LUCK-SCORE-v1`
 
 ### 4. DRAFT — Slow Draft Mode
 
@@ -91,6 +97,7 @@ All foundational work is complete. See `docs/completed-work.md` for full records
 - History Page Polish (PR #278): all-time standings sort order, former-owner visual distinction
 - Insights Engine — Context Extension (INSIGHTS-014): `pointsAgainst` + `OwnerCareerStats` type + `buildOwnerCareerStats()` + career diagnostic route
 - Insights Engine — Generator Batch 2 (INSIGHTS-015): 16 generators across career.ts, stats.ts, milestones.ts; tone property; InsightWindow type; UTF-8 + trending direction bug fixes
+- Copy Variation Architecture (INSIGHTS-016): newsHook + statValue on all generators; per-league/season suppression gate; async engine; 2–5 templates per insight type; rollover clear gated per league
 
 ## Hosted deployment runbook
 

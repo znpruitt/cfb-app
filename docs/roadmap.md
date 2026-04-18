@@ -96,13 +96,21 @@ Historical and rivalry generators wired through `GET /api/insights/[slug]` into 
 - **milestones.ts:** milestone_watch, perfect_against
 - **Note:** in-season stats generators (ball_security, takeaways, yards_per_win, clock_crusher, third_down, team_identity) require an active season with game stats to validate end-to-end
 
-#### Copy Variation Architecture (planned)
-News hooks, dynamic emphasis, and suppression gate for all generators. AI copy reserved for pairing cards only.
+#### Copy Variation Architecture ✓ Complete
+`newsHook` (11 types) + `statValue` on all generators. Per-league, per-season suppression gate (`insights-suppression:{leagueSlug}:{season}`). Engine async with pre-load, post-filter, post-write. 2–5 deterministic templates per insight type, hook-driven selection. `?bypassSuppression=1` admin param. Season rollover clears suppression per successfully rolled league. See `docs/completed-work.md` for full detail.
 
-- News hook field on generators: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `new_leader`, `returning_leader`
-- Dynamic emphasis: copy template selected by news hook, not randomly rotated
-- Suppression gate: suppress if same owner, same hook, no threshold change since last fire
-- **Prerequisites:** Generator Batch 2 ✓
+#### Insights Panel UI Redesign (planned)
+Redesign the insights panel to display 5 insights with typographic hierarchy, category microlabels, owner colors, and a dedicated "See all" page.
+
+- 5 insights (not 3); first at 15px, rest at 14px
+- 10px uppercase category microlabel above each title
+- Owner names in assigned color, regular weight
+- Full row tappable; `→` always visible at 13px muted
+- "See all →" link to dedicated insights page
+- Mobile: full-width, no tab strip, no scroll strip
+- `fresh_offseason`: featured slot becomes "Season Recap" card
+- Owner color map prop from canonical standings source
+- **Prerequisites:** Copy Variation Architecture ✓
 
 #### Pairing Cards (planned)
 Post-processing pass after generator run; pairing priority = `max(A, B) + 10`; AI copy (cache-time, curated subset). Natural pairings: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader.
@@ -114,6 +122,9 @@ Points scored vs points allowed differential — "lucky" or "unlucky" based on o
 
 #### Bounce-Back Candidate Generator (planned)
 Identifies owners trending down who historically recover — combines Volatility + Trending Down signals.
+
+#### Insights — "See All" Dedicated Page (planned)
+Full-page view of all insights for a league, accessible via "See all →" from the overview panel. Grouped by category, full descriptions, lifecycle filtering.
 
 #### Insights Engine — Two Weekly In-Season Pulses (planned)
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
@@ -276,8 +287,11 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | History Page Polish | ✅ Complete (PR #278) |
 | Insights Engine — Context Extension | ✅ Complete |
 | Insights Engine — Generator Batch 2 | ✅ Complete |
-| Copy Variation Architecture | 🔄 Planned |
+| Copy Variation Architecture | ✅ Complete |
+| Insights Panel UI Redesign | 🔄 Planned |
 | Pairing Cards | 🔄 Planned |
+| Luck Score + Bounce-Back Generators | 🔄 Planned |
+| Insights — "See All" Page | 🔄 Planned |
 
 ## Architecture rules
 
