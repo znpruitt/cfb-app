@@ -47,7 +47,7 @@ export type Insight = {
   relatedOwners?: string[];
   priorityScore: number;
   week?: number;
-  navigationTarget?: 'standings' | 'trends' | 'matchup';
+  navigationTarget?: 'standings' | 'trends' | 'matchup' | 'history';
   category?: InsightCategory;
   lifecycle?: LifecycleState[];
   stat?: { label: string; value: string };
@@ -142,7 +142,7 @@ function toInsight(params: {
   relatedOwners?: string[];
   priorityScore: number;
   week?: number;
-  navigationTarget?: 'standings' | 'trends' | 'matchup';
+  navigationTarget?: 'standings' | 'trends' | 'matchup' | 'history';
   category?: InsightCategory;
   lifecycle?: LifecycleState[];
   stat?: { label: string; value: string };

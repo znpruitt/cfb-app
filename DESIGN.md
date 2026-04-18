@@ -114,6 +114,31 @@
 - CTA links to full rankings page
 - Insights is not a standalone full-width section — it only renders in column 3
 
+## Insights Panel
+- Shows up to 5 insights, sorted by priorityScore (or Season Recap + 4 when `fresh_offseason`)
+- First row gets visual prominence — `text-[15px]` title vs `text-[14px]` for rows 2–5
+- Each row: category microlabel (10px uppercase, 0.08em tracking, category color) · title · description
+- Rows are tappable when `navigationTarget` is set; minimum 44px tap target
+- Panel footer: "See all →" link routes to `/league/[slug]/insights`
+- Full-insights page mirrors row structure with all rows at `text-[15px]`
+- Mobile: panel renders full-width (no column constraint); rows retain identical structure
+
+## Insight Category Colors
+- Categories use one-to-one color tokens defined in `src/lib/insightCategories.ts`
+- Current palette (light / dark hex pairs):
+  - HISTORICAL: `#534AB7` / `#AFA9EC`
+  - RIVALRY: `#993C1D` / `#F0997B`
+  - CAREER: `#0F6E56` / `#5DCAA5`
+  - TRAJECTORY: `#993556` / `#ED93B1`
+  - STATS: `#5F5E5A` / `#B4B2A9`
+- Theme resolution: `useIsDarkMode()` hook reads `window.matchMedia('(prefers-color-scheme: dark)')` and picks the matching hex
+- Semantic colors are one-to-one and off-limits for categories:
+  - Amber = champion/podium
+  - Green = positive delta
+  - Red = negative delta
+  - Blue = interactivity/active state
+- Category colors must draw from unassigned palette stops — never reuse a semantic color
+
 ## Poll phase logic
 - inSeason → AP Poll
 - postseason → CFP Rankings

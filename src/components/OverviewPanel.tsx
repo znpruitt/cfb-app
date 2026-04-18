@@ -11,6 +11,9 @@ import {
   deriveOverviewInsights,
   type Insight,
 } from '../lib/selectors/insights';
+import { getCategoryConfig } from '../lib/insightCategories';
+import type { LifecycleState } from '../lib/insights/types';
+import { prefersDarkMode } from '../lib/ownerColors';
 import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
@@ -916,7 +919,7 @@ function FeaturedGamesList({
   );
 }
 
-function insightHref(
+export function insightHref(
   target: Insight['navigationTarget'] | undefined,
   leagueSlug?: string
 ): string | null {
@@ -925,43 +928,146 @@ function insightHref(
   if (target === 'standings') return `${base}/standings`;
   if (target === 'trends') return `${base}/standings?view=trends#trends`;
   if (target === 'matchup') return `${base}/matchups`;
+  if (target === 'history') return `${base}/history`;
   return null;
 }
 
-function HighlightList({
+function useIsDarkMode(): boolean {
+  const [isDark, setIsDark] = React.useState<boolean>(() => prefersDarkMode());
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent): void => setIsDark(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isDark;
+}
+
+function InsightRow({
+  insight,
+  leagueSlug,
+  isFirst,
+  isDark,
+}: {
+  insight: Insight;
+  leagueSlug?: string;
+  isFirst: boolean;
+  isDark: boolean;
+}): React.ReactElement {
+  const href = insightHref(insight.navigationTarget, leagueSlug);
+  const categoryConfig = getCategoryConfig(insight.category);
+  const categoryColor = isDark ? categoryConfig.darkColor : categoryConfig.lightColor;
+  const titleSize = isFirst ? 'text-[15px]' : 'text-[14px]';
+  const rowPadding = isFirst ? 'py-2.5' : 'py-2';
+
+  const body = (
+    <div className="flex min-h-[44px] items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <p
+          className="text-[10px] font-semibold uppercase"
+          style={{ letterSpacing: '0.08em', color: categoryColor }}
+        >
+          {categoryConfig.label}
+        </p>
+        <p className={`${titleSize} font-medium text-gray-950 dark:text-zinc-50`}>
+          {insight.title}
+        </p>
+        <p className="mt-0.5 text-[13px] text-gray-500 dark:text-zinc-400">{insight.description}</p>
+      </div>
+      {href ? (
+        <span
+          aria-hidden="true"
+          className="shrink-0 pt-1 text-[13px] text-gray-400 dark:text-zinc-500"
+        >
+          →
+        </span>
+      ) : null}
+    </div>
+  );
+
+  const rowClasses = `block border-b border-gray-200 ${rowPadding} dark:border-zinc-800 last:border-b-0`;
+
+  if (href) {
+    return (
+      <Link href={href} className={`${rowClasses} hover:bg-gray-50/60 dark:hover:bg-zinc-800/40`}>
+        {body}
+      </Link>
+    );
+  }
+  return <div className={rowClasses}>{body}</div>;
+}
+
+function SeasonRecapRow({
+  leagueSlug,
+  currentYear,
+  isFirst,
+}: {
+  leagueSlug?: string;
+  currentYear: number;
+  isFirst: boolean;
+}): React.ReactElement {
+  const href = `${leagueSlug ? `/league/${leagueSlug}` : ''}/history`;
+  const titleSize = isFirst ? 'text-[15px]' : 'text-[14px]';
+  const rowPadding = isFirst ? 'py-2.5' : 'py-2';
+
+  return (
+    <Link
+      href={href}
+      className={`block border-b border-gray-200 ${rowPadding} hover:bg-gray-50/60 dark:border-zinc-800 dark:hover:bg-zinc-800/40`}
+    >
+      <div className="flex min-h-[44px] items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className={`${titleSize} font-semibold text-gray-950 dark:text-zinc-50`}>
+            {currentYear} Season Recap
+          </p>
+          <p className="mt-0.5 text-[13px] text-gray-500 dark:text-zinc-400">
+            Review the full {currentYear} season — champion, standings, and highlights.
+          </p>
+        </div>
+        <span
+          aria-hidden="true"
+          className="shrink-0 pt-1 text-[13px] text-gray-400 dark:text-zinc-500"
+        >
+          →
+        </span>
+      </div>
+    </Link>
+  );
+}
+
+function InsightsList({
   insights,
   leagueSlug,
+  lifecycleState,
+  currentYear,
 }: {
   insights: Insight[];
   leagueSlug?: string;
+  lifecycleState?: LifecycleState;
+  currentYear?: number;
 }): React.ReactElement | null {
-  if (insights.length === 0) return null;
+  const isDark = useIsDarkMode();
+  const isFreshOffseason = lifecycleState === 'fresh_offseason';
+  const showRecap = isFreshOffseason && typeof currentYear === 'number';
+
+  const rows = insights.slice(0, showRecap ? 4 : 5);
+  if (!showRecap && rows.length === 0) return null;
 
   return (
     <div>
-      {insights.map((insight) => {
-        const href = insightHref(insight.navigationTarget, leagueSlug);
-        return (
-          <article
-            key={insight.id}
-            className="border-b border-gray-100 py-2 last:border-b-0 dark:border-zinc-800"
-          >
-            {href ? (
-              <Link
-                href={href}
-                className="text-sm font-semibold text-gray-900 underline-offset-2 hover:underline dark:text-zinc-100"
-              >
-                {insight.title}
-              </Link>
-            ) : (
-              <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                {insight.title}
-              </p>
-            )}
-            <p className="mt-0.5 text-sm text-gray-600 dark:text-zinc-300">{insight.description}</p>
-          </article>
-        );
-      })}
+      {showRecap ? (
+        <SeasonRecapRow leagueSlug={leagueSlug} currentYear={currentYear!} isFirst={true} />
+      ) : null}
+      {rows.map((insight, idx) => (
+        <InsightRow
+          key={insight.id}
+          insight={insight}
+          leagueSlug={leagueSlug}
+          isFirst={!showRecap && idx === 0}
+          isDark={isDark}
+        />
+      ))}
     </div>
   );
 }
@@ -1140,6 +1246,8 @@ type OverviewPanelProps = {
   standingsHistory?: StandingsHistory | null;
   leagueSlug?: string;
   engineInsights?: Insight[];
+  lifecycleState?: LifecycleState;
+  currentYear?: number;
 };
 
 export default function OverviewPanel({
@@ -1162,6 +1270,8 @@ export default function OverviewPanel({
   standingsHistory = null,
   leagueSlug,
   engineInsights = [],
+  lifecycleState,
+  currentYear,
 }: OverviewPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
@@ -1227,12 +1337,12 @@ export default function OverviewPanel({
     const seen = new Set(ranked.map((i) => i.id));
     const merged: Insight[] = [...ranked];
     for (const insight of existing) {
-      if (merged.length >= 3) break;
+      if (merged.length >= 5) break;
       if (seen.has(insight.id)) continue;
       seen.add(insight.id);
       merged.push(insight);
     }
-    return merged.slice(0, 3);
+    return merged.slice(0, 5);
   }, [standingsHistory, standingsLeaders, engineInsights]);
 
   const positionDeltaData = React.useMemo(() => {
@@ -1316,12 +1426,25 @@ export default function OverviewPanel({
               ctaClasses={ctaClasses}
             />
             {/* Column 3: Insights */}
-            {sharedInsights.length > 0 ? (
+            {sharedInsights.length > 0 || lifecycleState === 'fresh_offseason' ? (
               <div className="min-w-0">
-                <p className="mb-2 text-[15px] font-medium text-gray-950 dark:text-zinc-50">
-                  Insights
-                </p>
-                <HighlightList insights={sharedInsights} leagueSlug={leagueSlug} />
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">
+                    Insights
+                  </p>
+                  <Link
+                    href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/insights`}
+                    className={ctaClasses}
+                  >
+                    See all →
+                  </Link>
+                </div>
+                <InsightsList
+                  insights={sharedInsights}
+                  leagueSlug={leagueSlug}
+                  lifecycleState={lifecycleState}
+                  currentYear={currentYear}
+                />
               </div>
             ) : null}
           </div>

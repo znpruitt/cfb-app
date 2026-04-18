@@ -84,6 +84,7 @@ import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import type { Insight as EngineInsight } from '../lib/selectors/insights';
+import type { LifecycleState } from '../lib/insights/types';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -293,6 +294,9 @@ export default function CFBScheduleApp({
   const [draftCurrentRound, setDraftCurrentRound] = useState<number | null>(null);
 
   const [engineInsights, setEngineInsights] = useState<EngineInsight[]>([]);
+  const [insightsLifecycleState, setInsightsLifecycleState] = useState<LifecycleState | undefined>(
+    undefined
+  );
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
@@ -1026,19 +1030,31 @@ export default function CFBScheduleApp({
   useEffect(() => {
     if (!leagueSlug) {
       setEngineInsights([]);
+      setInsightsLifecycleState(undefined);
       return;
     }
     let cancelled = false;
     fetch(`/api/insights/${encodeURIComponent(leagueSlug)}?year=${selectedSeason}`, {
       cache: 'no-store',
     })
-      .then((res) => (res.ok ? (res.json() as Promise<{ insights?: EngineInsight[] }>) : null))
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<{
+              insights?: EngineInsight[];
+              lifecycleState?: LifecycleState;
+            }>)
+          : null
+      )
       .then((data) => {
         if (cancelled) return;
         setEngineInsights(Array.isArray(data?.insights) ? data!.insights! : []);
+        setInsightsLifecycleState(data?.lifecycleState);
       })
       .catch(() => {
-        if (!cancelled) setEngineInsights([]);
+        if (!cancelled) {
+          setEngineInsights([]);
+          setInsightsLifecycleState(undefined);
+        }
       });
     return () => {
       cancelled = true;
@@ -1767,6 +1783,8 @@ export default function CFBScheduleApp({
                   onOpenHighlightTarget={onOpenHighlightTarget}
                   leagueSlug={leagueSlug}
                   engineInsights={engineInsights}
+                  lifecycleState={insightsLifecycleState}
+                  currentYear={selectedSeason}
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
