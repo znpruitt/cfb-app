@@ -244,9 +244,15 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
           : `${leaderOwner} extends the all-time scoring lead with ${formatNumber(leaderPoints)} career league points.`;
         break;
       case 'narrowing_gap':
-        description = second
-          ? `${second.owner} is closing in — just ${formatNumber(gap)} career points behind ${leaderOwner} in the all-time scoring race.`
-          : `${leaderOwner} still leads all-time with ${formatNumber(leaderPoints)} career league points.`;
+        if (second) {
+          const ratio = gap / leaderPoints;
+          description =
+            ratio <= POINTS_CLOSE_RATIO
+              ? `${second.owner} is closing in — just ${formatNumber(gap)} career points behind ${leaderOwner} in the all-time scoring race — the closest it's ever been.`
+              : `${second.owner} is closing in — just ${formatNumber(gap)} career points behind ${leaderOwner} in the all-time scoring race.`;
+        } else {
+          description = `${leaderOwner} still leads all-time with ${formatNumber(leaderPoints)} career league points.`;
+        }
         break;
       case 'returning_leader':
         description = `${leaderOwner} reclaims the all-time scoring lead with ${formatNumber(leaderPoints)} career points.`;
@@ -258,13 +264,6 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
       default:
         description = `${leaderOwner} takes the all-time scoring lead with ${formatNumber(leaderPoints)} career points.`;
         break;
-    }
-    // If close gap triggers a special closing-race callout, override description.
-    if (hook !== 'milestone_crossed' && second) {
-      const ratio = gap / leaderPoints;
-      if (ratio <= POINTS_CLOSE_RATIO && gap > 0 && hook !== 'narrowing_gap') {
-        description = `${leaderOwner} leads ${second.owner} ${formatNumber(leaderPoints)} to ${formatNumber(second.totalPoints)} in the all-time scoring race — the closest it's ever been.`;
-      }
     }
   }
 
