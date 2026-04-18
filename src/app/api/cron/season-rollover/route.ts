@@ -19,7 +19,7 @@ type CronResult = {
   year?: number;
   success?: boolean;
   leaguesRolledOver?: string[];
-  suppressionRecordsCleared?: number;
+  suppressionClearedFor?: string[];
   errors?: RolloverError[];
 };
 
@@ -76,6 +76,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     }
 
     const leaguesRolledOver: string[] = [];
+    const suppressionClearedFor: string[] = [];
     const errors: RolloverError[] = [];
 
     for (const league of seasonLeagues) {
@@ -98,16 +99,17 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           leagueSlug: league.slug,
           error: `status write failed: ${err instanceof Error ? err.message : 'unknown error'}`,
         });
+        continue;
       }
-    }
 
-    // Clear insights suppression records so the next season starts with a clean
-    // slate. Non-blocking — a failure here does not fail the rollover.
-    let suppressionRecordsCleared = 0;
-    try {
-      suppressionRecordsCleared = await clearAllSuppressionRecords();
-    } catch {
-      suppressionRecordsCleared = 0;
+      // Only clear suppression after both archive and status update succeeded.
+      // Non-blocking — a failure here does not fail the rollover.
+      try {
+        await clearAllSuppressionRecords(league.slug, year);
+        suppressionClearedFor.push(league.slug);
+      } catch {
+        // Suppression clear is best-effort; rollover already succeeded.
+      }
     }
 
     return NextResponse.json({
@@ -115,7 +117,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       year,
       rolloverDate,
       leaguesRolledOver,
-      suppressionRecordsCleared,
+      suppressionClearedFor,
       errors,
     });
   } catch (err) {

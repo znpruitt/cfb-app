@@ -8,7 +8,11 @@ import {
 } from '../server/appStateStore';
 import type { NewsHook } from './types';
 
-const SCOPE = 'insights-suppression';
+const SCOPE_PREFIX = 'insights-suppression';
+
+function scopeFor(leagueSlug: string, season: number): string {
+  return `${SCOPE_PREFIX}:${leagueSlug}:${season}`;
+}
 
 export type SuppressionRecord = {
   insightId: string;
@@ -62,13 +66,17 @@ function primaryOwner(insight: Insight): string {
   return insight.owner ?? insight.owners?.[0] ?? '';
 }
 
-export async function loadSuppressionRecords(): Promise<Map<string, SuppressionRecord>> {
+export async function loadSuppressionRecords(
+  leagueSlug: string,
+  season: number
+): Promise<Map<string, SuppressionRecord>> {
+  const scope = scopeFor(leagueSlug, season);
   try {
-    const keys = await listAppStateKeys(SCOPE);
+    const keys = await listAppStateKeys(scope);
     const records = new Map<string, SuppressionRecord>();
     await Promise.all(
       keys.map(async (key) => {
-        const record = await getAppState<SuppressionRecord>(SCOPE, key).catch(() => null);
+        const record = await getAppState<SuppressionRecord>(scope, key).catch(() => null);
         if (record?.value) records.set(key, record.value);
       })
     );
@@ -78,18 +86,30 @@ export async function loadSuppressionRecords(): Promise<Map<string, SuppressionR
   }
 }
 
-export async function saveSuppressionRecord(record: SuppressionRecord): Promise<void> {
+export async function saveSuppressionRecord(
+  record: SuppressionRecord,
+  leagueSlug: string,
+  season: number
+): Promise<void> {
   try {
-    await setAppState(SCOPE, buildKey(record.insightId, record.hook), record);
+    await setAppState(
+      scopeFor(leagueSlug, season),
+      buildKey(record.insightId, record.hook),
+      record
+    );
   } catch {
     // Non-blocking: storage failure does not prevent insights from serving.
   }
 }
 
-export async function clearAllSuppressionRecords(): Promise<number> {
+export async function clearAllSuppressionRecords(
+  leagueSlug: string,
+  season: number
+): Promise<number> {
+  const scope = scopeFor(leagueSlug, season);
   try {
-    const keys = await listAppStateKeys(SCOPE);
-    await Promise.all(keys.map((key) => deleteAppState(SCOPE, key).catch(() => undefined)));
+    const keys = await listAppStateKeys(scope);
+    await Promise.all(keys.map((key) => deleteAppState(scope, key).catch(() => undefined)));
     return keys.length;
   } catch {
     return 0;

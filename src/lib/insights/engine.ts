@@ -36,7 +36,7 @@ export async function runInsightsEngine(
   // 1. Load suppression records (non-blocking — empty map on failure).
   const records = bypassSuppression
     ? new Map()
-    : await loadSuppressionRecords().catch(() => new Map());
+    : await loadSuppressionRecords(context.leagueSlug, context.currentYear).catch(() => new Map());
 
   // 2. Run all lifecycle-matching generators with try/catch isolation.
   const raw = generators
@@ -62,7 +62,11 @@ export async function runInsightsEngine(
   if (!bypassSuppression) {
     await Promise.all(
       top.map((insight) =>
-        saveSuppressionRecord(toSuppressionRecord(insight)).catch(() => undefined)
+        saveSuppressionRecord(
+          toSuppressionRecord(insight),
+          context.leagueSlug,
+          context.currentYear
+        ).catch(() => undefined)
       )
     );
   }
