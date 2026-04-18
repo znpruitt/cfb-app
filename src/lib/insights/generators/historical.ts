@@ -1,7 +1,7 @@
 import type { Insight } from '../../selectors/insights';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import type { InsightContext, InsightGenerator, LifecycleState } from '../types';
+import type { InsightContext, InsightGenerator, LifecycleState, NewsHook } from '../types';
 
 const HISTORICAL_LIFECYCLES: LifecycleState[] = [
   'early_season',
@@ -39,6 +39,8 @@ function toInsight(params: {
   relatedOwners?: string[];
   priorityScore: number;
   lifecycle: LifecycleState[];
+  newsHook: NewsHook;
+  statValue: number;
 }): Insight {
   const { owner, relatedOwners = [], priorityScore } = params;
   return {
@@ -149,13 +151,18 @@ function deriveDroughtInsight(
   const ownerNames = tied.map((e) => e.owner);
   const nameList = formatOwnerList(ownerNames);
 
+  // Hook: never_won if every tied owner has no title; otherwise streak_extended.
+  const hook: NewsHook = allNeverWon ? 'never_won' : 'streak_extended';
+
   let description: string;
-  if (tied.length === 1) {
-    description = tied[0]!.neverWon
-      ? `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`
-      : `${nameList} hasn't won a title in ${longestDrought} seasons.`;
-  } else if (allNeverWon) {
-    description = `${nameList} have never won a title in ${longestDrought} seasons.`;
+  if (hook === 'never_won') {
+    if (tied.length === 1) {
+      description = `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`;
+    } else {
+      description = `${nameList} have never won a title in ${longestDrought} seasons.`;
+    }
+  } else if (tied.length === 1) {
+    description = `${nameList} hasn't won a title in ${longestDrought} seasons — still waiting for another ring.`;
   } else {
     description = `${nameList} haven't won a title in ${longestDrought} seasons.`;
   }
@@ -169,6 +176,8 @@ function deriveDroughtInsight(
     relatedOwners: ownerNames.slice(1),
     priorityScore: priority,
     lifecycle: lifecycles,
+    newsHook: hook,
+    statValue: longestDrought,
   });
 }
 
@@ -210,16 +219,27 @@ function deriveDynastyInsight(
     DYNASTY_BASE_PRIORITY + DYNASTY_PER_TITLE_BONUS * maxCount
   );
 
+  const latestYear = sorted[sorted.length - 1]!.year;
+  // Did the current leader(s) add a title this year?
+  const wonThisYear = tied.some((owner) => lastTitleYear.get(owner) === latestYear);
+
   if (tied.length === 1) {
     const topOwner = tied[0]!;
+    const hook: NewsHook = wonThisYear ? 'streak_extended' : 'new_leader';
+    const description =
+      hook === 'streak_extended'
+        ? `${topOwner} adds another title — now ${maxCount} in league history, the most ever.`
+        : `${topOwner} now leads all-time with ${maxCount} titles — the most in league history.`;
     return toInsight({
       id: `historical-dynasty-${ownerSlug(topOwner)}`,
       type: 'dynasty',
       title: 'Dynasty on record',
-      description: `${topOwner} owns ${maxCount} league titles — the most in league history.`,
+      description,
       owner: topOwner,
       priorityScore: priority,
       lifecycle: lifecycles,
+      newsHook: hook,
+      statValue: maxCount,
     });
   }
 
@@ -230,9 +250,10 @@ function deriveDynastyInsight(
   const othersAtSameYear = tied.filter((o) => (lastTitleYear.get(o) ?? 0) === mostRecentYear);
 
   const allNames = tied.join(' and ');
+  // Shared top honors: returning_leader when somebody ties a prior dynasty.
+  const hook: NewsHook = 'returning_leader';
   let description: string;
   if (othersAtSameYear.length > 1) {
-    // Tied in recency too
     description = `${allNames} each own ${maxCount} league titles — the most in league history.`;
   } else {
     const others = tied.filter((o) => o !== mostRecent);
@@ -249,6 +270,8 @@ function deriveDynastyInsight(
     relatedOwners: tied.slice(1),
     priorityScore: priority,
     lifecycle: lifecycles,
+    newsHook: hook,
+    statValue: maxCount,
   });
 }
 
@@ -297,10 +320,32 @@ function deriveMostImprovedInsight(
 
   const ownerNames = tied.map((e) => e.owner);
   const nameList = formatOwnerList(ownerNames);
+
+  // Determine if this is the largest single-year leap in all recorded history.
+  let allTimeBest = bestImprovement;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const a = sorted[i - 1]!;
+    const b = sorted[i]!;
+    for (const row of b.finalStandings) {
+      if (!isEligibleOwner(row.owner)) continue;
+      const prevPos = positionOf(a, row.owner);
+      const currPos = positionOf(b, row.owner);
+      if (prevPos == null || currPos == null) continue;
+      const leap = prevPos - currPos;
+      if (leap > allTimeBest) allTimeBest = leap;
+    }
+  }
+  const hook: NewsHook = bestImprovement >= allTimeBest ? 'new_record' : 'streak_extended';
+
   let description: string;
-  if (tied.length === 1) {
+  if (hook === 'new_record') {
+    description =
+      tied.length === 1
+        ? `${nameList} jumped ${bestImprovement} spots — the biggest single-season climb in league history.`
+        : `${nameList} each jumped ${bestImprovement} spots — tied for the biggest climb in league history.`;
+  } else if (tied.length === 1) {
     const only = tied[0]!;
-    description = `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year}.`;
+    description = `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year} — the biggest improvement of the season.`;
   } else {
     description = `${nameList} each jumped ${bestImprovement} positions between ${prev.year} and ${curr.year}.`;
   }
@@ -314,6 +359,8 @@ function deriveMostImprovedInsight(
     relatedOwners: ownerNames.slice(1),
     priorityScore: priority,
     lifecycle: lifecycles,
+    newsHook: hook,
+    statValue: bestImprovement,
   });
 }
 
@@ -363,10 +410,38 @@ function deriveConsistencyInsight(
   if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
 
   const nameList = formatOwnerList(tied);
-  const description =
-    tied.length === 1
-      ? `${nameList} has finished in the top three ${maxCount} seasons on record.`
-      : `${nameList} have each finished in the top three in ${maxCount} seasons.`;
+
+  // Did the tied leader(s) just add a top-3 this year?
+  const latestArchive = [...archives].sort((a, b) => a.year - b.year)[archives.length - 1];
+  const justAddedTopThree = latestArchive
+    ? latestArchive.finalStandings.slice(0, 3).some((row) => tied.includes(row.owner))
+    : false;
+
+  // Compute all-time max across all owners (active or not) to determine if this is a record.
+  const allTimeMax = Array.from(topThreeCounts.values()).reduce((m, v) => Math.max(m, v), 0);
+  const isRecord = maxCount >= allTimeMax;
+
+  let hook: NewsHook;
+  let description: string;
+  if (justAddedTopThree && isRecord) {
+    hook = 'streak_extended';
+    description =
+      tied.length === 1
+        ? `${nameList} finishes top-3 again — ${maxCount} times in league history, the most ever.`
+        : `${nameList} each finish top-3 again — ${maxCount} times in league history, the most ever.`;
+  } else if (isRecord) {
+    hook = 'new_record';
+    description =
+      tied.length === 1
+        ? `${nameList} has finished in the top three ${maxCount} times — the most consistent performer in league history.`
+        : `${nameList} have each finished in the top three ${maxCount} times — the most consistent performers in league history.`;
+  } else {
+    hook = 'snapshot';
+    description =
+      tied.length === 1
+        ? `${nameList} has finished in the top three ${maxCount} seasons on record.`
+        : `${nameList} have each finished in the top three in ${maxCount} seasons.`;
+  }
 
   return toInsight({
     id: `historical-consistency-${tied.map(ownerSlug).join('-')}`,
@@ -377,6 +452,8 @@ function deriveConsistencyInsight(
     relatedOwners: tied.slice(1),
     priorityScore: CONSISTENCY_PRIORITY,
     lifecycle: lifecycles,
+    newsHook: hook,
+    statValue: maxCount,
   });
 }
 

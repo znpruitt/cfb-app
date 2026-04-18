@@ -47,17 +47,44 @@
 
 ---
 
-### Copy Variation Architecture — Decided (not yet built)
+### Copy Variation Architecture — Complete
 
-**Status:** Architecture decision complete; implementation queued.
+**Status:** Complete.
+**PROMPT_IDs:** INSIGHTS-016, INSIGHTS-016-COPY-VARIATION, INSIGHTS-016-COPY-FIX, INSIGHTS-016-CR-FIXES
+
+**Key outcomes:**
+- INSIGHTS-016: `newsHook` (11 types: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `streak_started`, `new_leader`, `returning_leader`, `never_won`, `new_record`, `challenger_emerging`, `snapshot`) and `statValue: number` added as required fields on `Insight` type
+- `src/lib/insights/suppression.ts` created — per-league, per-season suppression scope (`insights-suppression:{leagueSlug}:{season}`), per-type threshold table (`abs`, `pct`, `unchanged`, `snapshot`), NEVER_SUPPRESS set (`milestone_watch`, `perfect_against`, `rookie_benchmark`); exports: `loadSuppressionRecords`, `saveSuppressionRecord`, `clearAllSuppressionRecords`, `isSuppressed`, `toSuppressionRecord`
+- Engine upgraded to async — loads suppression records pre-filter, applies `isSuppressed()` gate, sorts and slices top 10, writes records post-cut; all suppression I/O non-blocking
+- Per-generator hook selection and copy templates across all 8 generator files — deterministic hook-driven selection, 2–5 templates per insight type, no random rotation
+- Playful copy implemented: `dominance_streak` ("living rent-free"), `drought`, `volatility`, `title_chaser`
+- `?bypassSuppression=1` query param on insights API bypasses suppression gate for admin/debug use
+- Season rollover cron clears suppression records per successfully rolled league (gated behind both archive + status update succeeding)
+- INSIGHTS-016-COPY-FIX: `career_points_leader` `extending_lead`/`narrowing_gap` hook mismatch fixed — post-hoc override block removed; "closest it's ever been" copy now lives in the `narrowing_gap` template branch only
+- INSIGHTS-016-CR-FIXES: suppression storage scoped by `leagueSlug` + `season` (was global); rollover suppression clear moved inside per-league success path; response reports `suppressionClearedFor: string[]`
+
+**Key architectural decisions:**
+- Hook computation is pure — derived from `InsightContext` data (archives, standings, career stats) only, never from prior suppression records
+- Suppression key = `insightId + hook`; owner change (different owner holds the lead) treats the insight as new, never suppressed
+- `statValue` is a single `number` per insight — the primary numeric measure used for threshold comparison
+- Snapshot generators (`team_identity`, `greatest_season`, `clock_crusher`) get `newsHook: 'snapshot'` — suppressed after first fire per league-season
+
+---
+
+### Insights Panel UI Direction — Decided (not yet built)
+
+**Status:** Design decisions complete; implementation queued.
 
 **Key decisions:**
-- Templates + dynamic emphasis + suppression gate + news hooks — no AI copy except for pairing cards
-- News hook field to be added to all generators: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `new_leader`, `returning_leader`
-- Suppression gate: suppress if same owner, same hook, no threshold change since last fire
-- Dynamic emphasis: copy template selected by news hook, not randomly rotated
-- AI copy reserved for pairing cards only (highest narrative density)
-- Pairing architecture: post-processing pass after all generators run; pairing priority = `max(A, B) + 10`; pairings consume the constituent insights by default
+- 5 insights displayed (not 3)
+- First insight 15px, rest 14px — typographic hierarchy without cards
+- 10px uppercase category microlabel above each title
+- Owner names in assigned color, regular weight
+- Full row tappable; `→` navigation always visible at 13px muted
+- "See all →" link to dedicated insights page
+- Mobile: full-width section, no tab strip, no horizontal scroll
+- `fresh_offseason` only: featured slot becomes "2025 Season Recap" card
+- Owner color map passed as prop from canonical standings source
 
 ---
 

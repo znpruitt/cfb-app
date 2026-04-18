@@ -1,6 +1,12 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
-import type { InsightContext, InsightGenerator, LifecycleState, OwnerCareerStats } from '../types';
+import type {
+  InsightContext,
+  InsightGenerator,
+  LifecycleState,
+  NewsHook,
+  OwnerCareerStats,
+} from '../types';
 import { collectHeadToHead, type HeadToHeadResult } from './rivalry';
 
 const NO_CLAIM_OWNER = 'NoClaim';
@@ -45,6 +51,8 @@ function toInsight(params: {
   relatedOwners?: string[];
   priorityScore: number;
   lifecycle: LifecycleState[];
+  newsHook: NewsHook;
+  statValue: number;
 }): Insight {
   const { owner, relatedOwners = [], priorityScore } = params;
   return {
@@ -158,6 +166,8 @@ function deriveMilestoneWatch(context: InsightContext): Insight | null {
     owner: event.owner,
     priorityScore: priority,
     lifecycle: EVERGREEN_LIFECYCLES,
+    newsHook: 'milestone_crossed',
+    statValue: event.milestone,
   });
 }
 
@@ -212,7 +222,12 @@ function derivePerfectAgainst(context: InsightContext): Insight | null {
   if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
 
   const best = tied[0]!;
-  const description = `${best.dominant} is ${best.wins}-0 all time against ${best.loser} — a perfect record across ${best.meetings} meetings.`;
+  // First time this insight can fire (at MIN_PERFECT_MEETINGS) is treated as a new record.
+  const hook: NewsHook = best.meetings === MIN_PERFECT_MEETINGS ? 'new_record' : 'streak_extended';
+  const description =
+    hook === 'new_record'
+      ? `${best.dominant} is ${best.wins}-0 all time against ${best.loser} — a perfect record across ${best.meetings} meetings.`
+      : `${best.dominant} stays perfect against ${best.loser} — now ${best.wins}-0 across ${best.meetings} meetings.`;
 
   return toInsight({
     id: `perfect-against-${ownerSlug(best.dominant)}-${ownerSlug(best.loser)}`,
@@ -223,6 +238,8 @@ function derivePerfectAgainst(context: InsightContext): Insight | null {
     relatedOwners: [best.loser],
     priorityScore: 78,
     lifecycle: EVERGREEN_LIFECYCLES,
+    newsHook: hook,
+    statValue: best.wins,
   });
 }
 

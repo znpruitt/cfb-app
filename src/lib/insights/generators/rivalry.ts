@@ -3,7 +3,7 @@ import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import type { InsightContext, InsightGenerator, LifecycleState } from '../types';
+import type { InsightContext, InsightGenerator, LifecycleState, NewsHook } from '../types';
 
 const RIVALRY_LIFECYCLES: LifecycleState[] = [
   'early_season',
@@ -56,6 +56,8 @@ function toInsight(params: {
   relatedOwners?: string[];
   priorityScore: number;
   lifecycle: LifecycleState[];
+  newsHook: NewsHook;
+  statValue: number;
 }): Insight {
   const { owner, relatedOwners = [], priorityScore } = params;
   return {
@@ -195,15 +197,34 @@ function deriveLopsidedInsight(
     LOPSIDED_BASE_PRIORITY + LOPSIDED_PER_WIN_DIFF_BONUS * bestDiff
   );
 
+  // Compute all-time max win differential across every qualifying pair.
+  let allTimeMaxDiff = 0;
+  for (const [key, results] of pairs) {
+    if (results.length < MIN_LOPSIDED_MEETINGS) continue;
+    const [a, b] = pairOwners(key);
+    if (!activeOwners.has(a) || !activeOwners.has(b)) continue;
+    const wins = countWins(results);
+    const diff = Math.abs((wins.get(a) ?? 0) - (wins.get(b) ?? 0));
+    if (diff > allTimeMaxDiff) allTimeMaxDiff = diff;
+  }
+  const hook: NewsHook = bestDiff >= allTimeMaxDiff ? 'new_record' : 'streak_extended';
+
+  const description =
+    hook === 'new_record'
+      ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`
+      : `${bestDominant} extends the all-time series lead over ${bestLoser} to ${bestDominantWins}–${bestLoserWins}.`;
+
   return toInsight({
     id: `rivalry-lopsided-${ownerSlug(bestDominant)}-${ownerSlug(bestLoser)}`,
     type: 'lopsided_rivalry',
     title: 'Most lopsided rivalry',
-    description: `${bestDominant} leads the all-time series against ${bestLoser} ${bestDominantWins}–${bestLoserWins}.`,
+    description,
     owner: bestDominant,
     relatedOwners: [bestLoser],
     priorityScore: priority,
     lifecycle: lifecycles,
+    newsHook: hook,
+    statValue: bestDiff,
   });
 }
 
@@ -260,6 +281,8 @@ function deriveEvenRivalryInsight(
     relatedOwners: [bestOwnerB],
     priorityScore: EVEN_PRIORITY,
     lifecycle: lifecycles,
+    newsHook: 'streak_extended',
+    statValue: bestMeetings,
   });
 }
 
@@ -307,15 +330,49 @@ function deriveDominanceStreakInsight(
     DOMINANCE_BASE_PRIORITY + DOMINANCE_PER_WIN_BONUS * bestLength
   );
 
+  // Look at all archived streaks (active + historical) to determine if this
+  // length is a league record.
+  let allTimeMaxStreak = 0;
+  for (const [, results] of pairs) {
+    let run = 1;
+    for (let i = 1; i < results.length; i += 1) {
+      if (results[i]!.winner === results[i - 1]!.winner) {
+        run += 1;
+        if (run > allTimeMaxStreak) allTimeMaxStreak = run;
+      } else {
+        run = 1;
+      }
+    }
+    if (run > allTimeMaxStreak) allTimeMaxStreak = run;
+  }
+
+  let hook: NewsHook;
+  let description: string;
+  if (bestLength >= allTimeMaxStreak && allTimeMaxStreak > MIN_DOMINANCE_STREAK) {
+    hook = 'new_record';
+    description = `${bestWinner} has beaten ${bestLoser} ${bestLength} straight — the longest active dominance streak in league history.`;
+  } else if (bestLength === MIN_DOMINANCE_STREAK) {
+    hook = 'streak_started';
+    description = `${bestWinner} has won ${bestLength} straight against ${bestLoser}. A pattern is emerging.`;
+  } else if (bestLength >= 8) {
+    hook = 'streak_extended';
+    description = `${bestWinner} has lived rent-free in ${bestLoser}'s head for ${bestLength} straight meetings.`;
+  } else {
+    hook = 'streak_extended';
+    description = `${bestWinner} has beaten ${bestLoser} ${bestLength} straight times. At some point this is a subscription.`;
+  }
+
   return toInsight({
     id: `rivalry-dominance-${ownerSlug(bestWinner)}-${ownerSlug(bestLoser)}`,
     type: 'dominance_streak',
     title: 'Active dominance streak',
-    description: `${bestWinner} has beaten ${bestLoser} ${bestLength} straight times.`,
+    description,
     owner: bestWinner,
     relatedOwners: [bestLoser],
     priorityScore: priority,
     lifecycle: lifecycles,
+    newsHook: hook,
+    statValue: bestLength,
   });
 }
 

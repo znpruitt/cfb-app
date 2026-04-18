@@ -1,6 +1,6 @@
 import type { SeasonContext } from './seasonContext';
 import { selectResolvedStandingsWeeks } from './historyResolution';
-import type { InsightCategory, LifecycleState } from '../insights/types';
+import type { InsightCategory, LifecycleState, NewsHook } from '../insights/types';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistory } from '../standingsHistory';
 
@@ -51,6 +51,11 @@ export type Insight = {
   category?: InsightCategory;
   lifecycle?: LifecycleState[];
   stat?: { label: string; value: string };
+  // News hook drives copy variation and suppression.
+  newsHook: NewsHook;
+  // The numeric stat the suppression gate tracks for this insight. Meaning is
+  // generator-specific (e.g. career points, streak length, win differential).
+  statValue: number;
   // Backward-compatible aliases used by existing tests/UI until full migration.
   score?: number;
   owners?: string[];
@@ -141,6 +146,8 @@ function toInsight(params: {
   category?: InsightCategory;
   lifecycle?: LifecycleState[];
   stat?: { label: string; value: string };
+  newsHook: NewsHook;
+  statValue: number;
 }): Insight {
   const { owner, relatedOwners = [], priorityScore } = params;
   return {
@@ -232,6 +239,8 @@ export function deriveMovementInsights(args: {
         navigationTarget: 'standings',
         category: 'trajectory',
         lifecycle: IN_SEASON_LIFECYCLES,
+        newsHook: 'streak_started',
+        statValue: biggestRise.rankDelta,
       })
     );
   }
@@ -252,6 +261,8 @@ export function deriveMovementInsights(args: {
         navigationTarget: 'standings',
         category: 'trajectory',
         lifecycle: IN_SEASON_LIFECYCLES,
+        newsHook: 'streak_extended',
+        statValue: dropMagnitude,
       })
     );
   }
@@ -293,6 +304,8 @@ export function deriveToiletBowlInsight(args: {
     navigationTarget: 'trends',
     category: 'season_wrap',
     lifecycle: SEASON_WRAP_LIFECYCLES,
+    newsHook: 'streak_extended',
+    statValue: lastPlaceCount,
   });
 }
 
@@ -326,6 +339,8 @@ export function deriveTightRaceInsight(args: {
     navigationTarget: 'standings',
     category: 'championship_race',
     lifecycle: RACE_LIFECYCLES,
+    newsHook: 'challenger_emerging',
+    statValue: gap,
   });
 }
 
@@ -403,6 +418,8 @@ export function deriveRecentSurgeInsight(args: {
     navigationTarget: 'trends',
     category: isLateStory ? 'season_wrap' : 'trajectory',
     lifecycle: isLateStory ? SEASON_WRAP_LIFECYCLES : IN_SEASON_LIFECYCLES,
+    newsHook: 'streak_started',
+    statValue: top.deltaWins,
   });
 }
 
@@ -433,6 +450,8 @@ export function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight 
     navigationTarget: 'standings',
     category: 'season_wrap',
     lifecycle: SEASON_WRAP_LIFECYCLES,
+    newsHook: 'new_record',
+    statValue: margin,
   });
 }
 
@@ -467,6 +486,8 @@ export function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | n
     navigationTarget: 'standings',
     category: 'season_wrap',
     lifecycle: SEASON_WRAP_LIFECYCLES,
+    newsHook: 'narrowing_gap',
+    statValue: Math.round(top.gamesBack),
   });
 }
 
@@ -518,6 +539,8 @@ export function deriveFinalCollapseInsight(args: {
     navigationTarget: 'trends',
     category: 'season_wrap',
     lifecycle: SEASON_WRAP_LIFECYCLES,
+    newsHook: 'streak_extended',
+    statValue: top.dropSpots,
   });
 }
 
@@ -559,6 +582,8 @@ export function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | 
     navigationTarget: 'standings',
     category: 'championship_race',
     lifecycle: RACE_LIFECYCLES,
+    newsHook: 'challenger_emerging',
+    statValue: bestCluster.count,
   });
 }
 

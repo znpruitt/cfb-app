@@ -1,6 +1,12 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
-import type { InsightContext, InsightGenerator, LifecycleState, OwnerSeasonStats } from '../types';
+import type {
+  InsightContext,
+  InsightGenerator,
+  LifecycleState,
+  NewsHook,
+  OwnerSeasonStats,
+} from '../types';
 
 const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
@@ -51,6 +57,8 @@ function toInsight(params: {
   relatedOwners?: string[];
   priorityScore: number;
   lifecycle: LifecycleState[];
+  newsHook: NewsHook;
+  statValue: number;
 }): Insight {
   const { owner, relatedOwners = [], priorityScore } = params;
   return {
@@ -111,6 +119,8 @@ function deriveBallSecurity(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 65,
     lifecycle: STATS_LIFECYCLES,
+    newsHook: 'snapshot',
+    statValue: Number(perGame),
   });
 }
 
@@ -157,6 +167,8 @@ function deriveTakeawayKing(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 65,
     lifecycle: STATS_LIFECYCLES,
+    newsHook: 'snapshot',
+    statValue: Number(leaderPerGame.toFixed(2)),
   });
 }
 
@@ -204,6 +216,8 @@ function deriveYardsPerWin(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 67,
     lifecycle: STATS_LIFECYCLES,
+    newsHook: 'snapshot',
+    statValue: ypw,
   });
 }
 
@@ -248,6 +262,8 @@ function deriveClockCrusher(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 60,
     lifecycle: STATS_LIFECYCLES,
+    newsHook: 'snapshot',
+    statValue: Math.round(tied[0]!.perGame),
   });
 }
 
@@ -290,6 +306,8 @@ function deriveThirdDownSpecialist(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 62,
     lifecycle: STATS_LIFECYCLES,
+    newsHook: 'snapshot',
+    statValue: Number(leaderPct),
   });
 }
 
@@ -349,6 +367,8 @@ function deriveTeamIdentity(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 58,
     lifecycle: EVERGREEN_LIFECYCLES,
+    newsHook: 'snapshot',
+    statValue: Number(pct),
   });
 }
 

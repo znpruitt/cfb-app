@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { buildSeasonArchive, findNationalChampionshipGameDate } from '@/lib/seasonRollover';
@@ -18,6 +19,7 @@ type CronResult = {
   year?: number;
   success?: boolean;
   leaguesRolledOver?: string[];
+  suppressionClearedFor?: string[];
   errors?: RolloverError[];
 };
 
@@ -74,6 +76,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     }
 
     const leaguesRolledOver: string[] = [];
+    const suppressionClearedFor: string[] = [];
     const errors: RolloverError[] = [];
 
     for (const league of seasonLeagues) {
@@ -96,6 +99,16 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           leagueSlug: league.slug,
           error: `status write failed: ${err instanceof Error ? err.message : 'unknown error'}`,
         });
+        continue;
+      }
+
+      // Only clear suppression after both archive and status update succeeded.
+      // Non-blocking — a failure here does not fail the rollover.
+      try {
+        await clearAllSuppressionRecords(league.slug, year);
+        suppressionClearedFor.push(league.slug);
+      } catch {
+        // Suppression clear is best-effort; rollover already succeeded.
       }
     }
 
@@ -104,6 +117,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       year,
       rolloverDate,
       leaguesRolledOver,
+      suppressionClearedFor,
       errors,
     });
   } catch (err) {
