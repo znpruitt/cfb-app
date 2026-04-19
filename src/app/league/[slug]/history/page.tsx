@@ -112,12 +112,14 @@ export default async function LeagueHistoryPage({
         activeTab="history"
       >
         <div className="mx-auto max-w-5xl">
-          <ChampionshipsBanner
-            history={championshipHistory}
-            slug={slug}
-            currentSeasonYear={liveStandings !== undefined ? activeYear : undefined}
-            currentLeader={liveStandings?.find((r) => r.owner !== 'NoClaim')?.owner}
-          />
+          <section id="championships" className="scroll-mt-4">
+            <ChampionshipsBanner
+              history={championshipHistory}
+              slug={slug}
+              currentSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+              currentLeader={liveStandings?.find((r) => r.owner !== 'NoClaim')?.owner}
+            />
+          </section>
 
           <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
             {/* Left column — 60% */}
@@ -134,16 +136,20 @@ export default async function LeagueHistoryPage({
             {/* Right column — 40% */}
             <div className="flex flex-col gap-6 lg:col-span-2">
               {topRivalries.length > 0 && (
-                <AllTimeHeadToHeadPanel
-                  rivalries={topRivalries}
-                  allH2H={allTimeH2H}
-                  slug={slug}
-                  activeOwners={activeOwnersList.length > 0 ? activeOwnersList : undefined}
-                />
+                <section id="rivalries" className="scroll-mt-4">
+                  <AllTimeHeadToHeadPanel
+                    rivalries={topRivalries}
+                    allH2H={allTimeH2H}
+                    slug={slug}
+                    activeOwners={activeOwnersList.length > 0 ? activeOwnersList : undefined}
+                  />
+                </section>
               )}
               {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
               {dynastyDrought.rows.length > 0 && (
-                <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
+                <section id="dynasty-drought" className="scroll-mt-4">
+                  <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
+                </section>
               )}
             </div>
           </div>

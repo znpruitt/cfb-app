@@ -1300,7 +1300,7 @@ export default function CFBScheduleApp({
               ? leagueStatus.year
               : (leagueYear ?? selectedSeason);
 
-          // Shared banner wrapper: left-border accent, dark bg, right-side radius only
+          // Shared banner wrapper: left-border accent + right-side radius only
           const bannerBase: React.CSSProperties = {
             display: 'flex',
             alignItems: 'center',
@@ -1312,6 +1312,48 @@ export default function CFBScheduleApp({
             fontSize: '14px',
           };
 
+          // Theme-aware palettes per banner variant. Dark values preserve prior
+          // appearance; light values use muted tinted surfaces for contrast on white.
+          const palette = {
+            offseason: isDark
+              ? { border: '#374151', background: '#111111', text: '#9ca3af' }
+              : { border: '#9ca3af', background: '#f3f4f6', text: '#4b5563' },
+            draft: isDark
+              ? {
+                  border: '#1e3a5f',
+                  background: '#111827',
+                  text: '#bfdbfe',
+                  linkBorder: '#1d4ed8',
+                  linkBackground: '#1e3a5f',
+                  linkText: '#bfdbfe',
+                }
+              : {
+                  border: '#93c5fd',
+                  background: '#eff6ff',
+                  text: '#1d4ed8',
+                  linkBorder: '#93c5fd',
+                  linkBackground: '#dbeafe',
+                  linkText: '#1d4ed8',
+                },
+            draftComplete: isDark
+              ? {
+                  border: '#14532d',
+                  background: '#052e16',
+                  text: '#86efac',
+                  linkBorder: '#166534',
+                  linkBackground: '#14532d',
+                  linkText: '#86efac',
+                }
+              : {
+                  border: '#86efac',
+                  background: '#f0fdf4',
+                  text: '#15803d',
+                  linkBorder: '#bbf7d0',
+                  linkBackground: '#dcfce7',
+                  linkText: '#15803d',
+                },
+          };
+
           // Offseason banner
           if (leagueStatus?.state === 'offseason') {
             const now = new Date();
@@ -1321,8 +1363,14 @@ export default function CFBScheduleApp({
                 ? `${bannerYear} Season complete — see you next year`
                 : `${bannerYear + 1} Season coming soon`;
             return (
-              <div style={{ ...bannerBase, borderLeftColor: '#374151', background: '#111111' }}>
-                <span style={{ fontWeight: 500, color: '#9ca3af' }}>{message}</span>
+              <div
+                style={{
+                  ...bannerBase,
+                  borderLeftColor: palette.offseason.border,
+                  background: palette.offseason.background,
+                }}
+              >
+                <span style={{ fontWeight: 500, color: palette.offseason.text }}>{message}</span>
               </div>
             );
           }
@@ -1337,7 +1385,13 @@ export default function CFBScheduleApp({
                   @keyframes cfb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
                   @keyframes cfb-pulse-ring { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.2); opacity: 0; } }
                 `}</style>
-                  <div style={{ ...bannerBase, borderLeftColor: '#1e3a5f', background: '#111827' }}>
+                  <div
+                    style={{
+                      ...bannerBase,
+                      borderLeftColor: palette.draft.border,
+                      background: palette.draft.background,
+                    }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       {/* Pulsing live indicator dot */}
                       <div
@@ -1363,7 +1417,7 @@ export default function CFBScheduleApp({
                           }}
                         />
                       </div>
-                      <span style={{ fontWeight: 500, color: '#bfdbfe' }}>
+                      <span style={{ fontWeight: 500, color: palette.draft.text }}>
                         {draftPhase === 'live' ? (
                           <>
                             Draft is live
@@ -1380,12 +1434,12 @@ export default function CFBScheduleApp({
                       href={`/league/${leagueSlug}/draft/board`}
                       style={{
                         borderRadius: '4px',
-                        border: '1px solid #1d4ed8',
-                        background: '#1e3a5f',
+                        border: `1px solid ${palette.draft.linkBorder}`,
+                        background: palette.draft.linkBackground,
                         padding: '4px 10px',
                         fontSize: '12px',
                         fontWeight: 500,
-                        color: '#bfdbfe',
+                        color: palette.draft.linkText,
                         textDecoration: 'none',
                         transition: 'background 0.15s',
                       }}
@@ -1405,20 +1459,26 @@ export default function CFBScheduleApp({
               const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
               if (week1Start !== null && Date.now() >= week1Start) return null;
               return (
-                <div style={{ ...bannerBase, borderLeftColor: '#14532d', background: '#052e16' }}>
-                  <span style={{ fontWeight: 500, color: '#86efac' }}>
+                <div
+                  style={{
+                    ...bannerBase,
+                    borderLeftColor: palette.draftComplete.border,
+                    background: palette.draftComplete.background,
+                  }}
+                >
+                  <span style={{ fontWeight: 500, color: palette.draftComplete.text }}>
                     {bannerYear} Draft complete — view results
                   </span>
                   <Link
                     href={`/league/${leagueSlug}/draft/summary`}
                     style={{
                       borderRadius: '4px',
-                      border: '1px solid #166534',
-                      background: '#14532d',
+                      border: `1px solid ${palette.draftComplete.linkBorder}`,
+                      background: palette.draftComplete.linkBackground,
                       padding: '4px 10px',
                       fontSize: '12px',
                       fontWeight: 500,
-                      color: '#86efac',
+                      color: palette.draftComplete.linkText,
                       textDecoration: 'none',
                       transition: 'background 0.15s',
                     }}
@@ -1445,8 +1505,14 @@ export default function CFBScheduleApp({
                 suffix = ' · Date TBD';
               }
               return (
-                <div style={{ ...bannerBase, borderLeftColor: '#1e3a5f', background: '#111827' }}>
-                  <span style={{ fontWeight: 500, color: '#bfdbfe' }}>
+                <div
+                  style={{
+                    ...bannerBase,
+                    borderLeftColor: palette.draft.border,
+                    background: palette.draft.background,
+                  }}
+                >
+                  <span style={{ fontWeight: 500, color: palette.draft.text }}>
                     {bannerYear} Draft scheduled{suffix}
                   </span>
                 </div>

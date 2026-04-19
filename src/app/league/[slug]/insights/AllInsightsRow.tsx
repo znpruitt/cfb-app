@@ -28,7 +28,7 @@ export default function AllInsightsRow({
   leagueSlug: string;
 }): React.ReactElement {
   const isDark = useIsDarkMode();
-  const href = insightHref(insight.navigationTarget, leagueSlug);
+  const href = insightHref(insight.navigationTarget, leagueSlug, insight);
   const config = getCategoryConfig(insight.category);
   const categoryColor = isDark ? config.darkColor : config.lightColor;
 

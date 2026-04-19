@@ -921,14 +921,74 @@ function FeaturedGamesList({
 
 export function insightHref(
   target: Insight['navigationTarget'] | undefined,
-  leagueSlug?: string
+  leagueSlug?: string,
+  insight?: Insight
 ): string | null {
-  if (!target) return null;
   const base = leagueSlug ? `/league/${leagueSlug}` : '';
   if (target === 'standings') return `${base}/standings`;
   if (target === 'trends') return `${base}/standings?view=trends#trends`;
   if (target === 'matchup') return `${base}/matchups`;
   if (target === 'history') return `${base}/history`;
+  if (!target && insight) {
+    return resolveHistoryHref(insight, base);
+  }
+  return null;
+}
+
+function resolveHistoryHref(insight: Insight, base: string): string | null {
+  const category = insight.category;
+  if (category !== 'historical' && category !== 'rivalry') return null;
+
+  const primary = insight.owner ?? insight.owners?.[0];
+  const ownerSegment = primary ? encodeURIComponent(primary) : null;
+
+  switch (insight.type) {
+    case 'drought':
+      return `${base}/history#dynasty-drought`;
+    case 'dynasty':
+      return `${base}/history#championships`;
+    case 'improvement':
+    case 'consistency':
+    case 'volatility':
+    case 'never_last':
+    case 'title_chaser':
+    case 'rookie_benchmark':
+    case 'trending_up':
+    case 'trending_down':
+      return ownerSegment ? `${base}/history/owner/${ownerSegment}` : null;
+    case 'greatest_season': {
+      const year = parseYearFromInsightId(insight.id);
+      return year ? `${base}/history/${year}` : `${base}/history`;
+    }
+    case 'perfect_against':
+    case 'lopsided_rivalry':
+    case 'even_rivalry':
+    case 'dominance_streak':
+      return `${base}/history#rivalries`;
+    case 'milestone_watch': {
+      if (!ownerSegment) return null;
+      const kind = parseMilestoneKind(insight.id);
+      if (kind === 'wins') return `${base}/history/owner/${ownerSegment}`;
+      return null;
+    }
+    case 'career_points_leader':
+    case 'career_turnover_margin':
+      return null;
+    default:
+      return null;
+  }
+}
+
+function parseYearFromInsightId(id: string): number | null {
+  const match = id.match(/-(\d{4})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  return Number.isFinite(year) ? year : null;
+}
+
+function parseMilestoneKind(id: string): 'wins' | 'points' | null {
+  if (id.startsWith('milestone-wins-')) return 'wins';
+  if (id.startsWith('milestone-points-')) return 'points';
   return null;
 }
 
@@ -947,19 +1007,15 @@ function useIsDarkMode(): boolean {
 function InsightRow({
   insight,
   leagueSlug,
-  isFirst,
   isDark,
 }: {
   insight: Insight;
   leagueSlug?: string;
-  isFirst: boolean;
   isDark: boolean;
 }): React.ReactElement {
-  const href = insightHref(insight.navigationTarget, leagueSlug);
+  const href = insightHref(insight.navigationTarget, leagueSlug, insight);
   const categoryConfig = getCategoryConfig(insight.category);
   const categoryColor = isDark ? categoryConfig.darkColor : categoryConfig.lightColor;
-  const titleSize = isFirst ? 'text-[15px]' : 'text-[14px]';
-  const rowPadding = isFirst ? 'py-2.5' : 'py-2';
 
   const body = (
     <div className="flex min-h-[44px] items-start gap-3">
@@ -970,9 +1026,7 @@ function InsightRow({
         >
           {categoryConfig.label}
         </p>
-        <p className={`${titleSize} font-medium text-gray-950 dark:text-zinc-50`}>
-          {insight.title}
-        </p>
+        <p className="text-[14px] font-medium text-gray-950 dark:text-zinc-50">{insight.title}</p>
         <p className="mt-0.5 text-[13px] text-gray-500 dark:text-zinc-400">{insight.description}</p>
       </div>
       {href ? (
@@ -986,7 +1040,7 @@ function InsightRow({
     </div>
   );
 
-  const rowClasses = `block border-b border-gray-200 ${rowPadding} dark:border-zinc-800 last:border-b-0`;
+  const rowClasses = 'block border-b border-gray-200 py-2 last:border-b-0 dark:border-zinc-800';
 
   if (href) {
     return (
@@ -1059,14 +1113,8 @@ function InsightsList({
       {showRecap ? (
         <SeasonRecapRow leagueSlug={leagueSlug} currentYear={currentYear!} isFirst={true} />
       ) : null}
-      {rows.map((insight, idx) => (
-        <InsightRow
-          key={insight.id}
-          insight={insight}
-          leagueSlug={leagueSlug}
-          isFirst={!showRecap && idx === 0}
-          isDark={isDark}
-        />
+      {rows.map((insight) => (
+        <InsightRow key={insight.id} insight={insight} leagueSlug={leagueSlug} isDark={isDark} />
       ))}
     </div>
   );
