@@ -98,6 +98,7 @@ type CFBScheduleAppProps = {
   leagueDisplayName?: string;
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
+  mostRecentArchivedYear?: number;
   isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
@@ -226,6 +227,7 @@ export default function CFBScheduleApp({
   leagueDisplayName,
   leagueYear,
   leagueStatus,
+  mostRecentArchivedYear,
   isAdmin = false,
   initialGames = [],
   initialIssues = [],
@@ -1239,7 +1241,9 @@ export default function CFBScheduleApp({
             </h1>
             <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
               {leagueStatus?.state === 'offseason'
-                ? 'Offseason'
+                ? weekViewMode === 'standings' && typeof mostRecentArchivedYear === 'number'
+                  ? `${mostRecentArchivedYear} Final Standings`
+                  : 'Offseason'
                 : leagueStatus?.state === 'preseason'
                   ? `${leagueStatus.year} Pre-Season`
                   : `${leagueYear ?? selectedSeason} Season`}

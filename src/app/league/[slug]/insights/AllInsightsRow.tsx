@@ -23,12 +23,14 @@ function useIsDarkMode(): boolean {
 export default function AllInsightsRow({
   insight,
   leagueSlug,
+  panelYear,
 }: {
   insight: Insight;
   leagueSlug: string;
+  panelYear?: number;
 }): React.ReactElement {
   const isDark = useIsDarkMode();
-  const href = insightHref(insight.navigationTarget, leagueSlug, insight);
+  const href = insightHref(insight.navigationTarget, leagueSlug, insight, panelYear);
   const config = getCategoryConfig(insight.category);
   const categoryColor = isDark ? config.darkColor : config.lightColor;
 
@@ -47,7 +49,7 @@ export default function AllInsightsRow({
       {href ? (
         <span
           aria-hidden="true"
-          className="shrink-0 pt-1 text-[13px] text-gray-400 dark:text-zinc-500"
+          className="shrink-0 pt-1 text-[13px] text-gray-500 dark:text-zinc-500"
         >
           →
         </span>

@@ -34,11 +34,23 @@ type FocusableElement = {
 
 function insightHref(
   target: Insight['navigationTarget'] | undefined,
-  leagueSlug?: string
+  leagueSlug?: string,
+  insight?: Insight,
+  panelYear?: number
 ): string | null {
   if (!target) return null;
   const base = leagueSlug ? `/league/${leagueSlug}` : '';
-  if (target === 'standings') return `${base}/standings`;
+  if (target === 'standings') {
+    if (
+      insight?.category === 'season_wrap' &&
+      (insight.type === 'champion_margin' || insight.type === 'failed_chase') &&
+      typeof panelYear === 'number' &&
+      Number.isFinite(panelYear)
+    ) {
+      return `${base}/history/${panelYear}`;
+    }
+    return `${base}/standings`;
+  }
   if (target === 'trends') return `${base}/standings?view=trends#trends`;
   if (target === 'matchup') return `${base}/matchups`;
   return null;
@@ -371,7 +383,7 @@ export default function StandingsPanel({
               </h3>
               <div className="mt-2">
                 {standingsInsights.map((insight) => {
-                  const href = insightHref(insight.navigationTarget, leagueSlug);
+                  const href = insightHref(insight.navigationTarget, leagueSlug, insight, season);
                   return (
                     <article
                       key={insight.id}

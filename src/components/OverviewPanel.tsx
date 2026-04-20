@@ -922,10 +922,21 @@ function FeaturedGamesList({
 export function insightHref(
   target: Insight['navigationTarget'] | undefined,
   leagueSlug?: string,
-  insight?: Insight
+  insight?: Insight,
+  panelYear?: number
 ): string | null {
   const base = leagueSlug ? `/league/${leagueSlug}` : '';
-  if (target === 'standings') return `${base}/standings`;
+  if (target === 'standings') {
+    if (
+      insight?.category === 'season_wrap' &&
+      (insight.type === 'champion_margin' || insight.type === 'failed_chase') &&
+      typeof panelYear === 'number' &&
+      Number.isFinite(panelYear)
+    ) {
+      return `${base}/history/${panelYear}`;
+    }
+    return `${base}/standings`;
+  }
   if (target === 'trends') return `${base}/standings?view=trends#trends`;
   if (target === 'matchup') return `${base}/matchups`;
   if (target === 'history') return `${base}/history`;
@@ -1008,12 +1019,14 @@ function InsightRow({
   insight,
   leagueSlug,
   isDark,
+  panelYear,
 }: {
   insight: Insight;
   leagueSlug?: string;
   isDark: boolean;
+  panelYear?: number;
 }): React.ReactElement {
-  const href = insightHref(insight.navigationTarget, leagueSlug, insight);
+  const href = insightHref(insight.navigationTarget, leagueSlug, insight, panelYear);
   const categoryConfig = getCategoryConfig(insight.category);
   const categoryColor = isDark ? categoryConfig.darkColor : categoryConfig.lightColor;
 
@@ -1032,7 +1045,7 @@ function InsightRow({
       {href ? (
         <span
           aria-hidden="true"
-          className="shrink-0 pt-1 text-[13px] text-gray-400 dark:text-zinc-500"
+          className="shrink-0 pt-1 text-[13px] text-gray-500 dark:text-zinc-500"
         >
           →
         </span>
@@ -1081,7 +1094,7 @@ function SeasonRecapRow({
         </div>
         <span
           aria-hidden="true"
-          className="shrink-0 pt-1 text-[13px] text-gray-400 dark:text-zinc-500"
+          className="shrink-0 pt-1 text-[13px] text-gray-500 dark:text-zinc-500"
         >
           →
         </span>
@@ -1114,7 +1127,13 @@ function InsightsList({
         <SeasonRecapRow leagueSlug={leagueSlug} currentYear={currentYear!} isFirst={true} />
       ) : null}
       {rows.map((insight) => (
-        <InsightRow key={insight.id} insight={insight} leagueSlug={leagueSlug} isDark={isDark} />
+        <InsightRow
+          key={insight.id}
+          insight={insight}
+          leagueSlug={leagueSlug}
+          isDark={isDark}
+          panelYear={currentYear}
+        />
       ))}
     </div>
   );

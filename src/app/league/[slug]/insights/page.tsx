@@ -74,7 +74,12 @@ export default async function LeagueInsightsPage({
       ) : (
         <div>
           {insights.map((insight) => (
-            <AllInsightsRow key={insight.id} insight={insight} leagueSlug={slug} />
+            <AllInsightsRow
+              key={insight.id}
+              insight={insight}
+              leagueSlug={slug}
+              panelYear={league.year}
+            />
           ))}
         </div>
       )}
