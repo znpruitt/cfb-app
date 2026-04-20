@@ -104,7 +104,7 @@ Historical and rivalry generators wired through `GET /api/insights/[slug]` into 
 
 - Row 1 prominence currently flattened pending ranker maturity (restore via INSIGHTS-RANKER-TUNING)
 - Three Tier 2 insight types (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points`) currently return `null` from the deep-link resolver — blocked on HISTORY-REWORK career surface
-- "See all →" link wired and visible; dedicated insights page scaffolded but not yet populated (ALL-INSIGHTS-PAGE)
+- "See all →" link wired and visible; dedicated insights page stabilized via ALL-INSIGHTS-SCHEME-FIX + ALL-INSIGHTS-OFFSEASON-FALLBACK (see ALL-INSIGHTS-PAGE entry below)
 - See `docs/completed-work.md` for full detail.
 
 #### Insights Panel — Microlabel Palette (planned)
@@ -112,10 +112,15 @@ Rationalize category microlabel colors to resolve HISTORICAL/STANDINGS/SEASON sh
 
 - **Prompt ID to assign:** `INSIGHTS-017-PALETTE-v1`
 
-#### Insights — All Insights Page (planned)
-Build out `/league/[slug]/insights` to render the full insight pool. Page is scaffolded with `AllInsightsRow` component plumbing and accepts `panelYear` correctly, but the parent page does not yet fetch and render the full set of insights. Currently shows "No insights available yet" placeholder. The "See all →" link on Overview already points here — users will expect it to work once real leagues are onboarded.
+#### Insights — All Insights Page ✓ Complete
+`/league/[slug]/insights` renders the full insight pool for a league. Originally logged as scaffolded-but-unpopulated during DOCS-CLOSEOUT-006; investigation during INSIGHTS-017 PR review identified two bugs preventing the page from rendering:
 
-- **Prompt ID to assign:** `ALL-INSIGHTS-PAGE-v1`
+- **ALL-INSIGHTS-SCHEME-FIX** (commit `2acdcf5`) — fixed the `x-forwarded-proto` fallback on the server-side fetch. The old `'https'` fallback forced HTTPS against local/self-hosted HTTP dev servers, silently failing the fetch.
+- **ALL-INSIGHTS-OFFSEASON-FALLBACK** (commit `e208104`) — added a context-builder fallback to the most recent archive's `ownerRosterSnapshot` when the current-year owners CSV is empty. Resolves the offseason transition window (post-rollover, pre-preseason-upload) where `currentRoster` was empty and every generator filtered to zero output.
+
+Future polish work (grouping by category, lifecycle filtering, pagination for long lists) is tracked separately under "Insights — 'See All' Dedicated Page" below.
+
+- See `docs/completed-work.md` for full detail.
 
 #### Insights Ranker — Priority Tuning (planned)
 Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for restoring row-1 visual prominence once the ranker earns it. Revisit when priority decay ships.
