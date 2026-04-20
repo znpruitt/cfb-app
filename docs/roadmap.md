@@ -99,18 +99,28 @@ Historical and rivalry generators wired through `GET /api/insights/[slug]` into 
 #### Copy Variation Architecture ✓ Complete
 `newsHook` (11 types) + `statValue` on all generators. Per-league, per-season suppression gate (`insights-suppression:{leagueSlug}:{season}`). Engine async with pre-load, post-filter, post-write. 2–5 deterministic templates per insight type, hook-driven selection. `?bypassSuppression=1` admin param. Season rollover clears suppression per successfully rolled league. See `docs/completed-work.md` for full detail.
 
-#### Insights Panel UI Redesign (planned)
-Redesign the insights panel to display 5 insights with typographic hierarchy, category microlabels, owner colors, and a dedicated "See all" page.
+#### Insights Panel UI Redesign ✓ Complete
+5-insight panel with category microlabels, tappable rows, first-row prominence, and "See all →" link shipped. Polish pass added HISTORICAL/RIVALRY deep-link arrows, three history page section anchors, and light-mode banner tuning. Followup pass rerouted `champion_margin` / `failed_chase` to `/history/{year}`, added offseason "{year} Final Standings" subheader on the standings page via archive-resolved year, and tightened arrow contrast to WCAG 3:1 in light mode. Subsequent STANDINGS-SUBHEADER-FIX wired the subheader plumbing into the main league page so the branch fires on the primary WeekViewTabs click flow, not just the dedicated `/standings` route.
 
-- 5 insights (not 3); first at 15px, rest at 14px
-- 10px uppercase category microlabel above each title
-- Owner names in assigned color, regular weight
-- Full row tappable; `→` always visible at 13px muted
-- "See all →" link to dedicated insights page
-- Mobile: full-width, no tab strip, no scroll strip
-- `fresh_offseason`: featured slot becomes "Season Recap" card
-- Owner color map prop from canonical standings source
-- **Prerequisites:** Copy Variation Architecture ✓
+- Row 1 prominence currently flattened pending ranker maturity (restore via INSIGHTS-RANKER-TUNING)
+- Three Tier 2 insight types (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points`) currently return `null` from the deep-link resolver — blocked on HISTORY-REWORK career surface
+- "See all →" link wired and visible; dedicated insights page scaffolded but not yet populated (ALL-INSIGHTS-PAGE)
+- See `docs/completed-work.md` for full detail.
+
+#### Insights Panel — Microlabel Palette (planned)
+Rationalize category microlabel colors to resolve HISTORICAL/STANDINGS/SEASON shared-purple and STATS/LEAGUE/fallback shared-slate token collisions. Includes a micro-discovery on why SEASON-labeled rows render in the panel when no generator appears to set `category === 'season_wrap'` at render time. Constrained by `DESIGN.md`'s strict ban on amber/green/red/blue hues for category use.
+
+- **Prompt ID to assign:** `INSIGHTS-017-PALETTE-v1`
+
+#### Insights — All Insights Page (planned)
+Build out `/league/[slug]/insights` to render the full insight pool. Page is scaffolded with `AllInsightsRow` component plumbing and accepts `panelYear` correctly, but the parent page does not yet fetch and render the full set of insights. Currently shows "No insights available yet" placeholder. The "See all →" link on Overview already points here — users will expect it to work once real leagues are onboarded.
+
+- **Prompt ID to assign:** `ALL-INSIGHTS-PAGE-v1`
+
+#### Insights Ranker — Priority Tuning (planned)
+Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for restoring row-1 visual prominence once the ranker earns it. Revisit when priority decay ships.
+
+- **Prompt ID to assign:** `INSIGHTS-RANKER-TUNING-v1`
 
 #### Pairing Cards (planned)
 Post-processing pass after generator run; pairing priority = `max(A, B) + 10`; AI copy (cache-time, curated subset). Natural pairings: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader.
@@ -208,6 +218,11 @@ If the app grows beyond manually managed leagues, the minimal viable expansion i
 #### Server Action Auth Hardening (planned)
 Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKEN` fallback from public routes.
 
+#### AppStateStore Caching — Egress Optimization (planned)
+Server-side caching for insights panel output (1-hour TTL) and archive reads (longer TTL — archives do not change between games). Single biggest egress-reduction lever available before August draft. Neon Launch tier provides 50 GB/month but active-season + draft-day traffic could push limits without caching. **Season-launch-blocking priority.**
+
+- **Prompt ID to assign:** `APPSTATESTORE-CACHING-v1`
+
 #### Season Rollover UI and Cron ✓ Complete
 - `SeasonRolloverPanel` in `/admin/data/cache` — two-phase preview/execute flow with per-league champion + top 3 display and destructive confirm guard
 - `GET /api/cron/season-rollover` — daily cron triggers when `championshipDate + 7 days` has passed, archives all non-test season-state leagues and transitions them to offseason
@@ -255,6 +270,31 @@ Systematic review and rewrite of all user-facing strings for consistent voice an
 - Add a "filter former owners" tab or toggle on the history page so members can collapse the view to active roster only
 - Current state: former owners are visually distinguished (muted + badge) but still occupy table rows; some members will want a strict active-roster view
 
+#### History Rework — Career Stats Surface (planned)
+History page polish plus a dedicated career stats surface. Unblocks Tier 2 insight routing currently returning `null` from the panel-layer resolver (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points` render without arrows today). Also improves the destination quality for insights already routing to the history page.
+
+- **Prompt ID to assign:** `HISTORY-REWORK-v1`
+
+#### Standings Page — Preseason State (planned)
+Preseason content for the standings page. Three-state progression:
+- **Offseason:** prior season's final standings (✓ built via STANDINGS-SUBHEADER-FIX)
+- **Preseason:** alphabetical owner list with "Season starts {date}" banner
+- **Active season:** live data (existing behavior)
+
+Includes a cold-cache safety net — currently in preseason with a cold cache the standings page renders silently blank. Requires a `seasonStartDate` field on league config (no such field today; season start is inferred from schedule).
+
+- **Prompt ID to assign:** `STANDINGS-PRESEASON-STATE-v1`
+
+#### Standings Page — Lifecycle Labeling Sweep (planned)
+Broader "Offseason" vs "{year} Season" label inconsistency audit across surfaces beyond the standings page itself. STANDINGS-SUBHEADER-FIX addressed the standings page; other surfaces may still show stale or contradictory year/lifecycle labels during offseason.
+
+- **Prompt ID to assign:** `STANDINGS-PAGE-LIFECYCLE-LABELING-v1`
+
+#### Link Styling Audit (planned)
+App-wide standardization of "view more" / "full view" / "see all" cross-links. Current state is split: blue `↗` arrow icons on history page panels and Overview column headers (Standings, AP Poll) vs. muted `→` on the Insights "See all" link. Chosen convention: muted text + horizontal arrow. Removes redundant blue accent on already-interactive links, aligns with `DESIGN.md`'s single-purpose use of blue for interactivity.
+
+- **Prompt ID to assign:** `LINK-STYLING-AUDIT-v1`
+
 ---
 
 ## Completed work (summary)
@@ -288,10 +328,17 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Insights Engine — Context Extension | ✅ Complete |
 | Insights Engine — Generator Batch 2 | ✅ Complete |
 | Copy Variation Architecture | ✅ Complete |
-| Insights Panel UI Redesign | 🔄 Planned |
+| Insights Panel UI Redesign + Polish | ✅ Complete |
 | Pairing Cards | 🔄 Planned |
 | Luck Score + Bounce-Back Generators | 🔄 Planned |
 | Insights — "See All" Page | 🔄 Planned |
+| Insights Panel — Microlabel Palette | 🔄 Planned |
+| Insights Ranker — Priority Tuning | 🔄 Planned |
+| History Rework — Career Stats Surface | 🔄 Planned |
+| Standings Page — Preseason State | 🔄 Planned |
+| Standings Page — Lifecycle Labeling Sweep | 🔄 Planned |
+| Link Styling Audit | 🔄 Planned |
+| AppStateStore Caching — Egress Optimization | 🔄 Planned |
 
 ## Architecture rules
 

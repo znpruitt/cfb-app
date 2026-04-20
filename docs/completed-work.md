@@ -9,6 +9,27 @@
 
 ## Completed phases / milestones
 
+### Insights Panel Redesign + Polish — Complete
+
+**Status:** Complete. Branch `claude/copy-variation-architecture-vk1yp`.
+**PROMPT_IDs:** INSIGHTS-017-PANEL-UI, INSIGHTS-017-POLISH-DISCOVERY, INSIGHTS-017-POLISH-DISCOVERY-FOLLOWUP, INSIGHTS-017-PANEL-POLISH, INSIGHTS-017-POLISH-FOLLOWUP-DISCOVERY, INSIGHTS-017-PANEL-POLISH-FOLLOWUP, STANDINGS-SUBHEADER-DIAGNOSTIC, STANDINGS-SUBHEADER-FIX
+
+**Key outcomes:**
+- INSIGHTS-017-PANEL-UI (commit `1348605`): initial panel redesign — 5 insights (up from 3), 10px uppercase category microlabels above each title, first-row prominence via larger type, fully tappable rows with `→` affordance at 13px muted, "See all →" link to dedicated insights page, mobile full-width presentation. `AllInsightsRow` extracted as a client component to access `useIsDarkMode()` for category colors. `DESIGN.md` updated with Insights Panel + Insight Category Colors sections codifying the token pairs and the semantic-off-limits rule (amber/green/red/blue reserved for interactivity/win-loss/errors).
+- INSIGHTS-017-PANEL-POLISH (commit `a82ef02`): polish pass — row 1 flattened to a uniform 14px treatment (prominence removed pending ranker maturity, to be restored when INSIGHTS-RANKER-TUNING lands); HISTORICAL and RIVALRY insights now carry deep-link arrows via a panel-layer `resolveHistoryHref()` resolver (Tier 1 routable today: `drought` → `#dynasty-drought`, `dynasty` → `#championships`, career/owner generators → `/history/owner/{owner}`, `greatest_season` → `/history/{year}`, rivalry types → `#rivalries`, `milestone_watch-wins` → owner page; Tier 2 returns `null` for `career_points_leader`, `career_turnover_margin`, and `milestone_watch-points` pending HISTORY-REWORK career surface); three section anchors added to the history page (`#championships`, `#rivalries`, `#dynasty-drought`); light-mode banner fix — all five CFBScheduleApp banner variants (offseason, draft scheduled, draft complete, draft scheduled no-status, plus pulse) converted from hardcoded dark-mode-only hex values to a paired `{light, dark}` palette object keyed off `isDark`.
+- INSIGHTS-017-PANEL-POLISH-FOLLOWUP (commit `113b27d`): SEASON season_wrap insights `champion_margin` and `failed_chase` rerouted from `/standings` to `/league/{slug}/history/{year}` via a new optional `panelYear` fourth argument on `insightHref`, threaded through all three render sites (`OverviewPanel.InsightRow`, `StandingsPanel`, `AllInsightsRow`); `leagueStatus` plumbed to the standings page alongside a new `mostRecentArchivedYear?: number` prop, resolved via `listSeasonArchives(slug)` sorted descending; new offseason subheader branch on `CFBScheduleApp` renders "{year} Final Standings" only when `leagueStatus.state === 'offseason'` AND `weekViewMode === 'standings'` AND a resolved archive year is available; insight-row arrow contrast bumped from `text-gray-400` (#9ca3af, ~2.85:1 against white, below WCAG 3:1) to `text-gray-500` (#6b7280, ~4.6:1) at all three render sites; dark-mode class unchanged.
+- STANDINGS-SUBHEADER-FIX (commit `3890bad`): post-ship diagnostic (STANDINGS-SUBHEADER-DIAGNOSTIC) identified that the new subheader branch never fired in the primary user flow — the WeekViewTabs "Standings" button mutates `weekViewMode` state in place without changing the route, so users hitting the standings view via the in-page tab stayed on `/league/{slug}` where `mostRecentArchivedYear` had not been plumbed. Fix: `listSeasonArchives(slug)` added to the main league page's `Promise.all`, `mostRecentArchivedYear` computed identically to the standings page, and passed to `CFBScheduleApp`. Single-file, 9-line change; no modifications to the standings page, the prop type, or the subheader branch — those were already correct.
+
+**Key architectural decisions:**
+- Panel-layer resolver approach (Option 1) chosen over payload mutation — `panelYear` threaded as an optional arg rather than added to the `Insight` type. Generators and derive helpers remain untouched; the reroute lives entirely at the presentation layer. Future season-year-scoped reroutes can extend the same resolver without touching selectors.
+- `mostRecentArchivedYear` resolved from `listSeasonArchives()` rather than inferred from `league.year` — the league's active year can be bumped at preseason entry, so it's not a reliable signal for "most recently completed season" during the offseason window.
+- Three sentinel Tier 2 types (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points`) explicitly return `null` from the resolver — users see no arrow on those rows until the HISTORY-REWORK campaign ships a career stats surface. Preferred over broken arrows that land on pages that don't display the cited stat.
+- Light-mode arrow lifted one step in the gray scale to match description text (`text-gray-500`) rather than two steps (`text-gray-600`) — maintains the secondary-to-title visual hierarchy while clearing WCAG 3:1 for non-text UI graphics.
+
+**Infrastructure:** Neon Postgres upgraded from Free tier to Launch tier ($19/month) mid-campaign to resolve a 5 GB egress quota block that was intermittently failing DB reads during development. Launch tier provides 50 GB/month; active-season + draft-day traffic may still require server-side caching before August launch (tracked as APPSTATESTORE-CACHING).
+
+---
+
 ### Insights Engine — Generator Batch 2 — Complete
 
 **Status:** Complete.
