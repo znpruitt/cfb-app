@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import type { LifecycleState } from '../../../../lib/insights/types';
 import type { Insight } from '../../../../lib/selectors/insights';
 import { getLeague } from '../../../../lib/leagueRegistry';
+import { renderLeagueGateIfBlocked } from '../leagueGate';
 import AllInsightsRow from './AllInsightsRow';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,8 @@ export default async function LeagueInsightsPage({
   params: Promise<{ slug: string }>;
 }): Promise<React.ReactElement> {
   const { slug } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
   const league = await getLeague(slug);
   if (!league) {
     return (

@@ -10,6 +10,7 @@ import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftSummaryClient from '@/components/draft/DraftSummaryClient';
+import { renderLeagueGateIfBlocked } from '../../leagueGate';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -102,6 +103,8 @@ export default async function DraftSummaryPage({
   params: Promise<{ slug: string }>;
 }): Promise<React.ReactElement> {
   const { slug } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
 
   const league = await getLeague(slug);
   if (!league) notFound();

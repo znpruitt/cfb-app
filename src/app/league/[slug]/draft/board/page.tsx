@@ -10,6 +10,7 @@ import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import type { SpRatingEntry, WinTotalEntry, ApPollEntry } from '@/lib/selectors/draftTeamInsights';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import SpectatorBoardClient from '@/components/draft/SpectatorBoardClient';
+import { renderLeagueGateIfBlocked } from '../../leagueGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,8 @@ export default async function SpectatorBoardPage({
   params: Promise<{ slug: string }>;
 }): Promise<React.ReactElement> {
   const { slug } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
 
   const league = await getLeague(slug);
   if (!league) notFound();

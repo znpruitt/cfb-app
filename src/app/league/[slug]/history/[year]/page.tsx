@@ -16,6 +16,7 @@ import HeadToHeadPanel from '@/components/history/HeadToHeadPanel';
 
 export const dynamic = 'force-dynamic';
 import OwnerRosterCard from '@/components/history/OwnerRosterCard';
+import { renderLeagueGateIfBlocked } from '../../leagueGate';
 
 export default async function SeasonDetailPage({
   params,
@@ -23,6 +24,8 @@ export default async function SeasonDetailPage({
   params: Promise<{ slug: string; year: string }>;
 }): Promise<React.ReactElement> {
   const { slug, year: yearStr } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
   const year = Number(yearStr);
 
   if (!Number.isFinite(year) || year < 2000) {
