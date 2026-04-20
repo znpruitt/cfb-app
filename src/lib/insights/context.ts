@@ -277,17 +277,28 @@ export async function buildInsightContext(
   const archives = await loadArchives(leagueSlug);
   const historicalRosters = buildHistoricalRosters(archives);
 
+  // Offseason fallback: when the current-year owners CSV is empty (the rollover
+  // window between season archive and preseason roster upload), use the most
+  // recent archive's roster so generators still produce insights. Stops firing
+  // automatically as soon as the current-year CSV gets a single row.
+  let resolvedRoster = currentRoster;
+  if (resolvedRoster.size === 0 && archives.length > 0) {
+    const mostRecent = [...archives].sort((a, b) => b.year - a.year)[0]!;
+    const rows = parseOwnersCsv(mostRecent.ownerRosterSnapshot);
+    resolvedRoster = new Map(rows.map((r) => [r.team, r.owner]));
+  }
+
   const ownerGameStats =
     lifecycleState === 'preseason' || lifecycleState === 'offseason'
       ? null
-      : await loadOwnerSeasonStats(leagueSlug, league.year, currentRoster, games);
+      : await loadOwnerSeasonStats(leagueSlug, league.year, resolvedRoster, games);
 
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
     currentYear: league.year,
     archives,
     historicalRosters,
-    currentRoster,
+    currentRoster: resolvedRoster,
   });
 
   return {
@@ -304,6 +315,6 @@ export async function buildInsightContext(
     archives,
     historicalRosters,
     rankings,
-    currentRoster,
+    currentRoster: resolvedRoster,
   };
 }

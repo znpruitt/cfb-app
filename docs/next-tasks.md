@@ -20,12 +20,22 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Data & Intelligence | Insights Engine — Context Extension | ✅ Complete |
 | Data & Intelligence | Insights Engine — Generator Batch 2 | ✅ Complete |
 | Data & Intelligence | Copy Variation Architecture | ✅ Complete |
-| Data & Intelligence | Insights Panel UI Redesign | Planned |
+| Data & Intelligence | Insights Panel UI Redesign + Polish | ✅ Complete |
+| Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018) | Planned |
+| Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019) | Planned |
+| Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE) | Planned |
+| Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING) | Planned |
+| Data & Intelligence | Insights — All Insights Page (ALL-INSIGHTS-PAGE) | ✅ Complete |
 | Data & Intelligence | Pairing Cards | Planned |
 | Data & Intelligence | Luck Score + Bounce-Back Generators | Planned |
-| Data & Intelligence | Insights Engine — Two Weekly Pulses | Planned |
 | Platform | Season Rollover UI and Cron | ✅ Complete |
+| Platform | AppStateStore Caching — Egress Optimization (APPSTATESTORE-CACHING) | Planned |
+| Platform | Server Fetch Architecture Audit (SERVER-FETCH-ARCHITECTURE) | Planned |
 | Polish | History Page Polish | ✅ Complete |
+| Polish | History Rework — Career Stats Surface (HISTORY-REWORK) | Planned |
+| Polish | Standings Page — Preseason State (STANDINGS-PRESEASON-STATE) | Planned |
+| Polish | Standings Page — Lifecycle Labeling Sweep (STANDINGS-PAGE-LIFECYCLE-LABELING) | Planned |
+| Polish | Link Styling Audit (LINK-STYLING-AUDIT) | Planned |
 | Draft | Slow Draft Mode | Planned |
 | Draft | Draft Difficulty Settings | Planned |
 | Platform | Multi-tenant Commissioner Sign-up | Planned |
@@ -38,33 +48,23 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 ## Active priorities
 
-### 1. INSIGHTS — Insights Panel UI Redesign
+### 1. INSIGHTS-018 — NEW tag + signature system
 
-Copy Variation Architecture complete. Next: redesign the insights panel UI.
+Per-league global (not per-user) NEW-tag system for the insights panel. 48-hour active-season window, 7-day offseason window. Signature-based detection so that hook/owner/statValue changes register as a fresh insight while semantically identical re-renders do not.
 
-**Scope:**
-- Display 5 insights (not 3); first at 15px, rest at 14px
-- 10px uppercase category microlabel above each title
-- Owner names in assigned color, regular weight
-- Full row tappable; `→` always visible at 13px muted
-- "See all →" link to dedicated insights page
-- Mobile: full-width, no tab strip, no scroll strip
-- `fresh_offseason`: featured slot becomes Season Recap card
-- Owner color map prop from canonical standings source
-- **Prompt ID to assign:** `INSIGHTS-017-PANEL-UI-v1`
+- **Prompt ID to assign:** `INSIGHTS-018-NEW-TAG-v1`
 
-### 2. INSIGHTS — Pairing Cards
+### 2. INSIGHTS-019 — Diagnostic endpoint
 
-Post-processing pass after all generators run. Pairing priority = `max(A, B) + 10`. Natural pairings: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader.
-- AI copy for pairing cards: cache-time generation, curated subset only
-- **Prompt ID to assign:** `INSIGHTS-018-PAIRING-CARDS-v1`
+Admin-gated `GET /api/debug/insights/[leagueSlug]` that returns: generator pool size, rendered set, suppressed set, per-insight signatures, and last-change timestamps. Enables at-a-glance verification of NEW tag behavior and suppression correctness without reading logs.
 
-### 3. INSIGHTS — Luck Score + Bounce-Back Generators
+- **Prompt ID to assign:** `INSIGHTS-019-DIAGNOSTIC-v1`
 
-Both unblocked by Context Extension (INSIGHTS-014).
-- Luck Score: points scored vs points allowed differential
-- Bounce-Back Candidate: Volatility + Trending Down signals combined
-- **Prompt ID to assign:** `INSIGHTS-019-LUCK-SCORE-v1`
+### 3. APPSTATESTORE-CACHING — Egress optimization before August draft
+
+Server-side caching for insights panel output (1-hour TTL) and archive reads (longer TTL). Single biggest egress-reduction lever available. Neon Launch tier provides 50 GB/month but active-season + draft-day traffic could push limits without caching. **Season-launch-blocking priority.**
+
+- **Prompt ID to assign:** `APPSTATESTORE-CACHING-v1`
 
 ### 4. DRAFT — Slow Draft Mode
 
@@ -73,6 +73,20 @@ Enable async drafts with configurable per-pick windows. Requires email notificat
 ### 5. PLATFORM — Server Action Auth Hardening
 
 Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKEN` fallback from public routes.
+
+## Planned backlog (from INSIGHTS-017 campaign)
+
+Items surfaced during the Insights Panel Redesign + Polish campaign and queued for future implementation:
+
+- **INSIGHTS-017-PALETTE** — Category microlabel palette rationalization. Resolves HISTORICAL/STANDINGS/SEASON shared-purple and STATS/LEAGUE/fallback shared-slate token collisions. Includes micro-discovery on why SEASON labels render when no generator appears to set that category. Constrained by `DESIGN.md`'s strict ban on amber/green/red/blue hues for category use.
+- **HISTORY-REWORK** — History page polish and dedicated career stats surface. Unblocks Tier 2 insight routing (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points` currently render without arrows). Also improves destinations for insights already routing to history.
+- **STANDINGS-PRESEASON-STATE** — Preseason content for the standings page. Three-state progression: offseason (prior season's final standings, ✓ built via STANDINGS-SUBHEADER-FIX), preseason (alphabetical owner list + "Season starts {date}" banner), active season (live data). Includes cold-cache safety net — currently in preseason with a cold cache the standings page renders silently blank. Requires a season-start-date field on league config.
+- **ALL-INSIGHTS-PAGE** — ✅ Resolved during INSIGHTS-017 PR review. Page is functional via ALL-INSIGHTS-SCHEME-FIX (`2acdcf5`, scheme-resolution fix on server-side fetch) and ALL-INSIGHTS-OFFSEASON-FALLBACK (`e208104`, archive roster fallback during offseason rollover window). Future grouping/filtering polish tracked under the legacy "Insights — 'See All' Dedicated Page" roadmap entry.
+- **APPSTATESTORE-CACHING** — Server-side caching for insights panel output (1-hour TTL) and archive reads (longer TTL). Single biggest egress-reduction lever. Target: before August draft. Launch tier 50 GB/month should hold but draft-day traffic could push limits without caching.
+- **SERVER-FETCH-ARCHITECTURE** — Audit server-side routes that fetch their own API endpoints (e.g. `/league/[slug]/insights` fetching `/api/insights/...`) and evaluate whether they should instead call the underlying selector or data function directly. Current pattern requires URL construction via headers (`x-forwarded-host`, `x-forwarded-proto`), which surfaced a silent-failure bug during INSIGHTS-017 code review (`ALL-INSIGHTS-SCHEME-FIX`). Direct selector calls would eliminate the URL-construction class of bugs entirely and reduce latency. Priority: low — "when you have time" cleanup, not urgent. Scope: codebase audit first, then scoped fixes per route.
+- **LINK-STYLING-AUDIT** — App-wide standardization of "view more" / "full view" / "see all" cross-links. Current split: blue `↗` on history/Overview column headers vs. muted `→` on Insights "See all". Convention chosen: muted text + horizontal arrow. Removes redundant blue accent on already-interactive links, aligns with `DESIGN.md`'s single-purpose use of blue for interactivity.
+- **STANDINGS-PAGE-LIFECYCLE-LABELING** — Broader "Offseason" vs "{year} Season" label inconsistency audit across surfaces beyond the standings page. STANDINGS-SUBHEADER-FIX addressed the standings page itself; other surfaces may still show stale or contradictory year/lifecycle labels during offseason.
+- **INSIGHTS-RANKER-TUNING** — Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for eventually restoring row-1 prominence once the ranker earns it. Revisit when priority decay ships.
 
 ## Completed campaigns (summary)
 
@@ -98,6 +112,7 @@ All foundational work is complete. See `docs/completed-work.md` for full records
 - Insights Engine — Context Extension (INSIGHTS-014): `pointsAgainst` + `OwnerCareerStats` type + `buildOwnerCareerStats()` + career diagnostic route
 - Insights Engine — Generator Batch 2 (INSIGHTS-015): 16 generators across career.ts, stats.ts, milestones.ts; tone property; InsightWindow type; UTF-8 + trending direction bug fixes
 - Copy Variation Architecture (INSIGHTS-016): newsHook + statValue on all generators; per-league/season suppression gate; async engine; 2–5 templates per insight type; rollover clear gated per league
+- Insights Panel UI Redesign + Polish (INSIGHTS-017 + polish passes + STANDINGS-SUBHEADER-FIX): 5-insight panel with category microlabels, tappable rows, first-row prominence (flattened pending ranker), "See all →" link; HISTORICAL/RIVALRY deep-link arrows via panel-layer resolver; three history-page section anchors; light-mode banner fix across all five CFBScheduleApp banner variants; `champion_margin` / `failed_chase` rerouted to `/history/{year}`; `leagueStatus` plumbed to standings page with offseason "{year} Final Standings" subheader via archive-resolved year; arrow contrast tuned to WCAG 3:1; subheader plumbing extended to main league page so the branch fires on the primary WeekViewTabs flow
 
 ## Hosted deployment runbook
 
