@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 
 import AdminDebugSurface from './AdminDebugSurface';
@@ -99,7 +100,6 @@ type CFBScheduleAppProps = {
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
   mostRecentArchivedYear?: number;
-  isAdmin?: boolean;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -228,13 +228,15 @@ export default function CFBScheduleApp({
   leagueYear,
   leagueStatus,
   mostRecentArchivedYear,
-  isAdmin = false,
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
   initialWeekViewMode = 'overview',
   initialStandingsSubview = 'table',
 }: CFBScheduleAppProps = {}): React.ReactElement {
+  const { user, isLoaded: isUserLoaded } = useUser();
+  const isAdmin = isUserLoaded && user?.publicMetadata?.role === 'platform_admin';
+
   const hasBootstrappedRef = useRef<boolean>(false);
 
   const [selectedSeason] = useState<number>(
