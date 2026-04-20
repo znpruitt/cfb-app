@@ -223,6 +223,11 @@ Server-side caching for insights panel output (1-hour TTL) and archive reads (lo
 
 - **Prompt ID to assign:** `APPSTATESTORE-CACHING-v1`
 
+#### Server Fetch Architecture Audit (planned)
+Audit server-side routes that fetch their own API endpoints (e.g. `/league/[slug]/insights` fetching `/api/insights/...`) and evaluate whether they should instead call the underlying selector or data function directly. The current pattern requires URL construction via headers (`x-forwarded-host`, `x-forwarded-proto`), which surfaced a silent-failure bug during INSIGHTS-017 code review (`ALL-INSIGHTS-SCHEME-FIX`). Direct selector calls would eliminate the URL-construction class of bugs entirely and reduce latency by removing the self-fetch hop. Priority: low — "when you have time" cleanup, not urgent. Scope: codebase audit first, then scoped fixes per route.
+
+- **Prompt ID to assign:** `SERVER-FETCH-ARCHITECTURE-v1`
+
 #### Season Rollover UI and Cron ✓ Complete
 - `SeasonRolloverPanel` in `/admin/data/cache` — two-phase preview/execute flow with per-league champion + top 3 display and destructive confirm guard
 - `GET /api/cron/season-rollover` — daily cron triggers when `championshipDate + 7 days` has passed, archives all non-test season-state leagues and transitions them to offseason
@@ -339,6 +344,7 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Standings Page — Lifecycle Labeling Sweep | 🔄 Planned |
 | Link Styling Audit | 🔄 Planned |
 | AppStateStore Caching — Egress Optimization | 🔄 Planned |
+| Server Fetch Architecture Audit | 🔄 Planned |
 
 ## Architecture rules
 
