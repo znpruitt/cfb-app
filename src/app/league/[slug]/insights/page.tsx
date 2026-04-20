@@ -20,7 +20,8 @@ async function loadInsights(slug: string, year: number): Promise<InsightsRespons
     const hdrs = await headers();
     const host = hdrs.get('x-forwarded-host') ?? hdrs.get('host');
     if (!host) return null;
-    const protocol = hdrs.get('x-forwarded-proto') ?? 'https';
+    const protocol =
+      hdrs.get('x-forwarded-proto') ?? (process.env.NODE_ENV === 'development' ? 'http' : 'https');
     const origin = `${protocol}://${host}`;
     const res = await fetch(`${origin}/api/insights/${encodeURIComponent(slug)}?year=${year}`, {
       cache: 'no-store',
