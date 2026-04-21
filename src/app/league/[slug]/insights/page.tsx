@@ -1,53 +1,11 @@
 import Link from 'next/link';
-import { headers } from 'next/headers';
 
-import type { LifecycleState } from '../../../../lib/insights/types';
-import type { Insight } from '../../../../lib/selectors/insights';
+import { loadInsightsForLeague } from '../../../../lib/insights/loadInsights';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 import AllInsightsRow from './AllInsightsRow';
 
 export const dynamic = 'force-dynamic';
-
-type InsightsResponse = {
-  insights: Insight[];
-  lifecycleState: LifecycleState;
-  generatedAt: string;
-  error?: string;
-};
-
-async function loadInsights(slug: string, year: number): Promise<InsightsResponse | null> {
-  try {
-    const hdrs = await headers();
-    const host = hdrs.get('x-forwarded-host') ?? hdrs.get('host');
-    if (!host) return null;
-    const protocol =
-      hdrs.get('x-forwarded-proto') ?? (process.env.NODE_ENV === 'development' ? 'http' : 'https');
-    const origin = `${protocol}://${host}`;
-
-    // Forward the incoming request's cookies and admin headers so the gated
-    // /api/insights/[slug] handler sees the same auth context the user has.
-    // Without this, the SSR fetch arrives anonymous and isAuthorizedForLeague
-    // returns false — the handler would 404 even for authorized visitors
-    // (league password cookie, Clerk platform_admin session, or ADMIN_API_TOKEN).
-    const forwardedHeaders: Record<string, string> = {};
-    const cookieHeader = hdrs.get('cookie');
-    if (cookieHeader) forwardedHeaders.cookie = cookieHeader;
-    const adminTokenHeader = hdrs.get('x-admin-token');
-    if (adminTokenHeader) forwardedHeaders['x-admin-token'] = adminTokenHeader;
-    const authHeader = hdrs.get('authorization');
-    if (authHeader) forwardedHeaders.authorization = authHeader;
-
-    const res = await fetch(`${origin}/api/insights/${encodeURIComponent(slug)}?year=${year}`, {
-      cache: 'no-store',
-      headers: forwardedHeaders,
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as InsightsResponse;
-  } catch {
-    return null;
-  }
-}
 
 export default async function LeagueInsightsPage({
   params,
@@ -68,10 +26,8 @@ export default async function LeagueInsightsPage({
     );
   }
 
-  const response = await loadInsights(slug, league.year);
-  const insights = (response?.insights ?? [])
-    .slice()
-    .sort((a, b) => b.priorityScore - a.priorityScore);
+  const response = await loadInsightsForLeague(slug, league.year);
+  const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
