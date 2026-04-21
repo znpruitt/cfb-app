@@ -2,7 +2,7 @@ import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
 
 export default async function LeagueMatchupsPage({
   params,
