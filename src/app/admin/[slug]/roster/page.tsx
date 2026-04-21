@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import RosterEditorPanel from '@/components/admin/RosterEditorPanel';
 import RosterUploadPanel from '@/components/admin/RosterUploadPanel';
 import { getLeague } from '@/lib/leagueRegistry';
+import { sanitizeLeague } from '@/lib/leagueSanitize';
 import teamsData from '@/data/teams.json';
 
 export const dynamic = 'force-dynamic';
@@ -39,7 +40,7 @@ export default async function AdminLeagueRosterPage({
             Validate and bulk-upload a team-owner CSV with fuzzy team name matching.
           </p>
         </div>
-        <RosterUploadPanel leagues={[definedLeague]} />
+        <RosterUploadPanel leagues={[sanitizeLeague(definedLeague)]} />
       </section>
 
       {/* ---- Edit Roster Directly ---- */}

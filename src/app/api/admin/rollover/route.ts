@@ -1,5 +1,6 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { sanitizeLeagues } from '@/lib/leagueSanitize';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
 import { isSeasonComplete, buildSeasonArchive } from '@/lib/seasonRollover';
 import type { League } from '@/lib/league';
@@ -19,7 +20,7 @@ export async function GET(req: Request): Promise<Response> {
   const currentYear = leagues[0]?.year ?? new Date().getUTCFullYear();
   const seasonComplete = await isSeasonComplete(currentYear);
 
-  return Response.json({ seasonComplete, currentYear, leagues });
+  return Response.json({ seasonComplete, currentYear, leagues: sanitizeLeagues(leagues) });
 }
 
 type PostBody = { confirmed?: boolean };

@@ -3,6 +3,13 @@ export type LeagueStatus =
   | { state: 'offseason' }
   | { state: 'preseason'; year: number; setupComplete?: boolean };
 
+/**
+ * Server-internal league record. Contains credential material (passwordHash,
+ * passwordSalt) that must NEVER cross a server→client RSC boundary or an API
+ * response boundary. Use `PublicLeague` (or `sanitizeLeague`/`sanitizeLeagues`
+ * from `src/lib/leagueSanitize.ts`) whenever a league value is handed to a
+ * client component or returned from an API route.
+ */
 export type League = {
   slug: string; // URL identifier — permanent, lowercase alphanumeric with hyphens
   displayName: string; // Human-readable name shown in UI
@@ -17,3 +24,10 @@ export type League = {
   passwordHash?: string;
   passwordSalt?: string;
 };
+
+/**
+ * Client-safe league shape. This is the only league type permitted to cross a
+ * server→client RSC boundary or be returned from an API route. Credential
+ * fields are stripped via `sanitizeLeague`/`sanitizeLeagues`.
+ */
+export type PublicLeague = Omit<League, 'passwordHash' | 'passwordSalt'>;

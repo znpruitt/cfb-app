@@ -1,5 +1,6 @@
 import { getAppState } from '@/lib/server/appStateStore';
 import { getLeagues } from '@/lib/leagueRegistry';
+import { sanitizeLeagues } from '@/lib/leagueSanitize';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
 import RootPageClient from '@/components/RootPageClient';
 
@@ -33,5 +34,5 @@ export default async function Page() {
     })
   );
 
-  return <RootPageClient leagues={leagues} ownerCountBySlug={ownerCountBySlug} />;
+  return <RootPageClient leagues={sanitizeLeagues(leagues)} ownerCountBySlug={ownerCountBySlug} />;
 }

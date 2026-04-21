@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AdminAuthPanel from 'components/AdminAuthPanel';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
-import type { League } from '@/lib/league';
+import type { PublicLeague } from '@/lib/league';
 
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -27,7 +27,7 @@ type EditState = {
 
 export default function AdminLeaguesPage() {
   const router = useRouter();
-  const [leagues, setLeagues] = useState<League[]>([]);
+  const [leagues, setLeagues] = useState<PublicLeague[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -51,7 +51,7 @@ export default function AdminLeaguesPage() {
     try {
       const res = await fetch('/api/admin/leagues', { cache: 'no-store' });
       if (!res.ok) throw new Error(`GET /api/admin/leagues ${res.status}`);
-      const data = (await res.json()) as { leagues: League[] };
+      const data = (await res.json()) as { leagues: PublicLeague[] };
       setLeagues(data.leagues);
     } catch (err) {
       setFetchError((err as Error).message);
@@ -60,7 +60,7 @@ export default function AdminLeaguesPage() {
     }
   }
 
-  function startEdit(league: League) {
+  function startEdit(league: PublicLeague) {
     setEditMap((prev) => ({
       ...prev,
       [league.slug]: {
@@ -80,7 +80,7 @@ export default function AdminLeaguesPage() {
     });
   }
 
-  async function handleDelete(league: League) {
+  async function handleDelete(league: PublicLeague) {
     const confirmed = window.confirm(
       `Are you sure you want to delete "${league.displayName}"? This removes the league from the registry but does not delete its stored data (owners, aliases, overrides). This cannot be undone.`
     );
@@ -116,7 +116,7 @@ export default function AdminLeaguesPage() {
         }));
         return;
       }
-      const data = (await res.json()) as { leagues: League[] };
+      const data = (await res.json()) as { leagues: PublicLeague[] };
       setLeagues(data.leagues);
     } catch (err) {
       setDeleteErrors((prev) => ({ ...prev, [league.slug]: (err as Error).message }));
@@ -238,7 +238,7 @@ export default function AdminLeaguesPage() {
         }));
         return;
       }
-      const data = (await res.json()) as { league: League };
+      const data = (await res.json()) as { league: PublicLeague };
       setLeagues((prev) => prev.map((l) => (l.slug === leagueSlug ? data.league : l)));
       cancelEdit(leagueSlug);
     } catch (err) {

@@ -7,6 +7,7 @@ import WinTotalsUploadPanel from '@/components/WinTotalsUploadPanel';
 import HistoricalCachePanel from '@/components/admin/HistoricalCachePanel';
 import SeasonRolloverPanel from '@/components/admin/SeasonRolloverPanel';
 import { getLeagues } from '@/lib/leagueRegistry';
+import { sanitizeLeagues } from '@/lib/leagueSanitize';
 import { findNationalChampionshipGameDate } from '@/lib/seasonRollover';
 
 export const dynamic = 'force-dynamic';
@@ -50,7 +51,7 @@ export default async function AdminDataCachePage() {
         <GameStatsCachePanel defaultYear={leagueAwareYear} />
         <SpRatingsCachePanel />
         <WinTotalsUploadPanel />
-        <HistoricalCachePanel leagues={leagues} />
+        <HistoricalCachePanel leagues={sanitizeLeagues(leagues)} />
       </div>
     </main>
   );

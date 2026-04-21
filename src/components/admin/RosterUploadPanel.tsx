@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
-import type { League } from '@/lib/league';
+import type { PublicLeague } from '@/lib/league';
 import type {
   RosterValidationResult,
   ResolvedEntry,
@@ -12,7 +12,7 @@ import type {
 import { seasonYearForToday } from '@/lib/scores/normalizers';
 
 type Props = {
-  leagues: League[];
+  leagues: PublicLeague[];
 };
 
 type ValidationResponse = RosterValidationResult & { fbsTeams: string[] };

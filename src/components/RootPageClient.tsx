@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { Show, UserButton } from '@clerk/nextjs';
-import type { League } from '@/lib/league';
+import type { PublicLeague } from '@/lib/league';
 
 type Props = {
-  leagues: League[];
+  leagues: PublicLeague[];
   ownerCountBySlug: Record<string, number | null>;
 };
 
