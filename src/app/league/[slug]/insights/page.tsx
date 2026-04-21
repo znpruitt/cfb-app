@@ -24,8 +24,23 @@ async function loadInsights(slug: string, year: number): Promise<InsightsRespons
     const protocol =
       hdrs.get('x-forwarded-proto') ?? (process.env.NODE_ENV === 'development' ? 'http' : 'https');
     const origin = `${protocol}://${host}`;
+
+    // Forward the incoming request's cookies and admin headers so the gated
+    // /api/insights/[slug] handler sees the same auth context the user has.
+    // Without this, the SSR fetch arrives anonymous and isAuthorizedForLeague
+    // returns false — the handler would 404 even for authorized visitors
+    // (league password cookie, Clerk platform_admin session, or ADMIN_API_TOKEN).
+    const forwardedHeaders: Record<string, string> = {};
+    const cookieHeader = hdrs.get('cookie');
+    if (cookieHeader) forwardedHeaders.cookie = cookieHeader;
+    const adminTokenHeader = hdrs.get('x-admin-token');
+    if (adminTokenHeader) forwardedHeaders['x-admin-token'] = adminTokenHeader;
+    const authHeader = hdrs.get('authorization');
+    if (authHeader) forwardedHeaders.authorization = authHeader;
+
     const res = await fetch(`${origin}/api/insights/${encodeURIComponent(slug)}?year=${year}`, {
       cache: 'no-store',
+      headers: forwardedHeaders,
     });
     if (!res.ok) return null;
     return (await res.json()) as InsightsResponse;

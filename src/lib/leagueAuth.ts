@@ -1,8 +1,8 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
-import { auth } from '@clerk/nextjs/server';
 
 import { getLeague } from './leagueRegistry.ts';
+import { isAuthorizedAdminCaller } from './server/adminAuth.ts';
 
 /**
  * Server-side helpers for the per-league password gate.
@@ -182,26 +182,18 @@ export function leagueHasPassword(league: {
   );
 }
 
-async function isPlatformAdmin(): Promise<boolean> {
-  try {
-    const { userId, sessionClaims } = await auth();
-    if (!userId) return false;
-    const claims = sessionClaims as Record<string, unknown> & {
-      publicMetadata?: Record<string, unknown>;
-    };
-    return claims?.publicMetadata?.role === 'platform_admin';
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Single source of truth for whether a request is authorized to view a given league.
  *
  * Bypass conditions (in order, short-circuiting on first match):
  *   1. League has no password set (public mode — current default).
- *   2. Caller is a platform admin (Clerk publicMetadata.role === 'platform_admin').
- *   3. Request carries a valid, unexpired signed cookie for this league.
+ *   2. Caller is an authorized platform admin (Clerk platform_admin session
+ *      OR valid ADMIN_API_TOKEN via request header). Delegated to the shared
+ *      `isAuthorizedAdminCaller` helper so the token-fallback logic lives in
+ *      exactly one place (AGENTS.md invariant #6).
+ *   3. Request carries a valid, unexpired signed cookie for this league
+ *      (cookie is bound to the current password fingerprint so rotation
+ *      invalidates older cookies automatically).
  *
  * Phase 8 will add additional conditions (commissioner-per-league bypass,
  * owner-per-league bypass via Clerk roster) — extend this function in place,
@@ -214,8 +206,8 @@ export async function isAuthorizedForLeague(slug: string): Promise<boolean> {
   // 1. Public league — no password configured
   if (!leagueHasPassword(league)) return true;
 
-  // 2. Platform admin bypass
-  if (await isPlatformAdmin()) return true;
+  // 2. Platform admin bypass (Clerk session or ADMIN_API_TOKEN)
+  if (await isAuthorizedAdminCaller()) return true;
 
   // 3. Valid signed cookie for this league (bound to current password fingerprint)
   const jar = await cookies();
