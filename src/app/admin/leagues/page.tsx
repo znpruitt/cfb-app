@@ -49,7 +49,10 @@ export default function AdminLeaguesPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch('/api/admin/leagues', { cache: 'no-store' });
+      const res = await fetch('/api/admin/leagues', {
+        cache: 'no-store',
+        headers: { ...requireAdminAuthHeaders() },
+      });
       if (!res.ok) throw new Error(`GET /api/admin/leagues ${res.status}`);
       const data = (await res.json()) as { leagues: PublicLeague[] };
       setLeagues(data.leagues);

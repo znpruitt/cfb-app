@@ -1,6 +1,6 @@
 import { requireAdminAuth } from '@/lib/server/adminAuth';
-import { getLeague, updateLeague } from '@/lib/leagueRegistry';
-import { hashLeaguePassword } from '@/lib/leagueAuth';
+import { getLeague, updateLeague, clearLeaguePassword } from '@/lib/leagueRegistry';
+import { assertSigningSecretConfigured, hashLeaguePassword } from '@/lib/leagueAuth';
 
 export const runtime = 'nodejs';
 
@@ -15,6 +15,22 @@ export async function PUT(
   const { slug } = await params;
   const existing = await getLeague(slug);
   if (!existing) return new Response(`League "${slug}" not found`, { status: 404 });
+
+  // Fail fast if the deployment is missing the signing secret. Without it,
+  // a password hash could be persisted but no valid cookie could ever be
+  // minted — the league would become inaccessible to non-admins. 503 (vs 500)
+  // reflects the known recoverable server-config state.
+  try {
+    assertSigningSecretConfigured();
+  } catch {
+    return Response.json(
+      {
+        error:
+          'LEAGUE_AUTH_SECRET is not configured on this deployment. Password-gated privacy cannot be enabled until the signing secret is set. Contact the platform admin.',
+      },
+      { status: 503 }
+    );
+  }
 
   let body: unknown;
   try {
@@ -31,8 +47,8 @@ export async function PUT(
   if (typeof password !== 'string' || password.trim().length === 0) {
     return new Response('password must be a non-empty string', { status: 400 });
   }
-  if (password.length < 4) {
-    return new Response('password must be at least 4 characters', { status: 400 });
+  if (password.length < 8) {
+    return new Response('password must be at least 8 characters', { status: 400 });
   }
 
   const { hash, salt } = hashLeaguePassword(password);
@@ -54,6 +70,6 @@ export async function DELETE(
   const existing = await getLeague(slug);
   if (!existing) return new Response(`League "${slug}" not found`, { status: 404 });
 
-  await updateLeague(slug, { passwordHash: undefined, passwordSalt: undefined });
+  await clearLeaguePassword(slug);
   return Response.json({ ok: true, hasPassword: false });
 }

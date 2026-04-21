@@ -51,6 +51,25 @@ export async function updateLeagueStatus(
   return updateLeague(slug, { status });
 }
 
+/**
+ * Remove the password credentials from a league, reverting it to public. Uses
+ * explicit rest-destructuring so the persisted record no longer carries the
+ * `passwordHash` / `passwordSalt` keys at all (rather than setting them to
+ * `undefined`, which leaves the keys present in memory even though JSON
+ * serialization would drop them).
+ */
+export async function clearLeaguePassword(slug: string): Promise<League | null> {
+  const leagues = await getLeagues();
+  const idx = leagues.findIndex((l) => l.slug === slug);
+  if (idx === -1) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { passwordHash, passwordSalt, ...rest } = leagues[idx]!;
+  const cleared = rest as League;
+  const updated = leagues.map((l, i) => (i === idx ? cleared : l));
+  await setAppState(REGISTRY_SCOPE, REGISTRY_KEY, updated);
+  return cleared;
+}
+
 export async function removeLeague(slug: string): Promise<{ removed: boolean; leagues: League[] }> {
   const leagues = await getLeagues();
   const idx = leagues.findIndex((l) => l.slug === slug);

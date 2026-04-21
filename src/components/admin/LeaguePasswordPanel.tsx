@@ -30,9 +30,9 @@ export default function LeaguePasswordPanel({
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
-    if (password.length < 4) {
+    if (password.length < 8) {
       setStatus('error');
-      setMessage('Password must be at least 4 characters.');
+      setMessage('Password must be at least 8 characters.');
       return;
     }
     if (password !== confirm) {
@@ -152,7 +152,7 @@ export default function LeaguePasswordPanel({
               onChange={(e) => setPassword(e.target.value)}
               disabled={status === 'saving'}
               className={inputClass}
-              placeholder="At least 4 characters"
+              placeholder="At least 8 characters"
             />
           </div>
           <div>

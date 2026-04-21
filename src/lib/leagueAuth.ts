@@ -35,6 +35,16 @@ function getSigningSecret(): string {
   return secret;
 }
 
+/**
+ * Preflight check for routes that need to mint signed cookies (e.g. setting a
+ * league password). Throws the same error as `getSigningSecret` so callers can
+ * surface a clear misconfiguration message before they run expensive work
+ * (scrypt hashing, persistence) that would later fail at cookie-mint time.
+ */
+export function assertSigningSecretConfigured(): void {
+  getSigningSecret();
+}
+
 export function hashLeaguePassword(plaintext: string): LeaguePasswordHash {
   if (typeof plaintext !== 'string' || plaintext.length === 0) {
     throw new Error('Password must be a non-empty string');
