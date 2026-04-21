@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { notFound } from 'next/navigation';
+
 import { getLeague } from '@/lib/leagueRegistry';
 import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 
@@ -18,7 +20,8 @@ export async function renderLeagueGateIfBlocked(slug: string): Promise<React.Rea
   if (authorized) return null;
 
   const league = await getLeague(slug);
-  const displayName = league?.displayName ?? slug;
+  if (!league) notFound();
+  const displayName = league.displayName;
   return (
     <>
       {/* Discourage indexing of the gate itself. The URL stays valid (200), so
