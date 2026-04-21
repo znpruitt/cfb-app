@@ -96,7 +96,20 @@ export function verifyLeagueAuthCookie(slug: string, cookieValue: string): boole
   const parts = cookieValue.split('.');
   if (parts.length !== 3) return false;
   const [expiresAtStr, cookieSlug, providedSignature] = parts;
-  if (cookieSlug !== slug) return false;
+
+  // Timing-safe slug comparison. Pad to equal length so timingSafeEqual doesn't throw;
+  // a length mismatch is a definitive denial but we still do constant-time work.
+  try {
+    const maxLen = Math.max(Buffer.byteLength(cookieSlug, 'utf8'), Buffer.byteLength(slug, 'utf8'));
+    const aBuf = Buffer.alloc(maxLen);
+    const bBuf = Buffer.alloc(maxLen);
+    aBuf.write(cookieSlug, 'utf8');
+    bBuf.write(slug, 'utf8');
+    if (!timingSafeEqual(aBuf, bBuf)) return false;
+  } catch {
+    return false;
+  }
+
   const expiresAt = Number(expiresAtStr);
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
   const expectedSignature = signToken(`${expiresAtStr}.${cookieSlug}`);
@@ -150,7 +163,7 @@ async function isPlatformAdmin(): Promise<boolean> {
  */
 export async function isAuthorizedForLeague(slug: string): Promise<boolean> {
   const league = await getLeague(slug);
-  if (!league) return true; // not-found pages render their own notFound() — gate is moot
+  if (!league) return false; // unknown league — deny; pages call notFound() after the gate
 
   // 1. Public league — no password configured
   if (!leagueHasPassword(league)) return true;
