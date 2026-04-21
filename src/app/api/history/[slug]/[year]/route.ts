@@ -3,14 +3,15 @@ import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { getSeasonArchive } from '@/lib/seasonArchive';
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ slug: string; year: string }> }
 ): Promise<Response> {
   const { slug, year: yearParam } = await params;
 
   // Password-gate: blend unauthorized access into the same 404 shape unknown
   // leagues return, so API callers can't distinguish "passworded" from "missing".
-  if (!(await isAuthorizedForLeague(slug))) {
+  // Pass req so the gate honors ADMIN_API_TOKEN in addition to Clerk session.
+  if (!(await isAuthorizedForLeague(slug, req))) {
     return new Response(null, { status: 404 });
   }
 

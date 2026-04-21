@@ -1,5 +1,4 @@
 import { auth } from '@clerk/nextjs/server';
-import { headers as nextHeaders } from 'next/headers';
 
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -25,22 +24,6 @@ export function readAdminTokenFromRequest(req: Request): string {
   return '';
 }
 
-async function readAdminTokenFromHeaders(): Promise<string> {
-  try {
-    const hdrs = await nextHeaders();
-    const headerToken = hdrs.get('x-admin-token')?.trim();
-    if (headerToken) return headerToken;
-
-    const authHeader = hdrs.get('authorization')?.trim() ?? '';
-    if (authHeader.toLowerCase().startsWith('bearer ')) {
-      return authHeader.slice(7).trim();
-    }
-    return '';
-  } catch {
-    return '';
-  }
-}
-
 export function isAuthorizedAdminRequest(req: Request): boolean {
   const configured = getConfiguredAdminToken();
   if (!configured) {
@@ -51,46 +34,40 @@ export function isAuthorizedAdminRequest(req: Request): boolean {
 }
 
 /**
- * Boolean check for whether the current Clerk session is a platform_admin.
- * Single source of truth for session-based admin detection — consumed by
- * both `requireAdminAuth` (API route boundary) and `isAuthorizedForLeague`
- * (page + API gate). AGENTS.md invariant #6 bans inline role checks outside
- * these designated helpers, so new code needing the answer calls this
- * instead of re-reading `sessionClaims.publicMetadata.role` directly.
+ * Single source of truth for "is the current caller a platform admin?" as a
+ * boolean predicate (contrast with `requireAdminAuth`, which is the API-route
+ * boundary helper that returns a Response).
+ *
+ * Behavior:
+ *   1. Clerk session check via auth() — returns true if a signed-in user's
+ *      sessionClaims.publicMetadata.role === 'platform_admin'.
+ *   2. If a Request is provided, falls back to the ADMIN_API_TOKEN path via
+ *      isAuthorizedAdminRequest(req) — Phase 6 transition fallback; sunset
+ *      tracked under docs/next-tasks.md item #5.
+ *   3. Returns false on any auth() failure (Clerk misconfigured, etc.).
+ *
+ * Consumed by requireAdminAuth (passes req) and isAuthorizedForLeague (passes
+ * req from gated API routes; page-render context calls without req and gets
+ * Clerk-only evaluation). AGENTS.md invariant #6 prohibits inline
+ * publicMetadata.role checks outside these helpers, so new callers use this
+ * instead of re-reading sessionClaims.
  */
-export async function isPlatformAdminSession(): Promise<boolean> {
+export async function isPlatformAdminSession(req?: Request): Promise<boolean> {
   try {
     const { userId, sessionClaims } = await auth();
-    if (!userId) return false;
-    const claims = sessionClaims as Record<string, unknown> & {
-      publicMetadata?: Record<string, unknown>;
-    };
-    return claims?.publicMetadata?.role === 'platform_admin';
+    if (userId) {
+      const claims = sessionClaims as Record<string, unknown> & {
+        publicMetadata?: Record<string, unknown>;
+      };
+      if (claims?.publicMetadata?.role === 'platform_admin') return true;
+    }
   } catch {
-    return false;
-  }
-}
-
-/**
- * Unified admin-caller check accepting either an explicit Request (API route
- * handler context) or no argument (page/server-component context, reads from
- * `next/headers`). Returns true when caller has a platform_admin Clerk session
- * OR presents a valid `ADMIN_API_TOKEN` via `x-admin-token` / `Authorization: Bearer`.
- *
- * Phase 7 sunset of `ADMIN_API_TOKEN` removes the token branch here in one place.
- */
-export async function isAuthorizedAdminCaller(req?: Request): Promise<boolean> {
-  if (await isPlatformAdminSession()) return true;
-
-  const configured = getConfiguredAdminToken();
-  if (!configured) {
-    // In non-production with no token configured, allow — mirrors
-    // isAuthorizedAdminRequest for local dev ergonomics.
-    return !isProductionRuntime();
+    // Clerk not configured or session unreadable — fall through to token path.
   }
 
-  const provided = req ? readAdminTokenFromRequest(req) : await readAdminTokenFromHeaders();
-  return provided.length > 0 && provided === configured;
+  if (req && isAuthorizedAdminRequest(req)) return true;
+
+  return false;
 }
 
 function buildAdminAuthFailure(req: Request): { error: string; detail: string } {
@@ -121,11 +98,11 @@ function buildAdminAuthFailure(req: Request): { error: string; detail: string } 
 
 /**
  * requireAdminAuth — API-route boundary helper. Returns null when authorized,
- * a 401 JSON Response when not. Accepts platform_admin Clerk session OR a
- * valid `ADMIN_API_TOKEN` (Phase 6 transition path, slated for Phase 7 removal).
+ * a 401 JSON Response when not. Delegates the predicate to
+ * isPlatformAdminSession(req) so the role-check logic lives in exactly one place.
  */
 export async function requireAdminAuth(req: Request): Promise<Response | null> {
-  if (await isAuthorizedAdminCaller(req)) return null;
+  if (await isPlatformAdminSession(req)) return null;
 
   const failure = buildAdminAuthFailure(req);
   return Response.json(failure, { status: 401 });

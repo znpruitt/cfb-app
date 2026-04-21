@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from
 import { cookies } from 'next/headers';
 
 import { getLeague } from './leagueRegistry.ts';
-import { isAuthorizedAdminCaller } from './server/adminAuth.ts';
+import { isPlatformAdminSession } from './server/adminAuth.ts';
 
 /**
  * Server-side helpers for the per-league password gate.
@@ -186,11 +186,14 @@ export function leagueHasPassword(league: {
  * Single source of truth for whether a request is authorized to view a given league.
  *
  * Bypass conditions (in order, short-circuiting on first match):
- *   1. League has no password set (public mode — current default).
- *   2. Caller is an authorized platform admin (Clerk platform_admin session
- *      OR valid ADMIN_API_TOKEN via request header). Delegated to the shared
- *      `isAuthorizedAdminCaller` helper so the token-fallback logic lives in
- *      exactly one place (AGENTS.md invariant #6).
+ *   1. Public league — no password configured.
+ *   2. Caller is a platform admin. Delegated to `isPlatformAdminSession(req)`
+ *      in `src/lib/server/adminAuth.ts` so all role-check logic lives in a
+ *      single helper (AGENTS.md invariant #6). When `req` is passed (gated
+ *      API route context) the helper also honors the ADMIN_API_TOKEN
+ *      fallback; when called from page-render context without `req`, only
+ *      the Clerk session path is evaluated — which is correct because
+ *      page-render admin access flows through Clerk.
  *   3. Request carries a valid, unexpired signed cookie for this league
  *      (cookie is bound to the current password fingerprint so rotation
  *      invalidates older cookies automatically).
@@ -199,15 +202,15 @@ export function leagueHasPassword(league: {
  * owner-per-league bypass via Clerk roster) — extend this function in place,
  * keeping the short-circuit chain ordered cheapest-to-most-expensive.
  */
-export async function isAuthorizedForLeague(slug: string): Promise<boolean> {
+export async function isAuthorizedForLeague(slug: string, req?: Request): Promise<boolean> {
   const league = await getLeague(slug);
   if (!league) return false; // unknown league — deny; pages call notFound() after the gate
 
   // 1. Public league — no password configured
   if (!leagueHasPassword(league)) return true;
 
-  // 2. Platform admin bypass (Clerk session or ADMIN_API_TOKEN)
-  if (await isAuthorizedAdminCaller()) return true;
+  // 2. Platform admin bypass (Clerk session; also ADMIN_API_TOKEN when req present)
+  if (await isPlatformAdminSession(req)) return true;
 
   // 3. Valid signed cookie for this league (bound to current password fingerprint)
   const jar = await cookies();

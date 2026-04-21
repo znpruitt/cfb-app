@@ -25,7 +25,8 @@ export async function GET(req: Request): Promise<Response> {
 
   // Password-gate league-scoped reads. Blend into 404 so callers can't
   // distinguish "passworded" from "missing".
-  if (league && !(await isAuthorizedForLeague(league))) {
+  // Pass req so the gate honors ADMIN_API_TOKEN in addition to Clerk session.
+  if (league && !(await isAuthorizedForLeague(league, req))) {
     return new Response(null, { status: 404 });
   }
 
