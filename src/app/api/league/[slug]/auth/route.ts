@@ -58,8 +58,8 @@ export async function POST(
     return Response.json({ error: 'Incorrect password' }, { status: 401 });
   }
 
-  const jar = await cookies();
-  jar.set(leagueAuthCookieName(slug), createLeagueAuthCookie(slug), {
+  const [jar, cookieValue] = await Promise.all([cookies(), createLeagueAuthCookie(slug)]);
+  jar.set(leagueAuthCookieName(slug), cookieValue, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',

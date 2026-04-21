@@ -1,5 +1,6 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
+import { isAuthorizedForLeague } from '../../../lib/leagueAuth.ts';
 import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
 
 function clampYearMaybe(s: string | null): number {
@@ -21,6 +22,12 @@ export async function GET(req: Request): Promise<Response> {
   const year = clampYearMaybe(url.searchParams.get('year'));
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
+
+  // Password-gate league-scoped reads. Blend into 404 so callers can't
+  // distinguish "passworded" from "missing".
+  if (league && !(await isAuthorizedForLeague(league))) {
+    return new Response(null, { status: 404 });
+  }
 
   const record = await getAppState<OverridesMap>(overridesScope(year, league), 'map');
 

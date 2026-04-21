@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { auth } from '@clerk/nextjs/server';
 
@@ -79,23 +79,48 @@ function signToken(payload: string): string {
   return createHmac('sha256', getSigningSecret()).update(payload).digest('hex');
 }
 
+const FINGERPRINT_LENGTH = 16;
+
 /**
- * Cookie token format: `<expirationMs>.<slug>.<hexSignature>`
- * The signature is HMAC-SHA256 over `<expirationMs>.<slug>` keyed by
- * `LEAGUE_AUTH_SECRET`. Including the slug binds the cookie to the league.
+ * Derives a short, non-reversible fingerprint of the stored password hash.
+ * Rotating the password (new hash + new salt) changes the fingerprint, which
+ * invalidates previously issued cookies without requiring any revocation list.
+ * We fingerprint the hash — not the plaintext — so the signing secret is the
+ * only thing that can forge cookies; the fingerprint merely binds the cookie
+ * to a specific password version.
  */
-export function createLeagueAuthCookie(slug: string): string {
+function computePasswordFingerprint(passwordHash: string): string {
+  return createHash('sha256').update(passwordHash).digest('hex').slice(0, FINGERPRINT_LENGTH);
+}
+
+/**
+ * Cookie token format: `<expirationMs>.<slug>.<passwordFingerprint>.<hexSignature>`
+ * The signature is HMAC-SHA256 over `<expirationMs>.<slug>.<passwordFingerprint>`
+ * keyed by `LEAGUE_AUTH_SECRET`. Including the slug binds the cookie to the
+ * league; including the fingerprint binds it to the current password version,
+ * so rotating the password auto-invalidates all previously issued cookies.
+ */
+export async function createLeagueAuthCookie(slug: string): Promise<string> {
+  const league = await getLeague(slug);
+  if (!league || !leagueHasPassword(league)) {
+    // Programming error: callers must only mint cookies for leagues that have
+    // a password set. The POST /auth route already verified the password, so
+    // this can only fire if a commissioner removed the password between the
+    // verify step and the cookie mint — extremely unlikely, but fail loud.
+    throw new Error(`Cannot mint league auth cookie: league '${slug}' has no password set`);
+  }
+  const fingerprint = computePasswordFingerprint(league.passwordHash!);
   const expiresAt = Date.now() + COOKIE_MAX_AGE_SECONDS * 1000;
-  const payload = `${expiresAt}.${slug}`;
+  const payload = `${expiresAt}.${slug}.${fingerprint}`;
   const signature = signToken(payload);
   return `${payload}.${signature}`;
 }
 
-export function verifyLeagueAuthCookie(slug: string, cookieValue: string): boolean {
+export async function verifyLeagueAuthCookie(slug: string, cookieValue: string): Promise<boolean> {
   if (typeof cookieValue !== 'string' || cookieValue.length === 0) return false;
   const parts = cookieValue.split('.');
-  if (parts.length !== 3) return false;
-  const [expiresAtStr, cookieSlug, providedSignature] = parts;
+  if (parts.length !== 4) return false;
+  const [expiresAtStr, cookieSlug, cookieFingerprint, providedSignature] = parts;
 
   // Timing-safe slug comparison. Pad to equal length so timingSafeEqual doesn't throw;
   // a length mismatch is a definitive denial but we still do constant-time work.
@@ -112,7 +137,28 @@ export function verifyLeagueAuthCookie(slug: string, cookieValue: string): boole
 
   const expiresAt = Number(expiresAtStr);
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
-  const expectedSignature = signToken(`${expiresAtStr}.${cookieSlug}`);
+
+  // Verify the fingerprint matches the league's current password. This is the
+  // rotation binding: if the commissioner has changed the password since this
+  // cookie was minted, the fingerprints will differ and the cookie is rejected.
+  const league = await getLeague(slug);
+  if (!league || !leagueHasPassword(league)) return false;
+  const expectedFingerprint = computePasswordFingerprint(league.passwordHash!);
+  try {
+    const maxLen = Math.max(
+      Buffer.byteLength(cookieFingerprint, 'utf8'),
+      Buffer.byteLength(expectedFingerprint, 'utf8')
+    );
+    const aBuf = Buffer.alloc(maxLen);
+    const bBuf = Buffer.alloc(maxLen);
+    aBuf.write(cookieFingerprint, 'utf8');
+    bBuf.write(expectedFingerprint, 'utf8');
+    if (!timingSafeEqual(aBuf, bBuf)) return false;
+  } catch {
+    return false;
+  }
+
+  const expectedSignature = signToken(`${expiresAtStr}.${cookieSlug}.${cookieFingerprint}`);
   if (expectedSignature.length !== providedSignature.length) return false;
   try {
     return timingSafeEqual(
@@ -171,10 +217,10 @@ export async function isAuthorizedForLeague(slug: string): Promise<boolean> {
   // 2. Platform admin bypass
   if (await isPlatformAdmin()) return true;
 
-  // 3. Valid signed cookie for this league
+  // 3. Valid signed cookie for this league (bound to current password fingerprint)
   const jar = await cookies();
   const cookieValue = jar.get(leagueAuthCookieName(slug))?.value ?? '';
-  if (cookieValue && verifyLeagueAuthCookie(slug, cookieValue)) return true;
+  if (cookieValue && (await verifyLeagueAuthCookie(slug, cookieValue))) return true;
 
   return false;
 }

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { buildInsightContext } from '@/lib/insights/context';
 import { runInsightsEngine } from '@/lib/insights/engine';
 import '@/lib/insights/generators';
+import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { getLeague } from '@/lib/leagueRegistry';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { loadSeasonRankings } from '@/lib/server/rankings';
@@ -64,6 +65,13 @@ export async function GET(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Response> {
   const { slug } = await params;
+
+  // Password-gate: blend unauthorized access into the same 404 shape unknown
+  // leagues return, so API callers can't distinguish "passworded" from "missing".
+  if (!(await isAuthorizedForLeague(slug))) {
+    return new Response(null, { status: 404 });
+  }
+
   const url = new URL(req.url);
   const origin = `${url.protocol}//${url.host}`;
 
