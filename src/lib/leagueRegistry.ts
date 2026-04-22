@@ -1,3 +1,5 @@
+import { cache } from 'react';
+
 import { getAppState, setAppState } from './server/appStateStore.ts';
 import type { League, LeagueStatus } from './league.ts';
 
@@ -17,10 +19,10 @@ export async function getLeagues(): Promise<League[]> {
   return Array.isArray(value) ? value : [];
 }
 
-export async function getLeague(slug: string): Promise<League | null> {
+export const getLeague = cache(async (slug: string): Promise<League | null> => {
   const leagues = await getLeagues();
   return leagues.find((l) => l.slug === slug) ?? null;
-}
+});
 
 export async function addLeague(league: League): Promise<League[]> {
   const leagues = await getLeagues();

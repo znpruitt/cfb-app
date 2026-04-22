@@ -1,3 +1,5 @@
+import { cache } from 'react';
+
 import { getAppState, setAppState, listAppStateKeys } from './server/appStateStore.ts';
 import type {
   StandingsHistory,
@@ -53,7 +55,7 @@ export async function getSeasonArchive(
   }
 }
 
-export async function listSeasonArchives(leagueSlug: string): Promise<number[]> {
+export const listSeasonArchives = cache(async (leagueSlug: string): Promise<number[]> => {
   try {
     const keys = await listAppStateKeys(archiveScope(leagueSlug));
     return keys
@@ -63,7 +65,7 @@ export async function listSeasonArchives(leagueSlug: string): Promise<number[]> 
   } catch {
     return [];
   }
-}
+});
 
 export async function saveSeasonArchive(archive: SeasonArchive): Promise<void> {
   await setAppState<SeasonArchive>(archiveScope(archive.leagueSlug), String(archive.year), archive);
