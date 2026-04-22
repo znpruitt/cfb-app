@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
+import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeagues } from '@/lib/leagueRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -27,10 +28,7 @@ export default async function AdminDataPage() {
 
         {leagues.length === 0 ? (
           <p className="text-sm text-zinc-400">
-            No leagues configured.{' '}
-            <Link href="/admin/leagues" className="text-blue-400 hover:underline">
-              Add a league →
-            </Link>
+            No leagues configured. <ViewMoreLink href="/admin/leagues">Add a league</ViewMoreLink>
           </p>
         ) : (
           <div className="space-y-3">

@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
+import ViewMoreLink, { viewMoreLinkClass } from './navigation/ViewMoreLink';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
@@ -1252,11 +1253,9 @@ function PollMovementBadge({ delta }: { delta: number | 'new' | null }): React.R
 function PollSnapshotColumn({
   snapshot,
   rankingsHref,
-  ctaClasses,
 }: {
   snapshot: PollSnapshot | null;
   rankingsHref: string;
-  ctaClasses: string;
 }): React.ReactElement {
   return (
     <div className="min-w-0">
@@ -1264,9 +1263,7 @@ function PollSnapshotColumn({
         <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">
           {snapshot?.pollName ?? 'FBS Poll'}
         </p>
-        <Link href={rankingsHref} className={ctaClasses}>
-          Full rankings ↗
-        </Link>
+        <ViewMoreLink href={rankingsHref}>Full rankings</ViewMoreLink>
       </div>
       {!snapshot || snapshot.entries.length === 0 ? (
         <p className="py-2 text-sm text-gray-400 dark:text-zinc-500">Rankings unavailable</p>
@@ -1434,8 +1431,6 @@ export default function OverviewPanel({
 
   const standingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
   const rankingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
-  const ctaClasses =
-    'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200';
 
   return (
     <div className="space-y-5">
@@ -1472,9 +1467,7 @@ export default function OverviewPanel({
             <div className="min-w-0">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">Standings</p>
-                <Link href={standingsHref} className={ctaClasses}>
-                  Full standings ↗
-                </Link>
+                <ViewMoreLink href={standingsHref}>Full standings</ViewMoreLink>
               </div>
               <CondensedStandingsTable
                 rows={viewModel.standingsTopN}
@@ -1487,11 +1480,7 @@ export default function OverviewPanel({
               />
             </div>
             {/* Column 2: FBS Polls snapshot */}
-            <PollSnapshotColumn
-              snapshot={pollSnapshot}
-              rankingsHref={rankingsHref}
-              ctaClasses={ctaClasses}
-            />
+            <PollSnapshotColumn snapshot={pollSnapshot} rankingsHref={rankingsHref} />
             {/* Column 3: Insights */}
             {sharedInsights.length > 0 || lifecycleState === 'fresh_offseason' ? (
               <div className="min-w-0">
@@ -1499,12 +1488,9 @@ export default function OverviewPanel({
                   <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">
                     Insights
                   </p>
-                  <Link
-                    href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/insights`}
-                    className={ctaClasses}
-                  >
-                    See all →
-                  </Link>
+                  <ViewMoreLink href={`${leagueSlug ? `/league/${leagueSlug}` : ''}/insights`}>
+                    See all
+                  </ViewMoreLink>
                 </div>
                 <InsightsList
                   insights={sharedInsights}
@@ -1525,8 +1511,8 @@ export default function OverviewPanel({
         <SectionHeader
           title="Featured games"
           action={
-            <button type="button" className={ctaClasses} onClick={onViewSchedule}>
-              All results ↗
+            <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
+              All results →
             </button>
           }
         />
@@ -1548,8 +1534,8 @@ export default function OverviewPanel({
             <SectionHeader
               title="Upcoming watchlist"
               action={
-                <button type="button" className={ctaClasses} onClick={onViewMatchups}>
-                  All matchups ↗
+                <button type="button" className={viewMoreLinkClass} onClick={onViewMatchups}>
+                  All matchups →
                 </button>
               }
             />
@@ -1581,9 +1567,9 @@ export default function OverviewPanel({
             <SectionHeader
               title="GB Race"
               action={
-                <Link href={`${standingsHref}?view=trends#trends`} className={ctaClasses}>
-                  Full standings ↗
-                </Link>
+                <ViewMoreLink href={`${standingsHref}?view=trends#trends`}>
+                  Full standings
+                </ViewMoreLink>
               }
             />
             <div className="mt-2.5 flex flex-col gap-3 sm:flex-row">

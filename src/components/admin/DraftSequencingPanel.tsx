@@ -1,5 +1,4 @@
-import Link from 'next/link';
-
+import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 
@@ -50,12 +49,7 @@ export default async function DraftSequencingPanel() {
                   /{league.slug}
                 </span>
               </div>
-              <Link
-                href={`/league/${league.slug}/draft/setup`}
-                className="text-xs text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-              >
-                Draft setup →
-              </Link>
+              <ViewMoreLink href={`/league/${league.slug}/draft/setup`}>Draft setup</ViewMoreLink>
             </div>
 
             {/* Rollover guard */}

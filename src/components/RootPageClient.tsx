@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { Show, UserButton } from '@clerk/nextjs';
+
+import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import type { PublicLeague } from '@/lib/league';
 
 type Props = {
@@ -62,12 +64,11 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
             {leagues.length === 0 ? (
               <div className="rounded-lg border border-gray-300 bg-gray-50 p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
                 <p className="text-gray-500 dark:text-zinc-400">No leagues configured.</p>
-                <Link
-                  href="/admin/leagues"
-                  className="mt-3 inline-block text-sm text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-                >
-                  Go to League Management to set up your first league →
-                </Link>
+                <div className="mt-3">
+                  <ViewMoreLink href="/admin/leagues">
+                    Go to League Management to set up your first league
+                  </ViewMoreLink>
+                </div>
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -95,12 +96,7 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
                         </div>
                       </div>
                       <div className="flex gap-4">
-                        <Link
-                          href={`/league/${league.slug}`}
-                          className="text-sm text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-                        >
-                          View League →
-                        </Link>
+                        <ViewMoreLink href={`/league/${league.slug}`}>View League</ViewMoreLink>
                       </div>
                     </div>
                   );

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
+import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeagues } from '@/lib/leagueRegistry';
 import type { LeagueStatus } from '@/lib/league';
 
@@ -84,13 +85,7 @@ export default async function AdminPage() {
 
           {leagues.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-zinc-500">
-              No leagues configured.{' '}
-              <Link
-                href="/admin/leagues"
-                className="text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Add a league →
-              </Link>
+              No leagues configured. <ViewMoreLink href="/admin/leagues">Add a league</ViewMoreLink>
             </p>
           )}
 
