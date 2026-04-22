@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
@@ -77,12 +78,14 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
       {/* Header */}
       <div className="space-y-1">
-        <Link
-          href={`/admin/${slug}`}
-          className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
-        >
-          ← {league.displayName}
-        </Link>
+        <Breadcrumbs
+          segments={[
+            { label: 'Home', href: '/' },
+            { label: 'Admin', href: '/admin' },
+            { label: league.displayName, href: `/admin/${slug}` },
+            { label: 'Preseason' },
+          ]}
+        />
         <h1 className="text-2xl font-semibold">{year} Pre-Season Setup</h1>
         <p className="text-sm text-gray-500 dark:text-zinc-400">
           Complete the steps below to get the {year} season ready.

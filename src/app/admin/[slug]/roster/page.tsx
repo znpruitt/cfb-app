@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import RosterEditorPanel from '@/components/admin/RosterEditorPanel';
 import RosterUploadPanel from '@/components/admin/RosterUploadPanel';
 import { getLeague } from '@/lib/leagueRegistry';
@@ -28,6 +29,14 @@ export default async function AdminLeagueRosterPage({
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-8 space-y-8">
+      <Breadcrumbs
+        segments={[
+          { label: 'Home', href: '/' },
+          { label: 'Admin', href: '/admin' },
+          { label: definedLeague.displayName, href: `/admin/${slug}` },
+          { label: 'Roster' },
+        ]}
+      />
       <h1 className="text-xl font-bold">{definedLeague.displayName} — Roster</h1>
 
       {/* ---- Upload Roster CSV ---- */}

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { getLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import type { LeagueStatus } from '@/lib/league';
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
 import TestLeagueControls from './components/TestLeagueControls';
 import { beginPreseason } from './actions';
@@ -56,14 +57,25 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
       <div className="space-y-1">
-        <Link
-          href={`/league/${slug}`}
-          className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
-        >
-          ← Back to league
-        </Link>
-        <h1 className="text-2xl font-semibold">{league.displayName} — Commissioner Tools</h1>
-        <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
+        <Breadcrumbs
+          segments={[
+            { label: 'Home', href: '/' },
+            { label: 'Admin', href: '/admin' },
+            { label: league.displayName },
+          ]}
+        />
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-semibold">{league.displayName} — Commissioner Tools</h1>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
+          </div>
+          <Link
+            href={`/league/${slug}`}
+            className="shrink-0 pt-1 text-sm text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            View League →
+          </Link>
+        </div>
       </div>
 
       {/* Status action card — offseason and preseason only */}

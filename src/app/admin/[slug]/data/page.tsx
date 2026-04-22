@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { getLeague } from '@/lib/leagueRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -18,12 +19,14 @@ export default async function AdminLeagueDataPage({
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-6">
       <div className="space-y-1">
-        <Link
-          href={`/admin/${slug}`}
-          className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
-        >
-          ← {league.displayName}
-        </Link>
+        <Breadcrumbs
+          segments={[
+            { label: 'Home', href: '/' },
+            { label: 'Admin', href: '/admin' },
+            { label: league.displayName, href: `/admin/${slug}` },
+            { label: 'Data' },
+          ]}
+        />
         <h1 className="text-2xl font-semibold">{league.displayName} — Data</h1>
       </div>
       <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
