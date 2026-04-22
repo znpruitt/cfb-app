@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
 
 import AliasEditorPanel from '@/components/AliasEditorPanel';
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { normalizeAliasLookup } from '@/lib/teamNormalization';
 
@@ -80,12 +80,13 @@ export default function AdminAliasesPage(): React.ReactElement {
     <div className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="space-y-1">
-          <Link
-            href="/admin"
-            className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
-          >
-            ← Admin
-          </Link>
+          <Breadcrumbs
+            segments={[
+              { label: 'Home', href: '/' },
+              { label: 'Admin', href: '/admin' },
+              { label: 'Aliases' },
+            ]}
+          />
           <h1 className="text-2xl font-semibold">Aliases</h1>
           <p className="text-sm text-gray-500 dark:text-zinc-400">
             Team name corrections applied across all leagues and seasons.

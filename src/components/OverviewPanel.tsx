@@ -1433,7 +1433,7 @@ export default function OverviewPanel({
   }, [rankings, viewModel.championSummary]);
 
   const standingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
-  const rankingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/rankings`;
+  const rankingsHref = `${leagueSlug ? `/league/${leagueSlug}` : ''}/standings`;
   const ctaClasses =
     'text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200';
 

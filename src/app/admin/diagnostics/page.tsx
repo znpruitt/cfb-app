@@ -1,5 +1,4 @@
-import Link from 'next/link';
-
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import AdminUsagePanel from '@/components/AdminUsagePanel';
 import AdminTeamDatabasePanel from '@/components/AdminTeamDatabasePanel';
 import AdminStorageStatusPanel from '@/components/AdminStorageStatusPanel';
@@ -16,12 +15,13 @@ export default async function AdminDiagnosticsPage() {
     <main className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="space-y-1">
-          <Link
-            href="/admin"
-            className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
-          >
-            ← Admin
-          </Link>
+          <Breadcrumbs
+            segments={[
+              { label: 'Home', href: '/' },
+              { label: 'Admin', href: '/admin' },
+              { label: 'Diagnostics' },
+            ]}
+          />
           <h1 className="text-2xl font-semibold">Diagnostics</h1>
         </div>
 

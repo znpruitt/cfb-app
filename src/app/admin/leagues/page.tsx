@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AdminAuthPanel from 'components/AdminAuthPanel';
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { PublicLeague } from '@/lib/league';
 
@@ -254,13 +255,13 @@ export default function AdminLeaguesPage() {
 
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
-      <div className="flex items-center gap-3">
-        <Link href="/admin" className="text-sm text-blue-600 hover:underline dark:text-blue-400">
-          ← Admin
-        </Link>
-        <span className="text-gray-400 dark:text-zinc-600">/</span>
-        <span className="text-sm font-medium">League Management</span>
-      </div>
+      <Breadcrumbs
+        segments={[
+          { label: 'Home', href: '/' },
+          { label: 'Admin', href: '/admin' },
+          { label: 'League Management' },
+        ]}
+      />
 
       <div className="rounded-2xl border border-gray-300 bg-gray-50/80 p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60">
         <div className="space-y-1">

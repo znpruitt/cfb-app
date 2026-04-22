@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
@@ -72,12 +72,15 @@ export default async function PreseasonOwnersPage({
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
       <div className="space-y-1">
-        <Link
-          href={`/admin/${slug}/preseason`}
-          className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
-        >
-          ← Pre-Season Setup
-        </Link>
+        <Breadcrumbs
+          segments={[
+            { label: 'Home', href: '/' },
+            { label: 'Admin', href: '/admin' },
+            { label: league.displayName, href: `/admin/${slug}` },
+            { label: 'Preseason', href: `/admin/${slug}/preseason` },
+            { label: 'Owners' },
+          ]}
+        />
         <h1 className="text-2xl font-semibold">Confirm Owners for {year}</h1>
         <p className="text-sm text-gray-500 dark:text-zinc-400">
           Review and update the owner list for the {year} season. Changes here will not affect prior

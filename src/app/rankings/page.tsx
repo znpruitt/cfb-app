@@ -20,5 +20,5 @@ export default async function RankingsPage(): Promise<React.ReactElement> {
     );
   }
 
-  redirect(`/league/${leagues[0].slug}/rankings`);
+  redirect(`/league/${leagues[0].slug}/standings`);
 }
