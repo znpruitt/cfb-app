@@ -1,7 +1,7 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
+import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeague } from '@/lib/leagueRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -32,18 +32,11 @@ export default async function AdminLeagueDataPage({
       <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
         <p className="text-sm text-gray-500 dark:text-zinc-400">
           Aliases have moved to the platform level.{' '}
-          <Link href="/admin/aliases" className="text-blue-600 hover:underline dark:text-blue-400">
-            Manage aliases →
-          </Link>
+          <ViewMoreLink href="/admin/aliases">Manage aliases</ViewMoreLink>
         </p>
         <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
           Schedule and scores are managed from{' '}
-          <Link
-            href="/admin/data/cache"
-            className="text-blue-600 hover:underline dark:text-blue-400"
-          >
-            Data Cache →
-          </Link>
+          <ViewMoreLink href="/admin/data/cache">Data Cache</ViewMoreLink>
         </p>
       </div>
     </main>

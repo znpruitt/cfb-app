@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
+
+import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState } from '@/lib/draft';
@@ -265,12 +267,7 @@ export default async function DraftBoardPage({
             </h1>
             <p className="text-sm text-gray-500 dark:text-zinc-400">
               Commissioner board ·{' '}
-              <Link
-                href={`/league/${slug}/draft/board`}
-                className="text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Spectator view →
-              </Link>
+              <ViewMoreLink href={`/league/${slug}/draft/board`}>Spectator view</ViewMoreLink>
             </p>
           </div>
           <Link
