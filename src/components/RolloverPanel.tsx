@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
-import type { League } from '@/lib/league';
+import type { PublicLeague } from '@/lib/league';
 import type { SeasonArchiveDiff } from '@/lib/seasonArchive';
 
 const controlButtonClass =
@@ -15,7 +15,7 @@ const dangerButtonClass =
 type StatusData = {
   seasonComplete: boolean;
   currentYear: number;
-  leagues: League[];
+  leagues: PublicLeague[];
 };
 
 type LeaguePreview = {

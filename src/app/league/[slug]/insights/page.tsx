@@ -1,37 +1,11 @@
 import Link from 'next/link';
-import { headers } from 'next/headers';
 
-import type { LifecycleState } from '../../../../lib/insights/types';
-import type { Insight } from '../../../../lib/selectors/insights';
+import { loadInsightsForLeague } from '../../../../lib/insights/loadInsights';
 import { getLeague } from '../../../../lib/leagueRegistry';
+import { renderLeagueGateIfBlocked } from '../leagueGate';
 import AllInsightsRow from './AllInsightsRow';
 
 export const dynamic = 'force-dynamic';
-
-type InsightsResponse = {
-  insights: Insight[];
-  lifecycleState: LifecycleState;
-  generatedAt: string;
-  error?: string;
-};
-
-async function loadInsights(slug: string, year: number): Promise<InsightsResponse | null> {
-  try {
-    const hdrs = await headers();
-    const host = hdrs.get('x-forwarded-host') ?? hdrs.get('host');
-    if (!host) return null;
-    const protocol =
-      hdrs.get('x-forwarded-proto') ?? (process.env.NODE_ENV === 'development' ? 'http' : 'https');
-    const origin = `${protocol}://${host}`;
-    const res = await fetch(`${origin}/api/insights/${encodeURIComponent(slug)}?year=${year}`, {
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as InsightsResponse;
-  } catch {
-    return null;
-  }
-}
 
 export default async function LeagueInsightsPage({
   params,
@@ -39,6 +13,8 @@ export default async function LeagueInsightsPage({
   params: Promise<{ slug: string }>;
 }): Promise<React.ReactElement> {
   const { slug } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
   const league = await getLeague(slug);
   if (!league) {
     return (
@@ -50,10 +26,8 @@ export default async function LeagueInsightsPage({
     );
   }
 
-  const response = await loadInsights(slug, league.year);
-  const insights = (response?.insights ?? [])
-    .slice()
-    .sort((a, b) => b.priorityScore - a.priorityScore);
+  const response = await loadInsightsForLeague(slug, league.year);
+  const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">

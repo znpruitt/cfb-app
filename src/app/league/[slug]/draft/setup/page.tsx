@@ -9,6 +9,7 @@ import { draftScope, type DraftState } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import DraftSetupShell from '@/components/draft/DraftSetupShell';
+import { renderLeagueGateIfBlocked } from '../../leagueGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,8 @@ export default async function DraftSetupPage({
   params: Promise<{ slug: string }>;
 }): Promise<React.ReactElement> {
   const { slug } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
 
   const league = await getLeague(slug);
   if (!league) notFound();

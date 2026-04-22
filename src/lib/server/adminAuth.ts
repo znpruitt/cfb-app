@@ -33,6 +33,43 @@ export function isAuthorizedAdminRequest(req: Request): boolean {
   return readAdminTokenFromRequest(req) === configured;
 }
 
+/**
+ * Single source of truth for "is the current caller a platform admin?" as a
+ * boolean predicate (contrast with `requireAdminAuth`, which is the API-route
+ * boundary helper that returns a Response).
+ *
+ * Behavior:
+ *   1. Clerk session check via auth() — returns true if a signed-in user's
+ *      sessionClaims.publicMetadata.role === 'platform_admin'.
+ *   2. If a Request is provided, falls back to the ADMIN_API_TOKEN path via
+ *      isAuthorizedAdminRequest(req) — Phase 6 transition fallback; sunset
+ *      tracked under docs/next-tasks.md item #5.
+ *   3. Returns false on any auth() failure (Clerk misconfigured, etc.).
+ *
+ * Consumed by requireAdminAuth (passes req) and isAuthorizedForLeague (passes
+ * req from gated API routes; page-render context calls without req and gets
+ * Clerk-only evaluation). AGENTS.md invariant #6 prohibits inline
+ * publicMetadata.role checks outside these helpers, so new callers use this
+ * instead of re-reading sessionClaims.
+ */
+export async function isPlatformAdminSession(req?: Request): Promise<boolean> {
+  try {
+    const { userId, sessionClaims } = await auth();
+    if (userId) {
+      const claims = sessionClaims as Record<string, unknown> & {
+        publicMetadata?: Record<string, unknown>;
+      };
+      if (claims?.publicMetadata?.role === 'platform_admin') return true;
+    }
+  } catch {
+    // Clerk not configured or session unreadable — fall through to token path.
+  }
+
+  if (req && isAuthorizedAdminRequest(req)) return true;
+
+  return false;
+}
+
 function buildAdminAuthFailure(req: Request): { error: string; detail: string } {
   const configured = getConfiguredAdminToken();
   const provided = readAdminTokenFromRequest(req);
@@ -60,28 +97,12 @@ function buildAdminAuthFailure(req: Request): { error: string; detail: string } 
 }
 
 /**
- * requireAdminAuth — checks Clerk JWT first (platform_admin role required),
- * then falls back to ADMIN_API_TOKEN for backward compatibility.
- *
- * TODO Phase 7: remove ADMIN_API_TOKEN fallback once all clients use Clerk.
+ * requireAdminAuth — API-route boundary helper. Returns null when authorized,
+ * a 401 JSON Response when not. Delegates the predicate to
+ * isPlatformAdminSession(req) so the role-check logic lives in exactly one place.
  */
 export async function requireAdminAuth(req: Request): Promise<Response | null> {
-  // 1. Try Clerk session — requires publicMetadata.role === 'platform_admin'
-  try {
-    const { userId, sessionClaims } = await auth();
-    if (userId) {
-      const claims = sessionClaims as Record<string, unknown> & {
-        publicMetadata?: Record<string, unknown>;
-      };
-      const role = claims?.publicMetadata?.role;
-      if (role === 'platform_admin') return null;
-    }
-  } catch {
-    // Clerk not configured or session unreadable — fall through to token check
-  }
-
-  // 2. Fall back to ADMIN_API_TOKEN (Phase 6 transition — remove in Phase 7)
-  if (isAuthorizedAdminRequest(req)) return null;
+  if (await isPlatformAdminSession(req)) return null;
 
   const failure = buildAdminAuthFailure(req);
   return Response.json(failure, { status: 401 });

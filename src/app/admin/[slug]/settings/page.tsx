@@ -2,7 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import LeagueSettingsForm from '@/components/admin/LeagueSettingsForm';
+import LeaguePasswordPanel from '@/components/admin/LeaguePasswordPanel';
 import { getLeague } from '@/lib/leagueRegistry';
+import { leagueHasPassword } from '@/lib/leagueAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +35,7 @@ export default async function AdminLeagueSettingsPage({
         initialYear={league.year}
         initialFoundedYear={league.foundedYear}
       />
+      <LeaguePasswordPanel slug={slug} initialHasPassword={leagueHasPassword(league)} />
     </main>
   );
 }

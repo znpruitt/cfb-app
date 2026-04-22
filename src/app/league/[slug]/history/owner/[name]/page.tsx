@@ -7,6 +7,7 @@ import CareerSummaryCard from '@/components/history/CareerSummaryCard';
 import SeasonFinishHistory from '@/components/history/SeasonFinishHistory';
 import AllTimeOwnerHeadToHeadPanel from '@/components/history/AllTimeOwnerHeadToHeadPanel';
 import type { SeasonArchive } from '@/lib/seasonArchive';
+import { renderLeagueGateIfBlocked } from '../../../leagueGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,8 @@ export default async function OwnerCareerPage({
   params: Promise<{ slug: string; name: string }>;
 }): Promise<React.ReactElement> {
   const { slug, name: ownerName } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
 
   const league = await getLeague(slug);
   if (!league) notFound();

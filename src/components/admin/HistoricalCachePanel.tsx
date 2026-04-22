@@ -3,10 +3,10 @@
 import { useState } from 'react';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
-import type { League } from '@/lib/league';
+import type { PublicLeague } from '@/lib/league';
 
 type Props = {
-  leagues: League[];
+  leagues: PublicLeague[];
 };
 
 type CacheResult = {

@@ -22,6 +22,7 @@ import MostImprovedPanel from '@/components/history/MostImprovedPanel';
 import SeasonListPanel from '@/components/history/SeasonListPanel';
 import LeaguePageShell from '@/components/LeaguePageShell';
 import type { SeasonArchive } from '@/lib/seasonArchive';
+import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,8 @@ export default async function LeagueHistoryPage({
   params: Promise<{ slug: string }>;
 }): Promise<React.ReactElement> {
   const { slug } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
 
   const [{ sessionClaims }, league] = await Promise.all([auth(), getLeague(slug)]);
   if (!league) notFound();

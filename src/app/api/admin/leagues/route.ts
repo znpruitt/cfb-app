@@ -1,5 +1,6 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, addLeague, isValidSlug } from '@/lib/leagueRegistry';
+import { sanitizeLeague, sanitizeLeagues } from '@/lib/leagueSanitize';
 import type { League } from '@/lib/league';
 
 /** Slugs that collide with static /admin/* routes and cannot be used for leagues. */
@@ -12,9 +13,12 @@ const RESERVED_ADMIN_SLUGS = new Set([
   'cache',
 ]);
 
-export async function GET(): Promise<Response> {
+export async function GET(req: Request): Promise<Response> {
+  const authFailure = await requireAdminRequest(req);
+  if (authFailure) return authFailure;
+
   const leagues = await getLeagues();
-  return Response.json({ leagues });
+  return Response.json({ leagues: sanitizeLeagues(leagues) });
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -68,5 +72,8 @@ export async function POST(req: Request): Promise<Response> {
   };
 
   const updated = await addLeague(league);
-  return Response.json({ league, leagues: updated }, { status: 201 });
+  return Response.json(
+    { league: sanitizeLeague(league), leagues: sanitizeLeagues(updated) },
+    { status: 201 }
+  );
 }

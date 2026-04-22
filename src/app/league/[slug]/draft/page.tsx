@@ -19,6 +19,7 @@ import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftBoardClient from '@/components/draft/DraftBoardClient';
+import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,8 @@ export default async function DraftBoardPage({
   params: Promise<{ slug: string }>;
 }): Promise<React.ReactElement> {
   const { slug } = await params;
+  const gate = await renderLeagueGateIfBlocked(slug);
+  if (gate) return gate;
 
   const league = await getLeague(slug);
   if (!league) notFound();

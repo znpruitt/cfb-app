@@ -1,5 +1,6 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
+import { isAuthorizedForLeague } from '../../../lib/leagueAuth.ts';
 import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
 import { getTeamDatabaseItems } from '../../../lib/server/teamDatabaseStore.ts';
 import { getGlobalAliases } from '../../../lib/server/globalAliasStore.ts';
@@ -23,6 +24,13 @@ export async function GET(req: Request): Promise<Response> {
   const year = clampYearMaybe(url.searchParams.get('year'));
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
+
+  // Password-gate league-scoped reads (roster CSVs include owner names).
+  // Blend into 404 so callers can't distinguish "passworded" from "missing".
+  // Pass req so the gate honors ADMIN_API_TOKEN in addition to Clerk session.
+  if (league && !(await isAuthorizedForLeague(league, req))) {
+    return new Response(null, { status: 404 });
+  }
 
   const record = await getAppState<string>(ownersScope(year, league), 'csv');
 

@@ -4,6 +4,7 @@ import RolloverPanel from '@/components/RolloverPanel';
 import BackfillPanel from '@/components/admin/BackfillPanel';
 import ArchiveListPanel from '@/components/admin/ArchiveListPanel';
 import { getLeagues } from '@/lib/leagueRegistry';
+import { sanitizeLeagues } from '@/lib/leagueSanitize';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ export default async function AdminSeasonPage() {
         </div>
 
         <RolloverPanel />
-        <BackfillPanel leagues={leagues} />
+        <BackfillPanel leagues={sanitizeLeagues(leagues)} />
         <ArchiveListPanel />
       </div>
     </main>
