@@ -64,8 +64,18 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
             { label: league.displayName },
           ]}
         />
-        <h1 className="text-2xl font-semibold">{league.displayName} — Commissioner Tools</h1>
-        <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-semibold">{league.displayName} — Commissioner Tools</h1>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
+          </div>
+          <Link
+            href={`/league/${slug}`}
+            className="shrink-0 pt-1 text-sm text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            View League →
+          </Link>
+        </div>
       </div>
 
       {/* Status action card — offseason and preseason only */}
