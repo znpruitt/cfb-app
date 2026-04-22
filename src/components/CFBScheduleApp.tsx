@@ -1437,7 +1437,11 @@ export default function CFBScheduleApp({
                       </span>
                     </div>
                     <Link
-                      href={`/league/${leagueSlug}/draft/board`}
+                      href={
+                        isAdmin
+                          ? `/league/${leagueSlug}/draft`
+                          : `/league/${leagueSlug}/draft/board`
+                      }
                       style={{
                         borderRadius: '4px',
                         border: `1px solid ${palette.draft.linkBorder}`,

@@ -166,24 +166,16 @@ export default async function DraftSummaryPage({
 
   return (
     <main className="mx-auto max-w-screen-xl px-4 py-8">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <Link
-            href={`/league/${slug}/`}
-            className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-          >
-            ← {league.displayName}
-          </Link>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
-            {league.displayName} — {year} Draft Results
-          </h1>
-        </div>
+      <div className="mb-6">
         <Link
-          href={`/league/${slug}/draft`}
-          className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          href={`/league/${slug}/`}
+          className="text-sm text-blue-600 hover:underline dark:text-blue-400"
         >
-          ← Draft Board
+          ← {league.displayName}
         </Link>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
+          {league.displayName} — {year} Draft Results
+        </h1>
       </div>
 
       <DraftSummaryClient
