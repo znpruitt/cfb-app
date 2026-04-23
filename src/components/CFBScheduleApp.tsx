@@ -7,7 +7,7 @@ import Link from 'next/link';
 import AdminDebugSurface from './AdminDebugSurface';
 import FeedbackForm from './FeedbackForm';
 import GameWeekPanel from './GameWeekPanel';
-import LeagueHeaderActions from './menu/LeagueHeaderActions';
+import AppHeaderActions from './menu/AppHeaderActions';
 import MatchupMatrixView from './MatchupMatrixView';
 import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
@@ -1254,10 +1254,10 @@ export default function CFBScheduleApp({
                 Back to league view
               </Link>
             ) : null}
-            <LeagueHeaderActions
-              isAdmin={isAdmin && Boolean(leagueSlug)}
-              leagueSlug={leagueSlug ?? ''}
-              leagueDisplayName={leagueDisplayName ?? 'League'}
+            <AppHeaderActions
+              isAdmin={isAdmin}
+              leagueSlug={leagueSlug}
+              leagueDisplayName={leagueDisplayName}
             />
           </div>
         </div>

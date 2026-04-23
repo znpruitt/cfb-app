@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { Show, useUser, UserButton } from '@clerk/nextjs';
+import { Show, useUser } from '@clerk/nextjs';
 
+import AppHeaderActions from '@/components/menu/AppHeaderActions';
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import type { PublicLeague } from '@/lib/league';
 
@@ -57,17 +58,7 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
           <div className="mx-auto max-w-4xl">
             <div className="mb-8 flex items-center justify-between">
               <h1 className="text-2xl font-bold">Turf War</h1>
-              <div className="flex items-center gap-4">
-                {isPlatformAdmin && (
-                  <Link
-                    href="/admin"
-                    className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-                  >
-                    Admin →
-                  </Link>
-                )}
-                <UserButton />
-              </div>
+              <AppHeaderActions isAdmin={isPlatformAdmin} />
             </div>
 
             {/* League cards */}

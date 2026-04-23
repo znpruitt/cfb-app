@@ -4,10 +4,10 @@ import Link from 'next/link';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useClerk, useUser } from '@clerk/nextjs';
 
-type Props = {
-  isAdmin?: boolean;
-  leagueSlug: string;
-  leagueDisplayName: string;
+type AppHeaderActionsProps = {
+  isAdmin: boolean;
+  leagueSlug?: string;
+  leagueDisplayName?: string;
 };
 
 const iconButtonClass =
@@ -93,26 +93,35 @@ function LogInIcon() {
 const menuItemClass =
   'flex cursor-pointer items-center gap-2 rounded px-3 py-2 text-sm text-gray-700 outline-none transition-colors hover:bg-gray-100 data-[highlighted]:bg-gray-100 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:data-[highlighted]:bg-zinc-800';
 
-export default function LeagueHeaderActions({ isAdmin, leagueSlug, leagueDisplayName }: Props) {
+export default function AppHeaderActions({
+  isAdmin,
+  leagueSlug,
+  leagueDisplayName,
+}: AppHeaderActionsProps) {
   const clerk = useClerk();
   const { isSignedIn, isLoaded } = useUser();
+
+  const showLeagueTools = isAdmin && Boolean(leagueSlug);
+  const showPlatformAdmin = isAdmin;
+  const showDivider = showLeagueTools || showPlatformAdmin;
+  const leagueToolsLabel = `${leagueDisplayName ?? 'League'} tools`;
 
   return (
     <div className="flex items-center gap-2">
       <Link href="/" title="Home" aria-label="Home" className={iconButtonClass}>
         <HomeIcon />
       </Link>
-      {isAdmin && (
+      {showLeagueTools && (
         <Link
           href={`/admin/${leagueSlug}`}
-          title={`${leagueDisplayName} tools`}
-          aria-label={`${leagueDisplayName} tools`}
+          title={leagueToolsLabel}
+          aria-label={leagueToolsLabel}
           className={iconButtonClass}
         >
           <GearIcon />
         </Link>
       )}
-      {isAdmin && (
+      {showPlatformAdmin && (
         <Link
           href="/admin"
           title="Platform admin"
@@ -122,11 +131,13 @@ export default function LeagueHeaderActions({ isAdmin, leagueSlug, leagueDisplay
           <ShieldIcon />
         </Link>
       )}
-      <div
-        aria-hidden="true"
-        className="mx-1 h-5 self-center bg-gray-300 dark:bg-zinc-700"
-        style={{ width: '0.5px' }}
-      />
+      {showDivider && (
+        <div
+          aria-hidden="true"
+          className="mx-1 h-5 self-center bg-gray-300 dark:bg-zinc-700"
+          style={{ width: '0.5px' }}
+        />
+      )}
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button

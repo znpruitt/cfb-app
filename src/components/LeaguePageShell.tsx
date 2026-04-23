@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import LeagueHeaderActions from './menu/LeagueHeaderActions';
+import AppHeaderActions from './menu/AppHeaderActions';
 
 type LeagueTab = 'overview' | 'standings' | 'matchups' | 'insights' | 'members' | 'history';
 
@@ -54,8 +54,8 @@ export default function LeaguePageShell({
             </p>
           </div>
           <div className="shrink-0">
-            <LeagueHeaderActions
-              isAdmin={isAdmin}
+            <AppHeaderActions
+              isAdmin={isAdmin ?? false}
               leagueSlug={leagueSlug}
               leagueDisplayName={leagueDisplayName}
             />
