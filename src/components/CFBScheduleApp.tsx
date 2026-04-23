@@ -103,9 +103,12 @@ type CFBScheduleAppProps = {
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
+  initialPreseasonOwners?: string[];
   initialWeekViewMode?: WeekViewMode;
   initialStandingsSubview?: StandingsSubview;
 };
+
+const PRESEASON_PLACEHOLDER_TEAM_PREFIX = '__preseason-placeholder:';
 
 /** Returns a human-readable countdown string for the draft date, or null if past. */
 function getDraftCountdown(scheduledAt: string): string | null {
@@ -231,6 +234,7 @@ export default function CFBScheduleApp({
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
+  initialPreseasonOwners,
   initialWeekViewMode = 'overview',
   initialStandingsSubview = 'table',
 }: CFBScheduleAppProps = {}): React.ReactElement {
@@ -559,11 +563,20 @@ export default function CFBScheduleApp({
     [games, presentationTimeZone]
   );
 
+  const isPreseason = leagueStatus?.state === 'preseason';
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of roster) m.set(r.team, r.owner);
+    // Preseason gap: owners confirmed via confirmPreseasonOwners but the draft
+    // hasn't written owners:{slug}:{year} CSV yet. Seed a placeholder roster so
+    // StandingsPanel renders an alphabetical 0-0 table instead of the empty state.
+    if (isPreseason && m.size === 0 && initialPreseasonOwners) {
+      for (const owner of initialPreseasonOwners) {
+        m.set(`${PRESEASON_PLACEHOLDER_TEAM_PREFIX}${owner}`, owner);
+      }
+    }
     return m;
-  }, [roster]);
+  }, [roster, isPreseason, initialPreseasonOwners]);
 
   const teamCatalogById = useMemo(() => {
     const next = new Map<string, TeamCatalogItem>();
@@ -1176,7 +1189,6 @@ export default function CFBScheduleApp({
   );
 
   const isAdminSurface = surface === 'admin';
-  const isPreseason = leagueStatus?.state === 'preseason';
   const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
   const canRenderPrimarySurface =
     canRenderLeagueSurface || weekViewMode === 'owner' || weekViewMode === 'rankings';
@@ -1210,6 +1222,16 @@ export default function CFBScheduleApp({
           issue.startsWith('Scores fetch failed:')
       ),
     [issues]
+  );
+  // Rankings errors aren't actionable in preseason — CFBD hasn't published
+  // rankings for the upcoming season — so suppress them from the Data notes
+  // surface to avoid clutter.
+  const standingsIssues = useMemo(
+    () =>
+      isPreseason
+        ? issues.filter((issue) => !issue.startsWith('CFBD rankings load failed:'))
+        : issues,
+    [isPreseason, issues]
   );
 
   return (
@@ -1871,7 +1893,7 @@ export default function CFBScheduleApp({
                   focusedOwner={focusedOwner}
                   standingsHistory={standingsHistory}
                   seasonContext={seasonContext}
-                  trendIssues={issues}
+                  trendIssues={standingsIssues}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
