@@ -1,5 +1,6 @@
-import Link from 'next/link';
+import { auth } from '@clerk/nextjs/server';
 
+import LeaguePageShell from '@/components/LeaguePageShell';
 import { loadInsightsForLeague } from '../../../../lib/insights/loadInsights';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
@@ -15,7 +16,7 @@ export default async function LeagueInsightsPage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
-  const league = await getLeague(slug);
+  const [{ sessionClaims }, league] = await Promise.all([auth(), getLeague(slug)]);
   if (!league) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-8">
@@ -26,38 +27,45 @@ export default async function LeagueInsightsPage({
     );
   }
 
+  const isAdmin =
+    (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
+      ?.publicMetadata?.role === 'platform_admin';
+
   const response = await loadInsightsForLeague(slug, league.year);
   const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
-      <div className="mb-4">
-        <Link
-          href={`/league/${slug}`}
-          className="text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-        >
-          ← Overview
-        </Link>
-      </div>
-      <h1 className="mb-4 text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-        All Insights
-      </h1>
-      {insights.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
-          No insights available yet for this league.
-        </p>
-      ) : (
-        <div>
-          {insights.map((insight) => (
-            <AllInsightsRow
-              key={insight.id}
-              insight={insight}
-              leagueSlug={slug}
-              panelYear={league.year}
-            />
-          ))}
+    <main>
+      <LeaguePageShell
+        leagueSlug={slug}
+        leagueDisplayName={league.displayName}
+        leagueYear={league.year}
+        foundedYear={league.foundedYear}
+        isAdmin={isAdmin}
+        activeTab="insights"
+      >
+        <div className="mx-auto max-w-3xl">
+          <h1 className="mb-4 text-2xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+            All Insights
+          </h1>
+          {insights.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
+              No insights available yet for this league.
+            </p>
+          ) : (
+            <div>
+              {insights.map((insight) => (
+                <AllInsightsRow
+                  key={insight.id}
+                  insight={insight}
+                  leagueSlug={slug}
+                  panelYear={league.year}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </LeaguePageShell>
     </main>
   );
 }

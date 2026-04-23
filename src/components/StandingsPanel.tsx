@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
-import TrendsDetailSurface from '../app/trends/TrendsDetailSurface';
+import TrendsDetailSurface from './TrendsDetailSurface';
 import {
   deriveLeagueInsights,
   deriveStandingsInsights,

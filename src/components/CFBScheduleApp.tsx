@@ -1437,7 +1437,11 @@ export default function CFBScheduleApp({
                       </span>
                     </div>
                     <Link
-                      href={`/league/${leagueSlug}/draft/board`}
+                      href={
+                        isAdmin
+                          ? `/league/${leagueSlug}/draft`
+                          : `/league/${leagueSlug}/draft/board`
+                      }
                       style={{
                         borderRadius: '4px',
                         border: `1px solid ${palette.draft.linkBorder}`,
@@ -1565,7 +1569,7 @@ export default function CFBScheduleApp({
               {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
             </button>
             <Link
-              href="/admin/data"
+              href="/admin/data/cache"
               className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
             >
               Open Data Management

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useUser } from '@clerk/nextjs';
 import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
@@ -185,8 +186,19 @@ export default function DraftSummaryClient({
   // Render
   // -------------------------------------------------------------------------
 
+  const draftBoardHref = isAdmin ? `/league/${slug}/draft` : `/league/${slug}/draft/board`;
+
   return (
     <div className="space-y-10">
+      <div>
+        <Link
+          href={draftBoardHref}
+          className="text-sm text-blue-600 hover:text-blue-500 transition-colors dark:text-blue-400 dark:hover:text-blue-300"
+        >
+          ← Draft Board
+        </Link>
+      </div>
+
       {/* Owner Roster Cards */}
       <section>
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">

@@ -14,8 +14,7 @@ import TrendsDetailSurface, {
   deriveResponsiveTrendLayout,
   estimateEndpointLabelWidth,
   toggleSelectedOwner,
-} from './TrendsDetailSurface';
-import TrendsPage from './page';
+} from '../TrendsDetailSurface';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import { deriveWeekTicks } from '../../lib/trendsFocus';
 import { buildOwnerColorMap, getOwnerColor } from '../../lib/ownerColors';
@@ -1175,15 +1174,4 @@ test('compact mode reduces wrapper padding while preserving shared chart interac
   assert.ok(bobLegend);
   await user.click(bobLegend);
   assert.ok(rendered.container.querySelector('[data-owner-focus="true"]'));
-});
-
-test('legacy trends page redirects to standings trends subview', () => {
-  try {
-    TrendsPage();
-    assert.fail('Expected redirect to throw');
-  } catch (error) {
-    assert.match(String(error), /NEXT_REDIRECT/);
-    const digest = (error as { digest?: string }).digest ?? '';
-    assert.match(digest, /\/standings\?view=trends/);
-  }
 });

@@ -2,11 +2,11 @@
 
 import React from 'react';
 
-import { selectOwnerMomentum } from '../../lib/selectors/momentum';
-import { type SeasonContext } from '../../lib/selectors/seasonContext';
-import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../../lib/selectors/trends';
-import type { StandingsHistory } from '../../lib/standingsHistory';
-import { deriveFocusedOwners, type FocusMode } from '../../lib/trendsFocus';
+import { selectOwnerMomentum } from '../lib/selectors/momentum';
+import { type SeasonContext } from '../lib/selectors/seasonContext';
+import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../lib/selectors/trends';
+import type { StandingsHistory } from '../lib/standingsHistory';
+import { deriveFocusedOwners, type FocusMode } from '../lib/trendsFocus';
 
 type MetricKind = 'games-back' | 'win-pct';
 type LayoutMode = 'standalone' | 'embedded';

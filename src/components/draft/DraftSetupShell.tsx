@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { useUser } from '@clerk/nextjs';
+import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState } from '@/lib/draft';
 import DraftSettingsPanel from './DraftSettingsPanel';
 
@@ -41,11 +42,28 @@ export default function DraftSetupShell({
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
+  // Audience guard: setup is commissioner-only. Mirrors DraftBoardClient pattern —
+  // sessionStorage admin token OR Clerk platform_admin role. Non-admins are silently
+  // redirected to the spectator board.
+  const { user, isLoaded: clerkLoaded } = useUser();
+  const [isTokenAdmin] = useState(() => hasStoredAdminToken());
+  const clerkRole = (user?.publicMetadata as { role?: string } | undefined)?.role;
+  const isAdmin = isTokenAdmin || (clerkLoaded && clerkRole === 'platform_admin');
+
+  useEffect(() => {
+    if (isTokenAdmin) return;
+    if (!clerkLoaded) return;
+    if (!isAdmin) {
+      window.location.replace(`/league/${slug}/draft/board`);
+    }
+  }, [isTokenAdmin, clerkLoaded, isAdmin, slug]);
+
   const phase = draftState?.phase ?? 'setup';
 
   // Auto-advance: when phase is 'setup' or draft is null, auto-create/advance to settings
   // using preseason owners (or existing draft owners as fallback).
   useEffect(() => {
+    if (!isAdmin) return;
     if (autoAdvancedRef.current) return;
     if (phase !== 'setup' && draftState !== null) return;
 
@@ -94,7 +112,7 @@ export default function DraftSetupShell({
         setAutoAdvancing(false);
       }
     })();
-  }, [phase, draftState, priorOwners, slug, year]);
+  }, [isAdmin, phase, draftState, priorOwners, slug, year]);
 
   async function handleBackToSettings() {
     setBackError(null);
