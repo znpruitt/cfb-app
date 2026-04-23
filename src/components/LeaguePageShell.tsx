@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import LeagueUserMenu from './LeagueUserMenu';
 
 type LeagueTab = 'overview' | 'standings' | 'matchups' | 'insights' | 'members' | 'history';
 
@@ -53,31 +54,14 @@ export default function LeaguePageShell({
             </p>
           </div>
 
-          {/* Gear icon — right of name on mobile, far right on desktop */}
-          {isAdmin && (
-            <div className="flex shrink-0 items-center gap-3 md:order-last">
-              <Link
-                href={`/admin/${leagueSlug}`}
-                title="League settings"
-                className="text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-500 dark:hover:text-zinc-300"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                >
-                  <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-                </svg>
-              </Link>
-            </div>
-          )}
+          {/* User menu — always shown, right of name on mobile, far right on desktop */}
+          <div className="flex shrink-0 items-center gap-3 md:order-last">
+            <LeagueUserMenu
+              isAdmin={isAdmin}
+              leagueSlug={leagueSlug}
+              leagueDisplayName={leagueDisplayName}
+            />
+          </div>
 
           {/* Tab nav — full width on mobile (wraps to next row), fills middle on desktop */}
           <div className="w-full md:flex md:w-auto md:flex-1 md:flex-col md:items-end">
