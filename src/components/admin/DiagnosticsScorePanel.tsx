@@ -11,8 +11,8 @@ export default function DiagnosticsScorePanel({ season }: Props) {
     <ScoreAttachmentDebugPanel
       season={season}
       onStageAlias={() => {
-        // Alias staging requires the full alias editor on the Data Management page.
-        alert('To stage alias repairs, use the Data Management page (/admin/data).');
+        // Alias staging requires the full alias editor on the Aliases page.
+        alert('To stage alias repairs, use the Aliases page (/admin/aliases).');
       }}
     />
   );
