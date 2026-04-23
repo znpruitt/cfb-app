@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { getCanonicalStandings } from '../leagueStandings.ts';
-import type { League, LeagueStatus } from '../league.ts';
+import type { League } from '../league.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow } from '../standingsHistory.ts';
 import {
