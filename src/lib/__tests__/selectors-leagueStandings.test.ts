@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getCanonicalStandings } from '../leagueStandings.ts';
+import { getCanonicalStandings } from '../selectors/leagueStandings.ts';
 import type { League } from '../league.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow } from '../standingsHistory.ts';
@@ -389,12 +389,20 @@ test('year override: offseason uses the most-recent archive year regardless of o
   assert.equal(snapshot.source, 'empty');
   assert.equal(snapshot.year, 2030);
 
-  // Without the override, selector resolves to the 2024 archive.
+  // Without the override, selector resolves to the most-recent archived year
+  // (2024) for the same slug.
   const defaultSnapshot = await getCanonicalStandings({
-    slug: 't11b-offseason-default',
+    slug,
     leagueStatusOverride: { state: 'offseason' },
   });
-  void defaultSnapshot;
+  assert.equal(defaultSnapshot.source, 'archive');
+  assert.equal(defaultSnapshot.archiveYearResolved, 2024);
+  assert.equal(defaultSnapshot.year, 2024);
+  assert.deepEqual(
+    defaultSnapshot.rows.map((r) => r.owner),
+    ['Alice']
+  );
+  assert.equal(defaultSnapshot.rows[0]!.wins, 12);
 });
 
 test('season state with archive already written for that year: reads archive', async () => {

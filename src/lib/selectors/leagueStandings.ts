@@ -1,34 +1,34 @@
 import { cache } from 'react';
 
-import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from './insights/lifecycle.ts';
-import type { LifecycleState } from './insights/types.ts';
-import type { League, LeagueStatus } from './league.ts';
-import { getLeague } from './leagueRegistry.ts';
-import { parseOwnersCsv } from './parseOwnersCsv.ts';
-import { getPreseasonOwners } from './preseasonOwnerStore.ts';
-import type { AppGame, ScheduleWireItem } from './schedule.ts';
-import { buildScheduleFromApi } from './schedule.ts';
+import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from '../insights/lifecycle.ts';
+import type { LifecycleState } from '../insights/types.ts';
+import type { League, LeagueStatus } from '../league.ts';
+import { getLeague } from '../leagueRegistry.ts';
+import { parseOwnersCsv } from '../parseOwnersCsv.ts';
+import { getPreseasonOwners } from '../preseasonOwnerStore.ts';
+import type { AppGame, ScheduleWireItem } from '../schedule.ts';
+import { buildScheduleFromApi } from '../schedule.ts';
 import {
   attachScoresToSchedule,
   buildScheduleIndex,
   type NormalizedScoreRow,
-} from './scoreAttachment.ts';
-import type { ScorePack } from './scores.ts';
-import { getSeasonArchive, listSeasonArchives } from './seasonArchive.ts';
-import { selectSeasonContext } from './selectors/seasonContext.ts';
-import { getAppState } from './server/appStateStore.ts';
-import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
+} from '../scoreAttachment.ts';
+import type { ScorePack } from '../scores.ts';
+import { getSeasonArchive, listSeasonArchives } from '../seasonArchive.ts';
+import { selectSeasonContext } from './seasonContext.ts';
+import { getAppState } from '../server/appStateStore.ts';
+import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
 import {
   deriveStandings,
   deriveStandingsCoverage,
   type OwnerStandingsRow,
   type StandingsCoverage,
-} from './standings.ts';
-import { deriveStandingsHistory, type StandingsHistory } from './standingsHistory.ts';
-import { createTeamIdentityResolver } from './teamIdentity.ts';
-import type { AliasMap } from './teamNames.ts';
-import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
-import { chooseDefaultWeek, deriveRegularWeeks } from './weekSelection.ts';
+} from '../standings.ts';
+import { deriveStandingsHistory, type StandingsHistory } from '../standingsHistory.ts';
+import { createTeamIdentityResolver } from '../teamIdentity.ts';
+import type { AliasMap } from '../teamNames.ts';
+import { isLikelyInvalidTeamLabel } from '../teamNormalization.ts';
+import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection.ts';
 
 const NO_CLAIM_OWNER = 'NoClaim';
 const EMPTY_STANDINGS_HISTORY: StandingsHistory = { weeks: [], byWeek: {}, byOwner: {} };
