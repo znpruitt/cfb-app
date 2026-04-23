@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
-type LeagueTab = 'overview' | 'standings' | 'matchups' | 'members' | 'history';
+type LeagueTab = 'overview' | 'standings' | 'matchups' | 'insights' | 'members' | 'history';
 
 type LeaguePageShellProps = {
   leagueSlug: string;
@@ -17,6 +17,7 @@ const tabs: { key: LeagueTab; label: string; href: (slug: string) => string }[] 
   { key: 'overview', label: 'Overview', href: (s) => `/league/${s}/` },
   { key: 'standings', label: 'Standings', href: (s) => `/league/${s}/standings` },
   { key: 'matchups', label: 'Matchups', href: (s) => `/league/${s}/matchups` },
+  { key: 'insights', label: 'Insights', href: (s) => `/league/${s}/insights` },
   { key: 'members', label: 'Members', href: (s) => `/league/${s}/members` },
   { key: 'history', label: 'History', href: (s) => `/league/${s}/history/` },
 ];
