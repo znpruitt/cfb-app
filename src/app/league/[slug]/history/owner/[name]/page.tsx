@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
@@ -6,6 +5,7 @@ import { selectOwnerCareer } from '@/lib/selectors/historySelectors';
 import CareerSummaryCard from '@/components/history/CareerSummaryCard';
 import SeasonFinishHistory from '@/components/history/SeasonFinishHistory';
 import AllTimeOwnerHeadToHeadPanel from '@/components/history/AllTimeOwnerHeadToHeadPanel';
+import HistoryBackLink from '@/components/history/HistoryBackLink';
 import type { SeasonArchive } from '@/lib/seasonArchive';
 import { renderLeagueGateIfBlocked } from '../../../leagueGate';
 
@@ -32,12 +32,7 @@ export default async function OwnerCareerPage({
   if (career.seasonsPlayed === 0) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-10">
-        <Link
-          href={`/league/${slug}/history/`}
-          className="mb-6 inline-block text-sm text-blue-600 hover:underline dark:text-blue-400"
-        >
-          ← Back to League History
-        </Link>
+        <HistoryBackLink fallbackHref={`/league/${slug}/history/`} className="mb-6 inline-block" />
         <div className="mt-6 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
           <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
             No archived data found for &ldquo;{ownerName}&rdquo;.
@@ -53,12 +48,7 @@ export default async function OwnerCareerPage({
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
       <div>
-        <Link
-          href={`/league/${slug}/history/`}
-          className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-        >
-          ← Back to League History
-        </Link>
+        <HistoryBackLink fallbackHref={`/league/${slug}/history/`} />
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
           {ownerName}
         </h1>
