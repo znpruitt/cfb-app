@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Show, UserButton } from '@clerk/nextjs';
+import { Show, useUser, UserButton } from '@clerk/nextjs';
 
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import type { PublicLeague } from '@/lib/league';
@@ -18,6 +18,9 @@ function ownerLabel(count: number | null): string | null {
 }
 
 export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
+  const { user } = useUser();
+  const isPlatformAdmin = user?.publicMetadata?.role === 'platform_admin';
+
   return (
     <>
       {/* Public landing — shown when signed out */}
@@ -53,11 +56,18 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
         <main className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
           <div className="mx-auto max-w-4xl">
             <div className="mb-8 flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold">Turf War</h1>
-                <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">Platform admin</p>
+              <h1 className="text-2xl font-bold">Turf War</h1>
+              <div className="flex items-center gap-4">
+                {isPlatformAdmin && (
+                  <Link
+                    href="/admin"
+                    className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  >
+                    Admin →
+                  </Link>
+                )}
+                <UserButton />
               </div>
-              <UserButton />
             </div>
 
             {/* League cards */}
@@ -103,22 +113,6 @@ export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
                 })}
               </div>
             )}
-
-            {/* Footer links */}
-            <div className="mt-8 flex items-center justify-between border-t border-gray-200 pt-6 dark:border-zinc-800">
-              <Link
-                href="/admin"
-                className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-              >
-                Platform admin tools →
-              </Link>
-              <Link
-                href="/admin/leagues"
-                className="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-              >
-                Add League →
-              </Link>
-            </div>
           </div>
         </main>
       </Show>
