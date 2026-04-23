@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.8",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "cfbd": "^5.11.4",

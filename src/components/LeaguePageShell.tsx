@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import LeagueUserMenu from './LeagueUserMenu';
+import LeagueHeaderActions from './menu/LeagueHeaderActions';
 
 type LeagueTab = 'overview' | 'standings' | 'matchups' | 'insights' | 'members' | 'history';
 
@@ -38,10 +38,10 @@ export default function LeaguePageShell({
 }: LeaguePageShellProps): React.ReactElement {
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:flex-nowrap">
-          {/* League name + season subtitle */}
-          <div className="min-w-0 flex-1 md:flex-none">
+      <header className="flex flex-col gap-3">
+        {/* Row 1: league name + icon cluster */}
+        <div className="flex items-start justify-between gap-x-4">
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-medium">{leagueDisplayName}</h1>
             <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
               {activeTab === 'history'
@@ -53,47 +53,43 @@ export default function LeaguePageShell({
                   : null}
             </p>
           </div>
-
-          {/* User menu — always shown, right of name on mobile, far right on desktop */}
-          <div className="flex shrink-0 items-center gap-3 md:order-last">
-            <LeagueUserMenu
+          <div className="shrink-0">
+            <LeagueHeaderActions
               isAdmin={isAdmin}
               leagueSlug={leagueSlug}
               leagueDisplayName={leagueDisplayName}
             />
           </div>
+        </div>
 
-          {/* Tab nav — full width on mobile (wraps to next row), fills middle on desktop */}
-          <div className="w-full md:flex md:w-auto md:flex-1 md:flex-col md:items-end">
-            <div
-              style={
-                {
-                  overflowX: 'auto',
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none',
-                } as React.CSSProperties
-              }
-            >
-              <div className="flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700">
-                {tabs.map((tab) => (
-                  <React.Fragment key={tab.key}>
-                    {tab.key === 'history' && (
-                      <div
-                        className="self-center bg-gray-300 dark:bg-zinc-600"
-                        style={{ width: '0.5px', height: 16 }}
-                        aria-hidden="true"
-                      />
-                    )}
-                    <Link
-                      href={tab.href(leagueSlug)}
-                      className={activeTab === tab.key ? tabActive : tabInactive}
-                    >
-                      {tab.label}
-                    </Link>
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
+        {/* Row 2: tab nav */}
+        <div
+          style={
+            {
+              overflowX: 'auto',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+            } as React.CSSProperties
+          }
+        >
+          <div className="flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700">
+            {tabs.map((tab) => (
+              <React.Fragment key={tab.key}>
+                {tab.key === 'history' && (
+                  <div
+                    className="self-center bg-gray-300 dark:bg-zinc-600"
+                    style={{ width: '0.5px', height: 16 }}
+                    aria-hidden="true"
+                  />
+                )}
+                <Link
+                  href={tab.href(leagueSlug)}
+                  className={activeTab === tab.key ? tabActive : tabInactive}
+                >
+                  {tab.label}
+                </Link>
+              </React.Fragment>
+            ))}
           </div>
         </div>
       </header>
