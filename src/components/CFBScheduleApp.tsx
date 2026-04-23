@@ -1261,9 +1261,11 @@ export default function CFBScheduleApp({
             />
           </div>
         </div>
-        {/* Row 2: tab nav (hidden on admin surface) */}
+        {/* Row 2: tab nav — right-aligned to sit below the icon cluster */}
         {!isAdminSurface ? (
-          <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
+          <div className="flex justify-end">
+            <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
+          </div>
         ) : null}
       </header>
 

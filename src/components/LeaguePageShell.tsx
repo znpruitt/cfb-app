@@ -62,34 +62,36 @@ export default function LeaguePageShell({
           </div>
         </div>
 
-        {/* Row 2: tab nav */}
-        <div
-          style={
-            {
-              overflowX: 'auto',
-              scrollbarWidth: 'none',
-              msOverflowStyle: 'none',
-            } as React.CSSProperties
-          }
-        >
-          <div className="flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700">
-            {tabs.map((tab) => (
-              <React.Fragment key={tab.key}>
-                {tab.key === 'history' && (
-                  <div
-                    className="self-center bg-gray-300 dark:bg-zinc-600"
-                    style={{ width: '0.5px', height: 16 }}
-                    aria-hidden="true"
-                  />
-                )}
-                <Link
-                  href={tab.href(leagueSlug)}
-                  className={activeTab === tab.key ? tabActive : tabInactive}
-                >
-                  {tab.label}
-                </Link>
-              </React.Fragment>
-            ))}
+        {/* Row 2: tab nav — right-aligned to sit below the icon cluster */}
+        <div className="flex justify-end">
+          <div
+            style={
+              {
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+              } as React.CSSProperties
+            }
+          >
+            <div className="flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700">
+              {tabs.map((tab) => (
+                <React.Fragment key={tab.key}>
+                  {tab.key === 'history' && (
+                    <div
+                      className="self-center bg-gray-300 dark:bg-zinc-600"
+                      style={{ width: '0.5px', height: 16 }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <Link
+                    href={tab.href(leagueSlug)}
+                    className={activeTab === tab.key ? tabActive : tabInactive}
+                  >
+                    {tab.label}
+                  </Link>
+                </React.Fragment>
+              ))}
+            </div>
           </div>
         </div>
       </header>
