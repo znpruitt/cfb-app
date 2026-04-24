@@ -17,7 +17,7 @@ import type { LifecycleState } from '../lib/insights/types';
 import { prefersDarkMode } from '../lib/ownerColors';
 import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
-import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import {
   getTeamRanking,
@@ -1294,6 +1294,7 @@ type OverviewPanelProps = {
   scoresByKey?: Record<string, ScorePack>;
   rosterByTeam?: Map<string, string>;
   ownerColorMap?: Record<string, string>;
+  canonicalStandings?: CanonicalStandings;
   standingsLeaders: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
   matchupMatrix: OwnerMatchupMatrix;
@@ -1319,6 +1320,7 @@ export default function OverviewPanel({
   scoresByKey = {},
   rosterByTeam = new Map(),
   ownerColorMap = {},
+  canonicalStandings,
   standingsLeaders,
   standingsCoverage,
   matchupMatrix,
@@ -1337,6 +1339,11 @@ export default function OverviewPanel({
   lifecycleState,
   currentYear,
 }: OverviewPanelProps): React.ReactElement {
+  // Prefer canonical standings (NoClaim-filtered, consistent across surfaces)
+  // when available; fall back to client-derived props for admin/test surfaces
+  // that don't load canonical server-side.
+  const canonicalRows = canonicalStandings?.rows ?? standingsLeaders;
+  const historyForRender = canonicalStandings?.standingsHistory ?? standingsHistory;
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
@@ -1358,8 +1365,8 @@ export default function OverviewPanel({
   const viewModel = React.useMemo(
     () =>
       selectOverviewViewModel({
-        standingsLeaders,
-        standingsHistory,
+        standingsLeaders: canonicalRows,
+        standingsHistory: historyForRender,
         standingsCoverage,
         context,
         liveItems,
@@ -1368,8 +1375,8 @@ export default function OverviewPanel({
         rankingsByTeamId,
       }),
     [
-      standingsLeaders,
-      standingsHistory,
+      canonicalRows,
+      historyForRender,
       standingsCoverage,
       context,
       liveItems,
@@ -1379,20 +1386,12 @@ export default function OverviewPanel({
     ]
   );
   const sharedInsights = React.useMemo(() => {
-    const resolvedWeeks = standingsHistory
-      ? selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks
-      : [];
-    const latestResolvedWeek = resolvedWeeks[resolvedWeeks.length - 1] ?? null;
-    const currentStandings =
-      latestResolvedWeek != null
-        ? (standingsHistory?.byWeek[latestResolvedWeek]?.standings ?? standingsLeaders)
-        : standingsLeaders;
-    const seasonContext = selectSeasonContext({ standingsHistory });
+    const seasonContext = selectSeasonContext({ standingsHistory: historyForRender });
 
     const existing = deriveOverviewInsights(
       deriveLeagueInsights({
-        rows: currentStandings,
-        standingsHistory,
+        rows: canonicalRows,
+        standingsHistory: historyForRender,
         seasonContext,
       })
     );
@@ -1407,11 +1406,14 @@ export default function OverviewPanel({
       merged.push(insight);
     }
     return merged.slice(0, 5);
-  }, [standingsHistory, standingsLeaders, engineInsights]);
+  }, [historyForRender, canonicalRows, engineInsights]);
 
   const positionDeltaData = React.useMemo(() => {
-    if (!standingsHistory) return null;
-    const { weeks, owners } = selectPositionDeltas({ standingsHistory, maxWeeks: 5 });
+    if (!historyForRender) return null;
+    const { weeks, owners } = selectPositionDeltas({
+      standingsHistory: historyForRender,
+      maxWeeks: 5,
+    });
     if (weeks.length === 0) return null;
     const byOwner = new Map<string, Map<number, number | null>>();
     for (const owner of owners) {
@@ -1422,7 +1424,7 @@ export default function OverviewPanel({
       byOwner.set(owner.ownerName, deltaMap);
     }
     return { weeks, byOwner };
-  }, [standingsHistory]);
+  }, [historyForRender]);
 
   const pollSnapshot = React.useMemo(() => {
     const phase = viewModel.championSummary?.phase ?? 'inSeason';
@@ -1439,8 +1441,8 @@ export default function OverviewPanel({
         summary={viewModel.championSummary}
         heroMode={viewModel.heroMode}
         podiumLeaders={viewModel.podiumLeaders}
-        standingsLeaders={standingsLeaders}
-        leader={standingsLeaders[0]}
+        standingsLeaders={canonicalRows}
+        leader={canonicalRows[0]}
         leagueSlug={leagueSlug}
       />
 
@@ -1560,7 +1562,7 @@ export default function OverviewPanel({
       ) : null}
 
       {/* GB Race */}
-      {standingsHistory ? (
+      {historyForRender ? (
         <>
           <SectionDivider />
           <section>
@@ -1575,15 +1577,15 @@ export default function OverviewPanel({
             <div className="mt-2.5 flex flex-col gap-3 sm:flex-row">
               <div className="min-w-0 flex-1">
                 <MiniTrendsGrid
-                  standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
+                  standingsHistory={sliceStandingsHistoryToRecentWeeks(historyForRender, 5)}
                   weekLabel={weekLabelFn}
                   ownerColorMap={ownerColorMap}
                 />
               </div>
               <div className="shrink-0">
                 <GbChangeTable
-                  standingsHistory={standingsHistory}
-                  standingsLeaders={standingsLeaders}
+                  standingsHistory={historyForRender}
+                  standingsLeaders={canonicalRows}
                   weekLabel={weekLabelFn}
                   ownerColorMap={ownerColorMap}
                 />

@@ -85,6 +85,7 @@ import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { Insight as EngineInsight } from '../lib/selectors/insights';
 import type { LifecycleState } from '../lib/insights/types';
 
@@ -101,6 +102,7 @@ type CFBScheduleAppProps = {
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
   mostRecentArchivedYear?: number;
+  canonicalStandings?: CanonicalStandings;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -232,6 +234,7 @@ export default function CFBScheduleApp({
   leagueYear,
   leagueStatus,
   mostRecentArchivedYear,
+  canonicalStandings,
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
@@ -740,10 +743,11 @@ export default function CFBScheduleApp({
     [games, rosterByTeam, scoresByKey]
   );
 
+  const overviewStandingsRows = canonicalStandings?.rows ?? standingsSnapshot.rows;
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
-        standingsRows: standingsSnapshot.rows,
+        standingsRows: overviewStandingsRows,
         standingsCoverage,
         weekGames: overviewScope.games,
         allGames: games,
@@ -759,7 +763,7 @@ export default function CFBScheduleApp({
       rosterByTeam,
       scoresByKey,
       standingsCoverage,
-      standingsSnapshot.rows,
+      overviewStandingsRows,
     ]
   );
 
@@ -1831,6 +1835,7 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   ownerColorMap={ownerColorMap}
+                  canonicalStandings={canonicalStandings}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsHistory={standingsHistory}
                   standingsCoverage={standingsCoverage}

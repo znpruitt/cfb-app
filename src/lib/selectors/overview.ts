@@ -100,25 +100,13 @@ export const OVERVIEW_STANDINGS_LIMIT = 5;
 export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
 export const OVERVIEW_RESULTS_LIMIT = 6;
 
-function deriveTemporalStandingsFromHistory(standingsHistory?: StandingsHistory | null): {
-  current: OwnerStandingsRow[] | null;
-  previous: OwnerStandingsRow[] | null;
-} {
-  if (!standingsHistory || standingsHistory.weeks.length === 0) {
-    return { current: null, previous: null };
-  }
-
-  const { latestResolvedWeek, previousResolvedWeek } =
-    selectResolvedStandingsWeeks(standingsHistory);
-  if (latestResolvedWeek == null) return { current: null, previous: null };
-
-  return {
-    current: standingsHistory.byWeek[latestResolvedWeek]?.standings ?? null,
-    previous:
-      previousResolvedWeek != null
-        ? (standingsHistory.byWeek[previousResolvedWeek]?.standings ?? null)
-        : null,
-  };
+function derivePreviousResolvedStandings(
+  standingsHistory?: StandingsHistory | null
+): OwnerStandingsRow[] | null {
+  if (!standingsHistory || standingsHistory.weeks.length === 0) return null;
+  const { previousResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
+  if (previousResolvedWeek == null) return null;
+  return standingsHistory.byWeek[previousResolvedWeek]?.standings ?? null;
 }
 
 function formatDiff(value: number): string {
@@ -904,8 +892,7 @@ export function selectOverviewViewModel(params: {
     featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
-  const temporalStandings = deriveTemporalStandingsFromHistory(standingsHistory);
-  const currentStandings = temporalStandings.current ?? standingsLeaders;
+  const previousStandings = derivePreviousResolvedStandings(standingsHistory);
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter(
@@ -945,8 +932,8 @@ export function selectOverviewViewModel(params: {
   });
   const movementInsights = selectMovementInsightsForPulse(
     deriveGameMovementInsights({
-      standings: currentStandings,
-      previousStandings: temporalStandings.previous,
+      standings: standingsLeaders,
+      previousStandings,
       recentResults: keyMatchups,
       liveGames: liveItems,
       rankingsByTeamId,
@@ -1001,7 +988,7 @@ export function selectOverviewViewModel(params: {
     topTierLeaders,
     isTopTie,
     standingsTopN: standingsLeaders.slice(0, standingsLimit),
-    previousStandingsLeaders: temporalStandings.previous ?? [],
+    previousStandingsLeaders: previousStandings ?? [],
     standingsHasMore: standingsLeaders.length > standingsLimit,
     standingsContext,
     keyMovements: movementInsights,
