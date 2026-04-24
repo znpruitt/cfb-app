@@ -7,6 +7,7 @@ import Link from 'next/link';
 import AdminDebugSurface from './AdminDebugSurface';
 import FeedbackForm from './FeedbackForm';
 import GameWeekPanel from './GameWeekPanel';
+import AppHeaderActions from './menu/AppHeaderActions';
 import MatchupMatrixView from './MatchupMatrixView';
 import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
@@ -1244,16 +1245,9 @@ export default function CFBScheduleApp({
             </span>
           </div>
         ) : null}
-        {/*
-          Responsive layout:
-          Mobile  — flex-wrap: name+subtitle fills row 1 (flex-1), gear icon right on row 1,
-                    nav (w-full) wraps to row 2.
-          Desktop — md:flex-nowrap: name left, nav fills middle (md:flex-1), gear far right
-                    (md:order-last).
-        */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:flex-nowrap">
-          {/* League name + season subtitle */}
-          <div className="min-w-0 flex-1 md:flex-none">
+        {/* Row 1: league name + header action cluster */}
+        <div className="flex items-start justify-between gap-x-4">
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-medium">
               {leagueDisplayName ??
                 (leagueSlug
@@ -1273,30 +1267,7 @@ export default function CFBScheduleApp({
                   : `${leagueYear ?? selectedSeason} Season`}
             </p>
           </div>
-          {/* Gear icon + back-to-league — right of name on mobile, far right on desktop */}
-          <div className="flex shrink-0 items-center gap-3 md:order-last">
-            {isAdmin && leagueSlug ? (
-              <Link
-                href={`/admin/${leagueSlug}`}
-                title="League settings"
-                className="text-gray-500 hover:text-gray-700 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="h-5 w-5"
-                  aria-hidden="true"
-                >
-                  <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-                </svg>
-              </Link>
-            ) : null}
+          <div className="flex shrink-0 items-center gap-3">
             {isAdminSurface ? (
               <Link
                 href={leagueHref}
@@ -1305,18 +1276,19 @@ export default function CFBScheduleApp({
                 Back to league view
               </Link>
             ) : null}
+            <AppHeaderActions
+              isAdmin={isAdmin}
+              leagueSlug={leagueSlug}
+              leagueDisplayName={leagueDisplayName}
+            />
           </div>
-          {/* Nav — full width on mobile (wraps to next row), fills middle on desktop */}
-          {!isAdminSurface ? (
-            <div className="w-full md:flex md:w-auto md:flex-1 md:flex-col md:items-end">
-              <WeekViewTabs
-                value={weekViewMode}
-                onChange={setWeekViewMode}
-                leagueSlug={leagueSlug}
-              />
-            </div>
-          ) : null}
         </div>
+        {/* Row 2: tab nav — w-full constrains scroll container; inner flex right-aligns */}
+        {!isAdminSurface ? (
+          <div className="flex w-full justify-end">
+            <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
+          </div>
+        ) : null}
       </header>
 
       {/* State-driven league banner — one banner at a time, directly below header */}

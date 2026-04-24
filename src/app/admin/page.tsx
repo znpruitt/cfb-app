@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import AppHeaderActions from '@/components/menu/AppHeaderActions';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeagues } from '@/lib/leagueRegistry';
@@ -48,9 +49,14 @@ export default async function AdminPage() {
   return (
     <main className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="mx-auto max-w-3xl space-y-10">
-        <div className="space-y-1">
-          <Breadcrumbs segments={[{ label: 'Home', href: '/' }, { label: 'Admin' }]} />
-          <h1 className="text-2xl font-semibold">Platform Admin</h1>
+        <div className="flex items-start justify-between gap-x-4">
+          <div className="space-y-1">
+            <Breadcrumbs segments={[{ label: 'Home', href: '/' }, { label: 'Admin' }]} />
+            <h1 className="text-2xl font-semibold">Platform Admin</h1>
+          </div>
+          <div className="shrink-0">
+            <AppHeaderActions isAdmin />
+          </div>
         </div>
 
         {/* ---- Platform Admin ---- */}
