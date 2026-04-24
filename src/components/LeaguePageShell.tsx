@@ -62,8 +62,8 @@ export default function LeaguePageShell({
           </div>
         </div>
 
-        {/* Row 2: tab nav — right-aligned to sit below the icon cluster */}
-        <div className="flex justify-end">
+        {/* Row 2: tab nav — w-full constrains scroll container; inner flex right-aligns */}
+        <div className="flex w-full justify-end">
           <div
             style={
               {
