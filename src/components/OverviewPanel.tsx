@@ -1343,17 +1343,29 @@ export default function OverviewPanel({
   // first paint, NoClaim filtered, preseason-owners synthesis). After hydration,
   // client-derived values (driven by score refreshes, roster uploads, live polls)
   // are more current and take over once they have meaningful content.
-  const rowsForRender =
-    standingsLeaders.length > 0 ? standingsLeaders : (canonicalStandings?.rows ?? []);
+  //
+  // Rows and history are two views of the same league snapshot, so the source
+  // selection is coupled: either the client snapshot is fully ready (rows AND
+  // history populated) and wins for both, or canonical wins for both. Mixing
+  // (e.g., client rows with canonical history) produces incoherent output in
+  // partial-load states like "roster loaded, schedule fetch pending/failed."
+  //
   // deriveStandingsHistory still emits week entries when the client has no roster
-  // (e.g., cold-start before CSV load), but each entry's `standings` array is empty.
-  // Treat client history as meaningful only when at least one week carries owner rows.
+  // (e.g., cold-start before CSV load), but each entry's `standings` array is
+  // empty. Treat client history as meaningful only when at least one week carries
+  // owner rows.
+  //
+  // Surfaces that don't pass canonical (admin / isolated tests) have no canonical
+  // alternative to switch to, so client wins regardless of readiness.
   const clientHistoryHasStandings =
     standingsHistory?.weeks.some(
       (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
     ) ?? false;
-  const historyForRender = clientHistoryHasStandings
-    ? standingsHistory
+  const clientSnapshotReady = standingsLeaders.length > 0 && clientHistoryHasStandings;
+  const useClientSnapshot = canonicalStandings == null || clientSnapshotReady;
+  const rowsForRender = useClientSnapshot ? standingsLeaders : (canonicalStandings?.rows ?? []);
+  const historyForRender = useClientSnapshot
+    ? (standingsHistory ?? null)
     : (canonicalStandings?.standingsHistory ?? null);
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {

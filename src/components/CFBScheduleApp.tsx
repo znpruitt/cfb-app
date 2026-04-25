@@ -748,8 +748,22 @@ export default function CFBScheduleApp({
   // and uploads propagate. Empty client rows mean the client hasn't derived yet
   // (or has nothing to derive from) — fall back to canonical so Overview still
   // renders correctly during preseason-names and offseason-archive states.
-  const overviewStandingsRows =
-    standingsSnapshot.rows.length > 0 ? standingsSnapshot.rows : (canonicalStandings?.rows ?? []);
+  //
+  // Coupled with history readiness: rows feed the matchup-matrix axis while
+  // OverviewPanel pairs them with standingsHistory for movement/GB. If the
+  // client has rows from a roster but no resolved schedule yet (e.g., schedule
+  // fetch pending or failed), prefer canonical for both so the matrix axis and
+  // the rest of Overview stay coherent. Admin surfaces don't pass canonical, so
+  // client wins regardless of readiness on those — there's no alternative.
+  const clientHistoryHasStandings = standingsHistory.weeks.some(
+    (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
+  );
+  const clientStandingsSnapshotReady =
+    standingsSnapshot.rows.length > 0 && clientHistoryHasStandings;
+  const useClientStandingsSnapshot = canonicalStandings == null || clientStandingsSnapshotReady;
+  const overviewStandingsRows = useClientStandingsSnapshot
+    ? standingsSnapshot.rows
+    : (canonicalStandings?.rows ?? []);
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
