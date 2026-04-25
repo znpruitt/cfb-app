@@ -17,6 +17,7 @@ import type { LifecycleState } from '../lib/insights/types';
 import { prefersDarkMode } from '../lib/ownerColors';
 import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
+import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import {
@@ -1411,9 +1412,26 @@ export default function OverviewPanel({
   const sharedInsights = React.useMemo(() => {
     const seasonContext = selectSeasonContext({ standingsHistory: historyForRender });
 
+    // Insight narratives compare against historyForRender's resolved weeks. If
+    // we feed deriveLeagueInsights raw rowsForRender during a partial week, the
+    // current snapshot reflects unresolved game state while the history deltas
+    // do not — race/surge narratives can then contradict the week-level history.
+    // Anchor the rows input to the latest resolved week when available; fall
+    // back to rowsForRender only when no resolved history exists (preseason,
+    // cold start) so insights still have something to describe.
+    const latestResolvedStandings = historyForRender
+      ? (() => {
+          const { latestResolvedWeek } = selectResolvedStandingsWeeks(historyForRender);
+          return latestResolvedWeek != null
+            ? (historyForRender.byWeek[latestResolvedWeek]?.standings ?? null)
+            : null;
+        })()
+      : null;
+    const insightRows = latestResolvedStandings ?? rowsForRender;
+
     const existing = deriveOverviewInsights(
       deriveLeagueInsights({
-        rows: rowsForRender,
+        rows: insightRows,
         standingsHistory: historyForRender,
         seasonContext,
       })
