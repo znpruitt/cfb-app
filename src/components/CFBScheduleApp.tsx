@@ -743,7 +743,13 @@ export default function CFBScheduleApp({
     [games, rosterByTeam, scoresByKey]
   );
 
-  const overviewStandingsRows = canonicalStandings?.rows ?? standingsSnapshot.rows;
+  // Canonical standings seed Overview's first paint server-side. Once the client
+  // has derived rows from the live CSV/scores caches, those take over so refreshes
+  // and uploads propagate. Empty client rows mean the client hasn't derived yet
+  // (or has nothing to derive from) — fall back to canonical so Overview still
+  // renders correctly during preseason-names and offseason-archive states.
+  const overviewStandingsRows =
+    standingsSnapshot.rows.length > 0 ? standingsSnapshot.rows : (canonicalStandings?.rows ?? []);
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({

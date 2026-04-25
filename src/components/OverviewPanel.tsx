@@ -1339,11 +1339,16 @@ export default function OverviewPanel({
   lifecycleState,
   currentYear,
 }: OverviewPanelProps): React.ReactElement {
-  // Prefer canonical standings (NoClaim-filtered, consistent across surfaces)
-  // when available; fall back to client-derived props for admin/test surfaces
-  // that don't load canonical server-side.
-  const canonicalRows = canonicalStandings?.rows ?? standingsLeaders;
-  const historyForRender = canonicalStandings?.standingsHistory ?? standingsHistory;
+  // Canonical standings provide an authoritative server-rendered seed (correct
+  // first paint, NoClaim filtered, preseason-owners synthesis). After hydration,
+  // client-derived values (driven by score refreshes, roster uploads, live polls)
+  // are more current and take over once they have meaningful content.
+  const rowsForRender =
+    standingsLeaders.length > 0 ? standingsLeaders : (canonicalStandings?.rows ?? []);
+  const historyForRender =
+    standingsHistory && standingsHistory.weeks.length > 0
+      ? standingsHistory
+      : (canonicalStandings?.standingsHistory ?? null);
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
@@ -1365,7 +1370,7 @@ export default function OverviewPanel({
   const viewModel = React.useMemo(
     () =>
       selectOverviewViewModel({
-        standingsLeaders: canonicalRows,
+        standingsLeaders: rowsForRender,
         standingsHistory: historyForRender,
         standingsCoverage,
         context,
@@ -1375,7 +1380,7 @@ export default function OverviewPanel({
         rankingsByTeamId,
       }),
     [
-      canonicalRows,
+      rowsForRender,
       historyForRender,
       standingsCoverage,
       context,
@@ -1390,7 +1395,7 @@ export default function OverviewPanel({
 
     const existing = deriveOverviewInsights(
       deriveLeagueInsights({
-        rows: canonicalRows,
+        rows: rowsForRender,
         standingsHistory: historyForRender,
         seasonContext,
       })
@@ -1406,7 +1411,7 @@ export default function OverviewPanel({
       merged.push(insight);
     }
     return merged.slice(0, 5);
-  }, [historyForRender, canonicalRows, engineInsights]);
+  }, [historyForRender, rowsForRender, engineInsights]);
 
   const positionDeltaData = React.useMemo(() => {
     if (!historyForRender) return null;
@@ -1441,8 +1446,8 @@ export default function OverviewPanel({
         summary={viewModel.championSummary}
         heroMode={viewModel.heroMode}
         podiumLeaders={viewModel.podiumLeaders}
-        standingsLeaders={canonicalRows}
-        leader={canonicalRows[0]}
+        standingsLeaders={rowsForRender}
+        leader={rowsForRender[0]}
         leagueSlug={leagueSlug}
       />
 
@@ -1585,7 +1590,7 @@ export default function OverviewPanel({
               <div className="shrink-0">
                 <GbChangeTable
                   standingsHistory={historyForRender}
-                  standingsLeaders={canonicalRows}
+                  standingsLeaders={rowsForRender}
                   weekLabel={weekLabelFn}
                   ownerColorMap={ownerColorMap}
                 />
