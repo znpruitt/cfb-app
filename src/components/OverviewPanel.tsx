@@ -1345,10 +1345,16 @@ export default function OverviewPanel({
   // are more current and take over once they have meaningful content.
   const rowsForRender =
     standingsLeaders.length > 0 ? standingsLeaders : (canonicalStandings?.rows ?? []);
-  const historyForRender =
-    standingsHistory && standingsHistory.weeks.length > 0
-      ? standingsHistory
-      : (canonicalStandings?.standingsHistory ?? null);
+  // deriveStandingsHistory still emits week entries when the client has no roster
+  // (e.g., cold-start before CSV load), but each entry's `standings` array is empty.
+  // Treat client history as meaningful only when at least one week carries owner rows.
+  const clientHistoryHasStandings =
+    standingsHistory?.weeks.some(
+      (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
+    ) ?? false;
+  const historyForRender = clientHistoryHasStandings
+    ? standingsHistory
+    : (canonicalStandings?.standingsHistory ?? null);
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
