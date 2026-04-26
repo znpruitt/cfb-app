@@ -19,8 +19,10 @@ import { selectSeasonContext } from './seasonContext.ts';
 import { getAppState } from '../server/appStateStore.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
 import {
+  NO_CLAIM_OWNER,
   deriveStandings,
   deriveStandingsCoverage,
+  splitOutNoClaim,
   type OwnerStandingsRow,
   type StandingsCoverage,
 } from '../standings.ts';
@@ -30,7 +32,6 @@ import type { AliasMap } from '../teamNames.ts';
 import { isLikelyInvalidTeamLabel } from '../teamNormalization.ts';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection.ts';
 
-const NO_CLAIM_OWNER = 'NoClaim';
 const EMPTY_STANDINGS_HISTORY: StandingsHistory = { weeks: [], byWeek: {}, byOwner: {} };
 const EMPTY_COVERAGE: StandingsCoverage = { state: 'complete', message: null };
 
@@ -273,7 +274,7 @@ function snapshotFromLive(params: {
 }): CanonicalStandings {
   const { slug, league, status, year, live } = params;
   void league;
-  const { rows, noClaimRow } = splitOutNoClaim(live.allRows);
+  const { rows, noClaimRow } = live;
   const ownerColorOrder = buildOwnerColorOrder(rows);
   const lifecycle = computeLifecycle(status, live.standingsHistory, live.games);
 
@@ -357,22 +358,6 @@ function emptySnapshot(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function splitOutNoClaim(rows: OwnerStandingsRow[]): {
-  rows: OwnerStandingsRow[];
-  noClaimRow: OwnerStandingsRow | null;
-} {
-  let noClaimRow: OwnerStandingsRow | null = null;
-  const filtered: OwnerStandingsRow[] = [];
-  for (const row of rows) {
-    if (row.owner === NO_CLAIM_OWNER) {
-      noClaimRow = row;
-      continue;
-    }
-    filtered.push(row);
-  }
-  return { rows: filtered, noClaimRow };
-}
-
 function buildOwnerColorOrder(rows: OwnerStandingsRow[]): string[] {
   return rows
     .map((row) => row.owner)
@@ -407,7 +392,8 @@ function resolveFallbackYear(yearOverride: number | null): number {
 // ---------------------------------------------------------------------------
 
 type LiveDerivation = {
-  allRows: OwnerStandingsRow[];
+  rows: OwnerStandingsRow[];
+  noClaimRow: OwnerStandingsRow | null;
   standingsHistory: StandingsHistory;
   coverage: StandingsCoverage;
   roster: Map<string, string>;
@@ -441,9 +427,10 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
 
   const scheduleItems = await loadScheduleItems(year);
   if (scheduleItems.length === 0) {
-    const { rows } = deriveStandings([], roster, {});
+    const { rows, noClaimRow } = deriveStandings([], roster, {});
     return {
-      allRows: rows,
+      rows,
+      noClaimRow,
       standingsHistory: EMPTY_STANDINGS_HISTORY,
       coverage: deriveStandingsCoverage([], roster, {}),
       roster,
@@ -469,9 +456,10 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
     games = built.games;
   } catch {
     // If schedule-building itself throws we still produce a roster-only snapshot.
-    const { rows } = deriveStandings([], roster, {});
+    const { rows, noClaimRow } = deriveStandings([], roster, {});
     return {
-      allRows: rows,
+      rows,
+      noClaimRow,
       standingsHistory: EMPTY_STANDINGS_HISTORY,
       coverage: deriveStandingsCoverage([], roster, {}),
       roster,
@@ -499,7 +487,7 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   });
   const scoresForDerivation = scoresByKey as Record<string, ScorePack>;
 
-  const { rows } = deriveStandings(games, roster, scoresForDerivation);
+  const { rows, noClaimRow } = deriveStandings(games, roster, scoresForDerivation);
   const standingsHistory = deriveStandingsHistory({
     games,
     rosterByTeam: roster,
@@ -507,7 +495,7 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   });
   const coverage = deriveStandingsCoverage(games, roster, scoresForDerivation);
 
-  return { allRows: rows, standingsHistory, coverage, roster, games };
+  return { rows, noClaimRow, standingsHistory, coverage, roster, games };
 }
 
 async function loadScheduleItems(year: number): Promise<ScheduleWireItem[]> {

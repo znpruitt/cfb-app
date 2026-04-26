@@ -39,6 +39,7 @@ import {
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
+import { deriveResolvedMovementStandings } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import {
   buildScheduleFromApi,
@@ -85,6 +86,7 @@ import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { Insight as EngineInsight } from '../lib/selectors/insights';
 import type { LifecycleState } from '../lib/insights/types';
 
@@ -101,6 +103,7 @@ type CFBScheduleAppProps = {
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
   mostRecentArchivedYear?: number;
+  canonicalStandings?: CanonicalStandings;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -232,6 +235,7 @@ export default function CFBScheduleApp({
   leagueYear,
   leagueStatus,
   mostRecentArchivedYear,
+  canonicalStandings,
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
@@ -656,9 +660,24 @@ export default function CFBScheduleApp({
   }, []);
 
   const ownerColorMap = useMemo(() => {
-    const allOwners = standingsSnapshot.rows.map((r) => r.owner);
-    return buildOwnerColorMap(allOwners, isDark);
-  }, [standingsSnapshot.rows, isDark]);
+    // Canonical's NoClaim-filtered, alphabetically-stable owner list anchors the
+    // palette so palette assignments remain consistent across cold-start →
+    // hydrated transitions. Canonical is server-rendered and goes stale after
+    // in-session roster uploads, though, so any owners in the live client
+    // snapshot that canonical doesn't know about are appended (alphabetically,
+    // case-insensitive — matching canonical's own ordering) so new/renamed
+    // owners get deterministic colors instead of falling back to gray. Removed
+    // owners' color slots remain in the map, unused — that's the cost of
+    // keeping known owners' colors stable.
+    const canonicalOwners = canonicalStandings?.ownerColorOrder ?? [];
+    const canonicalSet = new Set(canonicalOwners);
+    const additionalOwners = standingsSnapshot.rows
+      .map((r) => r.owner)
+      .filter((owner) => !canonicalSet.has(owner))
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const owners = [...canonicalOwners, ...additionalOwners];
+    return buildOwnerColorMap(owners, isDark);
+  }, [canonicalStandings, standingsSnapshot.rows, isDark]);
 
   const hasScoreLoadError = useMemo(
     () =>
@@ -740,10 +759,36 @@ export default function CFBScheduleApp({
     [games, rosterByTeam, scoresByKey]
   );
 
+  // Canonical standings seed Overview's first paint server-side. Once the client
+  // has derived rows from the live CSV/scores caches, those take over so refreshes
+  // and uploads propagate. Empty client rows mean the client hasn't derived yet
+  // (or has nothing to derive from) — fall back to canonical so Overview still
+  // renders correctly during preseason-names and offseason-archive states.
+  //
+  // Coupled with history readiness: rows feed the matchup-matrix axis while
+  // OverviewPanel pairs them with standingsHistory for movement/GB. If the
+  // client has rows from a roster but no resolved schedule yet (e.g., schedule
+  // fetch pending or failed), prefer canonical for both so the matrix axis and
+  // the rest of Overview stay coherent. Admin surfaces don't pass canonical, so
+  // client wins regardless of readiness on those — there's no alternative.
+  //
+  // The history check requires an actually-resolved week, not just owner rows
+  // present. deriveStandingsHistory emits 0-0 owner rows whenever a schedule
+  // is loaded — even before any scores are attached — so a row-presence check
+  // would flip to "ready" the moment schedule data arrives in offseason or
+  // archive flows, switching from canonical to empty client standings.
+  const clientHistoryHasResolvedWeek =
+    deriveResolvedMovementStandings(standingsHistory).latest != null;
+  const clientStandingsSnapshotReady =
+    standingsSnapshot.rows.length > 0 && clientHistoryHasResolvedWeek;
+  const overviewStandingsRows =
+    canonicalStandings != null && !clientStandingsSnapshotReady
+      ? canonicalStandings.rows
+      : standingsSnapshot.rows;
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
-        standingsRows: standingsSnapshot.rows,
+        standingsRows: overviewStandingsRows,
         standingsCoverage,
         weekGames: overviewScope.games,
         allGames: games,
@@ -759,7 +804,7 @@ export default function CFBScheduleApp({
       rosterByTeam,
       scoresByKey,
       standingsCoverage,
-      standingsSnapshot.rows,
+      overviewStandingsRows,
     ]
   );
 
@@ -1831,6 +1876,7 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   ownerColorMap={ownerColorMap}
+                  canonicalStandings={canonicalStandings}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsHistory={standingsHistory}
                   standingsCoverage={standingsCoverage}
