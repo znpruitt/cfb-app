@@ -89,19 +89,26 @@ export type GetCanonicalStandingsInput = {
 };
 
 /**
- * Cross-request data cache layer. `unstable_cache` is keyed by `(slug,
- * resolvedYear)` and tagged so mutations can invalidate only the affected
- * league/year via `invalidateStandings`. Each call to this factory returns a
- * fresh tagged-cache function whose invocation hits the data cache.
+ * Cross-request data cache layer. `unstable_cache` is keyed by the resolved
+ * year so default-year requests don't collapse onto a single `'null'` key
+ * across season transitions. The compute call still receives the original
+ * `yearOverride` (which may be null), preserving the internal resolution —
+ * notably `resolveOffseason`'s fallback to `mostRecentArchivedYear`. Each
+ * call to this factory returns a fresh tagged-cache function whose
+ * invocation hits the data cache.
  *
  * The `unstable_` prefix denotes Next.js API surface stability, not runtime
  * stability — the data cache itself is production-ready in Next 15.x. This
  * call site is intentionally the only adoption point so a future migration to
  * a stable equivalent stays one-file.
  */
-const dataCachedCanonicalStandings = (slug: string, resolvedYear: number | null) =>
+const dataCachedCanonicalStandings = (
+  slug: string,
+  yearOverride: number | null,
+  resolvedYear: number | null
+) =>
   unstable_cache(
-    async () => computeCanonicalStandings(slug, resolvedYear, undefined),
+    async () => computeCanonicalStandings(slug, yearOverride, undefined),
     ['canonical-standings', slug, String(resolvedYear)],
     {
       tags: [
@@ -156,10 +163,10 @@ const cachedCanonicalStandings = cache(
   async (slug: string, yearOverride: number | null): Promise<CanonicalStandings> => {
     const resolvedYear = await resolveStandingsYear(slug, yearOverride);
     try {
-      return await dataCachedCanonicalStandings(slug, resolvedYear);
+      return await dataCachedCanonicalStandings(slug, yearOverride, resolvedYear);
     } catch (err) {
       if (err instanceof Error && err.message.includes('incrementalCache missing')) {
-        return computeCanonicalStandings(slug, resolvedYear, undefined);
+        return computeCanonicalStandings(slug, yearOverride, undefined);
       }
       throw err;
     }

@@ -522,3 +522,27 @@ test('default-year request honors league status year (no cache collision across 
     ['Bob']
   );
 });
+
+test('offseason default-year request falls back to most recent archive', async () => {
+  // Regression guard: the cache wrapping must NOT pass the resolved year
+  // (league.year) into computeCanonicalStandings as an explicit override.
+  // resolveOffseason treats any non-null override as authoritative and
+  // skips the mostRecentArchivedYear lookup. With null preserved, offseason
+  // leagues fall back to the most recent archive's final standings.
+  const slug = 't19-offseason-default-archive-fallback';
+  await seedLeague(makeLeague({ slug, year: 2026, status: { state: 'offseason' } }));
+  await seedArchive(slug, 2025, [
+    makeHistoryRow('Alice', 11, 1, { pointsFor: 420, pointsAgainst: 200 }),
+    makeHistoryRow('Bob', 7, 5, { pointsFor: 310, pointsAgainst: 290 }),
+  ]);
+
+  const snapshot = await getCanonicalStandings({ slug });
+
+  assert.equal(snapshot.source, 'archive');
+  assert.equal(snapshot.archiveYearResolved, 2025);
+  assert.equal(snapshot.year, 2025);
+  assert.deepEqual(
+    snapshot.rows.map((r) => r.owner),
+    ['Alice', 'Bob']
+  );
+});
