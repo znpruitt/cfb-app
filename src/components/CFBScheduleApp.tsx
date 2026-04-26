@@ -759,16 +759,24 @@ export default function CFBScheduleApp({
     [games, rosterByTeam, scoresByKey]
   );
 
-  // Overview consumes canonical unconditionally — server owns the resolved-week
+  // Overview consumes canonical when present — server owns the resolved-week
   // snapshot, so Overview's standings/history come from there directly. The
   // partial-week live overlay (in-progress games, pending W/L) is computed
   // separately via useLiveDelta and passed as its own prop. Phase 1 wires the
   // overlay through OverviewPanel as data; later phases consume it visually.
-  const overviewCanonicalRows = canonicalStandings?.rows ?? [];
+  //
+  // Compatibility fallback: CFBScheduleApp is rendered by multiple league
+  // routes (standings, schedule, matchups, members) that don't yet load
+  // canonical. Those routes still need a usable Overview tab when users switch
+  // to it, so we fall back to the client-derived snapshot rows when canonical
+  // is absent. This is a deterministic per-route presence/absence check, not a
+  // runtime readiness predicate — Phase 2+ migrates the remaining routes to
+  // pass canonical and the fallback retires naturally.
+  const overviewSnapshotRows = canonicalStandings?.rows ?? standingsSnapshot.rows;
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
-        standingsRows: overviewCanonicalRows,
+        standingsRows: overviewSnapshotRows,
         standingsCoverage,
         weekGames: overviewScope.games,
         allGames: games,
@@ -784,7 +792,7 @@ export default function CFBScheduleApp({
       rosterByTeam,
       scoresByKey,
       standingsCoverage,
-      overviewCanonicalRows,
+      overviewSnapshotRows,
     ]
   );
 
