@@ -22,6 +22,7 @@ import {
 } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
+import type { LiveDelta } from '../lib/selectors/liveDelta';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import {
   getTeamRanking,
@@ -1299,6 +1300,12 @@ type OverviewPanelProps = {
   rosterByTeam?: Map<string, string>;
   ownerColorMap?: Record<string, string>;
   canonicalStandings?: CanonicalStandings;
+  /**
+   * Client-derived live overlay (in-progress games, pending W/L). Phase 1
+   * passes this through but does not yet consume it visually; later phases
+   * will render badges/annotations driven by these deltas.
+   */
+  liveDelta?: LiveDelta | null;
   standingsLeaders: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
   matchupMatrix: OwnerMatchupMatrix;
@@ -1325,6 +1332,7 @@ export default function OverviewPanel({
   rosterByTeam = new Map(),
   ownerColorMap = {},
   canonicalStandings,
+  liveDelta = null,
   standingsLeaders,
   standingsCoverage,
   matchupMatrix,
@@ -1343,37 +1351,24 @@ export default function OverviewPanel({
   lifecycleState,
   currentYear,
 }: OverviewPanelProps): React.ReactElement {
-  // Canonical standings provide an authoritative server-rendered seed (correct
-  // first paint, NoClaim filtered, preseason-owners synthesis). After hydration,
-  // client-derived values (driven by score refreshes, roster uploads, live polls)
-  // are more current and take over once they have meaningful content.
+  // Canonical owns the resolved-week snapshot for Overview: rows, standings
+  // history, and color order all flow from it directly. The client-derived
+  // overlay (in-progress games, pending W/L) is passed separately as
+  // `liveDelta`. Phase 1 wires the overlay through as data only — the visual
+  // integration (badges, "leading right now" chips, etc.) lands in later
+  // phases per surface.
   //
-  // Rows and history are two views of the same league snapshot, so the source
-  // selection is coupled: either the snapshot is fully ready (rows AND history
-  // populated) and wins for both, or canonical wins for both. Mixing (e.g.,
-  // client rows with canonical history) produces incoherent output in partial-
-  // load states like "roster loaded, schedule fetch pending/failed."
-  //
-  // `standingsLeaders` arrives upstream-merged from CFBScheduleApp, so the
-  // readiness check below is effectively "is this input snapshot fully usable"
-  // rather than literally "is the client data ready." Naming reflects that.
-  //
-  // Surfaces that don't pass canonical (admin / isolated tests) have no canonical
-  // alternative to switch to, so the input wins regardless of readiness.
-  //
-  // Readiness requires an actually-resolved week, not just owner rows in the
-  // history. deriveStandingsHistory emits 0-0 owner rows for every week the
-  // schedule covers — even before any scores attach — so a row-presence check
-  // would flip to "ready" the moment schedule data arrives in offseason /
-  // archive flows, switching from canonical to empty client standings.
-  const inputHistoryHasResolvedWeek =
-    deriveResolvedMovementStandings(standingsHistory).latest != null;
-  const inputSnapshotReady = standingsLeaders.length > 0 && inputHistoryHasResolvedWeek;
-  const useCanonicalSnapshot = canonicalStandings != null && !inputSnapshotReady;
-  const rowsForRender = useCanonicalSnapshot ? canonicalStandings.rows : standingsLeaders;
-  const historyForRender = useCanonicalSnapshot
+  // The fallback to `standingsLeaders` / `standingsHistory` covers isolated
+  // surfaces (e.g. unit tests rendering OverviewPanel without canonical).
+  // It is not a merge predicate: when canonical is present it always wins.
+  const rowsForRender = canonicalStandings?.rows ?? standingsLeaders;
+  const historyForRender = canonicalStandings
     ? canonicalStandings.standingsHistory
     : (standingsHistory ?? null);
+  // liveDelta is intentionally unused this phase; consumers come online in
+  // Phase 2+. The void reference keeps lint quiet while the prop is wired
+  // through as part of the Phase 1 interface.
+  void liveDelta;
   // GB Race section guard: render whenever the chosen history carries owner
   // rows in any week. The chart components handle flat / partial weeks
   // gracefully; we only need to suppress the section when there's truly
