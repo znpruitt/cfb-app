@@ -39,7 +39,6 @@ import {
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
-import { deriveResolvedMovementStandings } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import {
   buildScheduleFromApi,
@@ -84,6 +83,7 @@ import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
+import { useLiveDelta } from './hooks/useLiveDelta';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
@@ -759,36 +759,24 @@ export default function CFBScheduleApp({
     [games, rosterByTeam, scoresByKey]
   );
 
-  // Canonical standings seed Overview's first paint server-side. Once the client
-  // has derived rows from the live CSV/scores caches, those take over so refreshes
-  // and uploads propagate. Empty client rows mean the client hasn't derived yet
-  // (or has nothing to derive from) — fall back to canonical so Overview still
-  // renders correctly during preseason-names and offseason-archive states.
+  // Overview consumes canonical when present — server owns the resolved-week
+  // snapshot, so Overview's standings/history come from there directly. The
+  // partial-week live overlay (in-progress games, pending W/L) is computed
+  // separately via useLiveDelta and passed as its own prop. Phase 1 wires the
+  // overlay through OverviewPanel as data; later phases consume it visually.
   //
-  // Coupled with history readiness: rows feed the matchup-matrix axis while
-  // OverviewPanel pairs them with standingsHistory for movement/GB. If the
-  // client has rows from a roster but no resolved schedule yet (e.g., schedule
-  // fetch pending or failed), prefer canonical for both so the matrix axis and
-  // the rest of Overview stay coherent. Admin surfaces don't pass canonical, so
-  // client wins regardless of readiness on those — there's no alternative.
-  //
-  // The history check requires an actually-resolved week, not just owner rows
-  // present. deriveStandingsHistory emits 0-0 owner rows whenever a schedule
-  // is loaded — even before any scores are attached — so a row-presence check
-  // would flip to "ready" the moment schedule data arrives in offseason or
-  // archive flows, switching from canonical to empty client standings.
-  const clientHistoryHasResolvedWeek =
-    deriveResolvedMovementStandings(standingsHistory).latest != null;
-  const clientStandingsSnapshotReady =
-    standingsSnapshot.rows.length > 0 && clientHistoryHasResolvedWeek;
-  const overviewStandingsRows =
-    canonicalStandings != null && !clientStandingsSnapshotReady
-      ? canonicalStandings.rows
-      : standingsSnapshot.rows;
+  // Compatibility fallback: CFBScheduleApp is rendered by multiple league
+  // routes (standings, schedule, matchups, members) that don't yet load
+  // canonical. Those routes still need a usable Overview tab when users switch
+  // to it, so we fall back to the client-derived snapshot rows when canonical
+  // is absent. This is a deterministic per-route presence/absence check, not a
+  // runtime readiness predicate — Phase 2+ migrates the remaining routes to
+  // pass canonical and the fallback retires naturally.
+  const overviewSnapshotRows = canonicalStandings?.rows ?? standingsSnapshot.rows;
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
-        standingsRows: overviewStandingsRows,
+        standingsRows: overviewSnapshotRows,
         standingsCoverage,
         weekGames: overviewScope.games,
         allGames: games,
@@ -804,9 +792,19 @@ export default function CFBScheduleApp({
       rosterByTeam,
       scoresByKey,
       standingsCoverage,
-      overviewStandingsRows,
+      overviewSnapshotRows,
     ]
   );
+
+  const liveDeltaWeekKey = `${selectedSeason}:${selectedWeek ?? 'all'}`;
+  const liveDelta = useLiveDelta({
+    canonical: canonicalStandings ?? null,
+    scoresByKey,
+    games,
+    rosterByTeam,
+    currentWeekKey: liveDeltaWeekKey,
+    lastScoresFetchedAt: lastScoresRefreshAt || null,
+  });
 
   const selectedRankingsWeek = useMemo(
     () =>
@@ -1877,6 +1875,7 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   ownerColorMap={ownerColorMap}
                   canonicalStandings={canonicalStandings}
+                  liveDelta={liveDelta}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsHistory={standingsHistory}
                   standingsCoverage={standingsCoverage}
