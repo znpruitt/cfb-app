@@ -1,6 +1,7 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isValidSlug, getLeague, getLeagues } from '../../../lib/leagueRegistry.ts';
+import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import {
   getGlobalAliases,
   upsertGlobalAliases,
@@ -93,6 +94,9 @@ export async function PUT(req: Request): Promise<Response> {
         : {};
     const upserts: AliasMap = isAliasMap(obj.upserts) ? obj.upserts : {};
     const next = await upsertGlobalAliases(upserts);
+    // FUTURE: global alias writes affect every league that reads global
+    // aliases. invalidateStandings is per-slug; enumerating the league
+    // registry to invalidate all is out of scope for Phase 0.
     return Response.json({ scope: 'global', map: next });
   }
   const year = clampYearMaybe(url.searchParams.get('year'));
@@ -176,5 +180,6 @@ export async function PUT(req: Request): Promise<Response> {
   }
 
   await writeAliases(year, next, league);
+  if (league) invalidateStandings(league, year);
   return Response.json({ year, league: league ?? null, map: next });
 }

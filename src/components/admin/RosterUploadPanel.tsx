@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
 import type { PublicLeague } from '@/lib/league';
@@ -104,6 +105,7 @@ function TeamPicker({ fbsTeams, onSelect }: TeamPickerProps): React.ReactElement
 // ---------------------------------------------------------------------------
 
 export default function RosterUploadPanel({ leagues }: Props): React.ReactElement {
+  const router = useRouter();
   const defaultLeague = leagues[0];
   const [slug, setSlug] = useState(defaultLeague?.slug ?? '');
   const [year, setYear] = useState(defaultLeague?.year ?? seasonYearForToday());
@@ -222,6 +224,9 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
         aliases: aliasesSaved,
       });
       setPhase('done');
+      // Refresh the current RSC tree so any league surface visible in this
+      // tab reflects the freshly invalidated canonical standings.
+      router.refresh();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Unexpected error');
     } finally {

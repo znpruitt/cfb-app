@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { type DraftState, draftScope } from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
@@ -177,6 +178,8 @@ export async function POST(
     await setAppState<DraftState>(draftScope(slug), String(year), updated);
   }
 
+  invalidateStandings(slug, year);
+
   const confirmedAt = new Date().toISOString();
 
   return NextResponse.json({
@@ -237,6 +240,11 @@ export async function DELETE(
   };
 
   await setAppState<DraftState>(draftScope(slug), String(year), updated);
+
+  // The previously written owner CSV remains in scope (per route doc above);
+  // reopening still affects which roster the canonical selector should
+  // consider authoritative for downstream renders, so invalidate.
+  invalidateStandings(slug, year);
 
   return NextResponse.json({ draft: updated });
 }

@@ -1,3 +1,4 @@
+import { revalidateTag, unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from '../insights/lifecycle.ts';
@@ -88,24 +89,87 @@ export type GetCanonicalStandingsInput = {
 };
 
 /**
- * Cached entry point. React.cache dedupes based on reference equality of the
- * primitive arguments, so multiple surfaces that call `getCanonicalStandings`
- * within the same request resolve to one compute pass.
+ * Cross-request data cache layer. `unstable_cache` is keyed by `(slug,
+ * yearOverride)` and tagged so mutations can invalidate only the affected
+ * league/year via `invalidateStandings`. Each call to this factory returns a
+ * fresh tagged-cache function whose invocation hits the data cache.
+ *
+ * The `unstable_` prefix denotes Next.js API surface stability, not runtime
+ * stability — the data cache itself is production-ready in Next 15.x. This
+ * call site is intentionally the only adoption point so a future migration to
+ * a stable equivalent stays one-file.
+ */
+const dataCachedCanonicalStandings = (slug: string, yearOverride: number | null) =>
+  unstable_cache(
+    async () => computeCanonicalStandings(slug, yearOverride, undefined),
+    ['canonical-standings', slug, String(yearOverride)],
+    {
+      tags: [
+        `standings:${slug}`,
+        ...(yearOverride != null ? [`standings:${slug}:${yearOverride}`] : []),
+      ],
+      // Tag-only invalidation; no time-based expiry. Mutations call
+      // `invalidateStandings(slug, year)` to bust this entry.
+      revalidate: false,
+    }
+  )();
+
+/**
+ * Cached entry point. The outer `React.cache` dedupes within a single request
+ * (multiple surfaces that call `getCanonicalStandings` resolve to one compute
+ * pass). The inner `unstable_cache` dedupes across requests until a
+ * `revalidateTag` invalidates the entry.
+ *
+ * Outside Next.js's RSC runtime (e.g. `node:test`), `unstable_cache` throws
+ * `Invariant: incrementalCache missing` because no incremental cache is
+ * installed on the request context. Fall back to direct compute so the
+ * selector remains testable; the data-cache path is only active in
+ * production / dev requests, which is the only place it matters.
  */
 const cachedCanonicalStandings = cache(
   async (slug: string, yearOverride: number | null): Promise<CanonicalStandings> => {
-    return computeCanonicalStandings(slug, yearOverride, undefined);
+    try {
+      return await dataCachedCanonicalStandings(slug, yearOverride);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('incrementalCache missing')) {
+        return computeCanonicalStandings(slug, yearOverride, undefined);
+      }
+      throw err;
+    }
   }
 );
 
 export async function getCanonicalStandings(
   input: GetCanonicalStandingsInput
 ): Promise<CanonicalStandings> {
-  // Test-only override: bypass the cached path so each test sees its own state.
+  // Test-only override: bypass both cache layers so each test sees its own state.
   if (input.leagueStatusOverride !== undefined) {
     return computeCanonicalStandings(input.slug, input.year ?? null, input.leagueStatusOverride);
   }
   return cachedCanonicalStandings(input.slug, input.year ?? null);
+}
+
+/**
+ * Invalidate cached canonical standings for a league. Call from mutation
+ * paths that affect standings inputs (roster CSV, alias map, postseason
+ * override, draft confirmation). After invalidation, the next request that
+ * calls `getCanonicalStandings` for this slug recomputes fresh data.
+ *
+ * - Pass `year` to invalidate only that year's snapshot (preferred — most
+ *   mutations are year-scoped).
+ * - Omit `year` to invalidate every year-keyed snapshot for the league via
+ *   the per-slug umbrella tag.
+ *
+ * NOTE: Global alias writes (`PUT /api/aliases?scope=global`) affect every
+ * league that reads global aliases. This helper does not enumerate the league
+ * registry; that's flagged as future work (see Phase 0 prompt). Global writes
+ * therefore do not trigger per-league invalidation today.
+ */
+export function invalidateStandings(slug: string, year?: number): void {
+  revalidateTag(`standings:${slug}`);
+  if (year != null) {
+    revalidateTag(`standings:${slug}:${year}`);
+  }
 }
 
 async function computeCanonicalStandings(
