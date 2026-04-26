@@ -589,3 +589,72 @@ test('noClaimRow is null when the roster has no NoClaim entries', () => {
   const standings = deriveStandings(games, rosterByTeam, scoresByKey);
   assert.equal(standings.noClaimRow, null);
 });
+
+test('leaderWins and gamesBack are computed from real-owner rows when NoClaim has the highest win total', () => {
+  // 3 NoClaim teams (Tulane, Memphis, USF) collectively beat 3 real-owner teams
+  // (Alabama, Georgia, Auburn). Then real owners play one game among themselves.
+  // NoClaim aggregate: 3 wins. Real owners: at most 1 win. If leaderWins is
+  // computed before splitOutNoClaim, every visible row would have GB > 0.
+  const games = [
+    game({ key: 'noclaim-1', csvAway: 'Tulane', csvHome: 'Alabama' }),
+    game({ key: 'noclaim-2', csvAway: 'Memphis', csvHome: 'Georgia' }),
+    game({ key: 'noclaim-3', csvAway: 'USF', csvHome: 'Auburn' }),
+    game({ key: 'real-vs-real', csvAway: 'Alabama', csvHome: 'Georgia' }),
+  ];
+  const rosterByTeam = new Map([
+    ['Alabama', 'Avery'],
+    ['Georgia', 'Blair'],
+    ['Auburn', 'Casey'],
+    ['Tulane', 'NoClaim'],
+    ['Memphis', 'NoClaim'],
+    ['USF', 'NoClaim'],
+  ]);
+  const scoresByKey: Record<string, ScorePack> = {
+    'noclaim-1': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Tulane', score: 24 },
+      home: { team: 'Alabama', score: 17 },
+    },
+    'noclaim-2': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Memphis', score: 21 },
+      home: { team: 'Georgia', score: 14 },
+    },
+    'noclaim-3': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'USF', score: 28 },
+      home: { team: 'Auburn', score: 20 },
+    },
+    'real-vs-real': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Alabama', score: 31 },
+      home: { team: 'Georgia', score: 13 },
+    },
+  };
+
+  const standings = deriveStandings(games, rosterByTeam, scoresByKey);
+
+  // NoClaim aggregate has 3 wins; real-owner leader (Avery) has 1 win.
+  // leaderWins must reflect the real-owner leader (1), not NoClaim (3).
+  assert.equal(standings.leaderWins, 1);
+  assert.equal(standings.rows[0].owner, 'Avery');
+  assert.equal(standings.rows[0].wins, 1);
+  assert.equal(
+    standings.rows[0].gamesBack,
+    0,
+    'Real-owner leader must have gamesBack === 0 even when NoClaim has more wins'
+  );
+  // The other real owners are 0-1 → GB = 1 behind Avery.
+  assert.equal(standings.rows[1].gamesBack, 1);
+  assert.equal(standings.rows[2].gamesBack, 1);
+
+  // noClaimRow is reported relative to the real-owner leader (Option b):
+  // 3 NoClaim wins vs 1 real-owner leader win → GB = -2.
+  assert.ok(standings.noClaimRow != null);
+  assert.equal(standings.noClaimRow!.wins, 3);
+  assert.equal(standings.noClaimRow!.gamesBack, -2);
+});

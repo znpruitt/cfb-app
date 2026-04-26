@@ -659,13 +659,22 @@ export default function CFBScheduleApp({
   }, []);
 
   const ownerColorMap = useMemo(() => {
-    // Prefer canonical's NoClaim-filtered, alphabetically-stable owner list when
-    // available so palette assignments remain consistent across cold-start →
-    // hydrated transitions. Admin / non-canonical surfaces fall back to the
-    // client-derived owners (also NoClaim-filtered after the deriveStandings
-    // change).
-    const owners =
-      canonicalStandings?.ownerColorOrder ?? standingsSnapshot.rows.map((r) => r.owner);
+    // Canonical's NoClaim-filtered, alphabetically-stable owner list anchors the
+    // palette so palette assignments remain consistent across cold-start →
+    // hydrated transitions. Canonical is server-rendered and goes stale after
+    // in-session roster uploads, though, so any owners in the live client
+    // snapshot that canonical doesn't know about are appended (alphabetically,
+    // case-insensitive — matching canonical's own ordering) so new/renamed
+    // owners get deterministic colors instead of falling back to gray. Removed
+    // owners' color slots remain in the map, unused — that's the cost of
+    // keeping known owners' colors stable.
+    const canonicalOwners = canonicalStandings?.ownerColorOrder ?? [];
+    const canonicalSet = new Set(canonicalOwners);
+    const additionalOwners = standingsSnapshot.rows
+      .map((r) => r.owner)
+      .filter((owner) => !canonicalSet.has(owner))
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const owners = [...canonicalOwners, ...additionalOwners];
     return buildOwnerColorMap(owners, isDark);
   }, [canonicalStandings, standingsSnapshot.rows, isDark]);
 

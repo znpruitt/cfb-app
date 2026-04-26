@@ -227,8 +227,6 @@ export function deriveStandings(
     totals.set(participation.owner, current);
   }
 
-  const leaderWins = Array.from(totals.values()).reduce((best, row) => Math.max(best, row.wins), 0);
-
   // League standings precedence (SOURCE OF TRUTH):
   // 1. Total Wins (primary ranking metric)
   // 2. Win Percentage (tiebreaker — accounts for unequal games played)
@@ -236,7 +234,13 @@ export function deriveStandings(
   //
   // This matches official league rules (confirmed via season-final standings email).
   // Do NOT reorder without updating league rules documentation.
-  const allRows = Array.from(totals.values())
+  //
+  // gamesBack is intentionally not computed here. NoClaim is excluded from the
+  // visible standings (splitOutNoClaim below), so leaderWins must be derived
+  // from real-owner rows only — otherwise a high-win NoClaim aggregate would
+  // give every visible row a non-zero GB with no leader at 0. We compute
+  // leaderWins and gamesBack post-split.
+  const sortedAllRows = Array.from(totals.values())
     .map((row) => {
       const decisions = row.wins + row.losses;
       const pointDifferential = row.pointsFor - row.pointsAgainst;
@@ -244,7 +248,7 @@ export function deriveStandings(
         ...row,
         winPct: decisions > 0 ? row.wins / decisions : 0,
         pointDifferential,
-        gamesBack: leaderWins - row.wins,
+        gamesBack: 0,
       };
     })
     .sort((a, b) => {
@@ -257,6 +261,15 @@ export function deriveStandings(
       return a.owner.localeCompare(b.owner);
     });
 
-  const { rows, noClaimRow } = splitOutNoClaim(allRows);
+  const { rows: realRows, noClaimRow: rawNoClaimRow } = splitOutNoClaim(sortedAllRows);
+  const leaderWins = realRows.reduce((best, row) => Math.max(best, row.wins), 0);
+  const rows = realRows.map((row) => ({ ...row, gamesBack: leaderWins - row.wins }));
+  // noClaimRow.gamesBack is computed against the real-owner leader so admin /
+  // diagnostic surfaces that render NoClaim alongside real owners see a
+  // consistent "games behind real leader" value (Option b). NoClaim leading
+  // its own aggregate doesn't make it a competitor in the visible standings.
+  const noClaimRow = rawNoClaimRow
+    ? { ...rawNoClaimRow, gamesBack: leaderWins - rawNoClaimRow.wins }
+    : null;
   return { rows, noClaimRow, participations, leaderWins };
 }
