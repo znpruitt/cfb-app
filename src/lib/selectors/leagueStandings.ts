@@ -1,3 +1,4 @@
+import { revalidateTag, unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from '../insights/lifecycle.ts';
@@ -88,24 +89,160 @@ export type GetCanonicalStandingsInput = {
 };
 
 /**
- * Cached entry point. React.cache dedupes based on reference equality of the
- * primitive arguments, so multiple surfaces that call `getCanonicalStandings`
- * within the same request resolve to one compute pass.
+ * Cross-request data cache layer. `unstable_cache` is keyed by the resolved
+ * year so default-year requests don't collapse onto a single `'null'` key
+ * across season transitions. The compute call still receives the original
+ * `yearOverride` (which may be null), preserving the internal resolution —
+ * notably `resolveOffseason`'s fallback to `mostRecentArchivedYear`. Each
+ * call to this factory returns a fresh tagged-cache function whose
+ * invocation hits the data cache.
+ *
+ * The `unstable_` prefix denotes Next.js API surface stability, not runtime
+ * stability — the data cache itself is production-ready in Next 15.x. This
+ * call site is intentionally the only adoption point so a future migration to
+ * a stable equivalent stays one-file.
+ */
+const dataCachedCanonicalStandings = (
+  slug: string,
+  yearOverride: number | null,
+  resolvedYear: number | null
+) =>
+  unstable_cache(
+    async () => computeCanonicalStandings(slug, yearOverride, undefined),
+    ['canonical-standings', slug, String(resolvedYear)],
+    {
+      tags: [
+        `standings:${slug}`,
+        ...(resolvedYear != null ? [`standings:${slug}:${resolvedYear}`] : []),
+      ],
+      // Tag-only invalidation; no time-based expiry. Mutations call
+      // `invalidateStandings(slug, year)` to bust this entry.
+      revalidate: false,
+    }
+  )();
+
+/**
+ * Resolve the year that the cache key should be scoped to BEFORE entering the
+ * data cache. Without this, default-year requests (where the caller passes no
+ * `year`) all collapse onto a single `'null'` cache key, so a season
+ * transition can hand back a stale prior-year snapshot until something else
+ * invalidates it.
+ *
+ * Mirrors the year-resolution logic inside `computeCanonicalStandings`:
+ *   - explicit override wins
+ *   - else: status year for season/preseason
+ *   - else (offseason status): most recent archived year (matches what
+ *     `resolveOffseason` will pick when `yearOverride === null`); this
+ *     prevents a cache-key collision between a default-year request (which
+ *     uses the archive fallback) and an explicit `year: league.year` request
+ *     (which does not), since the two flows produce different snapshots
+ *   - else (offseason with no archives, OR status undefined — leagues
+ *     created via /api/admin/leagues default to no status): league.year.
+ *     `computeCanonicalStandings` synthesizes `{ state: 'season', year:
+ *     league.year }` when status is missing, so the cache key must agree.
+ *   - else: null (unknown slug → empty snapshot path)
+ *
+ * `getLeague` and `listSeasonArchives` are both `React.cache`-wrapped, so
+ * this adds no per-request cost.
+ */
+export async function resolveStandingsYear(
+  slug: string,
+  yearOverride: number | null
+): Promise<number | null> {
+  if (yearOverride != null) return yearOverride;
+  const league = await getLeague(slug);
+  if (!league) return null;
+
+  const status = league.status;
+  if (status && 'year' in status) return status.year;
+
+  // Only consult archives when status is explicitly offseason. Missing
+  // status falls through to league.year so the cache key matches the
+  // synthesized `{ state: 'season', year: league.year }` that
+  // `computeCanonicalStandings` will use.
+  if (status?.state === 'offseason') {
+    const archives = await listSeasonArchives(slug);
+    if (archives.length > 0) return Math.max(...archives);
+  }
+
+  return league.year;
+}
+
+/**
+ * Cached entry point. The outer `React.cache` dedupes within a single request
+ * (multiple surfaces that call `getCanonicalStandings` resolve to one compute
+ * pass). The inner `unstable_cache` dedupes across requests until a
+ * `revalidateTag` invalidates the entry.
+ *
+ * Outside Next.js's RSC runtime (e.g. `node:test`), `unstable_cache` throws
+ * `Invariant: incrementalCache missing` because no incremental cache is
+ * installed on the request context. Fall back to direct compute so the
+ * selector remains testable; the data-cache path is only active in
+ * production / dev requests, which is the only place it matters.
  */
 const cachedCanonicalStandings = cache(
   async (slug: string, yearOverride: number | null): Promise<CanonicalStandings> => {
-    return computeCanonicalStandings(slug, yearOverride, undefined);
+    const resolvedYear = await resolveStandingsYear(slug, yearOverride);
+    try {
+      return await dataCachedCanonicalStandings(slug, yearOverride, resolvedYear);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('incrementalCache missing')) {
+        return computeCanonicalStandings(slug, yearOverride, undefined);
+      }
+      throw err;
+    }
   }
 );
 
 export async function getCanonicalStandings(
   input: GetCanonicalStandingsInput
 ): Promise<CanonicalStandings> {
-  // Test-only override: bypass the cached path so each test sees its own state.
+  // Test-only override: bypass both cache layers so each test sees its own state.
   if (input.leagueStatusOverride !== undefined) {
     return computeCanonicalStandings(input.slug, input.year ?? null, input.leagueStatusOverride);
   }
   return cachedCanonicalStandings(input.slug, input.year ?? null);
+}
+
+/**
+ * Invalidate cached canonical standings for a league. Call from mutation
+ * paths that affect standings inputs (roster CSV, alias map, postseason
+ * override, draft confirmation, schedule/scores cache, archive writes,
+ * rollover). After invalidation, the next request that calls
+ * `getCanonicalStandings` for this slug recomputes fresh data.
+ *
+ * - Pass `year` to invalidate only that year's snapshot (preferred — most
+ *   mutations are year-scoped).
+ * - Omit `year` to invalidate every year-keyed snapshot for the league via
+ *   the per-slug umbrella tag.
+ *
+ * Wired into:
+ * - PUT /api/owners (league-scoped roster CSV)
+ * - PUT /api/aliases (league-scoped only — see gap below)
+ * - PUT /api/postseason-overrides
+ * - POST + DELETE /api/draft/[slug]/[year]/confirm
+ * - GET /api/schedule (admin refresh, walks registry)
+ * - GET /api/scores (cache miss + fallback paths, walks registry)
+ * - POST /api/admin/backfill (single league/year)
+ * - POST /api/admin/rollover (per league, stage-1 archive loop)
+ *
+ * Known gaps (low-frequency paths, deferred for future work):
+ * - `confirmPreseasonOwners` server action — runs ~once per season at
+ *   preseason setup. Workaround: hard refresh in admin UI after running it.
+ * - Cron season transitions — runs ~once per season at season-start.
+ *   Same workaround applies.
+ * - Global alias writes (PUT /api/aliases?scope=global) — would require
+ *   enumerating the league registry to invalidate every league that reads
+ *   the global alias map. Out of scope for Phase 0.
+ *
+ * If a deferred path is hit, the cache may serve stale canonical data until
+ * a subsequent invalidation fires from another path.
+ */
+export function invalidateStandings(slug: string, year?: number): void {
+  revalidateTag(`standings:${slug}`);
+  if (year != null) {
+    revalidateTag(`standings:${slug}:${year}`);
+  }
 }
 
 async function computeCanonicalStandings(

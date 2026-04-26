@@ -1,5 +1,6 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeague } from '@/lib/leagueRegistry';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
 import { buildSeasonArchive } from '@/lib/seasonRollover';
 
@@ -96,6 +97,12 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   await saveSeasonArchive(archive);
+  try {
+    invalidateStandings(leagueSlug, year);
+  } catch {
+    // Non-fatal — archive write succeeded; canonical refreshes on next
+    // mutation or natural cache turnover.
+  }
 
   return Response.json({
     success: true,

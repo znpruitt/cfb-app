@@ -19,6 +19,8 @@ import {
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import { getLeagues } from '@/lib/leagueRegistry';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
   getScheduleProbeState,
   saveScheduleProbeState,
@@ -450,6 +452,20 @@ export async function GET(req: Request) {
   SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
   pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
   await setAppState('schedule', cacheKey, nextCacheEntry);
+
+  // Invalidate canonical standings for every league at this year. Schedule
+  // is season-scoped, not league-scoped, so we walk the registry. The set is
+  // small (one platform admin's leagues today); the per-tag revalidate is
+  // cheap.
+  try {
+    const leagues = await getLeagues();
+    for (const league of leagues) {
+      invalidateStandings(league.slug, year);
+    }
+  } catch {
+    // Non-fatal — schedule write already succeeded; canonical will refresh on
+    // the next mutation or natural cache turnover.
+  }
 
   // Update schedule probe state when a full-season admin refresh completes
   if (bypassCache && week === null && requestedSeasonType === 'all' && items.length > 0) {

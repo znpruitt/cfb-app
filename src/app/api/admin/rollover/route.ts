@@ -1,6 +1,7 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
 import { isSeasonComplete, buildSeasonArchive } from '@/lib/seasonRollover';
 import type { League } from '@/lib/league';
@@ -128,6 +129,14 @@ export async function POST(req: Request): Promise<Response> {
       const archive = await buildSeasonArchive(league.slug, currentYear);
       await saveSeasonArchive(archive);
       archivedLeagues.push(league.slug);
+      // Invalidate canonical for this league at the rollover year. The
+      // slug-level tag also covers any default-year cache entry, so the
+      // subsequent stage-2 status flip does not need a second invalidation.
+      try {
+        invalidateStandings(league.slug, currentYear);
+      } catch {
+        // Non-fatal — archive already persisted.
+      }
     } catch (err) {
       errors.push({
         leagueSlug: league.slug,

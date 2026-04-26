@@ -2,6 +2,7 @@ import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isAuthorizedForLeague } from '../../../lib/leagueAuth.ts';
 import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
+import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import { getTeamDatabaseItems } from '../../../lib/server/teamDatabaseStore.ts';
 import { getGlobalAliases } from '../../../lib/server/globalAliasStore.ts';
 import { validateRosterCSV } from '../../../lib/rosterUploadValidator.ts';
@@ -112,9 +113,11 @@ export async function PUT(req: Request): Promise<Response> {
     }
 
     await setAppState(scope, 'csv', csvText);
+    if (league) invalidateStandings(league, year);
     return Response.json({ year, league: league ?? null, csvText, hasStoredValue: true });
   }
 
   await setAppState(scope, 'csv', null);
+  if (league) invalidateStandings(league, year);
   return Response.json({ year, league: league ?? null, csvText: null, hasStoredValue: true });
 }

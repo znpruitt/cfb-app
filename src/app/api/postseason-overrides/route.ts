@@ -2,6 +2,7 @@ import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isAuthorizedForLeague } from '../../../lib/leagueAuth.ts';
 import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
+import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 
 function clampYearMaybe(s: string | null): number {
   const fallback = new Date().getFullYear();
@@ -83,9 +84,11 @@ export async function PUT(req: Request): Promise<Response> {
 
   if (map && typeof map === 'object') {
     await setAppState(scope, 'map', map);
+    if (league) invalidateStandings(league, year);
     return Response.json({ year, league: league ?? null, map, hasStoredValue: true });
   }
 
   await setAppState(scope, 'map', {});
+  if (league) invalidateStandings(league, year);
   return Response.json({ year, league: league ?? null, map: {}, hasStoredValue: true });
 }
