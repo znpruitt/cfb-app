@@ -131,12 +131,15 @@ const dataCachedCanonicalStandings = (
  * Mirrors the year-resolution logic inside `computeCanonicalStandings`:
  *   - explicit override wins
  *   - else: status year for season/preseason
- *   - else (offseason): most recent archived year (matches what
+ *   - else (offseason status): most recent archived year (matches what
  *     `resolveOffseason` will pick when `yearOverride === null`); this
  *     prevents a cache-key collision between a default-year request (which
  *     uses the archive fallback) and an explicit `year: league.year` request
  *     (which does not), since the two flows produce different snapshots
- *   - else: league.year (offseason with no archives — rare edge case)
+ *   - else (offseason with no archives, OR status undefined — leagues
+ *     created via /api/admin/leagues default to no status): league.year.
+ *     `computeCanonicalStandings` synthesizes `{ state: 'season', year:
+ *     league.year }` when status is missing, so the cache key must agree.
  *   - else: null (unknown slug → empty snapshot path)
  *
  * `getLeague` and `listSeasonArchives` are both `React.cache`-wrapped, so
@@ -149,10 +152,19 @@ export async function resolveStandingsYear(
   if (yearOverride != null) return yearOverride;
   const league = await getLeague(slug);
   if (!league) return null;
-  if (league.status && 'year' in league.status) return league.status.year;
-  // Offseason status (no `year` on the discriminated union member).
-  const archives = await listSeasonArchives(slug);
-  if (archives.length > 0) return Math.max(...archives);
+
+  const status = league.status;
+  if (status && 'year' in status) return status.year;
+
+  // Only consult archives when status is explicitly offseason. Missing
+  // status falls through to league.year so the cache key matches the
+  // synthesized `{ state: 'season', year: league.year }` that
+  // `computeCanonicalStandings` will use.
+  if (status?.state === 'offseason') {
+    const archives = await listSeasonArchives(slug);
+    if (archives.length > 0) return Math.max(...archives);
+  }
+
   return league.year;
 }
 
@@ -195,18 +207,36 @@ export async function getCanonicalStandings(
 /**
  * Invalidate cached canonical standings for a league. Call from mutation
  * paths that affect standings inputs (roster CSV, alias map, postseason
- * override, draft confirmation). After invalidation, the next request that
- * calls `getCanonicalStandings` for this slug recomputes fresh data.
+ * override, draft confirmation, schedule/scores cache, archive writes,
+ * rollover). After invalidation, the next request that calls
+ * `getCanonicalStandings` for this slug recomputes fresh data.
  *
  * - Pass `year` to invalidate only that year's snapshot (preferred — most
  *   mutations are year-scoped).
  * - Omit `year` to invalidate every year-keyed snapshot for the league via
  *   the per-slug umbrella tag.
  *
- * NOTE: Global alias writes (`PUT /api/aliases?scope=global`) affect every
- * league that reads global aliases. This helper does not enumerate the league
- * registry; that's flagged as future work (see Phase 0 prompt). Global writes
- * therefore do not trigger per-league invalidation today.
+ * Wired into:
+ * - PUT /api/owners (league-scoped roster CSV)
+ * - PUT /api/aliases (league-scoped only — see gap below)
+ * - PUT /api/postseason-overrides
+ * - POST + DELETE /api/draft/[slug]/[year]/confirm
+ * - GET /api/schedule (admin refresh, walks registry)
+ * - GET /api/scores (cache miss + fallback paths, walks registry)
+ * - POST /api/admin/backfill (single league/year)
+ * - POST /api/admin/rollover (per league, stage-1 archive loop)
+ *
+ * Known gaps (low-frequency paths, deferred for future work):
+ * - `confirmPreseasonOwners` server action — runs ~once per season at
+ *   preseason setup. Workaround: hard refresh in admin UI after running it.
+ * - Cron season transitions — runs ~once per season at season-start.
+ *   Same workaround applies.
+ * - Global alias writes (PUT /api/aliases?scope=global) — would require
+ *   enumerating the league registry to invalidate every league that reads
+ *   the global alias map. Out of scope for Phase 0.
+ *
+ * If a deferred path is hit, the cache may serve stale canonical data until
+ * a subsequent invalidation fires from another path.
  */
 export function invalidateStandings(slug: string, year?: number): void {
   revalidateTag(`standings:${slug}`);

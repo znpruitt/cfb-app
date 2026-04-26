@@ -595,3 +595,18 @@ test('offseason default and explicit-year requests do not collide in cache', asy
   assert.notEqual(explicitSnapshot.source, 'archive');
   assert.deepEqual(explicitSnapshot.rows, []);
 });
+
+test('resolveStandingsYear: missing status returns league.year (not archive year)', async () => {
+  // Regression guard: leagues created via /api/admin/leagues default to no
+  // status. computeCanonicalStandings synthesizes `{ state: 'season', year:
+  // league.year }` for that case, so the cache key must use league.year —
+  // not mostRecentArchivedYear, which would route default-year requests
+  // through the archive-resolution path while the actual computation runs
+  // for the active year.
+  const slug = 't23-missing-status-uses-league-year';
+  await seedLeague(makeLeague({ slug, year: 2026 })); // no status
+  await seedArchive(slug, 2025, [makeHistoryRow('Alice', 9, 3)]);
+
+  const resolved = await resolveStandingsYear(slug, null);
+  assert.equal(resolved, 2026);
+});
