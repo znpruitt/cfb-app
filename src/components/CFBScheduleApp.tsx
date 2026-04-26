@@ -1907,6 +1907,8 @@ export default function CFBScheduleApp({
                   season={selectedSeason}
                   coverage={standingsCoverage}
                   ownerColorMap={ownerColorMap}
+                  canonicalStandings={canonicalStandings}
+                  liveDelta={liveDelta}
                   focusedOwner={focusedOwner}
                   standingsHistory={standingsHistory}
                   seasonContext={seasonContext}

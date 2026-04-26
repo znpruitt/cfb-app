@@ -7,6 +7,8 @@ import {
   deriveStandingsInsights,
   type Insight,
 } from '../lib/selectors/insights';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
+import type { LiveDelta, LivePendingOwnerDelta } from '../lib/selectors/liveDelta';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -19,6 +21,20 @@ type StandingsPanelProps = {
   season: number;
   coverage: StandingsCoverage;
   ownerColorMap: Record<string, string>;
+  /**
+   * Canonical standings snapshot loaded server-side. When present, owns the
+   * resolved-week rows, history, and color order for the panel. The legacy
+   * `rows`/`standingsHistory` props remain as a fallback for routes that have
+   * not yet migrated to load canonical (Members, Matchups, etc.).
+   */
+  canonicalStandings?: CanonicalStandings | null;
+  /**
+   * Client-side partial-week overlay derived from polled scores. Drives the
+   * "live now" badges on rows whose owner has in-progress games this week.
+   * Independent from canonical: canonical defines authoritative rows, this
+   * defines the unresolved current-week annotations layered on top.
+   */
+  liveDelta?: LiveDelta | null;
   onOwnerSelect?: (owner: string) => void;
   focusedOwner?: string | null;
   standingsHistory?: StandingsHistory | null;
@@ -128,6 +144,8 @@ export default function StandingsPanel({
   season,
   coverage,
   ownerColorMap,
+  canonicalStandings = null,
+  liveDelta = null,
   onOwnerSelect,
   focusedOwner = null,
   standingsHistory = null,
@@ -136,19 +154,32 @@ export default function StandingsPanel({
   initialSubview = 'table',
   leagueSlug,
 }: StandingsPanelProps): React.ReactElement {
+  // Canonical owns the resolved-week snapshot for Standings: rows, history, and
+  // owner identity all flow from it directly when present. Falls back to the
+  // legacy client-derived props for routes not yet migrated to load canonical.
+  // Movement calculations key off the same canonical history so "Move" deltas
+  // line up with what Trends and Overview render — week-over-week only,
+  // liveDelta does not contribute (movement is resolved-week, not live).
+  const rowsForRender = canonicalStandings?.rows ?? rows;
+  const historyForRender = canonicalStandings
+    ? canonicalStandings.standingsHistory
+    : (standingsHistory ?? null);
   const showMoveColumn = seasonContext !== 'final';
-  const visibleRows = React.useMemo(() => rows.filter((r) => r.owner !== 'NoClaim'), [rows]);
+  const visibleRows = React.useMemo(
+    () => rowsForRender.filter((r) => r.owner !== 'NoClaim'),
+    [rowsForRender]
+  );
   const ownerRowRefs = React.useRef<Map<string, HTMLTableRowElement>>(new Map());
   const trendsPanelRef = React.useRef<HTMLDivElement | null>(null);
   const [trendsHighlighted, setTrendsHighlighted] = React.useState(false);
   const [hoveredOwner, setHoveredOwner] = React.useState<string | null>(null);
   const [selectedOwnerSet, setSelectedOwnerSet] = React.useState<Set<string>>(() => new Set());
   const movementByOwner = React.useMemo(() => {
-    const filteredHistory: StandingsHistory | null = standingsHistory
+    const filteredHistory: StandingsHistory | null = historyForRender
       ? {
-          ...standingsHistory,
+          ...historyForRender,
           byWeek: Object.fromEntries(
-            Object.entries(standingsHistory.byWeek).map(([week, snapshot]) => [
+            Object.entries(historyForRender.byWeek).map(([week, snapshot]) => [
               week,
               { ...snapshot, standings: snapshot.standings.filter((s) => s.owner !== 'NoClaim') },
             ])
@@ -159,18 +190,26 @@ export default function StandingsPanel({
       rows: visibleRows,
       standingsHistory: filteredHistory,
     });
-  }, [visibleRows, standingsHistory]);
+  }, [visibleRows, historyForRender]);
   const standingsInsights = React.useMemo(
     () =>
       deriveStandingsInsights(
         deriveLeagueInsights({
-          rows,
-          standingsHistory,
+          rows: rowsForRender,
+          standingsHistory: historyForRender,
           seasonContext,
         })
       ),
-    [rows, seasonContext, standingsHistory]
+    [rowsForRender, seasonContext, historyForRender]
   );
+
+  // liveDelta is suppressed when the overlay is stale — better to show no badge
+  // than to imply currency we cannot vouch for. This matches the architectural
+  // contract: canonical is authoritative, liveDelta is the partial-week
+  // annotation layer, and stale annotations should not visually masquerade as
+  // fresh.
+  const liveByOwner: Record<string, LivePendingOwnerDelta> =
+    liveDelta && !liveDelta.isStale ? liveDelta.byOwner : {};
 
   const ownerColorFn = React.useCallback(
     (ownerId: string): string => ownerColorMap[ownerId] ?? '#888',
@@ -285,6 +324,13 @@ export default function StandingsPanel({
                         const hasActiveHighlight =
                           hoveredOwner !== null || selectedOwnerSet.size > 0;
                         const isHighlighted = isHovered || isSelected;
+                        const livePending = liveByOwner[row.owner];
+                        const livePendingTotal = livePending
+                          ? livePending.pendingWins + livePending.pendingLosses
+                          : 0;
+                        const liveBadgeLabel = livePending
+                          ? `Live this week: ${livePending.pendingWins}–${livePending.pendingLosses}`
+                          : null;
                         return (
                           <tr
                             key={row.owner}
@@ -344,7 +390,21 @@ export default function StandingsPanel({
                               </div>
                             </td>
                             <td className="whitespace-nowrap border-b border-gray-100 px-1 py-2 font-semibold tabular-nums text-gray-900 dark:border-zinc-800 dark:text-zinc-100">
-                              {row.wins}–{row.losses}
+                              <span className="inline-flex items-center gap-1">
+                                <span>
+                                  {row.wins}–{row.losses}
+                                </span>
+                                {livePendingTotal > 0 && liveBadgeLabel ? (
+                                  <span
+                                    className="inline-flex items-center rounded-sm bg-emerald-100 px-1 py-0.5 text-[0.6rem] font-medium tracking-tight text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                    title={liveBadgeLabel}
+                                    aria-label={liveBadgeLabel}
+                                    data-standings-live-pending={`${livePending!.pendingWins}-${livePending!.pendingLosses}`}
+                                  >
+                                    +{livePending!.pendingWins}–{livePending!.pendingLosses}
+                                  </span>
+                                ) : null}
+                              </span>
                             </td>
                             <td className="w-[3rem] whitespace-nowrap border-b border-gray-100 px-1 py-2 tabular-nums text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
                               {formatWinPct(row.winPct)}
@@ -422,7 +482,7 @@ export default function StandingsPanel({
           data-standings-subview="trends"
         >
           <TrendsDetailSurface
-            standingsHistory={standingsHistory}
+            standingsHistory={historyForRender}
             season={season}
             seasonContext={seasonContext}
             issues={trendIssues}
