@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { AppGame } from '../../lib/schedule';
 import { deriveOwnerWeekSlates } from '../../lib/matchups';
+import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
+import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import MatchupsWeekPanel from '../MatchupsWeekPanel';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -733,4 +735,176 @@ test('postseason matchups render owner-first cards and preserve neutral-site met
   assert.match(html, /Rose Bowl/);
   assert.match(html, /Neutral site/);
   assert.doesNotMatch(html, /Date TBD/);
+});
+
+const canonicalForMatchups: CanonicalStandings = {
+  slug: 'tsc',
+  year: 2025,
+  source: 'live',
+  lifecycle: 'mid_season',
+  rows: [],
+  noClaimRow: null,
+  // Canonical: Alice before Bob (alphabetical, NoClaim-filtered).
+  ownerColorOrder: ['Alice', 'Bob'],
+  standingsHistory: null,
+  coverage: { state: 'complete', message: null },
+  ownersRosterSource: 'csv',
+  archiveYearResolved: null,
+  generatedAt: '2026-04-26T00:00:00.000Z',
+};
+
+function makeLiveDelta(params: { inProgressGameKey?: string; isStale?: boolean }): LiveDelta {
+  const { inProgressGameKey, isStale = false } = params;
+  const byGame: LiveDelta['byGame'] = {};
+  if (inProgressGameKey) {
+    byGame[inProgressGameKey] = {
+      status: 'inprogress',
+      score: null,
+      participantTeamIds: [],
+    };
+  }
+  return {
+    weekKey: '2025:1',
+    generatedAt: '2026-04-26T00:00:00.000Z',
+    byGame,
+    byOwner: {},
+    isStale,
+  };
+}
+
+test('matchups panel renders fresh-LIVE indicator when liveDelta confirms in-progress and is not stale', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live': {
+          status: 'in progress',
+          time: '05:00',
+          home: { team: 'Georgia', score: 17 },
+          away: { team: 'Alabama', score: 24 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Alabama', 'Alice'],
+          ['Georgia', 'Bob'],
+        ])
+      }
+      displayTimeZone="UTC"
+      liveDelta={makeLiveDelta({ inProgressGameKey: 'g-live' })}
+    />
+  );
+
+  assert.match(html, /data-matchups-live-indicator="g-live"/);
+});
+
+test('matchups panel suppresses fresh-LIVE indicator when liveDelta is stale', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live': {
+          status: 'in progress',
+          time: '05:00',
+          home: { team: 'Georgia', score: 17 },
+          away: { team: 'Alabama', score: 24 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Alabama', 'Alice'],
+          ['Georgia', 'Bob'],
+        ])
+      }
+      displayTimeZone="UTC"
+      liveDelta={makeLiveDelta({ inProgressGameKey: 'g-live', isStale: true })}
+    />
+  );
+
+  assert.doesNotMatch(html, /data-matchups-live-indicator/);
+});
+
+test('matchups panel omits fresh-LIVE indicator for games not in liveDelta byGame', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live': {
+          status: 'in progress',
+          time: '05:00',
+          home: { team: 'Georgia', score: 17 },
+          away: { team: 'Alabama', score: 24 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Alabama', 'Alice'],
+          ['Georgia', 'Bob'],
+        ])
+      }
+      displayTimeZone="UTC"
+      liveDelta={makeLiveDelta({})}
+    />
+  );
+
+  assert.doesNotMatch(html, /data-matchups-live-indicator/);
+});
+
+test('matchups panel omits fresh-LIVE indicator when liveDelta is null', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-live': {
+          status: 'in progress',
+          time: '05:00',
+          home: { team: 'Georgia', score: 17 },
+          away: { team: 'Alabama', score: 24 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Alabama', 'Alice'],
+          ['Georgia', 'Bob'],
+        ])
+      }
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /data-matchups-live-indicator/);
+});
+
+test('matchups panel reorders owner cards to canonical owner identity when canonical is provided', () => {
+  // Without canonical, owner-slate order is whatever deriveOwnerWeekSlates
+  // produces. With canonical, Alice's data-owner-card should appear before
+  // Bob's regardless of source order.
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({ key: 'g-bob', csvAway: 'Georgia', csvHome: 'Alabama' }),
+        game({ key: 'g-alice', csvAway: 'Texas', csvHome: 'Akron', homeConf: 'MAC' }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Alabama', 'Bob'],
+          ['Georgia', 'Bob'],
+          ['Texas', 'Alice'],
+        ])
+      }
+      displayTimeZone="UTC"
+      canonicalStandings={canonicalForMatchups}
+    />
+  );
+
+  const aliceCardIndex = html.indexOf('data-owner-card="Alice"');
+  const bobCardIndex = html.indexOf('data-owner-card="Bob"');
+  assert.ok(aliceCardIndex >= 0 && bobCardIndex >= 0);
+  assert.ok(aliceCardIndex < bobCardIndex, 'Alice card should appear before Bob card');
 });

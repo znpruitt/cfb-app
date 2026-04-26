@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { OwnerMatchupMatrix } from '../lib/overview';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 
 function recordCellClass(record: string | null, isDiagonal: boolean, hasGames: boolean): string {
   if (isDiagonal) return 'bg-gray-100/80 dark:bg-zinc-800/70';
@@ -40,9 +41,17 @@ export function scrollFocusedOwnerPairIntoView(params: {
 export default function MatchupMatrixView({
   matrix,
   focusedOwnerPair = null,
+  canonicalStandings = null,
 }: {
   matrix: OwnerMatchupMatrix;
   focusedOwnerPair?: [string, string] | null;
+  /**
+   * Canonical standings snapshot loaded server-side. When present, drives the
+   * matrix axis order (alphabetical, NoClaim-filtered, stable) so the grid
+   * matches the owner identity rendered by Standings/Overview/Matchups. Falls
+   * back to the matrix's own owner order when canonical is absent.
+   */
+  canonicalStandings?: CanonicalStandings | null;
 }): React.ReactElement {
   const ownerPairRefs = React.useRef<Map<string, HTMLTableCellElement>>(new Map());
 
@@ -53,7 +62,47 @@ export default function MatchupMatrixView({
     });
   }, [focusedOwnerPair]);
 
-  if (matrix.owners.length === 0) {
+  // Reorder rows/cells along canonical's owner axis when canonical is present.
+  // Owners that exist in matrix but not in canonical (mid-session additions)
+  // are appended after the canonical block in alphabetical order so they stay
+  // visible. Cell ordering must mirror axis ordering, so we re-key both rows
+  // and cells through name lookups instead of index math.
+  const orderedMatrix = React.useMemo<OwnerMatchupMatrix>(() => {
+    if (!canonicalStandings) return matrix;
+    const matrixOwnerSet = new Set(matrix.owners);
+    const orderedOwners: string[] = [];
+    for (const owner of canonicalStandings.ownerColorOrder) {
+      if (matrixOwnerSet.has(owner)) {
+        orderedOwners.push(owner);
+        matrixOwnerSet.delete(owner);
+      }
+    }
+    const trailingOwners = [...matrixOwnerSet].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    );
+    orderedOwners.push(...trailingOwners);
+    if (
+      orderedOwners.length === matrix.owners.length &&
+      orderedOwners.every((owner, index) => owner === matrix.owners[index])
+    ) {
+      return matrix;
+    }
+    const rowsByOwner = new Map(matrix.rows.map((row) => [row.owner, row] as const));
+    const orderedRows = orderedOwners
+      .map((rowOwner) => {
+        const sourceRow = rowsByOwner.get(rowOwner);
+        if (!sourceRow) return null;
+        const cellByOwner = new Map(sourceRow.cells.map((cell) => [cell.owner, cell] as const));
+        const orderedCells = orderedOwners
+          .map((columnOwner) => cellByOwner.get(columnOwner))
+          .filter((cell): cell is NonNullable<typeof cell> => Boolean(cell));
+        return { owner: rowOwner, cells: orderedCells };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    return { owners: orderedOwners, rows: orderedRows };
+  }, [canonicalStandings, matrix]);
+
+  if (orderedMatrix.owners.length === 0) {
     return (
       <section className="rounded-xl border border-gray-200 bg-gray-50/80 p-3.5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/60">
         <p className="rounded-lg border border-dashed border-gray-300 bg-gray-50/80 px-4 py-3 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/70 dark:text-zinc-300">
@@ -72,7 +121,7 @@ export default function MatchupMatrixView({
               <th className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-200 bg-gray-50 px-2 py-1.5 text-left font-semibold dark:border-zinc-700 dark:bg-zinc-900">
                 Owner
               </th>
-              {matrix.owners.map((owner) => (
+              {orderedMatrix.owners.map((owner) => (
                 <th
                   key={owner}
                   className="w-14 whitespace-nowrap border-b border-gray-200 px-2 py-1.5 font-semibold dark:border-zinc-700"
@@ -83,7 +132,7 @@ export default function MatchupMatrixView({
             </tr>
           </thead>
           <tbody>
-            {matrix.rows.map((row) => (
+            {orderedMatrix.rows.map((row) => (
               <tr
                 key={row.owner}
                 className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"

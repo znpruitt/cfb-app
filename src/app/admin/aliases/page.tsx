@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 import AliasEditorPanel from '@/components/AliasEditorPanel';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
@@ -13,6 +14,7 @@ type AliasMap = Record<string, string>;
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
 export default function AdminAliasesPage(): React.ReactElement {
+  const router = useRouter();
   const [aliasDraft, setAliasDraft] = useState<DraftRow[]>([]);
   const [status, setStatus] = useState<Status>('loading');
   const [error, setError] = useState<string | undefined>();
@@ -67,6 +69,10 @@ export default function AdminAliasesPage(): React.ReactElement {
         return;
       }
       setStatus('success');
+      // Refresh the current RSC tree so any league surface visible in this tab
+      // reflects the freshly invalidated canonical standings (alias mutations
+      // can change canonical roster mapping).
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error');
       setStatus('error');
