@@ -39,6 +39,7 @@ import {
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
+import { deriveResolvedMovementStandings } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import {
   buildScheduleFromApi,
@@ -770,11 +771,16 @@ export default function CFBScheduleApp({
   // fetch pending or failed), prefer canonical for both so the matrix axis and
   // the rest of Overview stay coherent. Admin surfaces don't pass canonical, so
   // client wins regardless of readiness on those — there's no alternative.
-  const clientHistoryHasStandings = standingsHistory.weeks.some(
-    (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
-  );
+  //
+  // The history check requires an actually-resolved week, not just owner rows
+  // present. deriveStandingsHistory emits 0-0 owner rows whenever a schedule
+  // is loaded — even before any scores are attached — so a row-presence check
+  // would flip to "ready" the moment schedule data arrives in offseason or
+  // archive flows, switching from canonical to empty client standings.
+  const clientHistoryHasResolvedWeek =
+    deriveResolvedMovementStandings(standingsHistory).latest != null;
   const clientStandingsSnapshotReady =
-    standingsSnapshot.rows.length > 0 && clientHistoryHasStandings;
+    standingsSnapshot.rows.length > 0 && clientHistoryHasResolvedWeek;
   const overviewStandingsRows =
     canonicalStandings != null && !clientStandingsSnapshotReady
       ? canonicalStandings.rows

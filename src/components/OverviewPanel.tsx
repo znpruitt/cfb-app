@@ -1358,27 +1358,30 @@ export default function OverviewPanel({
   // readiness check below is effectively "is this input snapshot fully usable"
   // rather than literally "is the client data ready." Naming reflects that.
   //
-  // deriveStandingsHistory still emits week entries when there is no roster
-  // (cold-start before CSV load), but each entry's `standings` array is empty.
-  // Treat history as meaningful only when at least one week carries owner rows.
-  //
   // Surfaces that don't pass canonical (admin / isolated tests) have no canonical
   // alternative to switch to, so the input wins regardless of readiness.
-  const inputHistoryHasStandings =
-    standingsHistory?.weeks.some(
-      (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
-    ) ?? false;
-  const inputSnapshotReady = standingsLeaders.length > 0 && inputHistoryHasStandings;
+  //
+  // Readiness requires an actually-resolved week, not just owner rows in the
+  // history. deriveStandingsHistory emits 0-0 owner rows for every week the
+  // schedule covers — even before any scores attach — so a row-presence check
+  // would flip to "ready" the moment schedule data arrives in offseason /
+  // archive flows, switching from canonical to empty client standings.
+  const inputHistoryHasResolvedWeek =
+    deriveResolvedMovementStandings(standingsHistory).latest != null;
+  const inputSnapshotReady = standingsLeaders.length > 0 && inputHistoryHasResolvedWeek;
   const useCanonicalSnapshot = canonicalStandings != null && !inputSnapshotReady;
   const rowsForRender = useCanonicalSnapshot ? canonicalStandings.rows : standingsLeaders;
   const historyForRender = useCanonicalSnapshot
     ? canonicalStandings.standingsHistory
     : (standingsHistory ?? null);
-  const historyForRenderHasStandings = useCanonicalSnapshot
-    ? (historyForRender?.weeks.some(
-        (week) => (historyForRender.byWeek[week]?.standings.length ?? 0) > 0
-      ) ?? false)
-    : inputHistoryHasStandings;
+  // GB Race section guard: render whenever the chosen history carries owner
+  // rows in any week. The chart components handle flat / partial weeks
+  // gracefully; we only need to suppress the section when there's truly
+  // nothing to plot (preseason-names, empty source).
+  const historyForRenderHasStandings =
+    historyForRender?.weeks.some(
+      (week) => (historyForRender.byWeek[week]?.standings.length ?? 0) > 0
+    ) ?? false;
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
