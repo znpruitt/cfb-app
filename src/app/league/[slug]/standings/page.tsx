@@ -3,6 +3,7 @@ import type { StandingsSubview } from '../../../../components/StandingsPanel';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { getPreseasonOwners } from '../../../../lib/preseasonOwnerStore';
 import { listSeasonArchives } from '../../../../lib/seasonArchive';
+import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,11 @@ export default async function LeagueStandingsPage({
   if (gate) return gate;
   const sp = await searchParams;
   const initialStandingsSubview = resolveStandingsSubview(sp.view);
-  const [league, archiveYears] = await Promise.all([getLeague(slug), listSeasonArchives(slug)]);
+  const [league, archiveYears, canonicalStandings] = await Promise.all([
+    getLeague(slug),
+    listSeasonArchives(slug),
+    getCanonicalStandings({ slug }),
+  ]);
 
   const mostRecentArchivedYear =
     archiveYears.length > 0 ? [...archiveYears].sort((a, b) => b - a)[0] : undefined;
@@ -42,6 +47,7 @@ export default async function LeagueStandingsPage({
         leagueYear={league?.year}
         leagueStatus={league?.status}
         mostRecentArchivedYear={mostRecentArchivedYear}
+        canonicalStandings={canonicalStandings}
         initialPreseasonOwners={preseasonOwners}
         initialStandingsSubview={initialStandingsSubview}
       />

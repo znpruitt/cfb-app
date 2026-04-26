@@ -6,6 +6,8 @@ import { JSDOM } from 'jsdom';
 import { cleanup, render } from '@testing-library/react';
 
 import StandingsPanel from '../StandingsPanel';
+import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
+import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -784,4 +786,284 @@ test('query param view=trends deep link highlights and scrolls to embedded trend
 
   window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   window.history.replaceState({}, '', 'https://example.test/');
+});
+
+const canonicalArchiveSnapshot: CanonicalStandings = {
+  slug: 'tsc',
+  year: 2025,
+  source: 'archive',
+  lifecycle: 'offseason',
+  rows: [
+    {
+      owner: 'Casey',
+      wins: 8,
+      losses: 2,
+      winPct: 0.8,
+      pointsFor: 320,
+      pointsAgainst: 220,
+      pointDifferential: 100,
+      gamesBack: 0,
+      finalGames: 10,
+    },
+    {
+      owner: 'Drew',
+      wins: 5,
+      losses: 5,
+      winPct: 0.5,
+      pointsFor: 250,
+      pointsAgainst: 260,
+      pointDifferential: -10,
+      gamesBack: 3,
+      finalGames: 10,
+    },
+  ],
+  noClaimRow: null,
+  ownerColorOrder: ['Casey', 'Drew'],
+  standingsHistory: history,
+  coverage: { state: 'complete', message: null },
+  ownersRosterSource: 'archive',
+  archiveYearResolved: 2025,
+  generatedAt: '2026-04-26T00:00:00.000Z',
+};
+
+function makeLiveDelta(byOwner: Record<string, number[]>, isStale = false): LiveDelta {
+  const ownerEntries = Object.entries(byOwner);
+  return {
+    weekKey: '2025:8',
+    generatedAt: '2026-04-26T00:00:00.000Z',
+    byGame: {},
+    byOwner: Object.fromEntries(
+      ownerEntries.map(([owner, [wins, losses]]) => [
+        owner,
+        {
+          owner,
+          pendingWins: wins ?? 0,
+          pendingLosses: losses ?? 0,
+          pendingPointsFor: 0,
+          pendingPointsAgainst: 0,
+        },
+      ])
+    ),
+    isStale,
+  };
+}
+
+test('standings panel prefers canonical rows over fallback rows when canonical is provided', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[
+        {
+          owner: 'Stale Fallback',
+          wins: 1,
+          losses: 0,
+          winPct: 1,
+          pointsFor: 50,
+          pointsAgainst: 30,
+          pointDifferential: 20,
+          gamesBack: 0,
+          finalGames: 1,
+        },
+      ]}
+      canonicalStandings={canonicalArchiveSnapshot}
+    />
+  );
+
+  assert.match(html, /data-standings-owner="Casey"/);
+  assert.match(html, /data-standings-owner="Drew"/);
+  assert.doesNotMatch(html, /data-standings-owner="Stale Fallback"/);
+});
+
+test('standings panel falls back to client rows when canonical is absent', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[
+        {
+          owner: 'Alex',
+          wins: 3,
+          losses: 1,
+          winPct: 0.75,
+          pointsFor: 120,
+          pointsAgainst: 99,
+          pointDifferential: 21,
+          gamesBack: 0,
+          finalGames: 4,
+        },
+      ]}
+    />
+  );
+
+  assert.match(html, /data-standings-owner="Alex"/);
+});
+
+test('standings panel renders live pending badges from fresh liveDelta on canonical rows', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[]}
+      canonicalStandings={canonicalArchiveSnapshot}
+      liveDelta={makeLiveDelta({ Casey: [1, 0], Drew: [0, 1] })}
+    />
+  );
+
+  assert.match(html, /data-standings-live-pending="1-0"/);
+  assert.match(html, /data-standings-live-pending="0-1"/);
+  assert.match(html, /Live this week: 1–0/);
+  assert.match(html, /Live this week: 0–1/);
+});
+
+test('standings panel suppresses live badges when liveDelta is stale', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[]}
+      canonicalStandings={canonicalArchiveSnapshot}
+      liveDelta={makeLiveDelta({ Casey: [1, 0] }, true)}
+    />
+  );
+
+  assert.doesNotMatch(html, /data-standings-live-pending/);
+  assert.doesNotMatch(html, /Live this week/);
+});
+
+test('standings panel omits live badge when owner has no pending stats', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[]}
+      canonicalStandings={canonicalArchiveSnapshot}
+      liveDelta={makeLiveDelta({ Casey: [1, 0] })}
+    />
+  );
+
+  assert.match(html, /data-standings-owner="Casey"[^>]*>[\s\S]*?data-standings-live-pending="1-0"/);
+  // Drew has no entry in liveDelta.byOwner, so no badge should render on his row.
+  const drewRowMatch = html.match(/data-standings-owner="Drew"[\s\S]*?<\/tr>/);
+  assert.ok(drewRowMatch);
+  assert.doesNotMatch(drewRowMatch![0], /data-standings-live-pending/);
+});
+
+test('standings panel uses canonical history for movement column when canonical is provided', () => {
+  const movementHistory: StandingsHistory = {
+    weeks: [1, 2],
+    byWeek: {
+      1: {
+        week: 1,
+        standings: [
+          {
+            owner: 'Drew',
+            wins: 1,
+            losses: 0,
+            ties: 0,
+            winPct: 1,
+            pointsFor: 30,
+            pointsAgainst: 20,
+            pointDifferential: 10,
+            gamesBack: 0,
+            finalGames: 1,
+          },
+          {
+            owner: 'Casey',
+            wins: 0,
+            losses: 1,
+            ties: 0,
+            winPct: 0,
+            pointsFor: 18,
+            pointsAgainst: 24,
+            pointDifferential: -6,
+            gamesBack: 1,
+            finalGames: 1,
+          },
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+      2: {
+        week: 2,
+        standings: [
+          {
+            owner: 'Casey',
+            wins: 1,
+            losses: 1,
+            ties: 0,
+            winPct: 0.5,
+            pointsFor: 36,
+            pointsAgainst: 35,
+            pointDifferential: 1,
+            gamesBack: 0,
+            finalGames: 2,
+          },
+          {
+            owner: 'Drew',
+            wins: 1,
+            losses: 1,
+            ties: 0,
+            winPct: 0.5,
+            pointsFor: 47,
+            pointsAgainst: 50,
+            pointDifferential: -3,
+            gamesBack: 0,
+            finalGames: 2,
+          },
+        ],
+        coverage: { state: 'complete', message: null },
+      },
+    },
+    byOwner: {},
+  };
+
+  const canonicalWithMovement: CanonicalStandings = {
+    ...canonicalArchiveSnapshot,
+    standingsHistory: movementHistory,
+    rows: [
+      {
+        owner: 'Casey',
+        wins: 1,
+        losses: 1,
+        winPct: 0.5,
+        pointsFor: 36,
+        pointsAgainst: 35,
+        pointDifferential: 1,
+        gamesBack: 0,
+        finalGames: 2,
+      },
+      {
+        owner: 'Drew',
+        wins: 1,
+        losses: 1,
+        winPct: 0.5,
+        pointsFor: 47,
+        pointsAgainst: 50,
+        pointDifferential: -3,
+        gamesBack: 0,
+        finalGames: 2,
+      },
+    ],
+  };
+
+  // No fallback `standingsHistory` prop passed — movement should still derive
+  // from canonical's history alone.
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[]}
+      canonicalStandings={canonicalWithMovement}
+      seasonContext="in-season"
+    />
+  );
+
+  assert.match(html, /data-standings-move="↑1"/);
+  assert.match(html, /data-standings-move="↓1"/);
 });
