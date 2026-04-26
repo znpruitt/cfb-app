@@ -526,3 +526,66 @@ test('standings regression: point differential breaks equal-wins and equal-winPc
   );
   assert.equal(standings.rows[0].owner, 'Alpha');
 });
+
+test('NoClaim is excluded from rows and exposed separately as noClaimRow', () => {
+  const games = [
+    game({ key: 'real-vs-real', csvAway: 'Alabama', csvHome: 'Georgia' }),
+    game({ key: 'noclaim-game', csvAway: 'Tulane', csvHome: 'Memphis' }),
+  ];
+  const rosterByTeam = new Map([
+    ['Alabama', 'Avery'],
+    ['Georgia', 'Blair'],
+    ['Tulane', 'NoClaim'],
+    ['Memphis', 'NoClaim'],
+  ]);
+  const scoresByKey: Record<string, ScorePack> = {
+    'real-vs-real': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Alabama', score: 24 },
+      home: { team: 'Georgia', score: 17 },
+    },
+    'noclaim-game': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Tulane', score: 21 },
+      home: { team: 'Memphis', score: 14 },
+    },
+  };
+
+  const standings = deriveStandings(games, rosterByTeam, scoresByKey);
+
+  assert.ok(
+    standings.rows.every((row) => row.owner !== 'NoClaim'),
+    'standings.rows must never contain NoClaim'
+  );
+  assert.deepEqual(
+    standings.rows.map((row) => row.owner),
+    ['Avery', 'Blair']
+  );
+  assert.ok(standings.noClaimRow != null, 'noClaimRow must be populated when CSV has NoClaim');
+  assert.equal(standings.noClaimRow!.owner, 'NoClaim');
+  // Tulane vs Memphis is one game where both sides are NoClaim — produces one
+  // win and one loss for the NoClaim aggregate.
+  assert.equal(standings.noClaimRow!.wins, 1);
+  assert.equal(standings.noClaimRow!.losses, 1);
+});
+
+test('noClaimRow is null when the roster has no NoClaim entries', () => {
+  const games = [game({ key: 'g1', csvAway: 'Alabama', csvHome: 'Georgia' })];
+  const rosterByTeam = new Map([
+    ['Alabama', 'Avery'],
+    ['Georgia', 'Blair'],
+  ]);
+  const scoresByKey: Record<string, ScorePack> = {
+    g1: {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Alabama', score: 24 },
+      home: { team: 'Georgia', score: 17 },
+    },
+  };
+
+  const standings = deriveStandings(games, rosterByTeam, scoresByKey);
+  assert.equal(standings.noClaimRow, null);
+});

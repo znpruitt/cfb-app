@@ -15,9 +15,12 @@ import {
 import { getCategoryConfig } from '../lib/insightCategories';
 import type { LifecycleState } from '../lib/insights/types';
 import { prefersDarkMode } from '../lib/ownerColors';
-import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
+import {
+  deriveResolvedMovementStandings,
+  selectOverviewViewModel,
+  type PrioritizedOverviewItem,
+} from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
-import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import {
@@ -1346,28 +1349,36 @@ export default function OverviewPanel({
   // are more current and take over once they have meaningful content.
   //
   // Rows and history are two views of the same league snapshot, so the source
-  // selection is coupled: either the client snapshot is fully ready (rows AND
-  // history populated) and wins for both, or canonical wins for both. Mixing
-  // (e.g., client rows with canonical history) produces incoherent output in
-  // partial-load states like "roster loaded, schedule fetch pending/failed."
+  // selection is coupled: either the snapshot is fully ready (rows AND history
+  // populated) and wins for both, or canonical wins for both. Mixing (e.g.,
+  // client rows with canonical history) produces incoherent output in partial-
+  // load states like "roster loaded, schedule fetch pending/failed."
   //
-  // deriveStandingsHistory still emits week entries when the client has no roster
-  // (e.g., cold-start before CSV load), but each entry's `standings` array is
-  // empty. Treat client history as meaningful only when at least one week carries
-  // owner rows.
+  // `standingsLeaders` arrives upstream-merged from CFBScheduleApp, so the
+  // readiness check below is effectively "is this input snapshot fully usable"
+  // rather than literally "is the client data ready." Naming reflects that.
+  //
+  // deriveStandingsHistory still emits week entries when there is no roster
+  // (cold-start before CSV load), but each entry's `standings` array is empty.
+  // Treat history as meaningful only when at least one week carries owner rows.
   //
   // Surfaces that don't pass canonical (admin / isolated tests) have no canonical
-  // alternative to switch to, so client wins regardless of readiness.
-  const clientHistoryHasStandings =
+  // alternative to switch to, so the input wins regardless of readiness.
+  const inputHistoryHasStandings =
     standingsHistory?.weeks.some(
       (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
     ) ?? false;
-  const clientSnapshotReady = standingsLeaders.length > 0 && clientHistoryHasStandings;
-  const useClientSnapshot = canonicalStandings == null || clientSnapshotReady;
-  const rowsForRender = useClientSnapshot ? standingsLeaders : (canonicalStandings?.rows ?? []);
-  const historyForRender = useClientSnapshot
-    ? (standingsHistory ?? null)
-    : (canonicalStandings?.standingsHistory ?? null);
+  const inputSnapshotReady = standingsLeaders.length > 0 && inputHistoryHasStandings;
+  const useCanonicalSnapshot = canonicalStandings != null && !inputSnapshotReady;
+  const rowsForRender = useCanonicalSnapshot ? canonicalStandings.rows : standingsLeaders;
+  const historyForRender = useCanonicalSnapshot
+    ? canonicalStandings.standingsHistory
+    : (standingsHistory ?? null);
+  const historyForRenderHasStandings = useCanonicalSnapshot
+    ? (historyForRender?.weeks.some(
+        (week) => (historyForRender.byWeek[week]?.standings.length ?? 0) > 0
+      ) ?? false)
+    : inputHistoryHasStandings;
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
@@ -1419,14 +1430,7 @@ export default function OverviewPanel({
     // Anchor the rows input to the latest resolved week when available; fall
     // back to rowsForRender only when no resolved history exists (preseason,
     // cold start) so insights still have something to describe.
-    const latestResolvedStandings = historyForRender
-      ? (() => {
-          const { latestResolvedWeek } = selectResolvedStandingsWeeks(historyForRender);
-          return latestResolvedWeek != null
-            ? (historyForRender.byWeek[latestResolvedWeek]?.standings ?? null)
-            : null;
-        })()
-      : null;
+    const { latest: latestResolvedStandings } = deriveResolvedMovementStandings(historyForRender);
     const insightRows = latestResolvedStandings ?? rowsForRender;
 
     const existing = deriveOverviewInsights(
@@ -1603,7 +1607,7 @@ export default function OverviewPanel({
       ) : null}
 
       {/* GB Race */}
-      {historyForRender ? (
+      {historyForRender && historyForRenderHasStandings ? (
         <>
           <SectionDivider />
           <section>

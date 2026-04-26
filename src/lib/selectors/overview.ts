@@ -100,7 +100,13 @@ export const OVERVIEW_STANDINGS_LIMIT = 5;
 export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
 export const OVERVIEW_RESULTS_LIMIT = 6;
 
-function deriveResolvedMovementStandings(standingsHistory?: StandingsHistory | null): {
+/**
+ * Returns the standings snapshots from the latest fully-resolved week and the
+ * one before it. Movement insights, rank-arrow comparisons, and any other
+ * temporally-paired derivation should anchor on this pair so partial-week
+ * unresolved state never causes the comparison to skip a week boundary.
+ */
+export function deriveResolvedMovementStandings(standingsHistory?: StandingsHistory | null): {
   latest: OwnerStandingsRow[] | null;
   previous: OwnerStandingsRow[] | null;
 } {
@@ -905,12 +911,15 @@ export function selectOverviewViewModel(params: {
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
   const resolvedMovement = deriveResolvedMovementStandings(standingsHistory);
-  // Movement insights compare week-over-week resolved snapshots. When the latest
-  // week is partially unresolved (some games not yet final), `standingsLeaders`
-  // reflects that partial state and would skew the comparison; pin `current` to
-  // the most recent fully-resolved week and fall back to the raw rows only when
-  // no resolved history exists.
-  const movementCurrent = resolvedMovement.latest ?? standingsLeaders;
+  // Movement insights and CondensedStandingsTable rank arrows both compare
+  // week-over-week resolved snapshots. When the latest week is partially
+  // unresolved (some games not yet final), `standingsLeaders` reflects that
+  // partial state and would skew the comparison by crossing two week
+  // boundaries; pin `current` to the most recent fully-resolved week and fall
+  // back to the raw rows only when no resolved history exists. Live-display
+  // surfaces (top-3 hero, GB Race chart) keep using `standingsLeaders` directly
+  // via OverviewPanel.
+  const resolvedCurrent = resolvedMovement.latest ?? standingsLeaders;
   const previousStandings = resolvedMovement.previous;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
@@ -951,7 +960,7 @@ export function selectOverviewViewModel(params: {
   });
   const movementInsights = selectMovementInsightsForPulse(
     deriveGameMovementInsights({
-      standings: movementCurrent,
+      standings: resolvedCurrent,
       previousStandings,
       recentResults: keyMatchups,
       liveGames: liveItems,
@@ -1006,9 +1015,9 @@ export function selectOverviewViewModel(params: {
     podiumLeaders,
     topTierLeaders,
     isTopTie,
-    standingsTopN: standingsLeaders.slice(0, standingsLimit),
+    standingsTopN: resolvedCurrent.slice(0, standingsLimit),
     previousStandingsLeaders: previousStandings ?? [],
-    standingsHasMore: standingsLeaders.length > standingsLimit,
+    standingsHasMore: resolvedCurrent.length > standingsLimit,
     standingsContext,
     keyMovements: movementInsights,
     leaguePulse,

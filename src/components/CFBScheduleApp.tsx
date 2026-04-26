@@ -659,9 +659,15 @@ export default function CFBScheduleApp({
   }, []);
 
   const ownerColorMap = useMemo(() => {
-    const allOwners = standingsSnapshot.rows.map((r) => r.owner);
-    return buildOwnerColorMap(allOwners, isDark);
-  }, [standingsSnapshot.rows, isDark]);
+    // Prefer canonical's NoClaim-filtered, alphabetically-stable owner list when
+    // available so palette assignments remain consistent across cold-start →
+    // hydrated transitions. Admin / non-canonical surfaces fall back to the
+    // client-derived owners (also NoClaim-filtered after the deriveStandings
+    // change).
+    const owners =
+      canonicalStandings?.ownerColorOrder ?? standingsSnapshot.rows.map((r) => r.owner);
+    return buildOwnerColorMap(owners, isDark);
+  }, [canonicalStandings, standingsSnapshot.rows, isDark]);
 
   const hasScoreLoadError = useMemo(
     () =>
@@ -760,10 +766,10 @@ export default function CFBScheduleApp({
   );
   const clientStandingsSnapshotReady =
     standingsSnapshot.rows.length > 0 && clientHistoryHasStandings;
-  const useClientStandingsSnapshot = canonicalStandings == null || clientStandingsSnapshotReady;
-  const overviewStandingsRows = useClientStandingsSnapshot
-    ? standingsSnapshot.rows
-    : (canonicalStandings?.rows ?? []);
+  const overviewStandingsRows =
+    canonicalStandings != null && !clientStandingsSnapshotReady
+      ? canonicalStandings.rows
+      : standingsSnapshot.rows;
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
