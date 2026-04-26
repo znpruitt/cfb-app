@@ -27,7 +27,10 @@ export type OwnerStandingsRow = {
 };
 
 export type StandingsSnapshot = {
+  /** Primary rows, sorted canonically; NoClaim is excluded. */
   rows: OwnerStandingsRow[];
+  /** NoClaim's own standings row, when the underlying roster contained one. */
+  noClaimRow: OwnerStandingsRow | null;
   participations: OwnedFinalParticipation[];
   leaderWins: number;
 };
@@ -38,6 +41,30 @@ export type StandingsCoverage = {
   state: StandingsCoverageState;
   message: string | null;
 };
+
+export const NO_CLAIM_OWNER = 'NoClaim';
+
+/**
+ * Splits a sorted list of owner standings into real-owner rows and the NoClaim
+ * aggregate (when present). Mirrors the canonical selector's filter so every
+ * consumer of standings data — live derivation and archive reads — produces
+ * the same {rows, noClaimRow} shape and never accidentally renders NoClaim.
+ */
+export function splitOutNoClaim(rows: OwnerStandingsRow[]): {
+  rows: OwnerStandingsRow[];
+  noClaimRow: OwnerStandingsRow | null;
+} {
+  let noClaimRow: OwnerStandingsRow | null = null;
+  const filtered: OwnerStandingsRow[] = [];
+  for (const row of rows) {
+    if (row.owner === NO_CLAIM_OWNER) {
+      noClaimRow = row;
+      continue;
+    }
+    filtered.push(row);
+  }
+  return { rows: filtered, noClaimRow };
+}
 
 function hasOwnedTeam(game: AppGame, rosterByTeam: Map<string, string>): boolean {
   return rosterByTeam.has(game.csvAway) || rosterByTeam.has(game.csvHome);
@@ -209,7 +236,7 @@ export function deriveStandings(
   //
   // This matches official league rules (confirmed via season-final standings email).
   // Do NOT reorder without updating league rules documentation.
-  const rows = Array.from(totals.values())
+  const allRows = Array.from(totals.values())
     .map((row) => {
       const decisions = row.wins + row.losses;
       const pointDifferential = row.pointsFor - row.pointsAgainst;
@@ -230,5 +257,6 @@ export function deriveStandings(
       return a.owner.localeCompare(b.owner);
     });
 
-  return { rows, participations, leaderWins };
+  const { rows, noClaimRow } = splitOutNoClaim(allRows);
+  return { rows, noClaimRow, participations, leaderWins };
 }

@@ -85,6 +85,7 @@ import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { Insight as EngineInsight } from '../lib/selectors/insights';
 import type { LifecycleState } from '../lib/insights/types';
 
@@ -101,6 +102,7 @@ type CFBScheduleAppProps = {
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
   mostRecentArchivedYear?: number;
+  canonicalStandings?: CanonicalStandings;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -232,6 +234,7 @@ export default function CFBScheduleApp({
   leagueYear,
   leagueStatus,
   mostRecentArchivedYear,
+  canonicalStandings,
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
@@ -656,9 +659,15 @@ export default function CFBScheduleApp({
   }, []);
 
   const ownerColorMap = useMemo(() => {
-    const allOwners = standingsSnapshot.rows.map((r) => r.owner);
-    return buildOwnerColorMap(allOwners, isDark);
-  }, [standingsSnapshot.rows, isDark]);
+    // Prefer canonical's NoClaim-filtered, alphabetically-stable owner list when
+    // available so palette assignments remain consistent across cold-start →
+    // hydrated transitions. Admin / non-canonical surfaces fall back to the
+    // client-derived owners (also NoClaim-filtered after the deriveStandings
+    // change).
+    const owners =
+      canonicalStandings?.ownerColorOrder ?? standingsSnapshot.rows.map((r) => r.owner);
+    return buildOwnerColorMap(owners, isDark);
+  }, [canonicalStandings, standingsSnapshot.rows, isDark]);
 
   const hasScoreLoadError = useMemo(
     () =>
@@ -740,10 +749,31 @@ export default function CFBScheduleApp({
     [games, rosterByTeam, scoresByKey]
   );
 
+  // Canonical standings seed Overview's first paint server-side. Once the client
+  // has derived rows from the live CSV/scores caches, those take over so refreshes
+  // and uploads propagate. Empty client rows mean the client hasn't derived yet
+  // (or has nothing to derive from) — fall back to canonical so Overview still
+  // renders correctly during preseason-names and offseason-archive states.
+  //
+  // Coupled with history readiness: rows feed the matchup-matrix axis while
+  // OverviewPanel pairs them with standingsHistory for movement/GB. If the
+  // client has rows from a roster but no resolved schedule yet (e.g., schedule
+  // fetch pending or failed), prefer canonical for both so the matrix axis and
+  // the rest of Overview stay coherent. Admin surfaces don't pass canonical, so
+  // client wins regardless of readiness on those — there's no alternative.
+  const clientHistoryHasStandings = standingsHistory.weeks.some(
+    (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
+  );
+  const clientStandingsSnapshotReady =
+    standingsSnapshot.rows.length > 0 && clientHistoryHasStandings;
+  const overviewStandingsRows =
+    canonicalStandings != null && !clientStandingsSnapshotReady
+      ? canonicalStandings.rows
+      : standingsSnapshot.rows;
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
-        standingsRows: standingsSnapshot.rows,
+        standingsRows: overviewStandingsRows,
         standingsCoverage,
         weekGames: overviewScope.games,
         allGames: games,
@@ -759,7 +789,7 @@ export default function CFBScheduleApp({
       rosterByTeam,
       scoresByKey,
       standingsCoverage,
-      standingsSnapshot.rows,
+      overviewStandingsRows,
     ]
   );
 
@@ -1831,6 +1861,7 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   ownerColorMap={ownerColorMap}
+                  canonicalStandings={canonicalStandings}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsHistory={standingsHistory}
                   standingsCoverage={standingsCoverage}

@@ -15,9 +15,13 @@ import {
 import { getCategoryConfig } from '../lib/insightCategories';
 import type { LifecycleState } from '../lib/insights/types';
 import { prefersDarkMode } from '../lib/ownerColors';
-import { selectOverviewViewModel, type PrioritizedOverviewItem } from '../lib/selectors/overview';
+import {
+  deriveResolvedMovementStandings,
+  selectOverviewViewModel,
+  type PrioritizedOverviewItem,
+} from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
-import { selectResolvedStandingsWeeks } from '../lib/selectors/historyResolution';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import {
   getTeamRanking,
@@ -1294,6 +1298,7 @@ type OverviewPanelProps = {
   scoresByKey?: Record<string, ScorePack>;
   rosterByTeam?: Map<string, string>;
   ownerColorMap?: Record<string, string>;
+  canonicalStandings?: CanonicalStandings;
   standingsLeaders: OwnerStandingsRow[];
   standingsCoverage: StandingsCoverage;
   matchupMatrix: OwnerMatchupMatrix;
@@ -1319,6 +1324,7 @@ export default function OverviewPanel({
   scoresByKey = {},
   rosterByTeam = new Map(),
   ownerColorMap = {},
+  canonicalStandings,
   standingsLeaders,
   standingsCoverage,
   matchupMatrix,
@@ -1337,6 +1343,42 @@ export default function OverviewPanel({
   lifecycleState,
   currentYear,
 }: OverviewPanelProps): React.ReactElement {
+  // Canonical standings provide an authoritative server-rendered seed (correct
+  // first paint, NoClaim filtered, preseason-owners synthesis). After hydration,
+  // client-derived values (driven by score refreshes, roster uploads, live polls)
+  // are more current and take over once they have meaningful content.
+  //
+  // Rows and history are two views of the same league snapshot, so the source
+  // selection is coupled: either the snapshot is fully ready (rows AND history
+  // populated) and wins for both, or canonical wins for both. Mixing (e.g.,
+  // client rows with canonical history) produces incoherent output in partial-
+  // load states like "roster loaded, schedule fetch pending/failed."
+  //
+  // `standingsLeaders` arrives upstream-merged from CFBScheduleApp, so the
+  // readiness check below is effectively "is this input snapshot fully usable"
+  // rather than literally "is the client data ready." Naming reflects that.
+  //
+  // deriveStandingsHistory still emits week entries when there is no roster
+  // (cold-start before CSV load), but each entry's `standings` array is empty.
+  // Treat history as meaningful only when at least one week carries owner rows.
+  //
+  // Surfaces that don't pass canonical (admin / isolated tests) have no canonical
+  // alternative to switch to, so the input wins regardless of readiness.
+  const inputHistoryHasStandings =
+    standingsHistory?.weeks.some(
+      (week) => (standingsHistory.byWeek[week]?.standings.length ?? 0) > 0
+    ) ?? false;
+  const inputSnapshotReady = standingsLeaders.length > 0 && inputHistoryHasStandings;
+  const useCanonicalSnapshot = canonicalStandings != null && !inputSnapshotReady;
+  const rowsForRender = useCanonicalSnapshot ? canonicalStandings.rows : standingsLeaders;
+  const historyForRender = useCanonicalSnapshot
+    ? canonicalStandings.standingsHistory
+    : (standingsHistory ?? null);
+  const historyForRenderHasStandings = useCanonicalSnapshot
+    ? (historyForRender?.weeks.some(
+        (week) => (historyForRender.byWeek[week]?.standings.length ?? 0) > 0
+      ) ?? false)
+    : inputHistoryHasStandings;
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
@@ -1358,8 +1400,8 @@ export default function OverviewPanel({
   const viewModel = React.useMemo(
     () =>
       selectOverviewViewModel({
-        standingsLeaders,
-        standingsHistory,
+        standingsLeaders: rowsForRender,
+        standingsHistory: historyForRender,
         standingsCoverage,
         context,
         liveItems,
@@ -1368,8 +1410,8 @@ export default function OverviewPanel({
         rankingsByTeamId,
       }),
     [
-      standingsLeaders,
-      standingsHistory,
+      rowsForRender,
+      historyForRender,
       standingsCoverage,
       context,
       liveItems,
@@ -1379,20 +1421,22 @@ export default function OverviewPanel({
     ]
   );
   const sharedInsights = React.useMemo(() => {
-    const resolvedWeeks = standingsHistory
-      ? selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks
-      : [];
-    const latestResolvedWeek = resolvedWeeks[resolvedWeeks.length - 1] ?? null;
-    const currentStandings =
-      latestResolvedWeek != null
-        ? (standingsHistory?.byWeek[latestResolvedWeek]?.standings ?? standingsLeaders)
-        : standingsLeaders;
-    const seasonContext = selectSeasonContext({ standingsHistory });
+    const seasonContext = selectSeasonContext({ standingsHistory: historyForRender });
+
+    // Insight narratives compare against historyForRender's resolved weeks. If
+    // we feed deriveLeagueInsights raw rowsForRender during a partial week, the
+    // current snapshot reflects unresolved game state while the history deltas
+    // do not — race/surge narratives can then contradict the week-level history.
+    // Anchor the rows input to the latest resolved week when available; fall
+    // back to rowsForRender only when no resolved history exists (preseason,
+    // cold start) so insights still have something to describe.
+    const { latest: latestResolvedStandings } = deriveResolvedMovementStandings(historyForRender);
+    const insightRows = latestResolvedStandings ?? rowsForRender;
 
     const existing = deriveOverviewInsights(
       deriveLeagueInsights({
-        rows: currentStandings,
-        standingsHistory,
+        rows: insightRows,
+        standingsHistory: historyForRender,
         seasonContext,
       })
     );
@@ -1407,11 +1451,14 @@ export default function OverviewPanel({
       merged.push(insight);
     }
     return merged.slice(0, 5);
-  }, [standingsHistory, standingsLeaders, engineInsights]);
+  }, [historyForRender, rowsForRender, engineInsights]);
 
   const positionDeltaData = React.useMemo(() => {
-    if (!standingsHistory) return null;
-    const { weeks, owners } = selectPositionDeltas({ standingsHistory, maxWeeks: 5 });
+    if (!historyForRender) return null;
+    const { weeks, owners } = selectPositionDeltas({
+      standingsHistory: historyForRender,
+      maxWeeks: 5,
+    });
     if (weeks.length === 0) return null;
     const byOwner = new Map<string, Map<number, number | null>>();
     for (const owner of owners) {
@@ -1422,7 +1469,7 @@ export default function OverviewPanel({
       byOwner.set(owner.ownerName, deltaMap);
     }
     return { weeks, byOwner };
-  }, [standingsHistory]);
+  }, [historyForRender]);
 
   const pollSnapshot = React.useMemo(() => {
     const phase = viewModel.championSummary?.phase ?? 'inSeason';
@@ -1439,8 +1486,8 @@ export default function OverviewPanel({
         summary={viewModel.championSummary}
         heroMode={viewModel.heroMode}
         podiumLeaders={viewModel.podiumLeaders}
-        standingsLeaders={standingsLeaders}
-        leader={standingsLeaders[0]}
+        standingsLeaders={rowsForRender}
+        leader={rowsForRender[0]}
         leagueSlug={leagueSlug}
       />
 
@@ -1560,7 +1607,7 @@ export default function OverviewPanel({
       ) : null}
 
       {/* GB Race */}
-      {standingsHistory ? (
+      {historyForRender && historyForRenderHasStandings ? (
         <>
           <SectionDivider />
           <section>
@@ -1575,15 +1622,15 @@ export default function OverviewPanel({
             <div className="mt-2.5 flex flex-col gap-3 sm:flex-row">
               <div className="min-w-0 flex-1">
                 <MiniTrendsGrid
-                  standingsHistory={sliceStandingsHistoryToRecentWeeks(standingsHistory, 5)}
+                  standingsHistory={sliceStandingsHistoryToRecentWeeks(historyForRender, 5)}
                   weekLabel={weekLabelFn}
                   ownerColorMap={ownerColorMap}
                 />
               </div>
               <div className="shrink-0">
                 <GbChangeTable
-                  standingsHistory={standingsHistory}
-                  standingsLeaders={standingsLeaders}
+                  standingsHistory={historyForRender}
+                  standingsLeaders={rowsForRender}
                   weekLabel={weekLabelFn}
                   ownerColorMap={ownerColorMap}
                 />
