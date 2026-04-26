@@ -90,7 +90,7 @@ export type GetCanonicalStandingsInput = {
 
 /**
  * Cross-request data cache layer. `unstable_cache` is keyed by `(slug,
- * yearOverride)` and tagged so mutations can invalidate only the affected
+ * resolvedYear)` and tagged so mutations can invalidate only the affected
  * league/year via `invalidateStandings`. Each call to this factory returns a
  * fresh tagged-cache function whose invocation hits the data cache.
  *
@@ -99,20 +99,46 @@ export type GetCanonicalStandingsInput = {
  * call site is intentionally the only adoption point so a future migration to
  * a stable equivalent stays one-file.
  */
-const dataCachedCanonicalStandings = (slug: string, yearOverride: number | null) =>
+const dataCachedCanonicalStandings = (slug: string, resolvedYear: number | null) =>
   unstable_cache(
-    async () => computeCanonicalStandings(slug, yearOverride, undefined),
-    ['canonical-standings', slug, String(yearOverride)],
+    async () => computeCanonicalStandings(slug, resolvedYear, undefined),
+    ['canonical-standings', slug, String(resolvedYear)],
     {
       tags: [
         `standings:${slug}`,
-        ...(yearOverride != null ? [`standings:${slug}:${yearOverride}`] : []),
+        ...(resolvedYear != null ? [`standings:${slug}:${resolvedYear}`] : []),
       ],
       // Tag-only invalidation; no time-based expiry. Mutations call
       // `invalidateStandings(slug, year)` to bust this entry.
       revalidate: false,
     }
   )();
+
+/**
+ * Resolve the year that the cache key should be scoped to BEFORE entering the
+ * data cache. Without this, default-year requests (where the caller passes no
+ * `year`) all collapse onto a single `'null'` cache key, so a season
+ * transition can hand back a stale prior-year snapshot until something else
+ * invalidates it.
+ *
+ * Mirrors the year-resolution logic inside `computeCanonicalStandings`:
+ *   - explicit override wins
+ *   - else: status year for season/preseason
+ *   - else: league.year (offseason status has no year of its own)
+ *   - else: null (unknown slug → empty snapshot path)
+ *
+ * `getLeague` is itself `React.cache`-wrapped, so this adds no per-request cost.
+ */
+export async function resolveStandingsYear(
+  slug: string,
+  yearOverride: number | null
+): Promise<number | null> {
+  if (yearOverride != null) return yearOverride;
+  const league = await getLeague(slug);
+  if (!league) return null;
+  if (league.status && 'year' in league.status) return league.status.year;
+  return league.year;
+}
 
 /**
  * Cached entry point. The outer `React.cache` dedupes within a single request
@@ -128,11 +154,12 @@ const dataCachedCanonicalStandings = (slug: string, yearOverride: number | null)
  */
 const cachedCanonicalStandings = cache(
   async (slug: string, yearOverride: number | null): Promise<CanonicalStandings> => {
+    const resolvedYear = await resolveStandingsYear(slug, yearOverride);
     try {
-      return await dataCachedCanonicalStandings(slug, yearOverride);
+      return await dataCachedCanonicalStandings(slug, resolvedYear);
     } catch (err) {
       if (err instanceof Error && err.message.includes('incrementalCache missing')) {
-        return computeCanonicalStandings(slug, yearOverride, undefined);
+        return computeCanonicalStandings(slug, resolvedYear, undefined);
       }
       throw err;
     }

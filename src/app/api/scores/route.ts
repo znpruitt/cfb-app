@@ -8,6 +8,8 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getLeagues } from '@/lib/leagueRegistry';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
 import {
   seasonYearForToday,
@@ -75,6 +77,24 @@ function parseNonNegativeInt(raw: string | null): number | null {
   if (!raw || !/^\d+$/.test(raw)) return null;
   const parsed = Number.parseInt(raw, 10);
   return parsed >= 0 ? parsed : null;
+}
+
+/**
+ * Invalidate canonical standings for every league at the given year. Scores
+ * are season-scoped, not league-scoped, so we walk the registry. The set is
+ * small; per-tag revalidate is cheap. Failures are swallowed so a registry
+ * read error does not roll back a successful score write.
+ */
+async function invalidateStandingsForYear(year: number): Promise<void> {
+  try {
+    const leagues = await getLeagues();
+    for (const league of leagues) {
+      invalidateStandings(league.slug, year);
+    }
+  } catch {
+    // Non-fatal — scores already persisted; canonical will refresh on the
+    // next mutation or natural cache turnover.
+  }
 }
 
 function logDebug(params: {
@@ -224,6 +244,7 @@ export async function GET(req: Request) {
         };
         SCORES_CACHE[cacheKey] = nextEntry;
         await setAppState('scores', cacheKey, nextEntry);
+        await invalidateStandingsForYear(year);
         pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
           if (IS_DEBUG) {
             console.log('cfbd cache evicted', {
@@ -318,6 +339,7 @@ export async function GET(req: Request) {
     };
     SCORES_CACHE[cacheKey] = nextEntry;
     await setAppState('scores', cacheKey, nextEntry);
+    await invalidateStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
         console.log('cfbd cache evicted', {

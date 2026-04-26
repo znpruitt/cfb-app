@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getCanonicalStandings } from '../selectors/leagueStandings.ts';
+import { getCanonicalStandings, resolveStandingsYear } from '../selectors/leagueStandings.ts';
 import type { League } from '../league.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow } from '../standingsHistory.ts';
@@ -441,5 +441,84 @@ test('status override resolves year from override when input.year omitted', asyn
   assert.deepEqual(
     snapshot.rows.map((r) => r.owner),
     ['Zara']
+  );
+});
+
+// ---------------------------------------------------------------------------
+// resolveStandingsYear — guards FINDING-2 (Codex remediation): cache key must
+// reflect the resolved year so default-year requests don't collapse onto a
+// shared 'null' key across season transitions.
+// ---------------------------------------------------------------------------
+
+test('resolveStandingsYear: returns yearOverride when provided, even if league missing', async () => {
+  // No league seeded; override should still pass through unchanged.
+  const resolved = await resolveStandingsYear('does-not-exist', 2099);
+  assert.equal(resolved, 2099);
+});
+
+test('resolveStandingsYear: returns league.status.year for season state', async () => {
+  const slug = 't14-resolve-season';
+  await seedLeague(makeLeague({ slug, year: 2024, status: { state: 'season', year: 2025 } }));
+
+  const resolved = await resolveStandingsYear(slug, null);
+  assert.equal(resolved, 2025);
+});
+
+test('resolveStandingsYear: returns league.status.year for preseason state', async () => {
+  const slug = 't15-resolve-preseason';
+  await seedLeague(makeLeague({ slug, year: 2024, status: { state: 'preseason', year: 2026 } }));
+
+  const resolved = await resolveStandingsYear(slug, null);
+  assert.equal(resolved, 2026);
+});
+
+test('resolveStandingsYear: falls back to league.year for offseason status (no year on status)', async () => {
+  const slug = 't16-resolve-offseason';
+  await seedLeague(makeLeague({ slug, year: 2024, status: { state: 'offseason' } }));
+
+  const resolved = await resolveStandingsYear(slug, null);
+  assert.equal(resolved, 2024);
+});
+
+test('resolveStandingsYear: falls back to league.year when status is undefined', async () => {
+  const slug = 't17-resolve-no-status';
+  await seedLeague(makeLeague({ slug, year: 2023 }));
+
+  const resolved = await resolveStandingsYear(slug, null);
+  assert.equal(resolved, 2023);
+});
+
+test('resolveStandingsYear: returns null for unknown slug with no override', async () => {
+  // No league seeded; resolution must return null so the cache key carries
+  // no spurious year, and computeCanonicalStandings handles the empty case.
+  const resolved = await resolveStandingsYear('does-not-exist', null);
+  assert.equal(resolved, null);
+});
+
+test('default-year request honors league status year (no cache collision across seasons)', async () => {
+  // Two leagues with different status years should resolve to the correct
+  // canonical year when called with the default-year shape (no `year` arg).
+  // Previously, both would share cache key 'null' and could leak snapshots.
+  const slugA = 't18-default-year-a';
+  const slugB = 't18-default-year-b';
+  await setAppState('leagues', 'registry', [
+    makeLeague({ slug: slugA, year: 2024, status: { state: 'season', year: 2024 } }),
+    makeLeague({ slug: slugB, year: 2024, status: { state: 'season', year: 2025 } }),
+  ]);
+  await seedOwnersCsv(slugA, 2024, 'team,owner\nTexas,Alice\n');
+  await seedOwnersCsv(slugB, 2025, 'team,owner\nOhio State,Bob\n');
+
+  const snapshotA = await getCanonicalStandings({ slug: slugA });
+  const snapshotB = await getCanonicalStandings({ slug: slugB });
+
+  assert.equal(snapshotA.year, 2024);
+  assert.equal(snapshotB.year, 2025);
+  assert.deepEqual(
+    snapshotA.rows.map((r) => r.owner),
+    ['Alice']
+  );
+  assert.deepEqual(
+    snapshotB.rows.map((r) => r.owner),
+    ['Bob']
   );
 });
