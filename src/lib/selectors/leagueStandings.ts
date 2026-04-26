@@ -131,10 +131,16 @@ const dataCachedCanonicalStandings = (
  * Mirrors the year-resolution logic inside `computeCanonicalStandings`:
  *   - explicit override wins
  *   - else: status year for season/preseason
- *   - else: league.year (offseason status has no year of its own)
+ *   - else (offseason): most recent archived year (matches what
+ *     `resolveOffseason` will pick when `yearOverride === null`); this
+ *     prevents a cache-key collision between a default-year request (which
+ *     uses the archive fallback) and an explicit `year: league.year` request
+ *     (which does not), since the two flows produce different snapshots
+ *   - else: league.year (offseason with no archives — rare edge case)
  *   - else: null (unknown slug → empty snapshot path)
  *
- * `getLeague` is itself `React.cache`-wrapped, so this adds no per-request cost.
+ * `getLeague` and `listSeasonArchives` are both `React.cache`-wrapped, so
+ * this adds no per-request cost.
  */
 export async function resolveStandingsYear(
   slug: string,
@@ -144,6 +150,9 @@ export async function resolveStandingsYear(
   const league = await getLeague(slug);
   if (!league) return null;
   if (league.status && 'year' in league.status) return league.status.year;
+  // Offseason status (no `year` on the discriminated union member).
+  const archives = await listSeasonArchives(slug);
+  if (archives.length > 0) return Math.max(...archives);
   return league.year;
 }
 

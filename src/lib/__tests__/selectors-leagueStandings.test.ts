@@ -546,3 +546,52 @@ test('offseason default-year request falls back to most recent archive', async (
     ['Alice', 'Bob']
   );
 });
+
+test('resolveStandingsYear: offseason default returns most recent archive year', async () => {
+  const slug = 't20-offseason-resolve-archive';
+  await seedLeague(makeLeague({ slug, year: 2026, status: { state: 'offseason' } }));
+  await seedArchive(slug, 2024, [makeHistoryRow('Alice', 8, 4)]);
+  await seedArchive(slug, 2025, [makeHistoryRow('Alice', 10, 2)]);
+
+  const resolved = await resolveStandingsYear(slug, null);
+  assert.equal(resolved, 2025);
+});
+
+test('resolveStandingsYear: offseason with no archives falls back to league.year', async () => {
+  const slug = 't21-offseason-resolve-no-archives';
+  await seedLeague(makeLeague({ slug, year: 2026, status: { state: 'offseason' } }));
+
+  const resolved = await resolveStandingsYear(slug, null);
+  assert.equal(resolved, 2026);
+});
+
+test('offseason default and explicit-year requests do not collide in cache', async () => {
+  // Cache-key separation: a default-year request resolves to the most
+  // recent archive year (2025), while an explicit `year: league.year`
+  // request resolves to 2026. They must produce distinct snapshots and
+  // must not poison each other regardless of evaluation order.
+  const slug = 't22-offseason-no-key-collision';
+  await seedLeague(makeLeague({ slug, year: 2026, status: { state: 'offseason' } }));
+  await seedArchive(slug, 2025, [
+    makeHistoryRow('Alice', 12, 0, { pointsFor: 460, pointsAgainst: 180 }),
+  ]);
+
+  const defaultSnapshot = await getCanonicalStandings({ slug });
+  const explicitSnapshot = await getCanonicalStandings({ slug, year: 2026 });
+
+  // Default falls back to the 2025 archive.
+  assert.equal(defaultSnapshot.source, 'archive');
+  assert.equal(defaultSnapshot.archiveYearResolved, 2025);
+  assert.equal(defaultSnapshot.year, 2025);
+  assert.deepEqual(
+    defaultSnapshot.rows.map((r) => r.owner),
+    ['Alice']
+  );
+
+  // Explicit 2026 has no archive and no live CSV, so it returns an empty
+  // snapshot for that target year. Critically, it must NOT inherit the
+  // 2025 archive's rows, which would happen under a key collision.
+  assert.equal(explicitSnapshot.year, 2026);
+  assert.notEqual(explicitSnapshot.source, 'archive');
+  assert.deepEqual(explicitSnapshot.rows, []);
+});
