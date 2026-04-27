@@ -21,6 +21,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Data & Intelligence | Insights Engine — Generator Batch 2 | ✅ Complete |
 | Data & Intelligence | Copy Variation Architecture | ✅ Complete |
 | Data & Intelligence | Insights Panel UI Redesign + Polish | ✅ Complete |
+| Platform | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete |
 | Platform | Standings Ownership Model Redesign (Phases 0–5) | ✅ Complete |
 | Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018) | Planned |
 | Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019) | Planned |
@@ -34,7 +35,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Platform | Server Fetch Architecture Audit (SERVER-FETCH-ARCHITECTURE) | Planned |
 | Polish | History Page Polish | ✅ Complete |
 | Polish | History Rework — Career Stats Surface (HISTORY-REWORK) | Planned |
-| Polish | Standings Page — Preseason State (STANDINGS-PRESEASON-STATE) | Planned |
+| Polish | Standings Page — Preseason State (STANDINGS-PRESEASON-STATE) | ✅ Complete |
 | Polish | Standings Page — Lifecycle Labeling Sweep (STANDINGS-PAGE-LIFECYCLE-LABELING) | Planned |
 | Polish | Link Styling Audit (LINK-STYLING-AUDIT) | Planned |
 | Draft | Slow Draft Mode | Planned |
@@ -94,7 +95,7 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
 
 Items surfaced during the Standings Ownership Model Redesign campaign and queued for future implementation:
 
-- **INSIGHTS-LIFECYCLE-AWARENESS** — Insight generators produce nonsensical output during preseason (e.g., "Toilet bowl leader", "Crowded finish in 0 games"). Phase 5 added `usingArchivedRoster` to `InsightContext` as the future gating signal. Generators need to read this flag and suppress or reframe preseason-unsafe insight types. Prerequisite: Phase 5 (complete).
+- **INSIGHTS-LIFECYCLE-AWARENESS** — ✅ Resolved in Season Launch Hardening Phase 3 (`385a071`, `6358c2c`). Engine-level `shouldSuppressGenerator` suppresses `rookie_benchmark` during rollover; framing helpers (`applyLastSeasonFraming`, `applyReturningOwnerFraming`) reframe archived-roster output; zero-game guards added to `deriveLeagueInsights`, `deriveTightRaceInsight`, `deriveTightClusterInsight`.
 - **POSTSEASON-START-WEEK-SCHEDULE-DERIVED** — `POSTSEASON_START_WEEK` is currently a hardcoded constant (`= 16`) with a rationale comment (Option B). Option A (derive from schedule data — the week of the earliest `seasonType === 'postseason'` game) is the correct long-term solution. Deferred because the constant works for current seasons; revisit before any season with an unusual CFP bracket structure.
 - **INVALIDATE-STANDINGS-PER-LEAGUE** — `invalidateStandings` currently enumerates all leagues when called for global-scope mutations (e.g., alias writes that apply across leagues). Documented limitation in the `invalidateStandings` JSDoc. A per-league alias scope would allow more targeted invalidation. Prerequisite: alias per-league scoping work (tracked separately under Aliases Platform Migration).
 - **HEADER-ARCHITECTURE-UNIFICATION** — `LeaguePageShell` and `CFBScheduleApp` render independent header regions; they should share a single `LeagueHeader` component. Flagged during LEAGUE-HEADER-USER-MENU work but out of scope for this campaign. Separate Polish prompt when header structure stabilizes.

@@ -16,6 +16,46 @@ The registry should remain:
 
 ## Active Prompts
 
+### SEASON-LAUNCH-HARDENING-CAMPAIGN-CLOSEOUT
+- Purpose: Documentation closeout for the Season Launch Hardening campaign (Phases 1–3, all merged). Updates completed-work, AGENTS.md, prompt-registry, next-tasks. Creates campaign retrospective at `docs/campaigns/season-launch-hardening.md`. No code changes.
+- Scope: `docs/completed-work.md`, `AGENTS.md`, `docs/prompt-registry.md`, `docs/next-tasks.md`, `docs/campaigns/season-launch-hardening.md` (new). No source code changes.
+- Notes: Documentation only. Captures new architectural invariants: canAccessDraftBoard auth pattern, phase-aware polling cadence, time-dependent classification out of cached selectors, insights engine suppression layering + bypassSuppression semantics + usingArchivedRoster framing.
+
+### SEASON-LAUNCH-HARDENING-PHASE-3-CODEX-REMEDIATION
+- Purpose: Fix `shouldSuppressGenerator` to honor `bypassSuppression` — the new engine filter was unconditional, blocking admin diagnostic runs that expected unfiltered output.
+- Scope: `src/lib/insights/engine.ts`, `src/lib/__tests__/insights-lifecycle-awareness.test.ts`.
+- Notes: Commit `6358c2c`. Changed `.filter((g) => !shouldSuppressGenerator(g, context))` to `.filter((g) => bypassSuppression || !shouldSuppressGenerator(g, context))`. Bypass test added with save/restore of global generator registry.
+
+### SEASON-LAUNCH-HARDENING-PHASE-3-INSIGHTS-LIFECYCLE-AWARENESS
+- Purpose: Make the insights engine aware of preseason/archived-roster context — suppress, reframe, or add zero-game guards across all 11 generator surfaces. Add 22 new lifecycle-awareness tests.
+- Scope: `src/lib/insights/engine.ts`, `src/lib/insights/framing.ts` (new), `src/lib/insights/generators/career.ts`, `src/lib/insights/generators/stats.ts`, `src/lib/insights/generators/existing.ts`, `src/lib/selectors/insights.ts`, `src/lib/__tests__/insights-lifecycle-awareness.test.ts` (new).
+- Notes: Commit `385a071`. Engine: `shouldSuppressGenerator` cross-cutting filter (`career:rookie_benchmark` suppressed when `usingArchivedRoster`). Framing: `applyLastSeasonFraming` (7 surfaces, "Last season's" prefix), `applyReturningOwnerFraming` (4 surfaces, "Returning owner" narrative). `rookieBenchmarkGenerator` early-returns when `usingArchivedRoster`. Zero-game guards on `deriveLeagueInsights`, `deriveTightRaceInsight`, `deriveTightClusterInsight`. 22 tests covering framing helpers, per-generator on/off, lifecycle assertions, engine bypass.
+
+### SEASON-LAUNCH-HARDENING-PHASE-2-CODEX-REMEDIATION
+- Purpose: Move the kickoff-past `Date.now()` check out of the `unstable_cache`-wrapped selector and into consumers — the selector must return a time-invariant fact, not a time-dependent classification.
+- Scope: `src/lib/selectors/leagueStandings.ts`, `src/components/StandingsPanel.tsx`, `src/components/CFBScheduleApp.tsx`, `src/lib/__tests__/selectors-leagueStandings.test.ts`.
+- Notes: Commit `43516b0`. Selector always returns `preseason-awaiting-kickoff` when probe data exists; never embeds `Date.now()`. StandingsPanel and CFBScheduleApp evaluate `new Date(inferredSeasonStart).getTime() > Date.now()` at render time. Test `p2-season-kickoff-past` updated to assert `source: 'preseason-awaiting-kickoff'` (selector returns the fact; consumer decides what it means).
+
+### SEASON-LAUNCH-HARDENING-PHASE-2-STANDINGS-PRESEASON-STATE
+- Purpose: Build the `preseason-awaiting-kickoff` canonical standings source — selector consults `getScheduleProbeState` for a kickoff date, StandingsPanel renders a date-aware placeholder, CFBScheduleApp.isPreseason broadened to cover the awaiting-kickoff case.
+- Scope: `src/lib/selectors/leagueStandings.ts`, `src/components/StandingsPanel.tsx`, `src/components/CFBScheduleApp.tsx`, `src/lib/__tests__/selectors-leagueStandings.test.ts`.
+- Notes: Commit `88af434`. `CanonicalStandingsSource` extended with `'preseason-awaiting-kickoff'`. `inferredSeasonStart: string | null` added to `CanonicalStandings`. `resolveSeason` and `resolvePreseason` empty paths call `getScheduleProbeState(year).firstGameDate`. 5 new Phase 2 tests. No `Date.now()` in selector (time check moved to consumers in Phase 2 Codex remediation).
+
+### SEASON-LAUNCH-HARDENING-PHASE-1-CODEX-REMEDIATION
+- Purpose: Fix two Codex findings from Phase 1: (1) `/draft/summary` blocked spectators with an unintended redirect; (2) draft polling stopped on complete rather than slowing, missing re-open events.
+- Scope: `src/app/league/[slug]/draft/summary/page.tsx`, `src/components/draft/DraftBoardClient.tsx`, `src/components/draft/SpectatorBoardClient.tsx`.
+- Notes: Commit `d24a2f3`. Summary page: removed `if (!isAdmin) redirect(...)` — kept `isAdmin` computation for prop-passing only. Polling: changed complete-phase early `return` (interval cleared) to 30s interval so clients keep polling and detect re-open events.
+
+### SEASON-LAUNCH-HARDENING-PHASE-1-DRAFT-AUTH-AND-POLLING
+- Purpose: (A) Gate draft admin pages server-side via `canAccessDraftBoard`; remove inline `clerkRole` checks from three client components. (B) Add phase-aware polling to draft board clients.
+- Scope: `src/lib/server/canAccessDraftBoard.ts` (new), `src/app/league/[slug]/draft/page.tsx`, `src/app/league/[slug]/draft/setup/page.tsx`, `src/app/league/[slug]/draft/summary/page.tsx`, `src/components/draft/DraftBoardClient.tsx`, `src/components/draft/DraftSetupShell.tsx`, `src/components/draft/DraftSummaryClient.tsx`, `src/components/draft/SpectatorBoardClient.tsx`.
+- Notes: Commit `5968604`. `canAccessDraftBoard` wraps `isPlatformAdminSession()`; Phase 7 stub (`void slug`). Draft/setup pages redirect non-admins to `/draft/board`. `isAdmin` passed as server-derived prop; `useUser()`/`clerkRole`/`isTokenAdmin` removed from all three client components. Polling IIFE: 1.5s (live+running), 30s (complete), 5s default.
+
+### SEASON-LAUNCH-HARDENING-DISCOVERY
+- Purpose: Read-only pre-launch audit covering four known or suspected blockers: draft auth leakage, draft polling excess, standings preseason blank state, insights lifecycle blindness.
+- Scope: Read-only. `src/app/league/[slug]/draft/`, `src/components/draft/`, `src/lib/selectors/leagueStandings.ts`, `src/lib/insights/`.
+- Notes: No code changes. Output: written audit report with severity ratings, root-cause analysis, and remediation plan for each item. Commit chain for implementation: `5968604`, `d24a2f3`, `88af434`, `43516b0`, `385a071`, `6358c2c`.
+
 ### STANDINGS-OWNERSHIP-CAMPAIGN-CLOSEOUT
 - Purpose: Documentation closeout for the Standings Ownership Model Redesign campaign (Phases 0-5, all merged). Updates completed-work, AGENTS.md, prompt registry, roadmap, and next-tasks. Creates campaign retrospective at `docs/campaigns/standings-ownership.md`. No code changes.
 - Scope: `docs/completed-work.md`, `AGENTS.md`, `docs/prompt-registry.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/campaigns/standings-ownership.md` (new). No source code changes.

@@ -9,6 +9,32 @@
 
 ## Completed phases / milestones
 
+### Season Launch Hardening — Complete
+
+**Status:** Complete. Three implementation phases + three Codex remediations across PRs #302–#304. See `docs/campaigns/season-launch-hardening.md` for the full retrospective.
+**PROMPT_IDs:** SEASON-LAUNCH-HARDENING-DISCOVERY, SEASON-LAUNCH-HARDENING-PHASE-1-DRAFT-AUTH-AND-POLLING, SEASON-LAUNCH-HARDENING-PHASE-1-CODEX-REMEDIATION, SEASON-LAUNCH-HARDENING-PHASE-2-STANDINGS-PRESEASON-STATE, SEASON-LAUNCH-HARDENING-PHASE-2-CODEX-REMEDIATION, SEASON-LAUNCH-HARDENING-PHASE-3-INSIGHTS-LIFECYCLE-AWARENESS, SEASON-LAUNCH-HARDENING-PHASE-3-CODEX-REMEDIATION, SEASON-LAUNCH-HARDENING-CAMPAIGN-CLOSEOUT
+
+**Inciting issue:** Pre-launch discovery audit identified four interlinked blockers: (1) draft board RSC serialized full admin state into server HTML before client redirect — auth leakage; (2) draft polling hardcoded at 1.5s regardless of phase, generating ~690 MB/day unnecessary Neon egress; (3) standings page silently blank during preseason cold-cache because the selector had no "waiting for kickoff" code path; (4) insight generators producing nonsensical output (e.g. "Toilet bowl leader in 0 games") because they were unaware of the archived-roster context.
+
+**Phases shipped:**
+- **Phase 1 — Draft Auth + Polling** (`5968604`, `d24a2f3`): Added `canAccessDraftBoard(slug)` server-side helper; gated `/league/[slug]/draft` and `/draft/setup` RSCs; removed three inline `clerkRole === 'platform_admin'` checks from `DraftBoardClient`, `DraftSetupShell`, `DraftSummaryClient`; passed `isAdmin` as server-derived prop (satisfies Auth Invariant #6). Phase-aware polling: 1.5s (live+running), 5s (default), 30s (complete). Codex remediations: spectator `/draft/summary` access preserved; complete-phase slow-polls at 30s rather than stopping to handle re-open events.
+- **Phase 2 — Standings Preseason State** (`88af434`, `43516b0`): Extended `CanonicalStandingsSource` with `preseason-awaiting-kickoff`; added `inferredSeasonStart: string | null` to `CanonicalStandings`. `resolveSeason` and `resolvePreseason` empty paths call `getScheduleProbeState(year)` — no `Date.now()` inside `unstable_cache`-wrapped selector. `StandingsPanel` renders three distinct empty states. `CFBScheduleApp.isPreseason` broadened to include awaiting-kickoff source. Codex remediation: selector returns time-invariant fact (kickoff date); consumers evaluate `Date.now()` at render time.
+- **Phase 3 — Insights Lifecycle Awareness** (`385a071`, `6358c2c`): Engine-level `shouldSuppressGenerator(g, context)` cross-cutting filter (`career:rookie_benchmark` suppressed when `usingArchivedRoster`); gated by `bypassSuppression`. New `src/lib/insights/framing.ts`: `applyLastSeasonFraming` and `applyReturningOwnerFraming` helpers. 7 generator surfaces use "Last season's" prefix; 4 use "Returning owner" narrative; `rookieBenchmarkGenerator` returns early. Zero-game guards on `deriveLeagueInsights`, `deriveTightRaceInsight`, `deriveTightClusterInsight`. 22 new tests. Codex remediation: `bypassSuppression || !shouldSuppressGenerator(g, context)` — bypass honored in new filter.
+
+**User-visible improvements:**
+- Non-admin users no longer receive serialized draft admin state in server HTML before redirect
+- Draft polling scales with phase — ~690 MB/day unnecessary egress eliminated when drafts are not active
+- Standings page shows "Season starts [date]" preseason placeholder instead of silently blank
+- Insights panel no longer displays nonsense like "Toilet bowl leader in 0 games" during preseason
+
+**Architectural improvements:**
+- `canAccessDraftBoard`: single server-side auth entry point for all draft admin access; eliminates inline `publicMetadata.role` comparisons in client components
+- `shouldSuppressGenerator`: cross-cutting engine filter for (id, lifecycle, flag)-based suppressions; `bypassSuppression` gate respected so admin diagnostic runs see unfiltered output
+- Cache/time separation: time-dependent classification (`Date.now()`) removed from `unstable_cache`-wrapped selectors; consumers evaluate at render time — pattern established for all future cached selectors
+- Framing helpers: `applyLastSeasonFraming` + `applyReturningOwnerFraming` are deterministic, idempotent transforms safe to use in tests and across multiple render cycles
+
+---
+
 ### Standings Ownership Model Redesign — Complete
 
 **Status:** Complete. Six phases shipped across multiple sessions. See `docs/campaigns/standings-ownership.md` for the full retrospective.
