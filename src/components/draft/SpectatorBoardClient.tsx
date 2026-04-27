@@ -34,11 +34,12 @@ export default function SpectatorBoardClient({
     }
   }, [slug, year]);
 
-  // 3-second polling for spectator view
+  // 5-second polling for spectator view; stops when draft is complete.
   useEffect(() => {
-    const id = setInterval(() => void refresh(), 3000);
+    if (draft.phase === 'complete') return;
+    const id = setInterval(() => void refresh(), 5000);
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [draft.phase, refresh]);
 
   const pickedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 

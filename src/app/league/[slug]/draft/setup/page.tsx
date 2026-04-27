@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
@@ -10,6 +10,7 @@ import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import DraftSetupShell from '@/components/draft/DraftSetupShell';
 import { renderLeagueGateIfBlocked } from '../../leagueGate';
+import { canAccessDraftBoard } from '@/lib/server/canAccessDraftBoard';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +24,9 @@ export default async function DraftSetupPage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
+
+  const isAdmin = await canAccessDraftBoard(slug);
+  if (!isAdmin) redirect(`/league/${slug}/draft/board`);
 
   const league = await getLeague(slug);
   if (!league) notFound();
@@ -99,6 +103,7 @@ export default async function DraftSetupPage({
           priorOwners={priorOwners}
           priorChampOrder={priorChampOrder}
           fbsTeamCount={fbsTeamCount}
+          isAdmin={isAdmin}
         />
       </div>
     </main>

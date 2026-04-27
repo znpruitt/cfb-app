@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useUser } from '@clerk/nextjs';
-import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
@@ -15,6 +14,8 @@ type DraftBoardClientProps = {
   initialDraft: DraftState;
   teamInsights: DraftTeamInsights[];
   leagueStatus?: LeagueStatus;
+  /** Server-verified: true when the current session passed the canAccessDraftBoard gate. */
+  isAdmin: boolean;
 };
 
 export default function DraftBoardClient({
@@ -23,29 +24,14 @@ export default function DraftBoardClient({
   initialDraft,
   teamInsights,
   leagueStatus,
+  isAdmin,
 }: DraftBoardClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
-
-  // Auth priority: Clerk platform_admin session → sessionStorage token → spectator redirect
-  const { user, isLoaded: clerkLoaded } = useUser();
-  const [isTokenAdmin] = useState(() => hasStoredAdminToken());
-  const clerkRole = (user?.publicMetadata as { role?: string } | undefined)?.role;
-  const isAdmin = isTokenAdmin || (clerkLoaded && clerkRole === 'platform_admin');
 
   const [search, setSearch] = useState('');
   const [pickError, setPickError] = useState<string | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
   const [controlsLoading, setControlsLoading] = useState(false);
-
-  // Redirect non-admins to the spectator view.
-  // If no sessionStorage token, wait for Clerk to finish loading before deciding.
-  useEffect(() => {
-    if (isTokenAdmin) return; // sessionStorage token confirms admin — no redirect
-    if (!clerkLoaded) return; // Clerk not yet resolved — wait
-    if (!isAdmin) {
-      window.location.replace(`/league/${slug}/draft/board`);
-    }
-  }, [isTokenAdmin, clerkLoaded, isAdmin, slug]);
 
   const refresh = useCallback(async () => {
     try {
@@ -59,12 +45,14 @@ export default function DraftBoardClient({
     }
   }, [slug, year]);
 
-  // 1-second polling for commissioner view
+  // Phase-aware polling: 1.5s when live+running (tight timer loop), 5s otherwise, off when complete.
   useEffect(() => {
     if (!isAdmin) return;
-    const id = setInterval(() => void refresh(), 1000);
+    if (draft.phase === 'complete') return;
+    const intervalMs = draft.phase === 'live' && draft.timerState === 'running' ? 1500 : 5000;
+    const id = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(id);
-  }, [isAdmin, refresh]);
+  }, [isAdmin, draft.phase, draft.timerState, refresh]);
 
   // Ref to prevent duplicate expire dispatches for the same pick
   const expireDispatchedRef = useRef(false);

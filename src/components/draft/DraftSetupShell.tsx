@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { useUser } from '@clerk/nextjs';
-import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState } from '@/lib/draft';
 import DraftSettingsPanel from './DraftSettingsPanel';
 
@@ -21,6 +20,8 @@ type DraftSetupShellProps = {
   priorOwners: string[];
   priorChampOrder: string[] | null;
   fbsTeamCount: number;
+  /** Server-verified: true when the current session passed the canAccessDraftBoard gate. */
+  isAdmin: boolean;
 };
 
 export default function DraftSetupShell({
@@ -30,6 +31,7 @@ export default function DraftSetupShell({
   priorOwners,
   priorChampOrder,
   fbsTeamCount,
+  isAdmin,
 }: DraftSetupShellProps): React.ReactElement {
   const [draftState, setDraftState] = useState<DraftState | null>(initialDraftState);
   const [backLoading, setBackLoading] = useState(false);
@@ -41,22 +43,6 @@ export default function DraftSetupShell({
   const [resetConfirm, setResetConfirm] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
-
-  // Audience guard: setup is commissioner-only. Mirrors DraftBoardClient pattern —
-  // sessionStorage admin token OR Clerk platform_admin role. Non-admins are silently
-  // redirected to the spectator board.
-  const { user, isLoaded: clerkLoaded } = useUser();
-  const [isTokenAdmin] = useState(() => hasStoredAdminToken());
-  const clerkRole = (user?.publicMetadata as { role?: string } | undefined)?.role;
-  const isAdmin = isTokenAdmin || (clerkLoaded && clerkRole === 'platform_admin');
-
-  useEffect(() => {
-    if (isTokenAdmin) return;
-    if (!clerkLoaded) return;
-    if (!isAdmin) {
-      window.location.replace(`/league/${slug}/draft/board`);
-    }
-  }, [isTokenAdmin, clerkLoaded, isAdmin, slug]);
 
   const phase = draftState?.phase ?? 'setup';
 

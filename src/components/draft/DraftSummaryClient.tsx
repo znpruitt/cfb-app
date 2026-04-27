@@ -2,8 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { useUser } from '@clerk/nextjs';
-import { hasStoredAdminToken, requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import InterestingFactsPanel from './InterestingFactsPanel';
@@ -22,6 +21,8 @@ type DraftSummaryClientProps = {
   facts: string[];
   /** League lifecycle status for conditional commissioner prompts. */
   leagueStatus?: LeagueStatus;
+  /** Server-verified: true when the current session passed the canAccessDraftBoard gate. */
+  isAdmin: boolean;
 };
 
 export default function DraftSummaryClient({
@@ -33,14 +34,9 @@ export default function DraftSummaryClient({
   displayNameMap,
   facts,
   leagueStatus,
+  isAdmin,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
-
-  // Auth: dual check — sessionStorage token OR Clerk platform_admin role
-  const { user, isLoaded: clerkLoaded } = useUser();
-  const [isTokenAdmin] = useState(() => hasStoredAdminToken());
-  const clerkRole = (user?.publicMetadata as { role?: string } | undefined)?.role;
-  const isAdmin = isTokenAdmin || (clerkLoaded && clerkRole === 'platform_admin');
 
   // Edit state
   const [editingPickNumber, setEditingPickNumber] = useState<number | null>(null);

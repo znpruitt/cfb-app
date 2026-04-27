@@ -22,6 +22,7 @@ import type { ScorePack } from '@/lib/scores';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftBoardClient from '@/components/draft/DraftBoardClient';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
+import { canAccessDraftBoard } from '@/lib/server/canAccessDraftBoard';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,9 @@ export default async function DraftBoardPage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
+
+  const isAdmin = await canAccessDraftBoard(slug);
+  if (!isAdmin) redirect(`/league/${slug}/draft/board`);
 
   const league = await getLeague(slug);
   if (!league) notFound();
@@ -284,6 +288,7 @@ export default async function DraftBoardPage({
           initialDraft={liveDraft}
           teamInsights={teamInsights}
           leagueStatus={league.status}
+          isAdmin={isAdmin}
         />
       </div>
     </main>

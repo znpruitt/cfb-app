@@ -11,6 +11,7 @@ import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftSummaryClient from '@/components/draft/DraftSummaryClient';
 import { renderLeagueGateIfBlocked } from '../../leagueGate';
+import { canAccessDraftBoard } from '@/lib/server/canAccessDraftBoard';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -106,6 +107,9 @@ export default async function DraftSummaryPage({
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
 
+  const isAdmin = await canAccessDraftBoard(slug);
+  if (!isAdmin) redirect(`/league/${slug}/draft/board`);
+
   const league = await getLeague(slug);
   if (!league) notFound();
 
@@ -187,6 +191,7 @@ export default async function DraftSummaryPage({
         displayNameMap={displayNameMap}
         facts={facts}
         leagueStatus={league.status}
+        isAdmin={isAdmin}
       />
     </main>
   );
