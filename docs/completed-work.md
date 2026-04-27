@@ -9,6 +9,48 @@
 
 ## Completed phases / milestones
 
+### Standings Ownership Model Redesign — Complete
+
+**Status:** Complete. Six phases shipped across multiple sessions. See `docs/campaigns/standings-ownership.md` for the full retrospective.
+**PROMPT_IDs:** STANDINGS-CANONICAL-SELECTOR-DISCOVERY, STANDINGS-CANONICAL-SELECTOR-CORE, STANDINGS-CANONICAL-SELECTOR-OVERVIEW, STANDINGS-OWNERSHIP-MODEL-DISCOVERY, STANDINGS-OWNERSHIP-PHASE-0-INVALIDATION, STANDINGS-OWNERSHIP-PHASE-1-OVERVIEW, STANDINGS-OWNERSHIP-PHASE-2-STANDINGS-ROUTE, STANDINGS-OWNERSHIP-PHASE-3-MEMBERS-MATCHUPS, STANDINGS-OWNERSHIP-PHASE-4-HISTORY, STANDINGS-OWNERSHIP-PHASE-5-LIFECYCLE
+
+**Inciting issue:** NoClaim at #1 on Overview during Test League preseason — user-visible screenshot showed NoClaim occupying the top standings row. Multiple Overview surfaces (top-3, condensed table, Games Back chart) displayed inconsistent data because each independently merged client-side live data with partial server state at render time.
+
+**Scope evolution:** Originally framed as a 4-prompt canonical selector campaign (CORE, OVERVIEW, FANOUT, SERVER-INSIGHTS). After Phase 2 went through eight rounds of Codex remediation — all addressing edge cases of merge-at-render-time logic — the campaign was replanned as a 6-phase ownership redesign (STANDINGS-OWNERSHIP-MODEL-DISCOVERY).
+
+**Architectural shift:** From "two data sources merged at render time based on shape-readiness predicates" to "server canonical owns the settled snapshot, client owns the live overlay separately, consumers receive both as distinct props."
+
+**Phases shipped:**
+- **Phase 0** — Invalidation infrastructure. Wrapped `getCanonicalStandings` with `unstable_cache` + `React.cache`, added `invalidateStandings` helper, wired into all mutation routes (owners, aliases, postseason-overrides, draft confirm, schedule, scores, admin backfill, admin rollover). `RosterUploadPanel` calls `router.refresh()`.
+- **Phase 1** — Overview takeover collapse. Removed merge-at-render-time logic from `CFBScheduleApp`'s Overview path. Introduced `liveDelta` interface (`LiveGameDelta`, `LivePendingOwnerDelta`, `LiveDelta` types) + `selectLiveDelta` selector + `useLiveDelta` hook. Server canonical owns Overview rows/history/colorOrder; client owns `liveDelta` overlay separately.
+- **Phase 2** — Standings route + StandingsPanel migration. Server route loads canonical. `StandingsPanel` consumes canonical for rows, history, color order. First liveDelta UI integration: W-L pending badges next to live-game owners. NoClaim filtering pushed to source (`deriveStandings` now returns `{ rows, noClaimRow, ... }` with rows excluding NoClaim).
+- **Phase 3** — Members + Matchups route migrations. `OwnerPanel`, `MatchupsWeekPanel`, `MatchupMatrixView` consume canonical. Second liveDelta UI integration: pulsing dot in LIVE pill on in-progress games in `MatchupsWeekPanel`. Admin form refresh polish: 5 admin forms (alias editor, postseason override, season rollover, backfill, roster editor) gained `router.refresh()` after success.
+- **Phase 4** — History live-rebuild migration. Replaced `buildSeasonArchive(slug, activeYear)` with `getCanonicalStandings({ slug, year: activeYear })` on the History page.
+- **Phase 5** — Lifecycle hardening. Parameterized `currentDate` in `deriveLifecycleState` (request handlers capture once, pass through). Added `usingArchivedRoster` flag to `InsightContext` for `fresh_offseason` fallback path. Documented `POSTSEASON_START_WEEK` constant (Option B; schedule-derived deferred).
+
+**User-visible improvements:**
+- NoClaim no longer appears at #1 during preseason on the Overview
+- All Overview surfaces (top-3, condensed table, GB chart) now agree
+- Live game W-L pending badges next to owner names in StandingsPanel during active games
+- Pulsing LIVE pill indicator on in-progress games in the Matchups view
+- Admin forms refresh standings immediately after mutations (no stale data displayed)
+
+**Architectural improvements:**
+- Single source of truth: `getCanonicalStandings` is the only path for standings data; no competing derivations in components or routes
+- Proper mutation invalidation: all mutation routes call `invalidateStandings(slug, year)` with tag-based Next.js cache invalidation
+- Testable lifecycle: `currentDate` parameterized at request-handler level; no implicit `new Date()` inside derivation functions
+- NoClaim filtered at source: `splitOutNoClaim` in `src/lib/standings.ts` — no per-consumer filtering needed
+- `liveDelta` as a stable separate seam: live game annotations are computed client-side and passed as distinct props, never merged into canonical rows
+
+**Key architectural decisions:**
+- `React.cache` wraps `unstable_cache`: per-request dedup outside, cross-request tag invalidation inside
+- Tag granularity: `standings:{slug}` (slug-level) and `standings:{slug}:{year}` (year-level)
+- Closure pattern required to bake `slug+year` into the `unstable_cache` key array
+- Per-route compatibility shim (`canonical?.rows ?? client.rows`) retired per route as migration progressed
+- Lifecycle dispatch on `leagueStatus.state + canonical.source`, not full `LifecycleState` recomputation
+
+---
+
 ### Insights Panel Redesign + Polish — Complete
 
 **Status:** Complete. Branch `claude/copy-variation-architecture-vk1yp`.

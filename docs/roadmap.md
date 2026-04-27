@@ -350,6 +350,7 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Link Styling Audit | 🔄 Planned |
 | AppStateStore Caching — Egress Optimization | 🔄 Planned |
 | Server Fetch Architecture Audit | 🔄 Planned |
+| Standings Ownership Model Redesign (Phases 0–5) | ✅ Complete |
 
 ## Architecture rules
 

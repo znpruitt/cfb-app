@@ -235,6 +235,26 @@ Be explicit and accurate.
 
 ---
 
+## Standings Ownership Invariants
+
+These rules apply from the Standings Ownership Redesign campaign onward and must not be violated:
+
+1. **Server canonical owns standings data.** `getCanonicalStandings` is the single source of truth for standings rows, history, color order, owner identity, and lifecycle. No component, route, or helper should derive this data independently.
+
+2. **Client owns only the liveDelta overlay.** In-progress game annotations and computed per-owner pending stats live in `LiveDelta`, computed by `selectLiveDelta` / `useLiveDelta`. Consumers receive canonical and `liveDelta` as **separate props**. Canonical defines what a row says; `liveDelta` defines what a badge or chip annotates next to it. Never merge the two inside a render function.
+
+3. **Never merge at render time.** Do not combine canonical and live data using shape-readiness predicates (e.g., "if rows exist, use X; else use Y"). Merging at render time caused the original NoClaim-at-#1 bug and required eight remediation rounds before being replaced by this architecture.
+
+4. **All mutation routes call invalidateStandings.** Every route that mutates standings inputs — owners, aliases, postseason overrides, draft confirm, scores, schedule, archives, rollover — must call `invalidateStandings(slug, year)`. Admin forms that mutate standings must call `useRouter().refresh()` after success.
+
+5. **Cache key uses resolved year.** The canonical standings cache key uses the year resolved by `resolveStandingsYear`, not raw caller input. `React.cache` wraps `unstable_cache`: per-request dedup (outside) and cross-request tag invalidation (inside). Tags: `standings:{slug}` (slug-level) and `standings:{slug}:{year}` (year-level). The closure pattern is required to bake `slug+year` into the `unstable_cache` key array.
+
+6. **NoClaim is filtered at the source.** `splitOutNoClaim` (shared helper in `src/lib/standings.ts`) runs inside `deriveStandings`. The return value is `{ rows, noClaimRow, ... }` where `rows` excludes NoClaim. Consumers that need NoClaim read `noClaimRow` explicitly. No consumer filters NoClaim from an unfiltered row array.
+
+7. **currentDate is passed through, never captured inside derivations.** `currentDate` is captured at request-handler level and passed through to `deriveLifecycleState` and all downstream derivation functions. No implicit `new Date()` inside selectors or derivation helpers. `usingArchivedRoster` on `InsightContext` indicates `fresh_offseason` states using the prior archive's roster.
+
+---
+
 ## Auth Architecture Invariants
 
 These rules apply from Phase 6 onward and must not be violated:

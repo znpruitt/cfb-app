@@ -16,6 +16,61 @@ The registry should remain:
 
 ## Active Prompts
 
+### STANDINGS-OWNERSHIP-CAMPAIGN-CLOSEOUT
+- Purpose: Documentation closeout for the Standings Ownership Model Redesign campaign (Phases 0-5, all merged). Updates completed-work, AGENTS.md, prompt registry, roadmap, and next-tasks. Creates campaign retrospective at `docs/campaigns/standings-ownership.md`. No code changes.
+- Scope: `docs/completed-work.md`, `AGENTS.md`, `docs/prompt-registry.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/campaigns/standings-ownership.md` (new). No source code changes.
+- Notes: Documentation only. Captures architectural invariants (standings data ownership, mutation invalidation, cache wrapping, NoClaim filtering, lifecycle parameterization) and deferred backlog items (INSIGHTS-LIFECYCLE-AWARENESS, POSTSEASON-START-WEEK-SCHEDULE-DERIVED, INVALIDATE-STANDINGS-PER-LEAGUE, HEADER-ARCHITECTURE-UNIFICATION).
+
+### STANDINGS-OWNERSHIP-PHASE-5-LIFECYCLE-v1
+- Purpose: Phase 5 lifecycle hardening — parameterize `currentDate` in `deriveLifecycleState`, add `usingArchivedRoster` flag to `InsightContext`, document `POSTSEASON_START_WEEK` constant with Option B rationale.
+- Scope: `src/lib/lifecycle.ts` (or equivalent), `src/lib/insights/types.ts`, `src/lib/insights/context.ts`, relevant request handlers. No UI changes.
+- Notes: Shipped. `currentDate` captured once at request-handler entry, passed through all derivation layers. `usingArchivedRoster: boolean` added to `InsightContext` for `fresh_offseason` fallback gating. `POSTSEASON_START_WEEK = 16` documented with rationale comment; schedule-derived derivation deferred (Option B).
+
+### STANDINGS-OWNERSHIP-PHASE-4-HISTORY-v1
+- Purpose: Phase 4 History live-rebuild migration — replace `buildSeasonArchive(slug, activeYear)` with `getCanonicalStandings({ slug, year: activeYear })` on the History page.
+- Scope: `src/app/league/[slug]/history/page.tsx` (or equivalent history route).
+- Notes: Shipped. History page now uses canonical standings rather than rebuilding an archive in-place. Eliminates a parallel derivation path.
+
+### STANDINGS-OWNERSHIP-PHASE-3-MEMBERS-MATCHUPS-v1
+- Purpose: Phase 3 Members + Matchups route migrations. Migrate `OwnerPanel`, `MatchupsWeekPanel`, `MatchupMatrixView` to consume canonical standings. Add pulsing LIVE pill dot as second liveDelta UI integration. Add `router.refresh()` to 5 admin forms.
+- Scope: `src/app/league/[slug]/members/page.tsx` (or equivalent), `src/app/league/[slug]/matchups/page.tsx` (or equivalent), `src/components/OwnerPanel.tsx`, `src/components/MatchupsWeekPanel.tsx`, `src/components/MatchupMatrixView.tsx`, 5 admin form components.
+- Notes: Shipped. LIVE pill pulsing dot wired to `liveDelta`. Admin forms: alias editor, postseason override, season rollover, backfill, roster editor — all call `router.refresh()` after success.
+
+### STANDINGS-OWNERSHIP-PHASE-2-STANDINGS-ROUTE-v1
+- Purpose: Phase 2 Standings route + StandingsPanel migration. Server route loads canonical. `StandingsPanel` consumes canonical rows, history, colorOrder. First liveDelta UI: W-L pending badges. NoClaim filtering moved to source.
+- Scope: `src/app/league/[slug]/standings/page.tsx`, `src/components/StandingsPanel.tsx`, `src/lib/standings.ts` (or `src/lib/selectors/leagueStandings.ts`).
+- Notes: Shipped (PR #294 area). `deriveStandings` returns `{ rows, noClaimRow, ... }` with rows excluding NoClaim. `splitOutNoClaim` helper added. W-L pending badges appear next to owner names when a live game is in progress.
+
+### STANDINGS-OWNERSHIP-PHASE-1-OVERVIEW-v1
+- Purpose: Phase 1 Overview takeover collapse — remove merge-at-render-time logic from `CFBScheduleApp`'s Overview path. Introduce `liveDelta` interface + `selectLiveDelta` selector + `useLiveDelta` hook.
+- Scope: `src/components/CFBScheduleApp.tsx`, `src/lib/selectors/liveDelta.ts` (new), `src/hooks/useLiveDelta.ts` (new), `src/lib/selectors/types.ts`.
+- Notes: Shipped. `LiveGameDelta`, `LivePendingOwnerDelta`, `LiveDelta` types defined. Canonical (server) owns rows/history/colorOrder; `liveDelta` (client) owns in-progress overlays. These travel as separate props to all consumers.
+
+### STANDINGS-OWNERSHIP-PHASE-0-INVALIDATION-v1
+- Purpose: Phase 0 invalidation infrastructure — wrap `getCanonicalStandings` with `unstable_cache` + `React.cache`, add `invalidateStandings` helper, wire into all mutation routes.
+- Scope: `src/lib/selectors/leagueStandings.ts` (or equivalent), `src/lib/invalidateStandings.ts` (new or inline), all mutation routes under `src/app/api/`, `src/components/RosterUploadPanel.tsx`.
+- Notes: Shipped. Tag granularity: `standings:{slug}` and `standings:{slug}:{year}`. Closure pattern bakes `slug+year` into `unstable_cache` key array. `RosterUploadPanel` calls `router.refresh()` after upload.
+
+### STANDINGS-OWNERSHIP-MODEL-DISCOVERY-v1
+- Purpose: Read-only scoping investigation — diagnose root cause of NoClaim-at-#1 and Overview inconsistency, evaluate merge-at-render-time vs canonical-server approaches, produce the 6-phase redesign plan.
+- Scope: Read-only. Analyzed `CFBScheduleApp.tsx`, `StandingsPanel.tsx`, `OverviewPanel.tsx`, selectors, API routes. No code changes.
+- Notes: Concluded that 8 remediation rounds on the Overview migration PR all addressed merge-at-render-time edge cases. Proposed architecture: server canonical for settled data, client `liveDelta` for live overlays, distinct props at consumer sites.
+
+### STANDINGS-CANONICAL-SELECTOR-OVERVIEW-v1
+- Purpose: Prompt 2 of original canonical selector campaign — migrate Overview path to consume canonical standings from server.
+- Scope: `src/components/CFBScheduleApp.tsx`, `src/components/OverviewPanel.tsx`, related selectors.
+- Notes: Shipped (PR #294). Multiple remediation rounds exposed that merge-at-render-time was architecturally brittle; informed the subsequent STANDINGS-OWNERSHIP-MODEL-DISCOVERY replanning.
+
+### STANDINGS-CANONICAL-SELECTOR-CORE-v1
+- Purpose: Prompt 1 of original canonical selector campaign — build `getCanonicalStandings` as a server-callable selector returning stable standings rows, owner color order, and Games Back values.
+- Scope: `src/lib/selectors/leagueStandings.ts` (new), related type definitions.
+- Notes: Shipped (PR #291). Established the `CanonicalStandings` type and the `getCanonicalStandings` function. Foundation for all subsequent migration phases.
+
+### STANDINGS-CANONICAL-SELECTOR-DISCOVERY-v1
+- Purpose: Read-only investigation — map all current standings derivation paths, identify inconsistencies, scope the canonical selector work. Originally proposed a 4-prompt campaign (CORE, OVERVIEW, FANOUT, SERVER-INSIGHTS).
+- Scope: Read-only. No code changes, no commits.
+- Notes: Identified the merge-at-render-time pattern as the root cause of Overview surface disagreements. Proposed canonical selector as the fix; later expanded to full 6-phase redesign after Phase 2 remediation experience.
+
 ### DOCS-CLOSEOUT-006
 - Purpose: Documentation closeout for the INSIGHTS-017 campaign. Logs all shipped prompts + STANDINGS-SUBHEADER-FIX, updates roadmap and next-tasks with completion status, registers every prompt in the registry, and adds eight new backlog items surfaced during this campaign.
 - Scope: `docs/completed-work.md`, `docs/roadmap.md`, `docs/next-tasks.md`, `docs/prompt-registry.md`. No code changes.

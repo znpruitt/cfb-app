@@ -21,6 +21,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Data & Intelligence | Insights Engine — Generator Batch 2 | ✅ Complete |
 | Data & Intelligence | Copy Variation Architecture | ✅ Complete |
 | Data & Intelligence | Insights Panel UI Redesign + Polish | ✅ Complete |
+| Platform | Standings Ownership Model Redesign (Phases 0–5) | ✅ Complete |
 | Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018) | Planned |
 | Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019) | Planned |
 | Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE) | Planned |
@@ -88,6 +89,15 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
 - **STANDINGS-PAGE-LIFECYCLE-LABELING** — Broader "Offseason" vs "{year} Season" label inconsistency audit across surfaces beyond the standings page. STANDINGS-SUBHEADER-FIX addressed the standings page itself; other surfaces may still show stale or contradictory year/lifecycle labels during offseason.
 - **INSIGHTS-RANKER-TUNING** — Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for eventually restoring row-1 prominence once the ranker earns it. Revisit when priority decay ships.
 
+## Planned backlog (from Standings Ownership Redesign campaign)
+
+Items surfaced during the Standings Ownership Model Redesign campaign and queued for future implementation:
+
+- **INSIGHTS-LIFECYCLE-AWARENESS** — Insight generators produce nonsensical output during preseason (e.g., "Toilet bowl leader", "Crowded finish in 0 games"). Phase 5 added `usingArchivedRoster` to `InsightContext` as the future gating signal. Generators need to read this flag and suppress or reframe preseason-unsafe insight types. Prerequisite: Phase 5 (complete).
+- **POSTSEASON-START-WEEK-SCHEDULE-DERIVED** — `POSTSEASON_START_WEEK` is currently a hardcoded constant (`= 16`) with a rationale comment (Option B). Option A (derive from schedule data — the week of the earliest `seasonType === 'postseason'` game) is the correct long-term solution. Deferred because the constant works for current seasons; revisit before any season with an unusual CFP bracket structure.
+- **INVALIDATE-STANDINGS-PER-LEAGUE** — `invalidateStandings` currently enumerates all leagues when called for global-scope mutations (e.g., alias writes that apply across leagues). Documented limitation in the `invalidateStandings` JSDoc. A per-league alias scope would allow more targeted invalidation. Prerequisite: alias per-league scoping work (tracked separately under Aliases Platform Migration).
+- **HEADER-ARCHITECTURE-UNIFICATION** — `LeaguePageShell` and `CFBScheduleApp` render independent header regions; they should share a single `LeagueHeader` component. Flagged during LEAGUE-HEADER-USER-MENU work but out of scope for this campaign. Separate Polish prompt when header structure stabilizes.
+
 ## Completed campaigns (summary)
 
 All foundational work is complete. See `docs/completed-work.md` for full records:
@@ -113,6 +123,7 @@ All foundational work is complete. See `docs/completed-work.md` for full records
 - Insights Engine — Generator Batch 2 (INSIGHTS-015): 16 generators across career.ts, stats.ts, milestones.ts; tone property; InsightWindow type; UTF-8 + trending direction bug fixes
 - Copy Variation Architecture (INSIGHTS-016): newsHook + statValue on all generators; per-league/season suppression gate; async engine; 2–5 templates per insight type; rollover clear gated per league
 - Insights Panel UI Redesign + Polish (INSIGHTS-017 + polish passes + STANDINGS-SUBHEADER-FIX): 5-insight panel with category microlabels, tappable rows, first-row prominence (flattened pending ranker), "See all →" link; HISTORICAL/RIVALRY deep-link arrows via panel-layer resolver; three history-page section anchors; light-mode banner fix across all five CFBScheduleApp banner variants; `champion_margin` / `failed_chase` rerouted to `/history/{year}`; `leagueStatus` plumbed to standings page with offseason "{year} Final Standings" subheader via archive-resolved year; arrow contrast tuned to WCAG 3:1; subheader plumbing extended to main league page so the branch fires on the primary WeekViewTabs flow
+- Standings Ownership Model Redesign (Phases 0–5): 6-phase architectural redesign eliminating merge-at-render-time standings derivation. Server canonical (`getCanonicalStandings`) owns rows/history/colorOrder; client `liveDelta` owns live overlays as distinct props. Tag-based invalidation (`invalidateStandings`) wired into all mutation routes. NoClaim filtering moved to source. `currentDate` parameterized. Phases 0–5 all shipped.
 
 ## Hosted deployment runbook
 
