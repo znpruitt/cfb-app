@@ -45,11 +45,17 @@ export default function DraftBoardClient({
     }
   }, [slug, year]);
 
-  // Phase-aware polling: 1.5s when live+running (tight timer loop), 5s otherwise, off when complete.
+  // Phase-aware polling cadence:
+  //   complete → 30 s (catches commissioner-initiated reopen back to live)
+  //   live + running → 1.5 s (tight timer-tick loop)
+  //   default → 5 s
   useEffect(() => {
     if (!isAdmin) return;
-    if (draft.phase === 'complete') return;
-    const intervalMs = draft.phase === 'live' && draft.timerState === 'running' ? 1500 : 5000;
+    const intervalMs = (() => {
+      if (draft.phase === 'complete') return 30000;
+      if (draft.phase === 'live' && draft.timerState === 'running') return 1500;
+      return 5000;
+    })();
     const id = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(id);
   }, [isAdmin, draft.phase, draft.timerState, refresh]);

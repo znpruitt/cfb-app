@@ -34,10 +34,11 @@ export default function SpectatorBoardClient({
     }
   }, [slug, year]);
 
-  // 5-second polling for spectator view; stops when draft is complete.
+  // 5 s polling for spectator view; slows to 30 s when draft is complete so
+  // a commissioner-initiated reopen back to live is still picked up.
   useEffect(() => {
-    if (draft.phase === 'complete') return;
-    const id = setInterval(() => void refresh(), 5000);
+    const intervalMs = draft.phase === 'complete' ? 30000 : 5000;
+    const id = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(id);
   }, [draft.phase, refresh]);
 

@@ -107,8 +107,9 @@ export default async function DraftSummaryPage({
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
 
+  // Summary is broadly viewable post-draft (spectator flow). Admin-only UI
+  // elements inside DraftSummaryClient gate themselves on isAdmin.
   const isAdmin = await canAccessDraftBoard(slug);
-  if (!isAdmin) redirect(`/league/${slug}/draft/board`);
 
   const league = await getLeague(slug);
   if (!league) notFound();
