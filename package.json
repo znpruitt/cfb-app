@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node --import tsx --test 'src/**/__tests__/*.test.ts' 'src/**/__tests__/*.test.tsx'",
     "lint": "npm run lint:eslint && npm run lint:format",
     "lint:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**'",
     "lint:all": "npm run lint:all:eslint && npm run lint:all:format",
@@ -30,7 +31,6 @@
     "@vercel/speed-insights": "^2.0.0",
     "cfbd": "^5.11.4",
     "next": "^15.5.14",
-    "papaparse": "^5.5.3",
     "pg": "^8.20.0",
     "react": "19.1.0",
     "react-dom": "19.1.0"
@@ -44,7 +44,6 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/jsdom": "^28.0.1",
     "@types/node": "^20.19.13",
-    "@types/papaparse": "^5.3.16",
     "@types/pg": "^8.20.0",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",

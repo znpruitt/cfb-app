@@ -203,6 +203,7 @@ Preferred checks:
 
 - `npm run lint`
 - `npx tsc --noEmit`
+- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`.
 
 Known pre-existing issue:
 
@@ -267,7 +268,7 @@ These rules apply from Phase 6 onward and must not be violated:
 
 4. **API routes use `requireAdminAuth(req)`** — this helper checks Clerk JWT first, falls back to `ADMIN_API_TOKEN` during the Phase 6 transition period. It is a drop-in replacement for the old `requireAdminRequest()`. All new admin API routes must support Clerk JWT from day one.
 
-5. **`ADMIN_API_TOKEN` fallback is temporary** — it exists only for Phase 6 backward compatibility. It will be removed in Phase 7. Do not build new flows that depend on it.
+5. **`ADMIN_API_TOKEN` fallback is deferred until Phase 8** — it exists only for Phase 6 backward compatibility. Removal is deferred until the Phase 8 multi-tenant commissioner signup ships, at which point commissioner-scoped Clerk roles replace any remaining token-based fallbacks. Do not build new flows that depend on it. Removal trigger: Phase 8 work begins.
 
 6. **Never hardcode role checks outside middleware and `requireAdminAuth()`** — no inline `publicMetadata.role` comparisons in UI components or API handlers. All role assertions go through the designated helpers.
 
