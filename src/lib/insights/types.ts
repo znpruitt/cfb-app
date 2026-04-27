@@ -103,6 +103,9 @@ export type InsightContext = {
   historicalRosters: Record<number, Map<string, string>>;
   rankings: RankingsResponse | null;
   currentRoster: Map<string, string>;
+  // true when currentRoster was borrowed from the most recent season archive
+  // because the current-year owners CSV is empty (fresh_offseason rollover window).
+  usingArchivedRoster: boolean;
 };
 
 // Generator interface — all generators must conform to this.
