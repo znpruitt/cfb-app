@@ -34,11 +34,13 @@ export default function SpectatorBoardClient({
     }
   }, [slug, year]);
 
-  // 3-second polling for spectator view
+  // 5 s polling for spectator view; slows to 30 s when draft is complete so
+  // a commissioner-initiated reopen back to live is still picked up.
   useEffect(() => {
-    const id = setInterval(() => void refresh(), 3000);
+    const intervalMs = draft.phase === 'complete' ? 30000 : 5000;
+    const id = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(id);
-  }, [refresh]);
+  }, [draft.phase, refresh]);
 
   const pickedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 
