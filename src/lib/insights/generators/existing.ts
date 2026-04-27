@@ -13,6 +13,7 @@ import { selectResolvedStandingsWeeks } from '../../selectors/historyResolution'
 import type { OwnerStandingsRow } from '../../standings';
 import type { StandingsHistory } from '../../standingsHistory';
 import { registerGenerator } from '../engine';
+import { applyLastSeasonFraming } from '../framing';
 import type { InsightContext, InsightGenerator, LifecycleState } from '../types';
 
 const TRAJECTORY_LIFECYCLES: LifecycleState[] = ['early_season', 'mid_season', 'late_season'];
@@ -103,6 +104,13 @@ export const seasonWrapGenerator: InsightGenerator = {
       }
     }
 
+    // When firing in the rollover window (current CSV empty, archived roster
+    // borrowed), every insight here is about the prior season. Make that
+    // explicit in the title so members don't read "Toilet bowl leader: …" as
+    // a current-year claim.
+    if (context.usingArchivedRoster) {
+      return insights.map(applyLastSeasonFraming);
+    }
     return insights;
   },
 };
@@ -113,6 +121,14 @@ export const championshipRaceGenerator: InsightGenerator = {
   supportedLifecycles: RACE_LIFECYCLES,
   generate(context: InsightContext): Insight[] {
     const rows = selectCurrentRows(context);
+
+    // Row-content guard: derived race insights from a 0-0 row set produce
+    // nonsense like "X owners finished within 0 games" or "Title race dead
+    // heat" before any games have been played. Skip when no decisions exist.
+    if (rows.length === 0 || rows.every((r) => r.wins + r.losses === 0)) {
+      return [];
+    }
+
     const insights: Insight[] = [];
 
     const tightCluster = deriveTightClusterInsight(rows);

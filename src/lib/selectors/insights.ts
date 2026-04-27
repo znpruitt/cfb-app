@@ -315,6 +315,9 @@ export function deriveTightRaceInsight(args: {
 }): Insight | null {
   const { rows, seasonContext } = args;
   if (rows.length < 2 || seasonContext === 'final') return null;
+  // Defensive: a zero-game row set produces "Title race dead heat" (every
+  // gamesBack is 0) which is meaningless before any games have been played.
+  if (rows.every((row) => row.wins + row.losses === 0)) return null;
 
   const leader = rows[0];
   if (!leader || !isNarrativeEligibleOwner(leader.owner)) return null;
@@ -547,6 +550,11 @@ export function deriveFinalCollapseInsight(args: {
 export function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | null {
   const eligible = rows.filter((row) => isNarrativeEligibleOwner(row.owner));
   if (eligible.length < 3) return null;
+  // Defensive: every owner at 0-0 produces "N owners finished within 0 games"
+  // which is meaningless. The check on the eligible set (NoClaim already
+  // stripped) avoids penalising a real leader who has games while NoClaim's
+  // synthetic row is still 0-0.
+  if (eligible.every((row) => row.wins + row.losses === 0)) return null;
 
   let bestCluster: { count: number; gap: number; owners: string[] } | null = null;
   for (let start = 0; start < eligible.length; start += 1) {
@@ -603,6 +611,16 @@ export function deriveLeagueInsights(args: {
   const { rows, standingsHistory, seasonContext = null } = args;
   const insights: Insight[] = [];
   const seenIds = new Set<string>();
+
+  // Lifecycle awareness for the legacy direct path. StandingsPanel and
+  // OverviewPanel call this without lifecycle plumbing, so we fall back to a
+  // row-content check: when no owner has played a single game (preseason,
+  // cold-start, fresh-rollover with zero data), every derived insight here
+  // would be meaningless ("X recorded 0 last-place weeks", "Title race dead
+  // heat" at 0-0). Bail out before any derivation runs.
+  const eligibleRows = rows.filter((row) => isNarrativeEligibleOwner(row.owner));
+  const hasGames = eligibleRows.some((row) => row.wins + row.losses > 0);
+  if (!hasGames) return [];
 
   const resolvedWeeks = standingsHistory
     ? selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks

@@ -23,6 +23,29 @@ export function getRegisteredGenerators(): readonly InsightGenerator[] {
   return generators;
 }
 
+/**
+ * Cross-cutting suppression rules layered on top of `supportedLifecycles`.
+ *
+ * `supportedLifecycles` is the static, generator-declared filter ("this generator
+ * runs in these lifecycle states"). `shouldSuppressGenerator` is the dynamic,
+ * context-aware filter ("but skip in *this* specific situation"). Use it for
+ * clean (id, lifecycle, flag)-based skips. Row-content checks (e.g. all rows
+ * 0-0) live inside the generator itself, where the data is already in scope.
+ *
+ * Add a new rule by appending another id-based branch — keep each rule narrow
+ * and well-commented so the suppression logic stays auditable.
+ */
+function shouldSuppressGenerator(g: InsightGenerator, context: InsightContext): boolean {
+  // Rookie benchmark identifies first-archive owners as rookies. When the
+  // current roster is borrowed from a prior archive (rollover window), every
+  // owner read as "current" is actually a returning member, so the rookie
+  // detection would mislabel them. Skip until the current-year CSV exists.
+  if (g.id === 'career:rookie_benchmark' && context.usingArchivedRoster) {
+    return true;
+  }
+  return false;
+}
+
 export type RunInsightsEngineOptions = {
   bypassSuppression?: boolean;
 };
@@ -41,6 +64,7 @@ export async function runInsightsEngine(
   // 2. Run all lifecycle-matching generators with try/catch isolation.
   const raw = generators
     .filter((g) => g.supportedLifecycles.includes(context.lifecycleState))
+    .filter((g) => !shouldSuppressGenerator(g, context))
     .flatMap((g) => {
       try {
         return g.generate(context);

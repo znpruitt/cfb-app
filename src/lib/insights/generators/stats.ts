@@ -1,5 +1,6 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
+import { applyLastSeasonFraming } from '../framing';
 import type {
   InsightContext,
   InsightGenerator,
@@ -7,6 +8,20 @@ import type {
   NewsHook,
   OwnerSeasonStats,
 } from '../types';
+
+// Stats generators run on `ownerGameStats`, which in the rollover window is
+// the prior season's data. Apply the "Last season's …" title prefix only for
+// fresh_offseason (not postseason / mid_season etc., which already reference
+// current-year activity) AND when the active roster was borrowed from an
+// archive (the explicit signal that current-year data is not yet wired up).
+function shouldFrameAsLastSeason(context: InsightContext): boolean {
+  return context.usingArchivedRoster && context.lifecycleState === 'fresh_offseason';
+}
+
+function frameStatsInsights(insights: Insight[], context: InsightContext): Insight[] {
+  if (!shouldFrameAsLastSeason(context)) return insights;
+  return insights.map(applyLastSeasonFraming);
+}
 
 const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
@@ -382,7 +397,7 @@ export const ballSecurityGenerator: InsightGenerator = {
   generate(context) {
     if (!context.ownerGameStats) return [];
     const insight = deriveBallSecurity(context);
-    return insight ? [insight] : [];
+    return frameStatsInsights(insight ? [insight] : [], context);
   },
 };
 
@@ -394,7 +409,7 @@ export const takeawayKingGenerator: InsightGenerator = {
   generate(context) {
     if (!context.ownerGameStats) return [];
     const insight = deriveTakeawayKing(context);
-    return insight ? [insight] : [];
+    return frameStatsInsights(insight ? [insight] : [], context);
   },
 };
 
@@ -406,7 +421,7 @@ export const yardsPerWinGenerator: InsightGenerator = {
   generate(context) {
     if (!context.ownerGameStats) return [];
     const insight = deriveYardsPerWin(context);
-    return insight ? [insight] : [];
+    return frameStatsInsights(insight ? [insight] : [], context);
   },
 };
 
@@ -418,7 +433,7 @@ export const clockCrusherGenerator: InsightGenerator = {
   generate(context) {
     if (!context.ownerGameStats) return [];
     const insight = deriveClockCrusher(context);
-    return insight ? [insight] : [];
+    return frameStatsInsights(insight ? [insight] : [], context);
   },
 };
 
@@ -430,7 +445,7 @@ export const thirdDownSpecialistGenerator: InsightGenerator = {
   generate(context) {
     if (!context.ownerGameStats) return [];
     const insight = deriveThirdDownSpecialist(context);
-    return insight ? [insight] : [];
+    return frameStatsInsights(insight ? [insight] : [], context);
   },
 };
 
@@ -442,7 +457,7 @@ export const teamIdentityGenerator: InsightGenerator = {
   generate(context) {
     if (!context.ownerGameStats) return [];
     const insight = deriveTeamIdentity(context);
-    return insight ? [insight] : [];
+    return frameStatsInsights(insight ? [insight] : [], context);
   },
 };
 
