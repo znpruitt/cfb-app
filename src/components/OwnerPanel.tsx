@@ -2,6 +2,7 @@ import React from 'react';
 
 import type { OwnerRosterRow, OwnerViewSnapshot } from '../lib/ownerView';
 import type { TeamRankingEnrichment } from '../lib/rankings';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
 
@@ -346,6 +347,14 @@ type OwnerPanelProps = {
   displayTimeZone?: string;
   onOwnerChange: (owner: string) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  /**
+   * Canonical standings snapshot loaded server-side. When present, the picker's
+   * owner navigation order is taken from canonical.ownerColorOrder (alphabetical,
+   * NoClaim-filtered, stable across renders) so Members-tab navigation matches
+   * Standings/Overview owner identity. Falls back to the snapshot's record-sorted
+   * owner list when canonical is absent (Trends/History routes).
+   */
+  canonicalStandings?: CanonicalStandings | null;
 };
 
 export default function OwnerPanel({
@@ -354,8 +363,30 @@ export default function OwnerPanel({
   displayTimeZone,
   onOwnerChange,
   rankingsByTeamId = new Map(),
+  canonicalStandings = null,
 }: OwnerPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
+  // Prefer canonical owner ordering when present so the picker matches the
+  // alphabetical, NoClaim-filtered list rendered on Standings/Overview. Canonical
+  // contributes *order only* for owners that the snapshot also knows about —
+  // canonical-only owners (e.g., season skew or pre-refresh roster mismatch)
+  // are filtered out because deriveOwnerViewSnapshot resolves selection from
+  // snapshot.ownerOptions; exposing them in the picker would silently bounce
+  // back on click. Snapshot-only owners (mid-session roster additions canonical
+  // hasn't seen yet) are appended after the canonical block in alphabetical
+  // order so picker navigation always reaches them.
+  const ownerOptions = React.useMemo(() => {
+    if (!canonicalStandings) return snapshot.ownerOptions;
+    const snapshotOwners = new Set(snapshot.ownerOptions);
+    const canonicalInSnapshot = canonicalStandings.ownerColorOrder.filter((owner) =>
+      snapshotOwners.has(owner)
+    );
+    const canonicalSet = new Set(canonicalInSnapshot);
+    const additionalOwners = snapshot.ownerOptions
+      .filter((owner) => !canonicalSet.has(owner))
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return [...canonicalInSnapshot, ...additionalOwners];
+  }, [canonicalStandings, snapshot.ownerOptions]);
 
   return (
     <div className="space-y-4">
@@ -367,7 +398,7 @@ export default function OwnerPanel({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                   <div className="space-y-1">
                     <OwnerPicker
-                      ownerOptions={snapshot.ownerOptions}
+                      ownerOptions={ownerOptions}
                       selectedOwner={snapshot.selectedOwner}
                       onOwnerChange={onOwnerChange}
                     />

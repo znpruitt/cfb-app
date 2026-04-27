@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
 import type { PublicLeague } from '@/lib/league';
@@ -30,6 +31,7 @@ const controlButtonClass =
   'px-3 py-2 rounded border border-gray-300 bg-gray-50 text-sm text-gray-900 transition-colors hover:bg-gray-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
 
 export default function BackfillPanel({ leagues }: Props) {
+  const router = useRouter();
   const [selectedSlug, setSelectedSlug] = useState(leagues[0]?.slug ?? '');
   const [year, setYear] = useState<number>(new Date().getUTCFullYear() - 1);
   const [previewing, setPreviewing] = useState(false);
@@ -56,6 +58,9 @@ export default function BackfillPanel({ leagues }: Props) {
       const data = (await res.json()) as BackfillSuccess | BackfillConfirmationRequired;
       if ('success' in data && data.success) {
         setResult(data);
+        // Backfill bypassed the confirmation step (no existing archive). Refresh
+        // the current RSC tree so canonical standings reflect the new archive.
+        router.refresh();
       } else {
         setPreview(data as BackfillConfirmationRequired);
       }
@@ -82,6 +87,9 @@ export default function BackfillPanel({ leagues }: Props) {
       const data = (await res.json()) as BackfillSuccess;
       setResult(data);
       setPreview(null);
+      // Refresh the current RSC tree so canonical standings reflect the
+      // confirmed archive overwrite.
+      router.refresh();
     } catch (err) {
       setError((err as Error).message);
     } finally {

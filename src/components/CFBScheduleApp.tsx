@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 import AdminDebugSurface from './AdminDebugSurface';
 import FeedbackForm from './FeedbackForm';
@@ -245,6 +246,7 @@ export default function CFBScheduleApp({
 }: CFBScheduleAppProps = {}): React.ReactElement {
   const { user, isLoaded: isUserLoaded } = useUser();
   const isAdmin = isUserLoaded && user?.publicMetadata?.role === 'platform_admin';
+  const router = useRouter();
 
   const hasBootstrappedRef = useRef<boolean>(false);
 
@@ -1138,11 +1140,14 @@ export default function CFBScheduleApp({
       showAliasToast('Aliases saved. Rebuilding…', 1800);
 
       await loadScheduleFromApi();
+      // Refresh the current RSC tree so canonical standings reflect the alias
+      // mutation (alias changes can re-resolve roster team identities).
+      router.refresh();
     } catch (err) {
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
       showAliasToast('Alias save failed.', 1800);
     }
-  }, [aliasStaging, persistAliasChanges, showAliasToast, loadScheduleFromApi]);
+  }, [aliasStaging, persistAliasChanges, showAliasToast, loadScheduleFromApi, router]);
 
   const openEditor = useCallback(() => {
     setEditDraft(
@@ -1187,10 +1192,14 @@ export default function CFBScheduleApp({
       await persistAliasChanges(cleaned, deletes);
       setEditOpen(false);
       await loadScheduleFromApi();
+      // Refresh the current RSC tree so canonical standings (server-rendered)
+      // pick up the alias mutation; the alias API route already invalidates
+      // the standings cache tag.
+      router.refresh();
     } catch (err) {
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
     }
-  }, [editDraft, aliasMap, persistAliasChanges, loadScheduleFromApi]);
+  }, [editDraft, aliasMap, persistAliasChanges, loadScheduleFromApi, router]);
 
   const savePostseasonOverride = useCallback(
     (eventId: string, patch: Partial<AppGame>) => {
@@ -1221,15 +1230,20 @@ export default function CFBScheduleApp({
       });
 
       if (nextOverrides) {
-        void saveServerPostseasonOverrides(selectedSeason, nextOverrides, leagueSlug).catch(
-          (err) => {
+        void saveServerPostseasonOverrides(selectedSeason, nextOverrides, leagueSlug)
+          .then(() => {
+            // Refresh the current RSC tree so canonical standings (server-
+            // rendered) pick up the postseason override; the postseason-
+            // overrides API route already invalidates the standings cache tag.
+            router.refresh();
+          })
+          .catch((err) => {
             setIssues((p) => [...p, `Postseason override save failed: ${(err as Error).message}`]);
-          }
-        );
+          });
         void loadScheduleFromApi(undefined, nextOverrides);
       }
     },
-    [loadScheduleFromApi, selectedSeason, storageKeys.postseasonOverrides]
+    [leagueSlug, loadScheduleFromApi, router, selectedSeason, storageKeys.postseasonOverrides]
   );
 
   const isAdminSurface = surface === 'admin';
@@ -1927,6 +1941,7 @@ export default function CFBScheduleApp({
                   displayTimeZone={presentationTimeZone}
                   onOwnerChange={setSelectedOwner}
                   rankingsByTeamId={rankingsByTeamId}
+                  canonicalStandings={canonicalStandings}
                 />
               ) : primarySurfaceKind === 'postseason' ? (
                 <PostseasonPanel
@@ -1964,9 +1979,15 @@ export default function CFBScheduleApp({
                   rankingsByTeamId={rankingsByTeamId}
                   focusedOwner={focusedOwner}
                   focusedOwnerPair={focusedOwnerPair}
+                  canonicalStandings={canonicalStandings}
+                  liveDelta={liveDelta}
                 />
               ) : weekViewMode === 'matrix' ? (
-                <MatchupMatrixView matrix={matrixData} focusedOwnerPair={focusedOwnerPair} />
+                <MatchupMatrixView
+                  matrix={matrixData}
+                  focusedOwnerPair={focusedOwnerPair}
+                  canonicalStandings={canonicalStandings}
+                />
               ) : (
                 <GameWeekPanel
                   games={filteredWeekGames}

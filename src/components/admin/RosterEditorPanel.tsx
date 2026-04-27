@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
 
@@ -94,6 +95,7 @@ function mapsEqual(a: Map<string, string>, b: Map<string, string>): boolean {
 }
 
 export default function RosterEditorPanel({ slug, year, teams }: Props): React.ReactElement {
+  const router = useRouter();
   const [savedOwners, setSavedOwners] = useState<Map<string, string>>(new Map());
   const [draftOwners, setDraftOwners] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -173,6 +175,10 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
       setSavedOwners(parsed);
       setDraftOwners(new Map(parsed));
       setSaveSuccess(true);
+      // Refresh the current RSC tree so canonical standings reflect the
+      // updated roster (the owners API route already invalidates the
+      // standings cache tag on PUT).
+      router.refresh();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Unexpected error');
     } finally {

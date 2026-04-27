@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
 import type { LeagueStatus } from '@/lib/league';
@@ -76,6 +77,7 @@ export default function SeasonRolloverPanel({
 }: {
   nextRolloverDate?: string | null;
 } = {}): React.ReactElement {
+  const router = useRouter();
   const [previewLoading, setPreviewLoading] = useState(false);
   const [executeLoading, setExecuteLoading] = useState(false);
   const [preview, setPreview] = useState<PreviewResponse['preview'] | null>(null);
@@ -129,6 +131,9 @@ export default function SeasonRolloverPanel({
         return;
       }
       setExecuteResult(data);
+      // Refresh the current RSC tree so admin/league surfaces reflect the
+      // archived season — rollover invalidates canonical standings server-side.
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error');
     } finally {

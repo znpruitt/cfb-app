@@ -28,6 +28,8 @@ import {
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
+import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
+import type { LiveDelta } from '../lib/selectors/liveDelta';
 import RankedTeamName from './RankedTeamName';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
@@ -41,6 +43,20 @@ type MatchupsWeekPanelProps = {
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   focusedOwner?: string | null;
   focusedOwnerPair?: [string, string] | null;
+  /**
+   * Canonical standings snapshot loaded server-side. When present, drives the
+   * owner-card display order so the Matchups view matches Standings/Overview
+   * owner identity. Falls back to the client-derived owner-slate order when
+   * canonical is absent.
+   */
+  canonicalStandings?: CanonicalStandings | null;
+  /**
+   * Client-side partial-week overlay derived from polled scores. Drives the
+   * fresh-LIVE dot beside the LIVE pill on in-progress games. Suppressed when
+   * `liveDelta.isStale` is true so users don't see stale data presented as
+   * fresh.
+   */
+  liveDelta?: LiveDelta | null;
 };
 
 type FocusableElement = {
@@ -155,6 +171,7 @@ function GameRow({
   rosterByTeam,
   displayTimeZone,
   rankingsByTeamId,
+  liveDelta,
 }: {
   slateGame: OwnerSlateGame;
   scoresByKey: Record<string, ScorePack>;
@@ -162,6 +179,7 @@ function GameRow({
   rosterByTeam: Map<string, string>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  liveDelta?: LiveDelta | null;
 }): React.ReactElement {
   const score = scoresByKey[slateGame.game.key];
   const odds = oddsByKey[slateGame.game.key];
@@ -187,6 +205,14 @@ function GameRow({
   const scheduledSeparator =
     usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
+  // Confirm in-progress via the liveDelta selector and require a non-stale
+  // overlay before signaling "fresh live" to the user. Suppressing on stale
+  // avoids painting a polled-15-minutes-ago game as if it were updating now.
+  const liveGameDelta = liveDelta?.byGame[slateGame.game.key];
+  const showLiveIndicator =
+    statusTone === 'inprogress' &&
+    liveGameDelta?.status === 'inprogress' &&
+    liveDelta?.isStale === false;
   const metadataEntries: string[] = [];
   if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
   metadataEntries.push(opponentDescriptor);
@@ -244,9 +270,16 @@ function GameRow({
             </>
           )}
           <span
-            className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
+            className={`inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
           >
             {statusTone === 'final' ? 'FINAL' : statusTone === 'inprogress' ? 'LIVE' : 'SCH'}
+            {showLiveIndicator ? (
+              <span
+                aria-hidden="true"
+                data-matchups-live-indicator={slateGame.game.key}
+                className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 dark:bg-amber-400"
+              />
+            ) : null}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
@@ -301,6 +334,7 @@ function OwnerCard({
   rankingsByTeamId,
   isFocused = false,
   onRegisterRef,
+  liveDelta,
 }: {
   slate: OwnerWeekSlate;
   ownerStanding?: ReturnType<typeof computeStandings>[number];
@@ -311,6 +345,7 @@ function OwnerCard({
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   isFocused?: boolean;
   onRegisterRef?: (element: HTMLElement | null) => void;
+  liveDelta?: LiveDelta | null;
 }): React.ReactElement {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const opponentSummaryEntries = React.useMemo(() => summarizeSlateOpponents(slate), [slate]);
@@ -367,6 +402,7 @@ function OwnerCard({
             rosterByTeam={rosterByTeam}
             displayTimeZone={displayTimeZone}
             rankingsByTeamId={rankingsByTeamId}
+            liveDelta={liveDelta}
           />
         ))}
       </ul>
@@ -395,9 +431,35 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     rankingsByTeamId = new Map(),
     focusedOwner = null,
     focusedOwnerPair = null,
+    canonicalStandings = null,
+    liveDelta = null,
   } = props;
   const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
-  const ownerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  // Reorder owner cards to match canonical owner identity when canonical is
+  // present so Matchups shares the alphabetical ordering used by Standings/
+  // Overview. Owner slates with no canonical entry (unrecognized rosters) are
+  // appended after the canonical block in their original order so they remain
+  // visible.
+  const ownerSlates = React.useMemo(() => {
+    if (!canonicalStandings) return rawOwnerSlates;
+    const slatesByOwner = new Map(rawOwnerSlates.map((slate) => [slate.owner, slate] as const));
+    const ordered: OwnerWeekSlate[] = [];
+    for (const owner of canonicalStandings.ownerColorOrder) {
+      const slate = slatesByOwner.get(owner);
+      if (slate) {
+        ordered.push(slate);
+        slatesByOwner.delete(owner);
+      }
+    }
+    for (const slate of rawOwnerSlates) {
+      if (slatesByOwner.has(slate.owner)) {
+        ordered.push(slate);
+        slatesByOwner.delete(slate.owner);
+      }
+    }
+    return ordered;
+  }, [canonicalStandings, rawOwnerSlates]);
   const oddsAvailableCount = React.useMemo(
     () => games.filter((game) => Boolean(oddsByKey[game.key])).length,
     [games, oddsByKey]
@@ -442,6 +504,7 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
                 rosterByTeam={rosterByTeam}
                 displayTimeZone={displayTimeZone}
                 rankingsByTeamId={rankingsByTeamId}
+                liveDelta={liveDelta}
                 onRegisterRef={(element) => {
                   if (!element) {
                     ownerCardRefs.current.delete(slate.owner);
