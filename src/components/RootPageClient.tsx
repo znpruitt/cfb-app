@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Show, useUser } from '@clerk/nextjs';
+import { Show } from '@clerk/nextjs';
 
 import AppHeaderActions from '@/components/menu/AppHeaderActions';
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
@@ -10,6 +10,12 @@ import type { PublicLeague } from '@/lib/league';
 type Props = {
   leagues: PublicLeague[];
   ownerCountBySlug: Record<string, number | null>;
+  /**
+   * Server-derived platform-admin flag. Computed via `isPlatformAdminSession()`
+   * in the parent RSC and passed down so this client component never reads
+   * `publicMetadata.role` directly (Auth invariant #6).
+   */
+  isPlatformAdmin: boolean;
 };
 
 function ownerLabel(count: number | null): string | null {
@@ -18,10 +24,7 @@ function ownerLabel(count: number | null): string | null {
   return `${count} owner${count === 1 ? '' : 's'}`;
 }
 
-export default function RootPageClient({ leagues, ownerCountBySlug }: Props) {
-  const { user } = useUser();
-  const isPlatformAdmin = user?.publicMetadata?.role === 'platform_admin';
-
+export default function RootPageClient({ leagues, ownerCountBySlug, isPlatformAdmin }: Props) {
   return (
     <>
       {/* Public landing — shown when signed out */}

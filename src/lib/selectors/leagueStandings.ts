@@ -100,6 +100,19 @@ export type GetCanonicalStandingsInput = {
   year?: number;
   /** Test-only override; bypasses React.cache. */
   leagueStatusOverride?: LeagueStatus;
+  /**
+   * Wall-clock used for lifecycle classification and fallback-year resolution.
+   * Defaults to `new Date()` at call time. Callers (page handlers, cron jobs,
+   * tests) should pass an explicit value when reproducibility matters; tests
+   * in particular benefit from a fixed Date so `deriveLifecycleState` is
+   * deterministic.
+   *
+   * Note: this value flows through the cached compute path, so the snapshot
+   * stored in `unstable_cache` reflects whichever request first warmed the
+   * cache. Tag invalidation (`invalidateStandings`) is the only mechanism
+   * that refreshes a stale lifecycle classification in the cache.
+   */
+  currentDate?: Date;
 };
 
 /**
@@ -119,10 +132,11 @@ export type GetCanonicalStandingsInput = {
 const dataCachedCanonicalStandings = (
   slug: string,
   yearOverride: number | null,
-  resolvedYear: number | null
+  resolvedYear: number | null,
+  currentDate: Date
 ) =>
   unstable_cache(
-    async () => computeCanonicalStandings(slug, yearOverride, undefined),
+    async () => computeCanonicalStandings(slug, yearOverride, undefined, currentDate),
     ['canonical-standings', slug, String(resolvedYear)],
     {
       tags: [
@@ -131,6 +145,11 @@ const dataCachedCanonicalStandings = (
       ],
       // Tag-only invalidation; no time-based expiry. Mutations call
       // `invalidateStandings(slug, year)` to bust this entry.
+      //
+      // `currentDate` is intentionally NOT part of the cache key — it would
+      // bust the cache on every request. The closure captures the first
+      // caller's `currentDate`; subsequent cache hits return the same
+      // snapshot. Lifecycle staleness is recovered via tag invalidation.
       revalidate: false,
     }
   )();
@@ -196,12 +215,19 @@ export async function resolveStandingsYear(
  */
 const cachedCanonicalStandings = cache(
   async (slug: string, yearOverride: number | null): Promise<CanonicalStandings> => {
+    // Captured at the React.cache boundary so per-request dedup remains keyed
+    // on (slug, yearOverride) only. Each request's first call to this wrapper
+    // captures wall-clock once; subsequent in-request calls reuse the cached
+    // promise. The captured value flows into the inner `unstable_cache` call
+    // but does not participate in the cross-request key (see
+    // `dataCachedCanonicalStandings`).
+    const currentDate = new Date();
     const resolvedYear = await resolveStandingsYear(slug, yearOverride);
     try {
-      return await dataCachedCanonicalStandings(slug, yearOverride, resolvedYear);
+      return await dataCachedCanonicalStandings(slug, yearOverride, resolvedYear, currentDate);
     } catch (err) {
       if (err instanceof Error && err.message.includes('incrementalCache missing')) {
-        return computeCanonicalStandings(slug, yearOverride, undefined);
+        return computeCanonicalStandings(slug, yearOverride, undefined, currentDate);
       }
       throw err;
     }
@@ -213,7 +239,12 @@ export async function getCanonicalStandings(
 ): Promise<CanonicalStandings> {
   // Test-only override: bypass both cache layers so each test sees its own state.
   if (input.leagueStatusOverride !== undefined) {
-    return computeCanonicalStandings(input.slug, input.year ?? null, input.leagueStatusOverride);
+    return computeCanonicalStandings(
+      input.slug,
+      input.year ?? null,
+      input.leagueStatusOverride,
+      input.currentDate ?? new Date()
+    );
   }
   return cachedCanonicalStandings(input.slug, input.year ?? null);
 }
@@ -262,33 +293,40 @@ export function invalidateStandings(slug: string, year?: number): void {
 async function computeCanonicalStandings(
   slug: string,
   yearOverride: number | null,
-  statusOverride: LeagueStatus | undefined
+  statusOverride: LeagueStatus | undefined,
+  currentDate: Date
 ): Promise<CanonicalStandings> {
   const league = await getLeague(slug);
   if (!league) {
-    return emptySnapshot(slug, resolveFallbackYear(yearOverride), 'offseason');
+    return emptySnapshot(
+      slug,
+      resolveFallbackYear(yearOverride, currentDate),
+      'offseason',
+      currentDate
+    );
   }
 
   const status: LeagueStatus = statusOverride ??
     league.status ?? { state: 'season', year: league.year };
 
   if (status.state === 'offseason') {
-    return resolveOffseason(slug, league, yearOverride);
+    return resolveOffseason(slug, league, yearOverride, currentDate);
   }
 
   const resolvedYear = yearOverride ?? status.year;
 
   if (status.state === 'preseason') {
-    return resolvePreseason(slug, league, status, resolvedYear);
+    return resolvePreseason(slug, league, status, resolvedYear, currentDate);
   }
 
-  return resolveSeason(slug, league, status, resolvedYear);
+  return resolveSeason(slug, league, status, resolvedYear, currentDate);
 }
 
 async function resolveOffseason(
   slug: string,
   league: League,
-  yearOverride: number | null
+  yearOverride: number | null,
+  currentDate: Date
 ): Promise<CanonicalStandings> {
   const archiveYears = await listSeasonArchives(slug);
   const mostRecentArchivedYear =
@@ -309,6 +347,7 @@ async function resolveOffseason(
         finalStandings: archive.finalStandings,
         standingsHistory: archive.standingsHistory,
         games: archive.games,
+        currentDate,
       });
     }
   }
@@ -321,17 +360,19 @@ async function resolveOffseason(
       status: { state: 'offseason' },
       year: targetYear,
       live,
+      currentDate,
     });
   }
 
-  return emptySnapshot(slug, targetYear, 'offseason');
+  return emptySnapshot(slug, targetYear, 'offseason', currentDate);
 }
 
 async function resolveSeason(
   slug: string,
   league: League,
   status: Extract<LeagueStatus, { state: 'season' }>,
-  year: number
+  year: number,
+  currentDate: Date
 ): Promise<CanonicalStandings> {
   // If the season has already been archived (e.g. backfill wrote it while the
   // league is still tagged 'season'), prefer the archive — it's the locked,
@@ -348,13 +389,14 @@ async function resolveSeason(
         finalStandings: archive.finalStandings,
         standingsHistory: archive.standingsHistory,
         games: archive.games,
+        currentDate,
       });
     }
   }
 
   const live = await liveDeriveStandings(slug, year);
   if (live && live.roster.size > 0) {
-    return snapshotFromLive({ slug, league, status, year, live });
+    return snapshotFromLive({ slug, league, status, year, live, currentDate });
   }
 
   // No data: surface the inferred kickoff date when the schedule probe is cached.
@@ -365,34 +407,47 @@ async function resolveSeason(
   // the same diagnostic copy as `source: 'empty'`.
   const probe = await getScheduleProbeState(year);
   if (probe?.firstGameDate) {
-    return preseasonAwaitingKickoffSnapshot(slug, status, year, probe.firstGameDate);
+    return preseasonAwaitingKickoffSnapshot(slug, status, year, probe.firstGameDate, currentDate);
   }
 
-  return emptySnapshot(slug, year, 'early_season');
+  return emptySnapshot(slug, year, 'early_season', currentDate);
 }
 
 async function resolvePreseason(
   slug: string,
   league: League,
   status: Extract<LeagueStatus, { state: 'preseason' }>,
-  year: number
+  year: number,
+  currentDate: Date
 ): Promise<CanonicalStandings> {
   // Prefer CSV (draft complete) — produces real roster + NoClaim segregation.
   const live = await liveDeriveStandings(slug, year);
   if (live && live.roster.size > 0) {
-    return snapshotFromLive({ slug, league, status, year, live });
+    return snapshotFromLive({ slug, league, status, year, live, currentDate });
   }
 
   // Otherwise synthesize owner rows from `preseason-owners:{slug}:{year}`.
   const preseasonOwners = await getPreseasonOwners(slug, year);
   if (preseasonOwners && preseasonOwners.length > 0) {
-    return snapshotFromPreseasonNames({ slug, status, year, ownerNames: preseasonOwners });
+    return snapshotFromPreseasonNames({
+      slug,
+      status,
+      year,
+      ownerNames: preseasonOwners,
+      currentDate,
+    });
   }
 
   // No owner data — preseason by definition means kickoff is in the future.
   // Include the inferred kickoff date from the schedule probe when available.
   const probe = await getScheduleProbeState(year);
-  return preseasonAwaitingKickoffSnapshot(slug, status, year, probe?.firstGameDate ?? null);
+  return preseasonAwaitingKickoffSnapshot(
+    slug,
+    status,
+    year,
+    probe?.firstGameDate ?? null,
+    currentDate
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -407,12 +462,22 @@ function snapshotFromArchive(params: {
   finalStandings: OwnerStandingsRow[];
   standingsHistory: StandingsHistory;
   games: AppGame[];
+  currentDate: Date;
 }): CanonicalStandings {
-  const { slug, league, status, archiveYear, finalStandings, standingsHistory, games } = params;
+  const {
+    slug,
+    league,
+    status,
+    archiveYear,
+    finalStandings,
+    standingsHistory,
+    games,
+    currentDate,
+  } = params;
   void league;
   const { rows, noClaimRow } = splitOutNoClaim(finalStandings);
   const ownerColorOrder = buildOwnerColorOrder(rows);
-  const lifecycle = computeLifecycle(status, standingsHistory, games);
+  const lifecycle = computeLifecycle(status, standingsHistory, games, currentDate);
 
   return {
     slug,
@@ -427,7 +492,7 @@ function snapshotFromArchive(params: {
     ownersRosterSource: 'archive',
     archiveYearResolved: archiveYear,
     inferredSeasonStart: null,
-    generatedAt: new Date().toISOString(),
+    generatedAt: currentDate.toISOString(),
   };
 }
 
@@ -437,12 +502,13 @@ function snapshotFromLive(params: {
   status: LeagueStatus;
   year: number;
   live: LiveDerivation;
+  currentDate: Date;
 }): CanonicalStandings {
-  const { slug, league, status, year, live } = params;
+  const { slug, league, status, year, live, currentDate } = params;
   void league;
   const { rows, noClaimRow } = live;
   const ownerColorOrder = buildOwnerColorOrder(rows);
-  const lifecycle = computeLifecycle(status, live.standingsHistory, live.games);
+  const lifecycle = computeLifecycle(status, live.standingsHistory, live.games, currentDate);
 
   return {
     slug,
@@ -457,7 +523,7 @@ function snapshotFromLive(params: {
     ownersRosterSource: 'csv',
     archiveYearResolved: null,
     inferredSeasonStart: null,
-    generatedAt: new Date().toISOString(),
+    generatedAt: currentDate.toISOString(),
   };
 }
 
@@ -466,8 +532,9 @@ function snapshotFromPreseasonNames(params: {
   status: LeagueStatus;
   year: number;
   ownerNames: string[];
+  currentDate: Date;
 }): CanonicalStandings {
-  const { slug, status, year, ownerNames } = params;
+  const { slug, status, year, ownerNames, currentDate } = params;
   const uniqueNames = Array.from(new Set(ownerNames)).filter((name) => name !== NO_CLAIM_OWNER);
   const sorted = [...uniqueNames].sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: 'base' })
@@ -488,7 +555,7 @@ function snapshotFromPreseasonNames(params: {
     slug,
     year,
     source: 'preseason-names',
-    lifecycle: computeLifecycle(status, null, []),
+    lifecycle: computeLifecycle(status, null, [], currentDate),
     rows,
     noClaimRow: null,
     ownerColorOrder: sorted,
@@ -497,14 +564,15 @@ function snapshotFromPreseasonNames(params: {
     ownersRosterSource: 'preseason-owners',
     archiveYearResolved: null,
     inferredSeasonStart: null,
-    generatedAt: new Date().toISOString(),
+    generatedAt: currentDate.toISOString(),
   };
 }
 
 function emptySnapshot(
   slug: string,
   year: number,
-  lifecycleWhenUnknown: LifecycleState
+  lifecycleWhenUnknown: LifecycleState,
+  currentDate: Date
 ): CanonicalStandings {
   return {
     slug,
@@ -519,7 +587,7 @@ function emptySnapshot(
     ownersRosterSource: 'none',
     archiveYearResolved: null,
     inferredSeasonStart: null,
-    generatedAt: new Date().toISOString(),
+    generatedAt: currentDate.toISOString(),
   };
 }
 
@@ -527,13 +595,14 @@ function preseasonAwaitingKickoffSnapshot(
   slug: string,
   status: LeagueStatus,
   year: number,
-  inferredSeasonStart: string | null
+  inferredSeasonStart: string | null,
+  currentDate: Date
 ): CanonicalStandings {
   return {
     slug,
     year,
     source: 'preseason-awaiting-kickoff',
-    lifecycle: computeLifecycle(status, null, []),
+    lifecycle: computeLifecycle(status, null, [], currentDate),
     rows: [],
     noClaimRow: null,
     ownerColorOrder: [],
@@ -542,7 +611,7 @@ function preseasonAwaitingKickoffSnapshot(
     ownersRosterSource: 'none',
     archiveYearResolved: null,
     inferredSeasonStart,
-    generatedAt: new Date().toISOString(),
+    generatedAt: currentDate.toISOString(),
   };
 }
 
@@ -556,10 +625,18 @@ function buildOwnerColorOrder(rows: OwnerStandingsRow[]): string[] {
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
+/**
+ * Lifecycle classification reachable from inside the cached compute path. The
+ * `currentDate` argument is required (not implicit `new Date()`) so the cached
+ * snapshot's lifecycle is pinned to the request that warmed the cache, not to
+ * whatever wall-clock the helper happened to read at module-load time. Tests
+ * pass a fixed Date for deterministic lifecycle assertions.
+ */
 function computeLifecycle(
   status: LeagueStatus,
   standingsHistory: StandingsHistory | null,
-  games: AppGame[]
+  games: AppGame[],
+  currentDate: Date
 ): LifecycleState {
   const seasonContext = selectSeasonContext({ standingsHistory: standingsHistory ?? null });
   const regularWeeks = deriveRegularWeeks(games);
@@ -570,13 +647,13 @@ function computeLifecycle(
     seasonContext,
     currentWeek,
     totalRegularSeasonWeeks,
-    new Date()
+    currentDate
   );
 }
 
-function resolveFallbackYear(yearOverride: number | null): number {
+function resolveFallbackYear(yearOverride: number | null, currentDate: Date): number {
   if (yearOverride != null) return yearOverride;
-  return new Date().getUTCFullYear();
+  return currentDate.getUTCFullYear();
 }
 
 // ---------------------------------------------------------------------------

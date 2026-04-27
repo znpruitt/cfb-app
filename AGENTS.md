@@ -282,7 +282,7 @@ These rules apply from the Season Launch Hardening campaign onward and must not 
 
 1. **Draft admin access uses `canAccessDraftBoard`** — all RSC-level draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`. No inline `publicMetadata.role` or `clerkRole` comparisons in draft UI components. This fulfills Auth Invariant #6 for the draft subsystem. Commissioner slug-scoped enforcement is Phase 7 work; `canAccessDraftBoard` is already the right entry point.
 
-2. **Draft polling is phase-aware** — polling intervals must account for draft phase: 1.5s when `phase === 'live' && status === 'running'`, 30s when `phase === 'complete'`, 5s default. Never lock to a single interval regardless of phase. Slow polling on complete (not stopping) preserves re-open event delivery.
+2. **Draft polling is phase-aware** — polling intervals must account for draft phase: 1.5s when `phase === 'live' && timerState === 'running'`, 30s when `phase === 'complete'`, 5s default. Never lock to a single interval regardless of phase. Slow polling on complete (not stopping) preserves re-open event delivery.
 
 3. **Time-dependent classification belongs in consumers, not cached selectors** — `unstable_cache`-wrapped selectors must return time-invariant facts (e.g. a kickoff date string). Components and route handlers evaluate `Date.now()` at render/request time. A `Date.now()` call inside a tagged cache closure produces stale classification that persists until the tag is manually invalidated.
 

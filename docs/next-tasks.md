@@ -103,7 +103,7 @@ Items surfaced during the Standings Ownership Model Redesign campaign and queued
 
 ## Planned backlog (from PRE-LAUNCH-TIDYUP)
 
-Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP-AND-VERIFICATION (commit `fa73cc4`):
+Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP (PR #306, commit `1d1b451`). The PRE-LAUNCH-TIDYUP campaign itself shipped: `npm test` script added, `papaparse` removed, doc drift fixes for cron schedule and custom domain redirect landed, ADMIN_API_TOKEN sunset timeline documented. Residual backlog below — the test-baseline cleanup is the unfinished work surfaced by the new test script:
 
 - **TEST-SUITE-BASELINE-CLEANUP** — Update test expectations to match current UI and add a Clerk context wrapper to the test harness so the suite produces a real CI signal. Current state at the time the script was added: 71 failing tests out of 679. All failures are pre-existing and known — they predate the script; the script just made them visible. Two categories:
   - ~50 tests with stale HTML/DOM expectations from before the STANDINGS-OWNERSHIP-MODEL-REDESIGN campaign. Production code is correct; tests need updates. Breakdown: `OverviewPanel.test.tsx` (26), `TrendsDetailSurface.test.tsx` (13, also affected by the move from `src/app/trends/` to `src/components/`), `MatchupsWeekPanel.test.tsx` (10), `StandingsPanel.test.tsx` and adjacent (~10).

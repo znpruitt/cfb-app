@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 
 import LeaguePageShell from '@/components/LeaguePageShell';
 import { loadInsightsForLeague } from '../../../../lib/insights/loadInsights';
@@ -16,7 +16,7 @@ export default async function LeagueInsightsPage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
-  const [{ sessionClaims }, league] = await Promise.all([auth(), getLeague(slug)]);
+  const [isAdmin, league] = await Promise.all([isPlatformAdminSession(), getLeague(slug)]);
   if (!league) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-8">
@@ -26,10 +26,6 @@ export default async function LeagueInsightsPage({
       </main>
     );
   }
-
-  const isAdmin =
-    (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
-      ?.publicMetadata?.role === 'platform_admin';
 
   const response = await loadInsightsForLeague(slug, league.year);
   const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -111,6 +110,13 @@ type CFBScheduleAppProps = {
   initialPreseasonOwners?: string[];
   initialWeekViewMode?: WeekViewMode;
   initialStandingsSubview?: StandingsSubview;
+  /**
+   * Server-derived platform-admin flag. Routes that render this component
+   * compute `await isPlatformAdminSession()` and pass it as a prop so this
+   * client component never reads `publicMetadata.role` directly (Auth
+   * invariant #6). Default `false` keeps tests and ad-hoc renders working.
+   */
+  isAdmin?: boolean;
 };
 
 const PRESEASON_PLACEHOLDER_TEAM_PREFIX = '__preseason-placeholder:';
@@ -243,9 +249,8 @@ export default function CFBScheduleApp({
   initialPreseasonOwners,
   initialWeekViewMode = 'overview',
   initialStandingsSubview = 'table',
+  isAdmin = false,
 }: CFBScheduleAppProps = {}): React.ReactElement {
-  const { user, isLoaded: isUserLoaded } = useUser();
-  const isAdmin = isUserLoaded && user?.publicMetadata?.role === 'platform_admin';
   const router = useRouter();
 
   const hasBootstrappedRef = useRef<boolean>(false);

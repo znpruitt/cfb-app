@@ -4,6 +4,7 @@ import { getLeague } from '../../../../lib/leagueRegistry';
 import { getPreseasonOwners } from '../../../../lib/preseasonOwnerStore';
 import { listSeasonArchives } from '../../../../lib/seasonArchive';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
+import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -24,10 +25,11 @@ export default async function LeagueStandingsPage({
   if (gate) return gate;
   const sp = await searchParams;
   const initialStandingsSubview = resolveStandingsSubview(sp.view);
-  const [league, archiveYears, canonicalStandings] = await Promise.all([
+  const [league, archiveYears, canonicalStandings, isAdmin] = await Promise.all([
     getLeague(slug),
     listSeasonArchives(slug),
     getCanonicalStandings({ slug }),
+    isPlatformAdminSession(),
   ]);
 
   const mostRecentArchivedYear =
@@ -50,6 +52,7 @@ export default async function LeagueStandingsPage({
         canonicalStandings={canonicalStandings}
         initialPreseasonOwners={preseasonOwners}
         initialStandingsSubview={initialStandingsSubview}
+        isAdmin={isAdmin}
       />
     </main>
   );

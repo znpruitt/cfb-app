@@ -2,6 +2,7 @@ import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../lib/leagueRegistry';
 import { listSeasonArchives } from '../../../lib/seasonArchive';
 import { getCanonicalStandings } from '../../../lib/selectors/leagueStandings';
+import { isPlatformAdminSession } from '../../../lib/server/adminAuth';
 import { renderLeagueGateIfBlocked } from './leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -14,10 +15,11 @@ export default async function LeaguePage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
-  const [league, archiveYears, canonicalStandings] = await Promise.all([
+  const [league, archiveYears, canonicalStandings, isAdmin] = await Promise.all([
     getLeague(slug),
     listSeasonArchives(slug),
     getCanonicalStandings({ slug }),
+    isPlatformAdminSession(),
   ]);
   const leagueStatus =
     league?.status ?? (league ? { state: 'season' as const, year: league.year } : undefined);
@@ -32,6 +34,7 @@ export default async function LeaguePage({
         leagueStatus={leagueStatus}
         mostRecentArchivedYear={mostRecentArchivedYear}
         canonicalStandings={canonicalStandings}
+        isAdmin={isAdmin}
       />
     </main>
   );
