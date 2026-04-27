@@ -16,6 +16,7 @@ import {
 } from '../scoreAttachment.ts';
 import type { ScorePack } from '../scores.ts';
 import { getSeasonArchive, listSeasonArchives } from '../seasonArchive.ts';
+import { getScheduleProbeState } from '../scheduleProbe.ts';
 import { selectSeasonContext } from './seasonContext.ts';
 import { getAppState } from '../server/appStateStore.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
@@ -41,9 +42,16 @@ const EMPTY_COVERAGE: StandingsCoverage = { state: 'complete', message: null };
  * - `archive`: read from a persisted SeasonArchive
  * - `live`: derived from the current CSV + schedule + scores caches
  * - `preseason-names`: synthesized from `preseason-owners:{slug}:{year}` (no CSV yet)
- * - `empty`: nothing available for this league/year combination
+ * - `preseason-awaiting-kickoff`: no data and kickoff is in the future (or league is in preseason
+ *   with no owner data set yet); StandingsPanel renders a structured "Season starts {date}" placeholder
+ * - `empty`: nothing available and kickoff has already passed (or season is unknown); diagnostic copy
  */
-export type CanonicalStandingsSource = 'archive' | 'live' | 'preseason-names' | 'empty';
+export type CanonicalStandingsSource =
+  | 'archive'
+  | 'live'
+  | 'preseason-names'
+  | 'preseason-awaiting-kickoff'
+  | 'empty';
 
 export type CanonicalStandingsRosterSource = 'archive' | 'csv' | 'preseason-owners' | 'none';
 
@@ -77,6 +85,12 @@ export type CanonicalStandings = {
   coverage: StandingsCoverage;
   ownersRosterSource: CanonicalStandingsRosterSource;
   archiveYearResolved: number | null;
+  /**
+   * ISO date string of the inferred season kickoff. Populated only when
+   * `source === 'preseason-awaiting-kickoff'` and the schedule probe has been
+   * cached; null otherwise. Consumers use this to render "Season starts {date}".
+   */
+  inferredSeasonStart: string | null;
   generatedAt: string;
 };
 
@@ -343,6 +357,17 @@ async function resolveSeason(
     return snapshotFromLive({ slug, league, status, year, live });
   }
 
+  // No data: surface the inferred kickoff date when the schedule probe is cached.
+  // The selector is wrapped by `unstable_cache` with tag-only invalidation, so
+  // any time-dependent classification baked in here would stick until something
+  // mutates the standings tag. Consumers do the `now > inferredSeasonStart`
+  // check at render time and collapse the post-kickoff stale-cache case onto
+  // the same diagnostic copy as `source: 'empty'`.
+  const probe = await getScheduleProbeState(year);
+  if (probe?.firstGameDate) {
+    return preseasonAwaitingKickoffSnapshot(slug, status, year, probe.firstGameDate);
+  }
+
   return emptySnapshot(slug, year, 'early_season');
 }
 
@@ -364,7 +389,10 @@ async function resolvePreseason(
     return snapshotFromPreseasonNames({ slug, status, year, ownerNames: preseasonOwners });
   }
 
-  return emptySnapshot(slug, year, 'preseason');
+  // No owner data — preseason by definition means kickoff is in the future.
+  // Include the inferred kickoff date from the schedule probe when available.
+  const probe = await getScheduleProbeState(year);
+  return preseasonAwaitingKickoffSnapshot(slug, status, year, probe?.firstGameDate ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +426,7 @@ function snapshotFromArchive(params: {
     coverage: EMPTY_COVERAGE,
     ownersRosterSource: 'archive',
     archiveYearResolved: archiveYear,
+    inferredSeasonStart: null,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -427,6 +456,7 @@ function snapshotFromLive(params: {
     coverage: live.coverage,
     ownersRosterSource: 'csv',
     archiveYearResolved: null,
+    inferredSeasonStart: null,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -466,6 +496,7 @@ function snapshotFromPreseasonNames(params: {
     coverage: EMPTY_COVERAGE,
     ownersRosterSource: 'preseason-owners',
     archiveYearResolved: null,
+    inferredSeasonStart: null,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -487,6 +518,30 @@ function emptySnapshot(
     coverage: EMPTY_COVERAGE,
     ownersRosterSource: 'none',
     archiveYearResolved: null,
+    inferredSeasonStart: null,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function preseasonAwaitingKickoffSnapshot(
+  slug: string,
+  status: LeagueStatus,
+  year: number,
+  inferredSeasonStart: string | null
+): CanonicalStandings {
+  return {
+    slug,
+    year,
+    source: 'preseason-awaiting-kickoff',
+    lifecycle: computeLifecycle(status, null, []),
+    rows: [],
+    noClaimRow: null,
+    ownerColorOrder: [],
+    standingsHistory: null,
+    coverage: EMPTY_COVERAGE,
+    ownersRosterSource: 'none',
+    archiveYearResolved: null,
+    inferredSeasonStart,
     generatedAt: new Date().toISOString(),
   };
 }

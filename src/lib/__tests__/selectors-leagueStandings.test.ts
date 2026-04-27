@@ -296,7 +296,7 @@ test('preseason with CSV containing only NoClaim: falls through to preseason-own
   assert.equal(snapshot.noClaimRow!.owner, 'NoClaim');
 });
 
-test('preseason empty (nothing seeded beyond league): empty snapshot', async () => {
+test('preseason empty (nothing seeded beyond league): preseason-awaiting-kickoff snapshot', async () => {
   const slug = 't7-preseason-empty';
   const year = 2026;
   await seedLeague(makeLeague({ slug, year, status: { state: 'preseason', year } }));
@@ -306,12 +306,15 @@ test('preseason empty (nothing seeded beyond league): empty snapshot', async () 
     leagueStatusOverride: { state: 'preseason', year },
   });
 
-  assert.equal(snapshot.source, 'empty');
+  // Preseason with no owner data → awaiting-kickoff (by definition)
+  assert.equal(snapshot.source, 'preseason-awaiting-kickoff');
   assert.equal(snapshot.ownersRosterSource, 'none');
   assert.deepEqual(snapshot.rows, []);
   assert.equal(snapshot.noClaimRow, null);
   assert.equal(snapshot.standingsHistory, null);
   assert.equal(snapshot.year, year);
+  // No probe state seeded → no inferred date
+  assert.equal(snapshot.inferredSeasonStart, null);
 });
 
 test('NoClaim in archive: stripped from rows, preserved on noClaimRow', async () => {
@@ -609,4 +612,98 @@ test('resolveStandingsYear: missing status returns league.year (not archive year
 
   const resolved = await resolveStandingsYear(slug, null);
   assert.equal(resolved, 2026);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 — preseason-awaiting-kickoff source (SEASON-LAUNCH-HARDENING-PHASE-2)
+// ---------------------------------------------------------------------------
+
+async function seedScheduleProbe(year: number, firstGameDate: string | null): Promise<void> {
+  await setAppState('schedule-probe', String(year), { year, baseCachedAt: null, firstGameDate });
+}
+
+test('season state + kickoff in future: returns preseason-awaiting-kickoff with inferredSeasonStart', async () => {
+  const slug = 'p2-season-kickoff-future';
+  const year = 2026;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
+  // Probe set with first game date far in the future
+  await seedScheduleProbe(year, '2099-08-30T12:00:00.000Z');
+
+  const snapshot = await getCanonicalStandings({
+    slug,
+    leagueStatusOverride: { state: 'season', year },
+  });
+
+  assert.equal(snapshot.source, 'preseason-awaiting-kickoff');
+  assert.equal(snapshot.inferredSeasonStart, '2099-08-30T12:00:00.000Z');
+  assert.equal(snapshot.ownersRosterSource, 'none');
+  assert.deepEqual(snapshot.rows, []);
+  assert.equal(snapshot.standingsHistory, null);
+});
+
+test('season state + kickoff in past: still returns preseason-awaiting-kickoff (consumers do the time check at render)', async () => {
+  // Phase 2 Codex remediation: the selector no longer gates on `now > kickoff`
+  // because it's wrapped in `unstable_cache` with tag-only invalidation.
+  // Whenever a probe firstGameDate is cached, the selector returns
+  // `preseason-awaiting-kickoff` carrying the date; consumers (StandingsPanel,
+  // CFBScheduleApp) do `now > inferredSeasonStart` at render time and collapse
+  // the post-kickoff stale-cache case onto the same diagnostic copy as `empty`.
+  const slug = 'p2-season-kickoff-past';
+  const year = 2026;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
+  await seedScheduleProbe(year, '2000-08-30T12:00:00.000Z');
+
+  const snapshot = await getCanonicalStandings({
+    slug,
+    leagueStatusOverride: { state: 'season', year },
+  });
+
+  assert.equal(snapshot.source, 'preseason-awaiting-kickoff');
+  assert.equal(snapshot.inferredSeasonStart, '2000-08-30T12:00:00.000Z');
+});
+
+test('season state + no probe data: returns empty (conservative fallback)', async () => {
+  const slug = 'p2-season-no-probe';
+  const year = 2026;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
+  // No probe state seeded
+
+  const snapshot = await getCanonicalStandings({
+    slug,
+    leagueStatusOverride: { state: 'season', year },
+  });
+
+  assert.equal(snapshot.source, 'empty');
+  assert.equal(snapshot.inferredSeasonStart, null);
+});
+
+test('preseason state + probe has firstGameDate: includes inferredSeasonStart', async () => {
+  const slug = 'p2-preseason-with-probe';
+  const year = 2026;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'preseason', year } }));
+  await seedScheduleProbe(year, '2026-08-29T12:00:00.000Z');
+
+  const snapshot = await getCanonicalStandings({
+    slug,
+    leagueStatusOverride: { state: 'preseason', year },
+  });
+
+  assert.equal(snapshot.source, 'preseason-awaiting-kickoff');
+  assert.equal(snapshot.inferredSeasonStart, '2026-08-29T12:00:00.000Z');
+  assert.equal(snapshot.ownersRosterSource, 'none');
+});
+
+test('inferredSeasonStart is null for non-awaiting-kickoff sources (archive, live, preseason-names)', async () => {
+  const slug = 'p2-inferred-null-check';
+  const year = 2025;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'offseason' } }));
+  await seedArchive(slug, 2025, [makeHistoryRow('Alice', 10, 2)]);
+
+  const snapshot = await getCanonicalStandings({
+    slug,
+    leagueStatusOverride: { state: 'offseason' },
+  });
+
+  assert.equal(snapshot.source, 'archive');
+  assert.equal(snapshot.inferredSeasonStart, null);
 });
