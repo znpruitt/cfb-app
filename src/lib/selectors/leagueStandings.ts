@@ -357,14 +357,15 @@ async function resolveSeason(
     return snapshotFromLive({ slug, league, status, year, live });
   }
 
-  // No data: check whether kickoff is still in the future to pick the right empty-state label.
+  // No data: surface the inferred kickoff date when the schedule probe is cached.
+  // The selector is wrapped by `unstable_cache` with tag-only invalidation, so
+  // any time-dependent classification baked in here would stick until something
+  // mutates the standings tag. Consumers do the `now > inferredSeasonStart`
+  // check at render time and collapse the post-kickoff stale-cache case onto
+  // the same diagnostic copy as `source: 'empty'`.
   const probe = await getScheduleProbeState(year);
-  const firstGameDate = probe?.firstGameDate ?? null;
-  if (firstGameDate) {
-    const kickoffMs = new Date(firstGameDate).getTime();
-    if (Number.isFinite(kickoffMs) && kickoffMs > Date.now()) {
-      return preseasonAwaitingKickoffSnapshot(slug, status, year, firstGameDate);
-    }
+  if (probe?.firstGameDate) {
+    return preseasonAwaitingKickoffSnapshot(slug, status, year, probe.firstGameDate);
   }
 
   return emptySnapshot(slug, year, 'early_season');

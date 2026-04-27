@@ -570,7 +570,17 @@ export default function CFBScheduleApp({
     [games, presentationTimeZone]
   );
 
-  const isAwaitingKickoff = canonicalStandings?.source === 'preseason-awaiting-kickoff';
+  // The canonical selector is cached with tag-only invalidation, so the
+  // past-vs-future kickoff check happens here at render time. After kickoff
+  // the cached `preseason-awaiting-kickoff` snapshot stops broadening
+  // `isPreseason`; downstream behavior treats it as "active season but no
+  // data" — the right semantic for a stale cache after kickoff.
+  const isAwaitingKickoff = (() => {
+    if (canonicalStandings?.source !== 'preseason-awaiting-kickoff') return false;
+    const inferredStart = canonicalStandings.inferredSeasonStart;
+    if (!inferredStart) return true;
+    return new Date(inferredStart).getTime() > Date.now();
+  })();
   const isPreseason = leagueStatus?.state === 'preseason' || isAwaitingKickoff;
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();

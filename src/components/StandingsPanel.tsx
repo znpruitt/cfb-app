@@ -282,20 +282,36 @@ export default function StandingsPanel({
         <div className="space-y-3">
           {visibleRows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-              {canonicalStandings?.source === 'preseason-awaiting-kickoff' ? (
-                <>
-                  <p className="font-medium text-gray-700 dark:text-zinc-200">
-                    {canonicalStandings.inferredSeasonStart
-                      ? `Season starts ${formatSeasonStartDate(canonicalStandings.inferredSeasonStart)}`
-                      : 'Pre-season'}
-                  </p>
-                  <p className="mt-1">Standings will appear once games are played.</p>
-                </>
-              ) : canonicalStandings?.source === 'empty' ? (
-                'Standings unavailable. Contact your commissioner.'
-              ) : (
-                'Add owners to populate standings.'
-              )}
+              {(() => {
+                if (canonicalStandings?.source === 'preseason-awaiting-kickoff') {
+                  // The selector is cached with tag-only invalidation, so the
+                  // past-vs-future check happens here at render time rather
+                  // than inside the cached snapshot. After kickoff the cached
+                  // snapshot collapses onto the same diagnostic copy as the
+                  // `empty` source until a mutation invalidates the tag.
+                  const inferredStart = canonicalStandings.inferredSeasonStart;
+                  const isStillBeforeKickoff = inferredStart
+                    ? new Date(inferredStart).getTime() > Date.now()
+                    : true;
+                  if (isStillBeforeKickoff) {
+                    return (
+                      <>
+                        <p className="font-medium text-gray-700 dark:text-zinc-200">
+                          {inferredStart
+                            ? `Season starts ${formatSeasonStartDate(inferredStart)}`
+                            : 'Pre-season'}
+                        </p>
+                        <p className="mt-1">Standings will appear once games are played.</p>
+                      </>
+                    );
+                  }
+                  return 'Standings unavailable. Contact your commissioner.';
+                }
+                if (canonicalStandings?.source === 'empty') {
+                  return 'Standings unavailable. Contact your commissioner.';
+                }
+                return 'Add owners to populate standings.';
+              })()}
             </div>
           ) : (
             <>

@@ -641,11 +641,16 @@ test('season state + kickoff in future: returns preseason-awaiting-kickoff with 
   assert.equal(snapshot.standingsHistory, null);
 });
 
-test('season state + kickoff in past: returns empty with null inferredSeasonStart', async () => {
+test('season state + kickoff in past: still returns preseason-awaiting-kickoff (consumers do the time check at render)', async () => {
+  // Phase 2 Codex remediation: the selector no longer gates on `now > kickoff`
+  // because it's wrapped in `unstable_cache` with tag-only invalidation.
+  // Whenever a probe firstGameDate is cached, the selector returns
+  // `preseason-awaiting-kickoff` carrying the date; consumers (StandingsPanel,
+  // CFBScheduleApp) do `now > inferredSeasonStart` at render time and collapse
+  // the post-kickoff stale-cache case onto the same diagnostic copy as `empty`.
   const slug = 'p2-season-kickoff-past';
   const year = 2026;
   await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
-  // Probe set with first game date in the past
   await seedScheduleProbe(year, '2000-08-30T12:00:00.000Z');
 
   const snapshot = await getCanonicalStandings({
@@ -653,8 +658,8 @@ test('season state + kickoff in past: returns empty with null inferredSeasonStar
     leagueStatusOverride: { state: 'season', year },
   });
 
-  assert.equal(snapshot.source, 'empty');
-  assert.equal(snapshot.inferredSeasonStart, null);
+  assert.equal(snapshot.source, 'preseason-awaiting-kickoff');
+  assert.equal(snapshot.inferredSeasonStart, '2000-08-30T12:00:00.000Z');
 });
 
 test('season state + no probe data: returns empty (conservative fallback)', async () => {
