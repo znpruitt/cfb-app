@@ -223,7 +223,7 @@
 - `buildSeasonArchive()` extracted for reuse across preview/execute/cron paths; `findNationalChampionshipGameDate()` prefers `playoffRound === 'national_championship'` with a fallback to the latest postseason game date.
 - Automatic cron at `GET /api/cron/season-rollover` — runs daily, filters non-test leagues in `state: 'season'`, triggers when `championshipDate + 7 days` has passed, archives each league and transitions it to `state: 'offseason'` with per-league error isolation.
 - TSC League successfully rolled over to offseason via the new panel.
-- `vercel.json` now lists three cron jobs: season-transition (Wednesday preseason→season), game-stats (Monday weekly refresh), season-rollover (daily post-championship check).
+- `vercel.json` now lists three cron jobs: season-transition (daily 00:00 UTC; internal date math gates when the transition actually fires), game-stats (Monday 11:00 UTC weekly refresh), season-rollover (daily 00:00 UTC post-championship check).
 
 **Key architectural decisions:**
 - Two-phase UI (preview → confirm) chosen over single-click to protect against accidental rollovers; existing archives get a diff summary rather than silent overwrite.
@@ -1105,7 +1105,7 @@ Key architectural decisions across Phase 5:
 - After setup complete: green "Setup Complete ✓" badge with "Season will go live automatically before the first game" note
 
 **Automatic season transition cron (P7B-SEASON-TRANSITION-B)**
-- `vercel.json` created with weekly cron: `0 0 * * 3` (Wednesday midnight UTC)
+- `vercel.json` created with daily cron: `0 0 * * *` (00:00 UTC). The handler does internal date math to determine whether the transition actually fires — it probes for `firstGameDate` and only transitions preseason leagues the day before the first game.
 - `/api/cron/season-transition` route secured via `CRON_SECRET` Bearer token
 - `ScheduleProbeState` type in `src/lib/scheduleProbe.ts`: tracks `baseCachedAt`, `firstGameDate` per year
 - Cron logic: find preseason leagues → probe CFBD for schedule → cache data → derive first game date → transition all preseason leagues the day before first game
@@ -1207,7 +1207,7 @@ Key architectural decisions across Phase 5:
 - Clerk production instance migration: DNS configured, session token customized, production keys set in Vercel, commissioner account created with `platform_admin` role
 - Domain acquisition: `turfwar.games` and `tscturfwar.com` registered via Porkbun
 - Custom domain connected: `turfwar.games` pointed to Vercel production via A record
-- TSC redirect: `tscturfwar.com` → `https://turfwar.games/league/tsc` via permanent 301 in `vercel.json`
+- TSC redirect: `tscturfwar.com` → `https://turfwar.games/league/tsc` permanent redirect — configured at the Vercel dashboard layer (not in `vercel.json`, which contains only cron definitions)
 - Branding update: "CFB League Dashboard" → "Turf War" across all user-facing surfaces (`layout.tsx`, `RootPageClient.tsx`, login page, test assertion); URL example updated to `turfwar.games`
 - Landing page tagline updated to "Your league, upgraded."
 
