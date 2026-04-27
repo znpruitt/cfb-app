@@ -1,5 +1,6 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
+import { applyReturningOwnerFraming } from '../framing';
 import type {
   InsightContext,
   InsightGenerator,
@@ -7,6 +8,8 @@ import type {
   NewsHook,
   OwnerCareerStats,
 } from '../types';
+
+const RETURNING_OWNER_TRENDING_LIFECYCLES: LifecycleState[] = ['preseason', 'fresh_offseason'];
 
 const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
@@ -787,7 +790,11 @@ export const volatilityGenerator: InsightGenerator = {
   tone: 'playful',
   generate(context) {
     const insight = deriveVolatilityAward(context);
-    return insight ? [insight] : [];
+    if (!insight) return [];
+    // In the rollover window the active set is borrowed from a prior archive,
+    // so the owner referenced here is a returning member. Acknowledge that
+    // explicitly rather than implying they're a new participant.
+    return [context.usingArchivedRoster ? applyReturningOwnerFraming(insight) : insight];
   },
 };
 
@@ -798,7 +805,8 @@ export const neverFinishedLastGenerator: InsightGenerator = {
   tone: 'factual',
   generate(context) {
     const insight = deriveNeverFinishedLast(context);
-    return insight ? [insight] : [];
+    if (!insight) return [];
+    return [context.usingArchivedRoster ? applyReturningOwnerFraming(insight) : insight];
   },
 };
 
@@ -809,7 +817,8 @@ export const titleChaserGenerator: InsightGenerator = {
   tone: 'playful',
   generate(context) {
     const insight = deriveTitleChaser(context);
-    return insight ? [insight] : [];
+    if (!insight) return [];
+    return [context.usingArchivedRoster ? applyReturningOwnerFraming(insight) : insight];
   },
 };
 
@@ -819,6 +828,10 @@ export const rookieBenchmarkGenerator: InsightGenerator = {
   supportedLifecycles: ROOKIE_LIFECYCLES,
   tone: 'factual',
   generate(context) {
+    // Engine-level suppression already filters this out when usingArchivedRoster
+    // is set (rookie detection on a borrowed roster is wrong); the duplicate
+    // guard here keeps the generator safe if invoked directly.
+    if (context.usingArchivedRoster) return [];
     const insight = deriveRookieBenchmark(context);
     return insight ? [insight] : [];
   },
@@ -846,6 +859,14 @@ export const trendingGenerator: InsightGenerator = {
     if (up) insights.push(up);
     const down = deriveTrending(context, 'down');
     if (down) insights.push(down);
+    // Returning-owner framing only matters in pre-season-y states; mid/late
+    // season already has current-year trajectory grounding the narrative.
+    if (
+      context.usingArchivedRoster &&
+      RETURNING_OWNER_TRENDING_LIFECYCLES.includes(context.lifecycleState)
+    ) {
+      return insights.map(applyReturningOwnerFraming);
+    }
     return insights;
   },
 };
