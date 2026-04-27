@@ -46,6 +46,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Polish | Back Button Audit | Planned |
 | Polish | Aliases Platform Migration | Planned |
 | Polish | History Page — Filter Former Owners | Planned |
+| Polish | Test Suite Baseline Cleanup (TEST-SUITE-BASELINE-CLEANUP) | Planned |
 
 ## Active priorities
 
@@ -97,6 +98,19 @@ Items surfaced during the Standings Ownership Model Redesign campaign and queued
 - **POSTSEASON-START-WEEK-SCHEDULE-DERIVED** — `POSTSEASON_START_WEEK` is currently a hardcoded constant (`= 16`) with a rationale comment (Option B). Option A (derive from schedule data — the week of the earliest `seasonType === 'postseason'` game) is the correct long-term solution. Deferred because the constant works for current seasons; revisit before any season with an unusual CFP bracket structure.
 - **INVALIDATE-STANDINGS-PER-LEAGUE** — `invalidateStandings` currently enumerates all leagues when called for global-scope mutations (e.g., alias writes that apply across leagues). Documented limitation in the `invalidateStandings` JSDoc. A per-league alias scope would allow more targeted invalidation. Prerequisite: alias per-league scoping work (tracked separately under Aliases Platform Migration).
 - **HEADER-ARCHITECTURE-UNIFICATION** — `LeaguePageShell` and `CFBScheduleApp` render independent header regions; they should share a single `LeagueHeader` component. Flagged during LEAGUE-HEADER-USER-MENU work but out of scope for this campaign. Separate Polish prompt when header structure stabilizes.
+
+## Planned backlog (from PRE-LAUNCH-TIDYUP)
+
+Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP-AND-VERIFICATION (commit `fa73cc4`):
+
+- **TEST-SUITE-BASELINE-CLEANUP** — Update test expectations to match current UI and add a Clerk context wrapper to the test harness so the suite produces a real CI signal. Current state at the time the script was added: 71 failing tests out of 679. All failures are pre-existing and known — they predate the script; the script just made them visible. Two categories:
+  - ~50 tests with stale HTML/DOM expectations from before the STANDINGS-OWNERSHIP-MODEL-REDESIGN campaign. Production code is correct; tests need updates. Breakdown: `OverviewPanel.test.tsx` (26), `TrendsDetailSurface.test.tsx` (13, also affected by the move from `src/app/trends/` to `src/components/`), `MatchupsWeekPanel.test.tsx` (10), `StandingsPanel.test.tsx` and adjacent (~10).
+  - ~12 `CFBScheduleApp.test.tsx` failures from `useUser()` requiring a `<ClerkProvider />` wrapper added during LEAGUE-HEADER-USER-MENU. Add a shared test utility (e.g. `renderWithClerk()`) or per-test mock.
+  - Goal: drop failure count from 71 to single digits (allowing for any irreducible flakes). Once landed, the test suite becomes a meaningful CI signal — new test failures actually mean something rather than getting lost in baseline noise.
+  - Trigger to prioritize: when CI is set up, when adding new tests in a campaign that touches these files, or when test debt feels actively painful.
+  - Estimated scope: 1–2 sessions. Per-test updates are mechanical; the harder part is auditing whether failing assertions reflect real bugs or just stale expectations.
+  - Prerequisites: none. Independent of any active campaign.
+  - **Prompt ID to assign:** `TEST-SUITE-BASELINE-CLEANUP-v1`
 
 ## Completed campaigns (summary)
 
