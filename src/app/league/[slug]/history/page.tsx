@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server';
 import { notFound } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
-import { buildSeasonArchive } from '@/lib/seasonRollover';
+import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
 import { getAppState } from '@/lib/server/appStateStore';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import {
@@ -76,15 +76,17 @@ export default async function LeagueHistoryPage({
   let liveStandings: StandingsRow[] | undefined;
   if (!years.includes(activeYear)) {
     try {
-      const liveArchive = await buildSeasonArchive(slug, activeYear);
-      liveStandings = liveArchive.finalStandings.map((row, idx) => ({
-        rank: idx + 1,
-        owner: row.owner,
-        wins: row.wins,
-        losses: row.losses,
-        gamesBack: row.gamesBack,
-        pointDifferential: row.pointDifferential,
-      }));
+      const canonical = await getCanonicalStandings({ slug, year: activeYear });
+      if (canonical && canonical.source !== 'empty') {
+        liveStandings = canonical.rows.map((row, idx) => ({
+          rank: idx + 1,
+          owner: row.owner,
+          wins: row.wins,
+          losses: row.losses,
+          gamesBack: row.gamesBack,
+          pointDifferential: row.pointDifferential,
+        }));
+      }
     } catch {
       // Live season data unavailable — show only archived data
     }
