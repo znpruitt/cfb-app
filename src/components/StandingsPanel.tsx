@@ -92,6 +92,17 @@ function formatGamesBack(value: number): string {
   return value === 0 ? '—' : String(value);
 }
 
+function formatSeasonStartDate(isoDate: string): string {
+  const d = new Date(isoDate);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(d);
+}
+
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
@@ -271,7 +282,20 @@ export default function StandingsPanel({
         <div className="space-y-3">
           {visibleRows.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-              Add owners to populate standings.
+              {canonicalStandings?.source === 'preseason-awaiting-kickoff' ? (
+                <>
+                  <p className="font-medium text-gray-700 dark:text-zinc-200">
+                    {canonicalStandings.inferredSeasonStart
+                      ? `Season starts ${formatSeasonStartDate(canonicalStandings.inferredSeasonStart)}`
+                      : 'Pre-season'}
+                  </p>
+                  <p className="mt-1">Standings will appear once games are played.</p>
+                </>
+              ) : canonicalStandings?.source === 'empty' ? (
+                'Standings unavailable. Contact your commissioner.'
+              ) : (
+                'Add owners to populate standings.'
+              )}
             </div>
           ) : (
             <>

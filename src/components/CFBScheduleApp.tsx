@@ -570,7 +570,8 @@ export default function CFBScheduleApp({
     [games, presentationTimeZone]
   );
 
-  const isPreseason = leagueStatus?.state === 'preseason';
+  const isAwaitingKickoff = canonicalStandings?.source === 'preseason-awaiting-kickoff';
+  const isPreseason = leagueStatus?.state === 'preseason' || isAwaitingKickoff;
   const rosterByTeam = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of roster) m.set(r.team, r.owner);
