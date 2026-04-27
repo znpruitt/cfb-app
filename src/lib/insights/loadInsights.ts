@@ -78,6 +78,7 @@ export async function loadInsightsForLeague(
   year?: number,
   options: LoadInsightsOptions = {}
 ): Promise<InsightsResponse> {
+  const currentDate = new Date();
   const league = await getLeague(slug);
   if (!league) {
     return emptyResponse('offseason', `League '${slug}' not found`);
@@ -158,7 +159,8 @@ export async function loadInsightsForLeague(
       games,
       seasonContext,
       rankings,
-      currentRoster
+      currentRoster,
+      currentDate
     );
 
     const insights = await runInsightsEngine(context, {
