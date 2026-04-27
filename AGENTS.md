@@ -275,6 +275,22 @@ These rules apply from Phase 6 onward and must not be violated:
 
 ---
 
+## Season Launch Hardening Invariants
+
+These rules apply from the Season Launch Hardening campaign onward and must not be violated:
+
+1. **Draft admin access uses `canAccessDraftBoard`** — all RSC-level draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`. No inline `publicMetadata.role` or `clerkRole` comparisons in draft UI components. This fulfills Auth Invariant #6 for the draft subsystem. Commissioner slug-scoped enforcement is Phase 7 work; `canAccessDraftBoard` is already the right entry point.
+
+2. **Draft polling is phase-aware** — polling intervals must account for draft phase: 1.5s when `phase === 'live' && status === 'running'`, 30s when `phase === 'complete'`, 5s default. Never lock to a single interval regardless of phase. Slow polling on complete (not stopping) preserves re-open event delivery.
+
+3. **Time-dependent classification belongs in consumers, not cached selectors** — `unstable_cache`-wrapped selectors must return time-invariant facts (e.g. a kickoff date string). Components and route handlers evaluate `Date.now()` at render/request time. A `Date.now()` call inside a tagged cache closure produces stale classification that persists until the tag is manually invalidated.
+
+4. **Insights engine suppression is layered and bypassable** — (a) `shouldSuppressGenerator(g, context)` handles (id, lifecycle, flag)-based generator-level skips; (b) `isSuppressed(insight, records)` handles per-insight record-level suppression. Both layers are controlled by `bypassSuppression`. Any new engine-level suppression rule must use `bypassSuppression || !<rule>` — never unconditional — so admin diagnostic runs (`?bypassSuppression=1`) receive unfiltered output.
+
+5. **`usingArchivedRoster` drives framing, not just gating** — when `context.usingArchivedRoster` is true, generators must reframe their output (e.g. "Last season's" prefix, "Returning owner" narrative) rather than producing bare preseason-unsafe copy or suppressing entirely. Use `applyLastSeasonFraming` and `applyReturningOwnerFraming` from `src/lib/insights/framing.ts`. Suppress completely only when reframing would be meaningless (e.g. `rookie_benchmark` — there is no valid "returning owner" framing for a first-archive-owner comparison).
+
+---
+
 ## Preview branch
 
 After completing any implementation and pushing to the feature branch, always run the following command before ending the session:
