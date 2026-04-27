@@ -62,9 +62,13 @@ export async function runInsightsEngine(
     : await loadSuppressionRecords(context.leagueSlug, context.currentYear).catch(() => new Map());
 
   // 2. Run all lifecycle-matching generators with try/catch isolation.
+  // The cross-cutting suppression filter is gated on bypassSuppression so
+  // admin/diagnostic runs (e.g. ?bypassSuppression=1) actually receive every
+  // generator's output — without this gate, the new engine-level rule would
+  // silently keep filtering even when the caller asked for everything.
   const raw = generators
     .filter((g) => g.supportedLifecycles.includes(context.lifecycleState))
-    .filter((g) => !shouldSuppressGenerator(g, context))
+    .filter((g) => bypassSuppression || !shouldSuppressGenerator(g, context))
     .flatMap((g) => {
       try {
         return g.generate(context);

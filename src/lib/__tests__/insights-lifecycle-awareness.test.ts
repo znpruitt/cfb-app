@@ -6,6 +6,12 @@ import {
   applyReturningOwnerFraming,
 } from '../insights/framing';
 import {
+  clearGenerators,
+  getRegisteredGenerators,
+  registerGenerator,
+  runInsightsEngine,
+} from '../insights/engine';
+import {
   championshipRaceGenerator,
   seasonWrapGenerator,
 } from '../insights/generators/existing';
@@ -18,6 +24,7 @@ import {
 import { ballSecurityGenerator } from '../insights/generators/stats';
 import type {
   InsightContext,
+  InsightGenerator,
   LifecycleState,
   OwnerCareerStats,
   OwnerSeasonStats,
@@ -563,5 +570,68 @@ test('rookieBenchmarkGenerator declares only preseason / fresh_offseason lifecyc
       true,
       `rookieBenchmarkGenerator should not run in ${lc}`
     );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Engine: bypassSuppression must skip the new shouldSuppressGenerator filter
+// (Phase 3 Codex remediation: admin diagnostic runs need every generator's
+// output, including ones that are normally filtered for content reasons.)
+// ---------------------------------------------------------------------------
+
+test('runInsightsEngine respects bypassSuppression for the generator-level filter', async () => {
+  // The shouldSuppressGenerator rule keys on `id === 'career:rookie_benchmark'`,
+  // so the fake generator below must reuse that id to exercise the suppression
+  // path. Save and restore the global generator registry so other tests in this
+  // file (and in any other test file run in the same process) keep working.
+  const original = [...getRegisteredGenerators()];
+  clearGenerators();
+
+  let invocations = 0;
+  const fakeGenerator: InsightGenerator = {
+    id: 'career:rookie_benchmark',
+    category: 'historical',
+    supportedLifecycles: ['fresh_offseason'],
+    generate: () => {
+      invocations += 1;
+      return [
+        {
+          id: 'fake-suppress-target',
+          type: 'rookie_benchmark',
+          title: 'fake',
+          description: 'fake',
+          priorityScore: 100,
+          newsHook: 'snapshot',
+          statValue: 1,
+        },
+      ];
+    },
+  };
+  registerGenerator(fakeGenerator);
+
+  try {
+    const ctx = makeContext({
+      lifecycleState: 'fresh_offseason',
+      usingArchivedRoster: true,
+    });
+
+    invocations = 0;
+    const filtered = await runInsightsEngine(ctx, { bypassSuppression: false });
+    assert.equal(invocations, 0, 'generator should be filtered out without bypass');
+    assert.equal(
+      filtered.some((i) => i.id === 'fake-suppress-target'),
+      false
+    );
+
+    invocations = 0;
+    const bypassed = await runInsightsEngine(ctx, { bypassSuppression: true });
+    assert.equal(invocations, 1, 'generator should run when bypassSuppression=true');
+    assert.equal(
+      bypassed.some((i) => i.id === 'fake-suppress-target'),
+      true
+    );
+  } finally {
+    clearGenerators();
+    for (const g of original) registerGenerator(g);
   }
 });
