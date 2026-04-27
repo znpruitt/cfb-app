@@ -367,18 +367,25 @@ export default function OwnerPanel({
 }: OwnerPanelProps): React.ReactElement {
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   // Prefer canonical owner ordering when present so the picker matches the
-  // alphabetical, NoClaim-filtered list rendered on Standings/Overview. Owners
-  // present in the snapshot but missing from canonical (mid-session roster
-  // additions) are appended after canonical in alphabetical order so picker
-  // navigation always reaches them.
+  // alphabetical, NoClaim-filtered list rendered on Standings/Overview. Canonical
+  // contributes *order only* for owners that the snapshot also knows about —
+  // canonical-only owners (e.g., season skew or pre-refresh roster mismatch)
+  // are filtered out because deriveOwnerViewSnapshot resolves selection from
+  // snapshot.ownerOptions; exposing them in the picker would silently bounce
+  // back on click. Snapshot-only owners (mid-session roster additions canonical
+  // hasn't seen yet) are appended after the canonical block in alphabetical
+  // order so picker navigation always reaches them.
   const ownerOptions = React.useMemo(() => {
     if (!canonicalStandings) return snapshot.ownerOptions;
-    const canonicalOwners = canonicalStandings.ownerColorOrder;
-    const canonicalSet = new Set(canonicalOwners);
+    const snapshotOwners = new Set(snapshot.ownerOptions);
+    const canonicalInSnapshot = canonicalStandings.ownerColorOrder.filter((owner) =>
+      snapshotOwners.has(owner)
+    );
+    const canonicalSet = new Set(canonicalInSnapshot);
     const additionalOwners = snapshot.ownerOptions
       .filter((owner) => !canonicalSet.has(owner))
       .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-    return [...canonicalOwners, ...additionalOwners];
+    return [...canonicalInSnapshot, ...additionalOwners];
   }, [canonicalStandings, snapshot.ownerOptions]);
 
   return (

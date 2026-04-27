@@ -308,3 +308,64 @@ test('owner panel surfaces snapshot-only owners after the canonical block', () =
   assert.match(html, /aria-label="Previous owner: Foster"/);
   assert.match(html, /aria-label="Next owner: Ballard"/);
 });
+
+test('owner panel filters canonical-only owners that the snapshot does not know about', () => {
+  // Canonical includes Carol, but the snapshot only carries Alice and Bob (a
+  // canonical/snapshot skew, e.g., post-roster-mutation pre-refresh). Carol
+  // must not appear in the picker — selecting her would bounce because
+  // deriveOwnerViewSnapshot only resolves owners from snapshot.ownerOptions.
+  const snapshotWithoutCarol: OwnerViewSnapshot = {
+    ...snapshot,
+    selectedOwner: 'Alice',
+    ownerOptions: ['Alice', 'Bob'],
+  };
+  const canonicalIncludingCarol: CanonicalStandings = {
+    ...canonicalSnapshot,
+    ownerColorOrder: ['Alice', 'Bob', 'Carol'],
+  };
+
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={snapshotWithoutCarol}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+      canonicalStandings={canonicalIncludingCarol}
+    />
+  );
+
+  // Picker has 2 options [Alice, Bob]: from Alice, prev = Bob, next = Bob.
+  // If Carol leaked in, prev/next from Alice would mention Carol.
+  assert.match(html, /aria-label="Previous owner: Bob"/);
+  assert.match(html, /aria-label="Next owner: Bob"/);
+  assert.doesNotMatch(html, /Carol/);
+});
+
+test('owner panel appends snapshot-only owners after canonical block (canonical contributes order only)', () => {
+  // Canonical has [Alice, Bob], snapshot adds Dave (canonical hasn't seen yet).
+  // ownerOptions should be [Alice, Bob, Dave]: canonical anchors order, Dave
+  // appended after.
+  const snapshotWithDave: OwnerViewSnapshot = {
+    ...snapshot,
+    selectedOwner: 'Dave',
+    ownerOptions: ['Alice', 'Bob', 'Dave'],
+  };
+  const canonicalAliceBob: CanonicalStandings = {
+    ...canonicalSnapshot,
+    ownerColorOrder: ['Alice', 'Bob'],
+  };
+
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={snapshotWithDave}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+      canonicalStandings={canonicalAliceBob}
+    />
+  );
+
+  // From Dave (last in [Alice, Bob, Dave]): prev = Bob, next wraps to Alice.
+  assert.match(html, /aria-label="Previous owner: Bob"/);
+  assert.match(html, /aria-label="Next owner: Alice"/);
+});
