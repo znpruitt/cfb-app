@@ -12,9 +12,9 @@ const SCOPE_PREFIX = 'insights-suppression';
 
 // Records older than this are treated as absent. Safety net for paths that
 // fail to clear records (e.g. orphaned offseason records from before the
-// admin-rollover clear path landed). 90 days comfortably covers an active
-// CFB season (~15 weeks) without expiring records mid-season.
-export const SUPPRESSION_RECORD_TTL_DAYS = 90;
+// admin-rollover clear path landed). Full CFB season + postseason spans
+// ~135 days at most; 180 days covers that window with comfortable buffer.
+export const SUPPRESSION_RECORD_TTL_DAYS = 180;
 const SUPPRESSION_RECORD_TTL_MS = SUPPRESSION_RECORD_TTL_DAYS * 24 * 60 * 60 * 1000;
 
 function scopeFor(leagueSlug: string, season: number): string {

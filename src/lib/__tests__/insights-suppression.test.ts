@@ -157,13 +157,13 @@ test('isSuppressed: 30-day-old record with unchanged stat suppresses normally', 
   assert.equal(isSuppressed(insight, records), true);
 });
 
-test('isSuppressed: 91-day-old record is ignored (TTL exceeded)', () => {
+test('isSuppressed: 181-day-old record is ignored (TTL exceeded)', () => {
   const record = makeRecord({
     insightId: 'ball-security-alex',
     hook: 'extending_lead',
     owner: 'Alex',
     statValue: 0.45,
-    firedAt: new Date(Date.now() - 91 * DAY_MS).toISOString(),
+    firedAt: new Date(Date.now() - 181 * DAY_MS).toISOString(),
   });
   const records = new Map([[`${record.insightId}:${record.hook}`, record]]);
   const insight = makeInsight({
