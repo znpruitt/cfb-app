@@ -214,20 +214,18 @@ export async function resolveStandingsYear(
  * production / dev requests, which is the only place it matters.
  */
 const cachedCanonicalStandings = cache(
-  async (slug: string, yearOverride: number | null): Promise<CanonicalStandings> => {
-    // Captured at the React.cache boundary so per-request dedup remains keyed
-    // on (slug, yearOverride) only. Each request's first call to this wrapper
-    // captures wall-clock once; subsequent in-request calls reuse the cached
-    // promise. The captured value flows into the inner `unstable_cache` call
-    // but does not participate in the cross-request key (see
-    // `dataCachedCanonicalStandings`).
-    const currentDate = new Date();
+  async (slug: string, yearOverride: number | null, currentDate?: Date): Promise<CanonicalStandings> => {
+    // Resolve currentDate inside the body rather than as a default parameter
+    // expression so React.cache keys on (slug, yearOverride, undefined) for
+    // all production callers — a default expression would produce a unique Date
+    // object each call and bust per-request dedup.
+    const resolvedCurrentDate = currentDate ?? new Date();
     const resolvedYear = await resolveStandingsYear(slug, yearOverride);
     try {
-      return await dataCachedCanonicalStandings(slug, yearOverride, resolvedYear, currentDate);
+      return await dataCachedCanonicalStandings(slug, yearOverride, resolvedYear, resolvedCurrentDate);
     } catch (err) {
       if (err instanceof Error && err.message.includes('incrementalCache missing')) {
-        return computeCanonicalStandings(slug, yearOverride, undefined, currentDate);
+        return computeCanonicalStandings(slug, yearOverride, undefined, resolvedCurrentDate);
       }
       throw err;
     }
@@ -246,7 +244,7 @@ export async function getCanonicalStandings(
       input.currentDate ?? new Date()
     );
   }
-  return cachedCanonicalStandings(input.slug, input.year ?? null);
+  return cachedCanonicalStandings(input.slug, input.year ?? null, input.currentDate);
 }
 
 /**
