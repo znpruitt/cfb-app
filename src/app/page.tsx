@@ -2,12 +2,13 @@ import { getAppState } from '@/lib/server/appStateStore';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
+import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 import RootPageClient from '@/components/RootPageClient';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Page() {
-  const leagues = await getLeagues();
+  const [leagues, isPlatformAdmin] = await Promise.all([getLeagues(), isPlatformAdminSession()]);
 
   const activeYear = seasonYearForToday();
   const ownerCountBySlug: Record<string, number | null> = {};
@@ -34,5 +35,11 @@ export default async function Page() {
     })
   );
 
-  return <RootPageClient leagues={sanitizeLeagues(leagues)} ownerCountBySlug={ownerCountBySlug} />;
+  return (
+    <RootPageClient
+      leagues={sanitizeLeagues(leagues)}
+      ownerCountBySlug={ownerCountBySlug}
+      isPlatformAdmin={isPlatformAdmin}
+    />
+  );
 }

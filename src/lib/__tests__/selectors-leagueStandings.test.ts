@@ -707,3 +707,19 @@ test('inferredSeasonStart is null for non-awaiting-kickoff sources (archive, liv
   assert.equal(snapshot.source, 'archive');
   assert.equal(snapshot.inferredSeasonStart, null);
 });
+
+test('currentDate threads through main cached path: generatedAt reflects caller-provided date', async () => {
+  // Verifies that input.currentDate is not dropped by getCanonicalStandings on
+  // the non-leagueStatusOverride path. The test environment triggers the
+  // `incrementalCache missing` fallback in cachedCanonicalStandings, so the
+  // snapshot is still computed; generatedAt is the observable that proves
+  // currentDate reached computeCanonicalStandings.
+  const slug = 'currentdate-threading-main-path';
+  const fixedDate = new Date('2025-07-04T12:00:00.000Z');
+  await seedLeague(makeLeague({ slug, year: 2025, status: { state: 'season', year: 2025 } }));
+  await seedOwnersCsv(slug, 2025, 'team,owner\nTexas,Alice\nGeorgia,Bob');
+
+  const snapshot = await getCanonicalStandings({ slug, currentDate: fixedDate });
+
+  assert.equal(snapshot.generatedAt, fixedDate.toISOString());
+});

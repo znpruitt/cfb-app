@@ -1,6 +1,7 @@
 import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
+import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -13,9 +14,10 @@ export default async function LeagueMatchupsPage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
-  const [league, canonicalStandings] = await Promise.all([
+  const [league, canonicalStandings, isAdmin] = await Promise.all([
     getLeague(slug),
     getCanonicalStandings({ slug }),
+    isPlatformAdminSession(),
   ]);
   return (
     <main>
@@ -25,6 +27,7 @@ export default async function LeagueMatchupsPage({
         leagueYear={league?.year}
         canonicalStandings={canonicalStandings}
         initialWeekViewMode="matchups"
+        isAdmin={isAdmin}
       />
     </main>
   );

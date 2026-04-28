@@ -1,5 +1,5 @@
-import { auth } from '@clerk/nextjs/server';
 import { notFound } from 'next/navigation';
+import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
 import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
@@ -35,12 +35,8 @@ export default async function LeagueHistoryPage({
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
 
-  const [{ sessionClaims }, league] = await Promise.all([auth(), getLeague(slug)]);
+  const [isAdmin, league] = await Promise.all([isPlatformAdminSession(), getLeague(slug)]);
   if (!league) notFound();
-
-  const isAdmin =
-    (sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> })
-      ?.publicMetadata?.role === 'platform_admin';
 
   const years = await listSeasonArchives(slug);
 

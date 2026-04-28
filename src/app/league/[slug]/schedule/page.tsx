@@ -1,5 +1,6 @@
 import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../../lib/leagueRegistry';
+import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export default async function LeagueSchedulePage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
-  const league = await getLeague(slug);
+  const [league, isAdmin] = await Promise.all([getLeague(slug), isPlatformAdminSession()]);
   return (
     <main>
       <CFBScheduleApp
@@ -20,6 +21,7 @@ export default async function LeagueSchedulePage({
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}
         initialWeekViewMode="schedule"
+        isAdmin={isAdmin}
       />
     </main>
   );
