@@ -134,7 +134,7 @@ function deriveBallSecurity(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 65,
     lifecycle: STATS_LIFECYCLES,
-    newsHook: 'snapshot',
+    newsHook: 'extending_lead',
     statValue: Number(perGame),
   });
 }
@@ -182,7 +182,7 @@ function deriveTakeawayKing(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 65,
     lifecycle: STATS_LIFECYCLES,
-    newsHook: 'snapshot',
+    newsHook: 'extending_lead',
     statValue: Number(leaderPerGame.toFixed(2)),
   });
 }
@@ -231,7 +231,7 @@ function deriveYardsPerWin(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 67,
     lifecycle: STATS_LIFECYCLES,
-    newsHook: 'snapshot',
+    newsHook: 'extending_lead',
     statValue: ypw,
   });
 }
@@ -277,7 +277,7 @@ function deriveClockCrusher(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 60,
     lifecycle: STATS_LIFECYCLES,
-    newsHook: 'snapshot',
+    newsHook: 'extending_lead',
     statValue: Math.round(tied[0]!.perGame),
   });
 }
@@ -321,7 +321,7 @@ function deriveThirdDownSpecialist(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 62,
     lifecycle: STATS_LIFECYCLES,
-    newsHook: 'snapshot',
+    newsHook: 'extending_lead',
     statValue: Number(leaderPct),
   });
 }
@@ -382,7 +382,7 @@ function deriveTeamIdentity(context: InsightContext): Insight | null {
     relatedOwners: ownerNames.slice(1),
     priorityScore: 58,
     lifecycle: EVERGREEN_LIFECYCLES,
-    newsHook: 'snapshot',
+    newsHook: 'extending_lead',
     statValue: Number(pct),
   });
 }

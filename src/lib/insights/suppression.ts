@@ -10,6 +10,13 @@ import type { NewsHook } from './types';
 
 const SCOPE_PREFIX = 'insights-suppression';
 
+// Records older than this are treated as absent. Safety net for paths that
+// fail to clear records (e.g. orphaned offseason records from before the
+// admin-rollover clear path landed). Full CFB season + postseason spans
+// ~135 days at most; 180 days covers that window with comfortable buffer.
+export const SUPPRESSION_RECORD_TTL_DAYS = 180;
+const SUPPRESSION_RECORD_TTL_MS = SUPPRESSION_RECORD_TTL_DAYS * 24 * 60 * 60 * 1000;
+
 function scopeFor(leagueSlug: string, season: number): string {
   return `${SCOPE_PREFIX}:${leagueSlug}:${season}`;
 }
@@ -21,6 +28,12 @@ export type SuppressionRecord = {
   firedAt: string;
   statValue: number;
 };
+
+export function isSuppressionRecordExpired(record: SuppressionRecord, now = Date.now()): boolean {
+  const firedAtMs = new Date(record.firedAt).getTime();
+  if (!Number.isFinite(firedAtMs)) return false;
+  return now - firedAtMs > SUPPRESSION_RECORD_TTL_MS;
+}
 
 // Insight types that are always newsworthy and never suppressed.
 const NEVER_SUPPRESS_TYPES: ReadonlySet<InsightType> = new Set<InsightType>([
@@ -56,6 +69,15 @@ const TYPE_THRESHOLDS: Partial<Record<InsightType, ThresholdRule>> = {
   trending_up: { kind: 'unchanged' },
   trending_down: { kind: 'unchanged' },
   greatest_season: { kind: 'unchanged' },
+  // Stats leader insights — refire when the leader changes (owner check) or
+  // when the leading owner's stat value changes. Without an entry these would
+  // fire on every request after the snapshot-hook switch.
+  ball_security: { kind: 'unchanged' },
+  takeaway_king: { kind: 'unchanged' },
+  yards_per_win: { kind: 'unchanged' },
+  clock_crusher: { kind: 'unchanged' },
+  third_down: { kind: 'unchanged' },
+  team_identity: { kind: 'unchanged' },
 };
 
 function buildKey(insightId: string, hook: NewsHook): string {
@@ -133,6 +155,10 @@ export function isSuppressed(insight: Insight, records: Map<string, SuppressionR
   const key = buildKey(insight.id, insight.newsHook);
   const prior = records.get(key);
   if (!prior) return false;
+
+  // TTL safety net: records older than SUPPRESSION_RECORD_TTL_DAYS are treated
+  // as absent. Catches anything missed by the season-rollover clear paths.
+  if (isSuppressionRecordExpired(prior)) return false;
 
   if (prior.owner !== primaryOwner(insight)) return false;
 
