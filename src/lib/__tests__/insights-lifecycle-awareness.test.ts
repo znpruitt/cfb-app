@@ -1,20 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  applyLastSeasonFraming,
-  applyReturningOwnerFraming,
-} from '../insights/framing';
+import { applyLastSeasonFraming, applyReturningOwnerFraming } from '../insights/framing';
 import {
   clearGenerators,
   getRegisteredGenerators,
   registerGenerator,
   runInsightsEngine,
 } from '../insights/engine';
-import {
-  championshipRaceGenerator,
-  seasonWrapGenerator,
-} from '../insights/generators/existing';
+import { championshipRaceGenerator, seasonWrapGenerator } from '../insights/generators/existing';
 import {
   rookieBenchmarkGenerator,
   titleChaserGenerator,
@@ -147,7 +141,7 @@ function fakeInsight(overrides: Partial<Insight> = {}): Insight {
   };
 }
 
-test("applyLastSeasonFraming prepends \"Last season's\" to the title with lowercase first letter", () => {
+test('applyLastSeasonFraming prepends "Last season\'s" to the title with lowercase first letter', () => {
   const framed = applyLastSeasonFraming(fakeInsight({ title: 'Toilet bowl leader' }));
   assert.equal(framed.title, "Last season's toilet bowl leader");
 });
@@ -158,7 +152,7 @@ test('applyLastSeasonFraming is idempotent', () => {
   assert.equal(once.title, twice.title);
 });
 
-test("applyLastSeasonFraming preserves description and other fields", () => {
+test('applyLastSeasonFraming preserves description and other fields', () => {
   const original = fakeInsight({
     title: 'Late collapse',
     description: 'Alex dropped 4 spots over the final 3 weeks.',
@@ -294,11 +288,7 @@ test('championshipRaceGenerator returns empty when no owner has played a game', 
 test('championshipRaceGenerator fires normally when rows have games', () => {
   const context = makeContext({
     lifecycleState: 'mid_season',
-    currentStandings: [
-      row('Alex', 5, 1, 0),
-      row('Blake', 4, 2, 1),
-      row('Casey', 3, 3, 2),
-    ],
+    currentStandings: [row('Alex', 5, 1, 0), row('Blake', 4, 2, 1), row('Casey', 3, 3, 2)],
   });
   const insights = championshipRaceGenerator.generate(context);
   assert.equal(insights.length > 0, true);
@@ -554,22 +544,14 @@ test('ballSecurityGenerator does NOT apply framing in mid_season even with using
 test('seasonWrapGenerator declares only post-current-season lifecycles', () => {
   const allowed: LifecycleState[] = ['postseason', 'fresh_offseason'];
   for (const lc of seasonWrapGenerator.supportedLifecycles) {
-    assert.equal(
-      allowed.includes(lc),
-      true,
-      `seasonWrapGenerator should not run in ${lc}`
-    );
+    assert.equal(allowed.includes(lc), true, `seasonWrapGenerator should not run in ${lc}`);
   }
 });
 
 test('rookieBenchmarkGenerator declares only preseason / fresh_offseason lifecycles', () => {
   const allowed: LifecycleState[] = ['preseason', 'fresh_offseason'];
   for (const lc of rookieBenchmarkGenerator.supportedLifecycles) {
-    assert.equal(
-      allowed.includes(lc),
-      true,
-      `rookieBenchmarkGenerator should not run in ${lc}`
-    );
+    assert.equal(allowed.includes(lc), true, `rookieBenchmarkGenerator should not run in ${lc}`);
   }
 });
 
