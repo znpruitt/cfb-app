@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { AllTimeHeadToHeadEntry } from '@/lib/selectors/historySelectors';
+import FormerOwnerBadge from './FormerOwnerBadge';
 
 type Props = {
   /** Top rivalries to display prominently. */
@@ -46,9 +47,9 @@ export default function AllTimeHeadToHeadPanel({
   const displayList = showAll ? allH2H : rivalries;
 
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">
           {showAll ? 'All-Time Head-to-Head' : 'Top Rivalries'}
         </h2>
         <button
@@ -61,11 +62,9 @@ export default function AllTimeHeadToHeadPanel({
       </div>
 
       {displayList.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center dark:border-zinc-700 dark:bg-zinc-800/40">
-          <p className="text-sm text-gray-500 dark:text-zinc-400">
-            No cross-season head-to-head data available.
-          </p>
-        </div>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">
+          No cross-season head-to-head data available.
+        </p>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-zinc-800">
           {displayList.map((entry) => {
@@ -90,11 +89,7 @@ export default function AllTimeHeadToHeadPanel({
                     >
                       {entry.ownerA}
                     </Link>
-                    {aIsFormer && (
-                      <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 ring-1 ring-gray-200 dark:text-zinc-500 dark:ring-zinc-700">
-                        Former
-                      </span>
-                    )}
+                    {aIsFormer && <FormerOwnerBadge className="ml-1" />}
                     {' vs '}
                     <Link
                       href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerB)}/`}
@@ -103,11 +98,7 @@ export default function AllTimeHeadToHeadPanel({
                     >
                       {entry.ownerB}
                     </Link>
-                    {bIsFormer && (
-                      <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 ring-1 ring-gray-200 dark:text-zinc-500 dark:ring-zinc-700">
-                        Former
-                      </span>
-                    )}
+                    {bIsFormer && <FormerOwnerBadge className="ml-1" />}
                   </span>
                   <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
                     <span className="tabular-nums text-gray-800 dark:text-zinc-100">

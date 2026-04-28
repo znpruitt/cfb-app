@@ -489,6 +489,9 @@ export type OwnerSeasonRecord = {
   finish: number;
   totalOwners: number;
   isChampion: boolean;
+  pointsFor: number;
+  pointsAgainst: number;
+  pointDifferential: number;
 };
 
 export type OwnerCareerHeadToHead = {
@@ -509,9 +512,25 @@ export type OwnerCareerResult = {
   championships: number;
   seasonsPlayed: number;
   avgFinish: number;
+  totalPoints: number;
+  totalPointsAgainst: number;
+  totalPointDifferential: number;
+  firstSeason: number | null;
+  isRookie: boolean;
+  /** Career turnover margin from cached game stats. Optional — populated only
+   * when the caller provides game-stats data (see loadOwnerCareerExtras). */
+  totalTurnoverMargin: number | null;
+  /** Career total yards from cached game stats. Optional — see totalTurnoverMargin. */
+  totalYards: number | null;
   seasonHistory: OwnerSeasonRecord[];
   headToHead: OwnerCareerHeadToHead[];
 };
+
+/**
+ * Optional per-owner extras sourced from the cached game-stats pipeline.
+ * Keyed by owner name. Use loadOwnerCareerExtras (server-only) to populate.
+ */
+export type OwnerCareerExtras = Map<string, { totalYards: number; totalTurnoverMargin: number }>;
 
 // ---------------------------------------------------------------------------
 // Internal helpers for cross-season selectors
@@ -856,8 +875,15 @@ export function selectMostImprovedSeasonOverSeason(archives: SeasonArchive[]): M
 
 /**
  * Aggregates a single owner's career across all archived seasons.
+ *
+ * Pass `extras` (from loadOwnerCareerExtras) to populate totalTurnoverMargin
+ * and totalYards. When omitted, those fields are null.
  */
-export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string): OwnerCareerResult {
+export function selectOwnerCareer(
+  archives: SeasonArchive[],
+  ownerName: string,
+  extras?: OwnerCareerExtras
+): OwnerCareerResult {
   const sorted = sortedByYear(archives);
   const seasonHistory: OwnerSeasonRecord[] = [];
 
@@ -871,6 +897,9 @@ export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string):
     const row = archive.finalStandings[finishIdx]!;
     const finish = finishIdx + 1;
     const champion = archiveChampion(archive);
+    const pointsFor = row.pointsFor ?? 0;
+    const pointsAgainst = row.pointsAgainst ?? 0;
+    const pointDifferential = row.pointDifferential ?? pointsFor - pointsAgainst;
 
     seasonHistory.push({
       year: archive.year,
@@ -880,6 +909,9 @@ export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string):
       finish,
       totalOwners: archive.finalStandings.length,
       isChampion: champion === ownerName,
+      pointsFor,
+      pointsAgainst,
+      pointDifferential,
     });
 
     // Season head-to-head
@@ -901,16 +933,27 @@ export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string):
   let totalLosses = 0;
   let championships = 0;
   let finishSum = 0;
+  let totalPoints = 0;
+  let totalPointsAgainst = 0;
+  let totalPointDifferential = 0;
+  let firstSeason: number | null = null;
 
   for (const s of seasonHistory) {
     totalWins += s.wins;
     totalLosses += s.losses;
     if (s.isChampion) championships++;
     finishSum += s.finish;
+    totalPoints += s.pointsFor;
+    totalPointsAgainst += s.pointsAgainst;
+    totalPointDifferential += s.pointDifferential;
+    if (firstSeason === null || s.year < firstSeason) firstSeason = s.year;
   }
 
   const seasonsPlayed = seasonHistory.length;
   const avgFinish = seasonsPlayed > 0 ? finishSum / seasonsPlayed : 0;
+  const ownerExtras = extras?.get(ownerName);
+  const totalTurnoverMargin = ownerExtras ? ownerExtras.totalTurnoverMargin : null;
+  const totalYards = ownerExtras ? ownerExtras.totalYards : null;
 
   // Aggregate all-time H2H per opponent with per-season breakdown
   const h2hByOpponent = new Map<
@@ -949,6 +992,13 @@ export function selectOwnerCareer(archives: SeasonArchive[], ownerName: string):
     championships,
     seasonsPlayed,
     avgFinish,
+    totalPoints,
+    totalPointsAgainst,
+    totalPointDifferential,
+    firstSeason,
+    isRookie: seasonsPlayed <= 1,
+    totalTurnoverMargin,
+    totalYards,
     seasonHistory,
     headToHead,
   };

@@ -16,15 +16,15 @@ function formatDiff(value: number): string {
 
 export default function FinalStandingsTable({ rows, year }: Props): React.ReactElement {
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-3 text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+    <section className="space-y-3">
+      <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">
         {year} Final Standings
       </h2>
       {rows.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-zinc-400">No standings data available.</p>
       ) : (
         <div className="relative">
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-900" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-950" />
           <div className="-mx-1 overflow-x-auto px-1">
             <table className="min-w-max border-separate border-spacing-0 text-sm">
               <thead>
@@ -49,7 +49,7 @@ export default function FinalStandingsTable({ rows, year }: Props): React.ReactE
                 {rows.map((row) => (
                   <tr
                     key={row.owner}
-                    className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
+                    className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900/40"
                   >
                     <td className="w-[2.8rem] border-b border-gray-100 px-1.5 py-2 text-base font-semibold tabular-nums text-gray-900 sm:px-2 dark:border-zinc-800 dark:text-zinc-100">
                       {row.rank}

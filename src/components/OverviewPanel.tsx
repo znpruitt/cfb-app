@@ -986,11 +986,13 @@ function resolveHistoryHref(insight: Insight, base: string): string | null {
       if (!ownerSegment) return null;
       const kind = parseMilestoneKind(insight.id);
       if (kind === 'wins') return `${base}/history/owner/${ownerSegment}`;
+      if (kind === 'points') return `${base}/history/owner/${ownerSegment}#career-points`;
       return null;
     }
     case 'career_points_leader':
+      return ownerSegment ? `${base}/history/owner/${ownerSegment}#career-points` : null;
     case 'career_turnover_margin':
-      return null;
+      return ownerSegment ? `${base}/history/owner/${ownerSegment}#turnover-margin` : null;
     default:
       return null;
   }

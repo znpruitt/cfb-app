@@ -11,10 +11,8 @@ export default function SeasonListPanel({ history, slug }: Props): React.ReactEl
   const sorted = [...history].sort((a, b) => b.year - a.year);
 
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-3 text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-        Season Archive
-      </h2>
+    <section className="space-y-3">
+      <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">Season Archive</h2>
       {sorted.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-zinc-400">No archived seasons.</p>
       ) : (
@@ -27,17 +25,12 @@ export default function SeasonListPanel({ history, slug }: Props): React.ReactEl
               >
                 {entry.year} Season
               </Link>
-              <span className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-zinc-300">
-                <span className="text-amber-500" aria-hidden="true">
-                  🏆
-                </span>
-                <Link
-                  href={`/league/${slug}/history/owner/${encodeURIComponent(entry.champion)}/`}
-                  className="font-medium hover:underline"
-                >
-                  {entry.champion}
-                </Link>
-              </span>
+              <Link
+                href={`/league/${slug}/history/owner/${encodeURIComponent(entry.champion)}/`}
+                className="text-sm font-semibold text-amber-700 hover:underline dark:text-amber-400"
+              >
+                {entry.champion}
+              </Link>
             </li>
           ))}
         </ul>
