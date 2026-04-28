@@ -28,11 +28,16 @@ export default function AllTimeStandingsTable({
   const activeSet = activeOwners ? new Set(activeOwners) : null;
   const [filter, setFilter] = React.useState<FilterMode>('all');
 
+  // Compute rank from the unfiltered ordering once, then filter visibility.
+  // Filters never renumber: hidden owners leave gaps in the rank column so a
+  // former owner at all-time rank 13 still reads "13" under the Former filter.
+  const rankedRows = React.useMemo(() => rows.map((row, idx) => ({ row, rank: idx + 1 })), [rows]);
+
   const filteredRows = React.useMemo(() => {
-    if (filter === 'all' || activeSet === null) return rows;
-    if (filter === 'active') return rows.filter((row) => activeSet.has(row.owner));
-    return rows.filter((row) => !activeSet.has(row.owner));
-  }, [rows, filter, activeSet]);
+    if (filter === 'all' || activeSet === null) return rankedRows;
+    if (filter === 'active') return rankedRows.filter(({ row }) => activeSet.has(row.owner));
+    return rankedRows.filter(({ row }) => !activeSet.has(row.owner));
+  }, [rankedRows, filter, activeSet]);
 
   return (
     <section className="space-y-3">
@@ -90,7 +95,7 @@ export default function AllTimeStandingsTable({
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row, idx) => {
+                {filteredRows.map(({ row, rank }) => {
                   const isFormer = activeSet !== null && !activeSet.has(row.owner);
                   const textClass = isFormer
                     ? 'text-gray-400 dark:text-zinc-500'
@@ -107,7 +112,7 @@ export default function AllTimeStandingsTable({
                       <td
                         className={`border-b border-gray-100 px-1.5 py-2 text-sm tabular-nums sm:px-2 dark:border-zinc-800 ${mutedClass}`}
                       >
-                        {idx + 1}
+                        {rank}
                       </td>
                       <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 sm:px-2 dark:border-zinc-800">
                         <span className="flex flex-wrap items-center gap-1.5">

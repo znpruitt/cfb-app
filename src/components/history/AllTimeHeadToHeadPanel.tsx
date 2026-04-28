@@ -75,26 +75,19 @@ export default function AllTimeHeadToHeadPanel({
             const bIsFormer = activeSet !== null && !activeSet.has(entry.ownerB);
             return (
               <li key={key}>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-4 py-2.5 text-left text-sm hover:bg-gray-50/60 dark:hover:bg-zinc-800/40"
-                  onClick={() => toggleEntry(key)}
-                  aria-expanded={isOpen}
-                >
+                <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
                   <span className="font-semibold text-gray-900 dark:text-zinc-50">
                     <Link
                       href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerA)}/`}
                       className={`hover:text-blue-600 hover:underline dark:hover:text-blue-400 ${aIsFormer ? 'text-gray-400 dark:text-zinc-500' : ''}`}
-                      onClick={(e) => e.stopPropagation()}
                     >
                       {entry.ownerA}
                     </Link>
                     {aIsFormer && <FormerOwnerBadge className="ml-1" />}
-                    {' vs '}
+                    <span className="font-normal text-gray-500 dark:text-zinc-500"> vs </span>
                     <Link
                       href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerB)}/`}
                       className={`hover:text-blue-600 hover:underline dark:hover:text-blue-400 ${bIsFormer ? 'text-gray-400 dark:text-zinc-500' : ''}`}
-                      onClick={(e) => e.stopPropagation()}
                     >
                       {entry.ownerB}
                     </Link>
@@ -108,9 +101,21 @@ export default function AllTimeHeadToHeadPanel({
                       {total} game{total !== 1 ? 's' : ''} · {entry.seasons} season
                       {entry.seasons !== 1 ? 's' : ''}
                     </span>
-                    <span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleEntry(key)}
+                      aria-expanded={isOpen}
+                      aria-label={
+                        isOpen
+                          ? `Collapse details for ${entry.ownerA} vs ${entry.ownerB}`
+                          : `Expand details for ${entry.ownerA} vs ${entry.ownerB}`
+                      }
+                      className="rounded px-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-500 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
+                    >
+                      <span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
+                    </button>
                   </span>
-                </button>
+                </div>
                 {isOpen && (
                   <div className="mb-2 ml-4 space-y-1">
                     <p className="text-xs text-gray-500 dark:text-zinc-400">

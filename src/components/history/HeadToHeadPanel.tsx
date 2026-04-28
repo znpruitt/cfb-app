@@ -31,12 +31,13 @@ export default function HeadToHeadPanel({ headToHead, slug }: Props): React.Reac
   }
 
   function ownerLabel(name: string): React.ReactNode {
-    if (!slug) return name;
+    if (!slug) {
+      return <span className="text-gray-900 dark:text-zinc-50">{name}</span>;
+    }
     return (
       <Link
         href={`/league/${slug}/history/owner/${encodeURIComponent(name)}/`}
-        className="hover:text-blue-600 hover:underline dark:hover:text-blue-400"
-        onClick={(e) => e.stopPropagation()}
+        className="text-gray-900 hover:text-blue-600 hover:underline dark:text-zinc-50 dark:hover:text-blue-400"
       >
         {name}
       </Link>
@@ -60,22 +61,31 @@ export default function HeadToHeadPanel({ headToHead, slug }: Props): React.Reac
             const isOpen = expanded.has(key);
             return (
               <li key={key}>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-4 py-2.5 text-left text-sm hover:bg-gray-50/60 dark:hover:bg-zinc-800/40"
-                  onClick={() => toggle(key)}
-                  aria-expanded={isOpen}
-                >
+                <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
                   <span className="font-semibold text-gray-900 dark:text-zinc-50">
-                    {ownerLabel(entry.ownerA)} vs {ownerLabel(entry.ownerB)}
+                    {ownerLabel(entry.ownerA)}{' '}
+                    <span className="font-normal text-gray-500 dark:text-zinc-500">vs</span>{' '}
+                    {ownerLabel(entry.ownerB)}
                   </span>
                   <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
                     <span className="tabular-nums text-gray-800 dark:text-zinc-100">
                       {entry.wins}–{entry.losses}
                     </span>
-                    <span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggle(key)}
+                      aria-expanded={isOpen}
+                      aria-label={
+                        isOpen
+                          ? `Collapse details for ${entry.ownerA} vs ${entry.ownerB}`
+                          : `Expand details for ${entry.ownerA} vs ${entry.ownerB}`
+                      }
+                      className="rounded px-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-500 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
+                    >
+                      <span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
+                    </button>
                   </span>
-                </button>
+                </div>
                 {isOpen ? (
                   <ul className="mb-2 ml-4 space-y-1">
                     {entry.matchups.map((m) => (
