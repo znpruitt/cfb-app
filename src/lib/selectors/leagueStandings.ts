@@ -214,7 +214,11 @@ export async function resolveStandingsYear(
  * production / dev requests, which is the only place it matters.
  */
 const cachedCanonicalStandings = cache(
-  async (slug: string, yearOverride: number | null, currentDate?: Date): Promise<CanonicalStandings> => {
+  async (
+    slug: string,
+    yearOverride: number | null,
+    currentDate?: Date
+  ): Promise<CanonicalStandings> => {
     // Resolve currentDate inside the body rather than as a default parameter
     // expression so React.cache keys on (slug, yearOverride, undefined) for
     // all production callers — a default expression would produce a unique Date
@@ -222,7 +226,12 @@ const cachedCanonicalStandings = cache(
     const resolvedCurrentDate = currentDate ?? new Date();
     const resolvedYear = await resolveStandingsYear(slug, yearOverride);
     try {
-      return await dataCachedCanonicalStandings(slug, yearOverride, resolvedYear, resolvedCurrentDate);
+      return await dataCachedCanonicalStandings(
+        slug,
+        yearOverride,
+        resolvedYear,
+        resolvedCurrentDate
+      );
     } catch (err) {
       if (err instanceof Error && err.message.includes('incrementalCache missing')) {
         return computeCanonicalStandings(slug, yearOverride, undefined, resolvedCurrentDate);
