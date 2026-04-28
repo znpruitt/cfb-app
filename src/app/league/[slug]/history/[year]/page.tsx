@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive } from '@/lib/seasonArchive';
 import {
@@ -13,10 +14,11 @@ import SeasonArcChart from '@/components/history/SeasonArcChart';
 import SuperlativesPanel from '@/components/history/SuperlativesPanel';
 import HeadToHeadPanel from '@/components/history/HeadToHeadPanel';
 import HistoryBackLink from '@/components/history/HistoryBackLink';
+import OwnerRosterCard from '@/components/history/OwnerRosterCard';
+import LeaguePageShell from '@/components/LeaguePageShell';
+import { renderLeagueGateIfBlocked } from '../../leagueGate';
 
 export const dynamic = 'force-dynamic';
-import OwnerRosterCard from '@/components/history/OwnerRosterCard';
-import { renderLeagueGateIfBlocked } from '../../leagueGate';
 
 export default async function SeasonDetailPage({
   params,
@@ -32,23 +34,37 @@ export default async function SeasonDetailPage({
     notFound();
   }
 
-  const league = await getLeague(slug);
+  const [isAdmin, league] = await Promise.all([isPlatformAdminSession(), getLeague(slug)]);
   if (!league) notFound();
 
   const archive = await getSeasonArchive(slug, year);
 
   if (!archive) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-10">
-        <HistoryBackLink fallbackHref={`/league/${slug}/history/`} className="mb-6 inline-block" />
-        <div className="mt-6 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
-          <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
-            No archived data found for the {year} season.
-          </p>
-          <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-            Historical data is available from the 2025 season onward.
-          </p>
-        </div>
+      <main>
+        <LeaguePageShell
+          leagueSlug={slug}
+          leagueDisplayName={league.displayName}
+          leagueYear={league.year}
+          foundedYear={league.foundedYear}
+          isAdmin={isAdmin}
+          activeTab="history"
+        >
+          <div className="mx-auto max-w-3xl">
+            <HistoryBackLink
+              fallbackHref={`/league/${slug}/history/`}
+              className="mb-6 inline-block"
+            />
+            <div className="mt-6 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
+              <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
+                No archived data found for the {year} season.
+              </p>
+              <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
+                Historical data is available from the 2025 season onward.
+              </p>
+            </div>
+          </div>
+        </LeaguePageShell>
       </main>
     );
   }
@@ -59,20 +75,31 @@ export default async function SeasonDetailPage({
   const headToHead = selectHeadToHead(archive);
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-      <div>
-        <HistoryBackLink fallbackHref={`/league/${slug}/history/`} />
-        <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
-          {year} Season — {league.displayName}
-        </h1>
-      </div>
+    <main>
+      <LeaguePageShell
+        leagueSlug={slug}
+        leagueDisplayName={league.displayName}
+        leagueYear={league.year}
+        foundedYear={league.foundedYear}
+        isAdmin={isAdmin}
+        activeTab="history"
+      >
+        <div className="mx-auto max-w-3xl space-y-6">
+          <div>
+            <HistoryBackLink fallbackHref={`/league/${slug}/history/`} />
+            <h1 className="mt-2 text-[20px] font-medium tracking-tight text-gray-950 dark:text-zinc-50">
+              {year} Season
+            </h1>
+          </div>
 
-      <ArchiveBanner year={year} />
-      <FinalStandingsTable rows={finalStandings} year={year} />
-      <SeasonArcChart standingsHistory={archive.standingsHistory} year={year} />
-      <SuperlativesPanel superlatives={superlatives} />
-      <HeadToHeadPanel headToHead={headToHead} />
-      <OwnerRosterCard roster={ownerRoster} year={year} />
+          <ArchiveBanner year={year} />
+          <FinalStandingsTable rows={finalStandings} year={year} />
+          <SeasonArcChart standingsHistory={archive.standingsHistory} year={year} />
+          <SuperlativesPanel superlatives={superlatives} />
+          <HeadToHeadPanel headToHead={headToHead} slug={slug} />
+          <OwnerRosterCard roster={ownerRoster} year={year} />
+        </div>
+      </LeaguePageShell>
     </main>
   );
 }

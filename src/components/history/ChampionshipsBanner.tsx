@@ -38,11 +38,9 @@ export default function ChampionshipsBanner({
 }: Props): React.ReactElement {
   if (history.length === 0) {
     return (
-      <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-        <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-          Championships
-        </h2>
-        <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">No champions yet.</p>
+      <section className="space-y-2">
+        <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">Championships</h2>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">No champions yet.</p>
       </section>
     );
   }
@@ -52,55 +50,39 @@ export default function ChampionshipsBanner({
 
   return (
     <section className="rounded-xl border border-amber-300 bg-amber-50 p-3 shadow-sm sm:p-4 dark:border-amber-700 dark:bg-amber-950/30">
-      <h2 className="mb-3 text-xl font-semibold tracking-tight text-amber-900 dark:text-amber-200">
+      <h2 className="mb-3 text-[15px] font-medium text-amber-900 dark:text-amber-200">
         Championships
       </h2>
 
       {currentSeasonYear !== undefined && currentLeader !== undefined && (
-        <div className="mb-3 flex items-center gap-3 rounded-lg border border-gray-300 bg-white/70 px-3 py-2.5 dark:border-zinc-600 dark:bg-zinc-800/60">
-          <span className="text-2xl" aria-hidden="true">
-            📋
-          </span>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
-              {currentSeasonYear} Season in Progress
-            </p>
-            <p className="text-base font-bold text-gray-900 dark:text-zinc-100">
-              <Link
-                href={`/league/${slug}/history/owner/${encodeURIComponent(currentLeader)}/`}
-                className="hover:underline"
-              >
-                {currentLeader}
-              </Link>{' '}
-              <span className="text-sm font-normal text-gray-500 dark:text-zinc-400">
-                Current Leader
-              </span>
-            </p>
-          </div>
+        <div className="mb-3 rounded-lg border border-gray-300 bg-white/70 px-3 py-2.5 dark:border-zinc-600 dark:bg-zinc-800/60">
+          <p className="text-[10px] font-medium uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+            {currentSeasonYear} Season — Current Leader
+          </p>
+          <p className="mt-0.5 text-base font-semibold text-gray-900 dark:text-zinc-100">
+            <Link
+              href={`/league/${slug}/history/owner/${encodeURIComponent(currentLeader)}/`}
+              className="hover:underline"
+            >
+              {currentLeader}
+            </Link>
+          </p>
         </div>
       )}
 
       {latestChamp && (
-        <div className="mb-4 flex items-center gap-3 rounded-lg bg-amber-100 px-3 py-2.5 dark:bg-amber-900/40">
-          <span className="text-2xl" aria-hidden="true">
-            🏆
-          </span>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-400">
-              Most Recent Champion
-            </p>
-            <p className="text-base font-bold text-amber-950 dark:text-amber-100">
-              <Link
-                href={`/league/${slug}/history/owner/${encodeURIComponent(latestChamp.champion)}/`}
-                className="hover:underline"
-              >
-                {latestChamp.champion}
-              </Link>{' '}
-              <span className="font-normal text-amber-700 dark:text-amber-400">
-                ({latestChamp.year})
-              </span>
-            </p>
-          </div>
+        <div className="mb-4 rounded-lg bg-amber-100 px-3 py-2.5 dark:bg-amber-900/40">
+          <p className="text-[10px] font-medium uppercase tracking-widest text-amber-700 dark:text-amber-400">
+            Most Recent Champion ({latestChamp.year})
+          </p>
+          <p className="mt-0.5 text-base font-semibold text-amber-950 dark:text-amber-100">
+            <Link
+              href={`/league/${slug}/history/owner/${encodeURIComponent(latestChamp.champion)}/`}
+              className="hover:underline"
+            >
+              {latestChamp.champion}
+            </Link>
+          </p>
         </div>
       )}
 

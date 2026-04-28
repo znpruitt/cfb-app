@@ -16,14 +16,12 @@ export default function MostImprovedPanel({ entries, slug, limit = 5 }: Props): 
     .reverse();
 
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-3 text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-        Most Improved
-      </h2>
+    <section className="space-y-3">
+      <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">Most Improved</h2>
       <div className="space-y-4">
         {topGainers.length > 0 && (
           <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+            <p className="mb-1.5 text-[13px] font-medium text-gray-500 dark:text-zinc-500">
               Biggest climbs
             </p>
             <ul className="divide-y divide-gray-100 dark:divide-zinc-800">
@@ -55,7 +53,7 @@ export default function MostImprovedPanel({ entries, slug, limit = 5 }: Props): 
 
         {topDecliners.length > 0 && (
           <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+            <p className="mb-1.5 text-[13px] font-medium text-gray-500 dark:text-zinc-500">
               Biggest drops
             </p>
             <ul className="divide-y divide-gray-100 dark:divide-zinc-800">

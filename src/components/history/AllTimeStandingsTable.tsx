@@ -1,6 +1,9 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
 import type { AllTimeStandingRow } from '@/lib/selectors/historySelectors';
+import FormerOwnerBadge from './FormerOwnerBadge';
 
 type Props = {
   rows: AllTimeStandingRow[];
@@ -9,6 +12,13 @@ type Props = {
   activeOwners?: string[];
 };
 
+type FilterMode = 'all' | 'active' | 'former';
+
+const filterButtonBase = 'rounded px-2 py-0.5 text-xs font-medium transition-colors';
+const filterButtonActive = 'bg-gray-900 text-white dark:bg-white dark:text-gray-900';
+const filterButtonInactive =
+  'text-gray-500 hover:text-gray-900 dark:text-zinc-400 dark:hover:text-zinc-100';
+
 export default function AllTimeStandingsTable({
   rows,
   slug,
@@ -16,24 +26,53 @@ export default function AllTimeStandingsTable({
   activeOwners,
 }: Props): React.ReactElement {
   const activeSet = activeOwners ? new Set(activeOwners) : null;
+  const [filter, setFilter] = React.useState<FilterMode>('all');
+
+  // Compute rank from the unfiltered ordering once, then filter visibility.
+  // Filters never renumber: hidden owners leave gaps in the rank column so a
+  // former owner at all-time rank 13 still reads "13" under the Former filter.
+  const rankedRows = React.useMemo(() => rows.map((row, idx) => ({ row, rank: idx + 1 })), [rows]);
+
+  const filteredRows = React.useMemo(() => {
+    if (filter === 'all' || activeSet === null) return rankedRows;
+    if (filter === 'active') return rankedRows.filter(({ row }) => activeSet.has(row.owner));
+    return rankedRows.filter(({ row }) => !activeSet.has(row.owner));
+  }, [rankedRows, filter, activeSet]);
 
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
-          All-Time Standings
-        </h2>
-        {liveSeasonYear !== undefined && (
-          <span className="text-xs text-blue-600 dark:text-blue-400">
-            Includes live {liveSeasonYear} season (in progress)
-          </span>
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">
+            All-Time Standings
+          </h2>
+          {liveSeasonYear !== undefined && (
+            <span className="text-xs text-blue-600 dark:text-blue-400">
+              Includes live {liveSeasonYear} season
+            </span>
+          )}
+        </div>
+        {activeSet !== null && (
+          <div className="flex items-center gap-1">
+            {(['all', 'active', 'former'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setFilter(mode)}
+                aria-pressed={filter === mode}
+                className={`${filterButtonBase} ${filter === mode ? filterButtonActive : filterButtonInactive}`}
+              >
+                {mode === 'all' ? 'All' : mode === 'active' ? 'Active' : 'Former'}
+              </button>
+            ))}
+          </div>
         )}
       </div>
-      {rows.length === 0 ? (
+      {filteredRows.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-zinc-400">No data available.</p>
       ) : (
         <div className="relative">
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-900" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-white to-transparent sm:hidden dark:from-zinc-950" />
           <div className="-mx-1 overflow-x-auto px-1">
             <table className="min-w-max border-separate border-spacing-0 text-sm">
               <thead>
@@ -56,7 +95,7 @@ export default function AllTimeStandingsTable({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => {
+                {filteredRows.map(({ row, rank }) => {
                   const isFormer = activeSet !== null && !activeSet.has(row.owner);
                   const textClass = isFormer
                     ? 'text-gray-400 dark:text-zinc-500'
@@ -68,12 +107,12 @@ export default function AllTimeStandingsTable({
                   return (
                     <tr
                       key={row.owner}
-                      className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900"
+                      className="odd:bg-gray-50/70 even:bg-white dark:odd:bg-zinc-950/70 dark:even:bg-zinc-900/40"
                     >
                       <td
                         className={`border-b border-gray-100 px-1.5 py-2 text-sm tabular-nums sm:px-2 dark:border-zinc-800 ${mutedClass}`}
                       >
-                        {idx + 1}
+                        {rank}
                       </td>
                       <td className="min-w-[9.5rem] border-b border-gray-100 px-1.5 py-2 sm:px-2 dark:border-zinc-800">
                         <span className="flex flex-wrap items-center gap-1.5">
@@ -83,11 +122,7 @@ export default function AllTimeStandingsTable({
                           >
                             {row.owner}
                           </Link>
-                          {isFormer && (
-                            <span className="inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 ring-1 ring-gray-200 dark:text-zinc-500 dark:ring-zinc-700">
-                              Former
-                            </span>
-                          )}
+                          {isFormer && <FormerOwnerBadge />}
                         </span>
                       </td>
                       <td

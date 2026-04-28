@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { AllTimeHeadToHeadEntry } from '@/lib/selectors/historySelectors';
+import FormerOwnerBadge from './FormerOwnerBadge';
 
 type Props = {
   /** Top rivalries to display prominently. */
@@ -46,9 +47,9 @@ export default function AllTimeHeadToHeadPanel({
   const displayList = showAll ? allH2H : rivalries;
 
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">
           {showAll ? 'All-Time Head-to-Head' : 'Top Rivalries'}
         </h2>
         <button
@@ -61,11 +62,9 @@ export default function AllTimeHeadToHeadPanel({
       </div>
 
       {displayList.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/60 px-4 py-6 text-center dark:border-zinc-700 dark:bg-zinc-800/40">
-          <p className="text-sm text-gray-500 dark:text-zinc-400">
-            No cross-season head-to-head data available.
-          </p>
-        </div>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">
+          No cross-season head-to-head data available.
+        </p>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-zinc-800">
           {displayList.map((entry) => {
@@ -76,38 +75,23 @@ export default function AllTimeHeadToHeadPanel({
             const bIsFormer = activeSet !== null && !activeSet.has(entry.ownerB);
             return (
               <li key={key}>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-4 py-2.5 text-left text-sm hover:bg-gray-50/60 dark:hover:bg-zinc-800/40"
-                  onClick={() => toggleEntry(key)}
-                  aria-expanded={isOpen}
-                >
+                <div className="flex items-center justify-between gap-4 py-2.5 text-sm">
                   <span className="font-semibold text-gray-900 dark:text-zinc-50">
                     <Link
                       href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerA)}/`}
                       className={`hover:text-blue-600 hover:underline dark:hover:text-blue-400 ${aIsFormer ? 'text-gray-400 dark:text-zinc-500' : ''}`}
-                      onClick={(e) => e.stopPropagation()}
                     >
                       {entry.ownerA}
                     </Link>
-                    {aIsFormer && (
-                      <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 ring-1 ring-gray-200 dark:text-zinc-500 dark:ring-zinc-700">
-                        Former
-                      </span>
-                    )}
-                    {' vs '}
+                    {aIsFormer && <FormerOwnerBadge className="ml-1" />}
+                    <span className="font-normal text-gray-500 dark:text-zinc-500"> vs </span>
                     <Link
                       href={`/league/${slug}/history/owner/${encodeURIComponent(entry.ownerB)}/`}
                       className={`hover:text-blue-600 hover:underline dark:hover:text-blue-400 ${bIsFormer ? 'text-gray-400 dark:text-zinc-500' : ''}`}
-                      onClick={(e) => e.stopPropagation()}
                     >
                       {entry.ownerB}
                     </Link>
-                    {bIsFormer && (
-                      <span className="ml-1 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 ring-1 ring-gray-200 dark:text-zinc-500 dark:ring-zinc-700">
-                        Former
-                      </span>
-                    )}
+                    {bIsFormer && <FormerOwnerBadge className="ml-1" />}
                   </span>
                   <span className="flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
                     <span className="tabular-nums text-gray-800 dark:text-zinc-100">
@@ -117,9 +101,21 @@ export default function AllTimeHeadToHeadPanel({
                       {total} game{total !== 1 ? 's' : ''} · {entry.seasons} season
                       {entry.seasons !== 1 ? 's' : ''}
                     </span>
-                    <span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleEntry(key)}
+                      aria-expanded={isOpen}
+                      aria-label={
+                        isOpen
+                          ? `Collapse details for ${entry.ownerA} vs ${entry.ownerB}`
+                          : `Expand details for ${entry.ownerA} vs ${entry.ownerB}`
+                      }
+                      className="rounded px-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-zinc-500 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-200"
+                    >
+                      <span aria-hidden="true">{isOpen ? '▲' : '▼'}</span>
+                    </button>
                   </span>
-                </button>
+                </div>
                 {isOpen && (
                   <div className="mb-2 ml-4 space-y-1">
                     <p className="text-xs text-gray-500 dark:text-zinc-400">

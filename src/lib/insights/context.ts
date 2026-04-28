@@ -48,7 +48,7 @@ function buildHistoricalRosters(archives: SeasonArchive[]): Record<number, Map<s
   return result;
 }
 
-async function loadOwnerSeasonStats(
+export async function loadOwnerSeasonStats(
   leagueSlug: string,
   year: number,
   currentRoster: Map<string, string>,

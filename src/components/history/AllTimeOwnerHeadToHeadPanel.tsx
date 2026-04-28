@@ -30,11 +30,11 @@ export default function AllTimeOwnerHeadToHeadPanel({
   }
 
   return (
-    <section className="rounded-xl border border-gray-300 bg-white p-3 shadow-sm sm:p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-3 text-xl font-semibold tracking-tight text-gray-950 dark:text-zinc-50">
+    <section className="space-y-2">
+      <h2 className="text-[15px] font-medium text-gray-900 dark:text-zinc-100">
         All-Time Head-to-Head
       </h2>
-      <p className="mb-3 text-xs text-gray-500 dark:text-zinc-400">
+      <p className="text-xs text-gray-500 dark:text-zinc-400">
         {ownerName}&apos;s record against every opponent across all archived seasons.
       </p>
 
