@@ -2,9 +2,7 @@ import { notFound } from 'next/navigation';
 import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
-import { selectOwnerCareer, type OwnerCareerExtras } from '@/lib/selectors/historySelectors';
-import { loadOwnerSeasonStats } from '@/lib/insights/context';
-import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
+import { selectOwnerCareer, loadOwnerCareerExtras } from '@/lib/selectors/historySelectors';
 import CareerSummaryCard from '@/components/history/CareerSummaryCard';
 import SeasonFinishHistory from '@/components/history/SeasonFinishHistory';
 import AllTimeOwnerHeadToHeadPanel from '@/components/history/AllTimeOwnerHeadToHeadPanel';
@@ -14,27 +12,6 @@ import type { SeasonArchive } from '@/lib/seasonArchive';
 import { renderLeagueGateIfBlocked } from '../../../leagueGate';
 
 export const dynamic = 'force-dynamic';
-
-async function loadOwnerCareerExtras(
-  slug: string,
-  archives: SeasonArchive[]
-): Promise<OwnerCareerExtras> {
-  const extras: OwnerCareerExtras = new Map();
-  for (const archive of archives) {
-    const rosterRows = parseOwnersCsv(archive.ownerRosterSnapshot);
-    const yearRoster = new Map(rosterRows.map((r) => [r.team, r.owner]));
-    const seasonStats = await loadOwnerSeasonStats(slug, archive.year, yearRoster, archive.games);
-    if (!seasonStats) continue;
-    for (const stats of seasonStats) {
-      const prev = extras.get(stats.owner) ?? { totalYards: 0, totalTurnoverMargin: 0 };
-      extras.set(stats.owner, {
-        totalYards: prev.totalYards + stats.totalYards,
-        totalTurnoverMargin: prev.totalTurnoverMargin + stats.turnoverMargin,
-      });
-    }
-  }
-  return extras;
-}
 
 export default async function OwnerCareerPage({
   params,
@@ -52,9 +29,7 @@ export default async function OwnerCareerPage({
   const archiveResults = await Promise.all(years.map((year) => getSeasonArchive(slug, year)));
   const archives: SeasonArchive[] = archiveResults.filter((a): a is SeasonArchive => a !== null);
 
-  const extras = await loadOwnerCareerExtras(slug, archives).catch(
-    () => new Map() as OwnerCareerExtras
-  );
+  const extras = await loadOwnerCareerExtras(slug, archives);
   const career = selectOwnerCareer(archives, ownerName, extras);
 
   if (career.seasonsPlayed === 0) {

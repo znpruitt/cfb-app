@@ -1003,3 +1003,46 @@ export function selectOwnerCareer(
     headToHead,
   };
 }
+
+// ---------------------------------------------------------------------------
+// loadOwnerCareerExtras (server-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Loads per-owner career extras (yards, turnover margin) from the cached
+ * game-stats pipeline. Each archive is attempted independently — failures are
+ * logged and skipped so a single bad cache entry does not wipe out all extras.
+ */
+export async function loadOwnerCareerExtras(
+  slug: string,
+  archives: SeasonArchive[]
+): Promise<OwnerCareerExtras> {
+  // Dynamic import breaks the static cycle: context.ts → selectors/seasonContext ← selectors/historySelectors.
+  const { loadOwnerSeasonStats } = await import('../insights/context');
+  const results = await Promise.allSettled(
+    archives.map(async (archive) => {
+      const rosterRows = parseOwnersCsv(archive.ownerRosterSnapshot);
+      const yearRoster = new Map(rosterRows.map((r) => [r.team, r.owner]));
+      return loadOwnerSeasonStats(slug, archive.year, yearRoster, archive.games);
+    })
+  );
+
+  const accumulator: OwnerCareerExtras = new Map();
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.warn('[loadOwnerCareerExtras] archive load failed:', result.reason);
+      continue;
+    }
+    const stats = result.value;
+    if (!stats) continue;
+    for (const s of stats) {
+      const prev = accumulator.get(s.owner) ?? { totalYards: 0, totalTurnoverMargin: 0 };
+      accumulator.set(s.owner, {
+        totalYards: prev.totalYards + s.totalYards,
+        totalTurnoverMargin: prev.totalTurnoverMargin + s.turnoverMargin,
+      });
+    }
+  }
+
+  return accumulator;
+}
