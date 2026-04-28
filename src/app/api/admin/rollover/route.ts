@@ -1,4 +1,5 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
@@ -163,6 +164,16 @@ export async function POST(req: Request): Promise<Response> {
       await updateLeagueStatus(league.slug, { state: 'offseason' });
     } catch (err) {
       console.error(`Failed to write offseason status for ${league.slug}:`, err);
+    }
+
+    // Clear suppression records so the next season starts with a clean slate.
+    // The cron season-rollover does this too, but only for leagues still in
+    // 'season' state — once we flip to 'offseason' here, the cron skips them.
+    // Non-fatal: a suppression-clear failure does not undo the rollover.
+    try {
+      await clearAllSuppressionRecords(league.slug, currentYear);
+    } catch (err) {
+      console.error(`Failed to clear suppression records for ${league.slug}:`, err);
     }
   }
 
