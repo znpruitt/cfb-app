@@ -114,7 +114,7 @@
 
 ## Section Headers
 - Plain text section title, 15px, font-weight 500
-- CTAs are plain text ↗ aligned right in the same header row
+- CTAs are plain text → aligned right in the same header row
 - No card chrome around section headers
 
 ## Trends / GB Race
