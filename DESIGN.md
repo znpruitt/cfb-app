@@ -11,6 +11,21 @@
 - Remove section headers that restate what the nav tab already communicates
 - Tighten padding aggressively — default spacing assumptions are usually too generous for a data-dense app
 
+## Multi-line row pattern
+- Line 1: primary identifier + right-anchored value (rank, score, count, delta) — body size (14–15px), weight 500, primary text color
+- Line 2: secondary metadata — 12px, weight 400, `var(--color-text-tertiary)` (or the equivalent dim token)
+- 2px margin between lines, no border between them, no internal padding
+- Trailing-whitespace test: if a single-line row ends with notable whitespace before the right-anchored value, restructure to multi-line — the line-2 metadata must add context the user would want to see anyway
+- Applied on the main Overview standings rows; History Overview Championships, Top rivalries, Title droughts, and Movers sections
+- Not appropriate when line-2 content adds no information (basic to-do lists, link lists) — the pattern earns its place when line-2 metadata is at least as informative as the primary value
+
+## List row width discipline
+- Earned-width rule: a row's content must fill its allotted width — short primary content + short right-anchored value should either restructure to multi-line (so line 2 fills width) or sit in a narrower container
+- Right-edge anchor rule: every row needs a right-edge anchor — a colored numeric value (delta in green/red, score, count in amber), a routing arrow (→), or a small icon (trend chip, status indicator)
+- Rows that trail into whitespace with no visual terminus drift — the eye loses the row's left-to-right relationship and the section reads as disconnected names instead of structured data
+- Production examples: AP Poll uses trend chips, Standings uses multi-line blocks, Insights uses arrows
+- Single-line drift fix: if a section's rows are inherently single-line and a right-anchor isn't natural, constrain the section's width — do not let it stretch
+
 ## Navigation
 - Underline tab style throughout — no pills, no background fills, no rounded borders on active states
 - Sub-view tabs belong in the content area, not a dedicated nav band
@@ -22,6 +37,17 @@
 - On the full Standings page, rank numbers carry the owner's chart line color — minimal footprint, maximum utility
 - Redundant columns should be hidden when they carry no information (e.g. MOVE column at season end)
 - On mobile, hide lower-priority columns (PF, PA) and remove card borders — let the table breathe
+
+## Responsive column degradation
+- Tables define an explicit column-priority order — columns drop in the declared order as viewport (or container) width decreases
+- CSS-driven column wrapping or horizontal scroll are last-resort fallbacks, not the default response
+- Each table component declares its priority inline (comment) or in a co-located doc — a table without a declared priority is not ready for production at multiple breakpoints
+- Always show: identifier columns (rank, name) and the table's defining metric (record for standings, score for rivalries)
+- Drop first: derived/secondary metrics inferable from other columns or page-level summary stats (avg-finish, seasons-played when "6 seasons played" already shows on the page)
+- Drop next: contextual columns that duplicate information visible elsewhere on the page (titles count when a Championships section is also visible)
+- Drop last: any column whose absence would make the row meaningless
+- Prefer container queries over viewport media queries — a sidebar-narrowed desktop table has the same constraint as a mobile-width table; if container queries aren't viable yet, document the viewport breakpoints that trigger each drop
+- Reference example — History Overview All-time standings: always rank/owner/record; drop avg-finish first, then seasons, then titles, then win% last
 
 ## Charts
 - Charts need breathing room — right edge padding prevents data point clipping
@@ -61,7 +87,9 @@
 ## Containerization
 - Outer card containers are removed from all Overview sections except the season podium
 - Individual game cards retain borders — they are discrete objects
-- Horizontal dividers (0.5px, var(--color-border-tertiary)) separate major sections
+- Major sections may be separated by either generous whitespace alone (minimum 40px between sections) or a horizontal divider (0.5px, `var(--color-border-tertiary)`)
+- Whitespace separation is preferred for dashboard-style pages where sections share a visual rhythm and column structure (History Overview, main Overview)
+- Dividers are appropriate when adjacent sections have different visual weights or structural patterns and need explicit visual separation
 - Card chrome is reserved for content that has a meaningful border signal (e.g. amber champion border)
 
 ## Owner Colors
@@ -101,10 +129,11 @@
 - Chart line colors and their companion table legend colors must always match via getOwnerColor()
 
 ## Overview standings row hierarchy
+- Specific application of the `## Multi-line row pattern` — see that section for typography
 - Primary line: rank (muted) · name · champion badge (if applicable) · record · GB
-- Secondary line: Win% · Diff — smaller font, muted
-- No column headers on condensed snapshot tables — data is self-evident at this density
+- Secondary line: Win% · Diff
 - GB is the primary metric in a pool format and sits on the primary line
+- Column headers are omitted on condensed snapshot tables of ≤4 columns where data is self-evident at the table's density (rank · name · record · GB) — retained on dense tables of ≥5 columns where the additional columns introduce metrics whose meaning is not obvious from value alone (Win%, Seasons, Avg, Titles)
 
 ## Overview trifold layout
 - Three columns: Standings (25%) · FBS Polls (25%) · Insights (50%)
