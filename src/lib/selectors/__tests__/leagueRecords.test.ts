@@ -805,3 +805,78 @@ test('NoClaim is excluded from all records', () => {
   assert.ok(!r!.holders.includes('NoClaim'));
   assert.deepEqual(r!.holders, ['Alice']);
 });
+
+// ---------------------------------------------------------------------------
+// NoClaim rank-shift regression
+// ---------------------------------------------------------------------------
+
+test('career_titles credits champion when NoClaim row precedes them in finalStandings', () => {
+  // NoClaim at index 0 must not shift real owners' ranks.
+  // Whited at index 1 is the actual champion and must receive a title credit.
+  const archives = [
+    makeArchive(2023, [
+      makeRow('NoClaim', 0, 12),
+      makeRow('Whited', 12, 0, { pointsFor: 1500 }),
+      makeRow('Pruitt', 11, 1, { pointsFor: 1400 }),
+      makeRow('Shambaugh', 8, 4, { pointsFor: 1100 }),
+    ]),
+  ];
+  const records = selectAllRecords(makeInput(archives));
+  const r = findRecord(records, 'career_titles');
+  assert.ok(r, 'career_titles should exist');
+  assert.deepEqual(r!.holders, ['Whited'], 'Whited is the champion, not offset by NoClaim row');
+  assert.equal(r!.value, 1);
+});
+
+test('career_consistency counts Whited as top-3 when NoClaim precedes in finalStandings', () => {
+  const archives = [
+    makeArchive(2023, [
+      makeRow('NoClaim', 0, 12),
+      makeRow('Whited', 12, 0, { pointsFor: 1500 }),
+      makeRow('Pruitt', 11, 1, { pointsFor: 1400 }),
+      makeRow('Shambaugh', 8, 4, { pointsFor: 1100 }),
+    ]),
+    makeArchive(2024, [
+      makeRow('NoClaim', 0, 12),
+      makeRow('Whited', 10, 2, { pointsFor: 1300 }),
+      makeRow('Pruitt', 9, 3, { pointsFor: 1200 }),
+      makeRow('Shambaugh', 7, 5, { pointsFor: 1000 }),
+    ]),
+  ];
+  const records = selectAllRecords(makeInput(archives));
+  const r = findRecord(records, 'career_consistency');
+  assert.ok(r);
+  // Whited finishes rank 1 both years → top3Count = 2; others have 2 as well.
+  // All three have 2 top-3 finishes; just verify Whited is included.
+  assert.ok(r!.holders.includes('Whited'), 'Whited should appear as a top-3 finisher');
+});
+
+test('career_avg_finish gives Whited rank 1 when NoClaim precedes in finalStandings', () => {
+  // With 3 seasons required (MIN_CAREER_SEASONS), use 3 archives.
+  const archives = [
+    makeArchive(2022, [
+      makeRow('NoClaim', 0, 12),
+      makeRow('Whited', 12, 0, { pointsFor: 1500 }),
+      makeRow('Pruitt', 11, 1, { pointsFor: 1400 }),
+      makeRow('Shambaugh', 8, 4, { pointsFor: 1100 }),
+    ]),
+    makeArchive(2023, [
+      makeRow('NoClaim', 0, 12),
+      makeRow('Whited', 12, 0, { pointsFor: 1500 }),
+      makeRow('Pruitt', 11, 1, { pointsFor: 1400 }),
+      makeRow('Shambaugh', 8, 4, { pointsFor: 1100 }),
+    ]),
+    makeArchive(2024, [
+      makeRow('NoClaim', 0, 12),
+      makeRow('Whited', 12, 0, { pointsFor: 1500 }),
+      makeRow('Pruitt', 11, 1, { pointsFor: 1400 }),
+      makeRow('Shambaugh', 8, 4, { pointsFor: 1100 }),
+    ]),
+  ];
+  const records = selectAllRecords(makeInput(archives));
+  const r = findRecord(records, 'career_avg_finish');
+  assert.ok(r, 'career_avg_finish should exist with 3 qualifying seasons');
+  // Whited averages rank 1 across all 3 years → best avg finish
+  assert.deepEqual(r!.holders, ['Whited']);
+  assert.equal(r!.value, 1); // average rank of 1.0
+});

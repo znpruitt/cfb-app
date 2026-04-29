@@ -210,11 +210,10 @@ function buildCareerAccumulator(sortedArchives: SeasonArchive[]): Map<string, Ow
   const accum = new Map<string, OwnerAccum>();
 
   for (const archive of sortedArchives) {
-    const champion =
-      archive.finalStandings.length > 0 ? (archive.finalStandings[0]?.owner ?? null) : null;
+    const eligibleRows = archive.finalStandings.filter((row) => isEligibleOwner(row.owner));
+    const champion = eligibleRows.length > 0 ? (eligibleRows[0]?.owner ?? null) : null;
 
-    archive.finalStandings.forEach((row, idx) => {
-      if (!isEligibleOwner(row.owner)) return;
+    eligibleRows.forEach((row, idx) => {
       const rank = idx + 1;
 
       if (!accum.has(row.owner)) {
@@ -938,19 +937,22 @@ function selectBiggestCollapseRecord(sortedArchives: SeasonArchive[]): RecordEnt
     const curr = sortedArchives[i]!;
 
     const prevRanks = new Map<string, number>();
-    prev.finalStandings.forEach((row, idx) => {
-      if (isEligibleOwner(row.owner)) prevRanks.set(row.owner, idx + 1);
-    });
+    prev.finalStandings
+      .filter((row) => isEligibleOwner(row.owner))
+      .forEach((row, idx) => {
+        prevRanks.set(row.owner, idx + 1);
+      });
 
-    curr.finalStandings.forEach((row, idx) => {
-      if (!isEligibleOwner(row.owner)) return;
-      const prevRank = prevRanks.get(row.owner);
-      if (prevRank === undefined) return;
-      const currRank = idx + 1;
-      const drop = currRank - prevRank; // positive = dropped positions
-      if (drop > 0)
-        entries.push({ owner: row.owner, drop, fromYear: prev.year, toYear: curr.year });
-    });
+    curr.finalStandings
+      .filter((row) => isEligibleOwner(row.owner))
+      .forEach((row, idx) => {
+        const prevRank = prevRanks.get(row.owner);
+        if (prevRank === undefined) return;
+        const currRank = idx + 1;
+        const drop = currRank - prevRank; // positive = dropped positions
+        if (drop > 0)
+          entries.push({ owner: row.owner, drop, fromYear: prev.year, toYear: curr.year });
+      });
   }
 
   if (entries.length === 0) return null;
@@ -988,19 +990,22 @@ function selectBiggestClimbRecord(sortedArchives: SeasonArchive[]): RecordEntry 
     const curr = sortedArchives[i]!;
 
     const prevRanks = new Map<string, number>();
-    prev.finalStandings.forEach((row, idx) => {
-      if (isEligibleOwner(row.owner)) prevRanks.set(row.owner, idx + 1);
-    });
+    prev.finalStandings
+      .filter((row) => isEligibleOwner(row.owner))
+      .forEach((row, idx) => {
+        prevRanks.set(row.owner, idx + 1);
+      });
 
-    curr.finalStandings.forEach((row, idx) => {
-      if (!isEligibleOwner(row.owner)) return;
-      const prevRank = prevRanks.get(row.owner);
-      if (prevRank === undefined) return;
-      const currRank = idx + 1;
-      const climb = prevRank - currRank; // positive = improved
-      if (climb > 0)
-        entries.push({ owner: row.owner, climb, fromYear: prev.year, toYear: curr.year });
-    });
+    curr.finalStandings
+      .filter((row) => isEligibleOwner(row.owner))
+      .forEach((row, idx) => {
+        const prevRank = prevRanks.get(row.owner);
+        if (prevRank === undefined) return;
+        const currRank = idx + 1;
+        const climb = prevRank - currRank; // positive = improved
+        if (climb > 0)
+          entries.push({ owner: row.owner, climb, fromYear: prev.year, toYear: curr.year });
+      });
   }
 
   if (entries.length === 0) return null;
