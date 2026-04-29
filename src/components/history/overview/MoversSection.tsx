@@ -1,11 +1,13 @@
 import React from 'react';
 import Link from 'next/link';
-import type { MostImprovedEntry } from '@/lib/selectors/historySelectors';
-import type { MoversBuckets } from '@/lib/selectors/historyOverview';
+import type {
+  MoverRowWithContext,
+  MoversBucketsWithContext,
+} from '@/lib/selectors/historyOverview';
 import SectionHead from './SectionHead';
 
 type Props = {
-  buckets: MoversBuckets;
+  buckets: MoversBucketsWithContext;
   slug: string;
 };
 
@@ -18,11 +20,15 @@ function MoverList({
   variant,
   slug,
 }: {
-  entries: MostImprovedEntry[];
+  entries: MoverRowWithContext[];
   variant: 'climb' | 'drop';
   slug: string;
 }): React.ReactElement {
   const label = variant === 'climb' ? 'Biggest climbs' : 'Biggest drops';
+  const deltaClass =
+    variant === 'climb'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : 'text-rose-600 dark:text-rose-400';
 
   return (
     <div>
@@ -34,34 +40,32 @@ function MoverList({
           {variant === 'climb' ? 'No notable climbs.' : 'No notable drops.'}
         </p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="space-y-4">
           {entries.map((entry) => {
             const sign = entry.improvement > 0 ? '+' : '−';
             const magnitude = Math.abs(entry.improvement);
-            const deltaClass =
-              variant === 'climb'
-                ? 'text-emerald-600 dark:text-emerald-400'
-                : 'text-rose-600 dark:text-rose-400';
             return (
-              <li
-                key={`${entry.owner}-${entry.fromYear}-${entry.toYear}`}
-                className="flex items-baseline gap-3.5 py-1.5 text-sm tabular-nums"
-              >
-                <span className="w-[90px] shrink-0 font-medium text-gray-900 dark:text-zinc-100">
-                  <Link href={ownerHref(slug, entry.owner)} className="hover:underline">
-                    {entry.owner}
-                  </Link>
-                </span>
-                <span className="text-xs text-gray-400 dark:text-zinc-500">
-                  {entry.fromYear}→{entry.toYear}
-                </span>
-                <span className="text-[13px] text-gray-600 dark:text-zinc-400">
-                  #{entry.fromFinish} → #{entry.toFinish}
-                </span>
-                <span className={`ml-auto text-[13px] font-medium ${deltaClass}`}>
-                  {sign}
-                  {magnitude}
-                </span>
+              <li key={`${entry.owner}-${entry.fromYear}-${entry.toYear}`} className="space-y-0.5">
+                {/* Line 1 */}
+                <div className="flex items-baseline gap-3.5 text-sm tabular-nums">
+                  <span className="font-medium text-gray-900 dark:text-zinc-100">
+                    <Link href={ownerHref(slug, entry.owner)} className="hover:underline">
+                      {entry.owner}
+                    </Link>
+                  </span>
+                  <span className={`ml-auto font-medium ${deltaClass}`}>
+                    {sign}
+                    {magnitude}
+                  </span>
+                </div>
+                {/* Line 2 */}
+                <div className="text-xs text-gray-500 tabular-nums dark:text-zinc-400">
+                  {entry.fromYear} → {entry.toYear} · finished #{entry.fromFinish}, then #
+                  {entry.toFinish}
+                  {entry.wonTitle && (
+                    <span className="text-amber-600 dark:text-amber-400">{' (won title)'}</span>
+                  )}
+                </div>
               </li>
             );
           })}

@@ -309,3 +309,145 @@ export function selectSeasonArchiveStrip(history: ChampionshipEntry[]): SeasonAr
     .sort((a, b) => b.year - a.year)
     .map((entry) => ({ year: entry.year, champion: entry.champion }));
 }
+
+// ---------------------------------------------------------------------------
+// Championships line-2 enrichment (career context + editorial tag)
+// ---------------------------------------------------------------------------
+
+export type ChampionshipEditorialTag = 'all-time wins leader' | "league's first champion" | null;
+
+export type ChampionshipRowWithContext = ChampionshipOwnerRow & {
+  seasonsPlayed: number;
+  careerWinPct: number;
+  editorialTag: ChampionshipEditorialTag;
+};
+
+/**
+ * Enriches championship rows with line-2 context per the History Overview's
+ * multi-line row pattern. Editorial tag rules:
+ *   - "all-time wins leader": the champion holding the highest totalWins
+ *     value across ALL owners (active or former). If the wins leader is
+ *     not a champion, no champion gets this tag.
+ *   - "league's first champion": the champion of the earliest archived year.
+ *   - When both apply, "all-time wins leader" wins (the more current claim).
+ */
+export function selectChampionshipsWithContext(args: {
+  championOwnerRows: ChampionshipOwnerRow[];
+  allTimeStandings: AllTimeStandingRow[];
+  championshipHistory: ChampionshipEntry[];
+}): ChampionshipRowWithContext[] {
+  const standingsByOwner = new Map(args.allTimeStandings.map((row) => [row.owner, row]));
+
+  const winsLeaderOwner = args.allTimeStandings.reduce<string | null>((best, row) => {
+    if (best === null) return row.owner;
+    const bestWins = standingsByOwner.get(best)?.totalWins ?? -1;
+    return row.totalWins > bestWins ? row.owner : best;
+  }, null);
+
+  const firstChampion = (() => {
+    if (args.championshipHistory.length === 0) return null;
+    const earliest = args.championshipHistory.reduce(
+      (acc, entry) => (entry.year < acc.year ? entry : acc),
+      args.championshipHistory[0]!
+    );
+    return earliest.champion === 'Unknown' ? null : earliest.champion;
+  })();
+
+  return args.championOwnerRows.map((row) => {
+    const standing = standingsByOwner.get(row.owner);
+    let editorialTag: ChampionshipEditorialTag = null;
+    if (winsLeaderOwner === row.owner) {
+      editorialTag = 'all-time wins leader';
+    } else if (firstChampion === row.owner) {
+      editorialTag = "league's first champion";
+    }
+    return {
+      ...row,
+      seasonsPlayed: standing?.seasonsPlayed ?? 0,
+      careerWinPct: standing?.winPct ?? 0,
+      editorialTag,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Title droughts line-2 enrichment (top-3 count + best rank/year)
+// ---------------------------------------------------------------------------
+
+export type TitleDroughtRowWithContext = TitleDroughtRow & {
+  top3Count: number;
+  /** Best (lowest) rank ever achieved; null when the owner never appears in any archive. */
+  bestRank: number | null;
+  /** Year that bestRank was achieved; null when bestRank is null. */
+  bestRankYear: number | null;
+};
+
+export function selectDroughtsWithContext(args: {
+  droughts: TitleDroughtRow[];
+  archives: SeasonArchive[];
+}): TitleDroughtRowWithContext[] {
+  type Stats = { top3Count: number; bestRank: number; bestRankYear: number };
+  const stats = new Map<string, Stats>();
+
+  for (const archive of args.archives) {
+    const standings = selectFinalStandings(archive);
+    for (const row of standings) {
+      if (row.owner === NO_CLAIM_OWNER) continue;
+      const cur = stats.get(row.owner) ?? {
+        top3Count: 0,
+        bestRank: Infinity,
+        bestRankYear: 0,
+      };
+      if (row.rank <= 3) cur.top3Count += 1;
+      if (row.rank < cur.bestRank) {
+        cur.bestRank = row.rank;
+        cur.bestRankYear = archive.year;
+      }
+      stats.set(row.owner, cur);
+    }
+  }
+
+  return args.droughts.map((row) => {
+    const s = stats.get(row.owner);
+    if (!s || s.bestRank === Infinity) {
+      return { ...row, top3Count: 0, bestRank: null, bestRankYear: null };
+    }
+    return {
+      ...row,
+      top3Count: s.top3Count,
+      bestRank: s.bestRank,
+      bestRankYear: s.bestRankYear,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Movers line-2 enrichment (won-title flag)
+// ---------------------------------------------------------------------------
+
+export type MoverRowWithContext = MostImprovedEntry & {
+  /** True when the destination season's rank-1 finish belongs to this owner. */
+  wonTitle: boolean;
+};
+
+export type MoversBucketsWithContext = {
+  climbs: MoverRowWithContext[];
+  drops: MoverRowWithContext[];
+};
+
+export function selectMoversWithContext(args: {
+  movers: MoversBuckets;
+  championshipHistory: ChampionshipEntry[];
+}): MoversBucketsWithContext {
+  const championByYear = new Map(
+    args.championshipHistory.map((entry) => [entry.year, entry.champion])
+  );
+  const decorate = (entry: MostImprovedEntry): MoverRowWithContext => ({
+    ...entry,
+    wonTitle: entry.toFinish === 1 && championByYear.get(entry.toYear) === entry.owner,
+  });
+  return {
+    climbs: args.movers.climbs.map(decorate),
+    drops: args.movers.drops.map(decorate),
+  };
+}

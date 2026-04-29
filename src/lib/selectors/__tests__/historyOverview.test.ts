@@ -4,8 +4,11 @@ import test from 'node:test';
 import {
   computeChampionshipSummary,
   groupChampionsByOwner,
+  selectChampionshipsWithContext,
+  selectDroughtsWithContext,
   selectMarqueeRecords,
   selectMovers,
+  selectMoversWithContext,
   selectRecentPodiums,
   selectSeasonArchiveStrip,
   selectStreaksOrDroughts,
@@ -632,4 +635,262 @@ test('selectSeasonArchiveStrip: descending by year, preserves champion names', (
 
 test('selectSeasonArchiveStrip: empty history returns empty array', () => {
   assert.deepEqual(selectSeasonArchiveStrip([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// selectChampionshipsWithContext
+// ---------------------------------------------------------------------------
+
+test('selectChampionshipsWithContext: tags the all-time wins leader when leader is a champion', () => {
+  const history: ChampionshipEntry[] = [
+    { year: 2018, champion: 'Hardiman' },
+    { year: 2024, champion: 'Pruitt' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+  const championOwnerRows = groupChampionsByOwner(history);
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 2, { totalWins: 150, seasonsPlayed: 8, winPct: 0.62 }),
+    makeStanding('Hardiman', 1, { totalWins: 110, seasonsPlayed: 6, winPct: 0.55 }),
+    makeStanding('Maleski', 0, { totalWins: 90, seasonsPlayed: 8, winPct: 0.45 }),
+  ];
+
+  const rows = selectChampionshipsWithContext({
+    championOwnerRows,
+    allTimeStandings: allTime,
+    championshipHistory: history,
+  });
+
+  const pruitt = rows.find((r) => r.owner === 'Pruitt')!;
+  const hardiman = rows.find((r) => r.owner === 'Hardiman')!;
+
+  assert.equal(pruitt.editorialTag, 'all-time wins leader');
+  assert.equal(pruitt.seasonsPlayed, 8);
+  assert.equal(pruitt.careerWinPct, 0.62);
+  // First champion is Hardiman, so Hardiman gets that tag
+  assert.equal(hardiman.editorialTag, "league's first champion");
+});
+
+test("selectChampionshipsWithContext: no champion gets 'all-time wins leader' when a non-champion has the most wins", () => {
+  const history: ChampionshipEntry[] = [
+    { year: 2024, champion: 'Pruitt' },
+    { year: 2025, champion: 'Whited' },
+  ];
+  const championOwnerRows = groupChampionsByOwner(history);
+  const allTime: AllTimeStandingRow[] = [
+    // Maleski leads in wins but never won a title
+    makeStanding('Maleski', 0, { totalWins: 200, seasonsPlayed: 10 }),
+    makeStanding('Pruitt', 1, { totalWins: 150, seasonsPlayed: 10 }),
+    makeStanding('Whited', 1, { totalWins: 140, seasonsPlayed: 10 }),
+  ];
+
+  const rows = selectChampionshipsWithContext({
+    championOwnerRows,
+    allTimeStandings: allTime,
+    championshipHistory: history,
+  });
+
+  // No champion has 'all-time wins leader' since the leader isn't a champion
+  assert.equal(rows.find((r) => r.owner === 'Pruitt')!.editorialTag, "league's first champion");
+  assert.equal(rows.find((r) => r.owner === 'Whited')!.editorialTag, null);
+});
+
+test("selectChampionshipsWithContext: 'all-time wins leader' wins over 'league's first champion' when both apply to same owner", () => {
+  const history: ChampionshipEntry[] = [
+    { year: 2018, champion: 'Pruitt' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+  const championOwnerRows = groupChampionsByOwner(history);
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 2, { totalWins: 200, seasonsPlayed: 8 }),
+    makeStanding('Maleski', 0, { totalWins: 100, seasonsPlayed: 8 }),
+  ];
+
+  const rows = selectChampionshipsWithContext({
+    championOwnerRows,
+    allTimeStandings: allTime,
+    championshipHistory: history,
+  });
+
+  // Pruitt is both wins leader and first champion — wins-leader takes precedence
+  assert.equal(rows.find((r) => r.owner === 'Pruitt')!.editorialTag, 'all-time wins leader');
+});
+
+test("selectChampionshipsWithContext: skips 'league's first champion' when earliest archive is Unknown", () => {
+  const history: ChampionshipEntry[] = [
+    { year: 2018, champion: 'Unknown' },
+    { year: 2024, champion: 'Pruitt' },
+    { year: 2025, champion: 'Whited' },
+  ];
+  const championOwnerRows = groupChampionsByOwner(history);
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 1, { totalWins: 90, seasonsPlayed: 8 }),
+    makeStanding('Whited', 1, { totalWins: 95, seasonsPlayed: 8 }),
+    makeStanding('Maleski', 0, { totalWins: 200, seasonsPlayed: 8 }),
+  ];
+
+  const rows = selectChampionshipsWithContext({
+    championOwnerRows,
+    allTimeStandings: allTime,
+    championshipHistory: history,
+  });
+
+  // No champion gets 'first champion' (earliest is Unknown), and wins leader is Maleski (not a champion)
+  assert.ok(rows.every((r) => r.editorialTag === null));
+});
+
+test('selectChampionshipsWithContext: zero-state seasonsPlayed/winPct when standings missing for owner', () => {
+  const history: ChampionshipEntry[] = [{ year: 2025, champion: 'Pruitt' }];
+  const championOwnerRows = groupChampionsByOwner(history);
+  // Pruitt deliberately absent from standings (defensive shape)
+  const allTime: AllTimeStandingRow[] = [makeStanding('Maleski', 0)];
+
+  const rows = selectChampionshipsWithContext({
+    championOwnerRows,
+    allTimeStandings: allTime,
+    championshipHistory: history,
+  });
+
+  const pruitt = rows.find((r) => r.owner === 'Pruitt')!;
+  assert.equal(pruitt.seasonsPlayed, 0);
+  assert.equal(pruitt.careerWinPct, 0);
+});
+
+// ---------------------------------------------------------------------------
+// selectDroughtsWithContext
+// ---------------------------------------------------------------------------
+
+test('selectDroughtsWithContext: aggregates top-3 count and best rank/year across archives', () => {
+  const archives: SeasonArchive[] = [
+    makeArchive(2023, [
+      { owner: 'Pruitt', wins: 12, losses: 2, gamesBack: 0 },
+      { owner: 'Maleski', wins: 10, losses: 4, gamesBack: 2 },
+      { owner: 'Whited', wins: 8, losses: 6, gamesBack: 4 },
+      { owner: 'BHooper', wins: 6, losses: 8, gamesBack: 6 },
+    ]),
+    makeArchive(2024, [
+      { owner: 'Maleski', wins: 13, losses: 1, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 11, losses: 3, gamesBack: 2 },
+      { owner: 'BHooper', wins: 9, losses: 5, gamesBack: 4 },
+      { owner: 'Whited', wins: 5, losses: 9, gamesBack: 8 },
+    ]),
+    makeArchive(2025, [
+      { owner: 'Pruitt', wins: 14, losses: 0, gamesBack: 0 },
+      { owner: 'Whited', wins: 10, losses: 4, gamesBack: 4 },
+      { owner: 'Maleski', wins: 8, losses: 6, gamesBack: 6 },
+      { owner: 'BHooper', wins: 7, losses: 7, gamesBack: 7 },
+    ]),
+  ];
+  const droughts = [
+    { owner: 'Maleski', drought: 5, lastTitleYear: null },
+    { owner: 'BHooper', drought: 7, lastTitleYear: null },
+    { owner: 'Whited', drought: 6, lastTitleYear: null },
+  ];
+
+  const enriched = selectDroughtsWithContext({ droughts, archives });
+  const byOwner = new Map(enriched.map((r) => [r.owner, r]));
+
+  // Maleski: ranks across archives: 2 (2023), 1 (2024), 3 (2025) → 3 top-3, best rank 1 in 2024
+  assert.equal(byOwner.get('Maleski')!.top3Count, 3);
+  assert.equal(byOwner.get('Maleski')!.bestRank, 1);
+  assert.equal(byOwner.get('Maleski')!.bestRankYear, 2024);
+
+  // BHooper: 4, 3, 4 → 1 top-3, best rank 3 in 2024
+  assert.equal(byOwner.get('BHooper')!.top3Count, 1);
+  assert.equal(byOwner.get('BHooper')!.bestRank, 3);
+  assert.equal(byOwner.get('BHooper')!.bestRankYear, 2024);
+
+  // Whited: 3, 4, 2 → 2 top-3, best rank 2 in 2025
+  assert.equal(byOwner.get('Whited')!.top3Count, 2);
+  assert.equal(byOwner.get('Whited')!.bestRank, 2);
+  assert.equal(byOwner.get('Whited')!.bestRankYear, 2025);
+});
+
+test('selectDroughtsWithContext: returns null bestRank/bestRankYear for owner not in any archive', () => {
+  const archives: SeasonArchive[] = [
+    makeArchive(2025, [
+      { owner: 'Pruitt', wins: 12, losses: 2, gamesBack: 0 },
+      { owner: 'Maleski', wins: 8, losses: 6, gamesBack: 4 },
+    ]),
+  ];
+  const droughts = [{ owner: 'Ghost', drought: 0, lastTitleYear: null }];
+
+  const enriched = selectDroughtsWithContext({ droughts, archives });
+
+  assert.equal(enriched[0]!.top3Count, 0);
+  assert.equal(enriched[0]!.bestRank, null);
+  assert.equal(enriched[0]!.bestRankYear, null);
+});
+
+test('selectDroughtsWithContext: ignores NoClaim rows when computing aggregates', () => {
+  const archives: SeasonArchive[] = [
+    makeArchive(2025, [
+      { owner: 'NoClaim', wins: 0, losses: 0, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 12, losses: 2, gamesBack: 0 },
+      { owner: 'Maleski', wins: 8, losses: 6, gamesBack: 4 },
+    ]),
+  ];
+  const droughts = [
+    { owner: 'NoClaim', drought: 5, lastTitleYear: null },
+    { owner: 'Maleski', drought: 5, lastTitleYear: null },
+  ];
+
+  const enriched = selectDroughtsWithContext({ droughts, archives });
+  const noClaim = enriched.find((r) => r.owner === 'NoClaim')!;
+  // NoClaim was filtered out of stats; thus null bestRank
+  assert.equal(noClaim.bestRank, null);
+});
+
+// ---------------------------------------------------------------------------
+// selectMoversWithContext
+// ---------------------------------------------------------------------------
+
+test('selectMoversWithContext: marks wonTitle true for entries that climbed to #1 and matched champion', () => {
+  const movers = {
+    climbs: [makeImproved('BHooper', 2018, 2021, 13, 1), makeImproved('Pruitt', 2018, 2021, 12, 7)],
+    drops: [makeImproved('Jordan', 2024, 2025, 4, 13)],
+  };
+  const championshipHistory: ChampionshipEntry[] = [
+    { year: 2021, champion: 'BHooper' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+
+  const enriched = selectMoversWithContext({ movers, championshipHistory });
+
+  assert.equal(enriched.climbs[0]!.wonTitle, true); // BHooper climbed to #1 and won 2021
+  assert.equal(enriched.climbs[1]!.wonTitle, false); // Pruitt finished #7
+  assert.equal(enriched.drops[0]!.wonTitle, false); // Jordan finished #13
+});
+
+test('selectMoversWithContext: wonTitle false when toFinish is 1 but champion is a different owner', () => {
+  const movers = {
+    climbs: [makeImproved('Maleski', 2023, 2024, 8, 1)],
+    drops: [],
+  };
+  const championshipHistory: ChampionshipEntry[] = [
+    // Maleski finished #1 in 2024, but Whited was the actual champion
+    { year: 2024, champion: 'Whited' },
+  ];
+
+  const enriched = selectMoversWithContext({ movers, championshipHistory });
+  assert.equal(enriched.climbs[0]!.wonTitle, false);
+});
+
+test('selectMoversWithContext: wonTitle false when toFinish !== 1 even if owner is a champion in toYear', () => {
+  const movers = {
+    climbs: [makeImproved('Pruitt', 2024, 2025, 10, 2)],
+    drops: [],
+  };
+  const championshipHistory: ChampionshipEntry[] = [{ year: 2025, champion: 'Pruitt' }];
+
+  const enriched = selectMoversWithContext({ movers, championshipHistory });
+  // Should never happen in practice (champion finished #2?), but the rule is strict
+  assert.equal(enriched.climbs[0]!.wonTitle, false);
+});
+
+test('selectMoversWithContext: empty buckets pass through unchanged', () => {
+  const enriched = selectMoversWithContext({
+    movers: { climbs: [], drops: [] },
+    championshipHistory: [],
+  });
+  assert.deepEqual(enriched, { climbs: [], drops: [] });
 });

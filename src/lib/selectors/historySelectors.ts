@@ -459,6 +459,12 @@ export type AllTimeHeadToHeadEntry = {
   wins: number;
   losses: number;
   seasons: number;
+  /**
+   * Most recent meeting between this pair across all archived seasons,
+   * or null when no per-matchup history is available (e.g. archives that
+   * only carry aggregate scores).
+   */
+  latestMeeting: { year: number; winner: string } | null;
 };
 
 export type DynastyDroughtRow = {
@@ -666,7 +672,12 @@ export function selectChampionshipHistory(archives: SeasonArchive[]): Championsh
  * wins/losses from ownerA's perspective (ownerA lexicographically smaller).
  */
 export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadToHeadEntry[] {
-  type PairingAccum = { wins: number; losses: number; seasons: Set<number> };
+  type PairingAccum = {
+    wins: number;
+    losses: number;
+    seasons: Set<number>;
+    latestMeeting: { year: number; winner: string } | null;
+  };
   const pairings = new Map<string, PairingAccum>();
 
   function pairingKey(a: string, b: string): string {
@@ -678,7 +689,7 @@ export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadT
     for (const entry of seasonH2H) {
       const key = pairingKey(entry.ownerA, entry.ownerB);
       if (!pairings.has(key)) {
-        pairings.set(key, { wins: 0, losses: 0, seasons: new Set() });
+        pairings.set(key, { wins: 0, losses: 0, seasons: new Set(), latestMeeting: null });
       }
       const p = pairings.get(key)!;
       // selectHeadToHead already ensures ownerA < ownerB, so direction is consistent
@@ -690,6 +701,16 @@ export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadT
         p.losses += entry.wins;
       }
       p.seasons.add(archive.year);
+
+      // Track the latest meeting across archives. Within a single archive,
+      // selectHeadToHead returns matchups sorted by week ascending — the last
+      // element is the season's most recent meeting between this pair.
+      const lastMatchup = entry.matchups[entry.matchups.length - 1];
+      if (lastMatchup) {
+        if (p.latestMeeting === null || archive.year > p.latestMeeting.year) {
+          p.latestMeeting = { year: archive.year, winner: lastMatchup.winner };
+        }
+      }
     }
   }
 
@@ -704,6 +725,7 @@ export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadT
         wins: p.wins,
         losses: p.losses,
         seasons: p.seasons.size,
+        latestMeeting: p.latestMeeting,
       };
     })
     .sort((a, b) => a.ownerA.localeCompare(b.ownerA) || a.ownerB.localeCompare(b.ownerB));

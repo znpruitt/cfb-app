@@ -15,11 +15,15 @@ import { selectAllRecords } from '@/lib/selectors/leagueRecords';
 import {
   computeChampionshipSummary,
   groupChampionsByOwner,
+  selectChampionshipsWithContext,
+  selectDroughtsWithContext,
   selectMarqueeRecords,
   selectMovers,
+  selectMoversWithContext,
   selectRecentPodiums,
   selectSeasonArchiveStrip,
   selectStreaksOrDroughts,
+  selectTitleDroughts,
 } from '@/lib/selectors/historyOverview';
 import { HistorySubNav } from '@/components/history/HistorySubNav';
 import LeaguePageShell from '@/components/LeaguePageShell';
@@ -100,6 +104,11 @@ export default async function LeagueHistoryPage({
     allTimeStandings,
     activeOwners
   );
+  const championshipRowsWithContext = selectChampionshipsWithContext({
+    championOwnerRows,
+    allTimeStandings,
+    championshipHistory,
+  });
   const recentPodiums = selectRecentPodiums(archives, 3);
   const records = selectAllRecords({
     archives,
@@ -117,7 +126,25 @@ export default async function LeagueHistoryPage({
     activeOwners,
     limit: 4,
   });
-  const movers = selectMovers(selectMostImprovedSeasonOverSeason(archives), 4);
+  const droughtsWithContext =
+    streaksOrDroughts.mode === 'droughts'
+      ? selectDroughtsWithContext({
+          droughts: streaksOrDroughts.rows,
+          archives,
+        })
+      : selectDroughtsWithContext({
+          droughts: selectTitleDroughts({
+            history: championshipHistory,
+            allTimeStandings,
+            activeOwners,
+          }),
+          archives,
+        });
+  const moversBuckets = selectMovers(selectMostImprovedSeasonOverSeason(archives), 4);
+  const moversWithContext = selectMoversWithContext({
+    movers: moversBuckets,
+    championshipHistory,
+  });
   const archiveStrip = selectSeasonArchiveStrip(championshipHistory);
 
   return (
@@ -134,7 +161,7 @@ export default async function LeagueHistoryPage({
           <HistorySubNav slug={slug} />
           <div className="space-y-10">
             <ChampionshipsSection
-              rows={championOwnerRows}
+              rows={championshipRowsWithContext}
               summary={championshipSummary}
               slug={slug}
               activeOwners={activeOwners}
@@ -159,11 +186,15 @@ export default async function LeagueHistoryPage({
                   slug={slug}
                   activeOwners={activeOwners}
                 />
-                <TitleStreaksTable data={streaksOrDroughts} slug={slug} />
+                <TitleStreaksTable
+                  data={streaksOrDroughts}
+                  droughtsWithContext={droughtsWithContext}
+                  slug={slug}
+                />
               </div>
             </section>
 
-            <MoversSection buckets={movers} slug={slug} />
+            <MoversSection buckets={moversWithContext} slug={slug} />
 
             <SeasonArchiveStrip items={archiveStrip} slug={slug} />
           </div>

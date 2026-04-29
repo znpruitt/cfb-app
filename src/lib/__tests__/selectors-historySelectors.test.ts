@@ -1,19 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { selectOwnerCareer, type OwnerCareerExtras } from '../selectors/historySelectors.ts';
+import {
+  selectAllTimeHeadToHead,
+  selectOwnerCareer,
+  selectTopRivalries,
+  type OwnerCareerExtras,
+} from '../selectors/historySelectors.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
+import type { AppGame } from '../schedule.ts';
+import type { ScorePack } from '../scores.ts';
 
-function makeArchive(year: number, finalStandings: SeasonArchive['finalStandings']): SeasonArchive {
+function makeArchive(
+  year: number,
+  finalStandings: SeasonArchive['finalStandings'],
+  opts: {
+    ownerRosterCsv?: string;
+    games?: AppGame[];
+    scoresByKey?: Record<string, ScorePack>;
+  } = {}
+): SeasonArchive {
   return {
     leagueSlug: 'test',
     year,
     archivedAt: '2026-01-01T00:00:00.000Z',
-    ownerRosterSnapshot: '',
+    ownerRosterSnapshot: opts.ownerRosterCsv ?? '',
     standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
     finalStandings,
-    games: [],
-    scoresByKey: {},
+    games: opts.games ?? [],
+    scoresByKey: opts.scoresByKey ?? {},
   };
 }
 
@@ -108,4 +123,143 @@ test('selectOwnerCareer returns zero-state result for owner not in any archive',
   assert.equal(career.totalPoints, 0);
   assert.equal(career.firstSeason, null);
   assert.equal(career.isRookie, true);
+});
+
+// ---------------------------------------------------------------------------
+// selectAllTimeHeadToHead.latestMeeting
+// ---------------------------------------------------------------------------
+
+function makeGame(
+  key: string,
+  week: number,
+  awayOwnerTeam: string,
+  homeOwnerTeam: string
+): AppGame {
+  return {
+    key,
+    eventId: key,
+    eventKey: key,
+    week,
+    canonicalWeek: week,
+    providerWeek: week,
+    stage: 'regular',
+    stageOrder: 1,
+    slotOrder: 0,
+    date: null,
+    status: 'final',
+    label: null,
+    conference: null,
+    bowlName: null,
+    playoffRound: null,
+    postseasonRole: null,
+    providerGameId: null,
+    neutral: false,
+    neutralDisplay: 'home_away',
+    venue: null,
+    isPlaceholder: false,
+    participants: {
+      home: {
+        kind: 'team',
+        teamId: homeOwnerTeam,
+        displayName: homeOwnerTeam,
+        canonicalName: homeOwnerTeam,
+        rawName: homeOwnerTeam,
+      },
+      away: {
+        kind: 'team',
+        teamId: awayOwnerTeam,
+        displayName: awayOwnerTeam,
+        canonicalName: awayOwnerTeam,
+        rawName: awayOwnerTeam,
+      },
+    },
+    csvHome: homeOwnerTeam,
+    csvAway: awayOwnerTeam,
+    canHome: homeOwnerTeam,
+    canAway: awayOwnerTeam,
+    homeConf: '',
+    awayConf: '',
+  };
+}
+
+function makeScore(homeScore: number, awayScore: number): ScorePack {
+  return {
+    status: 'final',
+    home: { team: 'home', score: homeScore },
+    away: { team: 'away', score: awayScore },
+    time: null,
+  };
+}
+
+test('selectAllTimeHeadToHead.latestMeeting: tracks most recent meeting across archives', () => {
+  const rosterCsv = ['team,owner', 'PruittTeam,Pruitt', 'WhitedTeam,Whited'].join('\n');
+
+  const games2023 = [makeGame('g1', 3, 'PruittTeam', 'WhitedTeam')];
+  const scores2023 = { g1: makeScore(20, 35) }; // Pruitt (away) 35, Whited (home) 20 → Pruitt wins
+
+  const games2025 = [
+    makeGame('g2', 5, 'WhitedTeam', 'PruittTeam'),
+    makeGame('g3', 11, 'PruittTeam', 'WhitedTeam'),
+  ];
+  const scores2025 = {
+    g2: makeScore(28, 14), // Whited (away) 14, Pruitt (home) 28 → Pruitt wins
+    g3: makeScore(35, 17), // Pruitt (away) 17, Whited (home) 35 → Whited wins (week 11, latest)
+  };
+
+  const archives: SeasonArchive[] = [
+    makeArchive(2023, [row('Pruitt', 10, 4, 400, 350), row('Whited', 8, 6, 360, 380)], {
+      ownerRosterCsv: rosterCsv,
+      games: games2023,
+      scoresByKey: scores2023,
+    }),
+    makeArchive(2025, [row('Pruitt', 11, 3, 420, 340), row('Whited', 9, 5, 380, 360)], {
+      ownerRosterCsv: rosterCsv,
+      games: games2025,
+      scoresByKey: scores2025,
+    }),
+  ];
+
+  const h2h = selectAllTimeHeadToHead(archives);
+  assert.equal(h2h.length, 1);
+  const entry = h2h[0]!;
+  assert.equal(entry.ownerA, 'Pruitt');
+  assert.equal(entry.ownerB, 'Whited');
+  // Latest year wins; within 2025, last week (11) is the most recent meeting
+  assert.equal(entry.latestMeeting!.year, 2025);
+  assert.equal(entry.latestMeeting!.winner, 'Whited');
+});
+
+test('selectAllTimeHeadToHead.latestMeeting: returns null when archives have no qualifying matchups', () => {
+  // Archive with finalStandings only (no games) → no head-to-head pairings created
+  const archives: SeasonArchive[] = [
+    makeArchive(2025, [row('Pruitt', 10, 4, 400, 350), row('Whited', 8, 6, 360, 380)]),
+  ];
+
+  const h2h = selectAllTimeHeadToHead(archives);
+  assert.deepEqual(h2h, []);
+});
+
+test('selectTopRivalries: latestMeeting flows through to top rivalries output', () => {
+  const rosterCsv = ['team,owner', 'PruittTeam,Pruitt', 'WhitedTeam,Whited'].join('\n');
+  const games = [
+    makeGame('g1', 1, 'PruittTeam', 'WhitedTeam'),
+    makeGame('g2', 8, 'WhitedTeam', 'PruittTeam'),
+  ];
+  const scores = {
+    g1: makeScore(28, 21), // Pruitt away 21, Whited home 28 → Whited wins
+    g2: makeScore(14, 20), // Whited away 20, Pruitt home 14 → Whited wins (week 8 latest)
+  };
+
+  const archives: SeasonArchive[] = [
+    makeArchive(2025, [row('Pruitt', 10, 4, 400, 350), row('Whited', 9, 5, 380, 360)], {
+      ownerRosterCsv: rosterCsv,
+      games,
+      scoresByKey: scores,
+    }),
+  ];
+
+  const top = selectTopRivalries(archives, 5);
+  assert.equal(top.length, 1);
+  assert.equal(top[0]!.latestMeeting!.year, 2025);
+  assert.equal(top[0]!.latestMeeting!.winner, 'Whited');
 });

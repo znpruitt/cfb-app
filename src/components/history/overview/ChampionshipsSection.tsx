@@ -1,13 +1,13 @@
 import React from 'react';
 import Link from 'next/link';
 import type {
-  ChampionshipOwnerRow,
+  ChampionshipRowWithContext,
   ChampionshipSummaryStats,
 } from '@/lib/selectors/historyOverview';
 import FormerOwnerBadge from '../FormerOwnerBadge';
 
 type Props = {
-  rows: ChampionshipOwnerRow[];
+  rows: ChampionshipRowWithContext[];
   summary: ChampionshipSummaryStats;
   slug: string;
   activeOwners: Set<string>;
@@ -15,6 +15,10 @@ type Props = {
 
 function ownerHref(slug: string, owner: string): string {
   return `/league/${slug}/history/owner/${encodeURIComponent(owner)}`;
+}
+
+function formatPct(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 export default function ChampionshipsSection({
@@ -54,33 +58,46 @@ export default function ChampionshipsSection({
           No champions yet — the league has not completed a season.
         </p>
       ) : (
-        <div className="grid gap-2">
+        <ul className="space-y-4">
           {rows.map((row) => {
             const isFormer = !activeOwners.has(row.owner);
             return (
-              <div
-                key={row.owner}
-                className="flex items-baseline gap-5 py-1.5 text-sm tabular-nums"
-              >
-                <span className="flex w-[140px] shrink-0 items-baseline gap-1.5 font-medium text-gray-900 dark:text-zinc-100">
-                  <Link href={ownerHref(slug, row.owner)} className="hover:underline">
-                    {row.owner}
-                  </Link>
-                  {isFormer && <FormerOwnerBadge />}
-                </span>
-                <span className="w-[68px] shrink-0 text-amber-600 dark:text-amber-400">
-                  {row.titleCount} title{row.titleCount === 1 ? '' : 's'}
-                </span>
-                <span className="text-amber-600 dark:text-amber-400">{row.years.join(', ')}</span>
-                {row.isReigning && (
-                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-600 dark:text-amber-400">
-                    Reigning
+              <li key={row.owner} className="space-y-0.5">
+                {/* Line 1 */}
+                <div className="flex items-baseline gap-5 text-sm tabular-nums">
+                  <span className="flex items-baseline gap-1.5 font-medium text-gray-900 dark:text-zinc-100">
+                    <Link href={ownerHref(slug, row.owner)} className="hover:underline">
+                      {row.owner}
+                    </Link>
+                    {isFormer && <FormerOwnerBadge />}
                   </span>
-                )}
-              </div>
+                  <span className="text-amber-600 dark:text-amber-400">
+                    {row.titleCount} title{row.titleCount === 1 ? '' : 's'}
+                  </span>
+                  <span className="text-amber-600 dark:text-amber-400">{row.years.join(', ')}</span>
+                  {row.isReigning && (
+                    <span className="ml-auto text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-600 dark:text-amber-400">
+                      Reigning
+                    </span>
+                  )}
+                </div>
+                {/* Line 2 */}
+                <div className="text-xs text-gray-500 dark:text-zinc-400">
+                  {row.seasonsPlayed} season{row.seasonsPlayed === 1 ? '' : 's'} played ·{' '}
+                  {formatPct(row.careerWinPct)} career win%
+                  {row.editorialTag !== null && (
+                    <>
+                      {' · '}
+                      <span className="font-medium text-gray-700 dark:text-zinc-300">
+                        {row.editorialTag}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
     </section>
   );
