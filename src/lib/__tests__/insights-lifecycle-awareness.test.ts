@@ -118,6 +118,7 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     rankings: overrides.rankings ?? null,
     currentRoster: overrides.currentRoster ?? new Map(),
     usingArchivedRoster: overrides.usingArchivedRoster ?? false,
+    records: overrides.records ?? { career: [], season: [], rivalry: [], event: [] },
   };
 }
 

@@ -16,6 +16,7 @@ import { createTeamIdentityResolver } from '../teamIdentity';
 import type { AliasMap } from '../teamNames';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from './lifecycle';
+import { selectAllRecords } from '../selectors/leagueRecords';
 import type { InsightContext, OwnerCareerStats, OwnerSeasonStats } from './types';
 
 const NO_CLAIM_OWNER = 'NoClaim';
@@ -311,6 +312,13 @@ export async function buildInsightContext(
     currentRoster: resolvedRoster,
   });
 
+  const records = selectAllRecords({
+    archives,
+    historicalRosters,
+    currentYear: league.year,
+    currentRoster: resolvedRoster,
+  });
+
   return {
     leagueSlug,
     currentYear: league.year,
@@ -327,5 +335,6 @@ export async function buildInsightContext(
     rankings,
     currentRoster: resolvedRoster,
     usingArchivedRoster,
+    records,
   };
 }

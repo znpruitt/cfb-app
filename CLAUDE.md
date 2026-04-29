@@ -85,6 +85,36 @@ If a proposed solution conflicts with any of these, flag it explicitly before ge
 
 ---
 
+## Common commands
+
+- `npm run dev` — start Next.js dev server (localhost:3000)
+- `npm run build` — production build
+- `npm run lint` — fast scoped ESLint + Prettier (skips tests/data); use during local iteration only
+- `npm run lint:all` — full-project lint including test files; **always run this before pushing** — it is what Vercel runs, and `npm run lint` will miss violations in test files
+- `npm run lint:fix` — auto-fix on the fast scope
+- `npx tsc --noEmit` — type-check
+- `npm test` — full test suite via `node:test` + `tsx` loader; tests live in `src/**/__tests__/`
+- Run a single test: `node --import tsx --test src/path/to/__tests__/file.test.ts`
+- `npm run fetch:teams` — regenerate `src/data/teams.json` from CFBD
+
+There is no Vitest/Jest config — test runner is Node's built-in. There is no CI workflow checked in; `npm run lint:all` is the intended pre-merge gate.
+
+---
+
+## Architecture at a glance
+
+Claude should know the data flow shape before diagnosing:
+
+- `src/components/CFBScheduleApp.tsx` — top-level orchestrator only; no parsing/matching logic
+- `src/app/api/{schedule,scores,odds,teams,aliases}/` — provider adapter routes; normalize CFBD/Odds API shapes
+- `src/lib/teamIdentity.ts` — single entry point for runtime team matching
+- `src/lib/schedule.ts` + `src/lib/scoreAttachment.ts` — canonical game model + score attachment (postseason-week-aware)
+- `src/lib/selectors/` — **single source of derived truth** for standings, insights, trends, matchups, momentum. Pure functions. Any league derivation outside this directory is an architecture violation
+- `src/lib/selectors/leagueStandings.ts` — exports `getCanonicalStandings` (cached server canonical) and `invalidateStandings` (tag invalidation). `LiveDelta` overlay computed client-side via `selectLiveDelta` / `useLiveDelta` and never merged with canonical at render time
+- Static data: `src/data/teams.json` (canonical) + `src/data/alias-overrides.json` only
+
+---
+
 ## Debugging order
 
 Always diagnose upstream-first:

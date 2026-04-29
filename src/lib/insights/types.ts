@@ -1,5 +1,6 @@
 import type { Insight } from '../selectors/insights';
 import type { SeasonContext } from '../selectors/seasonContext';
+import type { LeagueRecords } from '../selectors/leagueRecords';
 import type { RankingsResponse } from '../rankings';
 import type { AppGame } from '../schedule';
 import type { SeasonArchive } from '../seasonArchive';
@@ -106,6 +107,14 @@ export type InsightContext = {
   // true when currentRoster was borrowed from the most recent season archive
   // because the current-year owners CSV is empty (fresh_offseason rollover window).
   usingArchivedRoster: boolean;
+  /**
+   * Atemporal record holders for every tracked record category.
+   * Computed once per request by selectAllRecords() and available to all
+   * generators. Generators may read this instead of re-deriving records inline.
+   * In Phase 1 no generator consumes this field; existing generators continue
+   * to re-derive their own records as before.
+   */
+  records: LeagueRecords;
 };
 
 // Generator interface — all generators must conform to this.
