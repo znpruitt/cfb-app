@@ -41,8 +41,6 @@ function makeRow(
   };
 }
 
-let archiveIdCounter = 0;
-
 function makeArchive(
   year: number,
   standings: StandingsHistoryStandingRow[],
@@ -53,7 +51,6 @@ function makeArchive(
     ownerRosterCsv?: string;
   } = {}
 ): SeasonArchive {
-  archiveIdCounter++;
   // Default roster CSV: derive from standings
   const rosterCsv =
     opts.ownerRosterCsv ??

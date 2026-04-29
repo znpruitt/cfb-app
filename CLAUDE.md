@@ -89,8 +89,8 @@ If a proposed solution conflicts with any of these, flag it explicitly before ge
 
 - `npm run dev` — start Next.js dev server (localhost:3000)
 - `npm run build` — production build
-- `npm run lint` — fast scoped ESLint + Prettier (skips tests/data); use during local work
-- `npm run lint:all` — full-project lint (use before merge)
+- `npm run lint` — fast scoped ESLint + Prettier (skips tests/data); use during local iteration only
+- `npm run lint:all` — full-project lint including test files; **always run this before pushing** — it is what Vercel runs, and `npm run lint` will miss violations in test files
 - `npm run lint:fix` — auto-fix on the fast scope
 - `npx tsc --noEmit` — type-check
 - `npm test` — full test suite via `node:test` + `tsx` loader; tests live in `src/**/__tests__/`
