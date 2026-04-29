@@ -203,7 +203,7 @@ Preferred checks:
 
 - `npm run lint`
 - `npx tsc --noEmit`
-- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`.
+- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`. **For verification of campaign work, prefer scoped suites over the full run** — see `## Verification and reference conventions` below for the current convention.
 
 Known pre-existing issue:
 
