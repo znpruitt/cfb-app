@@ -114,6 +114,7 @@ export default async function LeagueHistoryPage({
     dynastyDroughtRows: dynastyDrought.rows,
     history: championshipHistory,
     allTimeStandings,
+    activeOwners,
     limit: 4,
   });
   const movers = selectMovers(selectMostImprovedSeasonOverSeason(archives), 4);

@@ -456,8 +456,9 @@ test('selectTitleDroughts: counts seasons since last title (champions)', () => {
     makeStanding('Whited', 2, { seasonsPlayed: 5 }),
     makeStanding('BHooper', 1, { seasonsPlayed: 5 }),
   ];
+  const activeOwners = new Set(['Pruitt', 'Whited', 'BHooper']);
 
-  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime });
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime, activeOwners });
 
   const byOwner = new Map(droughts.map((d) => [d.owner, d]));
   // Pruitt won 2025; no seasons after — drought 0
@@ -477,8 +478,9 @@ test('selectTitleDroughts: never-champions show seasonsPlayed and null lastTitle
     makeStanding('Pruitt', 1, { seasonsPlayed: 1 }),
     makeStanding('Maleski', 0, { seasonsPlayed: 5 }),
   ];
+  const activeOwners = new Set(['Pruitt', 'Maleski']);
 
-  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime });
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime, activeOwners });
   const maleski = droughts.find((d) => d.owner === 'Maleski')!;
 
   assert.equal(maleski.drought, 5);
@@ -494,12 +496,34 @@ test('selectTitleDroughts: skips Unknown champions when computing last-title', (
     makeStanding('Pruitt', 1, { seasonsPlayed: 2 }),
     makeStanding('Whited', 0, { seasonsPlayed: 2 }),
   ];
+  const activeOwners = new Set(['Pruitt', 'Whited']);
 
-  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime });
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime, activeOwners });
   const whited = droughts.find((d) => d.owner === 'Whited')!;
 
   assert.equal(whited.drought, 2);
   assert.equal(whited.lastTitleYear, null);
+});
+
+test('selectTitleDroughts: excludes former owners (those not in activeOwners)', () => {
+  const history: ChampionshipEntry[] = [
+    { year: 2018, champion: 'Hardiman' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 1, { seasonsPlayed: 5 }),
+    makeStanding('Maleski', 0, { seasonsPlayed: 5 }),
+    makeStanding('Hardiman', 1, { seasonsPlayed: 4 }), // former champion
+    makeStanding('Clay', 0, { seasonsPlayed: 3 }), // former, never won
+  ];
+  const activeOwners = new Set(['Pruitt', 'Maleski']);
+
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime, activeOwners });
+
+  assert.deepEqual(
+    droughts.map((d) => d.owner),
+    ['Pruitt', 'Maleski']
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -525,6 +549,7 @@ test('selectStreaksOrDroughts: returns streaks mode when at least one streak >= 
     dynastyDroughtRows: dynastyRows,
     history,
     allTimeStandings: allTime,
+    activeOwners: new Set(['Whited', 'Pruitt']),
     limit: 4,
   });
 
@@ -554,6 +579,7 @@ test('selectStreaksOrDroughts: returns droughts mode when no streak >= 2 exists'
     dynastyDroughtRows: dynastyRows,
     history,
     allTimeStandings: allTime,
+    activeOwners: new Set(['Pruitt', 'Whited', 'BHooper', 'Maleski']),
     limit: 4,
   });
 
@@ -578,6 +604,7 @@ test('selectStreaksOrDroughts: caps results at limit', () => {
     dynastyDroughtRows: dynastyRows,
     history,
     allTimeStandings: allTime,
+    activeOwners: new Set(allTime.map((row) => row.owner)),
     limit: 4,
   });
 

@@ -237,8 +237,9 @@ export type TitleDroughtRow = {
 export function selectTitleDroughts(args: {
   history: ChampionshipEntry[];
   allTimeStandings: AllTimeStandingRow[];
+  activeOwners: Set<string>;
 }): TitleDroughtRow[] {
-  const { history, allTimeStandings } = args;
+  const { history, allTimeStandings, activeOwners } = args;
   const sortedYears = [...new Set(history.map((entry) => entry.year))].sort((a, b) => a - b);
 
   const lastTitleByOwner = new Map<string, number>();
@@ -250,14 +251,16 @@ export function selectTitleDroughts(args: {
     }
   }
 
-  return allTimeStandings.map((row) => {
-    const lastTitle = lastTitleByOwner.get(row.owner);
-    if (lastTitle === undefined) {
-      return { owner: row.owner, drought: row.seasonsPlayed, lastTitleYear: null };
-    }
-    const drought = sortedYears.filter((year) => year > lastTitle).length;
-    return { owner: row.owner, drought, lastTitleYear: lastTitle };
-  });
+  return allTimeStandings
+    .filter((row) => activeOwners.has(row.owner))
+    .map((row) => {
+      const lastTitle = lastTitleByOwner.get(row.owner);
+      if (lastTitle === undefined) {
+        return { owner: row.owner, drought: row.seasonsPlayed, lastTitleYear: null };
+      }
+      const drought = sortedYears.filter((year) => year > lastTitle).length;
+      return { owner: row.owner, drought, lastTitleYear: lastTitle };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -272,16 +275,17 @@ export function selectStreaksOrDroughts(args: {
   dynastyDroughtRows: DynastyDroughtRow[];
   history: ChampionshipEntry[];
   allTimeStandings: AllTimeStandingRow[];
+  activeOwners: Set<string>;
   limit?: number;
 }): StreaksOrDroughts {
-  const { dynastyDroughtRows, history, allTimeStandings, limit = 4 } = args;
+  const { dynastyDroughtRows, history, allTimeStandings, activeOwners, limit = 4 } = args;
 
   const streaks = selectTitleStreaks(dynastyDroughtRows).slice(0, limit);
   if (streaks.length > 0) {
     return { mode: 'streaks', rows: streaks };
   }
 
-  const droughts = selectTitleDroughts({ history, allTimeStandings })
+  const droughts = selectTitleDroughts({ history, allTimeStandings, activeOwners })
     .sort((a, b) => {
       if (b.drought !== a.drought) return b.drought - a.drought;
       return a.owner.localeCompare(b.owner);
