@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>History redesign — Path C</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --border: #1f1f1f;
+    --text: #ededed;
+    --text-dim: #a3a3a3;
+    --text-faint: #666;
+    --amber: #fcd34d;
+    --green: #34d399;
+    --red: #f87171;
+    --teal: #5eead4;
+    --purple: #c4b5fd;
+    --coral: #fda4af;
+    --blue: #93c5fd;
+    --info-link: #60a5fa;
+
+    --space-section: 40px;
+    --space-block: 20px;
+    --space-tight: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    line-height: 1.5;
+    font-size: 14px;
+  }
+
+  /* deck */
+  .deck-header {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 56px 48px 24px;
+  }
+  .deck-header h1 {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+  }
+  .deck-header p {
+    color: var(--text-dim);
+    margin: 0;
+    max-width: 760px;
+    font-size: 13px;
+  }
+
+  /* app shell */
+  .app {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 32px 48px 96px;
+  }
+  .league-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 36px;
+  }
+  .league-name { font-size: 24px; font-weight: 500; }
+  .league-meta {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 2px;
+  }
+  .top-nav {
+    display: flex;
+    gap: 28px;
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .top-nav .item { padding-bottom: 8px; }
+  .top-nav .active {
+    color: var(--text);
+    border-bottom: 1.5px solid var(--text);
+  }
+  .subnav {
+    display: flex;
+    gap: 28px;
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-bottom: var(--space-section);
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .subnav .active { color: var(--text); font-weight: 500; }
+
+  section { margin-bottom: var(--space-section); }
+  section:last-child { margin-bottom: 0; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: var(--space-block);
+  }
+  .section-head h2 { font-size: 15px; font-weight: 500; margin: 0; }
+  .section-head .more {
+    font-size: 13px;
+    color: var(--info-link);
+    text-decoration: none;
+  }
+  .section-head .summary {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .section-head .summary strong { color: var(--text); font-weight: 500; }
+
+  /* ============================================================
+     CHAMPIONSHIPS — multi-line row.
+     Line 1: name, titles, years
+     Line 2: career context (total seasons played, win% during titles, etc.)
+     ============================================================ */
+  .champ-grid {
+    display: grid;
+    gap: 10px;
+  }
+  .champ-row {
+    padding: 6px 0;
+  }
+  .champ-row .line-1 {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    font-size: 14px;
+  }
+  .champ-row .line-1 .name {
+    color: var(--text);
+    font-weight: 500;
+    width: 140px;
+    flex-shrink: 0;
+  }
+  .champ-row .line-1 .name .former-tag {
+    font-size: 9px;
+    color: var(--text-faint);
+    margin-left: 6px;
+    letter-spacing: 0.08em;
+    font-weight: 400;
+  }
+  .champ-row .line-1 .titles {
+    color: var(--amber);
+    font-variant-numeric: tabular-nums;
+    width: 68px;
+    flex-shrink: 0;
+  }
+  .champ-row .line-1 .years {
+    color: var(--amber);
+    font-variant-numeric: tabular-nums;
+  }
+  .champ-row .line-1 .marker {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--amber);
+  }
+  .champ-row .line-2 {
+    margin-top: 2px;
+    margin-left: 160px;  /* aligns with content after name column */
+    font-size: 12px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============================================================
+     ALL-TIME STANDINGS — full table, restored columns.
+     Single-line rows justified by 7 cells of dense data.
+     ============================================================ */
+  .dashboard {
+    display: grid;
+    grid-template-columns: 1.4fr 0.85fr 1fr;
+    gap: 56px;
+  }
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .data-table th {
+    text-align: left;
+    padding: 0 8px var(--space-tight) 0;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table th.num { text-align: right; padding-right: 0; padding-left: 8px; }
+  .data-table td {
+    padding: 9px 8px 9px 0;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .data-table td.num { text-align: right; padding-right: 0; padding-left: 8px; }
+  .data-table tbody tr:first-child td { padding-top: 12px; }
+  .data-table .rank-cell { color: var(--text-faint); }
+  .data-table .owner-cell { color: var(--text); font-weight: 500; }
+  .data-table .titles-cell { color: var(--amber); font-weight: 500; }
+  .data-table .titles-cell.zero { color: var(--text-faint); font-weight: 400; }
+  .data-table .dim { color: var(--text-dim); }
+
+  /* ============================================================
+     RECENT PODIUMS — already 3-line block per season; unchanged.
+     ============================================================ */
+  .podium-block { padding-bottom: var(--space-block); }
+  .podium-block:last-child { padding-bottom: 0; }
+  .podium-year {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    margin-bottom: var(--space-tight);
+  }
+  .podium-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 10px;
+    padding: 3px 0;
+    align-items: baseline;
+    font-size: 14px;
+  }
+  .podium-row .place {
+    color: var(--text-faint);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .podium-row.first .name { color: var(--text); font-weight: 500; }
+  .podium-row.first .place { color: var(--amber); }
+  .podium-row.second .name { color: var(--text-dim); }
+  .podium-row.third .name { color: var(--text-faint); }
+  .podium-row .meta {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .podium-row.first .meta { color: var(--text-dim); }
+  .podium-row.second .meta,
+  .podium-row.third .meta { color: var(--text-faint); }
+
+  /* ============================================================
+     RECORDS — already 3-line block per record; unchanged.
+     ============================================================ */
+  .records-list { display: flex; flex-direction: column; gap: 4px; }
+  .record-item {
+    display: grid;
+    grid-template-columns: 1fr 16px;
+    gap: 12px;
+    padding: 8px 0;
+    align-items: center;
+    cursor: pointer;
+  }
+  .record-item .eyebrow {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .record-item.career .eyebrow { color: var(--teal); }
+  .record-item.season .eyebrow { color: var(--purple); }
+  .record-item.rivalry .eyebrow { color: var(--coral); }
+  .record-item.event .eyebrow { color: var(--blue); }
+  .record-item .title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .record-item .sub {
+    font-size: 13px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .record-item .arrow {
+    color: var(--text-faint);
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  /* ============================================================
+     TOP RIVALRIES — 2-line block.
+     Line 1: pair name, score (right-anchored)
+     Line 2: games · seasons · last meeting context
+     ============================================================ */
+  .row-2 {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 56px;
+  }
+  .rivalry-list { display: flex; flex-direction: column; gap: 6px; }
+  .rivalry-row {
+    padding: 6px 0;
+    cursor: pointer;
+  }
+  .rivalry-row .line-1 {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    font-size: 14px;
+  }
+  .rivalry-row .line-1 .pair { color: var(--text); }
+  .rivalry-row .line-1 .pair .vs { color: var(--text-faint); margin: 0 4px; }
+  .rivalry-row .line-1 .pair .former-tag {
+    font-size: 9px; color: var(--text-faint); margin-left: 6px; letter-spacing: 0.08em;
+  }
+  .rivalry-row .line-1 .score {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .rivalry-row .line-2 {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .rivalry-row .line-2 .recent {
+    color: var(--text-faint);
+    margin-left: 4px;
+  }
+
+  /* ============================================================
+     TITLE DROUGHTS / STREAKS — 2-line block.
+     Line 1: name, drought-or-streak count (right-anchored amber)
+     Line 2: context — "best finish: 2nd in 2022" / "X seasons played"
+     ============================================================ */
+  .streak-list { display: flex; flex-direction: column; gap: 6px; }
+  .streak-row {
+    padding: 6px 0;
+  }
+  .streak-row .line-1 {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    font-size: 14px;
+  }
+  .streak-row .line-1 .owner {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .streak-row .line-1 .owner .former-tag {
+    font-size: 9px; color: var(--text-faint); margin-left: 6px; letter-spacing: 0.08em;
+  }
+  .streak-row .line-1 .value {
+    margin-left: auto;
+    color: var(--amber);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+  .streak-row .line-2 {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============================================================
+     MOVERS — 2-line block.
+     Line 1: owner, delta (right-anchored colored)
+     Line 2: span · rank change
+     ============================================================ */
+  .row-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 56px;
+  }
+  .col-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin-bottom: var(--space-block);
+  }
+  .mover-list { display: flex; flex-direction: column; gap: 6px; }
+  .mover-row {
+    padding: 6px 0;
+  }
+  .mover-row .line-1 {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    font-size: 14px;
+  }
+  .mover-row .line-1 .owner {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .mover-row .line-1 .delta {
+    margin-left: auto;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .mover-row .line-1 .delta.up { color: var(--green); }
+  .mover-row .line-1 .delta.down { color: var(--red); }
+  .mover-row .line-2 {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============================================================
+     SEASON ARCHIVE — kept tight, navigation aid.
+     ============================================================ */
+  .archive-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px 32px;
+  }
+  .archive-link {
+    text-decoration: none;
+    color: var(--text);
+  }
+  .archive-link .yr {
+    font-size: 11px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.1em;
+    margin-bottom: 2px;
+    font-weight: 600;
+  }
+  .archive-link .winner {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--amber);
+  }
+
+  /* notes */
+  .notes {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 64px 48px 96px;
+    border-top: 1px solid var(--border);
+  }
+  .notes h2 { font-size: 16px; font-weight: 500; margin: 0 0 18px; }
+  .notes h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    margin: 28px 0 8px;
+  }
+  .notes p, .notes li {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .notes ul { padding-left: 20px; margin: 8px 0 0; }
+  .notes strong { color: var(--text); font-weight: 500; }
+  .notes code {
+    background: rgba(255,255,255,0.04);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+
+<div class="deck-header">
+  <h1>History redesign — Path C</h1>
+  <p>Each row earns its width by becoming a multi-line block with secondary context, mirroring main Overview's pattern. Restructured rows: Championships, Top rivalries, Title droughts, Movers. Restored to dense table treatment: All-time standings (now with seasons + avg-finish columns). Already in good shape and unchanged: Recent podiums, Records, Season archive, Championships dashboard placement.</p>
+</div>
+
+<div class="app">
+
+  <div class="league-header">
+    <div>
+      <div class="league-name">TSC League</div>
+      <div class="league-meta">Est. 2018 · 6 seasons played</div>
+    </div>
+    <nav class="top-nav">
+      <span class="item">Overview</span>
+      <span class="item">Standings</span>
+      <span class="item">Matchups</span>
+      <span class="item">Insights</span>
+      <span class="item">Members</span>
+      <span class="item active">History</span>
+    </nav>
+  </div>
+
+  <nav class="subnav">
+    <span class="active">Overview</span>
+    <span>Stats</span>
+    <span>Rivalries</span>
+    <span>Archive</span>
+  </nav>
+
+  <!-- ============ Championships — 2-line per champion ============ -->
+  <section>
+    <div class="section-head">
+      <h2>Championships</h2>
+      <div class="summary"><strong>4 champions</strong> across <strong>6 seasons</strong> · 11 still chasing</div>
+    </div>
+    <div class="champ-grid">
+      <div class="champ-row">
+        <div class="line-1">
+          <span class="name">Pruitt</span>
+          <span class="titles">2 titles</span>
+          <span class="years">2023, 2025</span>
+          <span class="marker">REIGNING</span>
+        </div>
+        <div class="line-2">6 seasons played · 56.7% career win%</div>
+      </div>
+      <div class="champ-row">
+        <div class="line-1">
+          <span class="name">Whited</span>
+          <span class="titles">2 titles</span>
+          <span class="years">2022, 2024</span>
+        </div>
+        <div class="line-2">6 seasons played · 60.0% career win% · all-time wins leader</div>
+      </div>
+      <div class="champ-row">
+        <div class="line-1">
+          <span class="name">BHooper</span>
+          <span class="titles">1 title</span>
+          <span class="years">2021</span>
+        </div>
+        <div class="line-2">6 seasons played · 52.4% career win%</div>
+      </div>
+      <div class="champ-row">
+        <div class="line-1">
+          <span class="name">Hardiman <span class="former-tag">FORMER</span></span>
+          <span class="titles">1 title</span>
+          <span class="years">2018</span>
+        </div>
+        <div class="line-2">1 season played · 60.2% career win% · league's first champion</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Dashboard ============ -->
+  <section>
+    <div class="dashboard">
+
+      <!-- All-time standings — full table -->
+      <div>
+        <div class="section-head">
+          <h2>All-time standings</h2>
+          <a href="#" class="more">Full standings →</a>
+        </div>
+        <table class="data-table">
+          <colgroup>
+            <col style="width: 24px;">
+            <col>
+            <col style="width: 72px;">
+            <col style="width: 50px;">
+            <col style="width: 32px;">
+            <col style="width: 40px;">
+            <col style="width: 40px;">
+          </colgroup>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Owner</th>
+              <th class="num">Record</th>
+              <th class="num">Win%</th>
+              <th class="num">Titles</th>
+              <th class="num">Seasons</th>
+              <th class="num">Avg</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="rank-cell">1</td>
+              <td class="owner-cell">Whited</td>
+              <td class="num">488–326</td>
+              <td class="num">60.0%</td>
+              <td class="num titles-cell">2</td>
+              <td class="num dim">6</td>
+              <td class="num dim">3.0</td>
+            </tr>
+            <tr>
+              <td class="rank-cell">2</td>
+              <td class="owner-cell">Pruitt</td>
+              <td class="num">455–348</td>
+              <td class="num">56.7%</td>
+              <td class="num titles-cell">2</td>
+              <td class="num dim">6</td>
+              <td class="num dim">5.5</td>
+            </tr>
+            <tr>
+              <td class="rank-cell">3</td>
+              <td class="owner-cell">Shambaugh</td>
+              <td class="num">448–362</td>
+              <td class="num">55.3%</td>
+              <td class="num titles-cell zero">—</td>
+              <td class="num dim">6</td>
+              <td class="num dim">5.2</td>
+            </tr>
+            <tr>
+              <td class="rank-cell">4</td>
+              <td class="owner-cell">Maleski</td>
+              <td class="num">438–313</td>
+              <td class="num">58.3%</td>
+              <td class="num titles-cell zero">—</td>
+              <td class="num dim">6</td>
+              <td class="num dim">5.3</td>
+            </tr>
+            <tr>
+              <td class="rank-cell">5</td>
+              <td class="owner-cell">BHooper</td>
+              <td class="num">428–389</td>
+              <td class="num">52.4%</td>
+              <td class="num titles-cell">1</td>
+              <td class="num dim">6</td>
+              <td class="num dim">8.0</td>
+            </tr>
+            <tr>
+              <td class="rank-cell">6</td>
+              <td class="owner-cell">Jordan</td>
+              <td class="num">349–315</td>
+              <td class="num">52.6%</td>
+              <td class="num titles-cell zero">—</td>
+              <td class="num dim">5</td>
+              <td class="num dim">6.6</td>
+            </tr>
+            <tr>
+              <td class="rank-cell">7</td>
+              <td class="owner-cell">LHooper</td>
+              <td class="num">329–283</td>
+              <td class="num">53.8%</td>
+              <td class="num titles-cell zero">—</td>
+              <td class="num dim">5</td>
+              <td class="num dim">9.0</td>
+            </tr>
+            <tr>
+              <td class="rank-cell">8</td>
+              <td class="owner-cell">Ciprys</td>
+              <td class="num">315–242</td>
+              <td class="num">56.6%</td>
+              <td class="num titles-cell zero">—</td>
+              <td class="num dim">4</td>
+              <td class="num dim">5.3</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recent podiums (unchanged) -->
+      <div>
+        <div class="section-head">
+          <h2>Recent podiums</h2>
+          <a href="#" class="more">Full history →</a>
+        </div>
+        <div class="podium-block">
+          <div class="podium-year">2025 SEASON</div>
+          <div class="podium-row first">
+            <span class="place">1</span>
+            <span class="name">Pruitt</span>
+            <span class="meta">81 W</span>
+          </div>
+          <div class="podium-row second">
+            <span class="place">2</span>
+            <span class="name">Maleski</span>
+            <span class="meta">7 GB</span>
+          </div>
+          <div class="podium-row third">
+            <span class="place">3</span>
+            <span class="name">Ciprys</span>
+            <span class="meta">10 GB</span>
+          </div>
+        </div>
+        <div class="podium-block">
+          <div class="podium-year">2024 SEASON</div>
+          <div class="podium-row first">
+            <span class="place">1</span>
+            <span class="name">Whited</span>
+            <span class="meta">76 W</span>
+          </div>
+          <div class="podium-row second">
+            <span class="place">2</span>
+            <span class="name">Ciprys</span>
+            <span class="meta">4 GB</span>
+          </div>
+          <div class="podium-row third">
+            <span class="place">3</span>
+            <span class="name">Maleski</span>
+            <span class="meta">7 GB</span>
+          </div>
+        </div>
+        <div class="podium-block">
+          <div class="podium-year">2023 SEASON</div>
+          <div class="podium-row first">
+            <span class="place">1</span>
+            <span class="name">Pruitt</span>
+            <span class="meta">73 W</span>
+          </div>
+          <div class="podium-row second">
+            <span class="place">2</span>
+            <span class="name">Whited</span>
+            <span class="meta">2 GB</span>
+          </div>
+          <div class="podium-row third">
+            <span class="place">3</span>
+            <span class="name">Jordan</span>
+            <span class="meta">9 GB</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Records (unchanged) -->
+      <div>
+        <div class="section-head">
+          <h2>Records</h2>
+          <a href="#" class="more">All records →</a>
+        </div>
+        <div class="records-list">
+          <div class="record-item career">
+            <div>
+              <div class="eyebrow">CAREER</div>
+              <div class="title">Most career points</div>
+              <div class="sub">Whited · 24,252 pts</div>
+            </div>
+            <span class="arrow">→</span>
+          </div>
+          <div class="record-item season">
+            <div>
+              <div class="eyebrow">SEASON</div>
+              <div class="title">Highest-scoring season</div>
+              <div class="sub">Ciprys · 5,178 pts (2022)</div>
+            </div>
+            <span class="arrow">→</span>
+          </div>
+          <div class="record-item rivalry">
+            <div>
+              <div class="eyebrow">RIVALRY</div>
+              <div class="title">Most lopsided rivalry</div>
+              <div class="sub">BHooper over Whited · 44–25</div>
+            </div>
+            <span class="arrow">→</span>
+          </div>
+          <div class="record-item event">
+            <div>
+              <div class="eyebrow">EVENT</div>
+              <div class="title">Closest title race</div>
+              <div class="sub">2022 · 1.0 GB margin</div>
+            </div>
+            <span class="arrow">→</span>
+          </div>
+          <div class="record-item career">
+            <div>
+              <div class="eyebrow">CAREER</div>
+              <div class="title">Longest title drought</div>
+              <div class="sub">Maleski &amp; Shambaugh · 6 seasons</div>
+            </div>
+            <span class="arrow">→</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ Top rivalries + Title droughts ============ -->
+  <section>
+    <div class="row-2">
+      <div>
+        <div class="section-head">
+          <h2>Top rivalries</h2>
+          <a href="#" class="more">All matchups →</a>
+        </div>
+        <div class="rivalry-list">
+          <div class="rivalry-row">
+            <div class="line-1">
+              <span class="pair">Shambaugh<span class="vs">vs</span>Whited</span>
+              <span class="score">34–34</span>
+            </div>
+            <div class="line-2">68 games · 6 seasons<span class="recent">· last met 2025 (Whited)</span></div>
+          </div>
+          <div class="rivalry-row">
+            <div class="line-1">
+              <span class="pair">BHooper<span class="vs">vs</span>LHooper</span>
+              <span class="score">18–18</span>
+            </div>
+            <div class="line-2">36 games · 5 seasons<span class="recent">· last met 2025 (BHooper)</span></div>
+          </div>
+          <div class="rivalry-row">
+            <div class="line-1">
+              <span class="pair">Clay<span class="former-tag">FORMER</span><span class="vs">vs</span>LHooper</span>
+              <span class="score">10–10</span>
+            </div>
+            <div class="line-2">20 games · 3 seasons<span class="recent">· last met 2021 (LHooper)</span></div>
+          </div>
+          <div class="rivalry-row">
+            <div class="line-1">
+              <span class="pair">Carter<span class="vs">vs</span>Jackson</span>
+              <span class="score">9–9</span>
+            </div>
+            <div class="line-2">18 games · 2 seasons<span class="recent">· last met 2024 (Carter)</span></div>
+          </div>
+          <div class="rivalry-row">
+            <div class="line-1">
+              <span class="pair">Anderson<span class="former-tag">FORMER</span><span class="vs">vs</span>Stevens</span>
+              <span class="score">5–5</span>
+            </div>
+            <div class="line-2">10 games · 1 season<span class="recent">· last met 2023 (Stevens)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-head">
+          <h2>Title droughts</h2>
+          <a href="#" class="more">Full streak history →</a>
+        </div>
+        <div class="streak-list">
+          <div class="streak-row">
+            <div class="line-1">
+              <span class="owner">Maleski</span>
+              <span class="value">6 seasons</span>
+            </div>
+            <div class="line-2">3 top-3 finishes · best #2 (2024)</div>
+          </div>
+          <div class="streak-row">
+            <div class="line-1">
+              <span class="owner">Shambaugh</span>
+              <span class="value">6 seasons</span>
+            </div>
+            <div class="line-2">1 top-3 finish · best #3 (2023)</div>
+          </div>
+          <div class="streak-row">
+            <div class="line-1">
+              <span class="owner">Jordan</span>
+              <span class="value">5 seasons</span>
+            </div>
+            <div class="line-2">1 top-3 finish · best #3 (2023)</div>
+          </div>
+          <div class="streak-row">
+            <div class="line-1">
+              <span class="owner">LHooper</span>
+              <span class="value">5 seasons</span>
+            </div>
+            <div class="line-2">0 top-3 finishes · best #4 (2024)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Movers ============ -->
+  <section>
+    <div class="section-head">
+      <h2>Season-over-season movement</h2>
+      <a href="#" class="more">Full mover history →</a>
+    </div>
+    <div class="row-3">
+      <div>
+        <div class="col-label">BIGGEST CLIMBS</div>
+        <div class="mover-list">
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">BHooper</span>
+              <span class="delta up">+12 spots</span>
+            </div>
+            <div class="line-2">2018 → 2021 · finished #13, then #1 (won title)</div>
+          </div>
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">Jordan</span>
+              <span class="delta up">+7 spots</span>
+            </div>
+            <div class="line-2">2022 → 2023 · finished #10, then #3</div>
+          </div>
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">Maleski</span>
+              <span class="delta up">+6 spots</span>
+            </div>
+            <div class="line-2">2022 → 2023 · finished #8, then #2</div>
+          </div>
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">Pruitt</span>
+              <span class="delta up">+5 spots</span>
+            </div>
+            <div class="line-2">2024 → 2025 · finished #6, then #1 (won title)</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="col-label">BIGGEST DROPS</div>
+        <div class="mover-list">
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">Jordan</span>
+              <span class="delta down">−9 spots</span>
+            </div>
+            <div class="line-2">2024 → 2025 · finished #4, then #13</div>
+          </div>
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">Stevens</span>
+              <span class="delta down">−7 spots</span>
+            </div>
+            <div class="line-2">2023 → 2024 · finished #5, then #12</div>
+          </div>
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">Jordan</span>
+              <span class="delta down">−7 spots</span>
+            </div>
+            <div class="line-2">2021 → 2022 · finished #3, then #10</div>
+          </div>
+          <div class="mover-row">
+            <div class="line-1">
+              <span class="owner">Carter</span>
+              <span class="delta down">−5 spots</span>
+            </div>
+            <div class="line-2">2024 → 2025 · finished #10, then #15</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Archive (unchanged) ============ -->
+  <section>
+    <div class="section-head">
+      <h2>Season archive</h2>
+      <a href="#" class="more">All seasons →</a>
+    </div>
+    <div class="archive-strip">
+      <a href="#" class="archive-link">
+        <div class="yr">2025</div>
+        <div class="winner">Pruitt</div>
+      </a>
+      <a href="#" class="archive-link">
+        <div class="yr">2024</div>
+        <div class="winner">Whited</div>
+      </a>
+      <a href="#" class="archive-link">
+        <div class="yr">2023</div>
+        <div class="winner">Pruitt</div>
+      </a>
+      <a href="#" class="archive-link">
+        <div class="yr">2022</div>
+        <div class="winner">Whited</div>
+      </a>
+      <a href="#" class="archive-link">
+        <div class="yr">2021</div>
+        <div class="winner">BHooper</div>
+      </a>
+      <a href="#" class="archive-link">
+        <div class="yr">2018</div>
+        <div class="winner">Hardiman</div>
+      </a>
+    </div>
+  </section>
+
+</div>
+
+<div class="notes">
+  <h2>What changed in this pass</h2>
+
+  <h3>Multi-line restructured rows</h3>
+  <p><strong>Championships:</strong> name + titles + years + reigning marker on line 1; career context (seasons played, win%, distinguishing fact) on line 2. Hardiman's "league's first champion" phrasing earns its own row by adding genuine historical context. Whited gets "all-time wins leader" — meaningful note that ties together two facts on the page.</p>
+  <p><strong>Top rivalries:</strong> pair + score on line 1; games + seasons + most-recent meeting + winner on line 2. The "last met 2025 (Whited)" addition brings recency context that makes the rivalry feel alive — answering "who's hot in this rivalry right now?"</p>
+  <p><strong>Title droughts:</strong> name + drought count on line 1; career framing on line 2 ("Never won · 3 top-3 finishes · best #2 in 2024"). Turns the section from a column of bare numbers into one that tells each chaser's story.</p>
+  <p><strong>Movers:</strong> owner + delta on line 1; full span + rank change on line 2 with editorial annotations ("won title", etc. where applicable). The line-2 annotation hints when a mover has a championship narrative behind it.</p>
+
+  <h3>Restored to dense table</h3>
+  <p><strong>All-time standings:</strong> brought back Seasons and Avg-finish columns from the production all-time-standings table. Now 7 columns wide, dense enough to justify the column width without restructuring. The dashboard column proportion shifted to 1.4fr/0.85fr/1fr to give Standings the space its 7 columns need.</p>
+
+  <h3>Unchanged</h3>
+  <p><strong>Recent podiums</strong> — already 3-line block per season, content earns the column width.<br>
+  <strong>Records</strong> — 3-line block per record (eyebrow + title + sub + arrow), already production-pattern-aligned.<br>
+  <strong>Season archive</strong> — pure navigation aid, density isn't the goal here.</p>
+
+  <h3>Data dependencies surfaced by this pass</h3>
+  <p>Several of the line-2 additions require data the existing selectors may not produce. Worth confirming each:</p>
+  <ul>
+    <li><strong>Championships line-2 "career win%":</strong> already in <code>selectAllTimeStandings</code></li>
+    <li><strong>Championships line-2 "all-time wins leader" tag:</strong> derivable; one-time computation per page render</li>
+    <li><strong>Top rivalries line-2 "last met YEAR (winner)":</strong> requires sorting matchup history by date and taking the latest. Plausibly already in the rivalry selector data; if not, small extension</li>
+    <li><strong>Title droughts line-2 "X top-3 finishes · best #N (year)":</strong> derivable from per-season final standings. Likely already accessible via existing selectors but may need a thin reshape helper</li>
+    <li><strong>Movers line-2 "won title" annotation:</strong> trivial — just check if the destination rank is #1 and the season had a champion</li>
+  </ul>
+  <p>If any of these prove harder to wire than expected, the multi-line layout still works without the line-2 enrichment — drop the editorial copy and just surface what's available. The structural improvement (rows reading as paragraphs instead of drifty single lines) holds regardless.</p>
+
+  <h3>Honest tradeoffs</h3>
+  <p>Path C is more work than Path A (constrain width). It's also more work than the previous mockup we settled on. The benefit is that the page <em>actually uses its width</em> rather than asking the user to forgive empty space. The cost is real selector work for some of the line-2 additions, and the page becomes taller (each 2-line row is ~36px vs the prior ~30px single-line row).</p>
+  <p>If the line-2 enrichments prove too costly to implement now, fall back to multi-line stacking with just <em>existing</em> data. Even bare stacking ("name on line 1, count on line 2") solves the drift problem because rows become paragraph-shaped. The enrichment is the cherry on top — the structural fix is the cake.</p>
+</div>
+
+</body>
+</html>
