@@ -194,7 +194,7 @@ export function selectMovers(
 }
 
 // ---------------------------------------------------------------------------
-// Title streaks (all owners with a streak ≥ 1, sorted)
+// Title streaks (real streaks: ≥ 2 consecutive championship years)
 // ---------------------------------------------------------------------------
 
 export type TitleStreakRow = {
@@ -203,9 +203,11 @@ export type TitleStreakRow = {
   years: number[];
 };
 
+const REAL_STREAK_MIN = 2;
+
 export function selectTitleStreaks(rows: DynastyDroughtRow[]): TitleStreakRow[] {
   return rows
-    .filter((row) => row.longestWinStreak > 0)
+    .filter((row) => row.longestWinStreak >= REAL_STREAK_MIN)
     .map((row) => ({
       owner: row.owner,
       streak: row.longestWinStreak,
@@ -218,6 +220,75 @@ export function selectTitleStreaks(rows: DynastyDroughtRow[]): TitleStreakRow[] 
       if (bMostRecent !== aMostRecent) return bMostRecent - aMostRecent;
       return a.owner.localeCompare(b.owner);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Title droughts (fallback when no real streak exists)
+// ---------------------------------------------------------------------------
+
+export type TitleDroughtRow = {
+  owner: string;
+  /** Seasons since last title; for never-champions, equals seasonsPlayed. */
+  drought: number;
+  /** Most recent year the owner won; null when never a champion. */
+  lastTitleYear: number | null;
+};
+
+export function selectTitleDroughts(args: {
+  history: ChampionshipEntry[];
+  allTimeStandings: AllTimeStandingRow[];
+}): TitleDroughtRow[] {
+  const { history, allTimeStandings } = args;
+  const sortedYears = [...new Set(history.map((entry) => entry.year))].sort((a, b) => a - b);
+
+  const lastTitleByOwner = new Map<string, number>();
+  for (const entry of history) {
+    if (entry.champion === 'Unknown') continue;
+    const prev = lastTitleByOwner.get(entry.champion);
+    if (prev === undefined || entry.year > prev) {
+      lastTitleByOwner.set(entry.champion, entry.year);
+    }
+  }
+
+  return allTimeStandings.map((row) => {
+    const lastTitle = lastTitleByOwner.get(row.owner);
+    if (lastTitle === undefined) {
+      return { owner: row.owner, drought: row.seasonsPlayed, lastTitleYear: null };
+    }
+    const drought = sortedYears.filter((year) => year > lastTitle).length;
+    return { owner: row.owner, drought, lastTitleYear: lastTitle };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Streaks-or-droughts conditional surface
+// ---------------------------------------------------------------------------
+
+export type StreaksOrDroughts =
+  | { mode: 'streaks'; rows: TitleStreakRow[] }
+  | { mode: 'droughts'; rows: TitleDroughtRow[] };
+
+export function selectStreaksOrDroughts(args: {
+  dynastyDroughtRows: DynastyDroughtRow[];
+  history: ChampionshipEntry[];
+  allTimeStandings: AllTimeStandingRow[];
+  limit?: number;
+}): StreaksOrDroughts {
+  const { dynastyDroughtRows, history, allTimeStandings, limit = 4 } = args;
+
+  const streaks = selectTitleStreaks(dynastyDroughtRows).slice(0, limit);
+  if (streaks.length > 0) {
+    return { mode: 'streaks', rows: streaks };
+  }
+
+  const droughts = selectTitleDroughts({ history, allTimeStandings })
+    .sort((a, b) => {
+      if (b.drought !== a.drought) return b.drought - a.drought;
+      return a.owner.localeCompare(b.owner);
+    })
+    .slice(0, limit);
+
+  return { mode: 'droughts', rows: droughts };
 }
 
 // ---------------------------------------------------------------------------

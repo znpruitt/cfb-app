@@ -8,6 +8,8 @@ import {
   selectMovers,
   selectRecentPodiums,
   selectSeasonArchiveStrip,
+  selectStreaksOrDroughts,
+  selectTitleDroughts,
   selectTitleStreaks,
 } from '../historyOverview';
 import type { LeagueRecords, RecordEntry } from '../leagueRecords';
@@ -398,7 +400,7 @@ function makeStreak(owner: string, longestWinStreak: number, years: number[]): D
   };
 }
 
-test('selectTitleStreaks: filters out owners with no streak and sorts by streak desc', () => {
+test('selectTitleStreaks: filters out streaks below 2 (single-title runs are not streaks)', () => {
   const rows: DynastyDroughtRow[] = [
     makeStreak('Pruitt', 1, [2025]),
     makeStreak('Whited', 2, [2022, 2023]),
@@ -408,16 +410,26 @@ test('selectTitleStreaks: filters out owners with no streak and sorts by streak 
 
   const streaks = selectTitleStreaks(rows);
 
-  assert.equal(streaks.length, 3);
+  assert.equal(streaks.length, 1);
   assert.equal(streaks[0]!.owner, 'Whited');
   assert.equal(streaks[0]!.streak, 2);
 });
 
-test('selectTitleStreaks: equal streaks ordered by most recent year desc', () => {
+test('selectTitleStreaks: returns empty when no owner has a streak >= 2', () => {
   const rows: DynastyDroughtRow[] = [
     makeStreak('Hardiman', 1, [2018]),
     makeStreak('Pruitt', 1, [2025]),
     makeStreak('BHooper', 1, [2021]),
+  ];
+
+  assert.deepEqual(selectTitleStreaks(rows), []);
+});
+
+test('selectTitleStreaks: ties on streak length broken by most recent year desc, then owner asc', () => {
+  const rows: DynastyDroughtRow[] = [
+    makeStreak('Hardiman', 2, [2017, 2018]),
+    makeStreak('Pruitt', 2, [2024, 2025]),
+    makeStreak('BHooper', 2, [2020, 2021]),
   ];
 
   const streaks = selectTitleStreaks(rows);
@@ -425,6 +437,151 @@ test('selectTitleStreaks: equal streaks ordered by most recent year desc', () =>
     streaks.map((s) => s.owner),
     ['Pruitt', 'BHooper', 'Hardiman']
   );
+});
+
+// ---------------------------------------------------------------------------
+// selectTitleDroughts
+// ---------------------------------------------------------------------------
+
+test('selectTitleDroughts: counts seasons since last title (champions)', () => {
+  const history: ChampionshipEntry[] = [
+    { year: 2021, champion: 'BHooper' },
+    { year: 2022, champion: 'Whited' },
+    { year: 2023, champion: 'Pruitt' },
+    { year: 2024, champion: 'Whited' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 2, { seasonsPlayed: 5 }),
+    makeStanding('Whited', 2, { seasonsPlayed: 5 }),
+    makeStanding('BHooper', 1, { seasonsPlayed: 5 }),
+  ];
+
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime });
+
+  const byOwner = new Map(droughts.map((d) => [d.owner, d]));
+  // Pruitt won 2025; no seasons after — drought 0
+  assert.equal(byOwner.get('Pruitt')!.drought, 0);
+  assert.equal(byOwner.get('Pruitt')!.lastTitleYear, 2025);
+  // Whited won 2024; 1 season after — drought 1
+  assert.equal(byOwner.get('Whited')!.drought, 1);
+  assert.equal(byOwner.get('Whited')!.lastTitleYear, 2024);
+  // BHooper won 2021; 4 seasons after — drought 4
+  assert.equal(byOwner.get('BHooper')!.drought, 4);
+  assert.equal(byOwner.get('BHooper')!.lastTitleYear, 2021);
+});
+
+test('selectTitleDroughts: never-champions show seasonsPlayed and null lastTitleYear', () => {
+  const history: ChampionshipEntry[] = [{ year: 2025, champion: 'Pruitt' }];
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 1, { seasonsPlayed: 1 }),
+    makeStanding('Maleski', 0, { seasonsPlayed: 5 }),
+  ];
+
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime });
+  const maleski = droughts.find((d) => d.owner === 'Maleski')!;
+
+  assert.equal(maleski.drought, 5);
+  assert.equal(maleski.lastTitleYear, null);
+});
+
+test('selectTitleDroughts: skips Unknown champions when computing last-title', () => {
+  const history: ChampionshipEntry[] = [
+    { year: 2024, champion: 'Unknown' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 1, { seasonsPlayed: 2 }),
+    makeStanding('Whited', 0, { seasonsPlayed: 2 }),
+  ];
+
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime });
+  const whited = droughts.find((d) => d.owner === 'Whited')!;
+
+  assert.equal(whited.drought, 2);
+  assert.equal(whited.lastTitleYear, null);
+});
+
+// ---------------------------------------------------------------------------
+// selectStreaksOrDroughts
+// ---------------------------------------------------------------------------
+
+test('selectStreaksOrDroughts: returns streaks mode when at least one streak >= 2 exists', () => {
+  const dynastyRows: DynastyDroughtRow[] = [
+    makeStreak('Whited', 2, [2022, 2023]),
+    makeStreak('Pruitt', 1, [2025]),
+  ];
+  const history: ChampionshipEntry[] = [
+    { year: 2022, champion: 'Whited' },
+    { year: 2023, champion: 'Whited' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Whited', 2, { seasonsPlayed: 3 }),
+    makeStanding('Pruitt', 1, { seasonsPlayed: 3 }),
+  ];
+
+  const result = selectStreaksOrDroughts({
+    dynastyDroughtRows: dynastyRows,
+    history,
+    allTimeStandings: allTime,
+    limit: 4,
+  });
+
+  assert.equal(result.mode, 'streaks');
+  assert.equal(result.rows.length, 1);
+});
+
+test('selectStreaksOrDroughts: returns droughts mode when no streak >= 2 exists', () => {
+  const dynastyRows: DynastyDroughtRow[] = [
+    makeStreak('Pruitt', 1, [2025]),
+    makeStreak('Whited', 1, [2024]),
+    makeStreak('BHooper', 1, [2021]),
+  ];
+  const history: ChampionshipEntry[] = [
+    { year: 2021, champion: 'BHooper' },
+    { year: 2024, champion: 'Whited' },
+    { year: 2025, champion: 'Pruitt' },
+  ];
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 1, { seasonsPlayed: 3 }),
+    makeStanding('Whited', 1, { seasonsPlayed: 3 }),
+    makeStanding('BHooper', 1, { seasonsPlayed: 3 }),
+    makeStanding('Maleski', 0, { seasonsPlayed: 3 }),
+  ];
+
+  const result = selectStreaksOrDroughts({
+    dynastyDroughtRows: dynastyRows,
+    history,
+    allTimeStandings: allTime,
+    limit: 4,
+  });
+
+  assert.equal(result.mode, 'droughts');
+  // Sorted by drought desc: Maleski (3) > BHooper (2) > Whited (1) > Pruitt (0)
+  if (result.mode === 'droughts') {
+    assert.deepEqual(
+      result.rows.map((r) => r.owner),
+      ['Maleski', 'BHooper', 'Whited', 'Pruitt']
+    );
+  }
+});
+
+test('selectStreaksOrDroughts: caps results at limit', () => {
+  const dynastyRows: DynastyDroughtRow[] = [];
+  const history: ChampionshipEntry[] = [{ year: 2025, champion: 'Pruitt' }];
+  const allTime: AllTimeStandingRow[] = Array.from({ length: 8 }, (_, i) =>
+    makeStanding(`Owner${i}`, 0, { seasonsPlayed: i + 1 })
+  );
+
+  const result = selectStreaksOrDroughts({
+    dynastyDroughtRows: dynastyRows,
+    history,
+    allTimeStandings: allTime,
+    limit: 4,
+  });
+
+  assert.equal(result.rows.length, 4);
 });
 
 // ---------------------------------------------------------------------------

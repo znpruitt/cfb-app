@@ -33,7 +33,7 @@ export default function RecentPodiumsColumn({ blocks, slug }: Props): React.Reac
     <div>
       <SectionHead
         title="Recent podiums"
-        delegationHref={`/league/${slug}/history/stats`}
+        delegationHref={`/league/${slug}/history/archive`}
         delegationLabel="Full history →"
       />
       {blocks.length === 0 ? (

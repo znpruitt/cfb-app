@@ -19,7 +19,7 @@ import {
   selectMovers,
   selectRecentPodiums,
   selectSeasonArchiveStrip,
-  selectTitleStreaks,
+  selectStreaksOrDroughts,
 } from '@/lib/selectors/historyOverview';
 import { HistorySubNav } from '@/components/history/HistorySubNav';
 import LeaguePageShell from '@/components/LeaguePageShell';
@@ -110,7 +110,12 @@ export default async function LeagueHistoryPage({
   const marqueeRecords = selectMarqueeRecords(records);
   const topRivalries = selectTopRivalries(archives, 5);
   const dynastyDrought = selectDynastyAndDrought(archives);
-  const titleStreaks = selectTitleStreaks(dynastyDrought.rows);
+  const streaksOrDroughts = selectStreaksOrDroughts({
+    dynastyDroughtRows: dynastyDrought.rows,
+    history: championshipHistory,
+    allTimeStandings,
+    limit: 4,
+  });
   const movers = selectMovers(selectMostImprovedSeasonOverSeason(archives), 4);
   const archiveStrip = selectSeasonArchiveStrip(championshipHistory);
 
@@ -153,7 +158,7 @@ export default async function LeagueHistoryPage({
                   slug={slug}
                   activeOwners={activeOwners}
                 />
-                <TitleStreaksTable streaks={titleStreaks} slug={slug} />
+                <TitleStreaksTable data={streaksOrDroughts} slug={slug} />
               </div>
             </section>
 
