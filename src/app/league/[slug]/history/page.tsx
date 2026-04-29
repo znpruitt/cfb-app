@@ -5,23 +5,17 @@ import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
 import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
 import { getAppState } from '@/lib/server/appStateStore';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
-import {
-  selectAllTimeStandings,
-  selectChampionshipHistory,
-  selectAllTimeHeadToHead,
-  selectTopRivalries,
-  selectDynastyAndDrought,
-  selectMostImprovedSeasonOverSeason,
-  type StandingsRow,
-} from '@/lib/selectors/historySelectors';
+import { selectChampionshipHistory } from '@/lib/selectors/historySelectors';
+import { selectAllRecords } from '@/lib/selectors/leagueRecords';
+import { loadInsightsForLeague } from '@/lib/insights/loadInsights';
 import ChampionshipsBanner from '@/components/history/ChampionshipsBanner';
-import AllTimeStandingsTable from '@/components/history/AllTimeStandingsTable';
-import AllTimeHeadToHeadPanel from '@/components/history/AllTimeHeadToHeadPanel';
-import DynastyDroughtPanel from '@/components/history/DynastyDroughtPanel';
-import MostImprovedPanel from '@/components/history/MostImprovedPanel';
-import SeasonListPanel from '@/components/history/SeasonListPanel';
+import { HistorySubNav } from '@/components/history/HistorySubNav';
+import StorylinesPanel from '@/components/history/StorylinesPanel';
+import SeasonRecapCard from '@/components/history/SeasonRecapCard';
+import RecordLeadersGrid from '@/components/history/RecordLeadersGrid';
 import LeaguePageShell from '@/components/LeaguePageShell';
 import type { SeasonArchive } from '@/lib/seasonArchive';
+import type { StandingsRow } from '@/lib/selectors/historySelectors';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -51,6 +45,7 @@ export default async function LeagueHistoryPage({
           isAdmin={isAdmin}
           activeTab="history"
         >
+          <HistorySubNav slug={slug} />
           <div className="mx-auto max-w-3xl">
             <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">
               <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
@@ -88,19 +83,36 @@ export default async function LeagueHistoryPage({
     }
   }
 
-  // Derive active owners from current season's owners CSV
+  // Current roster for selectAllRecords
   const ownersRecord = await getAppState<string>(`owners:${slug}:${activeYear}`, 'csv');
   const ownersCsv = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
-  const activeOwnersList = parseOwnersCsv(ownersCsv)
-    .map((r) => r.owner)
-    .filter((o) => o !== 'NoClaim');
+  const currentRosterRows = parseOwnersCsv(ownersCsv);
+  const currentRoster = new Map(currentRosterRows.map((r) => [r.team, r.owner]));
 
-  const allTimeStandings = selectAllTimeStandings(archives, liveStandings);
+  // Build historicalRosters for selectAllRecords
+  const historicalRosters: Record<number, Map<string, string>> = {};
+  for (const archive of archives) {
+    const rows = parseOwnersCsv(archive.ownerRosterSnapshot);
+    historicalRosters[archive.year] = new Map(rows.map((r) => [r.team, r.owner]));
+  }
+
   const championshipHistory = selectChampionshipHistory(archives);
-  const allTimeH2H = selectAllTimeHeadToHead(archives);
-  const topRivalries = selectTopRivalries(archives);
-  const dynastyDrought = selectDynastyAndDrought(archives);
-  const mostImproved = selectMostImprovedSeasonOverSeason(archives);
+  const records = selectAllRecords({
+    archives,
+    historicalRosters,
+    currentYear: activeYear,
+    currentRoster,
+  });
+
+  // Load storyline insights: historical + rivalry categories, top 5 by priorityScore
+  const insightsResponse = await loadInsightsForLeague(slug, activeYear);
+  const storylineInsights = insightsResponse.insights
+    .filter((i) => i.category === 'historical' || i.category === 'rivalry')
+    .sort((a, b) => b.priorityScore - a.priorityScore)
+    .slice(0, 5);
+
+  // Most recent archive for season recap (years sorted ascending, last = most recent)
+  const mostRecentArchive = archives.length > 0 ? archives[archives.length - 1] : null;
 
   return (
     <main>
@@ -113,46 +125,21 @@ export default async function LeagueHistoryPage({
         activeTab="history"
       >
         <div className="mx-auto max-w-5xl">
-          <section id="championships" className="scroll-mt-4">
-            <ChampionshipsBanner
-              history={championshipHistory}
-              slug={slug}
-              currentSeasonYear={liveStandings !== undefined ? activeYear : undefined}
-              currentLeader={liveStandings?.find((r) => r.owner !== 'NoClaim')?.owner}
-            />
-          </section>
-
-          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
-            {/* Left column — 60% */}
-            <div className="flex flex-col gap-6 lg:col-span-3">
-              <AllTimeStandingsTable
-                rows={allTimeStandings}
+          <HistorySubNav slug={slug} />
+          <div className="space-y-8">
+            <section id="championships" className="scroll-mt-4">
+              <ChampionshipsBanner
+                history={championshipHistory}
                 slug={slug}
-                liveSeasonYear={liveStandings !== undefined ? activeYear : undefined}
-                activeOwners={activeOwnersList.length > 0 ? activeOwnersList : undefined}
+                currentSeasonYear={liveStandings !== undefined ? activeYear : undefined}
+                currentLeader={liveStandings?.find((r) => r.owner !== 'NoClaim')?.owner}
               />
-              <SeasonListPanel history={championshipHistory} slug={slug} />
-            </div>
-
-            {/* Right column — 40% */}
-            <div className="flex flex-col gap-6 lg:col-span-2">
-              {topRivalries.length > 0 && (
-                <section id="rivalries" className="scroll-mt-4">
-                  <AllTimeHeadToHeadPanel
-                    rivalries={topRivalries}
-                    allH2H={allTimeH2H}
-                    slug={slug}
-                    activeOwners={activeOwnersList.length > 0 ? activeOwnersList : undefined}
-                  />
-                </section>
-              )}
-              {mostImproved.length > 0 && <MostImprovedPanel entries={mostImproved} slug={slug} />}
-              {dynastyDrought.rows.length > 0 && (
-                <section id="dynasty-drought" className="scroll-mt-4">
-                  <DynastyDroughtPanel result={dynastyDrought} slug={slug} />
-                </section>
-              )}
-            </div>
+            </section>
+            <StorylinesPanel insights={storylineInsights} slug={slug} year={activeYear} />
+            {mostRecentArchive !== null && (
+              <SeasonRecapCard archive={mostRecentArchive} slug={slug} />
+            )}
+            <RecordLeadersGrid records={records} />
           </div>
         </div>
       </LeaguePageShell>
