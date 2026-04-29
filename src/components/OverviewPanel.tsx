@@ -961,9 +961,8 @@ function resolveHistoryHref(insight: Insight, base: string): string | null {
 
   switch (insight.type) {
     case 'drought':
-      return `${base}/history#dynasty-drought`;
     case 'dynasty':
-      return `${base}/history#championships`;
+      return `${base}/history/stats`;
     case 'improvement':
     case 'consistency':
     case 'volatility':
@@ -981,7 +980,7 @@ function resolveHistoryHref(insight: Insight, base: string): string | null {
     case 'lopsided_rivalry':
     case 'even_rivalry':
     case 'dominance_streak':
-      return `${base}/history#rivalries`;
+      return `${base}/history/rivalries`;
     case 'milestone_watch': {
       if (!ownerSegment) return null;
       const kind = parseMilestoneKind(insight.id);
