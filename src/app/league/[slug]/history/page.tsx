@@ -7,15 +7,30 @@ import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import {
   selectAllTimeStandings,
   selectChampionshipHistory,
+  selectDynastyAndDrought,
+  selectMostImprovedSeasonOverSeason,
+  selectTopRivalries,
 } from '@/lib/selectors/historySelectors';
 import { selectAllRecords } from '@/lib/selectors/leagueRecords';
-import { loadInsightsForLeague } from '@/lib/insights/loadInsights';
+import {
+  computeChampionshipSummary,
+  groupChampionsByOwner,
+  selectMarqueeRecords,
+  selectMovers,
+  selectRecentPodiums,
+  selectSeasonArchiveStrip,
+  selectTitleStreaks,
+} from '@/lib/selectors/historyOverview';
 import { HistorySubNav } from '@/components/history/HistorySubNav';
-import EraSummary from '@/components/history/EraSummary';
-import TitleTimeline from '@/components/history/TitleTimeline';
-import StorylinesPanel from '@/components/history/StorylinesPanel';
-import RecordLeadersGrid from '@/components/history/RecordLeadersGrid';
 import LeaguePageShell from '@/components/LeaguePageShell';
+import ChampionshipsSection from '@/components/history/overview/ChampionshipsSection';
+import AllTimeStandingsSummary from '@/components/history/overview/AllTimeStandingsSummary';
+import RecentPodiumsColumn from '@/components/history/overview/RecentPodiumsColumn';
+import RecordsColumn from '@/components/history/overview/RecordsColumn';
+import TopRivalriesList from '@/components/history/overview/TopRivalriesList';
+import TitleStreaksTable from '@/components/history/overview/TitleStreaksTable';
+import MoversSection from '@/components/history/overview/MoversSection';
+import SeasonArchiveStrip from '@/components/history/overview/SeasonArchiveStrip';
 import type { SeasonArchive } from '@/lib/seasonArchive';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
@@ -77,15 +92,27 @@ export default async function LeagueHistoryPage({
   }
 
   const championshipHistory = selectChampionshipHistory(archives);
+  const championOwnerRows = groupChampionsByOwner(championshipHistory);
   const allTimeStandings = selectAllTimeStandings(archives);
+  const championshipSummary = computeChampionshipSummary(
+    championOwnerRows,
+    championshipHistory,
+    allTimeStandings,
+    activeOwners
+  );
+  const recentPodiums = selectRecentPodiums(archives, 3);
   const records = selectAllRecords({
     archives,
     historicalRosters,
     currentYear: activeYear,
     currentRoster,
   });
-
-  const insightsResponse = await loadInsightsForLeague(slug, activeYear);
+  const marqueeRecords = selectMarqueeRecords(records);
+  const topRivalries = selectTopRivalries(archives, 5);
+  const dynastyDrought = selectDynastyAndDrought(archives);
+  const titleStreaks = selectTitleStreaks(dynastyDrought.rows);
+  const movers = selectMovers(selectMostImprovedSeasonOverSeason(archives), 4);
+  const archiveStrip = selectSeasonArchiveStrip(championshipHistory);
 
   return (
     <main>
@@ -97,22 +124,42 @@ export default async function LeagueHistoryPage({
         isAdmin={isAdmin}
         activeTab="history"
       >
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl">
           <HistorySubNav slug={slug} />
-          <div className="space-y-8">
-            <EraSummary
-              archives={archives}
-              championshipHistory={championshipHistory}
-              allTimeStandings={allTimeStandings}
-              activeOwners={activeOwners}
-            />
-            <TitleTimeline
-              championships={championshipHistory}
+          <div className="space-y-10">
+            <ChampionshipsSection
+              rows={championOwnerRows}
+              summary={championshipSummary}
               slug={slug}
               activeOwners={activeOwners}
             />
-            <StorylinesPanel insights={insightsResponse.insights} slug={slug} year={activeYear} />
-            <RecordLeadersGrid records={records} />
+
+            <section>
+              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1.05fr_0.95fr_1fr]">
+                <AllTimeStandingsSummary
+                  rows={allTimeStandings}
+                  slug={slug}
+                  activeOwners={activeOwners}
+                />
+                <RecentPodiumsColumn blocks={recentPodiums} slug={slug} />
+                <RecordsColumn records={marqueeRecords} slug={slug} />
+              </div>
+            </section>
+
+            <section>
+              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1.4fr_1fr]">
+                <TopRivalriesList
+                  rivalries={topRivalries}
+                  slug={slug}
+                  activeOwners={activeOwners}
+                />
+                <TitleStreaksTable streaks={titleStreaks} slug={slug} />
+              </div>
+            </section>
+
+            <MoversSection buckets={movers} slug={slug} />
+
+            <SeasonArchiveStrip items={archiveStrip} slug={slug} />
           </div>
         </div>
       </LeaguePageShell>
