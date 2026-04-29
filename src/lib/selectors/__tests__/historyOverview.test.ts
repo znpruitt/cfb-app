@@ -68,6 +68,7 @@ function makeStanding(
     championships,
     seasonsPlayed: 4,
     avgFinish: 3.5,
+    totalPoints: 1500,
     totalPointDifferential: 50,
     ...overrides,
   };
@@ -155,30 +156,18 @@ test('groupChampionsByOwner: skips Unknown champions', () => {
 // computeChampionshipSummary
 // ---------------------------------------------------------------------------
 
-test('computeChampionshipSummary: counts champions, seasons, and active owners with 0 titles', () => {
+test('computeChampionshipSummary: counts unique champions and seasons', () => {
   const history: ChampionshipEntry[] = [
     { year: 2023, champion: 'Pruitt' },
     { year: 2024, champion: 'Whited' },
     { year: 2025, champion: 'Pruitt' },
   ];
   const ownerRows = groupChampionsByOwner(history);
-  const allTime: AllTimeStandingRow[] = [
-    makeStanding('Pruitt', 2),
-    makeStanding('Whited', 1),
-    makeStanding('Maleski', 0),
-    makeStanding('Hopkins', 0),
-    makeStanding('FormerOwner', 0),
-  ];
-  const summary = computeChampionshipSummary(
-    ownerRows,
-    history,
-    allTime,
-    new Set(['Pruitt', 'Whited', 'Maleski', 'Hopkins'])
-  );
+
+  const summary = computeChampionshipSummary(ownerRows, history);
 
   assert.equal(summary.championCount, 2);
   assert.equal(summary.seasonCount, 3);
-  assert.equal(summary.stillChasingCount, 2); // Maleski and Hopkins; FormerOwner excluded
 });
 
 // ---------------------------------------------------------------------------

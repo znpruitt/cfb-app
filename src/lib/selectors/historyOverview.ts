@@ -53,21 +53,15 @@ export function groupChampionsByOwner(history: ChampionshipEntry[]): Championshi
 export type ChampionshipSummaryStats = {
   championCount: number;
   seasonCount: number;
-  stillChasingCount: number;
 };
 
 export function computeChampionshipSummary(
   championOwnerRows: ChampionshipOwnerRow[],
-  history: ChampionshipEntry[],
-  allTimeStandings: AllTimeStandingRow[],
-  activeOwners: Set<string>
+  history: ChampionshipEntry[]
 ): ChampionshipSummaryStats {
   return {
     championCount: championOwnerRows.length,
     seasonCount: history.length,
-    stillChasingCount: allTimeStandings.filter(
-      (row) => row.championships === 0 && activeOwners.has(row.owner)
-    ).length,
   };
 }
 

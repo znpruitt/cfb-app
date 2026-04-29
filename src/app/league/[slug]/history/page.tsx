@@ -98,12 +98,7 @@ export default async function LeagueHistoryPage({
   const championshipHistory = selectChampionshipHistory(archives);
   const championOwnerRows = groupChampionsByOwner(championshipHistory);
   const allTimeStandings = selectAllTimeStandings(archives);
-  const championshipSummary = computeChampionshipSummary(
-    championOwnerRows,
-    championshipHistory,
-    allTimeStandings,
-    activeOwners
-  );
+  const championshipSummary = computeChampionshipSummary(championOwnerRows, championshipHistory);
   const championshipRowsWithContext = selectChampionshipsWithContext({
     championOwnerRows,
     allTimeStandings,
@@ -168,19 +163,18 @@ export default async function LeagueHistoryPage({
             />
 
             <section>
-              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1.05fr_0.95fr_1fr]">
+              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1.4fr_1fr]">
                 <AllTimeStandingsSummary
                   rows={allTimeStandings}
                   slug={slug}
                   activeOwners={activeOwners}
                 />
                 <RecentPodiumsColumn blocks={recentPodiums} slug={slug} />
-                <RecordsColumn records={marqueeRecords} slug={slug} />
               </div>
             </section>
 
             <section>
-              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1.4fr_1fr]">
+              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-3">
                 <TopRivalriesList
                   rivalries={topRivalries}
                   slug={slug}
@@ -191,6 +185,7 @@ export default async function LeagueHistoryPage({
                   droughtsWithContext={droughtsWithContext}
                   slug={slug}
                 />
+                <RecordsColumn records={marqueeRecords} slug={slug} />
               </div>
             </section>
 

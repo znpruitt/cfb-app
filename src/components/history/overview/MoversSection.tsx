@@ -62,9 +62,7 @@ function MoverList({
                 <div className="text-xs text-gray-500 tabular-nums dark:text-zinc-400">
                   {entry.fromYear} → {entry.toYear} · finished #{entry.fromFinish}, then #
                   {entry.toFinish}
-                  {entry.wonTitle && (
-                    <span className="text-amber-600 dark:text-amber-400">{' (won title)'}</span>
-                  )}
+                  {entry.wonTitle && ' (won title)'}
                 </div>
               </li>
             );

@@ -41,12 +41,6 @@ export default function ChampionshipsSection({
               <strong className="font-medium text-gray-900 dark:text-zinc-100">
                 {summary.seasonCount} season{summary.seasonCount === 1 ? '' : 's'}
               </strong>
-              {summary.stillChasingCount > 0 && (
-                <>
-                  {' · '}
-                  {summary.stillChasingCount} still chasing
-                </>
-              )}
             </>
           ) : (
             'No champions yet'
@@ -82,15 +76,13 @@ export default function ChampionshipsSection({
                   )}
                 </div>
                 {/* Line 2 */}
-                <div className="text-xs text-gray-500 dark:text-zinc-400">
+                <div className="text-xs text-gray-500 tabular-nums dark:text-zinc-400">
                   {row.seasonsPlayed} season{row.seasonsPlayed === 1 ? '' : 's'} played ·{' '}
                   {formatPct(row.careerWinPct)} career win%
                   {row.editorialTag !== null && (
                     <>
                       {' · '}
-                      <span className="font-medium text-gray-700 dark:text-zinc-300">
-                        {row.editorialTag}
-                      </span>
+                      {row.editorialTag}
                     </>
                   )}
                 </div>

@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   selectAllTimeHeadToHead,
+  selectAllTimeStandings,
+  selectChampionshipHistory,
   selectOwnerCareer,
   selectTopRivalries,
   type OwnerCareerExtras,
@@ -262,4 +264,66 @@ test('selectTopRivalries: latestMeeting flows through to top rivalries output', 
   assert.equal(top.length, 1);
   assert.equal(top[0]!.latestMeeting!.year, 2025);
   assert.equal(top[0]!.latestMeeting!.winner, 'Whited');
+});
+
+// ---------------------------------------------------------------------------
+// archiveChampion-via-selectChampionshipHistory: NoClaim filter
+// ---------------------------------------------------------------------------
+
+test('selectChampionshipHistory: skips NoClaim at index 0 and credits the first eligible owner', () => {
+  // NoClaim sits at finalStandings[0] (e.g., unclaimed teams aggregating wins).
+  // Without filtering, archiveChampion would report 'NoClaim' as the champion,
+  // breaking Season archive rendering and championship credit. Same pattern as
+  // commit 5fdcd59 (record-rank derivation).
+  const archives: SeasonArchive[] = [
+    makeArchive(2025, [
+      row('NoClaim', 12, 2, 600, 400),
+      row('Pruitt', 11, 3, 480, 360),
+      row('Maleski', 9, 5, 420, 380),
+    ]),
+  ];
+
+  const history = selectChampionshipHistory(archives);
+
+  assert.equal(history.length, 1);
+  assert.equal(history[0]!.champion, 'Pruitt');
+});
+
+test('selectChampionshipHistory: returns Unknown when only NoClaim is present', () => {
+  const archives: SeasonArchive[] = [makeArchive(2025, [row('NoClaim', 0, 0, 0, 0)])];
+
+  const history = selectChampionshipHistory(archives);
+  assert.equal(history[0]!.champion, 'Unknown');
+});
+
+// ---------------------------------------------------------------------------
+// selectAllTimeStandings: totalPoints accumulation
+// ---------------------------------------------------------------------------
+
+test('selectAllTimeStandings: accumulates totalPoints across archives', () => {
+  const archives: SeasonArchive[] = [
+    makeArchive(2024, [row('Alice', 10, 4, 420, 380), row('Bob', 8, 6, 360, 400)]),
+    makeArchive(2025, [row('Alice', 12, 2, 500, 350), row('Bob', 6, 8, 340, 400)]),
+  ];
+
+  const standings = selectAllTimeStandings(archives);
+  const alice = standings.find((s) => s.owner === 'Alice')!;
+  const bob = standings.find((s) => s.owner === 'Bob')!;
+
+  assert.equal(alice.totalPoints, 920);
+  assert.equal(bob.totalPoints, 700);
+  // Differential preserved alongside (regression guard for the new accumulator)
+  assert.equal(alice.totalPointDifferential, 190);
+  assert.equal(bob.totalPointDifferential, -100);
+});
+
+test('selectAllTimeStandings: NoClaim is excluded from totalPoints accumulation', () => {
+  const archives: SeasonArchive[] = [
+    makeArchive(2025, [row('NoClaim', 5, 5, 300, 300), row('Alice', 10, 4, 420, 380)]),
+  ];
+
+  const standings = selectAllTimeStandings(archives);
+  assert.equal(standings.length, 1);
+  assert.equal(standings[0]!.owner, 'Alice');
+  assert.equal(standings[0]!.totalPoints, 420);
 });

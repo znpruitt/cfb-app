@@ -16,6 +16,7 @@ export type StandingsRow = {
   wins: number;
   losses: number;
   gamesBack: number;
+  pointsFor: number;
   pointDifferential: number;
 };
 
@@ -101,6 +102,7 @@ export function selectFinalStandings(archive: SeasonArchive): StandingsRow[] {
     wins: row.wins,
     losses: row.losses,
     gamesBack: row.gamesBack,
+    pointsFor: row.pointsFor ?? 0,
     pointDifferential: row.pointDifferential,
   }));
 }
@@ -445,6 +447,7 @@ export type AllTimeStandingRow = {
   championships: number;
   seasonsPlayed: number;
   avgFinish: number;
+  totalPoints: number;
   totalPointDifferential: number;
 };
 
@@ -542,9 +545,16 @@ export type OwnerCareerExtras = Map<string, { totalYards: number; totalTurnoverM
 // Internal helpers for cross-season selectors
 // ---------------------------------------------------------------------------
 
-/** Returns the champion (first-place owner) from an archive's finalStandings, or null. */
+/**
+ * Returns the champion (first-place eligible owner) from an archive's
+ * finalStandings, or null. Filters NoClaim before deriving — without this
+ * filter, a NoClaim row at index 0 would be reported as the champion and
+ * shift downstream rendering (Season archive name, championship credits).
+ * Same pattern as the rank-derivation fix in commit 5fdcd59.
+ */
 function archiveChampion(archive: SeasonArchive): string | null {
-  return archive.finalStandings.length > 0 ? (archive.finalStandings[0]?.owner ?? null) : null;
+  const eligible = archive.finalStandings.find((row) => row.owner !== NO_CLAIM_OWNER);
+  return eligible?.owner ?? null;
 }
 
 /** Returns sorted archives by year ascending. */
@@ -576,31 +586,36 @@ export function selectAllTimeStandings(
     championships: number;
     seasonsPlayed: number;
     finishSum: number;
+    totalPoints: number;
     totalPointDifferential: number;
   };
   const accum = new Map<string, OwnerAccum>();
+
+  function emptyAccum(): OwnerAccum {
+    return {
+      totalWins: 0,
+      totalLosses: 0,
+      championships: 0,
+      seasonsPlayed: 0,
+      finishSum: 0,
+      totalPoints: 0,
+      totalPointDifferential: 0,
+    };
+  }
 
   for (const archive of archives) {
     const champion = archiveChampion(archive);
     archive.finalStandings.forEach((row, idx) => {
       if (row.owner === NO_CLAIM_OWNER) return;
       const finish = idx + 1;
-      if (!accum.has(row.owner)) {
-        accum.set(row.owner, {
-          totalWins: 0,
-          totalLosses: 0,
-          championships: 0,
-          seasonsPlayed: 0,
-          finishSum: 0,
-          totalPointDifferential: 0,
-        });
-      }
+      if (!accum.has(row.owner)) accum.set(row.owner, emptyAccum());
       const a = accum.get(row.owner)!;
       a.totalWins += row.wins;
       a.totalLosses += row.losses;
       a.championships += row.owner === champion ? 1 : 0;
       a.seasonsPlayed += 1;
       a.finishSum += finish;
+      a.totalPoints += row.pointsFor ?? 0;
       a.totalPointDifferential += row.pointDifferential ?? 0;
     });
   }
@@ -609,19 +624,11 @@ export function selectAllTimeStandings(
   if (liveStandings) {
     for (const row of liveStandings) {
       if (row.owner === NO_CLAIM_OWNER) continue;
-      if (!accum.has(row.owner)) {
-        accum.set(row.owner, {
-          totalWins: 0,
-          totalLosses: 0,
-          championships: 0,
-          seasonsPlayed: 0,
-          finishSum: 0,
-          totalPointDifferential: 0,
-        });
-      }
+      if (!accum.has(row.owner)) accum.set(row.owner, emptyAccum());
       const a = accum.get(row.owner)!;
       a.totalWins += row.wins;
       a.totalLosses += row.losses;
+      a.totalPoints += row.pointsFor ?? 0;
       a.totalPointDifferential += row.pointDifferential ?? 0;
     }
   }
@@ -638,6 +645,7 @@ export function selectAllTimeStandings(
         championships: a.championships,
         seasonsPlayed: a.seasonsPlayed,
         avgFinish: a.seasonsPlayed > 0 ? a.finishSum / a.seasonsPlayed : 0,
+        totalPoints: a.totalPoints,
         totalPointDifferential: a.totalPointDifferential,
       };
     })
