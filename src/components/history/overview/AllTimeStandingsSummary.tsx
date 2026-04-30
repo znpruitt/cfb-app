@@ -79,7 +79,7 @@ export default function AllTimeStandingsSummary({
       {visible.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-zinc-400">No standings yet.</p>
       ) : (
-        <table className="w-full border-collapse">
+        <table className="border-collapse">
           <thead>
             <tr className="border-b border-gray-200 dark:border-zinc-700">
               <th className={`${TEXT_HEADER}`} aria-label="Rank" />
