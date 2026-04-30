@@ -7,9 +7,9 @@ import FormerOwnerBadge from '../FormerOwnerBadge';
 /*
  * Responsive column degradation (per DESIGN.md `## Responsive column degradation`):
  * The standings dashboard summary degrades column-by-column as its container
- * narrows. This table sits in the dashboard's first (1.4fr) column and is
- * sized to fit ~620px at desktop full width, with sidebar/narrow browser
- * widths shedding columns through container queries.
+ * narrows. Table is `table-auto` (default) — column widths are content-driven,
+ * not fixed; cells do not truncate. The container queries below hide columns
+ * by priority order as the standings @container shrinks.
  *
  * Priority order (always-show → drop-last):
  *   1. rank, owner, record       (always-show)
@@ -20,8 +20,7 @@ import FormerOwnerBadge from '../FormerOwnerBadge';
  *   6. pts                       (drop next,  hidden ≤ 340px container)
  *   7. win%                      (drop last,  hidden ≤ 280px container)
  *
- * Pixel thresholds are tuned for the dashboard's 1.4fr column allocation
- * and may need further refinement on preview.
+ * Pixel thresholds may need tuning on preview.
  */
 
 type Props = {
@@ -56,11 +55,11 @@ function ownerHref(slug: string, owner: string): string {
 
 const HEADER_BASE =
   'pb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400 dark:text-zinc-500';
-const NUM_HEADER = `${HEADER_BASE} pl-1.5 text-right`;
-const TEXT_HEADER = `${HEADER_BASE} pr-2 text-left`;
+const NUM_HEADER = `${HEADER_BASE} pl-3 text-right`;
+const TEXT_HEADER = `${HEADER_BASE} pr-3 text-left`;
 
-const CELL_BASE = 'overflow-hidden text-ellipsis whitespace-nowrap pb-2 tabular-nums';
-const NUM_CELL = `${CELL_BASE} pl-1.5 text-right`;
+const CELL_BASE = 'pb-2 tabular-nums';
+const NUM_CELL = `${CELL_BASE} pl-3 text-right`;
 
 export default function AllTimeStandingsSummary({
   rows,
@@ -80,18 +79,7 @@ export default function AllTimeStandingsSummary({
       {visible.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-zinc-400">No standings yet.</p>
       ) : (
-        <table className="w-full table-fixed border-collapse">
-          <colgroup>
-            <col className="w-[24px]" />
-            <col />
-            <col className="w-[78px]" />
-            <col className="w-[50px] @max-[280px]:hidden" />
-            <col className="w-[60px] @max-[340px]:hidden" />
-            <col className="w-[58px] @max-[400px]:hidden" />
-            <col className="w-[36px] @max-[440px]:hidden" />
-            <col className="w-[44px] @max-[500px]:hidden" />
-            <col className="w-[40px] @max-[560px]:hidden" />
-          </colgroup>
+        <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-gray-200 dark:border-zinc-700">
               <th className={`${TEXT_HEADER}`} aria-label="Rank" />
@@ -112,10 +100,10 @@ export default function AllTimeStandingsSummary({
               const topPad = idx === 0 ? 'pt-3' : 'pt-2';
               return (
                 <tr key={row.owner}>
-                  <td className={`${CELL_BASE} ${topPad} pr-2 text-gray-400 dark:text-zinc-500`}>
+                  <td className={`${CELL_BASE} ${topPad} pr-3 text-gray-400 dark:text-zinc-500`}>
                     {idx + 1}
                   </td>
-                  <td className={`${CELL_BASE} ${topPad} pr-2`}>
+                  <td className={`${CELL_BASE} ${topPad} pr-3`}>
                     <span className="inline-flex items-baseline gap-1.5 font-medium text-gray-900 dark:text-zinc-100">
                       <Link href={ownerHref(slug, row.owner)} className="hover:underline">
                         {row.owner}
