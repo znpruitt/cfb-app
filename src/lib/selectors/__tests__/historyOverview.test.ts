@@ -11,6 +11,7 @@ import {
   selectMoversWithContext,
   selectRecentPodiums,
   selectSeasonArchiveStrip,
+  selectStandingsWithRecentFinishes,
   selectStreaksOrDroughts,
   selectTitleDroughts,
   selectTitleStreaks,
@@ -882,4 +883,155 @@ test('selectMoversWithContext: empty buckets pass through unchanged', () => {
     championshipHistory: [],
   });
   assert.deepEqual(enriched, { climbs: [], drops: [] });
+});
+
+// ---------------------------------------------------------------------------
+// selectStandingsWithRecentFinishes
+// ---------------------------------------------------------------------------
+
+test('selectStandingsWithRecentFinishes: owner played all 5 recent seasons returns 5 non-null ranks', () => {
+  const archives: SeasonArchive[] = [
+    makeArchive(2021, [
+      { owner: 'Pruitt', wins: 12, losses: 2, gamesBack: 0 },
+      { owner: 'Whited', wins: 9, losses: 5, gamesBack: 3 },
+    ]),
+    makeArchive(2022, [
+      { owner: 'Whited', wins: 14, losses: 0, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 8, losses: 6, gamesBack: 6 },
+    ]),
+    makeArchive(2023, [
+      { owner: 'Pruitt', wins: 13, losses: 1, gamesBack: 0 },
+      { owner: 'Whited', wins: 11, losses: 3, gamesBack: 2 },
+    ]),
+    makeArchive(2024, [
+      { owner: 'Whited', wins: 12, losses: 2, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 7, losses: 7, gamesBack: 5 },
+    ]),
+    makeArchive(2025, [
+      { owner: 'Pruitt', wins: 14, losses: 0, gamesBack: 0 },
+      { owner: 'Whited', wins: 9, losses: 5, gamesBack: 5 },
+    ]),
+  ];
+  const allTime: AllTimeStandingRow[] = [makeStanding('Pruitt', 0), makeStanding('Whited', 0)];
+
+  const enriched = selectStandingsWithRecentFinishes({ allTimeStandings: allTime, archives });
+
+  const pruitt = enriched.find((r) => r.owner === 'Pruitt')!;
+  assert.equal(pruitt.recentFinishes.length, 5);
+  assert.deepEqual(
+    pruitt.recentFinishes.map((f) => f.year),
+    [2021, 2022, 2023, 2024, 2025]
+  );
+  assert.deepEqual(
+    pruitt.recentFinishes.map((f) => f.rank),
+    [1, 2, 1, 2, 1]
+  );
+  const whited = enriched.find((r) => r.owner === 'Whited')!;
+  assert.deepEqual(
+    whited.recentFinishes.map((f) => f.rank),
+    [2, 1, 2, 1, 2]
+  );
+});
+
+test('selectStandingsWithRecentFinishes: mid-window join returns nulls for unplayed seasons', () => {
+  // Ciprys joins in 2022 — 2021 should be null, 2022-2025 populated.
+  const archives: SeasonArchive[] = [
+    makeArchive(2021, [{ owner: 'Pruitt', wins: 12, losses: 2, gamesBack: 0 }]),
+    makeArchive(2022, [
+      { owner: 'Pruitt', wins: 13, losses: 1, gamesBack: 0 },
+      { owner: 'Ciprys', wins: 9, losses: 5, gamesBack: 4 },
+    ]),
+    makeArchive(2023, [
+      { owner: 'Ciprys', wins: 11, losses: 3, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 7, losses: 7, gamesBack: 4 },
+    ]),
+    makeArchive(2024, [
+      { owner: 'Ciprys', wins: 12, losses: 2, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 8, losses: 6, gamesBack: 4 },
+    ]),
+    makeArchive(2025, [
+      { owner: 'Pruitt', wins: 14, losses: 0, gamesBack: 0 },
+      { owner: 'Ciprys', wins: 10, losses: 4, gamesBack: 4 },
+    ]),
+  ];
+  const allTime: AllTimeStandingRow[] = [makeStanding('Pruitt', 0), makeStanding('Ciprys', 0)];
+
+  const enriched = selectStandingsWithRecentFinishes({ allTimeStandings: allTime, archives });
+  const ciprys = enriched.find((r) => r.owner === 'Ciprys')!;
+
+  assert.equal(ciprys.recentFinishes.length, 5);
+  assert.deepEqual(
+    ciprys.recentFinishes.map((f) => f.rank),
+    [null, 2, 1, 1, 2]
+  );
+});
+
+test('selectStandingsWithRecentFinishes: NoClaim is filtered before deriving rank', () => {
+  // NoClaim sits at index 0 in finalStandings (e.g., aggregated unclaimed teams).
+  // Without filtering, Pruitt would be reported as rank 2 instead of rank 1.
+  const archives: SeasonArchive[] = [
+    makeArchive(2025, [
+      { owner: 'NoClaim', wins: 13, losses: 1, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 12, losses: 2, gamesBack: 1 },
+      { owner: 'Whited', wins: 8, losses: 6, gamesBack: 5 },
+    ]),
+  ];
+  const allTime: AllTimeStandingRow[] = [makeStanding('Pruitt', 0), makeStanding('Whited', 0)];
+
+  const enriched = selectStandingsWithRecentFinishes({ allTimeStandings: allTime, archives });
+
+  const pruitt = enriched.find((r) => r.owner === 'Pruitt')!;
+  const whited = enriched.find((r) => r.owner === 'Whited')!;
+  assert.equal(pruitt.recentFinishes[0]!.rank, 1);
+  assert.equal(whited.recentFinishes[0]!.rank, 2);
+});
+
+test('selectStandingsWithRecentFinishes: window length matches available archives when fewer than recentSeasonCount', () => {
+  // League has 2 archives; default recentSeasonCount is 5. Window should be 2.
+  const archives: SeasonArchive[] = [
+    makeArchive(2024, [
+      { owner: 'Pruitt', wins: 10, losses: 4, gamesBack: 0 },
+      { owner: 'Whited', wins: 8, losses: 6, gamesBack: 2 },
+    ]),
+    makeArchive(2025, [
+      { owner: 'Whited', wins: 12, losses: 2, gamesBack: 0 },
+      { owner: 'Pruitt', wins: 9, losses: 5, gamesBack: 3 },
+    ]),
+  ];
+  const allTime: AllTimeStandingRow[] = [makeStanding('Pruitt', 0), makeStanding('Whited', 0)];
+
+  const enriched = selectStandingsWithRecentFinishes({ allTimeStandings: allTime, archives });
+
+  assert.equal(enriched[0]!.recentFinishes.length, 2);
+  assert.deepEqual(
+    enriched[0]!.recentFinishes.map((f) => f.year),
+    [2024, 2025]
+  );
+});
+
+test('selectStandingsWithRecentFinishes: empty archives returns empty recentFinishes per row', () => {
+  const allTime: AllTimeStandingRow[] = [makeStanding('Pruitt', 0)];
+
+  const enriched = selectStandingsWithRecentFinishes({ allTimeStandings: allTime, archives: [] });
+
+  assert.equal(enriched.length, 1);
+  assert.deepEqual(enriched[0]!.recentFinishes, []);
+});
+
+test('selectStandingsWithRecentFinishes: window selects most recent N when more archives exist', () => {
+  // League has 7 archives, default recentSeasonCount is 5. Window should be the latest 5.
+  const archives: SeasonArchive[] = [2018, 2019, 2021, 2022, 2023, 2024, 2025].map((year) =>
+    makeArchive(year, [
+      { owner: 'Pruitt', wins: 10, losses: 4, gamesBack: 0 },
+      { owner: 'Whited', wins: 8, losses: 6, gamesBack: 2 },
+    ])
+  );
+  const allTime: AllTimeStandingRow[] = [makeStanding('Pruitt', 0)];
+
+  const enriched = selectStandingsWithRecentFinishes({ allTimeStandings: allTime, archives });
+
+  assert.deepEqual(
+    enriched[0]!.recentFinishes.map((f) => f.year),
+    [2021, 2022, 2023, 2024, 2025]
+  );
 });

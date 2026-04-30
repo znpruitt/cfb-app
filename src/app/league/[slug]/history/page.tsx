@@ -22,6 +22,7 @@ import {
   selectMoversWithContext,
   selectRecentPodiums,
   selectSeasonArchiveStrip,
+  selectStandingsWithRecentFinishes,
   selectStreaksOrDroughts,
   selectTitleDroughts,
 } from '@/lib/selectors/historyOverview';
@@ -98,6 +99,10 @@ export default async function LeagueHistoryPage({
   const championshipHistory = selectChampionshipHistory(archives);
   const championOwnerRows = groupChampionsByOwner(championshipHistory);
   const allTimeStandings = selectAllTimeStandings(archives);
+  const standingsWithRecentFinishes = selectStandingsWithRecentFinishes({
+    allTimeStandings,
+    archives,
+  });
   const championshipSummary = computeChampionshipSummary(championOwnerRows, championshipHistory);
   const championshipRowsWithContext = selectChampionshipsWithContext({
     championOwnerRows,
@@ -164,7 +169,7 @@ export default async function LeagueHistoryPage({
           <section>
             <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1fr_280px]">
               <AllTimeStandingsSummary
-                rows={allTimeStandings}
+                rows={standingsWithRecentFinishes}
                 slug={slug}
                 activeOwners={activeOwners}
               />

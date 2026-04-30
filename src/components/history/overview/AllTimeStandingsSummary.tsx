@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import type { AllTimeStandingRow } from '@/lib/selectors/historySelectors';
+import type { RecentFinish, StandingRowWithRecentFinishes } from '@/lib/selectors/historyOverview';
 import SectionHead from './SectionHead';
 import FormerOwnerBadge from '../FormerOwnerBadge';
 
@@ -11,7 +11,7 @@ import FormerOwnerBadge from '../FormerOwnerBadge';
  * not fixed; cells do not truncate. The container queries below hide columns
  * by priority order as the standings @container shrinks.
  *
- * Priority order (always-show → drop-last):
+ * Existing 9-column priority order (always-show → drop-last):
  *   1. rank, owner, record       (always-show)
  *   2. avg-finish                (drop first, hidden ≤ 560px container)
  *   3. seasons                   (drop next,  hidden ≤ 500px container)
@@ -20,11 +20,20 @@ import FormerOwnerBadge from '../FormerOwnerBadge';
  *   6. pts                       (drop next,  hidden ≤ 340px container)
  *   7. win%                      (drop last,  hidden ≤ 280px container)
  *
- * Pixel thresholds may need tuning on preview.
+ * Recent-finish trend cells (added in P7-...-STANDINGS-TREND-COLUMN-v1) drop
+ * oldest-first as the @container narrows. Thresholds are indexed by
+ * position-from-newest (0 = newest, drops last):
+ *   0 (newest): hidden ≤ 560px
+ *   1:          hidden ≤ 640px
+ *   2:          hidden ≤ 720px
+ *   3:          hidden ≤ 800px
+ *   4 (oldest): hidden ≤ 880px
+ * The "Recent Finish" group header hides at the same threshold as the newest
+ * trend cell — the column disappears as a unit only when the last cell drops.
  */
 
 type Props = {
-  rows: AllTimeStandingRow[];
+  rows: StandingRowWithRecentFinishes[];
   slug: string;
   activeOwners: Set<string>;
   limit?: number;
@@ -61,6 +70,61 @@ const TEXT_HEADER = `${HEADER_BASE} pr-3 text-left`;
 const CELL_BASE = 'pb-2 tabular-nums';
 const NUM_CELL = `${CELL_BASE} pl-3 text-right`;
 
+const TREND_GROUP_HEADER = `${HEADER_BASE} px-1.5 text-center`;
+const TREND_YEAR_SUB_HEADER =
+  'pt-0.5 pb-2 px-1.5 text-center text-[9px] font-semibold uppercase tracking-[0.1em] text-gray-400 opacity-70 dark:text-zinc-500';
+const TREND_CELL = 'pb-2 px-1.5 text-center';
+
+// Static class strings keyed by position-from-newest (Tailwind JIT cannot
+// detect dynamically-built `@max-[Xpx]:hidden` classes — see DESIGN.md).
+const TREND_HIDE_BY_POSITION_FROM_NEWEST = [
+  '@max-[560px]:hidden',
+  '@max-[640px]:hidden',
+  '@max-[720px]:hidden',
+  '@max-[800px]:hidden',
+  '@max-[880px]:hidden',
+] as const;
+
+function trendHideClass(positionFromNewest: number): string {
+  return TREND_HIDE_BY_POSITION_FROM_NEWEST[positionFromNewest] ?? '';
+}
+
+type ChipTier = 'gold' | 'silver' | 'bronze' | 'default' | 'bottom';
+
+function chipTier(rank: number): ChipTier {
+  if (rank === 1) return 'gold';
+  if (rank === 2) return 'silver';
+  if (rank === 3) return 'bronze';
+  if (rank >= 8) return 'bottom';
+  return 'default';
+}
+
+const CHIP_BASE =
+  'inline-block min-w-[22px] rounded-[3px] border bg-transparent px-[5px] py-px text-center text-[11px] font-medium tabular-nums';
+
+const CHIP_TIER_CLASSES: Record<ChipTier, string> = {
+  gold: 'border-yellow-500 text-yellow-600 font-semibold dark:border-amber-300 dark:text-amber-300',
+  silver: 'border-slate-500 text-slate-600 dark:border-slate-300 dark:text-slate-200',
+  bronze: 'border-orange-900 text-orange-900 dark:border-[#d4915c] dark:text-[#d4915c]',
+  default: 'border-black/10 text-gray-500 dark:border-white/[0.08] dark:text-zinc-400',
+  bottom: 'border-transparent text-gray-400 dark:text-zinc-500',
+};
+
+function FinishChip({ finish }: { finish: RecentFinish }): React.ReactElement {
+  if (finish.rank === null) {
+    return (
+      <span
+        className="text-[12px] text-gray-400 opacity-40 dark:text-zinc-500"
+        aria-label="Did not play"
+      >
+        —
+      </span>
+    );
+  }
+  const tier = chipTier(finish.rank);
+  return <span className={`${CHIP_BASE} ${CHIP_TIER_CLASSES[tier]}`}>{finish.rank}</span>;
+}
+
 export default function AllTimeStandingsSummary({
   rows,
   slug,
@@ -68,6 +132,9 @@ export default function AllTimeStandingsSummary({
   limit = 8,
 }: Props): React.ReactElement {
   const visible = rows.slice(0, limit);
+  const trendWindow = visible[0]?.recentFinishes ?? [];
+  const trendCount = trendWindow.length;
+  const hasTrend = trendCount > 0;
 
   return (
     <div className="@container">
@@ -81,7 +148,7 @@ export default function AllTimeStandingsSummary({
       ) : (
         <table className="border-collapse">
           <thead>
-            <tr className="border-b border-gray-200 dark:border-zinc-700">
+            <tr className={hasTrend ? '' : 'border-b border-gray-200 dark:border-zinc-700'}>
               <th className={`${TEXT_HEADER}`} aria-label="Rank" />
               <th className={TEXT_HEADER}>Owner</th>
               <th className={NUM_HEADER}>Record</th>
@@ -91,7 +158,28 @@ export default function AllTimeStandingsSummary({
               <th className={`${NUM_HEADER} @max-[440px]:hidden`}>Titles</th>
               <th className={`${NUM_HEADER} @max-[500px]:hidden`}>Seasons</th>
               <th className={`${NUM_HEADER} @max-[560px]:hidden`}>Avg</th>
+              {hasTrend && (
+                <th colSpan={trendCount} className={`${TREND_GROUP_HEADER} @max-[560px]:hidden`}>
+                  Recent Finish
+                </th>
+              )}
             </tr>
+            {hasTrend && (
+              <tr className="border-b border-gray-200 dark:border-zinc-700">
+                <th colSpan={9} aria-hidden="true" />
+                {trendWindow.map((finish, idx) => {
+                  const positionFromNewest = trendCount - 1 - idx;
+                  return (
+                    <th
+                      key={finish.year}
+                      className={`${TREND_YEAR_SUB_HEADER} ${trendHideClass(positionFromNewest)}`}
+                    >
+                      &apos;{String(finish.year).slice(-2)}
+                    </th>
+                  );
+                })}
+              </tr>
+            )}
           </thead>
           <tbody>
             {visible.map((row, idx) => {
@@ -148,6 +236,17 @@ export default function AllTimeStandingsSummary({
                   >
                     {formatAvgFinish(row.avgFinish)}
                   </td>
+                  {row.recentFinishes.map((finish, finishIdx) => {
+                    const positionFromNewest = trendCount - 1 - finishIdx;
+                    return (
+                      <td
+                        key={finish.year}
+                        className={`${TREND_CELL} ${topPad} ${trendHideClass(positionFromNewest)}`}
+                      >
+                        <FinishChip finish={finish} />
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

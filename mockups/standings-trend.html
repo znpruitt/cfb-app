@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>All-time standings — final podium chip treatment</title>
+<style>
+  /* Dark mode (default) */
+  :root {
+    --bg: #0a0a0a;
+    --border: #1f1f1f;
+    --text: #ededed;
+    --text-dim: #a3a3a3;
+    --text-faint: #666;
+    --amber: #fcd34d;
+    --info-link: #60a5fa;
+
+    --chip-default-border: rgba(255,255,255,0.08);
+    --chip-default-text: var(--text-dim);
+
+    --chip-gold-border: #fcd34d;
+    --chip-gold-text: #fcd34d;
+
+    --chip-silver-border: #cbd5e1;
+    --chip-silver-text: #e2e8f0;
+
+    --chip-bronze-border: #d4915c;
+    --chip-bronze-text: #d4915c;
+
+    --chip-bottom-text: var(--text-faint);
+  }
+
+  /* Light mode */
+  body.light-mode {
+    --bg: #ffffff;
+    --border: #e5e7eb;
+    --text: #111827;
+    --text-dim: #4b5563;
+    --text-faint: #9ca3af;
+    --amber: #b45309;
+    --info-link: #2563eb;
+
+    --chip-default-border: rgba(0,0,0,0.10);
+    --chip-default-text: var(--text-dim);
+
+    --chip-gold-border: #eab308;
+    --chip-gold-text: #ca8a04;
+
+    --chip-silver-border: #64748b;
+    --chip-silver-text: #475569;
+
+    --chip-bronze-border: #7c2d12;
+    --chip-bronze-text: #7c2d12;
+
+    --chip-bottom-text: var(--text-faint);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    line-height: 1.5;
+    font-size: 14px;
+    transition: background 0.15s ease;
+  }
+  .deck-header {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 56px 48px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+  }
+  .deck-header h1 {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+  }
+  .deck-header p {
+    color: var(--text-dim);
+    margin: 0;
+    max-width: 760px;
+    font-size: 13px;
+  }
+  .deck-header .copy {
+    flex: 1;
+  }
+  .toggle {
+    flex-shrink: 0;
+    background: var(--chip-default-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .toggle:hover {
+    border-color: var(--text-dim);
+  }
+
+  .table-wrap {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 32px 48px 96px;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .section-head h2 {
+    font-size: 15px;
+    font-weight: 500;
+    margin: 0;
+  }
+  .section-head .more {
+    font-size: 13px;
+    color: var(--info-link);
+    text-decoration: none;
+  }
+
+  .data-table {
+    border-collapse: collapse;
+  }
+  .data-table th {
+    text-align: left;
+    padding: 0 12px 8px 0;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table th.num { text-align: right; padding-right: 12px; padding-left: 8px; }
+  .data-table th.num:last-child { padding-right: 0; }
+  .data-table th.center { text-align: center; }
+  .data-table td {
+    padding: 9px 12px 9px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table td.num { text-align: right; padding-right: 12px; padding-left: 8px; }
+  .data-table td.num:last-child { padding-right: 0; }
+  .data-table tbody tr:first-child td { padding-top: 12px; }
+  .data-table .rank-cell { color: var(--text-faint); padding-right: 12px; }
+  .data-table .owner-cell { color: var(--text); font-weight: 500; padding-right: 16px; }
+  .data-table .titles-cell { color: var(--amber); font-weight: 500; }
+  .data-table .titles-cell.zero { color: var(--text-faint); font-weight: 400; }
+  .data-table .dim { color: var(--text-dim); }
+
+  .trend-cell {
+    text-align: center;
+    padding: 0 6px !important;
+    font-variant-numeric: tabular-nums;
+  }
+  .trend-cell .empty {
+    color: var(--text-faint);
+    font-size: 12px;
+    opacity: 0.4;
+  }
+
+  .chip {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 5px;
+    border: 1px solid var(--chip-default-border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--chip-default-text);
+    min-width: 22px;
+    text-align: center;
+  }
+  .chip.gold {
+    border-color: var(--chip-gold-border);
+    color: var(--chip-gold-text);
+    font-weight: 600;
+  }
+  .chip.silver {
+    border-color: var(--chip-silver-border);
+    color: var(--chip-silver-text);
+  }
+  .chip.bronze {
+    border-color: var(--chip-bronze-border);
+    color: var(--chip-bronze-text);
+  }
+  .chip.bottom {
+    border-color: transparent;
+    color: var(--chip-bottom-text);
+  }
+</style>
+</head>
+<body>
+
+<div class="deck-header">
+  <div class="copy">
+    <h1>All-time standings — recent finish trend column</h1>
+    <p>Final podium chip treatment in dark and light mode. Toggle to compare. Gold/silver/bronze pills for podium positions, default-tinted pills for mid finishes (4-7), no pill for back-of-pack (8+), em-dash for seasons not played. Last 5 seasons (2021-2025).</p>
+  </div>
+  <button class="toggle" onclick="document.body.classList.toggle('light-mode'); this.textContent = document.body.classList.contains('light-mode') ? 'Switch to dark' : 'Switch to light';">Switch to light</button>
+</div>
+
+<div class="table-wrap">
+  <div class="section-head">
+    <h2>All-time standings</h2>
+    <a href="#" class="more">Full standings →</a>
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Owner</th>
+        <th class="num">Record</th>
+        <th class="num">Win%</th>
+        <th class="num">Pts</th>
+        <th class="num">Diff</th>
+        <th class="num">Titles</th>
+        <th class="num">Seasons</th>
+        <th class="num">Avg</th>
+        <th class="center" colspan="5">Recent finish</th>
+      </tr>
+      <tr>
+        <th colspan="9"></th>
+        <th class="center" style="font-size: 9px; opacity: 0.7; padding: 2px 6px 8px;">'21</th>
+        <th class="center" style="font-size: 9px; opacity: 0.7; padding: 2px 6px 8px;">'22</th>
+        <th class="center" style="font-size: 9px; opacity: 0.7; padding: 2px 6px 8px;">'23</th>
+        <th class="center" style="font-size: 9px; opacity: 0.7; padding: 2px 6px 8px;">'24</th>
+        <th class="center" style="font-size: 9px; opacity: 0.7; padding: 2px 6px 8px;">'25</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="rank-cell">1</td>
+        <td class="owner-cell">Whited</td>
+        <td class="num">488–326</td>
+        <td class="num">60.0%</td>
+        <td class="num">24,252</td>
+        <td class="num dim">+3,959</td>
+        <td class="num titles-cell">2</td>
+        <td class="num dim">6</td>
+        <td class="num dim">3.0</td>
+        <td class="trend-cell"><span class="chip bronze">3</span></td>
+        <td class="trend-cell"><span class="chip gold">1</span></td>
+        <td class="trend-cell"><span class="chip silver">2</span></td>
+        <td class="trend-cell"><span class="chip gold">1</span></td>
+        <td class="trend-cell"><span class="chip">4</span></td>
+      </tr>
+      <tr>
+        <td class="rank-cell">2</td>
+        <td class="owner-cell">Pruitt</td>
+        <td class="num">455–348</td>
+        <td class="num">56.7%</td>
+        <td class="num">23,744</td>
+        <td class="num dim">+3,158</td>
+        <td class="num titles-cell">2</td>
+        <td class="num dim">6</td>
+        <td class="num dim">5.5</td>
+        <td class="trend-cell"><span class="chip">7</span></td>
+        <td class="trend-cell"><span class="chip">6</span></td>
+        <td class="trend-cell"><span class="chip gold">1</span></td>
+        <td class="trend-cell"><span class="chip">6</span></td>
+        <td class="trend-cell"><span class="chip gold">1</span></td>
+      </tr>
+      <tr>
+        <td class="rank-cell">3</td>
+        <td class="owner-cell">Shambaugh</td>
+        <td class="num">448–362</td>
+        <td class="num">55.3%</td>
+        <td class="num">23,719</td>
+        <td class="num dim">+2,786</td>
+        <td class="num titles-cell zero">—</td>
+        <td class="num dim">6</td>
+        <td class="num dim">5.2</td>
+        <td class="trend-cell"><span class="chip">4</span></td>
+        <td class="trend-cell"><span class="chip">7</span></td>
+        <td class="trend-cell"><span class="chip bronze">3</span></td>
+        <td class="trend-cell"><span class="chip">5</span></td>
+        <td class="trend-cell"><span class="chip">6</span></td>
+      </tr>
+      <tr>
+        <td class="rank-cell">4</td>
+        <td class="owner-cell">Maleski</td>
+        <td class="num">438–313</td>
+        <td class="num">58.3%</td>
+        <td class="num">20,969</td>
+        <td class="num dim">+3,575</td>
+        <td class="num titles-cell zero">—</td>
+        <td class="num dim">6</td>
+        <td class="num dim">5.3</td>
+        <td class="trend-cell"><span class="chip">11</span></td>
+        <td class="trend-cell"><span class="chip">8</span></td>
+        <td class="trend-cell"><span class="chip silver">2</span></td>
+        <td class="trend-cell"><span class="chip bronze">3</span></td>
+        <td class="trend-cell"><span class="chip silver">2</span></td>
+      </tr>
+      <tr>
+        <td class="rank-cell">5</td>
+        <td class="owner-cell">BHooper</td>
+        <td class="num">428–389</td>
+        <td class="num">52.4%</td>
+        <td class="num">22,743</td>
+        <td class="num dim">+1,603</td>
+        <td class="num titles-cell">1</td>
+        <td class="num dim">6</td>
+        <td class="num dim">8.0</td>
+        <td class="trend-cell"><span class="chip gold">1</span></td>
+        <td class="trend-cell"><span class="chip">11</span></td>
+        <td class="trend-cell"><span class="chip">7</span></td>
+        <td class="trend-cell"><span class="chip bottom">9</span></td>
+        <td class="trend-cell"><span class="chip bottom">8</span></td>
+      </tr>
+      <tr>
+        <td class="rank-cell">6</td>
+        <td class="owner-cell">Jordan</td>
+        <td class="num">349–315</td>
+        <td class="num">52.6%</td>
+        <td class="num">18,511</td>
+        <td class="num dim">+1,365</td>
+        <td class="num titles-cell zero">—</td>
+        <td class="num dim">5</td>
+        <td class="num dim">6.6</td>
+        <td class="trend-cell"><span class="chip bronze">3</span></td>
+        <td class="trend-cell"><span class="chip">10</span></td>
+        <td class="trend-cell"><span class="chip bronze">3</span></td>
+        <td class="trend-cell"><span class="chip">4</span></td>
+        <td class="trend-cell"><span class="chip bottom">13</span></td>
+      </tr>
+      <tr>
+        <td class="rank-cell">7</td>
+        <td class="owner-cell">LHooper</td>
+        <td class="num">329–283</td>
+        <td class="num">53.8%</td>
+        <td class="num">17,480</td>
+        <td class="num dim">+1,694</td>
+        <td class="num titles-cell zero">—</td>
+        <td class="num dim">5</td>
+        <td class="num dim">9.0</td>
+        <td class="trend-cell"><span class="chip bottom">9</span></td>
+        <td class="trend-cell"><span class="chip bottom">12</span></td>
+        <td class="trend-cell"><span class="chip bottom">8</span></td>
+        <td class="trend-cell"><span class="chip">4</span></td>
+        <td class="trend-cell"><span class="chip">11</span></td>
+      </tr>
+      <tr>
+        <td class="rank-cell">8</td>
+        <td class="owner-cell">Ciprys</td>
+        <td class="num">315–242</td>
+        <td class="num">56.6%</td>
+        <td class="num">16,502</td>
+        <td class="num dim">+1,976</td>
+        <td class="num titles-cell zero">—</td>
+        <td class="num dim">4</td>
+        <td class="num dim">5.3</td>
+        <td class="trend-cell"><span class="empty">—</span></td>
+        <td class="trend-cell"><span class="chip">4</span></td>
+        <td class="trend-cell"><span class="chip">7</span></td>
+        <td class="trend-cell"><span class="chip silver">2</span></td>
+        <td class="trend-cell"><span class="chip bronze">3</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>

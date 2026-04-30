@@ -445,3 +445,53 @@ export function selectMoversWithContext(args: {
     drops: args.movers.drops.map(decorate),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Recent finish trend (per-owner ranks across the last N seasons)
+// ---------------------------------------------------------------------------
+
+export type RecentFinish = {
+  year: number;
+  /** Final-standings rank in this season; null when the owner did not play. */
+  rank: number | null;
+};
+
+export type StandingRowWithRecentFinishes = AllTimeStandingRow & {
+  /** Chronological order, oldest first. Length matches the recent-season window. */
+  recentFinishes: RecentFinish[];
+};
+
+/**
+ * Enriches each standings row with a chronological window of recent-season
+ * finishes. Window is the most recent N archive years where N defaults to 5.
+ * Owners who did not play a given year in the window get a `null` rank for
+ * that year — the array is dense-with-nulls, never sparse.
+ *
+ * NoClaim is filtered before deriving rank (matches the convention from the
+ * archiveChampion fix in commit 5fdcd59); a NoClaim row at index 0 of an
+ * archive's finalStandings would otherwise shift every real owner's rank.
+ */
+export function selectStandingsWithRecentFinishes(args: {
+  allTimeStandings: AllTimeStandingRow[];
+  archives: SeasonArchive[];
+  recentSeasonCount?: number;
+}): StandingRowWithRecentFinishes[] {
+  const { allTimeStandings, archives, recentSeasonCount = 5 } = args;
+  const sorted = [...archives].sort((a, b) => a.year - b.year);
+  const windowArchives = sorted.slice(-recentSeasonCount);
+
+  const rankByOwnerByYear = windowArchives.map((archive) => {
+    const eligible = archive.finalStandings.filter((row) => row.owner !== NO_CLAIM_OWNER);
+    const ranks = new Map<string, number>();
+    eligible.forEach((row, idx) => ranks.set(row.owner, idx + 1));
+    return { year: archive.year, ranks };
+  });
+
+  return allTimeStandings.map((row) => ({
+    ...row,
+    recentFinishes: rankByOwnerByYear.map(({ year, ranks }) => ({
+      year,
+      rank: ranks.get(row.owner) ?? null,
+    })),
+  }));
+}
