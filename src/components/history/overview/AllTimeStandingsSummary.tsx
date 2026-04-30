@@ -84,7 +84,7 @@ export default function AllTimeStandingsSummary({
           <colgroup>
             <col className="w-[24px]" />
             <col />
-            <col className="w-[72px]" />
+            <col className="w-[78px]" />
             <col className="w-[50px] @max-[280px]:hidden" />
             <col className="w-[60px] @max-[340px]:hidden" />
             <col className="w-[58px] @max-[400px]:hidden" />

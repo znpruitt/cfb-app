@@ -152,47 +152,41 @@ export default async function LeagueHistoryPage({
         isAdmin={isAdmin}
         activeTab="history"
       >
-        <div className="mx-auto max-w-6xl">
-          <HistorySubNav slug={slug} />
-          <div className="space-y-10">
-            <ChampionshipsSection
-              rows={championshipRowsWithContext}
-              summary={championshipSummary}
-              slug={slug}
-              activeOwners={activeOwners}
-            />
+        <HistorySubNav slug={slug} />
+        <div className="space-y-10">
+          <ChampionshipsSection
+            rows={championshipRowsWithContext}
+            summary={championshipSummary}
+            slug={slug}
+            activeOwners={activeOwners}
+          />
 
-            <section>
-              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1.4fr_1fr]">
-                <AllTimeStandingsSummary
-                  rows={allTimeStandings}
-                  slug={slug}
-                  activeOwners={activeOwners}
-                />
-                <RecentPodiumsColumn blocks={recentPodiums} slug={slug} />
-              </div>
-            </section>
+          <section>
+            <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1fr_280px]">
+              <AllTimeStandingsSummary
+                rows={allTimeStandings}
+                slug={slug}
+                activeOwners={activeOwners}
+              />
+              <RecentPodiumsColumn blocks={recentPodiums} slug={slug} />
+            </div>
+          </section>
 
-            <section>
-              <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-3">
-                <TopRivalriesList
-                  rivalries={topRivalries}
-                  slug={slug}
-                  activeOwners={activeOwners}
-                />
-                <TitleStreaksTable
-                  data={streaksOrDroughts}
-                  droughtsWithContext={droughtsWithContext}
-                  slug={slug}
-                />
-                <RecordsColumn records={marqueeRecords} slug={slug} />
-              </div>
-            </section>
+          <section>
+            <div className="grid grid-cols-1 gap-x-14 gap-y-10 lg:grid-cols-[1fr_1fr_280px]">
+              <TopRivalriesList rivalries={topRivalries} slug={slug} activeOwners={activeOwners} />
+              <TitleStreaksTable
+                data={streaksOrDroughts}
+                droughtsWithContext={droughtsWithContext}
+                slug={slug}
+              />
+              <RecordsColumn records={marqueeRecords} slug={slug} />
+            </div>
+          </section>
 
-            <MoversSection buckets={moversWithContext} slug={slug} />
+          <MoversSection buckets={moversWithContext} slug={slug} />
 
-            <SeasonArchiveStrip items={archiveStrip} slug={slug} />
-          </div>
+          <SeasonArchiveStrip items={archiveStrip} slug={slug} />
         </div>
       </LeaguePageShell>
     </main>
