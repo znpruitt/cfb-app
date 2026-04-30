@@ -64,11 +64,11 @@ function ownerHref(slug: string, owner: string): string {
 
 const HEADER_BASE =
   'pb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-400 dark:text-zinc-500';
-const NUM_HEADER = `${HEADER_BASE} pl-3 text-right`;
+const NUM_HEADER = `${HEADER_BASE} pl-5 text-right`;
 const TEXT_HEADER = `${HEADER_BASE} pr-3 text-left`;
 
 const CELL_BASE = 'pb-2 tabular-nums';
-const NUM_CELL = `${CELL_BASE} pl-3 text-right`;
+const NUM_CELL = `${CELL_BASE} pl-5 text-right`;
 
 const TREND_GROUP_HEADER = `${HEADER_BASE} px-1.5 text-center`;
 const TREND_YEAR_SUB_HEADER =
