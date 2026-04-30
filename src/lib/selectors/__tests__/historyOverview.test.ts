@@ -263,7 +263,7 @@ test('selectMarqueeRecords: surfaces 1 from each category (when all 4 have entri
 
   const picked = selectMarqueeRecords(records);
 
-  assert.equal(picked.length, 5);
+  assert.equal(picked.length, 4);
   const categories = picked.map((r) => r.category);
   assert.ok(categories.includes('career'));
   assert.ok(categories.includes('season'));
@@ -271,22 +271,24 @@ test('selectMarqueeRecords: surfaces 1 from each category (when all 4 have entri
   assert.ok(categories.includes('event'));
 });
 
-test('selectMarqueeRecords: extra slot prefers career then season then rivalry then event', () => {
+test('selectMarqueeRecords: fill prefers career when a category is empty', () => {
+  // 3 categories populated, season empty. After "1 per category" pass we have
+  // 3 picks; the fill loop should add a second from career (highest priority)
+  // to reach 4.
   const records: LeagueRecords = {
     career: [makeRecord('career', 'c1'), makeRecord('career', 'c2')],
-    season: [makeRecord('season', 's1')],
+    season: [],
     rivalry: [makeRecord('rivalry', 'r1')],
     event: [makeRecord('event', 'e1')],
   };
 
   const picked = selectMarqueeRecords(records);
 
-  assert.equal(picked.length, 5);
-  // 4 from each category + the second career record as the extra
+  assert.equal(picked.length, 4);
   assert.equal(picked.filter((r) => r.category === 'career').length, 2);
 });
 
-test('selectMarqueeRecords: returns fewer than 5 if data does not support 5', () => {
+test('selectMarqueeRecords: returns fewer than 4 if data does not support 4', () => {
   const records: LeagueRecords = {
     career: [makeRecord('career', 'c1')],
     season: [],

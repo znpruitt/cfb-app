@@ -115,11 +115,12 @@ const RECORD_CATEGORIES: ReadonlyArray<keyof LeagueRecords> = [
   'event',
 ];
 
+const MARQUEE_RECORD_COUNT = 4;
+
 /**
- * Picks 5 records to surface on the Overview Records column. Selection rule:
- * one record from each of the four categories (career / season / rivalry /
- * event), then one extra picked by category-priority order from whichever
- * category has additional entries.
+ * Picks 4 records to surface on the Overview Records column — one from each
+ * of the four categories (career / season / rivalry / event). When a category
+ * is empty, the missing slot is filled from extras in category-priority order.
  *
  * `selectAllRecords()` already orders entries within each category by
  * narrative priority, so we take the first record of each category as the
@@ -137,7 +138,7 @@ export function selectMarqueeRecords(records: LeagueRecords): RecordEntry[] {
     }
   }
 
-  if (picked.length < 5) {
+  if (picked.length < MARQUEE_RECORD_COUNT) {
     for (const category of RECORD_CATEGORIES) {
       for (const entry of records[category]) {
         if (!taken.has(entry.id)) {
@@ -146,11 +147,11 @@ export function selectMarqueeRecords(records: LeagueRecords): RecordEntry[] {
           break;
         }
       }
-      if (picked.length >= 5) break;
+      if (picked.length >= MARQUEE_RECORD_COUNT) break;
     }
   }
 
-  return picked.slice(0, 5);
+  return picked.slice(0, MARQUEE_RECORD_COUNT);
 }
 
 // ---------------------------------------------------------------------------

@@ -38,16 +38,19 @@ export default function RecordsColumn({ records, slug }: Props): React.ReactElem
             const eyebrowColor = STROKE_COLORS[entry.category];
             return (
               <li key={entry.id} className="grid grid-cols-[1fr_16px] items-center gap-3 py-2">
-                <div>
-                  <p
-                    className="mb-1 text-[10px] font-semibold uppercase tracking-[0.1em]"
-                    style={{ color: eyebrowColor }}
-                  >
-                    {CATEGORY_LABEL[entry.category]}
-                  </p>
-                  <p className="mb-0.5 text-sm font-medium text-gray-900 dark:text-zinc-100">
+                <div className="space-y-0.5">
+                  {/* Line 1: eyebrow · title (eyebrow keeps its category color) */}
+                  <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
+                    <span
+                      className="text-[10px] font-semibold uppercase tracking-[0.1em]"
+                      style={{ color: eyebrowColor }}
+                    >
+                      {CATEGORY_LABEL[entry.category]}
+                    </span>
+                    <span className="mx-1.5 text-gray-400 dark:text-zinc-500">·</span>
                     {entry.label}
                   </p>
+                  {/* Line 2: holders · value */}
                   <p className="text-[13px] text-gray-500 tabular-nums dark:text-zinc-400">
                     {holdersDisplay(entry)} · {entry.formattedValue}
                   </p>
