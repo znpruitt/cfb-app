@@ -11,7 +11,7 @@
 
 ### HISTORY-RECORDS Phase 2 — Complete
 
-**Status:** Complete. Multiple iteration cycles across PR #313 (`claude/history-records-phase-2`).
+**Status:** Complete. Multiple iteration cycles across PR #313 (`claude/history-records-phase-2`). See `docs/campaigns/history-records-phase-2.md` for the full retrospective.
 **PROMPT_IDs:** P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-v1, P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-FOLLOWUP-v1, DESIGN-MD-MULTILINE-AND-DEGRADATION-v1, P7-HISTORY-RECORDS-PHASE-2-PATH-B-AND-RESPONSIVE-v1, P7-HISTORY-RECORDS-PHASE-2-VISUAL-REMEDIATION-AND-CLOSEOUT-v1, P7-HISTORY-RECORDS-PHASE-2-CLEANUP-NITS-v1, P7-HISTORY-RECORDS-PHASE-2-VISUAL-REFINEMENT-v1, P7-HISTORY-RECORDS-PHASE-2-LAYOUT-DIAGNOSTIC-v1, P7-HISTORY-RECORDS-PHASE-2-LAYOUT-REMEDIATION-v1, P7-HISTORY-RECORDS-PHASE-2-STANDINGS-TREND-COLUMN-v1, HISTORY-RECORDS-PHASE-2-CAMPAIGN-CLOSEOUT
 
 **Inciting issue:** Phase 1 (PR #312) shipped `selectAllRecords` as the records-data backbone but did not surface it in the History UI. The pre-Phase-2 Overview rendered as a single-stat hero with no drill-down structure or sense of league history beyond "current season's champion." Phase 2 took on the full Overview redesign, the records column wiring, the subtab routing scaffold, and the design-system documentation that the new layout primitives required.
