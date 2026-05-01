@@ -4,6 +4,7 @@ import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
 import { getAppState } from '@/lib/server/appStateStore';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
+import { NO_CLAIM_OWNER } from '@/lib/standings';
 import {
   selectAllTimeStandings,
   selectChampionshipHistory,
@@ -88,7 +89,20 @@ export default async function LeagueHistoryPage({
   const ownersCsv = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
   const currentRosterRows = parseOwnersCsv(ownersCsv);
   const currentRoster = new Map(currentRosterRows.map((r) => [r.team, r.owner]));
-  const activeOwners = new Set(currentRoster.values());
+  // Prefer the current-season CSV when present. Fall back to the union of
+  // owners from all archives when it's empty (pre-upload, post-reset, or
+  // storage-miss states) so sections that gate on activeOwners — Title
+  // droughts especially — don't render empty against a populated archive.
+  const activeOwners =
+    currentRoster.size > 0
+      ? new Set(currentRoster.values())
+      : new Set(
+          archives.flatMap((archive) =>
+            archive.finalStandings
+              .map((row) => row.owner)
+              .filter((owner) => owner !== NO_CLAIM_OWNER)
+          )
+        );
 
   const historicalRosters: Record<number, Map<string, string>> = {};
   for (const archive of archives) {

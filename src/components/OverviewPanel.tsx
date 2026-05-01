@@ -960,9 +960,14 @@ function resolveHistoryHref(insight: Insight, base: string): string | null {
   const ownerSegment = primary ? encodeURIComponent(primary) : null;
 
   switch (insight.type) {
+    // drought/dynasty/rivalry insights deep-link to Overview anchors rather
+    // than the /history/stats and /history/rivalries subtabs. Those subtabs
+    // currently render "Coming in Phase 3" placeholders, so routing there
+    // would dead-end. Re-point at the subtabs once Phase 3 ships their content.
     case 'drought':
+      return `${base}/history#dynasty-drought`;
     case 'dynasty':
-      return `${base}/history/stats`;
+      return `${base}/history#championships`;
     case 'improvement':
     case 'consistency':
     case 'volatility':
@@ -980,7 +985,7 @@ function resolveHistoryHref(insight: Insight, base: string): string | null {
     case 'lopsided_rivalry':
     case 'even_rivalry':
     case 'dominance_streak':
-      return `${base}/history/rivalries`;
+      return `${base}/history#rivalries`;
     case 'milestone_watch': {
       if (!ownerSegment) return null;
       const kind = parseMilestoneKind(insight.id);

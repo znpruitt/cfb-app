@@ -500,6 +500,31 @@ test('selectTitleDroughts: skips Unknown champions when computing last-title', (
   assert.equal(whited.lastTitleYear, null);
 });
 
+test('selectTitleDroughts: populates from archive-derived activeOwners (fallback path)', () => {
+  // Regression guard for the page.tsx fallback that builds activeOwners from
+  // archive owners when the current-season CSV is empty. The selector must
+  // produce non-empty droughts when activeOwners covers all archive owners,
+  // so sections that gate on activeOwners don't render empty against a
+  // populated archive.
+  const history: ChampionshipEntry[] = [
+    { year: 2024, champion: 'Pruitt' },
+    { year: 2025, champion: 'Whited' },
+  ];
+  const allTime: AllTimeStandingRow[] = [
+    makeStanding('Pruitt', 1, { seasonsPlayed: 2 }),
+    makeStanding('Whited', 1, { seasonsPlayed: 2 }),
+    makeStanding('Maleski', 0, { seasonsPlayed: 2 }),
+  ];
+  // activeOwners derived from union of archive owners (the page.tsx fallback).
+  const activeOwners = new Set(['Pruitt', 'Whited', 'Maleski']);
+
+  const droughts = selectTitleDroughts({ history, allTimeStandings: allTime, activeOwners });
+
+  assert.equal(droughts.length, 3);
+  const owners = droughts.map((d) => d.owner).sort();
+  assert.deepEqual(owners, ['Maleski', 'Pruitt', 'Whited']);
+});
+
 test('selectTitleDroughts: excludes former owners (those not in activeOwners)', () => {
   const history: ChampionshipEntry[] = [
     { year: 2018, champion: 'Hardiman' },
