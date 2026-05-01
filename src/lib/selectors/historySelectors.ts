@@ -16,6 +16,7 @@ export type StandingsRow = {
   wins: number;
   losses: number;
   gamesBack: number;
+  pointsFor: number;
   pointDifferential: number;
 };
 
@@ -101,6 +102,7 @@ export function selectFinalStandings(archive: SeasonArchive): StandingsRow[] {
     wins: row.wins,
     losses: row.losses,
     gamesBack: row.gamesBack,
+    pointsFor: row.pointsFor ?? 0,
     pointDifferential: row.pointDifferential,
   }));
 }
@@ -445,6 +447,7 @@ export type AllTimeStandingRow = {
   championships: number;
   seasonsPlayed: number;
   avgFinish: number;
+  totalPoints: number;
   totalPointDifferential: number;
 };
 
@@ -459,6 +462,12 @@ export type AllTimeHeadToHeadEntry = {
   wins: number;
   losses: number;
   seasons: number;
+  /**
+   * Most recent meeting between this pair across all archived seasons,
+   * or null when no per-matchup history is available (e.g. archives that
+   * only carry aggregate scores).
+   */
+  latestMeeting: { year: number; winner: string } | null;
 };
 
 export type DynastyDroughtRow = {
@@ -536,9 +545,16 @@ export type OwnerCareerExtras = Map<string, { totalYards: number; totalTurnoverM
 // Internal helpers for cross-season selectors
 // ---------------------------------------------------------------------------
 
-/** Returns the champion (first-place owner) from an archive's finalStandings, or null. */
+/**
+ * Returns the champion (first-place eligible owner) from an archive's
+ * finalStandings, or null. Filters NoClaim before deriving — without this
+ * filter, a NoClaim row at index 0 would be reported as the champion and
+ * shift downstream rendering (Season archive name, championship credits).
+ * Same pattern as the rank-derivation fix in commit 5fdcd59.
+ */
 function archiveChampion(archive: SeasonArchive): string | null {
-  return archive.finalStandings.length > 0 ? (archive.finalStandings[0]?.owner ?? null) : null;
+  const eligible = archive.finalStandings.find((row) => row.owner !== NO_CLAIM_OWNER);
+  return eligible?.owner ?? null;
 }
 
 /** Returns sorted archives by year ascending. */
@@ -570,31 +586,36 @@ export function selectAllTimeStandings(
     championships: number;
     seasonsPlayed: number;
     finishSum: number;
+    totalPoints: number;
     totalPointDifferential: number;
   };
   const accum = new Map<string, OwnerAccum>();
+
+  function emptyAccum(): OwnerAccum {
+    return {
+      totalWins: 0,
+      totalLosses: 0,
+      championships: 0,
+      seasonsPlayed: 0,
+      finishSum: 0,
+      totalPoints: 0,
+      totalPointDifferential: 0,
+    };
+  }
 
   for (const archive of archives) {
     const champion = archiveChampion(archive);
     archive.finalStandings.forEach((row, idx) => {
       if (row.owner === NO_CLAIM_OWNER) return;
       const finish = idx + 1;
-      if (!accum.has(row.owner)) {
-        accum.set(row.owner, {
-          totalWins: 0,
-          totalLosses: 0,
-          championships: 0,
-          seasonsPlayed: 0,
-          finishSum: 0,
-          totalPointDifferential: 0,
-        });
-      }
+      if (!accum.has(row.owner)) accum.set(row.owner, emptyAccum());
       const a = accum.get(row.owner)!;
       a.totalWins += row.wins;
       a.totalLosses += row.losses;
       a.championships += row.owner === champion ? 1 : 0;
       a.seasonsPlayed += 1;
       a.finishSum += finish;
+      a.totalPoints += row.pointsFor ?? 0;
       a.totalPointDifferential += row.pointDifferential ?? 0;
     });
   }
@@ -603,19 +624,11 @@ export function selectAllTimeStandings(
   if (liveStandings) {
     for (const row of liveStandings) {
       if (row.owner === NO_CLAIM_OWNER) continue;
-      if (!accum.has(row.owner)) {
-        accum.set(row.owner, {
-          totalWins: 0,
-          totalLosses: 0,
-          championships: 0,
-          seasonsPlayed: 0,
-          finishSum: 0,
-          totalPointDifferential: 0,
-        });
-      }
+      if (!accum.has(row.owner)) accum.set(row.owner, emptyAccum());
       const a = accum.get(row.owner)!;
       a.totalWins += row.wins;
       a.totalLosses += row.losses;
+      a.totalPoints += row.pointsFor ?? 0;
       a.totalPointDifferential += row.pointDifferential ?? 0;
     }
   }
@@ -632,6 +645,7 @@ export function selectAllTimeStandings(
         championships: a.championships,
         seasonsPlayed: a.seasonsPlayed,
         avgFinish: a.seasonsPlayed > 0 ? a.finishSum / a.seasonsPlayed : 0,
+        totalPoints: a.totalPoints,
         totalPointDifferential: a.totalPointDifferential,
       };
     })
@@ -666,7 +680,12 @@ export function selectChampionshipHistory(archives: SeasonArchive[]): Championsh
  * wins/losses from ownerA's perspective (ownerA lexicographically smaller).
  */
 export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadToHeadEntry[] {
-  type PairingAccum = { wins: number; losses: number; seasons: Set<number> };
+  type PairingAccum = {
+    wins: number;
+    losses: number;
+    seasons: Set<number>;
+    latestMeeting: { year: number; winner: string } | null;
+  };
   const pairings = new Map<string, PairingAccum>();
 
   function pairingKey(a: string, b: string): string {
@@ -678,7 +697,7 @@ export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadT
     for (const entry of seasonH2H) {
       const key = pairingKey(entry.ownerA, entry.ownerB);
       if (!pairings.has(key)) {
-        pairings.set(key, { wins: 0, losses: 0, seasons: new Set() });
+        pairings.set(key, { wins: 0, losses: 0, seasons: new Set(), latestMeeting: null });
       }
       const p = pairings.get(key)!;
       // selectHeadToHead already ensures ownerA < ownerB, so direction is consistent
@@ -690,6 +709,16 @@ export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadT
         p.losses += entry.wins;
       }
       p.seasons.add(archive.year);
+
+      // Track the latest meeting across archives. Within a single archive,
+      // selectHeadToHead returns matchups sorted by week ascending — the last
+      // element is the season's most recent meeting between this pair.
+      const lastMatchup = entry.matchups[entry.matchups.length - 1];
+      if (lastMatchup) {
+        if (p.latestMeeting === null || archive.year > p.latestMeeting.year) {
+          p.latestMeeting = { year: archive.year, winner: lastMatchup.winner };
+        }
+      }
     }
   }
 
@@ -704,6 +733,7 @@ export function selectAllTimeHeadToHead(archives: SeasonArchive[]): AllTimeHeadT
         wins: p.wins,
         losses: p.losses,
         seasons: p.seasons.size,
+        latestMeeting: p.latestMeeting,
       };
     })
     .sort((a, b) => a.ownerA.localeCompare(b.ownerA) || a.ownerB.localeCompare(b.ownerB));

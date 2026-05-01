@@ -30,6 +30,7 @@ const rows: AllTimeStandingRow[] = [
     championships: 2,
     seasonsPlayed: 3,
     avgFinish: 1.0,
+    totalPoints: 1200,
     totalPointDifferential: 240,
   },
   {
@@ -40,6 +41,7 @@ const rows: AllTimeStandingRow[] = [
     championships: 1,
     seasonsPlayed: 3,
     avgFinish: 2.0,
+    totalPoints: 1140,
     totalPointDifferential: 180,
   },
   {
@@ -50,6 +52,7 @@ const rows: AllTimeStandingRow[] = [
     championships: 0,
     seasonsPlayed: 3,
     avgFinish: 13.0,
+    totalPoints: 600,
     totalPointDifferential: -260,
   },
 ];

@@ -203,7 +203,7 @@ Preferred checks:
 
 - `npm run lint`
 - `npx tsc --noEmit`
-- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`.
+- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`. **For verification of campaign work, prefer scoped suites over the full run** — see `## Verification and reference conventions` below for the current convention.
 
 Known pre-existing issue:
 
@@ -218,6 +218,20 @@ When practical, verify key runtime flows still behave:
 - owners upload/caching
 - alias editor + diagnostics panel
 - week filtering
+
+---
+
+## Verification and reference conventions
+
+1. **Verification uses scoped test suites, not full `npm test`.**
+   - Full-suite runs hang on Overview-related tests pending the `TEST-SUITE-BASELINE-CLEANUP` backlog item, providing no usable signal.
+   - Run only the test files relevant to the changes, plus any selector tests in `src/lib/selectors/__tests__/`.
+   - Confirm the relevant scoped suite count holds or grows; do not compare against the historical 71-failure full-suite baseline.
+
+2. **Visual references must exist at the path a prompt references.**
+   - Mockups (HTML/PNG) belong in `mockups/`; design specs (markdown) belong in `docs/`.
+   - Commit reference files before dispatching prompts that point to them.
+   - Implementers should flag missing references rather than guess at content — this is correct behavior, not a defect.
 
 ---
 

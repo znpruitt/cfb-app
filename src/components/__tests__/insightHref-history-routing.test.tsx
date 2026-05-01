@@ -74,3 +74,50 @@ test('insightHref encodes owner names with spaces in tier-2 anchors', () => {
   const href = insightHref(undefined, 'tsc', insight);
   assert.equal(href, '/league/tsc/history/owner/John%20Smith#career-points');
 });
+
+// ---------------------------------------------------------------------------
+// Overview-anchor routing for drought/dynasty/rivalry insights
+//
+// These insights deep-link to Overview anchors rather than the /history/stats
+// and /history/rivalries subtabs because those subtabs currently render
+// "Coming in Phase 3" placeholders. Update these tests when Phase 3 ships
+// real subtab content.
+// ---------------------------------------------------------------------------
+
+test('insightHref routes drought insight to /history#dynasty-drought', () => {
+  const insight = makeInsight({
+    id: 'drought-pruitt',
+    type: 'drought',
+    owner: 'Pruitt',
+  });
+  const href = insightHref(undefined, 'tsc', insight);
+  assert.equal(href, '/league/tsc/history#dynasty-drought');
+});
+
+test('insightHref routes dynasty insight to /history#championships', () => {
+  const insight = makeInsight({
+    id: 'dynasty-pruitt',
+    type: 'dynasty',
+    owner: 'Pruitt',
+  });
+  const href = insightHref(undefined, 'tsc', insight);
+  assert.equal(href, '/league/tsc/history#championships');
+});
+
+test('insightHref routes rivalry insights to /history#rivalries', () => {
+  for (const type of [
+    'perfect_against',
+    'lopsided_rivalry',
+    'even_rivalry',
+    'dominance_streak',
+  ] as const) {
+    const insight = makeInsight({
+      id: `${type}-pruitt-whited`,
+      type,
+      category: 'rivalry',
+      owners: ['Pruitt', 'Whited'],
+    });
+    const href = insightHref(undefined, 'tsc', insight);
+    assert.equal(href, '/league/tsc/history#rivalries', `type=${type}`);
+  }
+});

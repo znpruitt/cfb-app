@@ -16,6 +16,61 @@ The registry should remain:
 
 ## Active Prompts
 
+### HISTORY-RECORDS-PHASE-2-CAMPAIGN-CLOSEOUT
+- Purpose: Documentation closeout for the HISTORY-RECORDS Phase 2 campaign. Logs the rich-template entry in `docs/completed-work.md`, registers all formal Phase 2 PROMPT_IDs in `docs/prompt-registry.md`. No code changes.
+- Scope: `docs/completed-work.md`, `docs/prompt-registry.md`. No source code changes.
+- Notes: Documentation only. Captures architectural improvements (multi-line row pattern in DESIGN.md, container-query column degradation, scoped-suite + visual-reference conventions in AGENTS.md) and Phase 3 follow-ups (`RECORDS-SCORING-v1`, `SPARSE-DATA-LAYOUT-v1`, `HISTORY-DYNAMIC-TILING-v1`, `INSIGHT-ROUTING-PHASE-3-RETARGET-v1`). Test count grew 87 → 128 across the campaign.
+
+### P7-HISTORY-RECORDS-PHASE-2-STANDINGS-TREND-COLUMN-v1
+- Purpose: Add a "Recent Finish" trend chip column to the All-Time Standings table — last 5 seasons of finishes rendered as gold/silver/bronze podium-tier outlines plus default/bottom tiers. Container queries drop oldest-year cells first as the @container narrows.
+- Scope: `src/components/history/overview/AllTimeStandingsSummary.tsx`, `src/lib/selectors/historyOverview.ts` (`selectStandingsWithRecentFinishes` + `RecentFinish` types), `src/app/league/[slug]/history/page.tsx`, `mockups/standings-trend.html`, tests.
+- Notes: Commit `a4896ba`. Two-row thead when the trend window is non-empty. `TREND_HIDE_BY_POSITION_FROM_NEWEST` static array maps position to `@max-[560/640/720/800/880px]:hidden` (Tailwind JIT requires literal class strings; cannot be built dynamically). Group header hides at 560px matching the last cell. NoClaim filtered per archive before rank derivation. `FinishChip` renders em-dash for `rank === null` (dense-with-nulls array).
+
+### P7-HISTORY-RECORDS-PHASE-2-LAYOUT-REMEDIATION-v1
+- Purpose: Resolve standings-table truncation and page-width imbalance found by the layout diagnostic. Drop fixed colgroup widths and `text-ellipsis overflow-hidden whitespace-nowrap` rules; switch to `table-auto` + content-sized cells; remove `w-full` so the table sizes to its content; widen numeric-cell padding to `pl-5` for column separation; reintroduce `mx-auto max-w-7xl` page wrapper after the uncapped exploration scattered desktop content; balance row 3 column heights by dropping marquee record count 5 → 4 and compressing Records to 2-line block treatment.
+- Scope: `src/components/history/overview/AllTimeStandingsSummary.tsx`, `src/components/history/overview/RecordsColumn.tsx`, `src/lib/selectors/historyOverview.ts` (`MARQUEE_RECORD_COUNT`), `src/app/league/[slug]/history/page.tsx`, tests.
+- Notes: Commits `dc37763`, `904a8f8`, `704c4fa`, `fe99ec3`, `3e1a977`, `93e63fd`. Iterative — multiple visual-review cycles within the prompt's scope. Final standings markup: `<table className="border-collapse">` (no `w-full`, no `table-fixed`); `NUM_CELL = 'pb-2 tabular-nums pl-5 text-right'`. Records column: line 1 = `EYEBROW · Title` (eyebrow keeps category color); line 2 = holders · value.
+
+### P7-HISTORY-RECORDS-PHASE-2-LAYOUT-DIAGNOSTIC-v1
+- Purpose: Read-only diagnostic — measure actual rendered widths of standings columns, row 2 / row 3 grids, and inner container widths at the 1280px viewport to inform the layout remediation prompt.
+- Scope: Read-only. No code changes.
+- Notes: Established that the standings @container width is ~896px at the 1280px viewport with the `1fr / 280px` row 2 grid — earlier trend-column thresholds had been calibrated against viewport width by mistake and needed to be redrawn against actual container widths. Output informed `P7-HISTORY-RECORDS-PHASE-2-LAYOUT-REMEDIATION-v1` and `P7-HISTORY-RECORDS-PHASE-2-STANDINGS-TREND-COLUMN-v1`.
+
+### P7-HISTORY-RECORDS-PHASE-2-VISUAL-REFINEMENT-v1
+- Purpose: Tighten typography, color, and spacing in the new Overview block treatments — drop the amber color on "(won title)" annotations (line 2 inherits the dim treatment), drop the `font-medium text-gray-700` override on Championships editorial tags, add `tabular-nums` to Championships line 2.
+- Scope: `src/components/history/overview/MoversSection.tsx`, `src/components/history/overview/ChampionshipsSection.tsx`.
+- Notes: Commit `147b2f5`. Multi-line row pattern semantics: line-2 metadata inherits the dim color via shared className — section-specific overrides were removed so the pattern reads consistently across rows.
+
+### P7-HISTORY-RECORDS-PHASE-2-CLEANUP-NITS-v1
+- Purpose: Drop the "X still chasing" clause from the Championships summary header (low-signal counter) and simplify `computeChampionshipSummary` by removing `stillChasingCount`.
+- Scope: `src/components/history/overview/ChampionshipsSection.tsx`, `src/lib/selectors/historyOverview.ts`, tests.
+- Notes: Commit `60df930`. The counter was redundant with the "championless owners" context already implicit in the All-Time Standings table.
+
+### P7-HISTORY-RECORDS-PHASE-2-VISUAL-REMEDIATION-AND-CLOSEOUT-v1
+- Purpose: Visual-review pass after `PATH-B-AND-RESPONSIVE-v1` — adjust typography, spacing, and chip-tier colors to match the Path C mockup. Gold = yellow-500/yellow-600 light + amber-300 dark, font-semibold; silver = slate-500/slate-600 + slate-300/slate-200 dark; bronze = orange-900 light + arbitrary `#d4915c` dark; default = `black/10` border + dim text; bottom = transparent border + faint text. Writes the mid-campaign closeout summary.
+- Scope: `src/components/history/overview/*.tsx`, `mockups/history-redesign-pathC.html`.
+- Notes: Commit `49a6de2`. Reference mockup committed at `mockups/history-redesign-pathC.html` per the visual-reference convention later codified in AGENTS.md.
+
+### P7-HISTORY-RECORDS-PHASE-2-PATH-B-AND-RESPONSIVE-v1
+- Purpose: Implement the Path B Overview redesign — five-section composition (Championships, 2-row dashboard, Movers, Season archive). Build all overview components with multi-line row block treatment and container-query degradation.
+- Scope: `src/components/history/overview/{AllTimeStandingsSummary,ChampionshipsSection,MoversSection,RecentPodiumsColumn,RecordsColumn,SeasonArchiveStrip,TitleStreaksTable,TopRivalriesList}.tsx` (new), `src/lib/selectors/historyOverview.ts` (12+ helpers including `selectChampionshipsWithContext`, `selectDroughtsWithContext`, `selectMoversWithContext`, `selectStreaksOrDroughts`, `selectMarqueeRecords`, `selectRecentPodiums`, `selectSeasonArchiveStrip`, `groupChampionsByOwner`, `computeChampionshipSummary`), `src/lib/selectors/historySelectors.ts` (`AllTimeStandingRow.totalPoints`, `StandingsRow.pointsFor`, `selectAllTimeHeadToHead.latestMeeting`), `src/app/league/[slug]/history/page.tsx`, tests.
+- Notes: Commit `f4e093d`. Multi-line row pattern: line 1 = primary identifier + right-anchored value (14–15px, weight 500); line 2 = secondary metadata (12px, weight 400, dim color, 2px inter-line margin). Page wraps in `mx-auto max-w-7xl`; row 2 grid `lg:grid-cols-[1fr_280px]`; row 3 grid `lg:grid-cols-[1fr_1fr_280px]`. Selector composition pattern: `selectXWithContext` enrichment over base types.
+
+### DESIGN-MD-MULTILINE-AND-DEGRADATION-v1
+- Purpose: Document the multi-line row pattern, list row width discipline, and responsive column degradation as reusable design primitives in `DESIGN.md`. Reconcile the section-divider rule and the dense-table column-header rule. Align the Section Headers CTA arrow glyph with the implementation.
+- Scope: `DESIGN.md`.
+- Notes: Commits `083cca0`, `23a4ec6`. Pattern available for future tables under sidebar-narrow allocations. Tailwind JIT constraint documented: container-query syntax (`@container` + `@max-[Xpx]:hidden`) requires literal class strings — cannot be built dynamically.
+
+### P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-FOLLOWUP-v1
+- Purpose: Follow-up to `OVERVIEW-REVISION-v1` — exclude former owners from Title Droughts so the section doesn't list owners no longer in the league. Filter on `activeOwners` set passed from server.
+- Scope: `src/lib/selectors/historyOverview.ts`, `src/app/league/[slug]/history/page.tsx`.
+- Notes: Commits `b15b779`, `945b302`. `activeOwners` derives from `owners:{slug}:{year}` CSV. Codex-review remediation (`c0a2ca0`) later added an archive-union fallback for empty-CSV states (pre-upload, post-reset, storage-miss).
+
+### P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-v1
+- Purpose: First Overview redesign cut — replace the single-stat hero with whole-league-arc storytelling. Subtab routing infrastructure (`HistorySubNav`, `RecordBadge`) + Stats/Rivalries/Archive Phase 3 placeholder routes; Overview five-section scaffold; `resolveHistoryHref` extended with rivalry types.
+- Scope: `src/components/history/{HistorySubNav,RecordBadge}.tsx` (new), `src/app/league/[slug]/history/page.tsx`, `src/app/league/[slug]/history/{stats,rivalries,archive}/page.tsx` (new), `src/components/OverviewPanel.tsx` (`resolveHistoryHref`), tests.
+- Notes: Commits `164b79f`, `8534f15`, `f5f73aa`, `bcb64df`. Pre-revision Overview rendered as a single-stat hero with no drill-down. Subtab routes initially scaffolded as Phase 3 placeholders; `resolveHistoryHref` rivalry/drought/dynasty targets reverted to Overview anchors during codex-review fixes because the placeholders weren't user-ready (`INSIGHT-ROUTING-PHASE-3-RETARGET-v1` filed for re-pointing once Phase 3 ships content).
+
 ### SEASON-LAUNCH-HARDENING-CAMPAIGN-CLOSEOUT
 - Purpose: Documentation closeout for the Season Launch Hardening campaign (Phases 1–3, all merged). Updates completed-work, AGENTS.md, prompt-registry, next-tasks. Creates campaign retrospective at `docs/campaigns/season-launch-hardening.md`. No code changes.
 - Scope: `docs/completed-work.md`, `AGENTS.md`, `docs/prompt-registry.md`, `docs/next-tasks.md`, `docs/campaigns/season-launch-hardening.md` (new). No source code changes.

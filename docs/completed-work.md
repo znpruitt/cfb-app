@@ -9,6 +9,45 @@
 
 ## Completed phases / milestones
 
+### HISTORY-RECORDS Phase 2 — Complete
+
+**Status:** Complete. Multiple iteration cycles across PR #313 (`claude/history-records-phase-2`). See `docs/campaigns/history-records-phase-2.md` for the full retrospective.
+**PROMPT_IDs:** P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-v1, P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-FOLLOWUP-v1, DESIGN-MD-MULTILINE-AND-DEGRADATION-v1, P7-HISTORY-RECORDS-PHASE-2-PATH-B-AND-RESPONSIVE-v1, P7-HISTORY-RECORDS-PHASE-2-VISUAL-REMEDIATION-AND-CLOSEOUT-v1, P7-HISTORY-RECORDS-PHASE-2-CLEANUP-NITS-v1, P7-HISTORY-RECORDS-PHASE-2-VISUAL-REFINEMENT-v1, P7-HISTORY-RECORDS-PHASE-2-LAYOUT-DIAGNOSTIC-v1, P7-HISTORY-RECORDS-PHASE-2-LAYOUT-REMEDIATION-v1, P7-HISTORY-RECORDS-PHASE-2-STANDINGS-TREND-COLUMN-v1, HISTORY-RECORDS-PHASE-2-CAMPAIGN-CLOSEOUT
+
+**Inciting issue:** Phase 1 (PR #312) shipped `selectAllRecords` as the records-data backbone but did not surface it in the History UI. The pre-Phase-2 Overview rendered as a single-stat hero with no drill-down structure or sense of league history beyond "current season's champion." Phase 2 took on the full Overview redesign, the records column wiring, the subtab routing scaffold, and the design-system documentation that the new layout primitives required.
+
+**Phases shipped:**
+- **Subtab routing infrastructure** — `HistorySubNav` + `RecordBadge` components; `resolveHistoryHref` deep-link router for insights with History routing targets; Stats / Rivalries / Archive subtabs scaffolded as Phase 3 placeholder routes.
+- **Overview redesign** — Five-section composition: Championships (with editorial tags "all-time wins leader" / "league's first champion" / "REIGNING" marker), 2-row dashboard (All-time standings + Recent podiums on row 2; Top rivalries + Title droughts/streaks + Records on row 3), Season-over-season movement (climbs + drops with "won title" annotations on championship destinations), Season archive. Multi-line block treatment applied across rivalry, drought, and mover rows.
+- **All-time standings extension** — Grew from 5 to 9 columns (Pts, Diff, Seasons, Avg added on top of Rank/Owner/Record/Win%/Titles) plus a "Recent Finish" trend chip column showing the last 5 seasons of finishes with gold/silver/bronze podium-tier outlines and default/bottom tiers for mid/back finishes. Table is `table-auto` with content-driven cell widths; container queries drop oldest-year trend cells first as the @container narrows.
+- **DESIGN.md additions** — `## Multi-line row pattern`, `## List row width discipline`, `## Responsive column degradation` sections; reconciled section-divider rule and dense-table column-header rule.
+- **AGENTS.md addition** — `## Verification and reference conventions` documenting (a) scoped-suite test verification while `TEST-SUITE-BASELINE-CLEANUP` is open (full `npm test` reliably hangs) and (b) the requirement that visual-reference files (mockups, design specs) exist at the paths a prompt references before dispatch.
+- **Layout iterations** — Multiple visual-review cycles resolved page-width and within-row spacing imbalances. Final state: page wraps in `mx-auto max-w-7xl` (1280px cap, restored after a brief uncapped exploration); row 2 grid is `1fr / 280px` (flex Standings + fixed Podiums); row 3 grid is `1fr / 1fr / 280px` (Rivalries + Droughts flex; Records fixed); standings table uses `table-auto` with `pl-5` numeric padding so columns read distinct.
+
+**Selector layer:**
+- New helpers in `src/lib/selectors/historyOverview.ts`: `selectChampionshipsWithContext`, `selectDroughtsWithContext`, `selectMoversWithContext`, `selectStreaksOrDroughts`, `selectStandingsWithRecentFinishes`, `selectMarqueeRecords`, `selectTitleStreaks`, `selectTitleDroughts`, `selectRecentPodiums`, `selectSeasonArchiveStrip`, `groupChampionsByOwner`, `computeChampionshipSummary`.
+- `selectAllTimeHeadToHead` extended with `latestMeeting: { year, winner } | null`; flows through `selectTopRivalries` to power the "last met YEAR (winner)" line-2 annotation.
+- `archiveChampion` filters NoClaim before deriving the champion — same architectural pattern as Phase 1's `5fdcd59` rank-derivation fix; without this, a NoClaim row at index 0 would shift the championship credit and break Season archive rendering.
+- `AllTimeStandingRow` gained `totalPoints` (with selector accumulation) on top of the existing `totalPointDifferential`. `StandingsRow` gained `pointsFor` (propagated through `selectFinalStandings`) so the live-standings branch of `selectAllTimeStandings` can accumulate it.
+
+**User-visible improvements:**
+- History Overview tells the whole-league arc — every multi-line row pulls a second line of context (career win%, last meeting, top-3 count + best finish, span + ranks + championship annotation) so rows read as paragraphs rather than drifting names.
+- Records column displays 4 marquee records (down from 5) with category eyebrow inlined into the title — 2-line block treatment matching peer columns; row 3 column heights now read as peers.
+- Season archive renders champion names correctly across all archived seasons (NoClaim-at-index-0 bug fixed).
+- Insight deep-links from drought / dynasty / rivalry insights land on rendered Overview anchors (`#dynasty-drought`, `#championships`, `#rivalries`) rather than Phase 3 placeholder subtabs.
+- `activeOwners` falls back to archive union when the current-season CSV is empty (pre-upload, post-reset, storage-miss states); sections gating on roster don't render empty against a populated archive.
+
+**Architectural improvements:**
+- Multi-line row pattern codified in DESIGN.md as a reusable layout primitive (line 1: primary identifier + right-anchored value, body size + weight 500; line 2: secondary metadata, 12px / weight 400 / dim color; 2px inter-line margin; no internal borders or padding).
+- Container queries (Tailwind v4 `@container` + `@max-[Xpx]:hidden`) used for column degradation in dense tables — pattern available for future tables under sidebar-narrow allocations.
+- Visual-reference convention now codified in AGENTS.md: mockups belong in `mockups/`, design specs in `docs/`, and reference files must exist at the path a prompt names before dispatch. Reference mockups committed at `mockups/history-redesign-pathC.html` and `mockups/standings-trend.html`.
+
+**Phase 3 follow-ups filed in `docs/next-tasks.md`:** `RECORDS-SCORING-v1` (auto-scored marquee selection), `SPARSE-DATA-LAYOUT-v1` (responsive treatment for under-populated sections), `HISTORY-DYNAMIC-TILING-v1` (alternative tiling-vs-stacked layout exploration), `INSIGHT-ROUTING-PHASE-3-RETARGET-v1` (re-point insight deep-links to the subtabs once Phase 3 ships their content).
+
+**Test count:** 87 → 128 (cumulative growth across the campaign; reflects new selector tests, routing tests, and the `selectTitleDroughts` archive-fallback regression guard added during the Codex-review remediation).
+
+---
+
 ### Season Launch Hardening — Complete
 
 **Status:** Complete. Three implementation phases + three Codex remediations across PRs #302–#304. See `docs/campaigns/season-launch-hardening.md` for the full retrospective.

@@ -960,6 +960,10 @@ function resolveHistoryHref(insight: Insight, base: string): string | null {
   const ownerSegment = primary ? encodeURIComponent(primary) : null;
 
   switch (insight.type) {
+    // drought/dynasty/rivalry insights deep-link to Overview anchors rather
+    // than the /history/stats and /history/rivalries subtabs. Those subtabs
+    // currently render "Coming in Phase 3" placeholders, so routing there
+    // would dead-end. Re-point at the subtabs once Phase 3 ships their content.
     case 'drought':
       return `${base}/history#dynasty-drought`;
     case 'dynasty':
