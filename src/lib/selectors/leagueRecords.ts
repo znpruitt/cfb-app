@@ -43,6 +43,14 @@ export type RecordEntry = {
   /** Absolute gap between leader value and second-place value; null when no second. */
   gapToSecond: number | null;
   secondPlace: { owners: string[]; value: number } | null;
+  /**
+   * Per-row context that is NOT the holder name and NOT the value — e.g.,
+   * "2024 season", "2025 · Week 8", "over Crittenden · 2024". Used by ranking
+   * displays where year/week/opponent context belongs in a separate visual
+   * slot from the numeric value. Single-holder records may omit this.
+   */
+  contextString?: string;
+  // TODO(INSIGHTS-020-RECORD-CHANGE-v1): populated by future record-change insights pipeline; see docs/next-tasks.md
   /** Set when the record holder(s) or value changed since the prior request. */
   recentChange?: { previousHolders: string[]; previousValue: number };
 };
@@ -412,13 +420,25 @@ function selectCareerTitlesRecord(accum: Map<string, OwnerAccum>): RecordEntry |
     (a) => a.owner,
     'desc'
   );
-  return makeRecord(
+  const base = makeRecord(
     'career_titles',
     'career',
     'Most Titles',
     buckets,
     (v) => `${v} title${v !== 1 ? 's' : ''}`
   );
+  if (!base) return null;
+  // Single-holder case: list championship years. Tied holders have differing
+  // year sets, so context is omitted to avoid mis-attributing one owner's
+  // years to the others.
+  if (base.holders.length === 1) {
+    const holder = base.holders[0]!;
+    const years = accum.get(holder)?.titleYears ?? [];
+    if (years.length > 0) {
+      base.contextString = [...years].sort((a, b) => a - b).join(', ');
+    }
+  }
+  return base;
 }
 
 function selectCareerAvgFinishRecord(accum: Map<string, OwnerAccum>): RecordEntry | null {
@@ -596,6 +616,7 @@ function selectSingleSeasonPointsHighRecord(sortedArchives: SeasonArchive[]): Re
     formattedValue: `${formatNum(maxValue)} pts (${topYear})`,
     gapToSecond: gap,
     secondPlace: secondOwners ? { owners: secondOwners, value: secondMaxValue } : null,
+    contextString: `${topYear} season`,
   };
 }
 
@@ -635,6 +656,7 @@ function selectSingleSeasonPointsLowRecord(sortedArchives: SeasonArchive[]): Rec
     formattedValue: `${formatNum(minValue)} pts (${bottomYear})`,
     gapToSecond: gap,
     secondPlace: secondOwners ? { owners: secondOwners, value: secondMinValue } : null,
+    contextString: `${bottomYear} season`,
   };
 }
 
@@ -675,6 +697,7 @@ function selectSingleSeasonHighScoreRecord(sortedArchives: SeasonArchive[]): Rec
     formattedValue: `${formatNum(maxScore)} pts (${top.year} Wk ${top.week})`,
     gapToSecond: gap,
     secondPlace: secondOwners ? { owners: secondOwners, value: secondMax } : null,
+    contextString: `${top.year} · Week ${top.week}`,
   };
 }
 
@@ -707,6 +730,7 @@ function selectSingleSeasonBlowoutRecord(sortedArchives: SeasonArchive[]): Recor
     formattedValue: `${formatNum(maxMargin)} pts (${top.year})`,
     gapToSecond: gap,
     secondPlace: secondWinners ? { owners: secondWinners, value: secondMax } : null,
+    contextString: `over ${top.loser} · ${top.year}`,
   };
 }
 
@@ -1096,4 +1120,620 @@ export function selectAllRecords(input: SelectAllRecordsInput): LeagueRecords {
     rivalry: rivalryRecords,
     event: eventRecords,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Ranked records (Stats subtab)
+// ---------------------------------------------------------------------------
+
+/**
+ * Identifiers for records that produce per-league rankings on the Stats subtab.
+ *
+ * Excludes rivalry records (lopsided_rivalry, even_rivalry, dominance_streak):
+ * those are pair-shaped, not owner-shaped, and surface on the Rivalries subtab.
+ */
+export type RecordId =
+  | 'career_points'
+  | 'career_wins'
+  | 'career_win_pct'
+  | 'career_titles'
+  | 'career_avg_finish'
+  | 'career_consistency'
+  | 'career_drought'
+  | 'career_dynasty'
+  | 'single_season_points_high'
+  | 'single_season_points_low'
+  | 'single_season_high_score'
+  | 'single_season_blowout'
+  | 'closest_title_race'
+  | 'biggest_collapse'
+  | 'biggest_climb';
+
+/** Categories surfaced on the Stats subtab. Excludes 'rivalry'. */
+export type RecordCategory = 'career' | 'season' | 'event';
+
+export type RankedRecordRow = {
+  /** Standard competition rank (1, 2, 2, 4). Ties share rank; next rank skips. */
+  rank: number;
+  /** Lex-sorted; multiple owners only on tie. */
+  owners: string[];
+  value: number;
+  formattedValue: string;
+  contextString?: string;
+  /** True only when every owner in this row is absent from currentRoster. */
+  isFormer: boolean;
+};
+
+export type RankedRecord = {
+  id: RecordId;
+  label: string;
+  category: RecordCategory;
+  rows: RankedRecordRow[];
+};
+
+const RANKED_RECORD_META: Record<RecordId, { label: string; category: RecordCategory }> = {
+  career_points: { label: 'Career Points', category: 'career' },
+  career_wins: { label: 'Career Wins', category: 'career' },
+  career_win_pct: { label: 'Career Win %', category: 'career' },
+  career_titles: { label: 'Most Titles', category: 'career' },
+  career_avg_finish: { label: 'Best Avg Finish', category: 'career' },
+  career_consistency: { label: 'Most Top-3 Finishes', category: 'career' },
+  career_drought: { label: 'Longest Title Drought', category: 'career' },
+  career_dynasty: { label: 'Championship Dynasty', category: 'career' },
+  single_season_points_high: { label: 'Highest Season Points', category: 'season' },
+  single_season_points_low: { label: 'Lowest Season Points', category: 'season' },
+  single_season_high_score: { label: 'Highest Single-Week Score', category: 'season' },
+  single_season_blowout: { label: 'Largest Single-Game Blowout', category: 'season' },
+  closest_title_race: { label: 'Closest Title Race', category: 'event' },
+  biggest_collapse: { label: 'Biggest Season Collapse', category: 'event' },
+  biggest_climb: { label: 'Biggest Season Climb', category: 'event' },
+};
+
+export const RANKED_RECORD_IDS: readonly RecordId[] = Object.keys(RANKED_RECORD_META) as RecordId[];
+
+function emptyRanked(id: RecordId): RankedRecord {
+  return {
+    id,
+    label: RANKED_RECORD_META[id].label,
+    category: RANKED_RECORD_META[id].category,
+    rows: [],
+  };
+}
+
+/**
+ * Converts pre-sorted buckets into ranked rows with standard competition ranking.
+ * `contextByValue` looks up a per-bucket context string keyed by the bucket value.
+ */
+function bucketsToRows(
+  buckets: RankedBucket[],
+  formatValue: (v: number) => string,
+  activeOwners: Set<string>,
+  contextByValue?: Map<number, string>
+): RankedRecordRow[] {
+  const rows: RankedRecordRow[] = [];
+  let nextRank = 1;
+  for (const bucket of buckets) {
+    const isFormer = bucket.owners.every((o) => !activeOwners.has(o));
+    rows.push({
+      rank: nextRank,
+      owners: bucket.owners,
+      value: bucket.value,
+      formattedValue: formatValue(bucket.value),
+      ...(contextByValue?.has(bucket.value)
+        ? { contextString: contextByValue.get(bucket.value) }
+        : {}),
+      isFormer,
+    });
+    nextRank += bucket.owners.length;
+  }
+  return rows;
+}
+
+// --- Career rankings -------------------------------------------------------
+
+function rankCareerPoints(accum: Map<string, OwnerAccum>, activeOwners: Set<string>): RankedRecord {
+  const items = Array.from(accum.values()).filter((a) => a.totalPoints > 0);
+  const buckets = groupByValue(
+    items,
+    (a) => a.totalPoints,
+    (a) => a.owner,
+    'desc'
+  );
+  return {
+    ...emptyRanked('career_points'),
+    rows: bucketsToRows(buckets, (v) => `${formatNum(v)} pts`, activeOwners),
+  };
+}
+
+function rankCareerWins(accum: Map<string, OwnerAccum>, activeOwners: Set<string>): RankedRecord {
+  const items = Array.from(accum.values()).filter((a) => a.totalWins > 0);
+  const buckets = groupByValue(
+    items,
+    (a) => a.totalWins,
+    (a) => a.owner,
+    'desc'
+  );
+  return {
+    ...emptyRanked('career_wins'),
+    rows: bucketsToRows(buckets, (v) => `${v} wins`, activeOwners),
+  };
+}
+
+function rankCareerWinPct(accum: Map<string, OwnerAccum>, activeOwners: Set<string>): RankedRecord {
+  const items = Array.from(accum.values())
+    .filter((a) => a.seasonsPlayed >= MIN_CAREER_SEASONS && a.totalWins + a.totalLosses > 0)
+    .map((a) => ({ owner: a.owner, winPct: a.totalWins / (a.totalWins + a.totalLosses) }));
+  const buckets = groupByValue(
+    items,
+    (a) => a.winPct,
+    (a) => a.owner,
+    'desc'
+  );
+  return {
+    ...emptyRanked('career_win_pct'),
+    rows: bucketsToRows(buckets, (v) => `${(v * 100).toFixed(1)}%`, activeOwners),
+  };
+}
+
+function rankCareerTitles(accum: Map<string, OwnerAccum>, activeOwners: Set<string>): RankedRecord {
+  const items = Array.from(accum.values()).filter((a) => a.titles >= 1);
+  const buckets = groupByValue(
+    items,
+    (a) => a.titles,
+    (a) => a.owner,
+    'desc'
+  );
+  const yearsByOwner = new Map<string, number[]>();
+  for (const a of items) yearsByOwner.set(a.owner, a.titleYears);
+  // career_titles emits ONE ROW PER TIED OWNER (not grouped) so each owner's
+  // championship years appear as their own contextString — tied entries
+  // surface as "T-1 Whited 2022, 2024" / "T-1 Pruitt 2023, 2025" rather than
+  // a single grouped row that would mis-attribute years across owners.
+  // Standard competition ranking still applies: the next bucket's rank skips
+  // by the size of the prior tied group.
+  const rows: RankedRecordRow[] = [];
+  let nextRank = 1;
+  for (const bucket of buckets) {
+    for (const owner of bucket.owners) {
+      const years = [...(yearsByOwner.get(owner) ?? [])].sort((a, b) => a - b);
+      rows.push({
+        rank: nextRank,
+        owners: [owner],
+        value: bucket.value,
+        formattedValue: `${bucket.value} title${bucket.value !== 1 ? 's' : ''}`,
+        ...(years.length > 0 ? { contextString: years.join(', ') } : {}),
+        isFormer: !activeOwners.has(owner),
+      });
+    }
+    nextRank += bucket.owners.length;
+  }
+  return { ...emptyRanked('career_titles'), rows };
+}
+
+function rankCareerAvgFinish(
+  accum: Map<string, OwnerAccum>,
+  activeOwners: Set<string>
+): RankedRecord {
+  const items = Array.from(accum.values())
+    .filter((a) => a.seasonsPlayed >= MIN_CAREER_SEASONS)
+    .map((a) => ({
+      owner: a.owner,
+      avgFinish: a.finishHistory.reduce((s, f) => s + f.rank, 0) / a.finishHistory.length,
+    }));
+  const buckets = groupByValue(
+    items,
+    (a) => a.avgFinish,
+    (a) => a.owner,
+    'asc'
+  );
+  return {
+    ...emptyRanked('career_avg_finish'),
+    rows: bucketsToRows(buckets, (v) => `#${v.toFixed(1)} avg`, activeOwners),
+  };
+}
+
+function rankCareerConsistency(
+  accum: Map<string, OwnerAccum>,
+  activeOwners: Set<string>
+): RankedRecord {
+  const items = Array.from(accum.values()).filter((a) => a.top3Count >= 1);
+  const buckets = groupByValue(
+    items,
+    (a) => a.top3Count,
+    (a) => a.owner,
+    'desc'
+  );
+  return {
+    ...emptyRanked('career_consistency'),
+    rows: bucketsToRows(buckets, (v) => `${v} top-3${v !== 1 ? 's' : ''}`, activeOwners),
+  };
+}
+
+function rankCareerDrought(
+  sortedArchives: SeasonArchive[],
+  accum: Map<string, OwnerAccum>,
+  activeOwners: Set<string>
+): RankedRecord {
+  if (sortedArchives.length === 0) return emptyRanked('career_drought');
+  const latestYear = sortedArchives[sortedArchives.length - 1]!.year;
+
+  type DroughtEntry = { owner: string; drought: number };
+  const entries: DroughtEntry[] = [];
+  for (const owner of activeOwners) {
+    const data = accum.get(owner);
+    if (!data || data.seasonsPlayed === 0) continue;
+    const lastTitleYear = data.titleYears.length > 0 ? Math.max(...data.titleYears) : null;
+    const drought = lastTitleYear !== null ? latestYear - lastTitleYear : data.seasonsPlayed;
+    if (drought <= 0) continue;
+    entries.push({ owner, drought });
+  }
+
+  const buckets = groupByValue(
+    entries,
+    (e) => e.drought,
+    (e) => e.owner,
+    'desc'
+  );
+  return {
+    ...emptyRanked('career_drought'),
+    rows: bucketsToRows(buckets, (v) => `${v} season${v !== 1 ? 's' : ''}`, activeOwners),
+  };
+}
+
+function rankCareerDynasty(
+  sortedArchives: SeasonArchive[],
+  accum: Map<string, OwnerAccum>,
+  activeOwners: Set<string>
+): RankedRecord {
+  const archiveYears = sortedArchives.map((a) => a.year);
+
+  type DynastyEntry = { owner: string; streak: number };
+  const entries: DynastyEntry[] = [];
+  for (const [, data] of accum) {
+    const titleYearSet = new Set(data.titleYears);
+    const participatedYears = new Set(data.finishHistory.map((f) => f.year));
+    let maxStreak = 0;
+    let curStreak = 0;
+    for (const year of archiveYears) {
+      if (!participatedYears.has(year)) {
+        curStreak = 0;
+        continue;
+      }
+      if (titleYearSet.has(year)) {
+        curStreak++;
+        if (curStreak > maxStreak) maxStreak = curStreak;
+      } else {
+        curStreak = 0;
+      }
+    }
+    if (maxStreak >= 2) entries.push({ owner: data.owner, streak: maxStreak });
+  }
+
+  const buckets = groupByValue(
+    entries,
+    (e) => e.streak,
+    (e) => e.owner,
+    'desc'
+  );
+  return {
+    ...emptyRanked('career_dynasty'),
+    rows: bucketsToRows(buckets, (v) => `${v} in a row`, activeOwners),
+  };
+}
+
+// --- Season rankings (dedupe to per-owner best) ----------------------------
+
+function rankSingleSeasonPointsHigh(
+  sortedArchives: SeasonArchive[],
+  activeOwners: Set<string>
+): RankedRecord {
+  type Entry = { owner: string; value: number; year: number };
+  const all: Entry[] = [];
+  for (const archive of sortedArchives) {
+    for (const row of archive.finalStandings) {
+      if (!isEligibleOwner(row.owner)) continue;
+      const pts = row.pointsFor ?? 0;
+      if (pts <= 0) continue;
+      all.push({ owner: row.owner, value: pts, year: archive.year });
+    }
+  }
+  const bestByOwner = new Map<string, Entry>();
+  for (const e of all) {
+    const ex = bestByOwner.get(e.owner);
+    if (!ex || e.value > ex.value || (e.value === ex.value && e.year > ex.year)) {
+      bestByOwner.set(e.owner, e);
+    }
+  }
+  const items = Array.from(bestByOwner.values());
+  const buckets = groupByValue(
+    items,
+    (e) => e.value,
+    (e) => e.owner,
+    'desc'
+  );
+  // Per-bucket context: most-recent year among tied owners.
+  const yearByValue = new Map<number, number>();
+  for (const e of items) {
+    const cur = yearByValue.get(e.value);
+    if (cur === undefined || e.year > cur) yearByValue.set(e.value, e.year);
+  }
+  const ctxByValue = new Map<number, string>();
+  for (const [v, y] of yearByValue) ctxByValue.set(v, `${y} season`);
+  return {
+    ...emptyRanked('single_season_points_high'),
+    rows: bucketsToRows(buckets, (v) => `${formatNum(v)} pts`, activeOwners, ctxByValue),
+  };
+}
+
+function rankSingleSeasonPointsLow(
+  sortedArchives: SeasonArchive[],
+  activeOwners: Set<string>
+): RankedRecord {
+  type Entry = { owner: string; value: number; year: number };
+  const all: Entry[] = [];
+  for (const archive of sortedArchives) {
+    for (const row of archive.finalStandings) {
+      if (!isEligibleOwner(row.owner)) continue;
+      const pts = row.pointsFor ?? 0;
+      if (pts <= 0) continue;
+      all.push({ owner: row.owner, value: pts, year: archive.year });
+    }
+  }
+  // Lower is "worse"; rank ascending. Per-owner worst (lowest) season.
+  const worstByOwner = new Map<string, Entry>();
+  for (const e of all) {
+    const ex = worstByOwner.get(e.owner);
+    if (!ex || e.value < ex.value || (e.value === ex.value && e.year < ex.year)) {
+      worstByOwner.set(e.owner, e);
+    }
+  }
+  const items = Array.from(worstByOwner.values());
+  const buckets = groupByValue(
+    items,
+    (e) => e.value,
+    (e) => e.owner,
+    'asc'
+  );
+  const yearByValue = new Map<number, number>();
+  for (const e of items) {
+    const cur = yearByValue.get(e.value);
+    if (cur === undefined || e.year < cur) yearByValue.set(e.value, e.year);
+  }
+  const ctxByValue = new Map<number, string>();
+  for (const [v, y] of yearByValue) ctxByValue.set(v, `${y} season`);
+  return {
+    ...emptyRanked('single_season_points_low'),
+    rows: bucketsToRows(buckets, (v) => `${formatNum(v)} pts`, activeOwners, ctxByValue),
+  };
+}
+
+function rankSingleSeasonHighScore(
+  sortedArchives: SeasonArchive[],
+  activeOwners: Set<string>
+): RankedRecord {
+  type Entry = { owner: string; score: number; year: number; week: number };
+  const all: Entry[] = [];
+  for (const archive of sortedArchives) {
+    for (const [owner, series] of Object.entries(archive.standingsHistory.byOwner)) {
+      if (!isEligibleOwner(owner)) continue;
+      for (const [week, pts] of weeklyPointsForOwner(series)) {
+        if (pts > 0) all.push({ owner, score: pts, year: archive.year, week });
+      }
+    }
+  }
+  const bestByOwner = new Map<string, Entry>();
+  for (const e of all) {
+    const ex = bestByOwner.get(e.owner);
+    if (
+      !ex ||
+      e.score > ex.score ||
+      (e.score === ex.score && e.year > ex.year) ||
+      (e.score === ex.score && e.year === ex.year && e.week > ex.week)
+    ) {
+      bestByOwner.set(e.owner, e);
+    }
+  }
+  const items = Array.from(bestByOwner.values());
+  const buckets = groupByValue(
+    items,
+    (e) => e.score,
+    (e) => e.owner,
+    'desc'
+  );
+  // Per-bucket context: most-recent (year, week) among tied owners.
+  const ctxByValue = new Map<number, string>();
+  const bestEntryByValue = new Map<number, Entry>();
+  for (const e of items) {
+    const cur = bestEntryByValue.get(e.score);
+    if (!cur || e.year > cur.year || (e.year === cur.year && e.week > cur.week)) {
+      bestEntryByValue.set(e.score, e);
+    }
+  }
+  for (const [v, e] of bestEntryByValue) ctxByValue.set(v, `${e.year} · Week ${e.week}`);
+  return {
+    ...emptyRanked('single_season_high_score'),
+    rows: bucketsToRows(buckets, (v) => `${formatNum(v)} pts`, activeOwners, ctxByValue),
+  };
+}
+
+function rankSingleSeasonBlowout(
+  sortedArchives: SeasonArchive[],
+  activeOwners: Set<string>
+): RankedRecord {
+  const all: OwnedFinalMatchup[] = [];
+  for (const archive of sortedArchives) {
+    all.push(...getOwnedFinalMatchups(archive));
+  }
+  // Per-winner best blowout (largest margin; on tie, most recent year).
+  const bestByWinner = new Map<string, OwnedFinalMatchup>();
+  for (const m of all) {
+    const ex = bestByWinner.get(m.winner);
+    if (!ex || m.margin > ex.margin || (m.margin === ex.margin && m.year > ex.year)) {
+      bestByWinner.set(m.winner, m);
+    }
+  }
+  const items = Array.from(bestByWinner.values());
+  const buckets = groupByValue(
+    items,
+    (m) => m.margin,
+    (m) => m.winner,
+    'desc'
+  );
+  // Per-bucket context: representative matchup (most-recent year among tied owners).
+  const repByValue = new Map<number, OwnedFinalMatchup>();
+  for (const m of items) {
+    const cur = repByValue.get(m.margin);
+    if (!cur || m.year > cur.year) repByValue.set(m.margin, m);
+  }
+  const ctxByValue = new Map<number, string>();
+  for (const [v, m] of repByValue) ctxByValue.set(v, `over ${m.loser} · ${m.year}`);
+  return {
+    ...emptyRanked('single_season_blowout'),
+    rows: bucketsToRows(buckets, (v) => `${formatNum(v)} pts`, activeOwners, ctxByValue),
+  };
+}
+
+// --- Event rankings (no dedupe — each event is its own row) ----------------
+
+function rankClosestTitleRace(
+  sortedArchives: SeasonArchive[],
+  activeOwners: Set<string>
+): RankedRecord {
+  type Entry = { champion: string; runnerUp: string; gamesBack: number; year: number };
+  const entries: Entry[] = [];
+  for (const archive of sortedArchives) {
+    const eligible = archive.finalStandings.filter((r) => isEligibleOwner(r.owner));
+    if (eligible.length < 2) continue;
+    entries.push({
+      champion: eligible[0]!.owner,
+      runnerUp: eligible[1]!.owner,
+      gamesBack: eligible[1]!.gamesBack ?? 0,
+      year: archive.year,
+    });
+  }
+  // Rank events asc by gamesBack (closest first). Standard competition ranking.
+  const sorted = [...entries].sort((a, b) => a.gamesBack - b.gamesBack || b.year - a.year);
+  const rows: RankedRecordRow[] = [];
+  let nextRank = 1;
+  let lastValue: number | null = null;
+  let bucketCount = 0;
+  for (const e of sorted) {
+    const owners = [...new Set([e.champion, e.runnerUp])].sort();
+    if (lastValue !== null && e.gamesBack !== lastValue) {
+      nextRank += bucketCount;
+      bucketCount = 0;
+    }
+    rows.push({
+      rank: nextRank,
+      owners,
+      value: e.gamesBack,
+      formattedValue: `${e.gamesBack.toFixed(1)} GB`,
+      contextString: `${e.year} season`,
+      isFormer: owners.every((o) => !activeOwners.has(o)),
+    });
+    bucketCount += 1;
+    lastValue = e.gamesBack;
+  }
+  return { ...emptyRanked('closest_title_race'), rows };
+}
+
+function rankBiggestRankChange(
+  sortedArchives: SeasonArchive[],
+  activeOwners: Set<string>,
+  direction: 'collapse' | 'climb'
+): RankedRecord {
+  type Entry = { owner: string; delta: number; fromYear: number; toYear: number };
+  const entries: Entry[] = [];
+  for (let i = 1; i < sortedArchives.length; i++) {
+    const prev = sortedArchives[i - 1]!;
+    const curr = sortedArchives[i]!;
+    const prevRanks = new Map<string, number>();
+    prev.finalStandings
+      .filter((row) => isEligibleOwner(row.owner))
+      .forEach((row, idx) => prevRanks.set(row.owner, idx + 1));
+    curr.finalStandings
+      .filter((row) => isEligibleOwner(row.owner))
+      .forEach((row, idx) => {
+        const prevRank = prevRanks.get(row.owner);
+        if (prevRank === undefined) return;
+        const currRank = idx + 1;
+        const delta = direction === 'collapse' ? currRank - prevRank : prevRank - currRank;
+        if (delta > 0)
+          entries.push({ owner: row.owner, delta, fromYear: prev.year, toYear: curr.year });
+      });
+  }
+
+  const sorted = [...entries].sort((a, b) => b.delta - a.delta || b.toYear - a.toYear);
+  const rows: RankedRecordRow[] = [];
+  let nextRank = 1;
+  let lastValue: number | null = null;
+  let bucketCount = 0;
+  for (const e of sorted) {
+    if (lastValue !== null && e.delta !== lastValue) {
+      nextRank += bucketCount;
+      bucketCount = 0;
+    }
+    rows.push({
+      rank: nextRank,
+      owners: [e.owner],
+      value: e.delta,
+      formattedValue: `${e.delta} spots`,
+      contextString: `${e.fromYear}→${e.toYear}`,
+      isFormer: !activeOwners.has(e.owner),
+    });
+    bucketCount += 1;
+    lastValue = e.delta;
+  }
+  const id: RecordId = direction === 'collapse' ? 'biggest_collapse' : 'biggest_climb';
+  return { ...emptyRanked(id), rows };
+}
+
+/**
+ * Returns full league rankings for every record id surfaced on the Stats subtab.
+ *
+ * Ranks owners (or events) by record value with standard competition ranking
+ * (1, 2, 2, 4). Records with no qualifying entries return an empty rows array
+ * rather than being omitted from the result.
+ *
+ * Owner-shaped records (career_*, single_season_*) dedupe to per-owner best —
+ * each owner appears at most once per record. Event-shaped records
+ * (closest_title_race, biggest_collapse, biggest_climb) emit one row per event.
+ *
+ * Rivalry records (lopsided_rivalry, even_rivalry, dominance_streak) are NOT
+ * included; they belong on the Rivalries subtab and are pair-shaped, not
+ * owner-shaped.
+ */
+export function selectRecordRankings(
+  archives: SeasonArchive[],
+  currentRoster: Map<string, string>
+): Record<RecordId, RankedRecord> {
+  const result = {} as Record<RecordId, RankedRecord>;
+  if (archives.length === 0) {
+    for (const id of RANKED_RECORD_IDS) result[id] = emptyRanked(id);
+    return result;
+  }
+
+  const sortedArchives = [...archives].sort((a, b) => a.year - b.year);
+  const accum = buildCareerAccumulator(sortedArchives);
+  const activeOwners = activeOwnerSet(currentRoster);
+
+  result.career_points = rankCareerPoints(accum, activeOwners);
+  result.career_wins = rankCareerWins(accum, activeOwners);
+  result.career_win_pct = rankCareerWinPct(accum, activeOwners);
+  result.career_titles = rankCareerTitles(accum, activeOwners);
+  result.career_avg_finish = rankCareerAvgFinish(accum, activeOwners);
+  result.career_consistency = rankCareerConsistency(accum, activeOwners);
+  result.career_drought = rankCareerDrought(sortedArchives, accum, activeOwners);
+  result.career_dynasty = rankCareerDynasty(sortedArchives, accum, activeOwners);
+
+  result.single_season_points_high = rankSingleSeasonPointsHigh(sortedArchives, activeOwners);
+  result.single_season_points_low = rankSingleSeasonPointsLow(sortedArchives, activeOwners);
+  result.single_season_high_score = rankSingleSeasonHighScore(sortedArchives, activeOwners);
+  result.single_season_blowout = rankSingleSeasonBlowout(sortedArchives, activeOwners);
+
+  result.closest_title_race = rankClosestTitleRace(sortedArchives, activeOwners);
+  result.biggest_collapse = rankBiggestRankChange(sortedArchives, activeOwners, 'collapse');
+  result.biggest_climb = rankBiggestRankChange(sortedArchives, activeOwners, 'climb');
+
+  return result;
 }

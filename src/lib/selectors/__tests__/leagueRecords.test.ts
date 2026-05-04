@@ -3,9 +3,12 @@ import test from 'node:test';
 
 import {
   selectAllRecords,
+  selectRecordRankings,
   RECORDS_TIE_SUPPRESSION_THRESHOLD,
+  RANKED_RECORD_IDS,
   tiedAtMax,
   tiedAtMin,
+  type RecordId,
   type SelectAllRecordsInput,
   type RecordEntry,
 } from '../leagueRecords.ts';
@@ -309,6 +312,7 @@ test('career_titles: identifies multi-title holder', () => {
   assert.deepEqual(r!.holders, ['Alice']);
   assert.equal(r!.value, 2);
   assert.equal(r!.formattedValue, '2 titles');
+  assert.equal(r!.contextString, '2022, 2023');
 });
 
 test('career_titles: absent when nobody has won', () => {
@@ -447,6 +451,7 @@ test('single_season_points_high: highest season total across all owners and year
   assert.deepEqual(r!.holders, ['Bob']);
   assert.equal(r!.value, 2500);
   assert.ok(r!.formattedValue.includes('2024'));
+  assert.equal(r!.contextString, '2024 season');
 });
 
 test('single_season_points_low: lowest season total', () => {
@@ -466,6 +471,7 @@ test('single_season_points_low: lowest season total', () => {
   assert.deepEqual(r!.holders, ['Bob']);
   assert.equal(r!.value, 800);
   assert.ok(r!.formattedValue.includes('2023'));
+  assert.equal(r!.contextString, '2023 season');
 });
 
 test('single_season_high_score: highest single-week score from standingsHistory', () => {
@@ -529,6 +535,7 @@ test('single_season_high_score: highest single-week score from standingsHistory'
   // Bob week 2 = 520 - 120 = 400 → highest
   assert.deepEqual(r!.holders, ['Bob']);
   assert.equal(r!.value, 400);
+  assert.equal(r!.contextString, '2024 · Week 2');
 });
 
 test('single_season_blowout: largest margin in owned-vs-owned game', () => {
@@ -548,6 +555,7 @@ test('single_season_blowout: largest margin in owned-vs-owned game', () => {
   assert.deepEqual(r!.holders, ['Alice']);
   assert.equal(r!.value, 35);
   assert.ok(r!.formattedValue.includes('2024'));
+  assert.equal(r!.contextString, 'over Bob · 2024');
 });
 
 // ---------------------------------------------------------------------------
@@ -879,4 +887,266 @@ test('career_avg_finish gives Whited rank 1 when NoClaim precedes in finalStandi
   // Whited averages rank 1 across all 3 years → best avg finish
   assert.deepEqual(r!.holders, ['Whited']);
   assert.equal(r!.value, 1); // average rank of 1.0
+});
+
+// ---------------------------------------------------------------------------
+// selectRecordRankings — full league rankings
+// ---------------------------------------------------------------------------
+
+function rankingInput(
+  archives: SeasonArchive[],
+  currentRoster?: Map<string, string>
+): { archives: SeasonArchive[]; currentRoster: Map<string, string> } {
+  return { archives, currentRoster: currentRoster ?? new Map() };
+}
+
+test('selectRecordRankings: returns entries for all 15 ranked record ids', () => {
+  const archives = [
+    makeArchive(2022, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4), makeRow('Charlie', 6, 6)]),
+    makeArchive(2023, [makeRow('Bob', 10, 2), makeRow('Alice', 8, 4), makeRow('Charlie', 6, 6)]),
+    makeArchive(2024, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4), makeRow('Charlie', 6, 6)]),
+  ];
+  const { archives: a, currentRoster } = rankingInput(archives);
+  const result = selectRecordRankings(a, currentRoster);
+  // 8 career + 4 season + 3 event = 15
+  assert.equal(Object.keys(result).length, 15);
+  for (const id of RANKED_RECORD_IDS) {
+    assert.ok(result[id], `missing ranking for ${id}`);
+    assert.equal(result[id].id, id);
+  }
+});
+
+test('selectRecordRankings: omits all rivalry ids', () => {
+  const archives = [makeArchive(2024, [makeRow('Alice', 10, 2), makeRow('Bob', 5, 7)])];
+  const { archives: a, currentRoster } = rankingInput(archives);
+  const result = selectRecordRankings(a, currentRoster);
+  for (const rivalryId of ['lopsided_rivalry', 'even_rivalry', 'dominance_streak']) {
+    assert.equal((result as Record<string, unknown>)[rivalryId], undefined);
+  }
+});
+
+test('selectRecordRankings: empty archives returns empty rows for every id', () => {
+  const result = selectRecordRankings([], new Map());
+  assert.equal(Object.keys(result).length, 15);
+  for (const id of RANKED_RECORD_IDS) {
+    assert.deepEqual(result[id].rows, []);
+  }
+});
+
+test('selectRecordRankings: standard competition ranking on ties (1, 1, 1, 4)', () => {
+  // Three owners tied at 100 pts, one owner at 90, one at 80
+  const archives = [
+    makeArchive(2024, [
+      makeRow('A', 5, 5, { pointsFor: 100 }),
+      makeRow('B', 5, 5, { pointsFor: 100 }),
+      makeRow('C', 5, 5, { pointsFor: 100 }),
+      makeRow('D', 5, 5, { pointsFor: 90 }),
+      makeRow('E', 5, 5, { pointsFor: 80 }),
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const rows = result.career_points.rows;
+  assert.equal(rows.length, 3); // 3 buckets: 100, 90, 80
+  assert.deepEqual(rows[0]!.owners, ['A', 'B', 'C']);
+  assert.equal(rows[0]!.rank, 1);
+  assert.equal(rows[1]!.rank, 4); // skip ranks 2 and 3
+  assert.deepEqual(rows[1]!.owners, ['D']);
+  assert.equal(rows[2]!.rank, 5);
+  assert.deepEqual(rows[2]!.owners, ['E']);
+});
+
+test('selectRecordRankings: career_win_pct excludes owners with seasonsPlayed < 3', () => {
+  // Alice: 3 seasons (qualifies); Bob: 2 seasons (excluded); Charlie: 4 seasons (qualifies)
+  const archives = [
+    makeArchive(2021, [makeRow('Alice', 10, 2), makeRow('Charlie', 8, 4)]),
+    makeArchive(2022, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4), makeRow('Charlie', 9, 3)]),
+    makeArchive(2023, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4), makeRow('Charlie', 9, 3)]),
+    makeArchive(2024, [makeRow('Charlie', 9, 3)]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const rows = result.career_win_pct.rows;
+  const allOwners = rows.flatMap((r) => r.owners);
+  assert.ok(!allOwners.includes('Bob'), 'Bob (2 seasons) should be excluded');
+  assert.ok(allOwners.includes('Alice'));
+  assert.ok(allOwners.includes('Charlie'));
+});
+
+test('selectRecordRankings: career_drought includes only currentRoster owners', () => {
+  // Latest = 2024. Active won 2022 (drought 2); Former won 2023 (drought 1);
+  // Other won 2024 (drought 0). Only Active is in currentRoster, so the
+  // drought ranking must include only Active.
+  const archives = [
+    makeArchive(2022, [makeRow('Active', 10, 2), makeRow('Former', 5, 7)]),
+    makeArchive(2023, [makeRow('Former', 10, 2), makeRow('Active', 5, 7)]),
+    makeArchive(2024, [makeRow('Other', 10, 2), makeRow('Active', 6, 6), makeRow('Former', 5, 7)]),
+  ];
+  const currentRoster = new Map([['ActiveTeam', 'Active']]);
+  const result = selectRecordRankings(archives, currentRoster);
+  const allOwners = result.career_drought.rows.flatMap((r) => r.owners);
+  assert.ok(allOwners.includes('Active'));
+  assert.ok(!allOwners.includes('Former'), 'Former owner excluded from drought');
+  assert.ok(!allOwners.includes('Other'), 'Other not in current roster');
+});
+
+test('selectRecordRankings: career_titles row contextString lists championship years', () => {
+  const archives = [
+    makeArchive(2022, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4)]),
+    makeArchive(2023, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4)]),
+    makeArchive(2024, [makeRow('Bob', 10, 2), makeRow('Alice', 8, 4)]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const rows = result.career_titles.rows;
+  // Alice: 2 titles (2022, 2023); Bob: 1 title (2024)
+  assert.equal(rows[0]!.owners[0], 'Alice');
+  assert.equal(rows[0]!.contextString, '2022, 2023');
+  assert.equal(rows[1]!.owners[0], 'Bob');
+  assert.equal(rows[1]!.contextString, '2024');
+});
+
+test('selectRecordRankings: career_titles emits one row per tied owner with own years', () => {
+  // Whited and Pruitt each win 2 titles in alternating years.
+  // Charlie wins 1. Expected ranking:
+  //   T-1 Pruitt (lex first) — 2023, 2025
+  //   T-1 Whited             — 2022, 2024
+  //   3   Charlie            — 2026
+  // Tied rows share rank 1; next bucket skips to rank 3 (standard competition).
+  const archives = [
+    makeArchive(2022, [makeRow('Whited', 12, 0), makeRow('Pruitt', 8, 4)]),
+    makeArchive(2023, [makeRow('Pruitt', 12, 0), makeRow('Whited', 8, 4)]),
+    makeArchive(2024, [makeRow('Whited', 12, 0), makeRow('Pruitt', 8, 4)]),
+    makeArchive(2025, [makeRow('Pruitt', 12, 0), makeRow('Whited', 8, 4)]),
+    makeArchive(2026, [
+      makeRow('Charlie', 12, 0),
+      makeRow('Whited', 8, 4),
+      makeRow('Pruitt', 7, 5),
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const rows = result.career_titles.rows;
+  assert.equal(rows.length, 3, 'each tied owner gets own row, plus Charlie');
+  // Tied rows at rank 1, lex-sorted within bucket
+  assert.equal(rows[0]!.rank, 1);
+  assert.deepEqual(rows[0]!.owners, ['Pruitt']);
+  assert.equal(rows[0]!.contextString, '2023, 2025');
+  assert.equal(rows[1]!.rank, 1);
+  assert.deepEqual(rows[1]!.owners, ['Whited']);
+  assert.equal(rows[1]!.contextString, '2022, 2024');
+  // Charlie at rank 3 (standard competition: rank 2 is skipped)
+  assert.equal(rows[2]!.rank, 3);
+  assert.deepEqual(rows[2]!.owners, ['Charlie']);
+  assert.equal(rows[2]!.contextString, '2026');
+});
+
+test('selectRecordRankings: single_season_points_high dedupes per owner', () => {
+  // Alice has 3 seasons; her best is 1500. She should appear once at her best.
+  const archives = [
+    makeArchive(2022, [
+      makeRow('Alice', 10, 2, { pointsFor: 1500 }),
+      makeRow('Bob', 8, 4, { pointsFor: 900 }),
+    ]),
+    makeArchive(2023, [
+      makeRow('Alice', 10, 2, { pointsFor: 1200 }),
+      makeRow('Bob', 8, 4, { pointsFor: 1100 }),
+    ]),
+    makeArchive(2024, [
+      makeRow('Alice', 10, 2, { pointsFor: 1300 }),
+      makeRow('Bob', 8, 4, { pointsFor: 800 }),
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const rows = result.single_season_points_high.rows;
+  // 2 owners → 2 rows max
+  assert.equal(rows.length, 2);
+  // Alice's best season is 1500 (2022); Bob's best is 1100 (2023)
+  assert.deepEqual(rows[0]!.owners, ['Alice']);
+  assert.equal(rows[0]!.value, 1500);
+  assert.equal(rows[0]!.contextString, '2022 season');
+  assert.deepEqual(rows[1]!.owners, ['Bob']);
+  assert.equal(rows[1]!.value, 1100);
+  assert.equal(rows[1]!.contextString, '2023 season');
+});
+
+test('selectRecordRankings: isFormer true only when every owner is absent from currentRoster', () => {
+  const archives = [
+    makeArchive(2024, [
+      makeRow('Active', 10, 2, { pointsFor: 1500 }),
+      makeRow('Former', 8, 4, { pointsFor: 1200 }),
+    ]),
+  ];
+  const currentRoster = new Map([['ActiveTeam', 'Active']]);
+  const result = selectRecordRankings(archives, currentRoster);
+  const rows = result.career_points.rows;
+  // Active is current → row.isFormer = false
+  assert.equal(rows[0]!.owners[0], 'Active');
+  assert.equal(rows[0]!.isFormer, false);
+  // Former is not in current roster → row.isFormer = true
+  assert.equal(rows[1]!.owners[0], 'Former');
+  assert.equal(rows[1]!.isFormer, true);
+});
+
+test('selectRecordRankings: tied row with one current + one former owner has isFormer=false', () => {
+  const archives = [
+    makeArchive(2022, [
+      makeRow('Active', 10, 2, { pointsFor: 1000 }),
+      makeRow('Former', 10, 2, { pointsFor: 1000 }),
+    ]),
+  ];
+  const currentRoster = new Map([['ActiveTeam', 'Active']]);
+  const result = selectRecordRankings(archives, currentRoster);
+  const rows = result.career_points.rows;
+  // Both tied at 1000; row contains current owner so isFormer must be false
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0]!.owners, ['Active', 'Former']);
+  assert.equal(rows[0]!.isFormer, false);
+});
+
+test('selectRecordRankings: event records emit one row per event with participants as owners', () => {
+  const archives = [
+    makeArchive(2022, [
+      makeRow('Alice', 12, 0, { gamesBack: 0 }),
+      makeRow('Bob', 6, 6, { gamesBack: 6 }),
+    ]),
+    makeArchive(2023, [
+      makeRow('Charlie', 10, 2, { gamesBack: 0 }),
+      makeRow('Alice', 9, 3, { gamesBack: 1 }),
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const rows = result.closest_title_race.rows;
+  // Two events: 2022 (6 GB), 2023 (1 GB). Closest first.
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]!.value, 1);
+  assert.equal(rows[0]!.contextString, '2023 season');
+  assert.deepEqual(rows[0]!.owners, ['Alice', 'Charlie']);
+  assert.equal(rows[1]!.value, 6);
+  assert.equal(rows[1]!.contextString, '2022 season');
+});
+
+test('selectRecordRankings: biggest_collapse and biggest_climb emit rows with from→to context', () => {
+  const archives = [
+    makeArchive(2023, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4), makeRow('Charlie', 5, 7)]),
+    makeArchive(2024, [
+      makeRow('Bob', 10, 2),
+      makeRow('Charlie', 8, 4),
+      makeRow('Alice', 3, 9), // Alice 1 → 3 (collapse 2)
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const collapse = result.biggest_collapse.rows;
+  assert.ok(collapse.length >= 1);
+  assert.deepEqual(collapse[0]!.owners, ['Alice']);
+  assert.equal(collapse[0]!.value, 2);
+  assert.equal(collapse[0]!.contextString, '2023→2024');
+  const climb = result.biggest_climb.rows;
+  assert.ok(climb.length >= 1);
+  // Charlie 3 → 2 = climb 1; Bob 2 → 1 = climb 1; both climbs of 1
+  assert.equal(climb[0]!.value, 1);
+});
+
+test('selectRecordRankings: id type completeness — RANKED_RECORD_IDS matches result keys', () => {
+  const archives = [makeArchive(2024, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4)])];
+  const result = selectRecordRankings(archives, new Map());
+  const resultIds = Object.keys(result).sort() as RecordId[];
+  const declaredIds = [...RANKED_RECORD_IDS].sort();
+  assert.deepEqual(resultIds, declaredIds);
 });

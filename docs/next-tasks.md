@@ -12,44 +12,44 @@
 
 All foundational phases are complete. Work is now organized into named workstream campaigns.
 
-| Workstream | Campaign | Status |
-|------------|----------|--------|
-| Data & Intelligence | Game Stats Pipeline | ✅ Complete |
-| Data & Intelligence | Insights Engine Foundation | ✅ Complete |
-| Data & Intelligence | Insights Engine — Generators and Wiring | ✅ Complete |
-| Data & Intelligence | Insights Engine — Context Extension | ✅ Complete |
-| Data & Intelligence | Insights Engine — Generator Batch 2 | ✅ Complete |
-| Data & Intelligence | Copy Variation Architecture | ✅ Complete |
-| Data & Intelligence | Insights Panel UI Redesign + Polish | ✅ Complete |
-| Platform | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete |
-| Platform | Standings Ownership Model Redesign (Phases 0–5) | ✅ Complete |
-| Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018) | Planned |
-| Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019) | Planned |
-| Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE) | Planned |
-| Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING) | Planned |
-| Data & Intelligence | Insights — All Insights Page (ALL-INSIGHTS-PAGE) | ✅ Complete |
-| Data & Intelligence | Pairing Cards | Planned |
-| Data & Intelligence | Luck Score + Bounce-Back Generators | Planned |
-| Platform | Season Rollover UI and Cron | ✅ Complete |
-| Platform | AppStateStore Caching — Egress Optimization (APPSTATESTORE-CACHING) | Planned |
-| Platform | Server Fetch Architecture Audit (SERVER-FETCH-ARCHITECTURE) | Planned |
-| Polish | History Page Polish | ✅ Complete |
-| Polish | History Rework Foundation (HISTORY-REWORK-FOUNDATION) | ✅ Complete |
-| Polish | History Records (HISTORY-RECORDS) | In progress |
-| Polish | Standings Page — Preseason State (STANDINGS-PRESEASON-STATE) | ✅ Complete |
-| Polish | Standings Page — Lifecycle Labeling Sweep (STANDINGS-PAGE-LIFECYCLE-LABELING) | Planned |
-| Polish | Link Styling Audit (LINK-STYLING-AUDIT) | Planned |
-| Draft | Slow Draft Mode | Planned |
-| Draft | Draft Difficulty Settings | Planned |
-| Draft | Pick Timer Precision (DRAFT-TIMER-PRECISION) | Planned |
-| Platform | Multi-tenant Commissioner Sign-up | Planned |
-| Platform | Server Action Auth Hardening | Planned |
-| Polish | Design Audit (remaining pages) | Planned |
-| Polish | Copy / UX Writing Audit | Planned |
-| Polish | Back Button Audit | Planned |
-| Polish | Aliases Platform Migration | Planned |
-| Polish | History Page — Filter Former Owners | Planned |
-| Polish | Test Suite Baseline Cleanup (TEST-SUITE-BASELINE-CLEANUP) | Planned |
+| Workstream          | Campaign                                                                                | Status      |
+| ------------------- | --------------------------------------------------------------------------------------- | ----------- |
+| Data & Intelligence | Game Stats Pipeline                                                                     | ✅ Complete |
+| Data & Intelligence | Insights Engine Foundation                                                              | ✅ Complete |
+| Data & Intelligence | Insights Engine — Generators and Wiring                                                 | ✅ Complete |
+| Data & Intelligence | Insights Engine — Context Extension                                                     | ✅ Complete |
+| Data & Intelligence | Insights Engine — Generator Batch 2                                                     | ✅ Complete |
+| Data & Intelligence | Copy Variation Architecture                                                             | ✅ Complete |
+| Data & Intelligence | Insights Panel UI Redesign + Polish                                                     | ✅ Complete |
+| Platform            | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete |
+| Platform            | Standings Ownership Model Redesign (Phases 0–5)                                         | ✅ Complete |
+| Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018)                                | Planned     |
+| Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019)                                             | Planned     |
+| Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE)                              | Planned     |
+| Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING)                              | Planned     |
+| Data & Intelligence | Insights — All Insights Page (ALL-INSIGHTS-PAGE)                                        | ✅ Complete |
+| Data & Intelligence | Pairing Cards                                                                           | Planned     |
+| Data & Intelligence | Luck Score + Bounce-Back Generators                                                     | Planned     |
+| Platform            | Season Rollover UI and Cron                                                             | ✅ Complete |
+| Platform            | AppStateStore Caching — Egress Optimization (APPSTATESTORE-CACHING)                     | Planned     |
+| Platform            | Server Fetch Architecture Audit (SERVER-FETCH-ARCHITECTURE)                             | Planned     |
+| Polish              | History Page Polish                                                                     | ✅ Complete |
+| Polish              | History Rework Foundation (HISTORY-REWORK-FOUNDATION)                                   | ✅ Complete |
+| Polish              | History Records (HISTORY-RECORDS)                                                       | In progress |
+| Polish              | Standings Page — Preseason State (STANDINGS-PRESEASON-STATE)                            | ✅ Complete |
+| Polish              | Standings Page — Lifecycle Labeling Sweep (STANDINGS-PAGE-LIFECYCLE-LABELING)           | Planned     |
+| Polish              | Link Styling Audit (LINK-STYLING-AUDIT)                                                 | Planned     |
+| Draft               | Slow Draft Mode                                                                         | Planned     |
+| Draft               | Draft Difficulty Settings                                                               | Planned     |
+| Draft               | Pick Timer Precision (DRAFT-TIMER-PRECISION)                                            | Planned     |
+| Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned     |
+| Platform            | Server Action Auth Hardening                                                            | Planned     |
+| Polish              | Design Audit (remaining pages)                                                          | Planned     |
+| Polish              | Copy / UX Writing Audit                                                                 | Planned     |
+| Polish              | Back Button Audit                                                                       | Planned     |
+| Polish              | Aliases Platform Migration                                                              | Planned     |
+| Polish              | History Page — Filter Former Owners                                                     | Planned     |
+| Polish              | Test Suite Baseline Cleanup (TEST-SUITE-BASELINE-CLEANUP)                               | Planned     |
 
 ## Active priorities
 
@@ -64,6 +64,23 @@ Per-league global (not per-user) NEW-tag system for the insights panel. 48-hour 
 Admin-gated `GET /api/debug/insights/[leagueSlug]` that returns: generator pool size, rendered set, suppressed set, per-insight signatures, and last-change timestamps. Enables at-a-glance verification of NEW tag behavior and suppression correctness without reading logs.
 
 - **Prompt ID to assign:** `INSIGHTS-019-DIAGNOSTIC-v1`
+
+### INSIGHTS-020-RECORD-CHANGE-v1
+
+Surface recently changed records as insights. Wires up the dormant `RecordEntry.recentChange` field (declared in Phase 1, never populated). Pairs with INSIGHTS-018 (NEW tag) and INSIGHTS-019 (diagnostic endpoint) as part of the insights freshness campaign.
+
+**Scope:**
+
+- Snapshot store for prior `selectAllRecords` output (likely `appStateStore`)
+- Diff trigger and cadence (per-week post-scoring, on-demand, or cron — design decision)
+- TTL / "recent" window semantics
+- New insight generator: `src/lib/insights/generators/recordChange.ts`
+- Suppression rule integration with existing insight category logic
+- NEW tag interaction: record changes are inherently "new since last visit" — should inherit INSIGHTS-018 wiring
+
+**Dependencies:** INSIGHTS-018 (NEW tag) preferred to ship first so record-change insights inherit the freshness wiring.
+
+**Estimated: 2–3 PROMPT_IDs end-to-end.**
 
 ### 3. APPSTATESTORE-CACHING — Egress optimization before August draft
 
