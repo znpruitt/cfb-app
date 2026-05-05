@@ -1184,6 +1184,110 @@ test('selectRecordRankings: biggest_collapse and biggest_climb emit rows with fr
   assert.equal(climb[0]!.value, 1);
 });
 
+test('selectRecordRankings: closest_title_race rows expose champion and runnerUp fields', () => {
+  const archives = [
+    makeArchive(2024, [
+      makeRow('Whited', 12, 0, { gamesBack: 0 }),
+      makeRow('Pruitt', 11, 1, { gamesBack: 0.5 }),
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const row = result.closest_title_race.rows[0]!;
+  assert.equal(row.champion, 'Whited');
+  assert.equal(row.runnerUp, 'Pruitt');
+  // owners contract preserved: lex-sorted [champion, runnerUp]
+  assert.deepEqual(row.owners, ['Pruitt', 'Whited']);
+});
+
+test('selectRecordRankings: biggest_collapse rows expose fromRank and toRank', () => {
+  // Owner X finishes 3rd in 2024, then 11th in 2025 → fromRank=3, toRank=11
+  const archives = [
+    makeArchive(2024, [
+      makeRow('A', 12, 0),
+      makeRow('B', 11, 1),
+      makeRow('X', 9, 3),
+      makeRow('C', 7, 5),
+      makeRow('D', 6, 6),
+      makeRow('E', 5, 7),
+      makeRow('F', 4, 8),
+      makeRow('G', 3, 9),
+      makeRow('H', 2, 10),
+      makeRow('I', 1, 11),
+      makeRow('J', 0, 12),
+    ]),
+    makeArchive(2025, [
+      makeRow('A', 12, 0),
+      makeRow('B', 11, 1),
+      makeRow('C', 9, 3),
+      makeRow('D', 7, 5),
+      makeRow('E', 6, 6),
+      makeRow('F', 5, 7),
+      makeRow('G', 4, 8),
+      makeRow('H', 3, 9),
+      makeRow('I', 2, 10),
+      makeRow('J', 1, 11),
+      makeRow('X', 0, 12),
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  // Find X's row (largest collapse)
+  const xRow = result.biggest_collapse.rows.find((r) => r.owners[0] === 'X');
+  assert.ok(xRow);
+  assert.equal(xRow!.fromRank, 3);
+  assert.equal(xRow!.toRank, 11);
+  assert.equal(xRow!.value, 8);
+});
+
+test('selectRecordRankings: biggest_climb rows expose fromRank and toRank', () => {
+  // Owner Y finishes 9th in 2022, then 1st in 2023 → fromRank=9, toRank=1
+  const archives = [
+    makeArchive(2022, [
+      makeRow('A', 12, 0),
+      makeRow('B', 11, 1),
+      makeRow('C', 10, 2),
+      makeRow('D', 9, 3),
+      makeRow('E', 8, 4),
+      makeRow('F', 7, 5),
+      makeRow('G', 6, 6),
+      makeRow('H', 5, 7),
+      makeRow('Y', 4, 8),
+      makeRow('I', 3, 9),
+    ]),
+    makeArchive(2023, [
+      makeRow('Y', 12, 0),
+      makeRow('A', 11, 1),
+      makeRow('B', 10, 2),
+      makeRow('C', 9, 3),
+      makeRow('D', 8, 4),
+      makeRow('E', 7, 5),
+      makeRow('F', 6, 6),
+      makeRow('G', 5, 7),
+      makeRow('H', 4, 8),
+      makeRow('I', 3, 9),
+    ]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const yRow = result.biggest_climb.rows.find((r) => r.owners[0] === 'Y');
+  assert.ok(yRow);
+  assert.equal(yRow!.fromRank, 9);
+  assert.equal(yRow!.toRank, 1);
+  assert.equal(yRow!.value, 8);
+});
+
+test('selectRecordRankings: owner-ranked records leave champion/runnerUp/fromRank/toRank undefined', () => {
+  const archives = [
+    makeArchive(2023, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4)]),
+    makeArchive(2024, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4)]),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  for (const row of result.career_points.rows) {
+    assert.equal(row.champion, undefined);
+    assert.equal(row.runnerUp, undefined);
+    assert.equal(row.fromRank, undefined);
+    assert.equal(row.toRank, undefined);
+  }
+});
+
 test('selectRecordRankings: id type completeness — RANKED_RECORD_IDS matches result keys', () => {
   const archives = [makeArchive(2024, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4)])];
   const result = selectRecordRankings(archives, new Map());

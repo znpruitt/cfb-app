@@ -20,13 +20,10 @@ type RecordEventListProps = {
  * biggest_climb). Year column on the left, holders phrase in the middle,
  * value on the right. No active/all toggle — events have no Active semantic.
  *
- * GAP NOTE — for `closest_title_race`, the selector returns owners as
- * lex-sorted [champion, runnerUp]; champion/runnerUp distinction is not
- * surfaced structurally on the row. For `biggest_collapse` / `biggest_climb`,
- * fromRank/toRank are likewise not exposed. v1 falls back to displaying
- * `owners.join(' & ')` and `formattedValue` directly. A selector extension
- * would be required to render the richer "{champion} over {runnerUp}" or
- * "{owner} finished Xth, then Yth" copy from the spec.
+ * Holders phrase rendering keys off recordId via row fields the selector
+ * surfaces structurally (champion/runnerUp for title race, fromRank/toRank
+ * for collapse/climb). When those fields are absent, falls back to
+ * `owners.join(' & ')` defensively.
  */
 export function RecordEventList({ record }: RecordEventListProps): React.ReactElement {
   const [showAll, setShowAll] = React.useState<boolean>(false);
@@ -47,6 +44,7 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
             <EventRow
               key={`${row.rank}-${row.contextString ?? row.owners.join(',')}`}
               row={row}
+              recordId={record.id}
               showAll={showAll}
             />
           ))}
@@ -68,10 +66,11 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
 
 type EventRowProps = {
   row: RankedRecordRow;
+  recordId: string;
   showAll: boolean;
 };
 
-function EventRow({ row, showAll }: EventRowProps): React.ReactElement {
+function EventRow({ row, recordId, showAll }: EventRowProps): React.ReactElement {
   const tintClass =
     !showAll && row.rank <= 3 ? TINT_BY_RANK[row.rank] : 'text-gray-500 dark:text-zinc-400';
   return (
@@ -79,12 +78,52 @@ function EventRow({ row, showAll }: EventRowProps): React.ReactElement {
       <span className={`w-16 flex-none text-sm font-medium tabular-nums ${tintClass}`}>
         {row.contextString ?? '—'}
       </span>
-      <span className="min-w-0 flex-1 text-sm font-medium text-gray-900 dark:text-zinc-100">
-        {row.owners.join(' & ')}
+      <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-zinc-100">
+        {renderHoldersPhrase(row, recordId)}
       </span>
       <span className="flex-none text-sm font-medium tabular-nums text-gray-900 dark:text-zinc-100">
         {row.formattedValue}
       </span>
     </li>
   );
+}
+
+function renderHoldersPhrase(row: RankedRecordRow, recordId: string): React.ReactNode {
+  if (recordId === 'closest_title_race' && row.champion && row.runnerUp) {
+    return (
+      <>
+        <strong className="font-medium">{row.champion}</strong> over {row.runnerUp}
+      </>
+    );
+  }
+  if (
+    (recordId === 'biggest_collapse' || recordId === 'biggest_climb') &&
+    row.fromRank !== undefined &&
+    row.toRank !== undefined &&
+    row.owners[0]
+  ) {
+    return (
+      <>
+        <strong className="font-medium">{row.owners[0]}</strong> finished {ordinal(row.fromRank)},
+        then {ordinal(row.toRank)}
+      </>
+    );
+  }
+  return <span className="font-medium">{row.owners.join(' & ')}</span>;
+}
+
+/** Renders 1 → "1st", 2 → "2nd", 3 → "3rd", 4 → "4th", … with proper teen handling. */
+function ordinal(n: number): string {
+  const lastTwo = n % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
 }

@@ -100,3 +100,71 @@ test('RecordEventList: empty rows renders "No events yet" message', () => {
   // No Show all button when there are no rows
   assert.equal(queryByRole('button'), null);
 });
+
+test('RecordEventList: closest_title_race renders "{champion} over {runnerUp}"', () => {
+  const record: RankedRecord = {
+    id: 'closest_title_race',
+    label: 'Closest Title Race',
+    category: 'event',
+    rows: [
+      {
+        rank: 1,
+        owners: ['Pruitt', 'Whited'], // lex-sorted
+        value: 0.5,
+        formattedValue: '0.5 GB',
+        contextString: '2024 season',
+        isFormer: false,
+        champion: 'Whited',
+        runnerUp: 'Pruitt',
+      },
+    ],
+  };
+  const { container } = render(<RecordEventList record={record} />);
+  // Champion appears before "over"; runnerUp after
+  assert.match(container.textContent ?? '', /Whited over Pruitt/);
+});
+
+test('RecordEventList: biggest_collapse renders "{owner} finished Xth, then Yth"', () => {
+  const record: RankedRecord = {
+    id: 'biggest_collapse',
+    label: 'Biggest Season Collapse',
+    category: 'event',
+    rows: [
+      {
+        rank: 1,
+        owners: ['Alice'],
+        value: 8,
+        formattedValue: '8 spots',
+        contextString: '2024→2025',
+        isFormer: false,
+        fromRank: 3,
+        toRank: 11,
+      },
+    ],
+  };
+  const { container } = render(<RecordEventList record={record} />);
+  assert.match(container.textContent ?? '', /Alice finished 3rd, then 11th/);
+});
+
+test('RecordEventList: biggest_climb renders "{owner} finished Xth, then Yth" with reversed direction', () => {
+  const record: RankedRecord = {
+    id: 'biggest_climb',
+    label: 'Biggest Season Climb',
+    category: 'event',
+    rows: [
+      {
+        rank: 1,
+        owners: ['Bob'],
+        value: 8,
+        formattedValue: '8 spots',
+        contextString: '2022→2023',
+        isFormer: false,
+        fromRank: 9,
+        toRank: 1,
+      },
+    ],
+  };
+  const { container } = render(<RecordEventList record={record} />);
+  // Climb: fromRank > toRank (9th → 1st)
+  assert.match(container.textContent ?? '', /Bob finished 9th, then 1st/);
+});
