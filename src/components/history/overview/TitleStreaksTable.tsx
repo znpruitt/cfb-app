@@ -125,7 +125,7 @@ export default function TitleStreaksTable({
     <div>
       <SectionHead
         title={title}
-        delegationHref={`/league/${slug}/history/stats`}
+        delegationHref={`/league/${slug}/history/stats#${isStreaks ? 'career_dynasty' : 'career_drought'}`}
         delegationLabel={isStreaks ? 'Full streak history →' : 'Full drought history →'}
       />
       {isEmpty ? (
