@@ -35,7 +35,7 @@ export function HistorySubNav({ slug }: HistorySubNavProps): React.ReactElement 
 
   return (
     <nav aria-label="History sections" className="no-scrollbar overflow-x-auto">
-      <div className="mb-6 flex items-center gap-6 border-b border-gray-200 dark:border-zinc-700">
+      <div className="mb-6 flex items-center justify-end gap-6 border-b border-gray-200 dark:border-zinc-700">
         {SUBTABS.map((tab) => {
           const href = `${basePath}${tab.suffix}`;
           const isActive = activeTab === tab.key;
