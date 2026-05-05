@@ -11,7 +11,9 @@ export default clerkMiddleware(async (auth, req) => {
       return NextResponse.redirect(new URL('/login', req.url));
     }
 
-    const claims = sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> };
+    const claims = sessionClaims as Record<string, unknown> & {
+      publicMetadata?: Record<string, unknown>;
+    };
     const role = claims?.publicMetadata?.role;
     if (role !== 'platform_admin') {
       return NextResponse.redirect(new URL('/', req.url));
