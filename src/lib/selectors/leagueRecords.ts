@@ -1579,18 +1579,29 @@ function rankSingleSeasonBlowout(
     (m) => m.winner,
     'desc'
   );
-  // Per-bucket context: representative matchup (most-recent year among tied owners).
-  const repByValue = new Map<number, OwnedFinalMatchup>();
-  for (const m of items) {
-    const cur = repByValue.get(m.margin);
-    if (!cur || m.year > cur.year) repByValue.set(m.margin, m);
+  const matchupByOwner = new Map<string, OwnedFinalMatchup>();
+  for (const m of items) matchupByOwner.set(m.winner, m);
+  // single_season_blowout emits ONE ROW PER TIED OWNER (not grouped) so each
+  // owner's `over {loser} · {year}` context reflects their own game. A bucket
+  // representative would mis-attribute one owner's loser/year to another tied
+  // winner. Standard competition ranking still applies.
+  const rows: RankedRecordRow[] = [];
+  let nextRank = 1;
+  for (const bucket of buckets) {
+    for (const owner of bucket.owners) {
+      const matchup = matchupByOwner.get(owner)!;
+      rows.push({
+        rank: nextRank,
+        owners: [owner],
+        value: bucket.value,
+        formattedValue: `${formatNum(bucket.value)} pts`,
+        contextString: `over ${matchup.loser} · ${matchup.year}`,
+        isFormer: !activeOwners.has(owner),
+      });
+    }
+    nextRank += bucket.owners.length;
   }
-  const ctxByValue = new Map<number, string>();
-  for (const [v, m] of repByValue) ctxByValue.set(v, `over ${m.loser} · ${m.year}`);
-  return {
-    ...emptyRanked('single_season_blowout'),
-    rows: bucketsToRows(buckets, (v) => `${formatNum(v)} pts`, activeOwners, ctxByValue),
-  };
+  return { ...emptyRanked('single_season_blowout'), rows };
 }
 
 // --- Event rankings (no dedupe — each event is its own row) ----------------

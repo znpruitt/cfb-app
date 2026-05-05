@@ -1122,6 +1122,47 @@ test('selectRecordRankings: event records emit one row per event with participan
   assert.equal(rows[1]!.contextString, '2022 season');
 });
 
+test('selectRecordRankings: single_season_blowout splits tied margins into per-game rows with correct contextString', () => {
+  // Two different blowouts in different archives, tied at margin 87:
+  //   2023: Alice (120) over Charlie (33)
+  //   2024: Bob   (120) over Dave    (33)
+  // Each tied row must carry its OWN (loser, year) — not a representative pulled
+  // from another tied owner's game.
+  const g1 = makeGame('g1', 'Alice', 'Charlie');
+  g1.week = 5;
+  const g2 = makeGame('g2', 'Bob', 'Dave');
+  g2.week = 5;
+  const archives = [
+    makeArchive(2023, [makeRow('Alice', 10, 2), makeRow('Charlie', 5, 7)], {
+      games: [g1],
+      scoresByKey: { g1: makeScore(120, 33) },
+    }),
+    makeArchive(2024, [makeRow('Bob', 10, 2), makeRow('Dave', 5, 7)], {
+      games: [g2],
+      scoresByKey: { g2: makeScore(120, 33) },
+    }),
+  ];
+  const result = selectRecordRankings(archives, new Map());
+  const rows = result.single_season_blowout.rows;
+  // Two tied games at margin 87 → 2 rows, both at rank 1
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0]!.rank, 1);
+  assert.equal(rows[1]!.rank, 1);
+  // Each row is single-owner with its own contextString
+  assert.equal(rows[0]!.owners.length, 1);
+  assert.equal(rows[1]!.owners.length, 1);
+  assert.notEqual(
+    rows[0]!.contextString,
+    rows[1]!.contextString,
+    'tied rows must carry distinct contextStrings'
+  );
+  // Lex sort within bucket: Alice before Bob
+  assert.deepEqual(rows[0]!.owners, ['Alice']);
+  assert.equal(rows[0]!.contextString, 'over Charlie · 2023');
+  assert.deepEqual(rows[1]!.owners, ['Bob']);
+  assert.equal(rows[1]!.contextString, 'over Dave · 2024');
+});
+
 test('selectRecordRankings: biggest_collapse and biggest_climb emit rows with from→to context', () => {
   const archives = [
     makeArchive(2023, [makeRow('Alice', 10, 2), makeRow('Bob', 8, 4), makeRow('Charlie', 5, 7)]),
