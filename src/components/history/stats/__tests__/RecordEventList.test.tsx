@@ -146,6 +146,44 @@ test('RecordEventList: biggest_collapse renders "{owner} finished Xth, then Yth"
   assert.match(container.textContent ?? '', /Alice finished 3rd, then 11th/);
 });
 
+test('RecordEventList: biggest_collapse rows render year-pair without overlapping holders content', () => {
+  // Pre-fix: 64px year column was narrower than the rendered "2024→2025"
+  // string (~80px), causing the year text to bleed into the holders column.
+  // Structural assertion: the three direct-child spans contain only their
+  // own content — no leakage of year text into the holders cell.
+  const record: RankedRecord = {
+    id: 'biggest_collapse',
+    label: 'Biggest Season Collapse',
+    category: 'event',
+    rows: [
+      {
+        rank: 1,
+        owners: ['Jordan'],
+        value: 8,
+        formattedValue: '8 spots',
+        contextString: '2024→2025',
+        isFormer: false,
+        fromRank: 4,
+        toRank: 12,
+      },
+    ],
+  };
+  const { container } = render(<RecordEventList record={record} />);
+  const li = container.querySelector('li');
+  assert.ok(li);
+  const spans = li!.querySelectorAll(':scope > span');
+  // Three columns: year, holders, value
+  assert.equal(spans.length, 3);
+  // Year cell holds only the year-pair
+  assert.equal(spans[0]!.textContent, '2024→2025');
+  // Holders cell holds the spec phrase, no year leakage
+  const holdersText = spans[1]!.textContent ?? '';
+  assert.match(holdersText, /Jordan finished 4th, then 12th/);
+  assert.equal(holdersText.includes('2024'), false, 'year must not leak into holders cell');
+  // Value cell
+  assert.equal(spans[2]!.textContent, '8 spots');
+});
+
 test('RecordEventList: tied event rows with identical rank+contextString but different owners render distinctly', () => {
   // Two biggest_collapse rows in the same year-pair, both delta=2 (tied at
   // rank 1), different owners. With the pre-fix key (rank + contextString),

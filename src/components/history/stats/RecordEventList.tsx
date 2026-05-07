@@ -74,7 +74,13 @@ function EventRow({ row, recordId }: EventRowProps): React.ReactElement {
   const tintClass = TINT_BY_RANK[row.rank] ?? 'text-gray-500 dark:text-zinc-400';
   return (
     <li className="flex items-start gap-3 py-[9px]">
-      <span className={`w-16 flex-none text-sm font-medium tabular-nums ${tintClass}`}>
+      {/* w-24 (96px) accommodates year-pair strings like "2024→2025" (~80px
+          at 14px tabular-nums weight 500). Single years like "2024" still fit
+          cleanly. overflow-hidden is defensive — content is confidently
+          shorter than the column at supported font sizes. */}
+      <span
+        className={`w-24 flex-none overflow-hidden text-sm font-medium tabular-nums ${tintClass}`}
+      >
         {row.contextString ?? '—'}
       </span>
       <span className="min-w-0 flex-1 text-sm text-gray-900 dark:text-zinc-100">
