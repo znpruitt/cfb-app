@@ -145,10 +145,10 @@ export default async function HistoryStatsPage({
 }
 
 /**
- * Computes per-record qualifier notes by comparing the set of owners present
- * in the archives against the set of owners surfaced by each ranking. The
- * difference is the set excluded by qualifier filters (e.g. <3 seasons for
- * career_win_pct, no titles for career_titles).
+ * Computes per-record qualifier notes by counting the set of owners present
+ * in the archives against the set surfaced by each ranking. Count-based
+ * notes ("N of M qualify") avoid wall-of-names exclusion lists when many
+ * owners fail the filter.
  */
 function buildQualifierNotes(
   rankings: Record<RecordId, RankedRecord>,
@@ -161,16 +161,15 @@ function buildQualifierNotes(
   };
 
   const notes: Partial<Record<RecordId, string>> = {};
+  const total = allArchiveOwners.size;
 
-  // career_win_pct: excluded = appeared in archives but not in win_pct ranking
-  const winPctOwners = ownersIn(rankings.career_win_pct);
-  const winPctExcluded = [...allArchiveOwners].filter((o) => !winPctOwners.has(o)).sort();
-  notes.career_win_pct =
-    winPctExcluded.length > 0
-      ? `Min. 3 seasons — ${winPctExcluded.join(', ')} excluded`
-      : 'Min. 3 seasons';
+  // career_win_pct + career_avg_finish share the >=3-seasons gate. Count
+  // owners surfaced by each ranking; the count is what passed the filter.
+  const winPctCount = ownersIn(rankings.career_win_pct).size;
+  notes.career_win_pct = `Min. 3 seasons · ${winPctCount} of ${total} qualify`;
 
-  notes.career_avg_finish = 'Min. 3 seasons · lower is better';
+  const avgFinishCount = ownersIn(rankings.career_avg_finish).size;
+  notes.career_avg_finish = `Min. 3 seasons · lower is better · ${avgFinishCount} of ${total} qualify`;
 
   // career_titles: count of owners with archive presence but no titles
   const titlesOwners = ownersIn(rankings.career_titles);

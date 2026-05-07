@@ -134,7 +134,7 @@ function EventCell({ row, recordId }: EventCellProps): React.ReactElement {
   return (
     <div
       data-testid="podium-cell"
-      className="grid min-w-0 grid-cols-[64px_1fr] items-center gap-x-2.5"
+      className="grid min-w-0 grid-cols-[96px_1fr] items-center gap-x-2.5"
     >
       <span
         data-testid="event-year"
