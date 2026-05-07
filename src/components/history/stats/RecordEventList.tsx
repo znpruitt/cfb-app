@@ -42,7 +42,7 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
         <ol className="divide-y divide-gray-100 dark:divide-zinc-800">
           {visibleRows.map((row) => (
             <EventRow
-              key={`${row.rank}-${row.contextString ?? row.owners.join(',')}`}
+              key={`${row.rank}-${row.contextString ?? ''}-${row.owners.join('-')}`}
               row={row}
               recordId={record.id}
               showAll={showAll}

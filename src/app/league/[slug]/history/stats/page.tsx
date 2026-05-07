@@ -70,9 +70,7 @@ export default async function HistoryStatsPage({
   const ownersRecord = await getAppState<string>(`owners:${slug}:${league.year}`, 'csv');
   const ownersCsv = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
   const currentRosterRows = parseOwnersCsv(ownersCsv);
-  const currentRoster = new Map(currentRosterRows.map((r) => [r.team, r.owner]));
-
-  const rankings = selectRecordRankings(archives, currentRoster);
+  const csvRoster = new Map(currentRosterRows.map((r) => [r.team, r.owner]));
 
   const allArchiveOwners = new Set<string>();
   for (const archive of archives) {
@@ -80,6 +78,19 @@ export default async function HistoryStatsPage({
       if (row.owner && row.owner !== NO_CLAIM_OWNER) allArchiveOwners.add(row.owner);
     }
   }
+
+  // Roster fallback when the season's owners CSV is missing/empty (post-reset,
+  // storage miss, pre-rollover). Without it every owner reads as "former":
+  // career_drought renders empty, all rows show the former badge, the
+  // Active-only toggle clears every ranking. Mirrors the Overview page's
+  // archive-union pattern. Synthetic keys are fine — the selector reads only
+  // Map.values() (see activeOwnerSet in leagueRecords).
+  const currentRoster: Map<string, string> =
+    csvRoster.size > 0
+      ? csvRoster
+      : new Map([...allArchiveOwners].map((owner) => [`__archive:${owner}`, owner]));
+
+  const rankings = selectRecordRankings(archives, currentRoster);
 
   const qualifierNotesById = buildQualifierNotes(rankings, allArchiveOwners);
 

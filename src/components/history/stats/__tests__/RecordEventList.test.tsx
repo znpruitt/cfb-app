@@ -146,6 +146,44 @@ test('RecordEventList: biggest_collapse renders "{owner} finished Xth, then Yth"
   assert.match(container.textContent ?? '', /Alice finished 3rd, then 11th/);
 });
 
+test('RecordEventList: tied event rows with identical rank+contextString but different owners render distinctly', () => {
+  // Two biggest_collapse rows in the same year-pair, both delta=2 (tied at
+  // rank 1), different owners. With the pre-fix key (rank + contextString),
+  // these would collide and React would render only one row.
+  const record: RankedRecord = {
+    id: 'biggest_collapse',
+    label: 'Biggest Season Collapse',
+    category: 'event',
+    rows: [
+      {
+        rank: 1,
+        owners: ['Alice'],
+        value: 2,
+        formattedValue: '2 spots',
+        contextString: '2023→2024',
+        isFormer: false,
+        fromRank: 1,
+        toRank: 3,
+      },
+      {
+        rank: 1,
+        owners: ['Bob'],
+        value: 2,
+        formattedValue: '2 spots',
+        contextString: '2023→2024',
+        isFormer: false,
+        fromRank: 4,
+        toRank: 6,
+      },
+    ],
+  };
+  const { container } = render(<RecordEventList record={record} />);
+  const items = container.querySelectorAll('li');
+  assert.equal(items.length, 2, 'both tied rows must render — pre-fix collapsed to one');
+  assert.match(items[0]!.textContent ?? '', /Alice/);
+  assert.match(items[1]!.textContent ?? '', /Bob/);
+});
+
 test('RecordEventList: biggest_climb renders "{owner} finished Xth, then Yth" with reversed direction', () => {
   const record: RankedRecord = {
     id: 'biggest_climb',
