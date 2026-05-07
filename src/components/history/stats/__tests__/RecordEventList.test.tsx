@@ -184,6 +184,65 @@ test('RecordEventList: tied event rows with identical rank+contextString but dif
   assert.match(items[1]!.textContent ?? '', /Bob/);
 });
 
+test('RecordEventList: podium tint persists on rank 1/2/3 when Show all is expanded', () => {
+  const record: RankedRecord = {
+    id: 'closest_title_race',
+    label: 'Closest Title Race',
+    category: 'event',
+    rows: [
+      {
+        rank: 1,
+        owners: ['A', 'B'],
+        value: 0.5,
+        formattedValue: '0.5 GB',
+        contextString: '2024 season',
+        isFormer: false,
+        champion: 'A',
+        runnerUp: 'B',
+      },
+      {
+        rank: 2,
+        owners: ['C', 'D'],
+        value: 1.0,
+        formattedValue: '1.0 GB',
+        contextString: '2023 season',
+        isFormer: false,
+        champion: 'C',
+        runnerUp: 'D',
+      },
+      {
+        rank: 3,
+        owners: ['E', 'F'],
+        value: 1.5,
+        formattedValue: '1.5 GB',
+        contextString: '2022 season',
+        isFormer: false,
+        champion: 'E',
+        runnerUp: 'F',
+      },
+      {
+        rank: 4,
+        owners: ['G', 'H'],
+        value: 2.0,
+        formattedValue: '2.0 GB',
+        contextString: '2021 season',
+        isFormer: false,
+        champion: 'G',
+        runnerUp: 'H',
+      },
+    ],
+  };
+  const { container, getByRole } = render(<RecordEventList record={record} />);
+  fireEvent.click(getByRole('button', { name: /Show all 4/ }));
+  const items = container.querySelectorAll('li');
+  assert.equal(items.length, 4);
+  const yearCell = (li: Element) => li.querySelector('span')!;
+  assert.match(yearCell(items[0]!).className, /yellow-600|amber-300/);
+  assert.match(yearCell(items[1]!).className, /slate-500|slate-200/);
+  assert.match(yearCell(items[2]!).className, /orange-900|d4915c/);
+  assert.match(yearCell(items[3]!).className, /gray-500|zinc-400/);
+});
+
 test('RecordEventList: biggest_climb renders "{owner} finished Xth, then Yth" with reversed direction', () => {
   const record: RankedRecord = {
     id: 'biggest_climb',

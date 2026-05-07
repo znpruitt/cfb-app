@@ -45,7 +45,6 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
               key={`${row.rank}-${row.contextString ?? ''}-${row.owners.join('-')}`}
               row={row}
               recordId={record.id}
-              showAll={showAll}
             />
           ))}
         </ol>
@@ -67,12 +66,12 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
 type EventRowProps = {
   row: RankedRecordRow;
   recordId: string;
-  showAll: boolean;
 };
 
-function EventRow({ row, recordId, showAll }: EventRowProps): React.ReactElement {
-  const tintClass =
-    !showAll && row.rank <= 3 ? TINT_BY_RANK[row.rank] : 'text-gray-500 dark:text-zinc-400';
+function EventRow({ row, recordId }: EventRowProps): React.ReactElement {
+  // Podium tint follows row.rank, not slice index — ranks 1/2/3 (including
+  // tied) stay gold/silver/bronze when Show all expands.
+  const tintClass = TINT_BY_RANK[row.rank] ?? 'text-gray-500 dark:text-zinc-400';
   return (
     <li className="flex items-start gap-3 py-[9px]">
       <span className={`w-16 flex-none text-sm font-medium tabular-nums ${tintClass}`}>

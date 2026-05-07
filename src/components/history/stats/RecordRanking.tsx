@@ -69,8 +69,9 @@ export function RecordRanking({
         <ol className="divide-y divide-gray-100 dark:divide-zinc-800">
           {visibleRows.map((row) => {
             const tied = tieMap.get(row.rank) ?? false;
-            const tintClass =
-              !showAll && row.rank <= 3 ? RANK_TINT[row.rank] : 'text-gray-500 dark:text-zinc-400';
+            // Podium tint follows row.rank, not slice index — ranks 1/2/3
+            // (including tied) stay gold/silver/bronze when Show all expands.
+            const tintClass = RANK_TINT[row.rank] ?? 'text-gray-500 dark:text-zinc-400';
             return (
               <li
                 key={`${row.rank}-${row.owners.join(',')}`}

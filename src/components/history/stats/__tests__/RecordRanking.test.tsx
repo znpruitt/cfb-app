@@ -111,3 +111,53 @@ test('RecordRanking: emits article with id matching record.id (hash anchor targe
   assert.equal(article!.getAttribute('id'), 'career_titles');
   assert.match(article!.getAttribute('class') ?? '', /scroll-mt-/);
 });
+
+test('RecordRanking: podium tint persists on rank 1/2/3 when Show all is expanded', () => {
+  // 5-row record so Show all reveals ranks 4 and 5 alongside the podium.
+  const fiveRow = makeRecord({
+    rows: [
+      { rank: 1, owners: ['A'], value: 50, formattedValue: '50', isFormer: false },
+      { rank: 2, owners: ['B'], value: 40, formattedValue: '40', isFormer: false },
+      { rank: 3, owners: ['C'], value: 30, formattedValue: '30', isFormer: false },
+      { rank: 4, owners: ['D'], value: 20, formattedValue: '20', isFormer: false },
+      { rank: 5, owners: ['E'], value: 10, formattedValue: '10', isFormer: false },
+    ],
+  });
+  const { container, getByRole } = render(<RecordRanking record={fiveRow} />);
+  fireEvent.click(getByRole('button', { name: /Show all 5/ }));
+  const items = container.querySelectorAll('li');
+  assert.equal(items.length, 5);
+  // Rank cell is the first <span> inside the li
+  const rankCell = (li: Element) => li.querySelector('span')!;
+  assert.match(rankCell(items[0]!).className, /yellow-600|amber-300/, 'rank 1 keeps gold');
+  assert.match(rankCell(items[1]!).className, /slate-500|slate-200/, 'rank 2 keeps silver');
+  assert.match(rankCell(items[2]!).className, /orange-900|d4915c/, 'rank 3 keeps bronze');
+  // Ranks 4 and 5 stay tertiary gray
+  assert.match(rankCell(items[3]!).className, /gray-500|zinc-400/);
+  assert.match(rankCell(items[4]!).className, /gray-500|zinc-400/);
+});
+
+test('RecordRanking: tied podium ranks all receive their rank-tint', () => {
+  // T-1, T-1, T-3, T-3, then untied 5
+  const tied = makeRecord({
+    rows: [
+      { rank: 1, owners: ['Alice'], value: 100, formattedValue: '100', isFormer: false },
+      { rank: 1, owners: ['Bob'], value: 100, formattedValue: '100', isFormer: false },
+      { rank: 3, owners: ['Charlie'], value: 80, formattedValue: '80', isFormer: false },
+      { rank: 3, owners: ['Dave'], value: 80, formattedValue: '80', isFormer: false },
+      { rank: 5, owners: ['Eve'], value: 60, formattedValue: '60', isFormer: false },
+    ],
+  });
+  const { container, getByRole } = render(<RecordRanking record={tied} />);
+  fireEvent.click(getByRole('button', { name: /Show all 5/ }));
+  const items = container.querySelectorAll('li');
+  const rankCell = (li: Element) => li.querySelector('span')!;
+  // Both T-1 rows get gold
+  assert.match(rankCell(items[0]!).className, /yellow-600|amber-300/);
+  assert.match(rankCell(items[1]!).className, /yellow-600|amber-300/);
+  // Both T-3 rows get bronze
+  assert.match(rankCell(items[2]!).className, /orange-900|d4915c/);
+  assert.match(rankCell(items[3]!).className, /orange-900|d4915c/);
+  // Rank 5 untinted
+  assert.match(rankCell(items[4]!).className, /gray-500|zinc-400/);
+});
