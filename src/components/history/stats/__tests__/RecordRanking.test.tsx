@@ -101,37 +101,16 @@ test('RecordRanking: lockedActiveOnly hides toggle and pre-filters formers', () 
   );
 });
 
-test('RecordRanking: qualifierNote renders below the label', () => {
-  const { container } = render(
-    <RecordRanking record={makeRecord()} qualifierNote="Min. 3 seasons · 5 of 14 qualify" />
-  );
+test('RecordRanking: qualifierNote prop renders verbatim below the label', () => {
+  // qualifierNote is a generic prop the component renders inside
+  // [data-testid="record-qualifier"]. No production records currently set
+  // this prop — the test uses a synthetic fixture string to verify the prop
+  // pathway stays intact for any future records that opt in.
+  const SYNTHETIC = 'Test qualifier — eligibility note';
+  const { container } = render(<RecordRanking record={makeRecord()} qualifierNote={SYNTHETIC} />);
   const qualifier = container.querySelector('[data-testid="record-qualifier"]');
   assert.ok(qualifier);
-  assert.match(qualifier!.textContent ?? '', /Min\. 3 seasons · 5 of 14 qualify/);
-});
-
-test('RecordRanking: count-based qualifier formats render verbatim', () => {
-  // win_pct format
-  const winPct = render(
-    <RecordRanking
-      record={makeRecord({ id: 'career_win_pct', label: 'Career Win %' })}
-      qualifierNote="Min. 3 seasons · 7 of 14 qualify"
-    />
-  );
-  assert.match(winPct.container.textContent ?? '', /Min\. 3 seasons · \d+ of \d+ qualify/);
-  cleanup();
-
-  // avg_finish format includes the lower-is-better hint
-  const avgFinish = render(
-    <RecordRanking
-      record={makeRecord({ id: 'career_avg_finish', label: 'Best Avg Finish' })}
-      qualifierNote="Min. 3 seasons · lower is better · 7 of 14 qualify"
-    />
-  );
-  assert.match(
-    avgFinish.container.textContent ?? '',
-    /Min\. 3 seasons · lower is better · \d+ of \d+ qualify/
-  );
+  assert.equal(qualifier!.textContent, SYNTHETIC);
 });
 
 test('RecordRanking: tied podium ranks render T-N prefix', () => {

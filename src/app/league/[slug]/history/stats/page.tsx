@@ -92,8 +92,6 @@ export default async function HistoryStatsPage({
 
   const rankings = selectRecordRankings(archives, currentRoster);
 
-  const qualifierNotesById = buildQualifierNotes(rankings, allArchiveOwners);
-
   const ordered: RankedRecord[] = Object.values(rankings);
   const career = ordered.filter((r) => r.category === 'career');
   const season = ordered.filter((r) => r.category === 'season');
@@ -122,61 +120,13 @@ export default async function HistoryStatsPage({
               title="Career"
               records={career}
               categoryNote={CATEGORY_NOTES.career}
-              qualifierNotesById={qualifierNotesById}
               lockedActiveOnlyIds={LOCKED_ACTIVE_ONLY_IDS}
             />
-            <RecordSection
-              title="Season"
-              records={season}
-              categoryNote={CATEGORY_NOTES.season}
-              qualifierNotesById={qualifierNotesById}
-            />
-            <RecordSection
-              title="Event"
-              records={event}
-              categoryNote={CATEGORY_NOTES.event}
-              qualifierNotesById={qualifierNotesById}
-            />
+            <RecordSection title="Season" records={season} categoryNote={CATEGORY_NOTES.season} />
+            <RecordSection title="Event" records={event} categoryNote={CATEGORY_NOTES.event} />
           </div>
         </div>
       </LeaguePageShell>
     </main>
   );
-}
-
-/**
- * Computes per-record qualifier notes by counting the set of owners present
- * in the archives against the set surfaced by each ranking. Count-based
- * notes ("N of M qualify") avoid wall-of-names exclusion lists when many
- * owners fail the filter.
- */
-function buildQualifierNotes(
-  rankings: Record<RecordId, RankedRecord>,
-  allArchiveOwners: Set<string>
-): Partial<Record<RecordId, string>> {
-  const ownersIn = (record: RankedRecord): Set<string> => {
-    const set = new Set<string>();
-    for (const row of record.rows) for (const o of row.owners) set.add(o);
-    return set;
-  };
-
-  const notes: Partial<Record<RecordId, string>> = {};
-  const total = allArchiveOwners.size;
-
-  // career_win_pct + career_avg_finish share the >=3-seasons gate. Count
-  // owners surfaced by each ranking; the count is what passed the filter.
-  const winPctCount = ownersIn(rankings.career_win_pct).size;
-  notes.career_win_pct = `Min. 3 seasons · ${winPctCount} of ${total} qualify`;
-
-  const avgFinishCount = ownersIn(rankings.career_avg_finish).size;
-  notes.career_avg_finish = `Min. 3 seasons · lower is better · ${avgFinishCount} of ${total} qualify`;
-
-  // career_titles: count of owners with archive presence but no titles
-  const titlesOwners = ownersIn(rankings.career_titles);
-  const zeroTitleCount = [...allArchiveOwners].filter((o) => !titlesOwners.has(o)).length;
-  if (zeroTitleCount > 0) {
-    notes.career_titles = `${zeroTitleCount} owner${zeroTitleCount === 1 ? '' : 's'} with 0 titles not shown`;
-  }
-
-  return notes;
 }
