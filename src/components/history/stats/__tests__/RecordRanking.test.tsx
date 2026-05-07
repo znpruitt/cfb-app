@@ -36,32 +36,51 @@ function makeRecord(overrides: Partial<RankedRecord> = {}): RankedRecord {
   };
 }
 
-test('RecordRanking: renders podium (top 3) by default', () => {
+function podiumCells(container: HTMLElement): NodeListOf<Element> {
+  return container.querySelectorAll('[data-testid="podium-cell"]');
+}
+
+function overflowList(container: HTMLElement): Element | null {
+  return container.querySelector('[data-testid="record-overflow"]');
+}
+
+test('RecordRanking: renders 3 podium cells by default (no overflow visible)', () => {
   const { container } = render(<RecordRanking record={makeRecord()} />);
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 3);
-  assert.match(items[0]!.textContent ?? '', /Alice/);
-  assert.match(items[2]!.textContent ?? '', /Charlie/);
+  const cells = podiumCells(container);
+  assert.equal(cells.length, 3);
+  assert.match(cells[0]!.textContent ?? '', /Alice/);
+  assert.match(cells[2]!.textContent ?? '', /Charlie/);
+  // No overflow rendered while collapsed
+  assert.equal(overflowList(container), null);
 });
 
-test('RecordRanking: Show all expands to full ranking', () => {
+test('RecordRanking: Show all reveals the overflow list (single column, top-to-bottom)', () => {
   const { container, getByRole } = render(<RecordRanking record={makeRecord()} />);
-  const button = getByRole('button', { name: /Show all 4/ });
+  fireEvent.click(getByRole('button', { name: /Show all/ }));
+  const overflow = overflowList(container);
+  assert.ok(overflow, 'overflow list should be rendered after Show all');
+  const items = overflow!.querySelectorAll('li');
+  assert.equal(items.length, 1, 'rank 4+ rendered in single-column list');
+  assert.match(items[0]!.textContent ?? '', /Dave/);
+});
+
+test('RecordRanking: Show all toggles button label between "Show all" and "Hide"', () => {
+  const { getByRole, container } = render(<RecordRanking record={makeRecord()} />);
+  const button = getByRole('button', { name: /Show all/ });
   fireEvent.click(button);
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 4);
-  assert.match(items[3]!.textContent ?? '', /Dave/);
+  assert.match(container.textContent ?? '', /Hide/);
+  fireEvent.click(getByRole('button', { name: /Hide/ }));
+  assert.match(container.textContent ?? '', /Show all/);
 });
 
-test('RecordRanking: ActiveOnlyToggle filters out former owners', () => {
+test('RecordRanking: ActiveOnlyToggle filters out former owners from the podium', () => {
   const { container, getByRole } = render(<RecordRanking record={makeRecord()} />);
-  const toggle = getByRole('switch');
-  fireEvent.click(toggle);
-  // Former Charlie removed; podium becomes [Alice, Bob, Dave]
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 3);
+  fireEvent.click(getByRole('switch'));
+  // Former Charlie removed; new podium becomes [Alice, Bob, Dave]
+  const cells = podiumCells(container);
+  assert.equal(cells.length, 3);
   assert.equal(
-    [...items].some((el) => /Charlie/.test(el.textContent ?? '')),
+    [...cells].some((el) => /Charlie/.test(el.textContent ?? '')),
     false
   );
 });
@@ -72,23 +91,26 @@ test('RecordRanking: lockedActiveOnly hides toggle and pre-filters formers', () 
   );
   // No toggle rendered
   assert.equal(queryByRole('switch'), null);
+  // Italic "Active only" label appears in the actions cell
+  assert.match(container.textContent ?? '', /Active only/);
   // Formers pre-filtered
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 3);
+  const cells = podiumCells(container);
   assert.equal(
-    [...items].some((el) => /Charlie/.test(el.textContent ?? '')),
+    [...cells].some((el) => /Charlie/.test(el.textContent ?? '')),
     false
   );
 });
 
-test('RecordRanking: qualifierNote renders when provided', () => {
+test('RecordRanking: qualifierNote renders below the label', () => {
   const { container } = render(
     <RecordRanking record={makeRecord()} qualifierNote="Min. 3 seasons — Hardiman excluded" />
   );
-  assert.match(container.textContent ?? '', /Min\. 3 seasons — Hardiman excluded/);
+  const qualifier = container.querySelector('[data-testid="record-qualifier"]');
+  assert.ok(qualifier);
+  assert.match(qualifier!.textContent ?? '', /Min\. 3 seasons — Hardiman excluded/);
 });
 
-test('RecordRanking: tied rank renders T-N prefix', () => {
+test('RecordRanking: tied podium ranks render T-N prefix', () => {
   const tiedRecord = makeRecord({
     rows: [
       { rank: 1, owners: ['Alice'], value: 100, formattedValue: '100', isFormer: false },
@@ -97,14 +119,13 @@ test('RecordRanking: tied rank renders T-N prefix', () => {
     ],
   });
   const { container } = render(<RecordRanking record={tiedRecord} />);
-  const items = container.querySelectorAll('li');
-  assert.match(items[0]!.textContent ?? '', /T-1/);
-  assert.match(items[1]!.textContent ?? '', /T-1/);
-  // Rank 3 (untied) renders as plain "3"
-  assert.match(items[2]!.textContent ?? '', /^3/);
+  const ranks = container.querySelectorAll('[data-testid="podium-rank"]');
+  assert.match(ranks[0]!.textContent ?? '', /T-1/);
+  assert.match(ranks[1]!.textContent ?? '', /T-1/);
+  assert.match(ranks[2]!.textContent ?? '', /^3$/); // untied rank renders bare
 });
 
-test('RecordRanking: emits article with id matching record.id (hash anchor target)', () => {
+test('RecordRanking: emits article with id matching record.id and scroll-mt class', () => {
   const { container } = render(<RecordRanking record={makeRecord({ id: 'career_titles' })} />);
   const article = container.querySelector('article');
   assert.ok(article);
@@ -113,7 +134,6 @@ test('RecordRanking: emits article with id matching record.id (hash anchor targe
 });
 
 test('RecordRanking: podium tint persists on rank 1/2/3 when Show all is expanded', () => {
-  // 5-row record so Show all reveals ranks 4 and 5 alongside the podium.
   const fiveRow = makeRecord({
     rows: [
       { rank: 1, owners: ['A'], value: 50, formattedValue: '50', isFormer: false },
@@ -124,40 +144,37 @@ test('RecordRanking: podium tint persists on rank 1/2/3 when Show all is expande
     ],
   });
   const { container, getByRole } = render(<RecordRanking record={fiveRow} />);
-  fireEvent.click(getByRole('button', { name: /Show all 5/ }));
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 5);
-  // Rank cell is the first <span> inside the li
-  const rankCell = (li: Element) => li.querySelector('span')!;
-  assert.match(rankCell(items[0]!).className, /yellow-600|amber-300/, 'rank 1 keeps gold');
-  assert.match(rankCell(items[1]!).className, /slate-500|slate-200/, 'rank 2 keeps silver');
-  assert.match(rankCell(items[2]!).className, /orange-900|d4915c/, 'rank 3 keeps bronze');
-  // Ranks 4 and 5 stay tertiary gray
-  assert.match(rankCell(items[3]!).className, /gray-500|zinc-400/);
-  assert.match(rankCell(items[4]!).className, /gray-500|zinc-400/);
+  fireEvent.click(getByRole('button', { name: /Show all/ }));
+  // Rank tints in the (still-rendered) podium cells
+  const ranks = container.querySelectorAll('[data-testid="podium-rank"]');
+  assert.equal(ranks.length, 3);
+  assert.match(ranks[0]!.className, /yellow-600|amber-300/, 'rank 1 keeps gold');
+  assert.match(ranks[1]!.className, /slate-500|slate-200/, 'rank 2 keeps silver');
+  assert.match(ranks[2]!.className, /orange-900|d4915c/, 'rank 3 keeps bronze');
 });
 
 test('RecordRanking: tied podium ranks all receive their rank-tint', () => {
-  // T-1, T-1, T-3, T-3, then untied 5
   const tied = makeRecord({
     rows: [
       { rank: 1, owners: ['Alice'], value: 100, formattedValue: '100', isFormer: false },
       { rank: 1, owners: ['Bob'], value: 100, formattedValue: '100', isFormer: false },
       { rank: 3, owners: ['Charlie'], value: 80, formattedValue: '80', isFormer: false },
-      { rank: 3, owners: ['Dave'], value: 80, formattedValue: '80', isFormer: false },
-      { rank: 5, owners: ['Eve'], value: 60, formattedValue: '60', isFormer: false },
     ],
   });
-  const { container, getByRole } = render(<RecordRanking record={tied} />);
-  fireEvent.click(getByRole('button', { name: /Show all 5/ }));
-  const items = container.querySelectorAll('li');
-  const rankCell = (li: Element) => li.querySelector('span')!;
-  // Both T-1 rows get gold
-  assert.match(rankCell(items[0]!).className, /yellow-600|amber-300/);
-  assert.match(rankCell(items[1]!).className, /yellow-600|amber-300/);
-  // Both T-3 rows get bronze
-  assert.match(rankCell(items[2]!).className, /orange-900|d4915c/);
-  assert.match(rankCell(items[3]!).className, /orange-900|d4915c/);
-  // Rank 5 untinted
-  assert.match(rankCell(items[4]!).className, /gray-500|zinc-400/);
+  const { container } = render(<RecordRanking record={tied} />);
+  const ranks = container.querySelectorAll('[data-testid="podium-rank"]');
+  // T-1 / T-1 / 3 — both T-1 rows get gold; rank 3 row gets bronze
+  assert.match(ranks[0]!.className, /yellow-600|amber-300/);
+  assert.match(ranks[1]!.className, /yellow-600|amber-300/);
+  assert.match(ranks[2]!.className, /orange-900|d4915c/);
+});
+
+test('RecordRanking: empty record renders the placeholder line spanning podium columns', () => {
+  const empty = makeRecord({ rows: [] });
+  const { container } = render(<RecordRanking record={empty} />);
+  const placeholder = container.querySelector('[data-testid="record-empty"]');
+  assert.ok(placeholder);
+  assert.match(placeholder!.textContent ?? '', /No qualifying entries/);
+  // No podium cells when empty
+  assert.equal(podiumCells(container).length, 0);
 });

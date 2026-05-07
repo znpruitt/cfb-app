@@ -33,7 +33,10 @@ export function RecordSection({
           <p className="mt-1 text-xs italic text-gray-500 dark:text-zinc-500">{categoryNote}</p>
         ) : null}
       </header>
-      <div className="divide-y divide-gray-100 dark:divide-zinc-800">
+      {/* Each record manages its own bottom border so it can suppress the
+          divider when its Show all expansion is open (visual flow). No
+          divide-y here. */}
+      <div>
         {records.map((record) =>
           record.category === 'event' ? (
             <RecordEventList key={record.id} record={record} />

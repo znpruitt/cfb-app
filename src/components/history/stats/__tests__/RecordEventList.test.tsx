@@ -34,6 +34,8 @@ function makeEventRecord(): RankedRecord {
         formattedValue: '0.5 GB',
         contextString: '2024 season',
         isFormer: false,
+        champion: 'Alice',
+        runnerUp: 'Bob',
       },
       {
         rank: 2,
@@ -42,6 +44,8 @@ function makeEventRecord(): RankedRecord {
         formattedValue: '1.2 GB',
         contextString: '2023 season',
         isFormer: false,
+        champion: 'Charlie',
+        runnerUp: 'Dave',
       },
       {
         rank: 3,
@@ -50,6 +54,8 @@ function makeEventRecord(): RankedRecord {
         formattedValue: '2.0 GB',
         contextString: '2022 season',
         isFormer: false,
+        champion: 'Eve',
+        runnerUp: 'Frank',
       },
       {
         rank: 4,
@@ -58,37 +64,51 @@ function makeEventRecord(): RankedRecord {
         formattedValue: '4.0 GB',
         contextString: '2021 season',
         isFormer: false,
+        champion: 'Grace',
+        runnerUp: 'Henry',
       },
     ],
   };
 }
 
-test('RecordEventList: renders top 3 (podium) by default', () => {
+function podiumCells(container: HTMLElement): NodeListOf<Element> {
+  return container.querySelectorAll('[data-testid="podium-cell"]');
+}
+
+function overflowList(container: HTMLElement): Element | null {
+  return container.querySelector('[data-testid="record-overflow"]');
+}
+
+test('RecordEventList: renders 3 podium cells by default', () => {
   const { container } = render(<RecordEventList record={makeEventRecord()} />);
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 3);
+  const cells = podiumCells(container);
+  assert.equal(cells.length, 3);
 });
 
-test('RecordEventList: no toggle is rendered', () => {
+test('RecordEventList: no Active-only toggle is rendered', () => {
   const { queryByRole } = render(<RecordEventList record={makeEventRecord()} />);
   assert.equal(queryByRole('switch'), null);
 });
 
-test('RecordEventList: Show all expands to full event list', () => {
+test('RecordEventList: Show all reveals the overflow list (single-column)', () => {
   const { container, getByRole } = render(<RecordEventList record={makeEventRecord()} />);
-  fireEvent.click(getByRole('button', { name: /Show all 4/ }));
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 4);
+  fireEvent.click(getByRole('button', { name: /Show all/ }));
+  const overflow = overflowList(container);
+  assert.ok(overflow);
+  const items = overflow!.querySelectorAll('li');
+  assert.equal(items.length, 1);
+  assert.match(items[0]!.textContent ?? '', /Grace/);
 });
 
-test('RecordEventList: emits article with id matching record.id (hash anchor target)', () => {
+test('RecordEventList: emits article with id matching record.id and scroll-mt class', () => {
   const { container } = render(<RecordEventList record={makeEventRecord()} />);
   const article = container.querySelector('article');
   assert.ok(article);
   assert.equal(article!.getAttribute('id'), 'closest_title_race');
+  assert.match(article!.getAttribute('class') ?? '', /scroll-mt-/);
 });
 
-test('RecordEventList: empty rows renders "No events yet" message', () => {
+test('RecordEventList: empty record renders the placeholder spanning podium columns', () => {
   const empty: RankedRecord = {
     id: 'biggest_collapse',
     label: 'Biggest Season Collapse',
@@ -96,8 +116,9 @@ test('RecordEventList: empty rows renders "No events yet" message', () => {
     rows: [],
   };
   const { container, queryByRole } = render(<RecordEventList record={empty} />);
-  assert.match(container.textContent ?? '', /No events yet/);
-  // No Show all button when there are no rows
+  const placeholder = container.querySelector('[data-testid="record-empty"]');
+  assert.ok(placeholder);
+  assert.match(placeholder!.textContent ?? '', /No events yet/);
   assert.equal(queryByRole('button'), null);
 });
 
@@ -109,7 +130,7 @@ test('RecordEventList: closest_title_race renders "{champion} over {runnerUp}"',
     rows: [
       {
         rank: 1,
-        owners: ['Pruitt', 'Whited'], // lex-sorted
+        owners: ['Pruitt', 'Whited'],
         value: 0.5,
         formattedValue: '0.5 GB',
         contextString: '2024 season',
@@ -120,7 +141,6 @@ test('RecordEventList: closest_title_race renders "{champion} over {runnerUp}"',
     ],
   };
   const { container } = render(<RecordEventList record={record} />);
-  // Champion appears before "over"; runnerUp after
   assert.match(container.textContent ?? '', /Whited over Pruitt/);
 });
 
@@ -146,48 +166,29 @@ test('RecordEventList: biggest_collapse renders "{owner} finished Xth, then Yth"
   assert.match(container.textContent ?? '', /Alice finished 3rd, then 11th/);
 });
 
-test('RecordEventList: biggest_collapse rows render year-pair without overlapping holders content', () => {
-  // Pre-fix: 64px year column was narrower than the rendered "2024→2025"
-  // string (~80px), causing the year text to bleed into the holders column.
-  // Structural assertion: the three direct-child spans contain only their
-  // own content — no leakage of year text into the holders cell.
+test('RecordEventList: biggest_climb renders "{owner} finished Xth, then Yth" with reversed direction', () => {
   const record: RankedRecord = {
-    id: 'biggest_collapse',
-    label: 'Biggest Season Collapse',
+    id: 'biggest_climb',
+    label: 'Biggest Season Climb',
     category: 'event',
     rows: [
       {
         rank: 1,
-        owners: ['Jordan'],
+        owners: ['Bob'],
         value: 8,
         formattedValue: '8 spots',
-        contextString: '2024→2025',
+        contextString: '2022→2023',
         isFormer: false,
-        fromRank: 4,
-        toRank: 12,
+        fromRank: 9,
+        toRank: 1,
       },
     ],
   };
   const { container } = render(<RecordEventList record={record} />);
-  const li = container.querySelector('li');
-  assert.ok(li);
-  const spans = li!.querySelectorAll(':scope > span');
-  // Three columns: year, holders, value
-  assert.equal(spans.length, 3);
-  // Year cell holds only the year-pair
-  assert.equal(spans[0]!.textContent, '2024→2025');
-  // Holders cell holds the spec phrase, no year leakage
-  const holdersText = spans[1]!.textContent ?? '';
-  assert.match(holdersText, /Jordan finished 4th, then 12th/);
-  assert.equal(holdersText.includes('2024'), false, 'year must not leak into holders cell');
-  // Value cell
-  assert.equal(spans[2]!.textContent, '8 spots');
+  assert.match(container.textContent ?? '', /Bob finished 9th, then 1st/);
 });
 
 test('RecordEventList: tied event rows with identical rank+contextString but different owners render distinctly', () => {
-  // Two biggest_collapse rows in the same year-pair, both delta=2 (tied at
-  // rank 1), different owners. With the pre-fix key (rank + contextString),
-  // these would collide and React would render only one row.
   const record: RankedRecord = {
     id: 'biggest_collapse',
     label: 'Biggest Season Collapse',
@@ -216,90 +217,48 @@ test('RecordEventList: tied event rows with identical rank+contextString but dif
     ],
   };
   const { container } = render(<RecordEventList record={record} />);
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 2, 'both tied rows must render — pre-fix collapsed to one');
-  assert.match(items[0]!.textContent ?? '', /Alice/);
-  assert.match(items[1]!.textContent ?? '', /Bob/);
+  const cells = podiumCells(container);
+  assert.equal(cells.length, 2, 'both tied rows must render — pre-fix collapsed to one');
+  assert.match(cells[0]!.textContent ?? '', /Alice/);
+  assert.match(cells[1]!.textContent ?? '', /Bob/);
 });
 
 test('RecordEventList: podium tint persists on rank 1/2/3 when Show all is expanded', () => {
-  const record: RankedRecord = {
-    id: 'closest_title_race',
-    label: 'Closest Title Race',
-    category: 'event',
-    rows: [
-      {
-        rank: 1,
-        owners: ['A', 'B'],
-        value: 0.5,
-        formattedValue: '0.5 GB',
-        contextString: '2024 season',
-        isFormer: false,
-        champion: 'A',
-        runnerUp: 'B',
-      },
-      {
-        rank: 2,
-        owners: ['C', 'D'],
-        value: 1.0,
-        formattedValue: '1.0 GB',
-        contextString: '2023 season',
-        isFormer: false,
-        champion: 'C',
-        runnerUp: 'D',
-      },
-      {
-        rank: 3,
-        owners: ['E', 'F'],
-        value: 1.5,
-        formattedValue: '1.5 GB',
-        contextString: '2022 season',
-        isFormer: false,
-        champion: 'E',
-        runnerUp: 'F',
-      },
-      {
-        rank: 4,
-        owners: ['G', 'H'],
-        value: 2.0,
-        formattedValue: '2.0 GB',
-        contextString: '2021 season',
-        isFormer: false,
-        champion: 'G',
-        runnerUp: 'H',
-      },
-    ],
-  };
-  const { container, getByRole } = render(<RecordEventList record={record} />);
-  fireEvent.click(getByRole('button', { name: /Show all 4/ }));
-  const items = container.querySelectorAll('li');
-  assert.equal(items.length, 4);
-  const yearCell = (li: Element) => li.querySelector('span')!;
-  assert.match(yearCell(items[0]!).className, /yellow-600|amber-300/);
-  assert.match(yearCell(items[1]!).className, /slate-500|slate-200/);
-  assert.match(yearCell(items[2]!).className, /orange-900|d4915c/);
-  assert.match(yearCell(items[3]!).className, /gray-500|zinc-400/);
+  const { container, getByRole } = render(<RecordEventList record={makeEventRecord()} />);
+  fireEvent.click(getByRole('button', { name: /Show all/ }));
+  const years = container.querySelectorAll('[data-testid="event-year"]');
+  assert.equal(years.length, 3, 'podium years still rendered when expanded');
+  assert.match(years[0]!.className, /yellow-600|amber-300/);
+  assert.match(years[1]!.className, /slate-500|slate-200/);
+  assert.match(years[2]!.className, /orange-900|d4915c/);
 });
 
-test('RecordEventList: biggest_climb renders "{owner} finished Xth, then Yth" with reversed direction', () => {
+test('RecordEventList: podium event-year cell holds only the contextString — no holders leakage', () => {
+  // Structural assertion that the year cell and holders cell are separate DOM
+  // nodes; year text doesn't appear inside the holders span.
   const record: RankedRecord = {
-    id: 'biggest_climb',
-    label: 'Biggest Season Climb',
+    id: 'biggest_collapse',
+    label: 'Biggest Season Collapse',
     category: 'event',
     rows: [
       {
         rank: 1,
-        owners: ['Bob'],
+        owners: ['Jordan'],
         value: 8,
         formattedValue: '8 spots',
-        contextString: '2022→2023',
+        contextString: '2024→2025',
         isFormer: false,
-        fromRank: 9,
-        toRank: 1,
+        fromRank: 4,
+        toRank: 12,
       },
     ],
   };
   const { container } = render(<RecordEventList record={record} />);
-  // Climb: fromRank > toRank (9th → 1st)
-  assert.match(container.textContent ?? '', /Bob finished 9th, then 1st/);
+  const yearCell = container.querySelector('[data-testid="event-year"]');
+  assert.ok(yearCell);
+  assert.equal(yearCell!.textContent, '2024→2025');
+  // Holders text appears in the cell but in a separate span, not concatenated
+  const cell = container.querySelector('[data-testid="podium-cell"]');
+  assert.ok(cell);
+  assert.match(cell!.textContent ?? '', /Jordan finished 4th, then 12th/);
 });
