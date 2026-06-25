@@ -40,14 +40,21 @@ const ELIGIBLE = getDraftEligibleTeams((teamsData as TeamsJson).items);
 
 const params = Promise.resolve({ slug: SLUG, year: String(YEAR) });
 
-/** Build a complete draft for `ownerCount` owners using real catalog team names. */
-function completeDraft(ownerCount: number): {
+/**
+ * Build a complete draft for `ownerCount` owners using real catalog team names.
+ * `rounds` defaults to the catalog maximum; pass a smaller value to model a
+ * commissioner running fewer than the maximum rounds (a supported override).
+ */
+function completeDraft(
+  ownerCount: number,
+  rounds?: number
+): {
   draft: DraftState;
   teamsPerOwner: number;
   totalPicks: number;
 } {
   const owners = Array.from({ length: ownerCount }, (_, i) => `Owner${i + 1}`);
-  const teamsPerOwner = Math.floor(ELIGIBLE.length / ownerCount);
+  const teamsPerOwner = rounds ?? Math.floor(ELIGIBLE.length / ownerCount);
   const totalPicks = teamsPerOwner * ownerCount;
 
   const picks: DraftPick[] = [];
@@ -167,4 +174,35 @@ test('confirm writes NoClaim rows for undrafted eligible teams (remainder)', asy
 
   assert.equal(dataRows.length, totalPicks + remainder);
   assert.equal(noClaimRows.length, remainder);
+});
+
+test('confirm honors a sub-maximum configured round count (does not demand max rounds)', async () => {
+  // A 2-owner, 1-round draft completes at 2 picks. Confirmation must derive the
+  // expected count from settings.totalRounds (2), NOT from floor(eligible/owners)
+  // (which would expect the full 136-team catalog and 422 every short draft). All
+  // remaining eligible teams are written as NoClaim.
+  const rounds = 1;
+  const { draft, totalPicks } = completeDraft(2, rounds);
+  assert.equal(totalPicks, 2);
+  assert.ok(
+    rounds < Math.floor(ELIGIBLE.length / 2),
+    'fixture expectation: configured rounds are below the catalog maximum'
+  );
+
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+
+  const res = await runWithRevalidateContext(() => POST(confirmRequest(), { params }));
+  const body = (await res.json()) as { success: boolean; teamCount: number; error?: string };
+  assert.equal(res.status, 200, body.error ?? 'expected sub-max-round confirm to succeed');
+  assert.equal(body.success, true);
+  assert.equal(body.teamCount, totalPicks);
+
+  const csvRecord = await getAppState<string>(`owners:${SLUG}:${YEAR}`, 'csv');
+  assert.ok(csvRecord?.value);
+  const dataRows = csvRecord.value.split('\n').slice(1); // drop header
+  const noClaimRows = dataRows.filter((r) => r.endsWith(',NoClaim'));
+
+  // Every undrafted eligible team becomes NoClaim: 2 drafted + (eligible - 2) unclaimed.
+  assert.equal(dataRows.length, ELIGIBLE.length);
+  assert.equal(noClaimRows.length, ELIGIBLE.length - totalPicks);
 });

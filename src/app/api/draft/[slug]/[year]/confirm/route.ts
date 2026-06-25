@@ -59,17 +59,20 @@ export async function POST(
 
   const draft = record.value;
 
-  // Derive expected pick count from the draft-eligible team catalog at runtime —
-  // never hardcoded. teamsPerOwner = floor(eligibleTeamCount / ownerCount);
-  // totalExpectedPicks = teamsPerOwner * ownerCount. Eligibility is defined by the
-  // shared getDraftEligibleTeams helper (excludes the NoClaim placeholder) so this
-  // matches draft setup/update/auto-pick exactly. Undrafted eligible teams fill the
-  // remainder and are not assigned to any owner.
+  // Derive expected pick count from the draft's CONFIGURED round count — the same
+  // value setup/update validate (1 <= totalRounds <= floor(eligibleCount / owners))
+  // and the value the live draft completes against (totalRounds * ownerCount). A
+  // commissioner may run fewer than the catalog maximum rounds, so confirmation must
+  // honor totalRounds rather than recomputing the max from the full catalog; doing
+  // the latter 422s every sub-max-round draft. Eligibility (which teams may be
+  // drafted at all, and which fill NoClaim) is defined by the shared
+  // getDraftEligibleTeams helper so it matches setup/update/auto-pick exactly. Every
+  // undrafted eligible team — not just an even-division remainder — is written as
+  // NoClaim below.
   const { items: allTeams } = teamsData as TeamsJson;
   const eligibleTeams = getDraftEligibleTeams(allTeams);
-  const fbsTeamCount = eligibleTeams.length;
   const ownerCount = draft.owners.length;
-  const teamsPerOwner = Math.floor(fbsTeamCount / ownerCount);
+  const teamsPerOwner = draft.settings.totalRounds;
   const totalExpectedPicks = teamsPerOwner * ownerCount;
 
   if (draft.picks.length !== totalExpectedPicks) {
