@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
-import { type DraftState, type DraftPick, draftScope } from '@/lib/draft';
+import { type DraftState, type DraftPick, draftScope, isDraftEligibleTeam } from '@/lib/draft';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
 import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
 import teamsData from '@/data/teams.json';
@@ -87,7 +87,7 @@ export async function POST(
   const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
   const resolution = resolver.resolveName(teamName);
 
-  if (!resolution.canonicalName || resolution.canonicalName === 'NoClaim') {
+  if (!resolution.canonicalName || !isDraftEligibleTeam({ school: resolution.canonicalName })) {
     return NextResponse.json(
       { error: `Team "${teamName}" not found in FBS catalog` },
       { status: 400 }

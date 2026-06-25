@@ -11,6 +11,7 @@ import {
   type DraftPick,
   defaultDraftSettings,
   draftScope,
+  getDraftEligibleTeams,
 } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
@@ -178,7 +179,7 @@ export async function POST(
     }
     if (s.totalRounds !== undefined && s.totalRounds >= 1) {
       const { items } = teamsData as TeamsJson;
-      const fbsCount = items.filter((t) => t.school !== 'NoClaim').length;
+      const fbsCount = getDraftEligibleTeams(items).length;
       const maxRounds = Math.floor(fbsCount / ownerNames.length);
       if (s.totalRounds > maxRounds) {
         return NextResponse.json(
@@ -319,7 +320,7 @@ export async function PUT(
     // Validate totalRounds does not exceed max full rounds
     if (incoming.totalRounds !== undefined) {
       const { items } = teamsData as TeamsJson;
-      const fbsCount = items.filter((t) => t.school !== 'NoClaim').length;
+      const fbsCount = getDraftEligibleTeams(items).length;
       const ownerCount = draft.owners.length;
       if (ownerCount > 0) {
         const maxRounds = Math.floor(fbsCount / ownerCount);
@@ -439,7 +440,7 @@ export async function PUT(
         // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay
         // Select a random available team
         const { items } = teamsData as TeamsJson;
-        const fbsTeams = items.filter((t) => t.school !== 'NoClaim');
+        const fbsTeams = getDraftEligibleTeams(items);
         const pickedLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));

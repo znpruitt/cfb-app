@@ -4,7 +4,7 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
-import { type DraftState, draftScope } from '@/lib/draft';
+import { type DraftState, draftScope, getDraftEligibleTeams } from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
 
@@ -59,11 +59,15 @@ export async function POST(
 
   const draft = record.value;
 
-  // Derive expected pick count from FBS team catalog at runtime — never hardcoded.
-  // teamsPerOwner = floor(fbsTeamCount / ownerCount); totalExpectedPicks = teamsPerOwner * ownerCount.
-  // NoClaim teams fill the remainder and are not assigned to any owner.
+  // Derive expected pick count from the draft-eligible team catalog at runtime —
+  // never hardcoded. teamsPerOwner = floor(eligibleTeamCount / ownerCount);
+  // totalExpectedPicks = teamsPerOwner * ownerCount. Eligibility is defined by the
+  // shared getDraftEligibleTeams helper (excludes the NoClaim placeholder) so this
+  // matches draft setup/update/auto-pick exactly. Undrafted eligible teams fill the
+  // remainder and are not assigned to any owner.
   const { items: allTeams } = teamsData as TeamsJson;
-  const fbsTeamCount = allTeams.filter((t) => t.classification?.toLowerCase() === 'fbs').length;
+  const eligibleTeams = getDraftEligibleTeams(allTeams);
+  const fbsTeamCount = eligibleTeams.length;
   const ownerCount = draft.owners.length;
   const teamsPerOwner = Math.floor(fbsTeamCount / ownerCount);
   const totalExpectedPicks = teamsPerOwner * ownerCount;
@@ -112,14 +116,10 @@ export async function POST(
     );
   }
 
-  // Validate all pick.team values resolve to a known FBS team in the catalog.
-  const fbsTeamNames = new Set(
-    allTeams
-      .filter((t) => t.classification?.toLowerCase() === 'fbs')
-      .map((t) => t.school.toLowerCase())
-  );
+  // Validate all pick.team values resolve to a draft-eligible team in the catalog.
+  const eligibleTeamNames = new Set(eligibleTeams.map((t) => t.school.toLowerCase()));
   const unrecognizedTeams = draft.picks
-    .filter((p) => !fbsTeamNames.has(p.team.toLowerCase()))
+    .filter((p) => !eligibleTeamNames.has(p.team.toLowerCase()))
     .map((p) => p.team);
   if (unrecognizedTeams.length > 0) {
     return NextResponse.json(
@@ -138,13 +138,10 @@ export async function POST(
     csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
   }
 
-  // Append NoClaim rows for undrafted FBS teams (remainder after even division).
+  // Append NoClaim rows for undrafted eligible teams (remainder after even division).
   const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
-  const undraftedFbsTeams = allTeams
-    .filter(
-      (t) =>
-        t.classification?.toLowerCase() === 'fbs' && !draftedTeamsLower.has(t.school.toLowerCase())
-    )
+  const undraftedFbsTeams = eligibleTeams
+    .filter((t) => !draftedTeamsLower.has(t.school.toLowerCase()))
     .map((t) => t.school);
   for (const teamName of undraftedFbsTeams) {
     csvLines.push(`${csvField(teamName)},NoClaim`);
