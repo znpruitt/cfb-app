@@ -41,7 +41,6 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Polish              | Link Styling Audit (LINK-STYLING-AUDIT)                                                 | Planned     |
 | Draft               | Slow Draft Mode                                                                         | Planned     |
 | Draft               | Draft Difficulty Settings                                                               | Planned     |
-| Draft               | Pick Timer Precision (DRAFT-TIMER-PRECISION)                                            | Planned     |
 | Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned     |
 | Platform            | Server Action Auth Hardening                                                            | Planned     |
 | Polish              | Design Audit (remaining pages)                                                          | Planned     |
@@ -129,12 +128,6 @@ Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP (PR #30
   - Estimated scope: 1–2 sessions. Per-test updates are mechanical; the harder part is auditing whether failing assertions reflect real bugs or just stale expectations.
   - Prerequisites: none. Independent of any active campaign.
   - **Prompt ID to assign:** `TEST-SUITE-BASELINE-CLEANUP-v1`
-
-## Planned backlog (from P7B Draft Polish)
-
-Work originally drafted as a post-P7B follow-up but never shipped. Branch was abandoned mid-session without a follow-up PR after the parent PR (#269) merged:
-
-- **DRAFT-TIMER-PRECISION** — Reduce pick timer client-side display variance from server-roundtrip latency. Member-facing timer can show 0.2–0.8s lag from server-authoritative `timerExpiresAt`; server-side timer expiration is correct, this is purely display-side. Five commits on `claude/audit-season-transition-pwKfH` (April 2026) implement optimistic local countdown + clamping + ref-based local timer state: `65fe792` (server-side stamping), `785a37f` (optimistic countdown), `5d5ea2b` (clamp displayed seconds), `c428ecb` (state→ref), `9905434` (ESLint hotfix). Drift since then makes a clean rebase non-trivial — `DraftBoardClient.tsx` in particular has changed significantly via Season Launch Hardening Phase 1 (auth-gated polling). Two paths if/when this becomes priority: (1) rebase the existing 5 commits onto current main with manual conflict resolution against Phase 1 polling changes, or (2) extract just the optimistic-countdown commits (`785a37f` + `c428ecb`) as a fresh PR on main; smaller scope. Trigger: prioritize only if real user feedback surfaces during 2026 draft (members reporting the timer feels jittery or imprecise). Until then, the variance is acceptable for a once-per-year event with sub-second magnitude. **Pre-existing branch:** `claude/audit-season-transition-pwKfH`.
 
 ## Planned backlog (from HISTORY-RECORDS campaign)
 
