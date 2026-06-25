@@ -136,17 +136,39 @@ export async function POST(
   const isComplete = newPickIndex >= totalPicks;
   const { pickTimerSeconds } = draft.settings;
 
-  const timerExpiresAt =
-    !isComplete && pickTimerSeconds
+  // Round boundary: the advanced index lands exactly on the start of a fresh
+  // round (and the draft isn't finished). Pause so the commissioner must
+  // explicitly start the next round. This is now server-authoritative — it
+  // replaces the old client-side maybeAutoPauseForRound second round-trip.
+  const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
+
+  // Compute phase + timer up front so the value we persist is exactly the value
+  // we return (no stamp-after-write divergence — guarded by DRAFT-001 tests).
+  let nextPhase: DraftState['phase'];
+  let timerState: DraftState['timerState'];
+  let timerExpiresAt: string | null;
+
+  if (isComplete) {
+    nextPhase = 'complete';
+    timerState = 'off';
+    timerExpiresAt = null;
+  } else if (atRoundBoundary) {
+    nextPhase = 'paused';
+    timerState = pickTimerSeconds ? 'paused' : 'off';
+    timerExpiresAt = null;
+  } else {
+    nextPhase = 'live';
+    timerState = pickTimerSeconds ? 'running' : 'off';
+    timerExpiresAt = pickTimerSeconds
       ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
       : null;
-  const timerState = !isComplete && pickTimerSeconds ? 'running' : 'off';
+  }
 
   const updated: DraftState = {
     ...draft,
     picks: [...draft.picks, pick],
     currentPickIndex: newPickIndex,
-    phase: isComplete ? 'complete' : 'live',
+    phase: nextPhase,
     timerState,
     timerExpiresAt,
     updatedAt: new Date().toISOString(),

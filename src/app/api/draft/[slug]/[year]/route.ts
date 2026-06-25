@@ -472,17 +472,40 @@ export async function PUT(
         const isComplete = newPickIndex >= totalPicks;
         const { pickTimerSeconds } = draft.settings;
 
-        draft = {
-          ...draft,
-          picks: [...draft.picks, pick],
-          currentPickIndex: newPickIndex,
-          phase: isComplete ? 'complete' : 'live',
-          timerState: !isComplete && pickTimerSeconds ? 'running' : 'off',
-          timerExpiresAt:
-            !isComplete && pickTimerSeconds
+        // Honor the same server-authoritative round-boundary pause as the manual
+        // pick route: an auto-pick that completes a round pauses for the next one.
+        const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
+
+        if (isComplete) {
+          draft = {
+            ...draft,
+            picks: [...draft.picks, pick],
+            currentPickIndex: newPickIndex,
+            phase: 'complete',
+            timerState: 'off',
+            timerExpiresAt: null,
+          };
+        } else if (atRoundBoundary) {
+          draft = {
+            ...draft,
+            picks: [...draft.picks, pick],
+            currentPickIndex: newPickIndex,
+            phase: 'paused',
+            timerState: pickTimerSeconds ? 'paused' : 'off',
+            timerExpiresAt: null,
+          };
+        } else {
+          draft = {
+            ...draft,
+            picks: [...draft.picks, pick],
+            currentPickIndex: newPickIndex,
+            phase: 'live',
+            timerState: pickTimerSeconds ? 'running' : 'off',
+            timerExpiresAt: pickTimerSeconds
               ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
               : null,
-        };
+          };
+        }
       }
     } else {
       return NextResponse.json({ error: `Unknown timerAction: "${action}"` }, { status: 400 });
