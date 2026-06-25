@@ -78,7 +78,7 @@ export default function MoversSection({ buckets, slug }: Props): React.ReactElem
     <section>
       <SectionHead
         title="Season-over-season movement"
-        delegationHref={`/league/${slug}/history/stats`}
+        delegationHref={`/league/${slug}/history/stats#biggest_collapse`}
         delegationLabel="Full mover history →"
       />
       <div className="grid grid-cols-1 gap-x-14 gap-y-8 md:grid-cols-2">

@@ -140,7 +140,7 @@ export default function AllTimeStandingsSummary({
     <div className="@container">
       <SectionHead
         title="All-time standings"
-        delegationHref={`/league/${slug}/history/stats`}
+        delegationHref={`/league/${slug}/history/stats#career_points`}
         delegationLabel="Full standings →"
       />
       {visible.length === 0 ? (

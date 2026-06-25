@@ -1162,6 +1162,14 @@ export type RankedRecordRow = {
   contextString?: string;
   /** True only when every owner in this row is absent from currentRoster. */
   isFormer: boolean;
+  /** closest_title_race only: the season's champion (rank 1). */
+  champion?: string;
+  /** closest_title_race only: the season's runner-up (rank 2). */
+  runnerUp?: string;
+  /** biggest_collapse / biggest_climb only: the owner's rank in the earlier year. */
+  fromRank?: number;
+  /** biggest_collapse / biggest_climb only: the owner's rank in the later year. */
+  toRank?: number;
 };
 
 export type RankedRecord = {
@@ -1641,6 +1649,8 @@ function rankClosestTitleRace(
       formattedValue: `${e.gamesBack.toFixed(1)} GB`,
       contextString: `${e.year} season`,
       isFormer: owners.every((o) => !activeOwners.has(o)),
+      champion: e.champion,
+      runnerUp: e.runnerUp,
     });
     bucketCount += 1;
     lastValue = e.gamesBack;
@@ -1653,7 +1663,14 @@ function rankBiggestRankChange(
   activeOwners: Set<string>,
   direction: 'collapse' | 'climb'
 ): RankedRecord {
-  type Entry = { owner: string; delta: number; fromYear: number; toYear: number };
+  type Entry = {
+    owner: string;
+    delta: number;
+    fromYear: number;
+    toYear: number;
+    fromRank: number;
+    toRank: number;
+  };
   const entries: Entry[] = [];
   for (let i = 1; i < sortedArchives.length; i++) {
     const prev = sortedArchives[i - 1]!;
@@ -1670,7 +1687,14 @@ function rankBiggestRankChange(
         const currRank = idx + 1;
         const delta = direction === 'collapse' ? currRank - prevRank : prevRank - currRank;
         if (delta > 0)
-          entries.push({ owner: row.owner, delta, fromYear: prev.year, toYear: curr.year });
+          entries.push({
+            owner: row.owner,
+            delta,
+            fromYear: prev.year,
+            toYear: curr.year,
+            fromRank: prevRank,
+            toRank: currRank,
+          });
       });
   }
 
@@ -1691,6 +1715,8 @@ function rankBiggestRankChange(
       formattedValue: `${e.delta} spots`,
       contextString: `${e.fromYear}→${e.toYear}`,
       isFormer: !activeOwners.has(e.owner),
+      fromRank: e.fromRank,
+      toRank: e.toRank,
     });
     bucketCount += 1;
     lastValue = e.delta;
