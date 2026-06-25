@@ -83,6 +83,14 @@ Never recommend or generate prompts that violate:
 
 If a proposed solution conflicts with any of these, flag it explicitly before generating a Codex prompt.
 
+**This list is not exhaustive.** Before generating prompts that touch auth, standings, the draft, or the insights engine, the following invariant sections in `AGENTS.md` are equally binding and must be read first:
+
+- **Auth Architecture Invariants** — Clerk is the sole auth provider; three roles in `publicMetadata`; gate via `requireAdminAuth(req)`; no inline role checks.
+- **Standings Ownership Invariants** — `getCanonicalStandings` is the only standings truth; `LiveDelta` is a client-only overlay; never merge canonical + live at render time; all mutation routes call `invalidateStandings`.
+- **Season Launch Hardening Invariants** — phase-aware draft polling; no `Date.now()` inside cached selectors; layered, `bypassSuppression`-able insights suppression.
+
+Two further core rules in `AGENTS.md` extend the guardrails above: **postseason canonical week** (`canonicalWeek = maxRegularSeasonWeek + providerWeek`, never bypass) and **roster fuzzy matching is upload-layer only** (not in `teamIdentity.ts`).
+
 ---
 
 ## Common commands
@@ -98,6 +106,8 @@ If a proposed solution conflicts with any of these, flag it explicitly before ge
 - `npm run fetch:teams` — regenerate `src/data/teams.json` from CFBD
 
 There is no Vitest/Jest config — test runner is Node's built-in. There is no CI workflow checked in; `npm run lint:all` is the intended pre-merge gate.
+
+**Do not verify with full `npm test`.** The full suite hangs on Overview-related tests (pending the `TEST-SUITE-BASELINE-CLEANUP` backlog item) and produces no usable signal. Verify by running only the scoped test files relevant to your change, plus selector tests in `src/lib/selectors/__tests__/`. See `AGENTS.md` → "Verification and reference conventions" for the full convention.
 
 ---
 
