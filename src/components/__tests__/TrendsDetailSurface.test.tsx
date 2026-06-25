@@ -752,9 +752,23 @@ test('selected focus mode follows active owner selection from chart interactions
     1
   );
 
-  // Deselecting Bob clears the selected set; no series (incl. Frank) renders.
+  // Deselecting Bob clears the selected set; in selected focus mode that means no series
+  // renders at all. Assert Bob himself is gone (the deselection under test) and that the
+  // total rendered series count is zero — not merely that an unrelated owner (Frank) is absent.
   await user.click(bobLegend);
   assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
+  assert.equal(
+    rendered.container.querySelector(
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"]'
+    ),
+    null
+  );
+  assert.equal(
+    rendered.container.querySelectorAll(
+      '[aria-label="Games Back shared trend chart"] path[data-owner-id]'
+    ).length,
+    0
+  );
   assert.equal(
     rendered.container.querySelector(
       '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
