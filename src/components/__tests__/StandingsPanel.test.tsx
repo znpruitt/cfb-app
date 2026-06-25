@@ -830,6 +830,7 @@ const canonicalArchiveSnapshot: CanonicalStandings = {
   coverage: { state: 'complete', message: null },
   ownersRosterSource: 'archive',
   archiveYearResolved: 2025,
+  inferredSeasonStart: null,
   generatedAt: '2026-04-26T00:00:00.000Z',
 };
 
