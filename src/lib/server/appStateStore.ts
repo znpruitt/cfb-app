@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { Pool } from 'pg';
@@ -38,6 +39,15 @@ function dataDir(): string {
 }
 
 function appStateFilePath(): string {
+  // Test-only isolation: `node:test` runs each test file in its own process, but the
+  // file fallback would otherwise share a single `data/app-state.json`, causing
+  // cross-process read/write races and flaky failures during parallel runs. When the
+  // test runner sets APP_STATE_TEST_ISOLATION, give each process its own temp file
+  // (keyed by pid) so appState-backed test files cannot clobber each other. This branch
+  // is never reached in dev or production, which do not set the flag.
+  if (process.env.APP_STATE_TEST_ISOLATION === '1') {
+    return path.join(os.tmpdir(), `cfb-app-app-state-test-${process.pid}.json`);
+  }
   return path.join(dataDir(), 'app-state.json');
 }
 
