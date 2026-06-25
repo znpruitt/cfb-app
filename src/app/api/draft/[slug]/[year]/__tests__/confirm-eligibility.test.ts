@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { POST } from '../confirm/route';
+import { PUT } from '../route';
 import { addLeague } from '@/lib/leagueRegistry';
 import {
   setAppState,
@@ -100,6 +101,14 @@ function confirmRequest(): Request {
   return new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/confirm`, {
     method: 'POST',
     headers: { 'x-admin-token': TOKEN },
+  });
+}
+
+function putSettingsRequest(body: Record<string, unknown>): Request {
+  return new Request(`http://localhost/api/draft/${SLUG}/${YEAR}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+    body: JSON.stringify(body),
   });
 }
 
@@ -205,4 +214,36 @@ test('confirm honors a sub-maximum configured round count (does not demand max r
   // Every undrafted eligible team becomes NoClaim: 2 drafted + (eligible - 2) unclaimed.
   assert.equal(dataRows.length, ELIGIBLE.length);
   assert.equal(noClaimRows.length, ELIGIBLE.length - totalPicks);
+});
+
+test('a completed draft cannot be made unconfirmable by changing totalRounds after picks exist', async () => {
+  // Confirmation derives expected picks from settings.totalRounds. If PUT could
+  // mutate totalRounds after the draft has picks, a complete 2-round draft (4
+  // picks) bumped to 3 rounds would expect 6 picks and 422 on confirm. The PUT
+  // route must reject the change so the finished roster stays confirmable.
+  const { draft, totalPicks } = completeDraft(2, 2);
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+
+  // Attempt to raise totalRounds on a started draft → rejected with 409.
+  const putRes = await runWithRevalidateContext(() =>
+    PUT(putSettingsRequest({ settings: { totalRounds: 3 } }), { params })
+  );
+  const putBody = (await putRes.json()) as { error?: string; field?: string };
+  assert.equal(putRes.status, 409, 'expected totalRounds change on a started draft to be rejected');
+  assert.match(putBody.error ?? '', /totalRounds cannot be changed/i);
+
+  // The persisted round count is unchanged.
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.equal(persisted?.value?.settings.totalRounds, 2);
+
+  // The completed roster is still confirmable.
+  const confirmRes = await runWithRevalidateContext(() => POST(confirmRequest(), { params }));
+  const confirmBody = (await confirmRes.json()) as {
+    success: boolean;
+    teamCount: number;
+    error?: string;
+  };
+  assert.equal(confirmRes.status, 200, confirmBody.error ?? 'expected confirm to still succeed');
+  assert.equal(confirmBody.success, true);
+  assert.equal(confirmBody.teamCount, totalPicks);
 });

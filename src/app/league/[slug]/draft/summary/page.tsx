@@ -2,7 +2,12 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
-import { draftScope, type DraftState } from '@/lib/draft';
+import {
+  draftScope,
+  getDraftEligibleTeams,
+  isDraftEligibleTeam,
+  type DraftState,
+} from '@/lib/draft';
 import { listSeasonArchives, getSeasonArchive, type SeasonArchive } from '@/lib/seasonArchive';
 import { selectTopRivalries } from '@/lib/selectors/historySelectors';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
@@ -129,17 +134,16 @@ export default async function DraftSummaryPage({
   // redirect() throws, so draft is non-null past this point
   const liveDraft = draft as DraftState;
 
-  // All FBS team names for the inline team picker (NoClaim excluded)
+  // All draft-eligible team names for the inline team picker (NoClaim excluded)
   const { items } = teamsData as TeamsJson;
-  const allTeamNames = items
-    .filter((t) => t.school !== 'NoClaim')
+  const allTeamNames = getDraftEligibleTeams(items)
     .map((t) => t.school)
     .sort((a, b) => a.localeCompare(b));
 
   // Build team→conference map for the summary display
   const conferenceMap: Record<string, string> = {};
   for (const t of items) {
-    if (t.school !== 'NoClaim' && t.conference) {
+    if (isDraftEligibleTeam(t) && t.conference) {
       conferenceMap[t.school.toLowerCase()] = t.conference;
     }
   }
@@ -148,7 +152,7 @@ export default async function DraftSummaryPage({
   const dbTeams = await getTeamDatabaseItems();
   const displayNameMap: Record<string, string> = {};
   for (const t of dbTeams) {
-    if (t.school === 'NoClaim') continue;
+    if (!isDraftEligibleTeam(t)) continue;
     const teamName = t.displayName ?? t.school;
     const shortName = t.shortDisplayName
       ? t.shortDisplayName

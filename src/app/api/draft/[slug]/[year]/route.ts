@@ -319,6 +319,26 @@ export async function PUT(
 
     // Validate totalRounds does not exceed max full rounds
     if (incoming.totalRounds !== undefined) {
+      // Lock the configured round count once the draft has started. Confirmation
+      // derives its expected pick count from settings.totalRounds, so allowing a
+      // change after picks exist would let a completed roster be made
+      // unconfirmable (picks.length would no longer match totalRounds * owners).
+      const original = record.value;
+      const draftStarted =
+        original.picks.length > 0 ||
+        original.phase === 'live' ||
+        original.phase === 'paused' ||
+        original.phase === 'complete';
+      if (draftStarted && incoming.totalRounds !== original.settings.totalRounds) {
+        return NextResponse.json(
+          {
+            error:
+              'totalRounds cannot be changed after the draft has started. Reset or reopen the draft to change the round count.',
+            field: 'settings.totalRounds',
+          },
+          { status: 409 }
+        );
+      }
       const { items } = teamsData as TeamsJson;
       const fbsCount = getDraftEligibleTeams(items).length;
       const ownerCount = draft.owners.length;

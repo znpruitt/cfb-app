@@ -1,6 +1,7 @@
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
+import { getDraftEligibleTeams } from '@/lib/draft';
 
 // ---------------------------------------------------------------------------
 // Input types
@@ -192,8 +193,8 @@ export function selectDraftTeamInsights(params: {
     }
   }
 
-  // Filter NoClaim
-  const eligibleTeams = teams.filter((t) => t.school !== 'NoClaim');
+  // Filter to draft-eligible teams (excludes NoClaim)
+  const eligibleTeams = getDraftEligibleTeams(teams);
 
   // Build sorted SP+ ratings for tier derivation
   const validRatings = (spRatings ?? [])

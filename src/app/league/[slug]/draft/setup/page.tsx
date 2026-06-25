@@ -5,7 +5,7 @@ import { getAppState } from '@/lib/server/appStateStore';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
-import { draftScope, type DraftState } from '@/lib/draft';
+import { draftScope, getDraftEligibleTeams, type DraftState } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import DraftSetupShell from '@/components/draft/DraftSetupShell';
@@ -76,9 +76,9 @@ export default async function DraftSetupPage({
     }
   }
 
-  // FBS team count for auto-suggesting rounds (exclude NoClaim)
+  // Draft-eligible team count for auto-suggesting rounds (excludes NoClaim)
   const { items } = teamsData as TeamsJson;
-  const fbsTeamCount = items.filter((t) => t.school !== 'NoClaim').length;
+  const fbsTeamCount = getDraftEligibleTeams(items).length;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">

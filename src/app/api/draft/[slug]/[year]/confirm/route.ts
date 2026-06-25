@@ -143,20 +143,20 @@ export async function POST(
 
   // Append NoClaim rows for undrafted eligible teams (remainder after even division).
   const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
-  const undraftedFbsTeams = eligibleTeams
+  const undraftedEligibleTeams = eligibleTeams
     .filter((t) => !draftedTeamsLower.has(t.school.toLowerCase()))
     .map((t) => t.school);
-  for (const teamName of undraftedFbsTeams) {
+  for (const teamName of undraftedEligibleTeams) {
     csvLines.push(`${csvField(teamName)},NoClaim`);
   }
 
   // Belt-and-suspenders: verify CSV row count before writing.
-  const expectedTotalRows = totalExpectedPicks + undraftedFbsTeams.length;
+  const expectedTotalRows = totalExpectedPicks + undraftedEligibleTeams.length;
   const rowCount = csvLines.length - 1; // exclude header
   if (rowCount !== expectedTotalRows) {
     return NextResponse.json(
       {
-        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedFbsTeams.length} unclaimed) but produced ${rowCount}. Do not write partial data.`,
+        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedEligibleTeams.length} unclaimed) but produced ${rowCount}. Do not write partial data.`,
       },
       { status: 422 }
     );
