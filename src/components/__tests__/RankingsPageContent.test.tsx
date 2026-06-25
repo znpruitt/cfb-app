@@ -26,12 +26,15 @@ test('rankings page renders CFP first and AP as a separate section', () => {
     />
   );
 
-  const cfpIndex = html.indexOf('CFP rankings');
-  const apIndex = html.indexOf('AP Top 25');
+  // Anchor on the column section headings (CFP renders before AP). Using the
+  // closing </h3> avoids matching the "AP Top 25 · Coaches Poll · CFP" subtitle.
+  const cfpIndex = html.indexOf('CFP Rankings</h3>');
+  const apIndex = html.indexOf('AP Top 25</h3>');
   assert.ok(cfpIndex >= 0);
   assert.ok(apIndex > cfpIndex);
-  assert.match(html, /#1 Oregon/);
-  assert.match(html, /#2 Texas/);
+  // Rank number and team name render in adjacent spans (no "#" prefix).
+  assert.match(html, /1<\/span><span[^>]*>Oregon<\/span>/);
+  assert.match(html, /2<\/span><span[^>]*>Texas<\/span>/);
 });
 
 test('rankings page renders coaches poll entries when that is the available normalized data', () => {
@@ -58,5 +61,6 @@ test('rankings page renders coaches poll entries when that is the available norm
   );
 
   assert.match(html, /Coaches Poll/);
-  assert.match(html, /#4 Notre Dame/);
+  // Rank number and team name render in adjacent spans (no "#" prefix).
+  assert.match(html, /4<\/span><span[^>]*>Notre Dame<\/span>/);
 });

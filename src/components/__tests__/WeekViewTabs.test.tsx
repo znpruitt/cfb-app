@@ -5,13 +5,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import WeekViewTabs from '../WeekViewTabs';
 
-test('week view tabs render overview, schedule, matchups, matrix, standings, and team labels', () => {
+test('week view tabs render the canonical top-level overview, standings, matchups, and members labels', () => {
   const html = renderToStaticMarkup(<WeekViewTabs value="matchups" onChange={() => {}} />);
 
+  // Top-level tabs after the standings-ownership redesign. Schedule/Matrix are
+  // sub-views of Matchups and Rankings is a sub-view of Standings, so they no
+  // longer surface as their own top-level tab labels.
   assert.match(html, /Overview/);
-  assert.match(html, /Schedule/);
-  assert.match(html, /Matchups/);
-  assert.match(html, /Matrix/);
   assert.match(html, /Standings/);
-  assert.match(html, /Teams/);
+  assert.match(html, /Matchups/);
+  assert.match(html, /Members/);
 });

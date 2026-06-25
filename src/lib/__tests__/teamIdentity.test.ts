@@ -2234,10 +2234,18 @@ test('full schedule survives load with regular weeks plus postseason weeks', () 
     built.games.some((g) => g.stage === 'regular' && g.week === 2),
     true
   );
-  assert.deepEqual(
-    built.weeks.filter((w) => [1, 2, 15, 17, 19].includes(w)),
-    [1, 2, 15, 17, 19]
-  );
+  // Regular weeks pass through unchanged; postseason weeks are remapped to canonical
+  // positions (canonicalWeek = maxRegularSeasonWeek + providerWeek). Here maxRegularSeasonWeek
+  // is 2, so provider weeks 15/17/18/19 land at canonical 17/19/20/21.
+  const maxRegularSeasonWeek = 2;
+  assert.ok(built.weeks.includes(1));
+  assert.ok(built.weeks.includes(2));
+  for (const providerWeek of [15, 17, 18, 19]) {
+    assert.ok(
+      built.weeks.includes(maxRegularSeasonWeek + providerWeek),
+      `expected canonical postseason week ${maxRegularSeasonWeek + providerWeek} (provider week ${providerWeek})`
+    );
+  }
 });
 
 test('week derivation includes early and late weeks from all games', () => {
@@ -2316,10 +2324,19 @@ test('week derivation includes early and late weeks from all games', () => {
     ],
   });
 
-  assert.deepEqual(
-    built.weeks.filter((w) => [1, 2, 3, 15, 17].includes(w)),
-    [1, 2, 3, 15, 17]
-  );
+  // Regular weeks 1-3 pass through; postseason provider weeks 15/17 are remapped to
+  // canonical positions (maxRegularSeasonWeek + providerWeek). maxRegularSeasonWeek is 3 here,
+  // so they land at canonical weeks 18/20.
+  const maxRegularSeasonWeek = 3;
+  for (const regularWeek of [1, 2, 3]) {
+    assert.ok(built.weeks.includes(regularWeek));
+  }
+  for (const providerWeek of [15, 17]) {
+    assert.ok(
+      built.weeks.includes(maxRegularSeasonWeek + providerWeek),
+      `expected canonical postseason week ${maxRegularSeasonWeek + providerWeek} (provider week ${providerWeek})`
+    );
+  }
 });
 
 test('hydration keeps regular season games while hydrating placeholders', () => {
