@@ -39,13 +39,25 @@ const mockClerkInstance = {
   openSignIn: noop,
   openUserProfile: noop,
   signOut: noop,
-} as unknown as Parameters<typeof ClerkInstanceContext.Provider>[0]['value'];
+};
+
+// Clerk's createContextAndHook stores the value wrapped as `{ value }` and the consuming
+// hooks read `ctx.value` at runtime, but the Provider's exposed prop type does not reflect
+// that wrapper. Assert through the actual prop types so the runtime-correct shapes type-check.
+type ClerkInstanceProviderValue = React.ComponentProps<
+  typeof ClerkInstanceContext.Provider
+>['value'];
+type InitialState = React.ComponentProps<typeof InitialStateProvider>['initialState'];
 
 export function renderWithAppContext(element: React.ReactElement): string {
   return renderToStaticMarkup(
     <AppRouterContext.Provider value={mockAppRouter}>
-      <ClerkInstanceContext.Provider value={{ value: mockClerkInstance }}>
-        <InitialStateProvider initialState={{ user: null }}>{element}</InitialStateProvider>
+      <ClerkInstanceContext.Provider
+        value={{ value: mockClerkInstance } as unknown as ClerkInstanceProviderValue}
+      >
+        <InitialStateProvider initialState={{ user: null } as unknown as InitialState}>
+          {element}
+        </InitialStateProvider>
       </ClerkInstanceContext.Provider>
     </AppRouterContext.Provider>
   );
