@@ -63,6 +63,13 @@ export default function DraftBoardClient({
   // Ref to prevent duplicate expire dispatches for the same pick
   const expireDispatchedRef = useRef(false);
 
+  // Optimistic display-only countdown: set to Date.now() the instant a pick POST
+  // fires so DraftHeaderArea can begin counting down immediately instead of waiting
+  // for the server round-trip. Cleared when the response arrives (handing off to the
+  // server-authoritative timerExpiresAt) or on error. A ref so mutating it neither
+  // re-renders nor restarts the timer effect; it never participates in pick submission.
+  const localTimerStartRef = useRef<number | null>(null);
+
   // Reset the guard whenever a new pick timer starts (timerExpiresAt changes)
   useEffect(() => {
     expireDispatchedRef.current = false;
@@ -172,6 +179,14 @@ export default function DraftBoardClient({
         }
       }
 
+      // Start the optimistic countdown only for picks that will arm a fresh timer
+      // (mid-round). Boundary picks pause and final picks complete, so there is no
+      // running timer to anticipate. Display-only — the ref never touches the body.
+      const nextIdx = draft.currentPickIndex + 1;
+      const willArmTimer =
+        !!draft.settings.pickTimerSeconds && nextIdx < totalPicks && nextIdx % n !== 0;
+      if (willArmTimer) localTimerStartRef.current = Date.now();
+
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/pick`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
@@ -179,12 +194,16 @@ export default function DraftBoardClient({
       });
       const data = (await res.json()) as { draft?: DraftState; error?: string };
       if (!res.ok || !data.draft) {
+        localTimerStartRef.current = null;
         setPickError(data.error ?? `Pick failed (${res.status})`);
         return;
       }
-      // Server already returns phase:'paused' at a round boundary — no second round-trip.
+      // Server response is authoritative now — hand off from the optimistic countdown
+      // to the server timerExpiresAt. (At a round boundary the server returns paused.)
+      localTimerStartRef.current = null;
       setDraft(data.draft);
     } catch (err) {
+      localTimerStartRef.current = null;
       setPickError((err as Error).message);
     } finally {
       setPickLoading(false);
@@ -304,6 +323,7 @@ export default function DraftBoardClient({
           isAdmin={isAdmin}
           slug={slug}
           leagueStatus={leagueStatus}
+          localTimerStartRef={localTimerStartRef}
           onPause={handlePause}
           onResume={handleResume}
           onUndo={handleUndo}
