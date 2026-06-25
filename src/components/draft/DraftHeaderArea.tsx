@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { DraftState } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
+import { computeTimerSecondsLeft } from './draftTimer';
 
 type DraftHeaderAreaProps = {
   draft: DraftState;
@@ -12,6 +13,15 @@ type DraftHeaderAreaProps = {
   slug?: string;
   /** League lifecycle status for conditional commissioner prompts. */
   leagueStatus?: LeagueStatus;
+  /**
+   * Optimistic countdown anchor: the client-local Date.now() recorded the instant a
+   * pick POST fires. When set, the timer counts down from pickTimerSeconds starting at
+   * that moment, so the clock moves immediately instead of waiting for the server
+   * round-trip. Cleared by the parent once the server timerExpiresAt becomes
+   * authoritative. Display-only — it never affects pick submission. Passed as a ref so
+   * mutating it neither re-renders nor restarts the timer effect.
+   */
+  localTimerStartRef?: React.MutableRefObject<number | null>;
   onPause?: () => void;
   onResume?: () => void;
   onUndo?: () => void;
@@ -39,6 +49,7 @@ export default function DraftHeaderArea({
   isAdmin,
   slug,
   leagueStatus,
+  localTimerStartRef,
   onPause,
   onResume,
   onUndo,
@@ -57,18 +68,31 @@ export default function DraftHeaderArea({
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
   useEffect(() => {
-    if (draft.timerState !== 'running' || !draft.timerExpiresAt) {
+    if (!pickTimerSeconds) {
       setSecondsLeft(null);
       return;
     }
+    // Each tick reads localTimerStartRef.current fresh (optimistic, display-only) and
+    // otherwise falls back to the server-authoritative timerExpiresAt — see
+    // computeTimerSecondsLeft. The ref is read inside the tick so it always sees the
+    // latest value without being a dependency (refs are stable and would otherwise
+    // needlessly restart the interval).
     function tick() {
-      const remaining = Math.max(0, new Date(draft.timerExpiresAt!).getTime() - Date.now());
-      setSecondsLeft(Math.ceil(remaining / 1000));
+      setSecondsLeft(
+        computeTimerSecondsLeft(
+          Date.now(),
+          pickTimerSeconds,
+          localTimerStartRef?.current ?? null,
+          draft.timerState,
+          draft.timerExpiresAt
+        )
+      );
     }
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [draft.timerState, draft.timerExpiresAt]);
+    // localTimerStartRef is intentionally omitted — stable by identity, read fresh in tick.
+  }, [draft.timerState, draft.timerExpiresAt, pickTimerSeconds]);
 
   // --- Crossfade slot tracking (useRef to avoid re-render timing issues) ---
   const activeSlotRef = useRef<'a' | 'b'>('a');
@@ -143,19 +167,30 @@ export default function DraftHeaderArea({
   const activeOwner = getPickOwner(draftOrder, idx) ?? '—';
   const overallPickNumber = idx + 1;
 
+  // Optimistic window: a pick POST is in flight and the clock is counting down locally
+  // from click time. Suppress the paused/expired visuals so the just-clicked pick reads
+  // as live while we await the server response. Re-evaluated on each 500ms tick re-render.
+  const isLocalCountdown = (localTimerStartRef?.current ?? null) != null && !!pickTimerSeconds;
+
   // Paused states
   const isPaused =
-    draft.phase === 'paused' || (draft.phase === 'live' && draft.timerState === 'paused');
-  const isExpired = draft.timerState === 'expired';
+    !isLocalCountdown &&
+    (draft.phase === 'paused' || (draft.phase === 'live' && draft.timerState === 'paused'));
+  const isExpired = !isLocalCountdown && draft.timerState === 'expired';
   const isRoundPause =
-    draft.phase === 'paused' && idx > 0 && idx % n === 0 && idx < totalPicks && !isExpired;
+    !isLocalCountdown &&
+    draft.phase === 'paused' &&
+    idx > 0 &&
+    idx % n === 0 &&
+    idx < totalPicks &&
+    draft.timerState !== 'expired';
 
   // Timer values for the circular clock
   const totalSecs = pickTimerSeconds ?? 60;
   let displaySeconds: number;
   let timerFraction: number;
 
-  if (draft.timerState === 'running' && secondsLeft !== null) {
+  if ((draft.timerState === 'running' || isLocalCountdown) && secondsLeft !== null) {
     displaySeconds = secondsLeft;
     timerFraction = totalSecs > 0 ? secondsLeft / totalSecs : 1;
   } else if (draft.timerState === 'paused' && draft.timerExpiresAt) {
