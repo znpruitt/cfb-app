@@ -2234,9 +2234,16 @@ test('full schedule survives load with regular weeks plus postseason weeks', () 
     built.games.some((g) => g.stage === 'regular' && g.week === 2),
     true
   );
+  // Regular weeks pass through unchanged; postseason weeks are remapped to canonical
+  // positions (canonicalWeek = maxRegularSeasonWeek + providerWeek). Here maxRegularSeasonWeek
+  // is 2, so provider weeks 15/17/18/19 land at canonical 17/19/20/21. Asserting the EXACT
+  // sorted week list guards the canonical-week invariant from both directions: a regression
+  // that leaked a raw provider week (e.g. 15 or 18) or dropped a canonical week would fail.
+  // (Note: canonical 17 and 19 are legitimately present here, derived from provider 15 and 17 —
+  // so "raw weeks absent" must be expressed as an exact-list check, not a blanket exclusion.)
   assert.deepEqual(
-    built.weeks.filter((w) => [1, 2, 15, 17, 19].includes(w)),
-    [1, 2, 15, 17, 19]
+    [...built.weeks].sort((a, b) => a - b),
+    [1, 2, 17, 19, 20, 21]
   );
 });
 
@@ -2316,9 +2323,13 @@ test('week derivation includes early and late weeks from all games', () => {
     ],
   });
 
+  // Regular weeks 1-3 pass through; postseason provider weeks 15/17 are remapped to
+  // canonical positions (maxRegularSeasonWeek + providerWeek). maxRegularSeasonWeek is 3 here,
+  // so they land at canonical weeks 18/20. Assert the EXACT sorted week list so a regression
+  // that leaked the raw provider weeks (15/17) or dropped the remapped weeks would fail.
   assert.deepEqual(
-    built.weeks.filter((w) => [1, 2, 3, 15, 17].includes(w)),
-    [1, 2, 3, 15, 17]
+    [...built.weeks].sort((a, b) => a - b),
+    [1, 2, 3, 18, 20]
   );
 });
 

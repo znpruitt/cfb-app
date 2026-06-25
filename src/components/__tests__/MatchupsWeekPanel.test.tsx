@@ -102,11 +102,13 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
     />
   );
 
-  assert.match(html, /Weekly Slates/);
+  assert.match(html, /data-owner-card="Alice"/);
+  assert.match(html, /data-owner-card="Bob"/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /0–0 · 1 live/);
-  assert.match(html, /2 games · vs Bob, NoClaim \(FBS\)/);
+  // Owner-vs-owner game is duplicated into both slates: Alice's card carries a
+  // "vs Bob" opponent badge while the unowned FBS game shows "NoClaim (FBS)".
   assert.match(html, /vs Bob/);
   assert.match(html, /NoClaim \(FBS\)/);
   assert.match(html, /Alabama[\s\S]*24[\s\S]*–[\s\S]*17[\s\S]*Georgia/);
@@ -119,7 +121,7 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
   );
   assert.match(
     html,
-    /rounded-xl border p-3\.5 shadow-sm sm:p-4 border-amber-300\/70 bg-amber-500\/5/
+    /rounded-xl border p-3\.5 shadow-sm sm:p-4 border-amber-300\/70 bg-amber-500\/15/
   );
   assert.doesNotMatch(html, /border-l-4 border-l-emerald-600 bg-emerald-50 text-gray-900/);
   assert.doesNotMatch(html, /Faces Bob/);
@@ -193,16 +195,16 @@ test('matchups panel summarizes self-matchups as Self', () => {
     />
   );
 
-  assert.match(html, /Alex/);
-  assert.match(html, /2 games/);
+  assert.match(html, /data-owner-card="Alex"/);
+  // Self-vs-self game is duplicated into both team slots within the owner's
+  // single card, so the "Self" opponent badge appears twice and GAMES is 2.
   assert.match(html, /1–1/);
-  assert.match(html, /2 games · vs Self \(x2\)/);
+  assert.equal((html.match(/>Self</g) ?? []).length, 2);
   assert.match(html, /Texas[\s\S]*28[\s\S]*–[\s\S]*21[\s\S]*Oklahoma/);
   assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
   assert.doesNotMatch(html, /Leading 28-21/);
   assert.doesNotMatch(html, /Trailing 28-21/);
   assert.equal((html.match(/Texas/g) ?? []).length, 2);
-  assert.doesNotMatch(html, /1 game · vs Self/);
 });
 
 test('matchups panel keeps status text non-redundant for completed games', () => {
@@ -228,7 +230,7 @@ test('matchups panel keeps status text non-redundant for completed games', () =>
     />
   );
 
-  assert.equal((html.match(/>Final</g) ?? []).length, 2);
+  assert.equal((html.match(/>FINAL</g) ?? []).length, 2);
   assert.doesNotMatch(html, /Final: /);
   assert.doesNotMatch(html, /Kickoff /);
   assert.match(html, /Iowa[\s\S]*31[\s\S]*–[\s\S]*24[\s\S]*Nebraska/);
@@ -433,11 +435,16 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
     />
   );
 
-  assert.match(html, /Avery/);
+  assert.match(html, /data-owner-card="Avery"/);
   assert.match(html, /2–1/);
-  assert.match(html, /3 games · vs FCS, NoClaim \(FBS\), Blair/);
-  assert.match(html, /bg-emerald-500\/5/);
-  assert.match(html, /Blair/);
+  // Avery's three owned participations surface FCS, NoClaim (FBS), and an
+  // owner-vs-owner "vs Blair" opponent badge on the individual game rows.
+  const averyCard = html.match(/data-owner-card="Avery"[\s\S]*?<\/article>/)?.[0] ?? '';
+  assert.match(averyCard, /FCS/);
+  assert.match(averyCard, /NoClaim \(FBS\)/);
+  assert.match(averyCard, /vs Blair/);
+  assert.match(html, /bg-emerald-500\/15/);
+  assert.match(html, /data-owner-card="Blair"/);
   assert.match(html, /0–1/);
   assert.match(html, /border-l-emerald-400\/80 bg-emerald-50\/40/);
   assert.match(html, /border-l-rose-400\/80 bg-rose-50\/40/);
@@ -493,9 +500,14 @@ test('scheduled and live games do not change owner final record summaries', () =
     />
   );
 
-  assert.match(html, /Casey/);
+  assert.match(html, /data-owner-card="Casey"/);
   assert.match(html, /1–0 · 1 live/);
-  assert.match(html, /3 games · vs Evan, NoClaim \(FBS\), Dana/);
+  // The final/live/scheduled mix shows three opponent badges on Casey's card;
+  // only the final game contributes to the record summary above.
+  const caseyCard = html.match(/data-owner-card="Casey"[\s\S]*?<\/article>/)?.[0] ?? '';
+  assert.match(caseyCard, /vs Evan/);
+  assert.match(caseyCard, /NoClaim \(FBS\)/);
+  assert.match(caseyCard, /vs Dana/);
 });
 
 test('owner slate shows final record when one game is final and another is still scheduled', () => {
@@ -537,9 +549,13 @@ test('owner slate shows final record when one game is final and another is still
     />
   );
 
-  assert.match(html, /Casey/);
+  assert.match(html, /data-owner-card="Casey"/);
   assert.match(html, /1–0/);
-  assert.match(html, /2 games · vs Evan, Dana/);
+  // Record summary reflects only the final game; the scheduled game still
+  // appears as an opponent badge but does not alter the summary text.
+  const caseyCard = html.match(/data-owner-card="Casey"[\s\S]*?<\/article>/)?.[0] ?? '';
+  assert.match(caseyCard, /vs Evan/);
+  assert.match(caseyCard, /vs Dana/);
   assert.doesNotMatch(html, /1 final/);
   assert.doesNotMatch(html, /1 scheduled/);
 });
@@ -607,8 +623,12 @@ test('matchups panel counts repeated opponents before truncating the summary lis
     />
   );
 
-  assert.match(html, /8 games · vs Pruitt \(x2\), Carter \(x3\), Surowiec \+2/);
-  assert.match(html, /Show all/);
+  // Taylor faces 8 games across 6 distinct opponents (Pruitt x2, Carter x3,
+  // plus Surowiec/Jordan/Ballard). With more opponents than the default
+  // visible count, the card surfaces a truncation control rather than listing
+  // every opponent inline.
+  assert.match(html, /data-owner-card="Taylor"/);
+  assert.match(html, /Show \d+ more opponents/);
 });
 
 test('matchups panel preserves championship placeholder labels instead of collapsing them to FCS', () => {
@@ -667,10 +687,11 @@ test('matchups panel preserves championship placeholder labels instead of collap
     />
   );
 
-  assert.match(html, /2 games · vs ACC Team TBD, SEC Team TBD/);
+  // Placeholder opponents keep their championship-slot labels as opponent
+  // badges instead of collapsing to a generic "FCS" descriptor.
   assert.match(html, /SEC Team TBD/);
   assert.match(html, /ACC Team TBD/);
-  assert.doesNotMatch(html, /2 games · vs FCS/);
+  assert.doesNotMatch(html, /vs FCS/);
 });
 
 test('unexpected final ties do not surface as supported matchup record semantics', () => {
@@ -697,7 +718,7 @@ test('unexpected final ties do not surface as supported matchup record semantics
   );
 
   assert.match(html, /Texas[\s\S]*24[\s\S]*–[\s\S]*24[\s\S]*Oklahoma/);
-  assert.equal((html.match(/>Final</g) ?? []).length, 2);
+  assert.equal((html.match(/>FINAL</g) ?? []).length, 2);
   assert.doesNotMatch(html, /Counts as 1W \/ 1L/);
   assert.doesNotMatch(html, /1–1–1/);
 });
@@ -728,8 +749,8 @@ test('postseason matchups render owner-first cards and preserve neutral-site met
     />
   );
 
-  assert.match(html, /Weekly Slates/);
-  assert.match(html, /Owner-first weekly cards\./);
+  assert.match(html, /data-owner-card="Alice"/);
+  assert.match(html, /data-owner-card="Bob"/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /Rose Bowl/);

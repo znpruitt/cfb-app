@@ -120,14 +120,11 @@ Items surfaced during the Standings Ownership Model Redesign campaign and queued
 
 Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP (PR #306, commit `1d1b451`). The PRE-LAUNCH-TIDYUP campaign itself shipped: `npm test` script added, `papaparse` removed, doc drift fixes for cron schedule and custom domain redirect landed, ADMIN_API_TOKEN sunset timeline documented. Residual backlog below — the test-baseline cleanup is the unfinished work surfaced by the new test script:
 
-- **TEST-SUITE-BASELINE-CLEANUP** — Update test expectations to match current UI and add a Clerk context wrapper to the test harness so the suite produces a real CI signal. Current state at the time the script was added: 71 failing tests out of 679. All failures are pre-existing and known — they predate the script; the script just made them visible. Two categories:
-  - ~50 tests with stale HTML/DOM expectations from before the STANDINGS-OWNERSHIP-MODEL-REDESIGN campaign. Production code is correct; tests need updates. Breakdown: `OverviewPanel.test.tsx` (26), `TrendsDetailSurface.test.tsx` (13, also affected by the move from `src/app/trends/` to `src/components/`), `MatchupsWeekPanel.test.tsx` (10), `StandingsPanel.test.tsx` and adjacent (~10).
-  - ~12 `CFBScheduleApp.test.tsx` failures from `useUser()` requiring a `<ClerkProvider />` wrapper added during LEAGUE-HEADER-USER-MENU. Add a shared test utility (e.g. `renderWithClerk()`) or per-test mock.
-  - Goal: drop failure count from 71 to single digits (allowing for any irreducible flakes). Once landed, the test suite becomes a meaningful CI signal — new test failures actually mean something rather than getting lost in baseline noise.
-  - Trigger to prioritize: when CI is set up, when adding new tests in a campaign that touches these files, or when test debt feels actively painful.
-  - Estimated scope: 1–2 sessions. Per-test updates are mechanical; the harder part is auditing whether failing assertions reflect real bugs or just stale expectations.
-  - Prerequisites: none. Independent of any active campaign.
-  - **Prompt ID to assign:** `TEST-SUITE-BASELINE-CLEANUP-v1`
+- **TEST-SUITE-BASELINE-CLEANUP** — _Largely shipped._ Two prerequisite prompts landed: `TEST-SUITE-HANG-BASELINE-FIX` (PR #324, commit `dcdadd4`) added `--test-timeout=30000` so `npm test` terminates instead of hanging, and `PLATFORM-001-TEST-BASELINE-CLEANUP-v1` (commit `711a032`) eliminated both cancelled (timed-out) files and the stale-markup / postseason-week-remapping failures. Full suite now: **0 cancelled, ~895/911 pass** (was 818/854 + 34 fail + 2 cancelled — note the earlier "71/679" figure predated several campaigns and the test count has since grown).
+  - ✅ Done: stale HTML/DOM expectations updated (OverviewPanel, TrendsDetailSurface, MatchupsWeekPanel, MatchupMatrixView, StandingsPanel, RankingsPageContent, WeekViewTabs, GameWeekPanel) and architecture-adjacent lib tests (teamIdentity, schedule-eligibility) made guardrail-aware — all confirmed stale tests, no product bugs.
+  - ▶ Remaining (tracked as follow-ups): **`PLATFORM-002-TEST-ROUTER-CLERK-CONTEXT-v1`** — 12 `CFBScheduleApp.test.tsx` failures need a Next.js App Router context (`useRouter` invariant) plus a Clerk `useUser` wrapper/mock (shared `renderWithAppContext()` util). **`PLATFORM-003-TEST-APPSTATE-ISOLATION-v1`** — `route-timer` + `selectors-leagueStandings` pass in isolation but flake under parallel processes via the shared file-based appState store; give each process an isolated store path or run serially.
+  - Goal once both follow-ups land: single-digit failures and a deterministic CI signal.
+  - **Prompt IDs:** `TEST-SUITE-HANG-BASELINE-FIX` (done), `PLATFORM-001-TEST-BASELINE-CLEANUP-v1` (done), `PLATFORM-002-TEST-ROUTER-CLERK-CONTEXT-v1` + `PLATFORM-003-TEST-APPSTATE-ISOLATION-v1` (planned).
 
 ## Planned backlog (from HISTORY-RECORDS campaign)
 

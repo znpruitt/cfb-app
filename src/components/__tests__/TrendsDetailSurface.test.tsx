@@ -526,18 +526,18 @@ test('owner selection propagates emphasis across charts, labels, momentum, and o
     />
   );
 
-  const rightEdgeLabels: SVGTextElement[] = Array.from(
-    rendered.container.querySelectorAll<SVGTextElement>(
-      '[aria-label="Games Back shared trend chart"] text[data-right-edge-label]'
-    )
+  // The Games Back chart is the active metric tab on initial render.
+  const gamesBackPoints = rendered.container.querySelectorAll<SVGCircleElement>(
+    '[aria-label="Games Back shared trend chart"] circle[fill="#888"]'
   );
-  assert.ok(rightEdgeLabels.length > 0);
-  for (const label of rightEdgeLabels) {
-    const y = Number.parseFloat(label.getAttribute('y') ?? '0');
-    assert.ok(y >= 10 && y <= 325);
+  assert.ok(gamesBackPoints.length > 0);
+  for (const dot of gamesBackPoints) {
+    const cy = Number.parseFloat(dot.getAttribute('cy') ?? '-1');
+    assert.ok(cy >= 0);
   }
 
-  const legendBob = rendered.container.querySelector('[data-legend-owner="Bob"]');
+  // Select Bob via the legend button (accessible name === owner name).
+  const legendBob = rendered.container.querySelector('[aria-label="Bob"]');
   assert.ok(legendBob);
   await user.click(legendBob);
 
@@ -553,15 +553,16 @@ test('owner selection propagates emphasis across charts, labels, momentum, and o
   assert.equal(bobGamesBackLine.getAttribute('stroke-width'), '5.2');
   assert.equal(aliceGamesBackLine.getAttribute('stroke-width'), '1.6');
 
+  // Selection persists across the metric tabs — switch to the Win % chart and
+  // confirm Bob is still the emphasized/selected series there.
+  const winPctTab = rendered.container.querySelector('[data-chart-tab="win-pct"]');
+  assert.ok(winPctTab);
+  await user.click(winPctTab);
+
   const bobWinPctLine = rendered.container.querySelector(
     '[aria-label="Win % shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
   );
   assert.ok(bobWinPctLine);
-
-  const bobLabel = rendered.container.querySelector(
-    '[aria-label="Win % shared trend chart"] [data-right-edge-label="Bob"]'
-  );
-  assert.ok(bobLabel);
 
   const bobMomentum = rendered.container.querySelector(
     '[data-momentum-owner="Bob"][data-selected="true"]'
@@ -590,7 +591,7 @@ test('clicking same owner toggles selection off and removes owner focus summary'
     />
   );
 
-  const legendAlice = rendered.container.querySelector('[data-legend-owner="Alice"]');
+  const legendAlice = rendered.container.querySelector('[aria-label="Alice"]');
   assert.ok(legendAlice);
 
   await user.click(legendAlice);
@@ -616,7 +617,7 @@ test('point hover shows compact chart tooltip content', async () => {
     />
   );
 
-  const legendAlice = rendered.container.querySelector('[data-legend-owner="Alice"]');
+  const legendAlice = rendered.container.querySelector('[aria-label="Alice"]');
   assert.ok(legendAlice);
   await user.click(legendAlice);
 
@@ -633,11 +634,14 @@ test('point hover shows compact chart tooltip content', async () => {
   assert.match(tooltip.textContent ?? '', /Alice|Bob|Carol|Dave|Eve/);
   assert.match(tooltip.textContent ?? '', /GB: \d+\.\d/);
 
-  const activeDot = rendered.container.querySelector(
-    '[aria-label="Games Back shared trend chart"] circle[fill^="hsl("]'
-  );
-  assert.ok(activeDot);
-  assert.ok(Number.parseFloat(activeDot.getAttribute('r') ?? '0') >= 6);
+  // The hovered point renders an enlarged visible dot (radius grows by ~1.8).
+  // Colors come from the ownerColorMap prop, which defaults to '#888' here.
+  const enlargedDot = [
+    ...rendered.container.querySelectorAll<SVGCircleElement>(
+      '[aria-label="Games Back shared trend chart"] circle[fill="#888"]'
+    ),
+  ].find((dot) => Number.parseFloat(dot.getAttribute('r') ?? '0') >= 6);
+  assert.ok(enlargedDot);
 });
 
 test('focus mode controls switch between all, top 5, and selected rendering states', async () => {
@@ -657,6 +661,16 @@ test('focus mode controls switch between all, top 5, and selected rendering stat
   assert.ok(allControl);
   assert.ok(topControl);
   assert.ok(selectedControl);
+  // Default focus mode is "all": every owner (incl. the non-top-5 Frank) renders.
+  assert.equal(allControl.getAttribute('aria-pressed'), 'true');
+  assert.ok(
+    rendered.container.querySelector(
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
+    )
+  );
+
+  // Switching to "top" restricts the chart to the top 5 owners, excluding Frank.
+  await user.click(topControl);
   assert.equal(topControl.getAttribute('aria-pressed'), 'true');
   assert.equal(
     rendered.container.querySelector(
@@ -665,14 +679,8 @@ test('focus mode controls switch between all, top 5, and selected rendering stat
     null
   );
 
-  await user.click(allControl);
-  assert.equal(allControl.getAttribute('aria-pressed'), 'true');
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
-    )
-  );
-
+  // Switching to "selected" with no active selection renders the empty-state
+  // prompt instead of series, so Frank remains absent from the chart.
   await user.click(selectedControl);
   assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
   assert.equal(
@@ -683,7 +691,7 @@ test('focus mode controls switch between all, top 5, and selected rendering stat
   );
 });
 
-test('default focus renders only top 5 series and excludes non-focused owners from DOM', () => {
+test('top focus renders only top 5 series and excludes non-focused owners from DOM', () => {
   const rendered = render(
     <TrendsDetailSurface
       standingsHistory={history}
@@ -692,6 +700,10 @@ test('default focus renders only top 5 series and excludes non-focused owners fr
       issues={[]}
     />
   );
+
+  const topControl = rendered.container.querySelector('[data-focus-mode-control="top"]');
+  assert.ok(topControl);
+  fireEvent.click(topControl);
 
   const gamesBackSeries = rendered.container.querySelectorAll(
     '[aria-label="Games Back shared trend chart"] path[data-owner-id]'
@@ -716,20 +728,23 @@ test('selected focus mode follows active owner selection from chart interactions
     />
   );
 
-  const bobLegend = rendered.container.querySelector('[data-legend-owner="Bob"]');
-  assert.ok(bobLegend);
-
-  await user.click(bobLegend);
+  // Enter selected focus mode first; the legend then drives the multi-select set
+  // that determines which owners the chart renders.
   const selectedControl = rendered.container.querySelector('[data-focus-mode-control="selected"]');
   assert.ok(selectedControl);
   await user.click(selectedControl);
-
   assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"][data-selected="true"]'
-    )
+
+  const bobLegend = rendered.container.querySelector('[aria-label="Bob"]');
+  assert.ok(bobLegend);
+  await user.click(bobLegend);
+
+  // Only the selected owner (Bob) renders, and it is emphasized.
+  const bobLine = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"]'
   );
+  assert.ok(bobLine);
+  assert.equal(bobLine.getAttribute('data-emphasized'), 'true');
   assert.equal(
     rendered.container.querySelectorAll(
       '[aria-label="Games Back shared trend chart"] path[data-owner-id]'
@@ -737,9 +752,23 @@ test('selected focus mode follows active owner selection from chart interactions
     1
   );
 
+  // Deselecting Bob clears the selected set; in selected focus mode that means no series
+  // renders at all. Assert Bob himself is gone (the deselection under test) and that the
+  // total rendered series count is zero — not merely that an unrelated owner (Frank) is absent.
   await user.click(bobLegend);
-  await user.click(selectedControl);
   assert.equal(selectedControl.getAttribute('aria-pressed'), 'true');
+  assert.equal(
+    rendered.container.querySelector(
+      '[aria-label="Games Back shared trend chart"] [data-owner-id="Bob"]'
+    ),
+    null
+  );
+  assert.equal(
+    rendered.container.querySelectorAll(
+      '[aria-label="Games Back shared trend chart"] path[data-owner-id]'
+    ).length,
+    0
+  );
   assert.equal(
     rendered.container.querySelector(
       '[aria-label="Games Back shared trend chart"] [data-owner-id="Frank"]'
@@ -748,7 +777,7 @@ test('selected focus mode follows active owner selection from chart interactions
   );
 });
 
-test('right-edge labels include truncated owner names, formatted values, and connectors', () => {
+test('long owner names render as full series and surface full name + formatted values on hover', () => {
   const rendered = render(
     <TrendsDetailSurface
       standingsHistory={history}
@@ -757,54 +786,47 @@ test('right-edge labels include truncated owner names, formatted values, and con
       issues={[]}
     />
   );
+  // "all" focus mode renders every owner, including the long-named owner that is
+  // not in the top 5.
   const allControl = rendered.container.querySelector('[data-focus-mode-control="all"]');
   assert.ok(allControl);
   fireEvent.click(allControl);
 
-  const gamesBackLabel = rendered.container.querySelector(
-    '[aria-label="Games Back shared trend chart"] [data-right-edge-label="VeryLongOwnerDisplayName"]'
+  // The long-named owner has a rendered series on the active (Games Back) chart.
+  const gamesBackSeries = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] path[data-owner-id="VeryLongOwnerDisplayName"]'
   );
-  const winPctLabel = rendered.container.querySelector(
-    '[aria-label="Win % shared trend chart"] [data-right-edge-label="VeryLongOwnerDisplayName"]'
-  );
-  assert.ok(gamesBackLabel);
-  assert.ok(winPctLabel);
-  assert.match(gamesBackLabel.textContent ?? '', /VeryLongO… 4\.0/);
-  assert.match(winPctLabel.textContent ?? '', /VeryLongO… 0\.0%/);
+  assert.ok(gamesBackSeries);
 
-  const laneZeroLabels = rendered.container.querySelectorAll(
-    '[aria-label="Games Back shared trend chart"] [data-endpoint-label-lane="0"]'
+  // Hovering its latest endpoint surfaces the FULL (untruncated) owner name and
+  // the formatted Games Back value in the chart tooltip.
+  const gamesBackHover = rendered.container.querySelector(
+    '[aria-label="Games Back shared trend chart"] [data-hover-target="games-back-VeryLongOwnerDisplayName-2"]'
   );
-  const laneOneLabels = rendered.container.querySelectorAll(
-    '[aria-label="Games Back shared trend chart"] [data-endpoint-label-lane="1"]'
-  );
-  assert.ok(laneZeroLabels.length > 0);
-  assert.ok(laneOneLabels.length > 0);
+  assert.ok(gamesBackHover);
+  fireEvent.mouseEnter(gamesBackHover);
+  const gamesBackTooltip = rendered.container.querySelector('[data-trend-tooltip="games-back"]');
+  assert.ok(gamesBackTooltip);
+  assert.match(gamesBackTooltip.textContent ?? '', /VeryLongOwnerDisplayName/);
+  assert.match(gamesBackTooltip.textContent ?? '', /GB: 4\.0/);
 
-  for (const labelGroup of rendered.container.querySelectorAll(
-    '[aria-label="Games Back shared trend chart"] [data-endpoint-label-lane]'
-  )) {
-    const labelX = Number.parseFloat(labelGroup.getAttribute('data-endpoint-label-x') ?? '0');
-    const labelY = Number.parseFloat(labelGroup.getAttribute('data-endpoint-label-y') ?? '0');
-    assert.ok(labelX > 0);
-    assert.ok(labelY >= 10);
-  }
-
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-label-connector="VeryLongOwnerDisplayName"]'
-    )
+  // The same owner is reachable on the Win % chart with a percentage-formatted value.
+  const winPctTab = rendered.container.querySelector('[data-chart-tab="win-pct"]');
+  assert.ok(winPctTab);
+  fireEvent.click(winPctTab);
+  const winPctSeries = rendered.container.querySelector(
+    '[aria-label="Win % shared trend chart"] path[data-owner-id="VeryLongOwnerDisplayName"]'
   );
-  assert.ok(
-    rendered.container.querySelector(
-      '[aria-label="Win % shared trend chart"] [data-label-anchor-dot="VeryLongOwnerDisplayName"]'
-    )
+  assert.ok(winPctSeries);
+  const winPctHover = rendered.container.querySelector(
+    '[aria-label="Win % shared trend chart"] [data-hover-target="win-pct-VeryLongOwnerDisplayName-2"]'
   );
-  const connector = rendered.container.querySelector(
-    '[aria-label="Games Back shared trend chart"] [data-label-connector="VeryLongOwnerDisplayName"]'
-  );
-  assert.ok(connector);
-  assert.match(connector.getAttribute('d') ?? '', /M .* L .* L /);
+  assert.ok(winPctHover);
+  fireEvent.mouseEnter(winPctHover);
+  const winPctTooltip = rendered.container.querySelector('[data-trend-tooltip="win-pct"]');
+  assert.ok(winPctTooltip);
+  assert.match(winPctTooltip.textContent ?? '', /VeryLongOwnerDisplayName/);
+  assert.match(winPctTooltip.textContent ?? '', /Win %: 0\.0%/);
 });
 
 test('estimateEndpointLabelWidth scales with text length deterministically', () => {
@@ -836,9 +858,16 @@ test('deriveEndpointLabelLayout distributes clustered endpoints across lanes wit
     const current = byLane.get(entry.lane) ?? [];
     current.push(entry.labelY);
     byLane.set(entry.lane, current);
-    assert.equal(entry.connectorPoints.length, 3);
-    assert.ok(entry.connectorPoints[1]!.x > entry.connectorPoints[0]!.x);
-    assert.ok(entry.connectorPoints[2]!.x > entry.connectorPoints[1]!.x);
+    // Each connector runs from the series endpoint out to the label anchor:
+    // a 2-point straight line when the label is not displaced, or a multi-segment
+    // dogleg when the label is staggered to avoid overlap. Either way it ends at
+    // the label and moves rightward overall.
+    const points = entry.connectorPoints;
+    assert.ok(points.length >= 2);
+    const first = points[0]!;
+    const last = points[points.length - 1]!;
+    assert.ok(last.x > first.x);
+    assert.ok(Math.abs(last.x - entry.labelX) <= 2);
   }
   for (const yValues of byLane.values()) {
     const sorted = [...yValues].sort((a, b) => a - b);
@@ -892,7 +921,7 @@ test('selected owner summary still uses standings-derived rank and win metrics',
     />
   );
 
-  const aliceLegend = rendered.container.querySelector('[data-legend-owner="Alice"]');
+  const aliceLegend = rendered.container.querySelector('[aria-label="Alice"]');
   assert.ok(aliceLegend);
   await user.click(aliceLegend);
   const ownerFocus = rendered.container.querySelector('[data-owner-focus="true"]');
@@ -922,7 +951,6 @@ test('games back chart includes inverted axis domain marker and week ticks', () 
   );
   assert.ok(gamesBackChart);
   assert.equal(gamesBackChart.getAttribute('data-y-domain'), '[1,0]');
-  assert.equal(gamesBackChart.getAttribute('data-label-lane-width'), '176');
   const gamesBackPlotWrapper = rendered.container.querySelector<HTMLElement>(
     '[aria-label="Games Back shared trend chart"]'
   )?.parentElement;
@@ -968,6 +996,11 @@ test('win pct chart tooltip formats percentage values on hover', () => {
       issues={[]}
     />
   );
+  // Win % lives behind its metric tab; activate it before querying the chart.
+  const winPctTab = rendered.container.querySelector('[data-chart-tab="win-pct"]');
+  assert.ok(winPctTab);
+  fireEvent.click(winPctTab);
+
   const firstWinPctCircle = rendered.container.querySelector(
     '[aria-label="Win % shared trend chart"] circle'
   );
@@ -1145,14 +1178,10 @@ test('mobile layout suppresses right-edge labels and adapts chart height', () =>
   assert.ok(gamesBackChart);
   const plotWrapper = gamesBackChart.parentElement;
   assert.ok(plotWrapper);
-  assert.equal(plotWrapper.getAttribute('data-chart-height'), '308');
+  // Mobile base height (308) scaled by the chart's 1.6x heightScale → 493.
+  assert.equal(plotWrapper.getAttribute('data-chart-height'), '493');
+  // Right-edge labels are suppressed on mobile via this flag.
   assert.equal(plotWrapper.getAttribute('data-show-right-labels'), 'false');
-  assert.equal(
-    rendered.container.querySelector(
-      '[aria-label="Games Back shared trend chart"] [data-right-edge-label]'
-    ),
-    null
-  );
   window.innerWidth = 1024;
   fireEvent(window, new window.Event('resize'));
 });
@@ -1170,7 +1199,7 @@ test('compact mode reduces wrapper padding while preserving shared chart interac
   );
 
   assert.match(rendered.container.firstElementChild?.getAttribute('class') ?? '', /p-3 sm:p-4/);
-  const bobLegend = rendered.container.querySelector('[data-legend-owner="Bob"]');
+  const bobLegend = rendered.container.querySelector('[aria-label="Bob"]');
   assert.ok(bobLegend);
   await user.click(bobLegend);
   assert.ok(rendered.container.querySelector('[data-owner-focus="true"]'));

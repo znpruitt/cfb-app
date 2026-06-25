@@ -31,11 +31,12 @@ test('matchup matrix view renders owner grid with records', () => {
     />
   );
 
-  assert.match(html, /Matchup matrix/);
+  assert.match(html, /<table/);
+  assert.match(html, />Owner</);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /1–1/);
-  assert.match(html, /<table/);
+  assert.match(html, /data-owner-pair-cell="Alice::Bob"[^>]*><span>1–1<\/span>/);
 });
 
 test('matchup matrix view renders explicit empty state when no owners exist', () => {

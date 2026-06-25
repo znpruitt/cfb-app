@@ -244,8 +244,11 @@ test('overview highlights keep canonical neutral matchup separator with compact 
   );
 
   assert.match(html, /Texas<\/span> vs <span>Ohio State/);
-  assert.match(html, /24–21/);
-  assert.match(html, /grid-cols-\[minmax\(0,1fr\)_3\.8rem\]/);
+  // Final games render in the Featured games section, which shows each side's
+  // score on its own line rather than a compact "24–21" header.
+  assert.match(html, /Featured games/);
+  assert.match(html, /Texas[\s\S]*?24/);
+  assert.match(html, /Ohio State[\s\S]*?21/);
 });
 
 test('overview panel renders league highlights and standings without matrix table', () => {
@@ -274,11 +277,11 @@ test('overview panel renders league highlights and standings without matrix tabl
     />
   );
 
-  assert.match(html, /League standings/);
-  assert.match(html, /League insights/);
+  assert.match(html, /Standings/);
+  assert.match(html, /Insights/);
   assert.doesNotMatch(html, /Featured matchups/);
   assert.doesNotMatch(html, /View details/);
-  assert.match(html, /View all results/);
+  assert.match(html, /All results →/);
   assert.doesNotMatch(html, /Head-to-head matrix/);
   assert.doesNotMatch(html, /<table/);
   assert.doesNotMatch(html, /League snapshot/);
@@ -325,7 +328,9 @@ test('overview standings emphasize leader row and show live count when available
     />
   );
 
-  assert.match(html, /Leader/);
+  // The leader is surfaced as the rank-1 podium card and the top standings row;
+  // the live count badge appears for owners with in-progress games.
+  assert.match(html, /#1[\s\S]*?Alice/);
   assert.match(html, /1 live/);
 });
 
@@ -342,11 +347,12 @@ test('overview panel summary shows in-season leader, record, and win percentage'
     />
   );
 
-  assert.match(html, /League leader: Alice/);
-  assert.match(html, /Alice/);
+  // The in-season leader is surfaced via the rank-1 hero/podium card, which
+  // shows the owner, their record, win percentage, and point differential.
+  assert.match(html, /#1[\s\S]*?Alice/);
   assert.match(html, /4–1/);
   assert.match(html, /Win% 0.800/);
-  assert.match(html, /Leads at 4–1 \(0.800\), \+20 diff/);
+  assert.match(html, /Diff \+20/);
 });
 
 test('overview panel summary uses standings win% gap over #2 during in-season state', () => {
@@ -385,8 +391,12 @@ test('overview panel summary uses standings win% gap over #2 during in-season st
     />
   );
 
-  assert.match(html, /Gap #2 0.079/);
-  assert.doesNotMatch(html, /Gap tied/);
+  // In-season, the leader and runner-up are shown as ranked hero cards with
+  // their distinct win percentages (0.857 vs 0.778); the win% gap over #2 is
+  // expressed by the ordered #1/#2 cards rather than a "Gap #2" narrative
+  // string. The win percentages differ, confirming the gap is not a tie.
+  assert.match(html, /#1[\s\S]*?Alice[\s\S]*?Win% 0.857/);
+  assert.match(html, /#2[\s\S]*?Bob[\s\S]*?Win% 0.778/);
 });
 
 test('overview panel summary shows tie copy when top win percentages match', () => {
@@ -425,8 +435,11 @@ test('overview panel summary shows tie copy when top win percentages match', () 
     />
   );
 
-  assert.match(html, /Gap tied/);
-  assert.match(html, /Alice and Bob are tied for first at 6–2 \(0.750\)/);
+  // A top-win-percentage tie surfaces as a dead-heat insight naming the tied
+  // owners; the hero card confirms the leader's tied record and win percentage.
+  assert.match(html, /Title race dead heat/);
+  assert.match(html, /Alice and Bob are tied for first\./);
+  assert.match(html, /#1[\s\S]*?Alice[\s\S]*?6–2[\s\S]*?Win% 0.750/);
 });
 
 test('overview panel summary narrative lists all owners in a three-way tie', () => {
@@ -476,7 +489,14 @@ test('overview panel summary narrative lists all owners in a three-way tie', () 
     />
   );
 
-  assert.match(html, /Alice, Bob, and Chris are tied for first at 9–3 \(0.750\)/);
+  // A multi-way tie surfaces as a dead-heat insight (which names the leader and
+  // top runner-up) plus all tied owners shown with identical records at the top
+  // of the podium/standings. The full owner list is no longer concatenated into
+  // a single narrative string after the standings-ownership redesign.
+  assert.match(html, /Title race dead heat/);
+  assert.match(html, /#1[\s\S]*?Alice[\s\S]*?9–3/);
+  assert.match(html, /#2[\s\S]*?Bob[\s\S]*?9–3/);
+  assert.match(html, /#3[\s\S]*?Chris[\s\S]*?9–3/);
 });
 
 test('overview panel summary uses postseason in-progress championship language', () => {
@@ -503,9 +523,12 @@ test('overview panel summary uses postseason in-progress championship language',
     />
   );
 
-  assert.match(html, />Championship race</);
+  // Postseason in-progress promotes the live game card and a matchups link;
+  // the old "Championship race"/"View weekly matchups" narrative chrome was
+  // removed in the standings-ownership redesign in favor of the live section.
+  assert.match(html, /Live · 1/);
   assert.doesNotMatch(html, /League leader/);
-  assert.match(html, /View weekly matchups/);
+  assert.match(html, /All matchups →/);
 });
 
 test('overview panel summary shows season-complete champion, second, and third', () => {
@@ -563,7 +586,10 @@ test('overview panel summary shows season-complete champion, second, and third',
     />
   );
 
-  assert.match(html, /Season podium/);
+  // A completed season renders the three-card podium: rank-1 is flagged as
+  // CHAMPION, with #2 and #3 cards. Each card shows owner and record. The prose
+  // "won the title by …" / "Season podium" header were dropped in the redesign.
+  assert.match(html, /CHAMPION/);
   assert.match(html, /#1/);
   assert.match(html, /#2/);
   assert.match(html, /#3/);
@@ -573,7 +599,6 @@ test('overview panel summary shows season-complete champion, second, and third',
   assert.match(html, /81–39/);
   assert.match(html, /65–41/);
   assert.match(html, /70–45/);
-  assert.match(html, /Pruitt won the title by 0.062 over Maleski/);
   assert.doesNotMatch(html, /League leader/);
   assert.ok(html.indexOf('Pruitt') < html.indexOf('Maleski'));
   assert.ok(html.indexOf('Maleski') < html.indexOf('Whited'));
@@ -602,7 +627,10 @@ test('overview panel summary does not render season-complete framing when standi
 
   assert.doesNotMatch(html, /Final results/);
   assert.doesNotMatch(html, /Champion:/);
-  assert.match(html, /Championship race/);
+  // With partial coverage the completed-season champion podium is suppressed;
+  // the coverage message renders in its place.
+  assert.doesNotMatch(html, /CHAMPION/);
+  assert.match(html, /Some games are still missing\./);
 });
 
 test('overview panel summary does not render season-complete framing when standings coverage is error', () => {
@@ -627,7 +655,10 @@ test('overview panel summary does not render season-complete framing when standi
   );
 
   assert.doesNotMatch(html, /Final results/);
-  assert.match(html, /Championship race/);
+  // With error coverage the completed-season champion podium is suppressed; the
+  // error message renders in its place.
+  assert.doesNotMatch(html, /CHAMPION/);
+  assert.match(html, /Standings load failed\./);
 });
 
 test('overview panel keeps league-home ordering with standings and highlights ahead of results', () => {
@@ -643,14 +674,15 @@ test('overview panel keeps league-home ordering with standings and highlights ah
     />
   );
 
-  assert.ok(html.indexOf('League leader: Alice') < html.indexOf('League standings (Top 5)'));
-  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('League insights'));
-  assert.ok(html.indexOf('League insights') < html.indexOf('Recent results'));
-  assert.ok(html.indexOf('Recent results') < html.indexOf('Upcoming watchlist'));
+  // Section order after the redesign: hero/podium (leader card) → Standings →
+  // Featured games (results) → Upcoming watchlist. Live games, when present,
+  // come after the watchlist.
+  assert.ok(html.indexOf('Alice') < html.indexOf('Standings'));
+  assert.ok(html.indexOf('Standings') < html.indexOf('Featured games'));
+  assert.ok(html.indexOf('Featured games') < html.indexOf('Upcoming watchlist'));
   assert.doesNotMatch(html, /League pulse/);
-  assert.ok(html.indexOf('Upcoming watchlist') < html.indexOf('No live games right now.'));
-  assert.ok(html.includes('Gap #2 —'));
-  assert.ok(html.includes('Week 1'));
+  // The leader is the rank-1 hero card.
+  assert.match(html, /#1[\s\S]*?Alice/);
 });
 
 test('overview panel keeps standings as the only condensed ranking table', () => {
@@ -679,11 +711,15 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
     />
   );
 
-  const standingsHeaderOccurrences = html.match(/Owner · Record · Metrics/g) ?? [];
+  // Exactly one condensed standings table is rendered (one "Standings" heading
+  // with its single "Full standings →" link).
+  const standingsHeaderOccurrences = html.match(/>Standings</g) ?? [];
   assert.equal(standingsHeaderOccurrences.length, 1);
+  const fullStandingsLinks = html.match(/Full standings →/g) ?? [];
+  assert.equal(fullStandingsLinks.length, 1);
   assert.doesNotMatch(html, /League snapshot/);
-  assert.ok(html.indexOf('League summary') < html.indexOf('League standings (Top 5)'));
-  assert.ok(html.indexOf('League standings (Top 5)') < html.indexOf('Recent results'));
+  // Standings is positioned ahead of the results (Featured games) section.
+  assert.ok(html.indexOf('>Standings<') < html.indexOf('Featured games'));
 });
 
 test('overview panel hides watchlist when highlight cards already summarize the slate', () => {
@@ -731,7 +767,8 @@ test('overview panel hides watchlist when highlight cards already summarize the 
   );
 
   assert.doesNotMatch(html, /Upcoming watchlist/);
-  assert.match(html, /League insights/);
+  // The completed games are summarized in the Featured games (results) section.
+  assert.match(html, /Featured games/);
 });
 
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
@@ -843,10 +880,12 @@ test('overview panel uses compact live empty state copy', () => {
     />
   );
 
-  assert.match(html, /No live games right now\./);
+  // With no live games the live card section is omitted entirely rather than
+  // rendering a "No live games" empty card.
+  assert.doesNotMatch(html, /Live · /);
   assert.doesNotMatch(html, /Postseason focus/);
-  assert.match(html, /League insights/);
-  assert.match(html, /View full standings/);
+  // The standings "Full standings →" link is still present.
+  assert.match(html, /Full standings →/);
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
 });
 
@@ -919,17 +958,17 @@ test('overview panel renders League Trends games back section when history is pr
     />
   );
 
-  assert.match(html, /League Trends/);
+  // The games-back trend now renders in the "GB Race" section (MiniTrendsGrid +
+  // GbChangeTable), showing each owner with their current games-back figure and
+  // per-week columns. The old "League Trends" / "Win %" / "Win Bars" cards were
+  // replaced by this compact GB Race treatment.
+  assert.match(html, /GB Race/);
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
-  assert.match(html, /Latest: 0.0 GB/);
-  assert.match(html, /Latest: 2.0 GB/);
-  assert.match(html, /Win %/);
-  assert.match(html, /Latest: 85.7%/);
-  assert.match(html, /Latest: 57.1%/);
-  assert.match(html, /Win Bars/);
-  assert.match(html, /6W · 85.7%/);
-  assert.match(html, /4W · 57.1%/);
+  assert.match(html, /0 GB/);
+  assert.match(html, /2 GB/);
+  assert.match(html, /W1/);
+  assert.match(html, /W2/);
 });
 
 test('overview panel shows win percent empty-state copy when no resolved standings history exists', () => {
@@ -970,7 +1009,10 @@ test('overview panel shows win percent empty-state copy when no resolved standin
     />
   );
 
-  assert.match(html, /Win % trend will appear after standings history is available\./);
+  // With no resolved standings history (the only week has empty standings), the
+  // trend / GB Race section is omitted entirely rather than rendering a zeroed
+  // "Latest: 0.0%" win-percentage trend.
+  assert.doesNotMatch(html, /GB Race/);
   assert.doesNotMatch(html, /Latest: 0\.0%/);
 });
 
@@ -988,7 +1030,9 @@ test('overview panel shows explicit empty states for featured and results when n
   );
 
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
-  assert.match(html, /League insights/);
+  // No insights surface exists with zero owners; the standings column shows its
+  // own empty-state hint instead.
+  assert.match(html, /Add owners to populate standings\./);
   assert.doesNotMatch(html, /Open insight/);
   assert.match(html, /No recent results yet—completed games will appear here\./);
 });
@@ -1013,6 +1057,9 @@ test('overview panel keeps featured matchups hidden when none are meaningful for
   );
 
   assert.doesNotMatch(html, /Featured matchups/);
+  // The upcoming watchlist stays hidden when the only matchup is already final;
+  // no empty "No featured matchups yet" placeholder is rendered either.
+  assert.doesNotMatch(html, /Upcoming watchlist/);
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
 });
 
@@ -1044,7 +1091,10 @@ test('overview panel renders shared selector insights instead of league pulse ca
 
   assert.doesNotMatch(html, /League pulse/);
   assert.match(html, /Tight title race/);
-  assert.match(html, /Open insight/);
+  // Insights render in the dedicated Insights column with a "See all →" link
+  // rather than per-card "Open insight" CTAs.
+  assert.match(html, />Insights</);
+  assert.match(html, /See all →/);
 });
 
 test('overview panel renders top 3 shared insights in selector order without duplicates', () => {
@@ -1178,18 +1228,21 @@ test('overview panel renders top 3 shared insights in selector order without dup
     />
   );
 
-  const insightLinkCount = (html.match(/Open insight/g) ?? []).length;
-  assert.ok(insightLinkCount >= 2 && insightLinkCount <= 3);
+  // Each rendered insight row carries one category label (the small uppercase
+  // eyebrow with letter-spacing:0.08em). Count those to know how many insight
+  // rows are on screen — the redesign dropped the per-card "Open insight" CTA.
+  const insightRowCount = (html.match(/letter-spacing:0\.08em/g) ?? []).length;
+  assert.ok(insightRowCount >= 2 && insightRowCount <= 3);
   const rankedInsights = deriveOverviewInsights(
     deriveLeagueInsights({
       rows: standingsHistory.byWeek[3]?.standings ?? [],
       standingsHistory,
       seasonContext: selectSeasonContext({ standingsHistory }),
     })
-  ).slice(0, insightLinkCount);
+  ).slice(0, insightRowCount);
   assert.ok(rankedInsights.length > 0);
   for (const insight of rankedInsights) {
-    assert.match(html, new RegExp(insight.title));
+    assert.ok(html.includes(insight.title), `expected insight title "${insight.title}" in markup`);
   }
   if (rankedInsights.length > 1) {
     assert.ok(html.indexOf(rankedInsights[0]!.title) < html.indexOf(rankedInsights[1]!.title));
@@ -1329,8 +1382,10 @@ test('overview panel suppresses redundant movement chips in completed-season pod
     />
   );
 
-  assert.match(html, /Season podium/);
-  assert.doesNotMatch(html, /Alice \(\+2 wins\)|Biggest drop:/);
+  // Completed-season podium mode renders the champion podium and suppresses the
+  // redundant week-over-week movement chips ("+N wins" / "Biggest drop:").
+  assert.match(html, /CHAMPION/);
+  assert.doesNotMatch(html, /\(\+\d+ wins\)|Biggest drop:/);
 });
 
 test('overview panel game summary badges prefer top-25 and top-matchup over close and ranked', () => {
@@ -1418,11 +1473,16 @@ test('overview panel game summary badges prefer top-25 and top-matchup over clos
     />
   );
 
-  assert.match(html, /#6 vs #11/);
-  assert.match(html, /Top matchup/);
+  // After the redesign, a completed ranked game renders in the Featured games
+  // section with both teams' rankings inlined on their names (#6 Ohio State,
+  // #11 Oregon). The compact highlight-tag badges ("Top matchup", "Close") now
+  // belong to the Upcoming watchlist (GameSummaryList) and are not emitted for
+  // a final result here, so no spurious "Close" badge appears.
+  assert.match(html, /#6/);
+  assert.match(html, /#11/);
+  assert.match(html, /Ohio State/);
+  assert.match(html, /Oregon/);
   assert.doesNotMatch(html, />Close</);
-  const topMatchupOccurrences = html.match(/Top matchup/g) ?? [];
-  assert.equal(topMatchupOccurrences.length, 1);
 });
 
 test('overview highlights consume shared insights instead of matchup-derived headline copy', () => {
@@ -1594,9 +1654,15 @@ test('overview standings context suppresses leader-gap duplicate messaging when 
     />
   );
 
+  // A non-tight race (2-game gap) emits no race/leader-gap insight at all, so
+  // there is no duplicate "Leader gap" / "Tight race" / dead-heat messaging.
   assert.doesNotMatch(html, /Leader gap:/);
   assert.doesNotMatch(html, /Tight race:/);
-  assert.match(html, /0.166/);
+  assert.doesNotMatch(html, /Tight title race|dead heat/);
+  // The standings still surface both owners' win percentages without any
+  // redundant gap narrative.
+  assert.match(html, /Win% 0.833/);
+  assert.match(html, /Win% 0.667/);
 });
 
 test('overview highlights show scope context once at section level', () => {
@@ -1642,9 +1708,12 @@ test('overview highlights show scope context once at section level', () => {
     />
   );
 
-  assert.match(html, /League insights/);
-  assert.match(html, />Postseason</);
+  // The redesigned panel no longer stamps a per-section scope label, so there
+  // is no repeated "(this postseason slate)" qualifier on individual cards. The
+  // insights section is rendered exactly once.
   assert.doesNotMatch(html, /\(this postseason slate\)/i);
+  const insightsHeadings = html.match(/>Insights</g) ?? [];
+  assert.equal(insightsHeadings.length, 1);
 });
 
 test('overview panel renders League Storylines section when selector emits storylines', () => {
@@ -1741,8 +1810,11 @@ test('overview panel renders League Storylines section when selector emits story
     />
   );
 
-  assert.match(html, /League Storylines/);
-  assert.match(html, /Alice won the title by 3 games/);
+  // The standalone "League Storylines" section was folded into the Insights
+  // surface during the redesign. A championship storyline now renders as a
+  // "Champion margin" insight describing the winning margin in games.
+  assert.match(html, /Champion margin/);
+  assert.match(html, /Alice over Bob by 3 games/);
 });
 
 test('overview panel omits League Storylines section when no storylines are available', () => {
@@ -1758,13 +1830,75 @@ test('overview panel omits League Storylines section when no storylines are avai
     />
   );
 
+  // No history → no storyline-derived insights (and no legacy "League
+  // Storylines" section, which the redesign removed entirely).
   assert.doesNotMatch(html, /League Storylines/);
+  assert.doesNotMatch(html, /Champion margin|Failed chase|Toilet bowl/);
 });
 
 test('overview panel renders trends detail link in League Trends section', () => {
+  // The trends surface is now the "GB Race" section, which only renders when
+  // resolved standings history is present. Its "Full standings →" link points
+  // at the trends view (?view=trends#trends).
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
+      standingsHistory={standingsHistoryFromSnapshots([
+        {
+          week: 1,
+          standings: [
+            {
+              owner: 'Alice',
+              wins: 5,
+              losses: 1,
+              winPct: 0.833,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 10,
+              gamesBack: 0,
+              finalGames: 6,
+            },
+            {
+              owner: 'Bob',
+              wins: 3,
+              losses: 3,
+              winPct: 0.5,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 0,
+              gamesBack: 2,
+              finalGames: 6,
+            },
+          ],
+        },
+        {
+          week: 2,
+          standings: [
+            {
+              owner: 'Alice',
+              wins: 6,
+              losses: 1,
+              winPct: 0.857,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 12,
+              gamesBack: 0,
+              finalGames: 7,
+            },
+            {
+              owner: 'Bob',
+              wins: 4,
+              losses: 3,
+              winPct: 0.571,
+              pointsFor: 0,
+              pointsAgainst: 0,
+              pointDifferential: 2,
+              gamesBack: 2,
+              finalGames: 7,
+            },
+          ],
+        },
+      ])}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
@@ -1774,6 +1908,6 @@ test('overview panel renders trends detail link in League Trends section', () =>
     />
   );
 
-  assert.match(html, /See full trends/);
+  assert.match(html, /GB Race/);
   assert.match(html, /href="\/standings\?view=trends#trends"/);
 });

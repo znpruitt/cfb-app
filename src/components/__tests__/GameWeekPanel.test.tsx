@@ -793,7 +793,7 @@ test('moneyline-only odds still render in expanded scoreboard odds row', () => {
     />
   );
 
-  assert.match(html, /ML: South Carolina \+425 • Clemson -600/);
+  assert.match(html, /Moneyline: South Carolina \+425 • Clemson -600/);
   assert.doesNotMatch(html, /No odds/);
 });
 
