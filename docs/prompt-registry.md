@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-003-TEST-APPSTATE-ISOLATION-v1
+- Purpose: Remove the cross-process shared-appState flakes so the full Node test suite is deterministic (0 failures, 0 cancelled across repeated runs).
+- Scope: `src/lib/server/appStateStore.ts` (test-only-gated path branch) + `package.json` test script. No production behavior change.
+- Notes: Commit `(this PR)`. Root cause: the file fallback wrote to a single shared `data/app-state.json`, but `node:test` runs each test file in its own process — parallel appState-backed files (conferences, route-timer, schedule, scores, selectors-leagueStandings) raced on that one file, so the failing set varied per run. Fix: `appStateFilePath()` returns a pid-keyed temp path (`os.tmpdir()/cfb-app-app-state-test-<pid>.json`) when `APP_STATE_TEST_ISOLATION=1`, which the `test` script now sets; each test-file process gets its own store while intra-file `beforeEach` reset behavior is preserved. The flag is never set in dev/production, so the shared `data/app-state.json` path is unchanged there. No store logic bug found — purely a test-process isolation gap. Verified stable: 5 consecutive full `npm test` runs all 911/911, 0 fail, 0 cancelled; tsc/lint:all/build green. Completes the TEST-SUITE-BASELINE-CLEANUP arc.
+
 ### PLATFORM-004-TEST-TSC-FIXTURE-CLEANUP-v1
 - Purpose: Restore a clean `npx tsc --noEmit`. PR #325's markup cleanup added `CanonicalStandings` test fixtures missing the `inferredSeasonStart` field, leaving 4 pre-existing TS2741 errors on main.
 - Scope: Test fixtures only — `MatchupMatrixView.test.tsx`, `MatchupsWeekPanel.test.tsx`, `OwnerPanel.test.tsx`, `StandingsPanel.test.tsx`. No production changes.
