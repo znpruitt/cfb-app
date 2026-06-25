@@ -23,9 +23,10 @@ import { type DraftState, type DraftSettings, draftScope } from '@/lib/draft';
 // that blanked the live countdown for every poller/refresher. main is already
 // correct; this suite is the regression guard so it stays that way.
 //
-// They also characterize current main's *server* behavior (round boundaries do
-// NOT pause server-side — that is client-side today). DRAFT-002 moves that into
-// the pick route and will update the round-boundary expectation here.
+// They also cover server-authoritative round-boundary pausing (DRAFT-002): both
+// the manual pick route and the auto-pick path return phase:'paused' when an
+// advanced index lands on a round boundary, so the commissioner must explicitly
+// start the next round.
 // ---------------------------------------------------------------------------
 
 const SLUG = 'timer-test-league';
@@ -154,9 +155,9 @@ test('GET returns the exact persisted timer state after a pick (no server/client
   assert.ok(got.draft.timerExpiresAt, 'GET must surface a live countdown target, not null');
 });
 
-test('round-boundary pick stays live+running server-side on current main (client pauses today)', async () => {
+test('round-boundary pick pauses server-side (DRAFT-002): phase paused, timer paused, null expiry', async () => {
   // currentPickIndex 1 -> newPickIndex 2 lands on a round boundary (n=2).
-  // main does NOT pause here; DRAFT-002 changes this and will update the assertion.
+  // The pick route now pauses so the commissioner must start the next round.
   await seedDraft(
     liveDraft({
       currentPickIndex: 1,
@@ -178,14 +179,67 @@ test('round-boundary pick stays live+running server-side on current main (client
   const body = (await res.json()) as { draft: DraftState };
 
   assert.equal(body.draft.currentPickIndex, 2);
-  assert.equal(body.draft.phase, 'live');
-  assert.equal(body.draft.timerState, 'running');
-  assert.ok(body.draft.timerExpiresAt);
+  assert.equal(body.draft.phase, 'paused');
+  assert.equal(body.draft.timerState, 'paused');
+  assert.equal(body.draft.timerExpiresAt, null);
 
   const persisted = await readPersisted();
   assert.equal(persisted.phase, body.draft.phase);
   assert.equal(persisted.timerState, body.draft.timerState);
   assert.equal(persisted.timerExpiresAt, body.draft.timerExpiresAt);
+});
+
+test('non-boundary pick still advances live+running (DRAFT-002 leaves mid-round picks alone)', async () => {
+  // currentPickIndex 0 -> newPickIndex 1 is mid-round (n=2): no pause.
+  await seedDraft(liveDraft({ currentPickIndex: 0 }));
+
+  const res = await PICK(pickRequest('Georgia'), { params });
+  const body = (await res.json()) as { draft: DraftState };
+
+  assert.equal(body.draft.currentPickIndex, 1);
+  assert.equal(body.draft.phase, 'live');
+  assert.equal(body.draft.timerState, 'running');
+  assert.ok(body.draft.timerExpiresAt);
+});
+
+test('auto-pick that completes a round also pauses server-side (DRAFT-002)', async () => {
+  // Commissioner clicks auto-pick from the expired-prompt overlay (paused+expired).
+  // currentPickIndex 1 -> newPickIndex 2 is a round boundary, so it pauses.
+  await seedDraft(
+    liveDraft({
+      phase: 'paused',
+      timerState: 'expired',
+      timerExpiresAt: null,
+      currentPickIndex: 1,
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Texas',
+          pickedAt: '2026-08-01T00:00:30.000Z',
+          autoSelected: false,
+        },
+      ],
+    })
+  );
+
+  const res = await PUT(putRequest({ timerAction: 'expire' }), { params });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { draft: DraftState };
+
+  assert.equal(body.draft.currentPickIndex, 2);
+  assert.equal(body.draft.phase, 'paused');
+  assert.equal(body.draft.timerState, 'paused');
+  assert.equal(body.draft.timerExpiresAt, null);
+  assert.equal(body.draft.picks.length, 2);
+  assert.equal(body.draft.picks[1]!.autoSelected, true);
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.phase, 'paused');
+  assert.equal(persisted.timerState, 'paused');
+  assert.equal(persisted.timerExpiresAt, null);
 });
 
 test('final pick: persists complete + timer off + null expiry, matching the response', async () => {
