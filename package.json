@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --import tsx --test --test-timeout=30000 'src/**/__tests__/*.test.ts' 'src/**/__tests__/*.test.tsx'",
+    "test": "TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test --test-timeout=30000 'src/**/__tests__/*.test.ts' 'src/**/__tests__/*.test.tsx'",
     "lint": "npm run lint:eslint && npm run lint:format",
     "lint:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**'",
     "lint:all": "npm run lint:all:eslint && npm run lint:all:format",
