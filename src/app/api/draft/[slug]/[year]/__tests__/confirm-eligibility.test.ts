@@ -248,6 +248,39 @@ test('a completed draft cannot be made unconfirmable by changing totalRounds aft
   assert.equal(confirmBody.teamCount, totalPicks);
 });
 
+test('a completed draft cannot have its draftOrder changed after picks exist', async () => {
+  // Snake pick-owner assignment derives from settings.draftOrder. If PUT could
+  // reorder it after picks exist, remaining picks would be assigned to the wrong
+  // owners, leaving the roster uneven/unconfirmable. The PUT route must reject it.
+  const { draft, totalPicks } = completeDraft(2, 2);
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+  const originalOrder = [...draft.settings.draftOrder];
+
+  // Attempt to reorder the draft order on a started draft → rejected with 409.
+  const reversed = [...originalOrder].reverse();
+  const putRes = await runWithRevalidateContext(() =>
+    PUT(putSettingsRequest({ settings: { draftOrder: reversed } }), { params })
+  );
+  const putBody = (await putRes.json()) as { error?: string; field?: string };
+  assert.equal(putRes.status, 409, 'expected draftOrder change on a started draft to be rejected');
+  assert.match(putBody.error ?? '', /draftOrder cannot be changed/i);
+
+  // The persisted draft order is unchanged.
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.deepEqual(persisted?.value?.settings.draftOrder, originalOrder);
+
+  // The completed roster is still confirmable.
+  const confirmRes = await runWithRevalidateContext(() => POST(confirmRequest(), { params }));
+  const confirmBody = (await confirmRes.json()) as {
+    success: boolean;
+    teamCount: number;
+    error?: string;
+  };
+  assert.equal(confirmRes.status, 200, confirmBody.error ?? 'expected confirm to still succeed');
+  assert.equal(confirmBody.success, true);
+  assert.equal(confirmBody.teamCount, totalPicks);
+});
+
 test('a completed draft cannot be made unconfirmable by changing owners after picks exist', async () => {
   // Confirmation validates per-owner pick counts and the owner set. If PUT could
   // mutate owners after picks exist, a finished roster would no longer match the

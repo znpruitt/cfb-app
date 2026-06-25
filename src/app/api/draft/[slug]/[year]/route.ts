@@ -341,6 +341,28 @@ export async function PUT(
       },
     };
 
+    // Lock the draft order once the draft has started (see draftStarted above):
+    // snake pick-owner assignment derives from settings.draftOrder, so changing it
+    // mid-draft reassigns remaining picks to the wrong owners and can leave the
+    // roster uneven / unconfirmable.
+    if (incoming.draftOrder !== undefined && draftStarted) {
+      const incomingOrder = incoming.draftOrder;
+      const originalOrder = original.settings.draftOrder;
+      const orderChanged =
+        incomingOrder.length !== originalOrder.length ||
+        incomingOrder.some((name, i) => name !== originalOrder[i]);
+      if (orderChanged) {
+        return NextResponse.json(
+          {
+            error:
+              'draftOrder cannot be changed after the draft has started. Reset or reopen the draft to change the draft order.',
+            field: 'settings.draftOrder',
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // Validate totalRounds does not exceed max full rounds
     if (incoming.totalRounds !== undefined) {
       // Lock the configured round count once the draft has started (see draftStarted
