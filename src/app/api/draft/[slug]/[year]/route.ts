@@ -282,7 +282,18 @@ export async function PUT(
     timerAction?: unknown;
   };
 
-  let draft: DraftState = { ...record.value };
+  const original = record.value;
+
+  // Once the draft has started, the owner set/order and configured round count are
+  // locked: confirmation derives its expected pick count and per-owner counts from
+  // these, so a post-start mutation could make a finished roster unconfirmable.
+  const draftStarted =
+    original.picks.length > 0 ||
+    original.phase === 'live' ||
+    original.phase === 'paused' ||
+    original.phase === 'complete';
+
+  let draft: DraftState = { ...original };
 
   // Update owners
   if (owners !== undefined) {
@@ -299,6 +310,19 @@ export async function PUT(
       return NextResponse.json(
         { error: 'owners must contain at least 2 non-empty strings', field: 'owners' },
         { status: 400 }
+      );
+    }
+    const ownersChanged =
+      ownerNames.length !== original.owners.length ||
+      ownerNames.some((name, i) => name !== original.owners[i]);
+    if (draftStarted && ownersChanged) {
+      return NextResponse.json(
+        {
+          error:
+            'owners cannot be changed after the draft has started. Reset or reopen the draft to change the owner set or order.',
+          field: 'owners',
+        },
+        { status: 409 }
       );
     }
     draft = { ...draft, owners: ownerNames };
@@ -319,16 +343,9 @@ export async function PUT(
 
     // Validate totalRounds does not exceed max full rounds
     if (incoming.totalRounds !== undefined) {
-      // Lock the configured round count once the draft has started. Confirmation
-      // derives its expected pick count from settings.totalRounds, so allowing a
-      // change after picks exist would let a completed roster be made
-      // unconfirmable (picks.length would no longer match totalRounds * owners).
-      const original = record.value;
-      const draftStarted =
-        original.picks.length > 0 ||
-        original.phase === 'live' ||
-        original.phase === 'paused' ||
-        original.phase === 'complete';
+      // Lock the configured round count once the draft has started (see draftStarted
+      // above): confirmation derives its expected pick count from settings.totalRounds,
+      // so a post-start change could make a completed roster unconfirmable.
       if (draftStarted && incoming.totalRounds !== original.settings.totalRounds) {
         return NextResponse.json(
           {

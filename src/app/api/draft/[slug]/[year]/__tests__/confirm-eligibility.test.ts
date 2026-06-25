@@ -247,3 +247,35 @@ test('a completed draft cannot be made unconfirmable by changing totalRounds aft
   assert.equal(confirmBody.success, true);
   assert.equal(confirmBody.teamCount, totalPicks);
 });
+
+test('a completed draft cannot be made unconfirmable by changing owners after picks exist', async () => {
+  // Confirmation validates per-owner pick counts and the owner set. If PUT could
+  // mutate owners after picks exist, a finished roster would no longer match the
+  // owner set it was drafted against. The PUT route must reject the change.
+  const { draft, totalPicks } = completeDraft(2, 2);
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+  const originalOwners = [...draft.owners];
+
+  // Attempt to swap the owner set on a started draft → rejected with 409.
+  const putRes = await runWithRevalidateContext(() =>
+    PUT(putSettingsRequest({ owners: ['Intruder1', 'Intruder2'] }), { params })
+  );
+  const putBody = (await putRes.json()) as { error?: string; field?: string };
+  assert.equal(putRes.status, 409, 'expected owner change on a started draft to be rejected');
+  assert.match(putBody.error ?? '', /owners cannot be changed/i);
+
+  // The persisted owner set is unchanged.
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.deepEqual(persisted?.value?.owners, originalOwners);
+
+  // The completed roster is still confirmable.
+  const confirmRes = await runWithRevalidateContext(() => POST(confirmRequest(), { params }));
+  const confirmBody = (await confirmRes.json()) as {
+    success: boolean;
+    teamCount: number;
+    error?: string;
+  };
+  assert.equal(confirmRes.status, 200, confirmBody.error ?? 'expected confirm to still succeed');
+  assert.equal(confirmBody.success, true);
+  assert.equal(confirmBody.teamCount, totalPicks);
+});
