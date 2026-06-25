@@ -9,6 +9,29 @@
 
 ## Completed phases / milestones
 
+### Draft Timer Integrity + Server-Authoritative Round Boundaries — Complete
+
+**Status:** Complete. Three stacked PRs merged to `main`: #319 (`draft/001-timer-route-tests`), #320 (`draft/002-server-round-boundary`), #321 (`draft/003-optimistic-countdown`).
+**PROMPT_IDs:** DRAFT-001-TIMER-PERSIST-INTEGRITY-v1, DRAFT-002-SERVER-ROUND-BOUNDARY-PAUSE-v1, DRAFT-003-OPTIMISTIC-COUNTDOWN-DISPLAY-ONLY-v1
+
+**Inciting issue:** An audit of the stale `claude/audit-season-transition-pwKfH` branch (draft "pick timer precision" work, ~232 commits / 2 months behind `main`, 3-way merge conflicts). The branch's headline change stamped `timerExpiresAt` *after* the `setAppState` write and returned it unpersisted — leaving stored state with `timerState:'running'` but `timerExpiresAt:null`, which blanked the live countdown for every poller/refresher within ~1s of each pick. The audit recommended abandoning the branch and re-deriving the two salvageable ideas against current `main`. Key correction surfaced during the audit: **`main` never had the persist/response divergence** — it was a stale-branch-only regression — so the "integrity fix" collapsed to regression coverage.
+
+**Phases shipped:**
+- **DRAFT-001 — timer persistence regression suite (tests only).** Established the first draft-route test harness (the routes had zero coverage). Locks in the invariant that the pick and PUT routes persist exactly the timer state they return (`persisted timerExpiresAt == response timerExpiresAt`). Covers normal pick reset, GET/response equality (no drift), round-boundary, final-pick completion, and PUT `timerAction:'start'`. No production code change — `main` was already correct.
+- **DRAFT-002 — server-authoritative round-boundary pause.** Moved round-boundary auto-pause out of the client (`maybeAutoPauseForRound` second round-trip + `autoPauseRef`, both deleted from `DraftBoardClient`) and into the pick route: when an advanced index lands on a round boundary it returns `phase:'paused'`, `timerState:'paused'`, null expiry, so the commissioner must explicitly start the next round. The PUT auto-pick path now honors the same boundary rule, fixing a pre-existing inconsistency where auto-picks did not pause but manual picks did.
+- **DRAFT-003 — optimistic display-only countdown.** The pick clock now counts down the instant a team is clicked instead of stalling for the server round-trip. `DraftBoardClient` records a `localTimerStartRef` timestamp before the pick POST (only for mid-round picks that arm a fresh timer; boundary/final picks are skipped), cleared on response/error. `DraftHeaderArea` treats the optimistic window as a running clock. Countdown math extracted to a pure `computeTimerSecondsLeft` helper (`src/components/draft/draftTimer.ts`) that clamps to `pickTimerSeconds` (clock-skew guard) and floors at 0.
+
+**Architectural notes:**
+- Server remains the sole authority for draft phase, pick validity, completion, and timer expiry. The optimistic countdown is strictly display-only — it never enters the POST body or governs expiration (the server `timerExpiresAt` + expire-dispatcher are untouched).
+- Round-boundary authority unified in the API layer; no duplicate client/server pause logic remains.
+- Timer values are still computed *before* the store write in both routes, preserving the persisted==response invariant guarded by DRAFT-001.
+
+**Tests:** `src/app/api/draft/[slug]/[year]/__tests__/route-timer.test.ts` (7 cases) and `src/components/draft/__tests__/draftTimer.test.ts` (11 cases). Run draft route tests via the wildcard glob `'src/app/api/draft/*/*/__tests__/*.test.ts'` (node's runner treats the `[slug]`/`[year]` dirs as glob char-classes).
+
+**Optional follow-up debt (non-blocking):** None. The stale `claude/audit-season-transition-pwKfH` branch was deleted from the remote. The 4 pre-existing `inferredSeasonStart` tsc errors in standings test fixtures remain (tracked under `TEST-SUITE-BASELINE-CLEANUP`, unrelated to this work).
+
+---
+
 ### HISTORY-RECORDS Phase 2 — Complete
 
 **Status:** Complete. Multiple iteration cycles across PR #313 (`claude/history-records-phase-2`). See `docs/campaigns/history-records-phase-2.md` for the full retrospective.
