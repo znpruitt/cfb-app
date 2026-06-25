@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-004-TEST-TSC-FIXTURE-CLEANUP-v1
+- Purpose: Restore a clean `npx tsc --noEmit`. PR #325's markup cleanup added `CanonicalStandings` test fixtures missing the `inferredSeasonStart` field, leaving 4 pre-existing TS2741 errors on main.
+- Scope: Test fixtures only — `MatchupMatrixView.test.tsx`, `MatchupsWeekPanel.test.tsx`, `OwnerPanel.test.tsx`, `StandingsPanel.test.tsx`. No production changes.
+- Notes: Commit `49132e5`. Added `inferredSeasonStart: null` to each fixture — `null` matches every source factory default in `leagueStandings.ts`, and these are render tests that don't exercise the `now > inferredSeasonStart` timing logic. `tsc --noEmit` 0 errors (was 4); `npm test` 910/911 (sole failure is the shared-appState flake → `PLATFORM-003-TEST-APPSTATE-ISOLATION-v1`, passes in isolation); lint:all + build green.
+
 ### PLATFORM-002-TEST-ROUTER-CLERK-CONTEXT-v1
 - Purpose: Eliminate the 12 `CFBScheduleApp.test.tsx` failures caused by missing Next.js App Router and Clerk context (plus a JSX-runtime mismatch) under `renderToStaticMarkup`.
 - Scope: Test/harness only — `src/components/__tests__/CFBScheduleApp.test.tsx`, new `src/components/__tests__/_setup/renderWithAppContext.tsx`, new `tsconfig.test.json`, and the `test` script in `package.json`. No production changes.
