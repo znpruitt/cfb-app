@@ -60,6 +60,7 @@ const canonicalForMatrix: CanonicalStandings = {
   coverage: { state: 'complete', message: null },
   ownersRosterSource: 'csv',
   archiveYearResolved: null,
+  inferredSeasonStart: null,
   generatedAt: '2026-04-26T00:00:00.000Z',
 };
 
