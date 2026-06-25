@@ -16,6 +16,16 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-001-TEST-BASELINE-CLEANUP-v1
+- Purpose: Clean up the stale Node test baseline surfaced once `npm test` could terminate. Eliminate both cancelled (timed-out) test files, update stale component markup assertions, and fix architecture-adjacent lib tests whose expectations predated the postseason week-remapping guardrail.
+- Scope: Test files only — `OverviewPanel.test.tsx`, `TrendsDetailSurface.test.tsx`, `MatchupsWeekPanel.test.tsx`, `MatchupMatrixView.test.tsx`, `StandingsPanel.test.tsx`, `RankingsPageContent.test.tsx`, `WeekViewTabs.test.tsx`, `GameWeekPanel.test.tsx`, `schedule-eligibility.test.ts`, `teamIdentity.test.ts`. No production changes.
+- Notes: Commit `711a032`. The two cancellations were emergent: ~26 (OverviewPanel) / ~13 (TrendsDetailSurface) stale `assert.match` failures each carried the full ~14KB rendered HTML, and the accumulation choked the runner into a file-level timeout (TrendsDetailSurface's `selected focus mode` case also hit an async-teardown spin). Rewritten to query current markup (aria-label legend, tab-gated charts, podium/insight cards, `data-owner-card`/`data-owner-pair-cell`/`data-standings-column`) with semantic assertions over giant HTML regexes. teamIdentity/schedule-eligibility asserted raw provider weeks; production correctly remaps postseason weeks (`canonicalWeek = maxRegularSeasonWeek + providerWeek`) — confirmed stale tests, not product bugs. Full suite after: 0 cancelled, ~895/911 pass (was 818/854, 34 fail + 2 cancelled). Remaining failures are out of scope: CFBScheduleApp (12, needs useRouter/Clerk test context → `PLATFORM-002-TEST-ROUTER-CLERK-CONTEXT-v1`) and cross-process shared-appState flakes in route-timer / selectors-leagueStandings (both pass in isolation → `PLATFORM-003-TEST-APPSTATE-ISOLATION-v1`). **ID note:** the `PLATFORM-001` number predates this and is also used by `PLATFORM-001-ROLLOVER-UI-v1` (distinct short-name); future PLATFORM prompts should continue from `PLATFORM-002`.
+
+### TEST-SUITE-HANG-BASELINE-FIX
+- Purpose: Diagnose and fix the pre-existing `npm test` hang on `main` — the suite ran forever with no signal.
+- Scope: `package.json` test script only. No production or test-file changes.
+- Notes: Commit `dcdadd4` (PR #324). Root cause: `node:test` has no default per-test timeout, so a single runaway test blocks the whole suite indefinitely. Two stale-expectation files contained runaways — TrendsDetailSurface (async-recursion microtask loop; CPU-bound, confirmed via `sample`) and OverviewPanel (synchronous loop emergent across its sequence). Fix: add `--test-timeout=30000` so any runaway is bounded and the suite always terminates with usable results. Prerequisite to `PLATFORM-001-TEST-BASELINE-CLEANUP-v1`, which eliminates the runaways themselves.
+
 ### HISTORY-RECORDS-PHASE-2-CAMPAIGN-CLOSEOUT
 - Purpose: Documentation closeout for the HISTORY-RECORDS Phase 2 campaign. Logs the rich-template entry in `docs/completed-work.md`, registers all formal Phase 2 PROMPT_IDs in `docs/prompt-registry.md`. No code changes.
 - Scope: `docs/completed-work.md`, `docs/prompt-registry.md`. No source code changes.
