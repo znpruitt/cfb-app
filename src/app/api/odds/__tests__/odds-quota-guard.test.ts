@@ -10,6 +10,7 @@ import {
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import {
   __deleteDurableOddsStoreFileForTests,
@@ -17,7 +18,7 @@ import {
 } from '../../../../lib/server/durableOddsStore.ts';
 
 import { GET } from '../route.ts';
-import { __resetOddsRouteCacheForTests } from '../routeInternals.ts';
+import { __resetOddsRouteCacheForTests, oddsCache } from '../routeInternals.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-020 — server-side odds quota guard.
@@ -168,6 +169,50 @@ test('serves a fresh cache entry without a second upstream call (cache-serving n
       'second call should be served from cache'
     );
     assert.equal(stub.oddsCalls(), 1, 'a fresh cache entry must not trigger another upstream call');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('suppressed response reports the current low usage, not the stale cached entry usage', async () => {
+  // 1. Prime the cache via a normal fetch while quota is safe; the cached entry
+  //    captures a HIGH remaining from the upstream headers (400).
+  await setLatestKnownOddsUsage(usageSnapshot(400));
+  const stub = installFetchStub();
+  try {
+    const seed = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    assert.equal(seed.status, 200, await seed.clone().text());
+    assert.equal((await seed.json()).meta.cache, 'miss');
+    assert.equal(stub.oddsCalls(), 1);
+
+    // 2. Make the cached fallback STALE and stamp it with an old, high usage so a
+    //    naive response would surface remaining=450. Mirror it into appState so
+    //    the route does not treat the stored copy as a fresh hit.
+    const cacheKey = Object.keys(oddsCache.entries)[0]!;
+    const staleEntry = {
+      ...oddsCache.entries[cacheKey]!,
+      lastFetch: Date.now() - 10 * 60 * 1000,
+      usage: usageSnapshot(450),
+    };
+    oddsCache.entries[cacheKey] = staleEntry;
+    await setAppState('odds-cache', `${ODDS_TEST_SEASON}:${cacheKey}`, staleEntry);
+
+    // 3. Saved quota is now low -> guard suppresses upstream and serves the stale
+    //    fallback odds, but must report the CURRENT low usage.
+    await setLatestKnownOddsUsage(usageSnapshot(5));
+    const callsBefore = stub.oddsCalls();
+
+    const res = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(stub.oddsCalls(), callsBefore, 'no upstream Odds API call during suppression');
+
+    const body = (await res.json()) as OddsResponseBody;
+    assert.equal(body.meta.cache, 'hit');
+    assert.equal(
+      body.meta.usage?.remaining,
+      5,
+      'meta.usage must reflect the current low quota, not the stale cached entry usage'
+    );
   } finally {
     stub.restore();
   }

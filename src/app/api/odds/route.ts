@@ -520,10 +520,14 @@ export async function GET(req: Request): Promise<Response> {
     // data, so this must be enforced here rather than in the UI. Admin-driven
     // refreshes (refresh=1, already auth-gated above) intentionally bypass it.
     let quotaSuppressed = false;
+    let suppressedUsage: OddsUsageSnapshot | null = null;
     if (!responseEntry && !refreshRequested) {
       const latestKnownUsage = await getLatestKnownOddsUsage();
       if (getOddsQuotaGuardState(latestKnownUsage?.remaining).disableAutoRefresh) {
         quotaSuppressed = true;
+        // Report the current (low) usage snapshot, not the fallback entry's
+        // possibly-stale higher usage, so the client guard/warnings still engage.
+        suppressedUsage = latestKnownUsage;
         recordRouteCacheMiss('odds');
         // Serve the freshest cached data we have (possibly stale) without an
         // upstream call. If nothing is cached, continue with empty odds.
@@ -649,7 +653,9 @@ export async function GET(req: Request): Promise<Response> {
       cache: fetchedFromUpstream ? 'miss' : 'hit',
       fallbackUsed: false,
       generatedAt: requestTime,
-      usage: responseEntry?.usage ?? (await getLatestKnownOddsUsage()),
+      usage: quotaSuppressed
+        ? suppressedUsage
+        : (responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
       season: query.season,
     });
   } catch (e) {
