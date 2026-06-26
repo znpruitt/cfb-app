@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
-import { type DraftState, draftScope } from '@/lib/draft';
+import { type DraftState, draftScope, getDraftEligibleTeams } from '@/lib/draft';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
 import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
 import teamsData from '@/data/teams.json';
@@ -90,7 +90,15 @@ export async function PUT(
   const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
   const resolution = resolver.resolveName(teamName);
 
-  if (!resolution.canonicalName || resolution.canonicalName === 'NoClaim') {
+  // The resolved name must be a real draft-eligible catalog team. Checking
+  // membership in the eligible school set (not just `!= NoClaim`) keeps pick
+  // acceptance consistent with the confirm route — otherwise an alias that
+  // resolves to a non-catalog name (e.g. an FCS school) would be accepted here
+  // but rejected at confirmation, leaving an unconfirmable draft.
+  const eligibleTeamNames = new Set(
+    getDraftEligibleTeams(items).map((t) => t.school.toLowerCase())
+  );
+  if (!resolution.canonicalName || !eligibleTeamNames.has(resolution.canonicalName.toLowerCase())) {
     return NextResponse.json(
       { error: `Team "${teamName}" not found in FBS catalog` },
       { status: 400 }

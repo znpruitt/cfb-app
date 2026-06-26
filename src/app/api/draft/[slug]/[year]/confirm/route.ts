@@ -4,7 +4,7 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
-import { type DraftState, draftScope } from '@/lib/draft';
+import { type DraftState, draftScope, getDraftEligibleTeams } from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
 
@@ -59,13 +59,20 @@ export async function POST(
 
   const draft = record.value;
 
-  // Derive expected pick count from FBS team catalog at runtime — never hardcoded.
-  // teamsPerOwner = floor(fbsTeamCount / ownerCount); totalExpectedPicks = teamsPerOwner * ownerCount.
-  // NoClaim teams fill the remainder and are not assigned to any owner.
+  // Derive expected pick count from the draft's CONFIGURED round count — the same
+  // value setup/update validate (1 <= totalRounds <= floor(eligibleCount / owners))
+  // and the value the live draft completes against (totalRounds * ownerCount). A
+  // commissioner may run fewer than the catalog maximum rounds, so confirmation must
+  // honor totalRounds rather than recomputing the max from the full catalog; doing
+  // the latter 422s every sub-max-round draft. Eligibility (which teams may be
+  // drafted at all, and which fill NoClaim) is defined by the shared
+  // getDraftEligibleTeams helper so it matches setup/update/auto-pick exactly. Every
+  // undrafted eligible team — not just an even-division remainder — is written as
+  // NoClaim below.
   const { items: allTeams } = teamsData as TeamsJson;
-  const fbsTeamCount = allTeams.filter((t) => t.classification?.toLowerCase() === 'fbs').length;
+  const eligibleTeams = getDraftEligibleTeams(allTeams);
   const ownerCount = draft.owners.length;
-  const teamsPerOwner = Math.floor(fbsTeamCount / ownerCount);
+  const teamsPerOwner = draft.settings.totalRounds;
   const totalExpectedPicks = teamsPerOwner * ownerCount;
 
   if (draft.picks.length !== totalExpectedPicks) {
@@ -112,14 +119,10 @@ export async function POST(
     );
   }
 
-  // Validate all pick.team values resolve to a known FBS team in the catalog.
-  const fbsTeamNames = new Set(
-    allTeams
-      .filter((t) => t.classification?.toLowerCase() === 'fbs')
-      .map((t) => t.school.toLowerCase())
-  );
+  // Validate all pick.team values resolve to a draft-eligible team in the catalog.
+  const eligibleTeamNames = new Set(eligibleTeams.map((t) => t.school.toLowerCase()));
   const unrecognizedTeams = draft.picks
-    .filter((p) => !fbsTeamNames.has(p.team.toLowerCase()))
+    .filter((p) => !eligibleTeamNames.has(p.team.toLowerCase()))
     .map((p) => p.team);
   if (unrecognizedTeams.length > 0) {
     return NextResponse.json(
@@ -138,25 +141,22 @@ export async function POST(
     csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
   }
 
-  // Append NoClaim rows for undrafted FBS teams (remainder after even division).
+  // Append NoClaim rows for undrafted eligible teams (remainder after even division).
   const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
-  const undraftedFbsTeams = allTeams
-    .filter(
-      (t) =>
-        t.classification?.toLowerCase() === 'fbs' && !draftedTeamsLower.has(t.school.toLowerCase())
-    )
+  const undraftedEligibleTeams = eligibleTeams
+    .filter((t) => !draftedTeamsLower.has(t.school.toLowerCase()))
     .map((t) => t.school);
-  for (const teamName of undraftedFbsTeams) {
+  for (const teamName of undraftedEligibleTeams) {
     csvLines.push(`${csvField(teamName)},NoClaim`);
   }
 
   // Belt-and-suspenders: verify CSV row count before writing.
-  const expectedTotalRows = totalExpectedPicks + undraftedFbsTeams.length;
+  const expectedTotalRows = totalExpectedPicks + undraftedEligibleTeams.length;
   const rowCount = csvLines.length - 1; // exclude header
   if (rowCount !== expectedTotalRows) {
     return NextResponse.json(
       {
-        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedFbsTeams.length} unclaimed) but produced ${rowCount}. Do not write partial data.`,
+        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedEligibleTeams.length} unclaimed) but produced ${rowCount}. Do not write partial data.`,
       },
       { status: 422 }
     );

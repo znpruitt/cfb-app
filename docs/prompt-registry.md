@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### DRAFT-010-CONFIRM-ELIGIBILITY-v1
+- Purpose: Fix draft confirmation so it uses the same eligible-team definition as draft setup and works with the current `src/data/teams.json` shape. Confirmation counted expected teams via `t.classification === 'fbs'`, but no `teams.json` item carries `classification`, so a complete, valid draft was rejected as "0 of 0 picks."
+- Scope: `src/lib/draft.ts` (new shared helper), `src/app/api/draft/[slug]/[year]/{confirm,route,pick/route,pick/[n]/route}.ts`, new tests `src/lib/__tests__/draft.test.ts` + `src/app/api/draft/[slug]/[year]/__tests__/confirm-eligibility.test.ts` (+ `_setup/` revalidate-context harness). No draft UX, pick-ordering, dependency, or odds/schedule/standings/appState-infra changes.
+- Notes: Commit `(this PR)`. Added one source of truth in `draft.ts` — `getDraftEligibleTeams`/`isDraftEligibleTeam`/`NON_DRAFTABLE_SCHOOLS` defining eligibility as "exclude the `NoClaim` placeholder" (not a `classification` field). `confirm/route.ts` now derives `totalExpectedPicks`, recognized-team validation, and the undrafted-NoClaim remainder from the helper; `route.ts` (setup/update/auto-pick) and both pick routes route their eligibility checks through it too. Tests: helper-level (NoClaim excluded; current catalog yields non-zero eligible == all items, with explicit no-`classification`-key invariant) and route-level (complete draft confirms 200 — fails 422 pre-fix; 3-owner remainder writes correct NoClaim row count). Test-only `_setup/{installAsyncLocalStorage,revalidateContext}.ts` supplies a minimal Next `workAsyncStorage` store so `invalidateStandings`→`revalidateTag` runs under the bare `node:test` runner. tsc/lint:all/build green; `npm test` 916/916, 0 fail, 0 cancelled (911 baseline + 5).
+
 ### PLATFORM-003-TEST-APPSTATE-ISOLATION-v1
 - Purpose: Remove the cross-process shared-appState flakes so the full Node test suite is deterministic (0 failures, 0 cancelled across repeated runs).
 - Scope: `src/lib/server/appStateStore.ts` (test-only-gated path branch) + `package.json` test script. No production behavior change.

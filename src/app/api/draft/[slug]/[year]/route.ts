@@ -11,6 +11,7 @@ import {
   type DraftPick,
   defaultDraftSettings,
   draftScope,
+  getDraftEligibleTeams,
 } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
@@ -24,6 +25,21 @@ function getPickOwner(draftOrder: string[], pickIndex: number): string {
   const posInRound = pickIndex % n;
   const ownerIdx = round % 2 === 0 ? posInRound : n - 1 - posInRound;
   return draftOrder[ownerIdx]!;
+}
+
+/**
+ * A valid draftOrder is a one-to-one permutation of the owner set: same length,
+ * no duplicates, every owner present, and no extra/foreign names. A `Set`-only
+ * "same unique names" check is insufficient — `['Alice','Bob','Alice']` would
+ * pass it, but the longer array desyncs `draftOrder.length` (used to derive the
+ * picker) from `owners.length` (used for total picks/rounds), corrupting pick
+ * ownership and leaving the draft unconfirmable.
+ */
+function isDraftOrderPermutationOfOwners(draftOrder: string[], owners: string[]): boolean {
+  if (draftOrder.length !== owners.length) return false;
+  const orderSet = new Set(draftOrder);
+  if (orderSet.size !== draftOrder.length) return false; // duplicates
+  return owners.every((o) => orderSet.has(o));
 }
 
 export const dynamic = 'force-dynamic';
@@ -178,7 +194,7 @@ export async function POST(
     }
     if (s.totalRounds !== undefined && s.totalRounds >= 1) {
       const { items } = teamsData as TeamsJson;
-      const fbsCount = items.filter((t) => t.school !== 'NoClaim').length;
+      const fbsCount = getDraftEligibleTeams(items).length;
       const maxRounds = Math.floor(fbsCount / ownerNames.length);
       if (s.totalRounds > maxRounds) {
         return NextResponse.json(
@@ -190,7 +206,7 @@ export async function POST(
         );
       }
     }
-    // Validate draftOrder matches owners exactly when provided
+    // Validate draftOrder is a one-to-one permutation of owners when provided.
     if (s.draftOrder !== undefined) {
       if (!Array.isArray(s.draftOrder)) {
         return NextResponse.json(
@@ -198,10 +214,7 @@ export async function POST(
           { status: 400 }
         );
       }
-      const orderSet = new Set(s.draftOrder);
-      const setsMatch =
-        orderSet.size === ownerNames.length && ownerNames.every((o) => orderSet.has(o));
-      if (!setsMatch) {
+      if (!isDraftOrderPermutationOfOwners(s.draftOrder, ownerNames)) {
         return NextResponse.json(
           {
             error: 'draftOrder must contain exactly the same owners as the owners array',
@@ -281,7 +294,18 @@ export async function PUT(
     timerAction?: unknown;
   };
 
-  let draft: DraftState = { ...record.value };
+  const original = record.value;
+
+  // Once the draft has started, the owner set/order and configured round count are
+  // locked: confirmation derives its expected pick count and per-owner counts from
+  // these, so a post-start mutation could make a finished roster unconfirmable.
+  const draftStarted =
+    original.picks.length > 0 ||
+    original.phase === 'live' ||
+    original.phase === 'paused' ||
+    original.phase === 'complete';
+
+  let draft: DraftState = { ...original };
 
   // Update owners
   if (owners !== undefined) {
@@ -300,30 +324,102 @@ export async function PUT(
         { status: 400 }
       );
     }
+    const ownersChanged =
+      ownerNames.length !== original.owners.length ||
+      ownerNames.some((name, i) => name !== original.owners[i]);
+    if (draftStarted && ownersChanged) {
+      return NextResponse.json(
+        {
+          error:
+            'owners cannot be changed after the draft has started. Reset or reopen the draft to change the owner set or order.',
+          field: 'owners',
+        },
+        { status: 409 }
+      );
+    }
     draft = { ...draft, owners: ownerNames };
   }
 
-  // Update settings (merge)
+  // Update settings — validate every provided field BEFORE merging so a malformed
+  // or rejected request never mutates the persisted draft.
   if (settings !== undefined && typeof settings === 'object' && settings !== null) {
     const incoming = settings as Partial<DraftSettings>;
-    draft = {
-      ...draft,
-      settings: {
-        ...draft.settings,
-        ...incoming,
-        // Ensure style is always 'snake'
-        style: 'snake',
-      },
-    };
 
-    // Validate totalRounds does not exceed max full rounds
+    // draftOrder validation (parity with POST):
+    //  1. must be an array — malformed values 400, never crash;
+    //  2. locked once the draft has started (see draftStarted above) — snake
+    //     pick-owner assignment derives from settings.draftOrder, so a mid-draft
+    //     change reassigns remaining picks to the wrong owners;
+    //  3. must contain exactly the owner set (same rule POST enforces).
+    if (incoming.draftOrder !== undefined) {
+      if (!Array.isArray(incoming.draftOrder)) {
+        return NextResponse.json(
+          { error: 'settings.draftOrder must be an array', field: 'settings.draftOrder' },
+          { status: 400 }
+        );
+      }
+      const incomingOrder = incoming.draftOrder;
+      const originalOrder = original.settings.draftOrder;
+      const orderChanged =
+        incomingOrder.length !== originalOrder.length ||
+        incomingOrder.some((name, i) => name !== originalOrder[i]);
+      if (draftStarted && orderChanged) {
+        return NextResponse.json(
+          {
+            error:
+              'draftOrder cannot be changed after the draft has started. Reset or reopen the draft to change the draft order.',
+            field: 'settings.draftOrder',
+          },
+          { status: 409 }
+        );
+      }
+      // Effective owner set: owners may have just been updated above for a
+      // not-yet-started draft; draft.owners reflects that.
+      if (!isDraftOrderPermutationOfOwners(incomingOrder, draft.owners)) {
+        return NextResponse.json(
+          {
+            error: 'draftOrder must contain exactly the same owners as the owners array',
+            field: 'settings.draftOrder',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // totalRounds validation (parity with POST):
+    //  1. must be a positive integer — strings/zero/negative/non-integers 400;
+    //  2. locked once the draft has started;
+    //  3. capped at the catalog maximum full rounds.
     if (incoming.totalRounds !== undefined) {
+      if (
+        typeof incoming.totalRounds !== 'number' ||
+        !Number.isInteger(incoming.totalRounds) ||
+        incoming.totalRounds < 1
+      ) {
+        return NextResponse.json(
+          {
+            error: 'settings.totalRounds must be a positive integer',
+            field: 'settings.totalRounds',
+          },
+          { status: 400 }
+        );
+      }
+      if (draftStarted && incoming.totalRounds !== original.settings.totalRounds) {
+        return NextResponse.json(
+          {
+            error:
+              'totalRounds cannot be changed after the draft has started. Reset or reopen the draft to change the round count.',
+            field: 'settings.totalRounds',
+          },
+          { status: 409 }
+        );
+      }
       const { items } = teamsData as TeamsJson;
-      const fbsCount = items.filter((t) => t.school !== 'NoClaim').length;
+      const fbsCount = getDraftEligibleTeams(items).length;
       const ownerCount = draft.owners.length;
       if (ownerCount > 0) {
         const maxRounds = Math.floor(fbsCount / ownerCount);
-        if (draft.settings.totalRounds > maxRounds) {
+        if (incoming.totalRounds > maxRounds) {
           return NextResponse.json(
             {
               error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerCount} owners)`,
@@ -334,6 +430,16 @@ export async function PUT(
         }
       }
     }
+
+    draft = {
+      ...draft,
+      settings: {
+        ...draft.settings,
+        ...incoming,
+        // Ensure style is always 'snake'
+        style: 'snake',
+      },
+    };
   }
 
   // Phase transition
@@ -439,7 +545,7 @@ export async function PUT(
         // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay
         // Select a random available team
         const { items } = teamsData as TeamsJson;
-        const fbsTeams = items.filter((t) => t.school !== 'NoClaim');
+        const fbsTeams = getDraftEligibleTeams(items);
         const pickedLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
 
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
