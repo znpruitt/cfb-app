@@ -328,30 +328,30 @@ export async function PUT(
     draft = { ...draft, owners: ownerNames };
   }
 
-  // Update settings (merge)
+  // Update settings — validate every provided field BEFORE merging so a malformed
+  // or rejected request never mutates the persisted draft.
   if (settings !== undefined && typeof settings === 'object' && settings !== null) {
     const incoming = settings as Partial<DraftSettings>;
-    draft = {
-      ...draft,
-      settings: {
-        ...draft.settings,
-        ...incoming,
-        // Ensure style is always 'snake'
-        style: 'snake',
-      },
-    };
 
-    // Lock the draft order once the draft has started (see draftStarted above):
-    // snake pick-owner assignment derives from settings.draftOrder, so changing it
-    // mid-draft reassigns remaining picks to the wrong owners and can leave the
-    // roster uneven / unconfirmable.
-    if (incoming.draftOrder !== undefined && draftStarted) {
+    // draftOrder validation (parity with POST):
+    //  1. must be an array — malformed values 400, never crash;
+    //  2. locked once the draft has started (see draftStarted above) — snake
+    //     pick-owner assignment derives from settings.draftOrder, so a mid-draft
+    //     change reassigns remaining picks to the wrong owners;
+    //  3. must contain exactly the owner set (same rule POST enforces).
+    if (incoming.draftOrder !== undefined) {
+      if (!Array.isArray(incoming.draftOrder)) {
+        return NextResponse.json(
+          { error: 'settings.draftOrder must be an array', field: 'settings.draftOrder' },
+          { status: 400 }
+        );
+      }
       const incomingOrder = incoming.draftOrder;
       const originalOrder = original.settings.draftOrder;
       const orderChanged =
         incomingOrder.length !== originalOrder.length ||
         incomingOrder.some((name, i) => name !== originalOrder[i]);
-      if (orderChanged) {
+      if (draftStarted && orderChanged) {
         return NextResponse.json(
           {
             error:
@@ -361,13 +361,40 @@ export async function PUT(
           { status: 409 }
         );
       }
+      // Effective owner set: owners may have just been updated above for a
+      // not-yet-started draft; draft.owners reflects that.
+      const orderSet = new Set(incomingOrder);
+      const setsMatch =
+        orderSet.size === draft.owners.length && draft.owners.every((o) => orderSet.has(o));
+      if (!setsMatch) {
+        return NextResponse.json(
+          {
+            error: 'draftOrder must contain exactly the same owners as the owners array',
+            field: 'settings.draftOrder',
+          },
+          { status: 400 }
+        );
+      }
     }
 
-    // Validate totalRounds does not exceed max full rounds
+    // totalRounds validation (parity with POST):
+    //  1. must be a positive integer — strings/zero/negative/non-integers 400;
+    //  2. locked once the draft has started;
+    //  3. capped at the catalog maximum full rounds.
     if (incoming.totalRounds !== undefined) {
-      // Lock the configured round count once the draft has started (see draftStarted
-      // above): confirmation derives its expected pick count from settings.totalRounds,
-      // so a post-start change could make a completed roster unconfirmable.
+      if (
+        typeof incoming.totalRounds !== 'number' ||
+        !Number.isInteger(incoming.totalRounds) ||
+        incoming.totalRounds < 1
+      ) {
+        return NextResponse.json(
+          {
+            error: 'settings.totalRounds must be a positive integer',
+            field: 'settings.totalRounds',
+          },
+          { status: 400 }
+        );
+      }
       if (draftStarted && incoming.totalRounds !== original.settings.totalRounds) {
         return NextResponse.json(
           {
@@ -383,7 +410,7 @@ export async function PUT(
       const ownerCount = draft.owners.length;
       if (ownerCount > 0) {
         const maxRounds = Math.floor(fbsCount / ownerCount);
-        if (draft.settings.totalRounds > maxRounds) {
+        if (incoming.totalRounds > maxRounds) {
           return NextResponse.json(
             {
               error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerCount} owners)`,
@@ -394,6 +421,16 @@ export async function PUT(
         }
       }
     }
+
+    draft = {
+      ...draft,
+      settings: {
+        ...draft.settings,
+        ...incoming,
+        // Ensure style is always 'snake'
+        style: 'snake',
+      },
+    };
   }
 
   // Phase transition

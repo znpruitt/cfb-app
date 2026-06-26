@@ -97,6 +97,33 @@ function completeDraft(
   return { draft, teamsPerOwner, totalPicks };
 }
 
+/** A not-yet-started draft (settings phase, no picks) for pre-start validation tests. */
+function setupDraft(): DraftState {
+  const owners = ['Owner1', 'Owner2'];
+  const now = '2026-08-01T00:00:00.000Z';
+  return {
+    leagueSlug: SLUG,
+    year: YEAR,
+    phase: 'settings',
+    owners,
+    settings: {
+      style: 'snake',
+      draftOrder: [...owners],
+      pickTimerSeconds: 60,
+      timerExpiryBehavior: 'pause-and-prompt',
+      autoPickMetric: null,
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    picks: [],
+    currentPickIndex: 0,
+    timerState: 'off',
+    timerExpiresAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 function confirmRequest(): Request {
   return new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/confirm`, {
     method: 'POST',
@@ -311,4 +338,73 @@ test('a completed draft cannot be made unconfirmable by changing owners after pi
   assert.equal(confirmRes.status, 200, confirmBody.error ?? 'expected confirm to still succeed');
   assert.equal(confirmBody.success, true);
   assert.equal(confirmBody.teamCount, totalPicks);
+});
+
+// ---------------------------------------------------------------------------
+// DRAFT-010 — PUT settings validation parity with POST. These guard against
+// malformed input crashing the route and against pre-start settings that would
+// desync the draft (draftOrder vs owners) or persist an invalid round count.
+// ---------------------------------------------------------------------------
+
+test('PUT rejects a non-array draftOrder with 400 (does not crash) and leaves the draft unchanged', async () => {
+  const draft = setupDraft();
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+
+  const res = await runWithRevalidateContext(() =>
+    PUT(putSettingsRequest({ settings: { draftOrder: null } }), { params })
+  );
+  const body = (await res.json()) as { error?: string; field?: string };
+  assert.equal(res.status, 400, 'malformed draftOrder must be a 400, not a 500');
+  assert.match(body.error ?? '', /draftOrder must be an array/i);
+
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.deepEqual(persisted?.value?.settings.draftOrder, draft.settings.draftOrder);
+});
+
+test('PUT rejects a pre-start draftOrder that does not match the owner set with 400', async () => {
+  const draft = setupDraft();
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+
+  // draftOrder contains a name not in owners → mismatch.
+  const res = await runWithRevalidateContext(() =>
+    PUT(putSettingsRequest({ settings: { draftOrder: ['Owner1', 'Intruder'] } }), { params })
+  );
+  const body = (await res.json()) as { error?: string };
+  assert.equal(res.status, 400);
+  assert.match(body.error ?? '', /draftOrder must contain exactly the same owners/i);
+
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.deepEqual(persisted?.value?.settings.draftOrder, draft.settings.draftOrder);
+});
+
+test('PUT rejects a non-integer / zero / negative totalRounds with 400 and leaves the draft unchanged', async () => {
+  const draft = setupDraft();
+
+  for (const bad of ['5', 0, -1, 1.5]) {
+    await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+    const res = await runWithRevalidateContext(() =>
+      PUT(putSettingsRequest({ settings: { totalRounds: bad } }), { params })
+    );
+    const body = (await res.json()) as { error?: string };
+    assert.equal(res.status, 400, `totalRounds=${JSON.stringify(bad)} must be rejected`);
+    assert.match(body.error ?? '', /totalRounds must be a positive integer/i);
+
+    const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+    assert.equal(persisted?.value?.settings.totalRounds, draft.settings.totalRounds);
+  }
+});
+
+test('PUT accepts a valid pre-start settings update (draftOrder reorder + totalRounds)', async () => {
+  const draft = setupDraft();
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+
+  const reordered = [...draft.owners].reverse();
+  const res = await runWithRevalidateContext(() =>
+    PUT(putSettingsRequest({ settings: { draftOrder: reordered, totalRounds: 2 } }), { params })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.deepEqual(persisted?.value?.settings.draftOrder, reordered);
+  assert.equal(persisted?.value?.settings.totalRounds, 2);
 });
