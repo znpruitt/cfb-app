@@ -12,6 +12,7 @@ import {
   type CfbdConferenceRecord,
 } from '@/lib/conferenceSubdivision';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,9 @@ function mapClassificationSource(params: {
 }
 
 export async function GET(req: Request) {
+  const authFailure = await requireAdminAuth(req);
+  if (authFailure) return authFailure;
+
   const url = new URL(req.url);
   const year = parseYear(url.searchParams.get('year'));
   const weekParam = url.searchParams.get('week');

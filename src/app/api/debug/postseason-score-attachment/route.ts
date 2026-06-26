@@ -9,6 +9,7 @@ import {
   type ScheduleIndexEntry,
 } from '@/lib/scoreAttachment';
 import { createTeamIdentityResolver } from '@/lib/teamIdentity';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,6 +116,9 @@ function closestCandidate(params: {
 }
 
 export async function GET(req: Request) {
+  const authFailure = await requireAdminAuth(req);
+  if (authFailure) return authFailure;
+
   const url = new URL(req.url);
   const year = parseDebugYear(url);
   const origin = `${url.protocol}//${url.host}`;

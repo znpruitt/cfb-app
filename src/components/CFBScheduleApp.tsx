@@ -1059,6 +1059,9 @@ export default function CFBScheduleApp({
   });
 
   useEffect(() => {
+    // Odds-usage is admin-only diagnostics (API quota state). Only admins fetch it;
+    // the underlying /api/admin/odds-usage route now requires admin auth.
+    if (!isAdmin) return;
     void fetchLatestOddsUsageSnapshot()
       .then((snapshot) => {
         setOddsUsage(snapshot);
@@ -1066,7 +1069,7 @@ export default function CFBScheduleApp({
       .catch(() => {
         // non-fatal diagnostics fetch
       });
-  }, []);
+  }, [isAdmin]);
 
   // Load draft phase for contextual banner (non-blocking, best-effort).
   // Use leagueStatus.year when available (preseason/season) so the fetch

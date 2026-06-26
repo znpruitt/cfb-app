@@ -9,10 +9,14 @@ import {
 } from '@/lib/scoreAttachmentDiagnostics';
 import type { ScoreAttachmentDebugResponse } from '@/lib/scoreAttachmentDebug';
 import { fetchScoresByGame } from '@/lib/scores';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
+  const authFailure = await requireAdminAuth(req);
+  if (authFailure) return authFailure;
+
   const url = new URL(req.url);
   const year = parseDebugYear(url);
   const weekParam = url.searchParams.get('week');

@@ -1,3 +1,4 @@
+import { requireAdminAuthHeaders } from './adminAuth.ts';
 import type { ScoreAttachmentDiagnostic } from './scoreAttachmentDiagnostics.ts';
 
 export type ScoreAttachmentDebugResponse = {
@@ -44,6 +45,7 @@ export async function fetchScoreAttachmentDebug(params: {
 
   const res = await fetch(`/api/debug/scores-attachment?${search.toString()}`, {
     cache: 'no-store',
+    headers: { ...(requireAdminAuthHeaders() as Record<string, string>) },
   });
   if (!res.ok) {
     throw new Error(`Debug scores endpoint failed (${res.status})`);

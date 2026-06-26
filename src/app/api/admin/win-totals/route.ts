@@ -69,6 +69,9 @@ function parseWinTotalsCsv(
 }
 
 export async function GET(req: Request): Promise<Response> {
+  const authFailure = await requireAdminRequest(req);
+  if (authFailure) return authFailure;
+
   const url = new URL(req.url);
   const year = parseYear(url.searchParams.get('year'));
   if (!year) {

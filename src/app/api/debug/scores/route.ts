@@ -2,10 +2,14 @@ import { NextResponse } from 'next/server';
 
 import { fetchScoresByGame } from '@/lib/scores';
 import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
+  const authFailure = await requireAdminAuth(req);
+  if (authFailure) return authFailure;
+
   const url = new URL(req.url);
   const year = Number(url.searchParams.get('year') ?? new Date().getFullYear());
   const origin = `${url.protocol}//${url.host}`;

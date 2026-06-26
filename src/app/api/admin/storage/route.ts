@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 
 import { getAppStateStorageStatus } from '@/lib/server/appStateStore';
-import { isAdminTokenConfigured } from '@/lib/server/adminAuth';
+import { isAdminTokenConfigured, requireAdminAuth } from '@/lib/server/adminAuth';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authFailure = await requireAdminAuth(req);
+  if (authFailure) return authFailure;
+
   return NextResponse.json({
     storage: getAppStateStorageStatus(),
     adminTokenConfigured: isAdminTokenConfigured(),

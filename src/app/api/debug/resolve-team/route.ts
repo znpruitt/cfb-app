@@ -2,10 +2,14 @@ import { NextResponse } from 'next/server';
 
 import { createTeamIdentityResolver } from '@/lib/teamIdentity';
 import { normalizeTeamName } from '@/lib/teamNormalization';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request) {
+  const authFailure = await requireAdminAuth(req);
+  if (authFailure) return authFailure;
+
   const url = new URL(req.url);
   const name = url.searchParams.get('name') ?? '';
   const year = Number(url.searchParams.get('year') ?? new Date().getFullYear());

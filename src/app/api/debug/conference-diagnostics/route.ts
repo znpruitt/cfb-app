@@ -5,10 +5,14 @@ import {
   getPresentDayPolicyConferenceDiagnostics,
   getUnresolvedConferenceDiagnostics,
 } from '@/lib/conferenceDiagnostics';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
+  const authFailure = await requireAdminAuth(req);
+  if (authFailure) return authFailure;
+
   const unresolved = getUnresolvedConferenceDiagnostics();
   const ambiguous = getAmbiguousConferenceDiagnostics();
   const presentDayPolicy = getPresentDayPolicyConferenceDiagnostics();
