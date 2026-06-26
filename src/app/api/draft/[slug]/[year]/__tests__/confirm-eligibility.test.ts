@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { POST } from '../confirm/route';
-import { PUT } from '../route';
+import { PUT, POST as CREATE_DRAFT } from '../route';
 import { addLeague } from '@/lib/leagueRegistry';
 import {
   setAppState,
@@ -134,6 +134,14 @@ function confirmRequest(): Request {
 function putSettingsRequest(body: Record<string, unknown>): Request {
   return new Request(`http://localhost/api/draft/${SLUG}/${YEAR}`, {
     method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+    body: JSON.stringify(body),
+  });
+}
+
+function createDraftRequest(body: Record<string, unknown>): Request {
+  return new Request(`http://localhost/api/draft/${SLUG}/${YEAR}`, {
+    method: 'POST',
     headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
     body: JSON.stringify(body),
   });
@@ -407,4 +415,50 @@ test('PUT accepts a valid pre-start settings update (draftOrder reorder + totalR
   const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
   assert.deepEqual(persisted?.value?.settings.draftOrder, reordered);
   assert.equal(persisted?.value?.settings.totalRounds, 2);
+});
+
+test('PUT pre-start rejects a draftOrder with duplicate/extra entries and leaves the draft unchanged', async () => {
+  const draft = setupDraft();
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
+
+  // A Set-only check would accept this (unique names match owners) even though the
+  // array is longer — it must be rejected as not a one-to-one permutation.
+  const res = await runWithRevalidateContext(() =>
+    PUT(putSettingsRequest({ settings: { draftOrder: ['Owner1', 'Owner2', 'Owner1'] } }), {
+      params,
+    })
+  );
+  const body = (await res.json()) as { error?: string };
+  assert.equal(res.status, 400);
+  assert.match(body.error ?? '', /draftOrder must contain exactly the same owners/i);
+
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.deepEqual(persisted?.value?.settings.draftOrder, draft.settings.draftOrder);
+});
+
+test('POST create rejects a draftOrder with duplicate/extra entries and persists nothing', async () => {
+  const res = await CREATE_DRAFT(
+    createDraftRequest({
+      owners: ['Alice', 'Bob'],
+      settings: { draftOrder: ['Alice', 'Bob', 'Alice'] },
+    }),
+    { params }
+  );
+  const body = (await res.json()) as { error?: string };
+  assert.equal(res.status, 400);
+  assert.match(body.error ?? '', /draftOrder must contain exactly the same owners/i);
+
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.ok(!persisted?.value, 'rejected create must not persist a draft');
+});
+
+test('POST create accepts a valid draftOrder permutation of owners', async () => {
+  const res = await CREATE_DRAFT(
+    createDraftRequest({ owners: ['Alice', 'Bob'], settings: { draftOrder: ['Bob', 'Alice'] } }),
+    { params }
+  );
+  assert.equal(res.status, 201, await res.text());
+
+  const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
+  assert.deepEqual(persisted?.value?.settings.draftOrder, ['Bob', 'Alice']);
 });

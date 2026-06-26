@@ -27,6 +27,21 @@ function getPickOwner(draftOrder: string[], pickIndex: number): string {
   return draftOrder[ownerIdx]!;
 }
 
+/**
+ * A valid draftOrder is a one-to-one permutation of the owner set: same length,
+ * no duplicates, every owner present, and no extra/foreign names. A `Set`-only
+ * "same unique names" check is insufficient — `['Alice','Bob','Alice']` would
+ * pass it, but the longer array desyncs `draftOrder.length` (used to derive the
+ * picker) from `owners.length` (used for total picks/rounds), corrupting pick
+ * ownership and leaving the draft unconfirmable.
+ */
+function isDraftOrderPermutationOfOwners(draftOrder: string[], owners: string[]): boolean {
+  if (draftOrder.length !== owners.length) return false;
+  const orderSet = new Set(draftOrder);
+  if (orderSet.size !== draftOrder.length) return false; // duplicates
+  return owners.every((o) => orderSet.has(o));
+}
+
 export const dynamic = 'force-dynamic';
 
 const VALID_PHASE_TRANSITIONS: Partial<Record<DraftPhase, DraftPhase[]>> = {
@@ -191,7 +206,7 @@ export async function POST(
         );
       }
     }
-    // Validate draftOrder matches owners exactly when provided
+    // Validate draftOrder is a one-to-one permutation of owners when provided.
     if (s.draftOrder !== undefined) {
       if (!Array.isArray(s.draftOrder)) {
         return NextResponse.json(
@@ -199,10 +214,7 @@ export async function POST(
           { status: 400 }
         );
       }
-      const orderSet = new Set(s.draftOrder);
-      const setsMatch =
-        orderSet.size === ownerNames.length && ownerNames.every((o) => orderSet.has(o));
-      if (!setsMatch) {
+      if (!isDraftOrderPermutationOfOwners(s.draftOrder, ownerNames)) {
         return NextResponse.json(
           {
             error: 'draftOrder must contain exactly the same owners as the owners array',
@@ -363,10 +375,7 @@ export async function PUT(
       }
       // Effective owner set: owners may have just been updated above for a
       // not-yet-started draft; draft.owners reflects that.
-      const orderSet = new Set(incomingOrder);
-      const setsMatch =
-        orderSet.size === draft.owners.length && draft.owners.every((o) => orderSet.has(o));
-      if (!setsMatch) {
+      if (!isDraftOrderPermutationOfOwners(incomingOrder, draft.owners)) {
         return NextResponse.json(
           {
             error: 'draftOrder must contain exactly the same owners as the owners array',
