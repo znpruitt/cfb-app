@@ -36,33 +36,22 @@ import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { SEED_ALIASES, type AliasMap } from '../../../lib/teamNames.ts';
 import {
+  normalizeUpstreamOddsEvent,
   oddsCache,
   pickFreshestOddsFallback,
   resolveDefaultSeason,
+  type NormalizedOddsEvent,
   type SharedOddsCacheEntry,
+  type UpstreamOddsEvent,
 } from './routeInternals.ts';
 
 export const revalidate = 120;
 const ODDS_CACHE_TTL_MS = revalidate * 1000;
 
-type UpstreamOddsOutcome = { name?: string; price?: number; point?: number };
-type UpstreamOddsMarket = { key?: string; outcomes?: UpstreamOddsOutcome[] };
-type UpstreamOddsBookmaker = { key?: string; title?: string; markets?: UpstreamOddsMarket[] };
-type UpstreamOddsEvent = {
-  home_team?: string;
-  away_team?: string;
-  bookmakers?: UpstreamOddsBookmaker[];
-};
-
-type NormalizedOddsEvent = {
-  homeTeam: string;
-  awayTeam: string;
-  bookmakers: OddsBookmaker[];
-};
-
 type PreparedOddsEvent = {
   homeTeam: string;
   awayTeam: string;
+  commenceTime: string | null;
   book: OddsBookmaker | undefined;
 };
 
@@ -124,27 +113,6 @@ function responseFrom(items: CanonicalOddsItem[], meta: OddsMeta, status = 200):
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-function normalizeUpstreamOddsEvent(event: UpstreamOddsEvent): NormalizedOddsEvent | null {
-  const homeTeam = event.home_team?.trim() ?? '';
-  const awayTeam = event.away_team?.trim() ?? '';
-  if (!homeTeam || !awayTeam) return null;
-
-  const bookmakers: OddsBookmaker[] = (event.bookmakers ?? []).map((book) => ({
-    key: book.key,
-    title: book.title,
-    markets: (book.markets ?? []).map((market) => ({
-      key: market.key,
-      outcomes: (market.outcomes ?? []).map((outcome) => ({
-        name: outcome.name,
-        price: outcome.price,
-        point: outcome.point,
-      })),
-    })),
-  }));
-
-  return { homeTeam, awayTeam, bookmakers };
 }
 
 function createCacheKey(query: {
@@ -371,6 +339,7 @@ async function buildCanonicalOddsItems(params: {
   const preparedEvents: PreparedOddsEvent[] = oddsEvents.map((event) => ({
     homeTeam: event.homeTeam,
     awayTeam: event.awayTeam,
+    commenceTime: event.commenceTime,
     book: pickPreferredBook(event),
   }));
 
