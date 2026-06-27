@@ -72,11 +72,11 @@ test('odds attachment keeps distinct teams from cross-matching', () => {
 });
 
 // ---------------------------------------------------------------------------
-// PLATFORM-001A — odds attachment regression coverage.
+// ODDS-001 — odds attachment regression coverage.
 //
 // These tests document the CURRENT pair-only matching behavior and lock the
 // intended schedule-canonical invariants. Tests marked `skip` capture behavior
-// that is KNOWN UNSAFE until PLATFORM-001B (event-centric / date-aware odds
+// that is KNOWN UNSAFE until ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 (event-centric / date-aware odds
 // attachment). The current OddsAttachmentEventBase has no date/commence-time,
 // so pair-only matching cannot disambiguate repeated meetings of the same pair.
 // ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ test('odds attachment never emits a gameKey absent from the canonical schedule',
 test('DOCUMENTS CURRENT (unsafe): one odds event fans out to BOTH same-pair canonical games', () => {
   // A regular-season meeting and a postseason/championship rematch share the same
   // unordered pair. Pair-only matching reuses the single upstream event for every
-  // same-pair game. KNOWN UNSAFE until PLATFORM-001B date/commence-time matching.
+  // same-pair game. KNOWN UNSAFE until ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 date/commence-time matching.
   const resolver = rematchResolver();
   const attached = attachOddsEventsToSchedule({
     games: [
@@ -145,7 +145,7 @@ test('DOCUMENTS CURRENT (unsafe): one odds event fans out to BOTH same-pair cano
   assert.equal(attached[0]?.event, attached[1]?.event);
 });
 
-test.skip('INTENDED (PLATFORM-001B): one odds event attaches to at most one canonical game', () => {
+test.skip('INTENDED (ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1): one odds event attaches to at most one canonical game', () => {
   // After event-centric/date-aware attachment, a single upstream odds event for a
   // repeated pair must resolve to exactly one canonical game (or none if it cannot
   // be disambiguated), never silently fan out to every same-pair game.
@@ -161,13 +161,16 @@ test.skip('INTENDED (PLATFORM-001B): one odds event attaches to at most one cano
   assert.ok(attached.length <= 1);
 });
 
-test.skip('INTENDED (PLATFORM-001B): same-pair rematches on different dates disambiguate by commence time', () => {
+test.skip('INTENDED (ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1): same-pair rematches on different dates disambiguate by commence time', () => {
   // Pair-only matching cannot distinguish a regular-season meeting from a later
-  // rematch (CFP repeat, conference championship). PLATFORM-001B must add a
+  // rematch (CFP repeat, conference championship). ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 must add a
   // commence_time/date to the odds event and attach each event only to the
   // date-aligned canonical game. OddsAttachmentEventBase has no date field today,
   // so this invariant is unattainable until the event shape is extended.
-  assert.ok(false, 'requires PLATFORM-001B event-centric/date-aware odds attachment');
+  assert.ok(
+    false,
+    'requires ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 event-centric/date-aware odds attachment'
+  );
 });
 
 test('DOCUMENTS CURRENT: duplicate provider events for one pair keep a single attachment (first wins)', () => {
@@ -186,12 +189,12 @@ test('DOCUMENTS CURRENT: duplicate provider events for one pair keep a single at
   assert.equal(attached[0]?.event, first); // arbitrary first-wins among duplicates
 });
 
-test.skip('INTENDED (PLATFORM-001B): duplicate provider events for a pair are disambiguated or flagged, not arbitrarily first-won', () => {
+test.skip('INTENDED (ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1): duplicate provider events for a pair are disambiguated or flagged, not arbitrarily first-won', () => {
   // Arbitrary first-wins can attach the wrong line when duplicate provider events
-  // exist (doubleheaders, stale feeds). PLATFORM-001B should select by date/event id
+  // exist (doubleheaders, stale feeds). ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 should select by date/event id
   // or flag ambiguity instead of silently taking events[0].
   assert.ok(
     false,
-    'requires PLATFORM-001B date/event-id disambiguation for duplicate provider events'
+    'requires ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 date/event-id disambiguation for duplicate provider events'
   );
 });

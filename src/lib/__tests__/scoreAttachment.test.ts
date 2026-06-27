@@ -251,7 +251,7 @@ test('provider week matching still attaches when canonical week differs for open
 });
 
 // ---------------------------------------------------------------------------
-// PLATFORM-001A — score attachment regression coverage.
+// ODDS-001 — score attachment regression coverage.
 // Score attachment is schedule-canonical: provider rows attach only to games in
 // the canonical schedule index, never create new identities, and respect
 // week/season-type/orientation/postseason-week-remap boundaries.
@@ -355,24 +355,32 @@ test('neutral-site reversed provider orientation attaches via identity-aware pai
   }
 });
 
-test('same teams in regular season and postseason attach to distinct canonical games', () => {
+test('same teams in regular season and postseason attach to distinct canonical games (provider-week collision)', () => {
   const resolver = makeResolver();
+  // CFBD resets bowl/postseason numbering: BOTH meetings arrive with providerWeek 1
+  // and identical home/away orientation. Only season-type + canonical-week remap
+  // separates them, so this guards the postseason providerWeek-reset invariant —
+  // week alone cannot disambiguate these rows.
   const index = buildScheduleIndex(
     [
       game({
         key: 'reg-boise-wsu',
-        week: 3,
+        week: 1,
+        canonicalWeek: 1,
+        providerWeek: 1,
         stage: 'regular',
         canHome: 'Boise State',
         canAway: 'Washington State',
-        date: '2025-09-10T01:00:00Z',
+        date: '2025-09-06T01:00:00Z',
       }),
       game({
         key: 'bowl-boise-wsu',
-        week: 18,
+        week: 17,
+        canonicalWeek: 17,
+        providerWeek: 1,
         stage: 'bowl',
-        canHome: 'Washington State',
-        canAway: 'Boise State',
+        canHome: 'Boise State',
+        canAway: 'Washington State',
         date: '2025-12-28T01:00:00Z',
       }),
     ],
@@ -382,17 +390,19 @@ test('same teams in regular season and postseason attach to distinct canonical g
   const result = attachScoresToSchedule({
     rows: [
       row({
-        week: 3,
+        week: 1,
         seasonType: 'regular',
         home: { team: 'Boise State', score: 30 },
         away: { team: 'Washington State', score: 28 },
         status: 'final',
       }),
+      // Same providerWeek (1) and same orientation as the regular row — only the
+      // postseason season type can route this to the bowl game.
       row({
-        week: 18,
+        week: 1,
         seasonType: 'postseason',
-        home: { team: 'Washington State', score: 21 },
-        away: { team: 'Boise State', score: 17 },
+        home: { team: 'Boise State', score: 21 },
+        away: { team: 'Washington State', score: 17 },
         status: 'final',
       }),
     ],
@@ -400,7 +410,8 @@ test('same teams in regular season and postseason attach to distinct canonical g
     resolver,
   });
 
-  // Each meeting lands on its own canonical game — no cross-attachment.
+  // Each meeting lands on its own canonical game — no cross-attachment despite the
+  // colliding providerWeek and orientation.
   assert.equal(result.attachedCount, 2);
   assert.equal(result.scoresByKey['reg-boise-wsu']?.home.score, 30);
   assert.equal(result.scoresByKey['bowl-boise-wsu']?.home.score, 21);
