@@ -1344,7 +1344,7 @@ test('week fallback fetch preserves postseason seasonType and still attaches', a
 });
 
 // ---------------------------------------------------------------------------
-// ODDS-001 — focused unit coverage for the eligibility decision helpers.
+// PLATFORM-030 — focused unit coverage for the eligibility decision helpers.
 // Locks FBS-vs-FCS inclusion, FCS-vs-FCS exclusion, the unknown/FBS fallback,
 // and proves classification is driven by metadata/classification helpers rather
 // than raw team-name string matching.

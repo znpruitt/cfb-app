@@ -251,7 +251,7 @@ test('provider week matching still attaches when canonical week differs for open
 });
 
 // ---------------------------------------------------------------------------
-// ODDS-001 — score attachment regression coverage.
+// PLATFORM-030 — score attachment regression coverage.
 // Score attachment is schedule-canonical: provider rows attach only to games in
 // the canonical schedule index, never create new identities, and respect
 // week/season-type/orientation/postseason-week-remap boundaries.

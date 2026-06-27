@@ -72,11 +72,11 @@ test('odds attachment keeps distinct teams from cross-matching', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ODDS-001 — odds attachment regression coverage.
+// PLATFORM-030 — odds attachment regression coverage.
 //
 // These tests document the CURRENT pair-only matching behavior and lock the
 // intended schedule-canonical invariants. Tests marked `skip` capture behavior
-// that is KNOWN UNSAFE until ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 (event-centric / date-aware odds
+// that is KNOWN UNSAFE until PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1 (event-centric / date-aware odds
 // attachment). The current OddsAttachmentEventBase has no date/commence-time,
 // so pair-only matching cannot disambiguate repeated meetings of the same pair.
 // ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ test('odds attachment never emits a gameKey absent from the canonical schedule',
 test('DOCUMENTS CURRENT (unsafe): one odds event fans out to BOTH same-pair canonical games', () => {
   // A regular-season meeting and a postseason/championship rematch share the same
   // unordered pair. Pair-only matching reuses the single upstream event for every
-  // same-pair game. KNOWN UNSAFE until ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 date/commence-time matching.
+  // same-pair game. KNOWN UNSAFE until PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1 date/commence-time matching.
   const resolver = rematchResolver();
   const attached = attachOddsEventsToSchedule({
     games: [
@@ -145,34 +145,6 @@ test('DOCUMENTS CURRENT (unsafe): one odds event fans out to BOTH same-pair cano
   assert.equal(attached[0]?.event, attached[1]?.event);
 });
 
-test.skip('INTENDED (ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1): one odds event attaches to at most one canonical game', () => {
-  // After event-centric/date-aware attachment, a single upstream odds event for a
-  // repeated pair must resolve to exactly one canonical game (or none if it cannot
-  // be disambiguated), never silently fan out to every same-pair game.
-  const resolver = rematchResolver();
-  const attached = attachOddsEventsToSchedule({
-    games: [
-      scheduleGame('reg-uga-tex', 5, 'Georgia', 'Texas'),
-      scheduleGame('ccg-uga-tex', 16, 'Texas', 'Georgia'),
-    ],
-    events: [{ homeTeam: 'Georgia', awayTeam: 'Texas' }],
-    resolver,
-  });
-  assert.ok(attached.length <= 1);
-});
-
-test.skip('INTENDED (ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1): same-pair rematches on different dates disambiguate by commence time', () => {
-  // Pair-only matching cannot distinguish a regular-season meeting from a later
-  // rematch (CFP repeat, conference championship). ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 must add a
-  // commence_time/date to the odds event and attach each event only to the
-  // date-aligned canonical game. OddsAttachmentEventBase has no date field today,
-  // so this invariant is unattainable until the event shape is extended.
-  assert.ok(
-    false,
-    'requires ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 event-centric/date-aware odds attachment'
-  );
-});
-
 test('DOCUMENTS CURRENT: duplicate provider events for one pair keep a single attachment (first wins)', () => {
   // One scheduled game, two upstream events for the same pair (stale duplicate or a
   // second feed). Current behavior keeps a single canonical attachment and silently
@@ -189,12 +161,92 @@ test('DOCUMENTS CURRENT: duplicate provider events for one pair keep a single at
   assert.equal(attached[0]?.event, first); // arbitrary first-wins among duplicates
 });
 
-test.skip('INTENDED (ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1): duplicate provider events for a pair are disambiguated or flagged, not arbitrarily first-won', () => {
-  // Arbitrary first-wins can attach the wrong line when duplicate provider events
-  // exist (doubleheaders, stale feeds). ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 should select by date/event id
-  // or flag ambiguity instead of silently taking events[0].
-  assert.ok(
-    false,
-    'requires ODDS-002-EVENT-DATE-AWARE-ATTACHMENT-v1 date/event-id disambiguation for duplicate provider events'
-  );
+// ---------------------------------------------------------------------------
+// PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1 executable contracts (skipped).
+//
+// These call the real attachOddsEventsToSchedule with dated rematch/duplicate
+// fixtures and assert the intended date-aware gameKey mappings. They fail under
+// today's pair-only implementation (which ignores commence time and fans out /
+// first-wins), so they remain `skip` until PLATFORM-031 makes the schedule game
+// + odds event shapes carry a date/commence time and attachment becomes
+// date-aware. `attachOddsEventsToSchedule` is generic over the event type, so the
+// wider DatedOddsEvent shape is already accepted at the call site.
+// ---------------------------------------------------------------------------
+
+type DatedScheduleGame = ReturnType<typeof scheduleGame> & { date: string };
+type DatedOddsEvent = { homeTeam: string; awayTeam: string; commenceTime: string };
+
+function datedGame(
+  key: string,
+  week: number,
+  canHome: string,
+  canAway: string,
+  date: string
+): DatedScheduleGame {
+  return { ...scheduleGame(key, week, canHome, canAway), date };
+}
+
+test.skip('INTENDED (PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1): a dated odds event attaches to exactly the date-aligned canonical game', () => {
+  const resolver = rematchResolver();
+  const games: DatedScheduleGame[] = [
+    datedGame('reg-uga-tex', 5, 'Georgia', 'Texas', '2025-09-06T23:30:00Z'),
+    datedGame('ccg-uga-tex', 16, 'Texas', 'Georgia', '2025-12-06T20:00:00Z'),
+  ];
+  // A single December event must map only to the December championship game.
+  const events: DatedOddsEvent[] = [
+    { homeTeam: 'Texas', awayTeam: 'Georgia', commenceTime: '2025-12-06T20:00:00Z' },
+  ];
+
+  const attached = attachOddsEventsToSchedule({ games, events, resolver });
+
+  assert.equal(attached.length, 1, 'no fan-out across same-pair games');
+  assert.equal(attached[0]?.gameKey, 'ccg-uga-tex');
+});
+
+test.skip('INTENDED (PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1): same-pair rematches on different dates each attach to their own canonical game', () => {
+  const resolver = rematchResolver();
+  const games: DatedScheduleGame[] = [
+    datedGame('reg-uga-tex', 5, 'Georgia', 'Texas', '2025-09-06T23:30:00Z'),
+    datedGame('ccg-uga-tex', 16, 'Texas', 'Georgia', '2025-12-06T20:00:00Z'),
+  ];
+  const events: DatedOddsEvent[] = [
+    { homeTeam: 'Georgia', awayTeam: 'Texas', commenceTime: '2025-09-06T23:30:00Z' },
+    { homeTeam: 'Texas', awayTeam: 'Georgia', commenceTime: '2025-12-06T20:00:00Z' },
+  ];
+
+  const attached = attachOddsEventsToSchedule({ games, events, resolver });
+  const commenceByGame = new Map(attached.map((a) => [a.gameKey, a.event.commenceTime]));
+
+  assert.equal(attached.length, 2);
+  assert.equal(commenceByGame.get('reg-uga-tex'), '2025-09-06T23:30:00Z');
+  assert.equal(commenceByGame.get('ccg-uga-tex'), '2025-12-06T20:00:00Z');
+});
+
+test.skip('INTENDED (PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1): duplicate provider events for a pair attach by date, not arbitrary first-won', () => {
+  const resolver = rematchResolver();
+  const games: DatedScheduleGame[] = [
+    datedGame('uga-tex', 5, 'Georgia', 'Texas', '2025-09-06T23:30:00Z'),
+  ];
+  // The stale/wrong-dated duplicate is listed FIRST; date-aware attachment must
+  // still pick the event whose commence time aligns with the scheduled game.
+  const staleDuplicate: DatedOddsEvent = {
+    homeTeam: 'Texas',
+    awayTeam: 'Georgia',
+    commenceTime: '2025-08-30T23:30:00Z',
+  };
+  const dateAligned: DatedOddsEvent = {
+    homeTeam: 'Georgia',
+    awayTeam: 'Texas',
+    commenceTime: '2025-09-06T23:30:00Z',
+  };
+
+  const attached = attachOddsEventsToSchedule({
+    games,
+    events: [staleDuplicate, dateAligned],
+    resolver,
+  });
+
+  assert.equal(attached.length, 1);
+  assert.equal(attached[0]?.gameKey, 'uga-tex');
+  assert.equal(attached[0]?.event, dateAligned); // date match wins over first-listed
 });
