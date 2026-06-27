@@ -6,7 +6,7 @@ import {
   type TeamCatalogItem,
   type TeamIdentityResolver,
 } from '@/lib/teamIdentity';
-import { requireAdminRequest } from '@/lib/server/adminAuth';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
 
@@ -69,7 +69,7 @@ function parseWinTotalsCsv(
 }
 
 export async function GET(req: Request): Promise<Response> {
-  const authFailure = await requireAdminRequest(req);
+  const authFailure = await requireAdminAuth(req);
   if (authFailure) return authFailure;
 
   const url = new URL(req.url);
@@ -86,7 +86,7 @@ export async function GET(req: Request): Promise<Response> {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const authFailure = await requireAdminRequest(req);
+  const authFailure = await requireAdminAuth(req);
   if (authFailure) return authFailure;
 
   const url = new URL(req.url);
