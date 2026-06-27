@@ -35,7 +35,12 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/t
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { SEED_ALIASES, type AliasMap } from '../../../lib/teamNames.ts';
-import { oddsCache, resolveDefaultSeason, type SharedOddsCacheEntry } from './routeInternals.ts';
+import {
+  oddsCache,
+  pickFreshestOddsFallback,
+  resolveDefaultSeason,
+  type SharedOddsCacheEntry,
+} from './routeInternals.ts';
 
 export const revalidate = 120;
 const ODDS_CACHE_TTL_MS = revalidate * 1000;
@@ -522,7 +527,9 @@ export async function GET(req: Request): Promise<Response> {
     let quotaSuppressed = false;
     let suppressedUsage: OddsUsageSnapshot | null = null;
     if (!responseEntry && !refreshRequested) {
-      const latestKnownUsage = await getLatestKnownOddsUsage();
+      // Read through to durable storage so the suppression decision is never
+      // made from a stale process-memoized usage snapshot (multi-instance safe).
+      const latestKnownUsage = await getLatestKnownOddsUsage({ forceRefresh: true });
       if (getOddsQuotaGuardState(latestKnownUsage?.remaining).disableAutoRefresh) {
         quotaSuppressed = true;
         // Report the current (low) usage snapshot, not the fallback entry's
@@ -530,12 +537,13 @@ export async function GET(req: Request): Promise<Response> {
         suppressedUsage = latestKnownUsage;
         recordRouteCacheMiss('odds');
         // Serve the freshest cached data we have (possibly stale) without an
-        // upstream call. If nothing is cached, continue with empty odds.
+        // upstream call, preferring whichever of the in-memory or durable entry
+        // has the newer lastFetch. If nothing is cached, continue with empty odds.
         const storedFallback = await getAppState<SharedOddsCacheEntry>(
           'odds-cache',
           `${query.season}:${cacheKey}`
         );
-        responseEntry = cachedEntry ?? storedFallback?.value ?? undefined;
+        responseEntry = pickFreshestOddsFallback(cachedEntry, storedFallback?.value);
       }
     }
 
@@ -645,7 +653,9 @@ export async function GET(req: Request): Promise<Response> {
       conferenceRecords,
       requestTime,
       snapshotCapturedAt,
-      persistDurableStore: isCanonicalDurableQuery(query),
+      // Never persist the durable store from a suppressed, possibly-stale
+      // fallback — it must not downgrade newer durable snapshots.
+      persistDurableStore: !quotaSuppressed && isCanonicalDurableQuery(query),
     });
 
     return responseFrom(items, {

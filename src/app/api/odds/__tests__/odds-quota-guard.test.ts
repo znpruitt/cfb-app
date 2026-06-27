@@ -15,10 +15,16 @@ import {
 import {
   __deleteDurableOddsStoreFileForTests,
   __resetDurableOddsStoreForTests,
+  getDurableOddsRecord,
 } from '../../../../lib/server/durableOddsStore.ts';
 
 import { GET } from '../route.ts';
-import { __resetOddsRouteCacheForTests, oddsCache } from '../routeInternals.ts';
+import {
+  __resetOddsRouteCacheForTests,
+  oddsCache,
+  pickFreshestOddsFallback,
+  type SharedOddsCacheEntry,
+} from '../routeInternals.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-020 — server-side odds quota guard.
@@ -229,6 +235,162 @@ test('admin refresh bypasses the quota guard even when saved quota is exhausted'
     );
     assert.equal(res.status, 200, await res.clone().text());
     assert.ok(stub.oddsCalls() >= 1, 'admin refresh must still reach the upstream Odds API');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('quota guard decides from durable usage, not a stale process-memoized snapshot', async () => {
+  // Memoize a HIGH snapshot, then lower the durable record directly (bypassing
+  // the store setter) so the process memo (400) is stale vs durable storage (5).
+  await setLatestKnownOddsUsage(usageSnapshot(400));
+  await setAppState('odds-usage', 'latest', usageSnapshot(5));
+
+  const stub = installFetchStub();
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(
+      stub.oddsCalls(),
+      0,
+      'guard must suppress using the fresh durable quota (5), not the memoized 400'
+    );
+
+    const body = (await res.json()) as OddsResponseBody;
+    assert.equal(body.meta.usage?.remaining, 5);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('pickFreshestOddsFallback returns the entry with the newest lastFetch', () => {
+  const older: SharedOddsCacheEntry = { data: [], lastFetch: 1000, usage: null };
+  const newer: SharedOddsCacheEntry = { data: [], lastFetch: 2000, usage: null };
+
+  assert.equal(pickFreshestOddsFallback(older, newer), newer);
+  assert.equal(pickFreshestOddsFallback(newer, older), newer);
+  assert.equal(pickFreshestOddsFallback(undefined, older), older);
+  assert.equal(pickFreshestOddsFallback(older, undefined), older);
+  assert.equal(pickFreshestOddsFallback(undefined, undefined), undefined);
+});
+
+function scheduleItem(): Record<string, unknown> {
+  return {
+    id: 'game-1',
+    week: 1,
+    startDate: '2026-12-01T19:30:00.000Z',
+    neutralSite: false,
+    conferenceGame: false,
+    homeTeam: 'Georgia',
+    awayTeam: 'Clemson',
+    homeConference: 'SEC',
+    awayConference: 'ACC',
+    status: 'scheduled',
+    seasonType: 'regular',
+    gamePhase: 'regular',
+  };
+}
+
+function oddsEvent(): Record<string, unknown> {
+  return {
+    home_team: 'Georgia Bulldogs',
+    away_team: 'Clemson Tigers',
+    bookmakers: [
+      {
+        key: 'draftkings',
+        title: 'DraftKings',
+        markets: [
+          {
+            key: 'spreads',
+            outcomes: [
+              { name: 'Georgia', point: -7, price: -110 },
+              { name: 'Clemson', point: 7, price: -110 },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function installMappedFetchStub(): FetchStub {
+  const realFetch = globalThis.fetch;
+  let oddsCalls = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = typeof input === 'string' ? input : input.toString();
+    const url = new URL(raw, 'http://localhost');
+    if (url.hostname === ODDS_API_HOST) {
+      oddsCalls += 1;
+      return new Response(JSON.stringify([oddsEvent()]), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '100',
+          'x-requests-remaining': '400',
+          'x-requests-last': '1',
+        },
+      });
+    }
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [scheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+  return {
+    oddsCalls: () => oddsCalls,
+    restore: () => {
+      globalThis.fetch = realFetch;
+    },
+  };
+}
+
+test('suppressed fallback does not persist (downgrade) a newer durable odds snapshot', async () => {
+  await setLatestKnownOddsUsage(usageSnapshot(400)); // safe -> first GET persists durable
+  const stub = installMappedFetchStub();
+  try {
+    const seed = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    assert.equal(seed.status, 200, await seed.clone().text());
+    const seedBody = (await seed.json()) as OddsResponseBody;
+    const gameId = seedBody.items[0]?.canonicalGameId;
+    assert.ok(gameId, 'seed GET should produce a canonical odds item');
+    assert.equal(stub.oddsCalls(), 1);
+
+    const seededRecord = await getDurableOddsRecord(ODDS_TEST_SEASON, gameId);
+    const seededCapturedAt = seededRecord?.latestSnapshot?.capturedAt;
+    assert.ok(seededCapturedAt, 'durable record should have a latest snapshot');
+
+    // Make the cache fallback stale (older lastFetch) so the next auto request
+    // hits the guard and serves this stale entry; mirror it into appState too.
+    const cacheKey = Object.keys(oddsCache.entries)[0]!;
+    const staleEntry = {
+      ...oddsCache.entries[cacheKey]!,
+      lastFetch: Date.now() - 10 * 60 * 1000,
+    };
+    oddsCache.entries[cacheKey] = staleEntry;
+    await setAppState('odds-cache', `${ODDS_TEST_SEASON}:${cacheKey}`, staleEntry);
+
+    await setLatestKnownOddsUsage(usageSnapshot(5)); // low -> suppress
+    const callsBefore = stub.oddsCalls();
+
+    const res = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(stub.oddsCalls(), callsBefore, 'no upstream Odds API call during suppression');
+
+    const afterRecord = await getDurableOddsRecord(ODDS_TEST_SEASON, gameId);
+    assert.equal(
+      afterRecord?.latestSnapshot?.capturedAt,
+      seededCapturedAt,
+      'suppressed stale fallback must not overwrite the newer durable snapshot'
+    );
   } finally {
     stub.restore();
   }
