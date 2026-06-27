@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 
+import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+
 type StorageStatusResponse = {
   storage?: {
     mode?: 'postgres' | 'file-fallback' | 'production-misconfigured';
@@ -29,7 +31,10 @@ export default function AdminStorageStatusPanel(): React.ReactElement {
   useEffect(() => {
     let cancelled = false;
 
-    void fetch('/api/admin/storage', { cache: 'no-store' })
+    void fetch('/api/admin/storage', {
+      cache: 'no-store',
+      headers: { ...(requireAdminAuthHeaders() as Record<string, string>) },
+    })
       .then(async (response) => {
         if (!response.ok) throw new Error(`storage status ${response.status}`);
         return (await response.json()) as StorageStatusResponse;

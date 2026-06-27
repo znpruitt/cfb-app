@@ -20,8 +20,13 @@ async function writeSnapshotFile(snapshot: OddsUsageSnapshot): Promise<void> {
   await setAppState(oddsUsageScope(), 'latest', snapshot);
 }
 
-export async function getLatestKnownOddsUsage(): Promise<OddsUsageSnapshot | null> {
-  if (memorySnapshot !== undefined) return memorySnapshot;
+export async function getLatestKnownOddsUsage(options?: {
+  forceRefresh?: boolean;
+}): Promise<OddsUsageSnapshot | null> {
+  // `forceRefresh` reads through to durable storage and refreshes the
+  // process-local memo. Callers that must not act on a stale memoized snapshot
+  // (e.g. the /api/odds quota guard in a multi-instance deployment) pass this.
+  if (!options?.forceRefresh && memorySnapshot !== undefined) return memorySnapshot;
 
   memorySnapshot = await readSnapshotFile();
   return memorySnapshot;

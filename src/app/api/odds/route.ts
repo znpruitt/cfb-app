@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { fetchUpstreamResponse, UpstreamFetchError } from '../../../lib/api/fetchUpstream.ts';
-import type { OddsUsageSnapshot } from '../../../lib/api/oddsUsage.ts';
+import { getOddsQuotaGuardState, type OddsUsageSnapshot } from '../../../lib/api/oddsUsage.ts';
 import {
   applyPregameOddsSnapshot,
   buildDurableOddsSnapshot,
@@ -35,7 +35,12 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/t
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { SEED_ALIASES, type AliasMap } from '../../../lib/teamNames.ts';
-import { oddsCache, resolveDefaultSeason, type SharedOddsCacheEntry } from './routeInternals.ts';
+import {
+  oddsCache,
+  pickFreshestOddsFallback,
+  resolveDefaultSeason,
+  type SharedOddsCacheEntry,
+} from './routeInternals.ts';
 
 export const revalidate = 120;
 const ODDS_CACHE_TTL_MS = revalidate * 1000;
@@ -514,7 +519,35 @@ export async function GET(req: Request): Promise<Response> {
       }
     }
 
-    if (!responseEntry || refreshRequested) {
+    // Quota guard (server-side): on the non-admin auto path, never spend
+    // upstream Odds API quota when the saved usage snapshot says remaining is
+    // below the auto-disable threshold. Public callers carry no admin usage
+    // data, so this must be enforced here rather than in the UI. Admin-driven
+    // refreshes (refresh=1, already auth-gated above) intentionally bypass it.
+    let quotaSuppressed = false;
+    let suppressedUsage: OddsUsageSnapshot | null = null;
+    if (!responseEntry && !refreshRequested) {
+      // Read through to durable storage so the suppression decision is never
+      // made from a stale process-memoized usage snapshot (multi-instance safe).
+      const latestKnownUsage = await getLatestKnownOddsUsage({ forceRefresh: true });
+      if (getOddsQuotaGuardState(latestKnownUsage?.remaining).disableAutoRefresh) {
+        quotaSuppressed = true;
+        // Report the current (low) usage snapshot, not the fallback entry's
+        // possibly-stale higher usage, so the client guard/warnings still engage.
+        suppressedUsage = latestKnownUsage;
+        recordRouteCacheMiss('odds');
+        // Serve the freshest cached data we have (possibly stale) without an
+        // upstream call, preferring whichever of the in-memory or durable entry
+        // has the newer lastFetch. If nothing is cached, continue with empty odds.
+        const storedFallback = await getAppState<SharedOddsCacheEntry>(
+          'odds-cache',
+          `${query.season}:${cacheKey}`
+        );
+        responseEntry = pickFreshestOddsFallback(cachedEntry, storedFallback?.value);
+      }
+    }
+
+    if ((!responseEntry || refreshRequested) && !quotaSuppressed) {
       recordRouteCacheMiss('odds');
 
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
@@ -620,7 +653,9 @@ export async function GET(req: Request): Promise<Response> {
       conferenceRecords,
       requestTime,
       snapshotCapturedAt,
-      persistDurableStore: isCanonicalDurableQuery(query),
+      // Never persist the durable store from a suppressed, possibly-stale
+      // fallback — it must not downgrade newer durable snapshots.
+      persistDurableStore: !quotaSuppressed && isCanonicalDurableQuery(query),
     });
 
     return responseFrom(items, {
@@ -628,7 +663,9 @@ export async function GET(req: Request): Promise<Response> {
       cache: fetchedFromUpstream ? 'miss' : 'hit',
       fallbackUsed: false,
       generatedAt: requestTime,
-      usage: responseEntry?.usage ?? (await getLatestKnownOddsUsage()),
+      usage: quotaSuppressed
+        ? suppressedUsage
+        : (responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
       season: query.season,
     });
   } catch (e) {

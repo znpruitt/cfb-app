@@ -50,7 +50,8 @@ import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
-import { fetchLatestOddsUsageSnapshot, type OddsUsageSnapshot } from '../lib/apiUsage';
+import { type OddsUsageSnapshot } from '../lib/apiUsage';
+import { useAdminOddsUsage } from './hooks/useAdminOddsUsage';
 import { saveServerOwnersCsv } from '../lib/ownersApi';
 import { saveServerPostseasonOverrides } from '../lib/postseasonOverridesApi';
 import { filterGamesForWeek } from '../lib/weekSelection';
@@ -1058,15 +1059,9 @@ export default function CFBScheduleApp({
     isDebug: IS_DEBUG,
   });
 
-  useEffect(() => {
-    void fetchLatestOddsUsageSnapshot()
-      .then((snapshot) => {
-        setOddsUsage(snapshot);
-      })
-      .catch(() => {
-        // non-fatal diagnostics fetch
-      });
-  }, []);
+  // Odds-usage is admin-only diagnostics (API quota state). Only admins fetch it;
+  // the underlying /api/admin/odds-usage route requires admin auth.
+  useAdminOddsUsage(isAdmin, setOddsUsage);
 
   // Load draft phase for contextual banner (non-blocking, best-effort).
   // Use leagueStatus.year when available (preseason/season) so the fetch

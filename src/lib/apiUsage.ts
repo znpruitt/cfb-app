@@ -1,3 +1,5 @@
+import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+
 export type CfbdUsageSnapshot = {
   patronLevel: number;
   used: number;
@@ -20,7 +22,12 @@ export type OddsUsageSnapshot = {
 };
 
 export async function fetchCfbdUsageSnapshot(): Promise<CfbdUsageSnapshot> {
-  const res = await fetch('/api/admin/usage', { cache: 'no-store' });
+  // Admin-only endpoint — send the admin token (these snapshots are only ever
+  // requested from admin surfaces).
+  const res = await fetch('/api/admin/usage', {
+    cache: 'no-store',
+    headers: { ...(requireAdminAuthHeaders() as Record<string, string>) },
+  });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     throw new Error(`usage ${res.status} ${detail}`);
@@ -30,7 +37,12 @@ export async function fetchCfbdUsageSnapshot(): Promise<CfbdUsageSnapshot> {
 }
 
 export async function fetchLatestOddsUsageSnapshot(): Promise<OddsUsageSnapshot | null> {
-  const res = await fetch('/api/admin/odds-usage', { cache: 'no-store' });
+  // Admin-only endpoint — send the admin token. Only admin surfaces call this
+  // (CFBScheduleApp gates the call behind isAdmin).
+  const res = await fetch('/api/admin/odds-usage', {
+    cache: 'no-store',
+    headers: { ...(requireAdminAuthHeaders() as Record<string, string>) },
+  });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     throw new Error(`odds usage ${res.status} ${detail}`);

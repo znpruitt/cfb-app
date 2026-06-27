@@ -15,7 +15,7 @@ test.beforeEach(async () => {
 });
 
 test('admin odds-usage route returns null before first odds request', async () => {
-  const res = await GET();
+  const res = await GET(new Request('http://localhost/api/admin/odds-usage'));
   const payload = (await res.json()) as { usage: null };
   assert.equal(payload.usage, null);
 });
@@ -30,7 +30,7 @@ test('admin odds-usage route returns latest known snapshot', async () => {
     { sportKey: 'americanfootball_ncaaf', markets: ['h2h'], regions: ['us'], endpointType: 'odds' }
   );
 
-  const res = await GET();
+  const res = await GET(new Request('http://localhost/api/admin/odds-usage'));
   const payload = (await res.json()) as { usage: { used: number; lastCost: number } };
 
   assert.equal(payload.usage.used, 55);
