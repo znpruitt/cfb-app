@@ -11,7 +11,13 @@ import {
   resetUnresolvedConferenceDiagnostics,
 } from '../conferenceDiagnostics.ts';
 import type { CfbdConferenceRecord } from '../conferenceSubdivision.ts';
-import type { TeamCatalogItem } from '../teamIdentity.ts';
+import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity.ts';
+import {
+  classifyTeamSubdivision,
+  getRegularSeasonEligibilityDecision,
+  isFbsTeam,
+  isOfficePoolEligibleTeamMatchup,
+} from '../scheduleEligibility.ts';
 
 const teams: TeamCatalogItem[] = [
   { school: 'Army', level: 'FBS', conference: 'Independent' },
@@ -1335,4 +1341,154 @@ test('week fallback fetch preserves postseason seasonType and still attaches', a
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-030 — focused unit coverage for the eligibility decision helpers.
+// Locks FBS-vs-FCS inclusion, FCS-vs-FCS exclusion, the unknown/FBS fallback,
+// and proves classification is driven by metadata/classification helpers rather
+// than raw team-name string matching.
+// ---------------------------------------------------------------------------
+
+const ELIGIBILITY_TEAMS: TeamCatalogItem[] = [
+  { school: 'Georgia', level: 'FBS', conference: 'SEC' },
+  // "Georgia Southern" contains the substring "Southern" (an FCS conference name)
+  // but is an FBS program — classification must come from metadata, not the name.
+  { school: 'Georgia Southern', level: 'FBS', conference: 'Sun Belt' },
+  { school: 'Mercer', level: 'FCS', conference: 'Southern' },
+  { school: 'Samford', level: 'FCS', conference: 'Southern' },
+];
+
+function eligibilityResolver() {
+  return createTeamIdentityResolver({ aliasMap: {}, teams: ELIGIBILITY_TEAMS });
+}
+
+function eligibilityMetadata(): Map<string, TeamCatalogItem> {
+  return new Map(ELIGIBILITY_TEAMS.map((team) => [team.school, team]));
+}
+
+test('eligibility decision: FBS vs FBS is included', () => {
+  assert.deepEqual(
+    getRegularSeasonEligibilityDecision({
+      homeSubdivision: 'FBS',
+      awaySubdivision: 'FBS',
+      homeResolved: true,
+      awayResolved: true,
+    }),
+    { include: true, reason: 'include_fbs_vs_fbs' }
+  );
+});
+
+test('eligibility decision: FBS vs FCS is included in either orientation', () => {
+  assert.deepEqual(
+    getRegularSeasonEligibilityDecision({
+      homeSubdivision: 'FBS',
+      awaySubdivision: 'FCS',
+      homeResolved: true,
+      awayResolved: true,
+    }),
+    { include: true, reason: 'include_fbs_vs_fcs' }
+  );
+  assert.deepEqual(
+    getRegularSeasonEligibilityDecision({
+      homeSubdivision: 'FCS',
+      awaySubdivision: 'FBS',
+      homeResolved: true,
+      awayResolved: true,
+    }),
+    { include: true, reason: 'include_fbs_vs_fcs' }
+  );
+});
+
+test('eligibility decision: FCS vs FCS is excluded by classification', () => {
+  assert.deepEqual(
+    getRegularSeasonEligibilityDecision({
+      homeSubdivision: 'FCS',
+      awaySubdivision: 'FCS',
+      homeResolved: true,
+      awayResolved: true,
+    }),
+    { include: false, reason: 'exclude_both_non_fbs' }
+  );
+});
+
+test('eligibility decision: unresolved both non-FBS is excluded with an explicit reason', () => {
+  assert.deepEqual(
+    getRegularSeasonEligibilityDecision({
+      homeSubdivision: 'UNKNOWN',
+      awaySubdivision: 'UNKNOWN',
+      homeResolved: false,
+      awayResolved: false,
+    }),
+    { include: false, reason: 'exclude_unresolved_both_non_fbs' }
+  );
+});
+
+test('eligibility decision: UNKNOWN paired with FBS documents the unknown/FBS fallback include', () => {
+  // An unresolved/unknown subdivision opposite an FBS team is INCLUDED (fail-open
+  // toward keeping FBS content) under the explicit include_unknown_fallback reason.
+  assert.deepEqual(
+    getRegularSeasonEligibilityDecision({
+      homeSubdivision: 'UNKNOWN',
+      awaySubdivision: 'FBS',
+      homeResolved: false,
+      awayResolved: true,
+    }),
+    { include: true, reason: 'include_unknown_fallback' }
+  );
+});
+
+test('office-pool eligibility requires at least one FBS side', () => {
+  assert.equal(
+    isOfficePoolEligibleTeamMatchup({ homeSubdivision: 'FBS', awaySubdivision: 'FCS' }),
+    true
+  );
+  assert.equal(
+    isOfficePoolEligibleTeamMatchup({ homeSubdivision: 'FCS', awaySubdivision: 'FBS' }),
+    true
+  );
+  assert.equal(
+    isOfficePoolEligibleTeamMatchup({ homeSubdivision: 'FCS', awaySubdivision: 'FCS' }),
+    false
+  );
+  assert.equal(
+    isOfficePoolEligibleTeamMatchup({ homeSubdivision: 'UNKNOWN', awaySubdivision: 'UNKNOWN' }),
+    false
+  );
+});
+
+test('classifyTeamSubdivision uses metadata/classification, not team-name string matching', () => {
+  const resolver = eligibilityResolver();
+  const metadata = eligibilityMetadata();
+
+  // Empty conference isolates the metadata/resolver path: classification of
+  // "Georgia Southern" as FBS proves the "Southern" substring does NOT downgrade it.
+  assert.equal(
+    classifyTeamSubdivision({
+      canonicalTeamName: 'Georgia Southern',
+      conference: '',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+    }),
+    'FBS'
+  );
+
+  // Mercer is FCS by metadata regardless of any name overlap with FBS programs.
+  assert.equal(
+    classifyTeamSubdivision({
+      canonicalTeamName: 'Mercer',
+      conference: '',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+    }),
+    'FCS'
+  );
+});
+
+test('isFbsTeam is driven by resolver/metadata classification', () => {
+  const resolver = eligibilityResolver();
+  const metadata = eligibilityMetadata();
+
+  assert.equal(isFbsTeam('Georgia Southern', metadata, resolver), true);
+  assert.equal(isFbsTeam('Mercer', metadata, resolver), false);
 });
