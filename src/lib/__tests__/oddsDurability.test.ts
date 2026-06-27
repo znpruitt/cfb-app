@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   applyPregameOddsSnapshot,
+  buildOddsByGame,
   emptyDurableOddsRecord,
   freezeClosingSnapshotIfNeeded,
   reopenClosingSnapshotForDelayedKickoffIfNeeded,
@@ -191,4 +192,88 @@ test('delayed kickoff reopens an early frozen closing snapshot before the new ki
   assert.equal(reopened.closingSnapshot, null);
   assert.equal(reopened.closingFrozenAt, null);
   assert.equal(reopened.latestSnapshot?.spread, -4.0);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-031 — the legacy `buildOddsByGame` compatibility path must route
+// through the same event-centric, date-aware attachment helper: a dated event
+// attaches only to the date-aligned same-pair game, and both the snake_case
+// (`commence_time`) and camelCase (`commenceTime`) spellings are honored.
+// ---------------------------------------------------------------------------
+
+function samePairGames() {
+  return [
+    {
+      key: 'reg',
+      week: 1,
+      canHome: 'Georgia',
+      canAway: 'Clemson',
+      csvHome: 'Georgia',
+      csvAway: 'Clemson',
+      date: '2026-09-06T20:00:00.000Z',
+    },
+    {
+      key: 'rematch',
+      week: 14,
+      canHome: 'Georgia',
+      canAway: 'Clemson',
+      csvHome: 'Georgia',
+      csvAway: 'Clemson',
+      date: '2026-12-06T20:00:00.000Z',
+    },
+  ];
+}
+
+const SPREAD_BOOK = [
+  {
+    key: 'draftkings',
+    title: 'DraftKings',
+    markets: [
+      {
+        key: 'spreads',
+        outcomes: [
+          { name: 'Georgia', point: -9.5, price: -110 },
+          { name: 'Clemson', point: 9.5, price: -110 },
+        ],
+      },
+    ],
+  },
+];
+
+test('buildOddsByGame uses date-aware attachment (snake_case commence_time) — no same-pair fan-out', () => {
+  const result = buildOddsByGame({
+    games: samePairGames(),
+    oddsEvents: [
+      {
+        home_team: 'Georgia',
+        away_team: 'Clemson',
+        commence_time: '2026-12-06T20:00:00.000Z',
+        bookmakers: SPREAD_BOOK,
+      },
+    ],
+    aliasMap: {},
+    teams: [],
+  });
+
+  assert.deepEqual(Object.keys(result), ['rematch']);
+  assert.equal(result.rematch?.spread, -9.5);
+});
+
+test('buildOddsByGame honors the camelCase commenceTime spelling for date-aware attachment', () => {
+  const result = buildOddsByGame({
+    games: samePairGames(),
+    oddsEvents: [
+      {
+        home_team: 'Georgia',
+        away_team: 'Clemson',
+        commenceTime: '2026-12-06T20:00:00.000Z',
+        bookmakers: SPREAD_BOOK,
+      },
+    ],
+    aliasMap: {},
+    teams: [],
+  });
+
+  assert.deepEqual(Object.keys(result), ['rematch']);
+  assert.equal(result.rematch?.spread, -9.5);
 });

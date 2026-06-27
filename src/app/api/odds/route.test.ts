@@ -1025,6 +1025,10 @@ test('repeat matchup odds persist independently for regular season and conferenc
         {
           home_team: 'Georgia',
           away_team: 'Clemson',
+          // Date-aligned to the championship kickoff so event-centric attachment
+          // (PLATFORM-031) routes this line to the championship identity, not the
+          // already-final regular-season meeting of the same pair.
+          commence_time: '2999-12-05T20:00:00.000Z',
           bookmakers: [
             {
               key: 'draftkings',
@@ -1096,6 +1100,174 @@ test('repeat matchup odds persist independently for regular season and conferenc
     assert.equal(persistedRegular?.closingSnapshot?.spread, -3.5);
     assert.equal(persistedChampionship?.latestSnapshot?.spread, -6.5);
     assert.equal(persistedChampionship?.closingSnapshot, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('dated upstream odds attach to the date-aligned canonical game, not the first same-pair game', async () => {
+  const originalFetch = global.fetch;
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/schedule')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'reg-1',
+              week: 1,
+              startDate: '2026-09-06T20:00:00.000Z',
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: 'scheduled',
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+            {
+              id: 'rematch-1',
+              week: 14,
+              startDate: '2026-12-06T20:00:00.000Z',
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: 'scheduled',
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (url.includes('/api/conferences')) {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(
+      JSON.stringify([
+        {
+          home_team: 'Georgia',
+          away_team: 'Clemson',
+          commence_time: '2026-12-06T20:00:00.000Z', // aligns to the WEEK 14 rematch
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'spreads',
+                  outcomes: [
+                    { name: 'Georgia', point: -9.5, price: -110 },
+                    { name: 'Clemson', point: 9.5, price: -110 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+    );
+    assert.equal(res.status, 200);
+
+    const json = (await res.json()) as {
+      items: Array<{ canonicalGameId: string; odds: { spread: number | null } }>;
+    };
+
+    // Only the date-aligned (week 14) game receives the line — no fan-out to the
+    // week-1 same-pair meeting.
+    assert.equal(json.items.length, 1);
+    assert.equal(json.items[0]?.canonicalGameId, '14-georgia-clemson-H');
+    assert.equal(json.items[0]?.odds.spread, -9.5);
+
+    assert.equal(await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, '1-georgia-clemson-H'), null);
+    const rematch = await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, '14-georgia-clemson-H');
+    assert.equal(rematch?.latestSnapshot?.spread, -9.5);
+
+    // Public output is attachment-shape only — commenceTime never leaks out.
+    assert.ok(!JSON.stringify(json.items).includes('commenceTime'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('fresh cached odds entries without commenceTime are served without an upstream refetch', async () => {
+  const originalFetch = global.fetch;
+  const cacheKey =
+    'bookmakers=bet365,betmgm,caesars,draftkings,espnbet,fanduel,pointsbet|markets=h2h,spreads,totals|regions=us';
+  let upstreamCalls = 0;
+
+  // Pre-PLATFORM-031 cache entry: data items predate `commenceTime`. A fresh
+  // entry must still be served as a hit — never force-refetched for migration.
+  await setAppState('odds-cache', `2026:${cacheKey}`, {
+    data: [{ homeTeam: 'Georgia Bulldogs', awayTeam: 'Clemson Tigers', bookmakers: [] }],
+    lastFetch: Date.now(),
+    usage: null,
+  });
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [buildScheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    upstreamCalls += 1;
+    return new Response(JSON.stringify([buildOddsEvent()]), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-requests-used': '5',
+        'x-requests-remaining': '495',
+        'x-requests-last': '1',
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(new Request('http://localhost/api/odds?year=2026'));
+    const json = (await res.json()) as { meta: { cache: 'hit' | 'miss' } };
+
+    assert.equal(res.status, 200);
+    assert.equal(json.meta.cache, 'hit');
+    assert.equal(upstreamCalls, 0);
   } finally {
     global.fetch = originalFetch;
   }
