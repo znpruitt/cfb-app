@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  attachScoresToSchedule,
   buildScheduleIndex,
   matchScoreRowToSchedule,
   normalizeProviderTeamName,
@@ -247,4 +248,160 @@ test('provider week matching still attaches when canonical week differs for open
 
   assert.equal(matched.matched, true);
   if (matched.matched) assert.equal(matched.entry.gameKey, 'isu-week-0');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-001A — score attachment regression coverage.
+// Score attachment is schedule-canonical: provider rows attach only to games in
+// the canonical schedule index, never create new identities, and respect
+// week/season-type/orientation/postseason-week-remap boundaries.
+// ---------------------------------------------------------------------------
+
+test('resolved teams with no scheduled game cannot create scores (no_scheduled_match)', () => {
+  const resolver = makeResolver();
+  const index = buildScheduleIndex(
+    [game({ key: 'army-navy', week: 16, canHome: 'Army', canAway: 'Navy' })],
+    resolver
+  );
+
+  // Both teams resolve in the catalog, but no scheduled game exists between them.
+  const result = attachScoresToSchedule({
+    rows: [
+      row({
+        week: 16,
+        home: { team: 'Iowa State', score: 21 },
+        away: { team: 'Kansas State', score: 20 },
+        status: 'final',
+      }),
+    ],
+    scheduleIndex: index,
+    resolver,
+  });
+
+  assert.equal(result.attachedCount, 0);
+  assert.deepEqual(result.scoresByKey, {});
+  assert.equal(result.diagnostics[0]?.reason, 'no_scheduled_match');
+});
+
+test('postseason providerWeek reset attaches to the canonical postseason week', () => {
+  const resolver = makeResolver();
+  // Provider resets bowl-week numbering (providerWeek 1) while the canonical
+  // schedule keeps the postseason canonical week (17).
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'bowl-army-navy',
+        week: 17,
+        canonicalWeek: 17,
+        providerWeek: 1,
+        stage: 'bowl',
+        canHome: 'Army',
+        canAway: 'Navy',
+        date: '2025-12-28T18:00:00Z',
+      }),
+    ],
+    resolver
+  );
+
+  const matched = matchScoreRowToSchedule(
+    row({
+      week: 1,
+      seasonType: 'postseason',
+      home: { team: 'Army', score: 14 },
+      away: { team: 'Navy', score: 10 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+
+  assert.equal(matched.matched, true);
+  if (matched.matched) assert.equal(matched.entry.gameKey, 'bowl-army-navy');
+});
+
+test('neutral-site reversed provider orientation attaches via identity-aware pair matching', () => {
+  const resolver = makeResolver();
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'neutral-army-navy',
+        week: 16,
+        stage: 'regular',
+        canHome: 'Army',
+        canAway: 'Navy',
+        date: '2025-12-13T20:00:00Z',
+      }),
+    ],
+    resolver
+  );
+
+  // Provider reports the neutral-site game with reversed home/away orientation.
+  const matched = matchScoreRowToSchedule(
+    row({
+      week: 16,
+      seasonType: 'regular',
+      home: { team: 'Navy', score: 20 },
+      away: { team: 'Army', score: 17 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+
+  assert.equal(matched.matched, true);
+  if (matched.matched) {
+    assert.equal(matched.entry.gameKey, 'neutral-army-navy');
+    assert.equal(matched.orientation, 'reversed');
+  }
+});
+
+test('same teams in regular season and postseason attach to distinct canonical games', () => {
+  const resolver = makeResolver();
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'reg-boise-wsu',
+        week: 3,
+        stage: 'regular',
+        canHome: 'Boise State',
+        canAway: 'Washington State',
+        date: '2025-09-10T01:00:00Z',
+      }),
+      game({
+        key: 'bowl-boise-wsu',
+        week: 18,
+        stage: 'bowl',
+        canHome: 'Washington State',
+        canAway: 'Boise State',
+        date: '2025-12-28T01:00:00Z',
+      }),
+    ],
+    resolver
+  );
+
+  const result = attachScoresToSchedule({
+    rows: [
+      row({
+        week: 3,
+        seasonType: 'regular',
+        home: { team: 'Boise State', score: 30 },
+        away: { team: 'Washington State', score: 28 },
+        status: 'final',
+      }),
+      row({
+        week: 18,
+        seasonType: 'postseason',
+        home: { team: 'Washington State', score: 21 },
+        away: { team: 'Boise State', score: 17 },
+        status: 'final',
+      }),
+    ],
+    scheduleIndex: index,
+    resolver,
+  });
+
+  // Each meeting lands on its own canonical game — no cross-attachment.
+  assert.equal(result.attachedCount, 2);
+  assert.equal(result.scoresByKey['reg-boise-wsu']?.home.score, 30);
+  assert.equal(result.scoresByKey['bowl-boise-wsu']?.home.score, 21);
 });
