@@ -91,6 +91,25 @@ test('spectator board schedule resolves cached games via server-safe scoped alia
   assert.equal(insight?.homeGames + insight?.awayGames + insight?.neutralGames, 1);
 });
 
+test('current global aliases override a conflicting deprecated league/year scope', async () => {
+  const slug = 'tsc';
+  const year = 2028;
+
+  // A distinct alias label (never used by the other tests) keeps this case
+  // independent of shared appState. The deprecated league/year scope maps it to
+  // the WRONG team; the canonical global store maps it correctly. Global must win.
+  await setAppState('schedule', `${year}-all-all`, {
+    items: [{ ...scheduleItem(year), homeTeam: 'Buckeye Nation' }],
+  });
+  await setAppState(`aliases:${slug}:${year}`, 'map', { 'buckeye nation': 'Michigan' });
+  await setAppState('aliases:global', 'map', { 'buckeye nation': 'Ohio State' });
+
+  const games = await loadSpectatorBoardSchedule({ slug, year, teams: TEAMS });
+
+  assert.equal(games.length, 1);
+  assert.equal(games[0]?.canHome, 'Ohio State');
+});
+
 test('without server-side aliases the schedule does not canonicalize and insights stay empty', async () => {
   const slug = 'tsc';
   const year = 2027; // distinct year → no alias scope seeded for it
