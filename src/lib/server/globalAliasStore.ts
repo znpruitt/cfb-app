@@ -28,6 +28,38 @@ export async function getGlobalAliases(): Promise<AliasMap> {
 }
 
 /**
+ * Resolves the effective alias map for a league/year on the server by walking
+ * the global store plus the deprecated league/year scopes.
+ *
+ * Precedence is global > league+year > year: the canonical global store wins on
+ * key conflicts, because legacy league/year scopes are deprecated and
+ * migrateYearScopedAliasesToGlobal() deliberately preserves existing global
+ * entries — so a stale scoped mapping must not override the current global one.
+ * This matches how the owners upload path merges aliases (global last/highest).
+ * Among the two legacy scopes, the more specific league+year wins over year.
+ *
+ * Server-safe: reads only appState (no `localStorage`, no static-file fetch),
+ * so it works during server render — unlike the browser-era loader in
+ * `src/lib/aliases.ts`. Returns {} when no scope holds an alias map; never
+ * throws on missing data, so an empty result cannot masquerade as an unrelated
+ * failure in callers.
+ */
+export async function getScopedAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
+  let aliasMap: AliasMap = {};
+  // Highest precedence first; the accumulator wins on conflict, so later
+  // (lower-precedence) scopes only fill gaps.
+  const scopes = [GLOBAL_SCOPE, `aliases:${leagueSlug}:${year}`, `aliases:${year}`];
+  for (const scope of scopes) {
+    const record = await getAppState<AliasMap>(scope, GLOBAL_KEY);
+    const value = record?.value;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      aliasMap = { ...value, ...aliasMap };
+    }
+  }
+  return aliasMap;
+}
+
+/**
  * Merges the given entries into the global alias store.
  * Keys are lowercased for consistent lookup. Existing entries are preserved
  * when the incoming map does not include them.
