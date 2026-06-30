@@ -1282,6 +1282,26 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### Event-Centric Date-Aware Odds Attachment — Complete
+
+**Status:** Complete. PR #332 merged. Codex review clean (no findings).
+**PROMPT_IDs:** PLATFORM-030-ATTACHMENT-REGRESSION-TESTS-v1 (PR #331), PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1 + PLATFORM-031-GAP-CLOSURE-v1 (PR #332)
+
+**Goals completed:**
+- Locked the pre-existing pair-only odds-attachment weakness with test-only regression coverage (PLATFORM-030) before changing production behavior
+- Rewrote `attachOddsEventsToSchedule` (`src/lib/oddsAttachment.ts`) to be event-centric and date-aware: resolve each upstream event's pair via centralized `teamIdentity`, narrow same-pair candidates by a ±24h commence-time tolerance, and attach only when exactly one candidate remains — no fan-out, no arbitrary first-win
+- Added `unmatched_pair` / `ambiguous_pair` / `date_mismatch` / `consumed_or_duplicate` diagnostics for every non-attaching event
+- Plumbed upstream `commence_time` through normalization as `commenceTime` via `normalizeUpstreamOddsEvent` in `routeInternals.ts` (Next.js route modules forbid non-handler exports)
+- Closed the WIP-audit gaps (PLATFORM-031-GAP-CLOSURE): date-aligned repeat-matchup fixture, full `/api/odds` propagation test, fresh-cache-without-`commenceTime` backward-compat test, and `buildOddsByGame` both-spellings regression
+
+**Key outcomes:**
+- Same-pair rematches (e.g. regular-season meeting vs conference championship) now attach to the correct canonical identity by date instead of arbitrary first-win
+- `commenceTime` is attachment metadata only — never added to `DurableOddsSnapshot`, `CombinedOdds`, or public `/api/odds` output
+- Older cached entries lacking `commenceTime` remain valid (treated as undated) and never force a migration refetch; PLATFORM-020 quota/cache guards untouched
+- Validation: `npm test` 983 pass / 0 fail / 0 skipped; tsc, lint:all, build all clean
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
