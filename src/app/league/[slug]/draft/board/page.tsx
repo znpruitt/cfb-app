@@ -3,9 +3,9 @@ import { notFound } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState } from '@/lib/draft';
-import { loadAliasMap } from '@/lib/aliases';
 import { loadSeasonRankings } from '@/lib/server/rankings';
-import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
+import type { AppGame } from '@/lib/schedule';
+import { loadSpectatorBoardSchedule } from './boardData';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import type { SpRatingEntry, WinTotalEntry, ApPollEntry } from '@/lib/selectors/draftTeamInsights';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
@@ -77,21 +77,11 @@ export default async function SpectatorBoardPage({
     // no win totals cached
   }
 
-  // Load schedule
-  let games: ReturnType<typeof buildScheduleFromApi>['games'] = [];
+  // Load schedule (server-safe scoped alias resolution lives in boardData.ts;
+  // an absent alias map no longer surfaces here as "schedule not cached").
+  let games: AppGame[] = [];
   try {
-    const schedRecord = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
-    const schedItems = (schedRecord?.value?.items ?? []) as ScheduleWireItem[];
-    if (schedItems.length > 0) {
-      const aliasMap = await loadAliasMap();
-      const built = buildScheduleFromApi({
-        scheduleItems: schedItems,
-        teams,
-        aliasMap,
-        season: year,
-      });
-      games = built.games;
-    }
+    games = await loadSpectatorBoardSchedule({ slug, year, teams });
   } catch {
     // schedule not cached
   }
