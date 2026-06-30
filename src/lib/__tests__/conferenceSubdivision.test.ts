@@ -35,6 +35,9 @@ test('isPolicyFcsConference recognizes real FCS conferences by static policy', (
     'Big Sky',
     'MVFC',
     'Missouri Valley Football Conference',
+    // CFBD's provider spelling for MVFC — must resolve to FCS, not just the
+    // abbreviation / full name (regression for PLATFORM-036 Codex P2).
+    'Missouri Valley',
     'Patriot',
     'SWAC',
   ]) {
