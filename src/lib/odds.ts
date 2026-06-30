@@ -16,6 +16,8 @@ export type OddsEvent = {
   awayTeam?: string;
   home_team?: string;
   away_team?: string;
+  commence_time?: string;
+  commenceTime?: string | null;
   bookmakers?: OddsBookmaker[];
 };
 
@@ -83,6 +85,7 @@ type GameLike = {
 type PreparedOddsEvent = {
   homeTeam: string;
   awayTeam: string;
+  commenceTime: string | null;
   book: OddsBookmaker | undefined;
 };
 
@@ -390,6 +393,7 @@ export function buildOddsByGame(params: {
   const preparedEvents: PreparedOddsEvent[] = oddsEvents.map((event) => ({
     homeTeam: eventHomeTeam(event),
     awayTeam: eventAwayTeam(event),
+    commenceTime: event.commenceTime ?? event.commence_time ?? null,
     book: pickPreferredBook(event),
   }));
 

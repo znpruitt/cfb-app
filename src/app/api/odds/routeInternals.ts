@@ -2,12 +2,53 @@ import type { OddsUsageSnapshot } from '../../../lib/api/oddsUsage.ts';
 import type { OddsBookmaker } from '../../../lib/odds.ts';
 import { seasonYearForToday } from '../../../lib/scores/normalizers.ts';
 
+type UpstreamOddsOutcome = { name?: string; price?: number; point?: number };
+type UpstreamOddsMarket = { key?: string; outcomes?: UpstreamOddsOutcome[] };
+type UpstreamOddsBookmaker = { key?: string; title?: string; markets?: UpstreamOddsMarket[] };
+export type UpstreamOddsEvent = {
+  home_team?: string;
+  away_team?: string;
+  commence_time?: string;
+  bookmakers?: UpstreamOddsBookmaker[];
+};
+
+export type NormalizedOddsEvent = {
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime: string | null;
+  bookmakers: OddsBookmaker[];
+};
+
+/**
+ * Normalize a raw Odds API event into the canonical attachment shape. Carries
+ * `commence_time` through as `commenceTime` so the attachment layer can
+ * disambiguate repeated meetings of the same team pair by date.
+ */
+export function normalizeUpstreamOddsEvent(event: UpstreamOddsEvent): NormalizedOddsEvent | null {
+  const homeTeam = event.home_team?.trim() ?? '';
+  const awayTeam = event.away_team?.trim() ?? '';
+  if (!homeTeam || !awayTeam) return null;
+
+  const commenceTime = event.commence_time?.trim() || null;
+
+  const bookmakers: OddsBookmaker[] = (event.bookmakers ?? []).map((book) => ({
+    key: book.key,
+    title: book.title,
+    markets: (book.markets ?? []).map((market) => ({
+      key: market.key,
+      outcomes: (market.outcomes ?? []).map((outcome) => ({
+        name: outcome.name,
+        price: outcome.price,
+        point: outcome.point,
+      })),
+    })),
+  }));
+
+  return { homeTeam, awayTeam, commenceTime, bookmakers };
+}
+
 export type SharedOddsCacheEntry = {
-  data: {
-    homeTeam: string;
-    awayTeam: string;
-    bookmakers: OddsBookmaker[];
-  }[];
+  data: NormalizedOddsEvent[];
   lastFetch: number;
   usage: OddsUsageSnapshot | null;
 };

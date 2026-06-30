@@ -7,6 +7,7 @@ export type ScheduleAttachmentGame = {
   canAway: string;
   csvHome: string;
   csvAway: string;
+  date?: string | null;
   participants?: { home?: { kind?: string }; away?: { kind?: string } };
 };
 
