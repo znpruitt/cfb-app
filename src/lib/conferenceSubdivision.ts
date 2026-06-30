@@ -278,3 +278,18 @@ export function inferSubdivisionFromConference(
 ): ConferenceSubdivision {
   return classifyConferenceForSubdivision(conference).subdivision;
 }
+
+/**
+ * Pure, static-policy FCS check for selector/display logic.
+ *
+ * Answers "is this conference policy-classified FCS" using only the immutable
+ * present-day conference policy (`resolvePresentDayConferencePolicy`), so it
+ * stays pure and does not depend on the mutable CFBD conference index that
+ * `classifyConferenceForSubdivision` consults. Unknown / empty / OTHER
+ * conferences are not FCS (returns `false`), preserving existing non-FCS
+ * behavior — only conferences the policy recognizes as FCS (e.g. Big Sky,
+ * MVFC, Patriot, SWAC) flip to `true`.
+ */
+export function isPolicyFcsConference(conference: string | null | undefined): boolean {
+  return resolvePresentDayConferencePolicy(conference)?.policy.classification === 'fcs';
+}

@@ -2,13 +2,10 @@ import { classifyScorePackStatus, formatCompactGameStatus } from '../gameStatus'
 import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../matchups';
 import { deriveOddsSummaryCopy } from '../presentationCopy';
 import type { ScorePack } from '../scores';
+import { isPolicyFcsConference } from '../conferenceSubdivision';
 
 const DEFAULT_VISIBLE_OPPONENTS = 3;
 // Selector invariant: this module emits deterministic derived copy/tokens only.
-
-function isFcsConference(conference: string | null | undefined): boolean {
-  return /\bfcs\b/i.test(conference ?? '');
-}
 
 export type OpponentSummaryEntry = {
   label: string;
@@ -39,7 +36,7 @@ export function deriveOpponentDescriptor(slateGame: OwnerSlateGame): string {
     return opponentParticipant.displayName;
   }
 
-  if (opponentParticipant.kind !== 'team' || isFcsConference(opponentConference)) {
+  if (opponentParticipant.kind !== 'team' || isPolicyFcsConference(opponentConference)) {
     return 'FCS';
   }
 

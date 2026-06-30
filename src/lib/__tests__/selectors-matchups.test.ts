@@ -168,3 +168,30 @@ test('deriveOpponentDescriptor uses non-owner fallback labels', () => {
 
   assert.equal(descriptor, 'Winner G1');
 });
+
+test('deriveOpponentDescriptor labels a real FCS opponent as FCS (PLATFORM-036)', () => {
+  // Owner is the away team; opponent is the home team in a real FCS conference
+  // whose name does not contain "FCS" — must still render as FCS, not
+  // "NoClaim (FBS)".
+  for (const conf of ['Big Sky', 'MVFC']) {
+    const descriptor = deriveOpponentDescriptor(
+      slateGame({
+        ownerTeamSide: 'away',
+        opponentOwner: undefined,
+        game: game({ homeConf: conf }),
+      })
+    );
+    assert.equal(descriptor, 'FCS', `${conf} opponent should render as FCS`);
+  }
+});
+
+test('deriveOpponentDescriptor labels an unowned FBS opponent as NoClaim (FBS)', () => {
+  const descriptor = deriveOpponentDescriptor(
+    slateGame({
+      ownerTeamSide: 'away',
+      opponentOwner: undefined,
+      game: game({ homeConf: 'SEC' }),
+    })
+  );
+  assert.equal(descriptor, 'NoClaim (FBS)');
+});

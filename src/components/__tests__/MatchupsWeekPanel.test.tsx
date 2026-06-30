@@ -387,7 +387,7 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
   const games = [
     game({ key: 'g-owned', csvAway: 'Alabama', csvHome: 'Georgia' }),
     game({ key: 'g-noclaim', csvAway: 'Florida State', csvHome: 'Tulane', homeConf: 'AAC' }),
-    game({ key: 'g-fcs', csvAway: 'Kansas State', csvHome: 'North Dakota', homeConf: 'FCS' }),
+    game({ key: 'g-fcs', csvAway: 'Kansas State', csvHome: 'North Dakota', homeConf: 'MVFC' }),
   ];
   const rosterByTeam = new Map([
     ['Alabama', 'Avery'],
@@ -565,7 +565,7 @@ test('matchups panel distinguishes unowned fbs opponents from fcs opponents', ()
     <MatchupsWeekPanel
       games={[
         game({ key: 'g-fbs', csvAway: 'Texas Tech', csvHome: 'Houston', homeConf: 'Big 12' }),
-        game({ key: 'g-fcs', csvAway: 'Kansas State', csvHome: 'North Dakota', homeConf: 'FCS' }),
+        game({ key: 'g-fcs', csvAway: 'Kansas State', csvHome: 'North Dakota', homeConf: 'MVFC' }),
       ]}
       oddsByKey={{}}
       scoresByKey={{}}

@@ -3,10 +3,7 @@ import type { CombinedOdds } from './odds.ts';
 import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import { deriveFinalOwnedParticipations } from './standings.ts';
-
-function isFcsConference(conference: string | null | undefined): boolean {
-  return /\bfcs\b/i.test(conference ?? '');
-}
+import { isPolicyFcsConference } from './conferenceSubdivision.ts';
 
 export type MatchupBucket = {
   game: AppGame;
@@ -73,9 +70,9 @@ export function deriveWeekMatchupSections(
 
   for (const game of games) {
     const homeIsLeagueTeam =
-      game.participants.home.kind === 'team' && !isFcsConference(game.homeConf);
+      game.participants.home.kind === 'team' && !isPolicyFcsConference(game.homeConf);
     const awayIsLeagueTeam =
-      game.participants.away.kind === 'team' && !isFcsConference(game.awayConf);
+      game.participants.away.kind === 'team' && !isPolicyFcsConference(game.awayConf);
     const homeOwner = homeIsLeagueTeam ? rosterByTeam.get(game.csvHome) : undefined;
     const awayOwner = awayIsLeagueTeam ? rosterByTeam.get(game.csvAway) : undefined;
 
