@@ -24,6 +24,7 @@ import {
 } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
+import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import {
@@ -547,6 +548,7 @@ function CondensedStandingsTable({
   onOwnerSelect,
   previousRows,
   liveCountByOwner,
+  liveDelta,
   deltaWeeks,
   deltasByOwner,
   weekLabel,
@@ -555,6 +557,7 @@ function CondensedStandingsTable({
   onOwnerSelect?: (owner: string) => void;
   previousRows?: OwnerStandingsRow[] | null;
   liveCountByOwner?: Map<string, number>;
+  liveDelta?: LiveDelta | null;
   deltaWeeks?: number[];
   deltasByOwner?: Map<string, Map<number, number | null>>;
   weekLabel?: (week: number) => string;
@@ -590,6 +593,10 @@ function CondensedStandingsTable({
         ) : null}
         {rows.map((row, index) => {
           const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
+          const livePending = selectFreshOwnerPendingDelta(liveDelta, row.owner);
+          const livePendingLabel = livePending
+            ? `Live this week: ${livePending.pendingWins}–${livePending.pendingLosses}`
+            : null;
           const ownerDeltas = hasDeltaCols ? deltasByOwner.get(row.owner) : null;
           return (
             <React.Fragment key={row.owner}>
@@ -633,6 +640,16 @@ function CondensedStandingsTable({
                   <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-zinc-100">
                     {row.wins}–{row.losses}
                   </span>
+                  {livePending && livePendingLabel ? (
+                    <span
+                      className="inline-flex items-center rounded-sm bg-emerald-100 px-1 py-0.5 text-[0.6rem] font-medium tracking-tight text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                      title={livePendingLabel}
+                      aria-label={livePendingLabel}
+                      data-overview-live-pending={`${livePending.pendingWins}-${livePending.pendingLosses}`}
+                    >
+                      +{livePending.pendingWins}–{livePending.pendingLosses}
+                    </span>
+                  ) : null}
                   <span className="text-xs tabular-nums text-gray-400 dark:text-zinc-500">
                     {index === 0 ? formatGb(row.gamesBack) : `${formatGb(row.gamesBack)} GB`}
                   </span>
@@ -1381,10 +1398,6 @@ export default function OverviewPanel({
     standingsHistory,
     standingsCoverage,
   });
-  // liveDelta is intentionally unused this phase; consumers come online in
-  // Phase 2+. The void reference keeps lint quiet while the prop is wired
-  // through as part of the Phase 1 interface.
-  void liveDelta;
   // GB Race section guard: render whenever the chosen history carries owner
   // rows in any week. The chart components handle flat / partial weeks
   // gracefully; we only need to suppress the section when there's truly
@@ -1534,6 +1547,7 @@ export default function OverviewPanel({
                 onOwnerSelect={onOwnerSelect}
                 previousRows={viewModel.previousStandingsLeaders}
                 liveCountByOwner={liveCountByOwner}
+                liveDelta={liveDelta}
                 deltaWeeks={positionDeltaData?.weeks}
                 deltasByOwner={positionDeltaData?.byOwner}
                 weekLabel={weekLabelFn}
