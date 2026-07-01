@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   classifyConferenceForSubdivision,
   inferSubdivisionFromConference,
+  isPolicyFcsConference,
   normalizeConferenceKey,
   resetConferenceClassificationRecords,
   resolvePresentDayConferencePolicy,
@@ -25,6 +26,42 @@ test('present-day policy resolves required FCS aliases', () => {
     assert.equal(match.overrideApplied, true);
     assert.ok(match.matchedPolicyConference);
   }
+});
+
+test('isPolicyFcsConference recognizes real FCS conferences by static policy', () => {
+  // PLATFORM-036: real FCS conferences whose names do not contain the token
+  // "FCS" must still classify as FCS (the old /\bfcs\b/i regex missed these).
+  for (const label of [
+    'Big Sky',
+    'MVFC',
+    'Missouri Valley Football Conference',
+    // CFBD's provider spelling for MVFC — must resolve to FCS, not just the
+    // abbreviation / full name (regression for PLATFORM-036 Codex P2).
+    'Missouri Valley',
+    'Patriot',
+    'SWAC',
+  ]) {
+    assert.equal(isPolicyFcsConference(label), true, `${label} should be policy FCS`);
+  }
+});
+
+test('isPolicyFcsConference returns false for FBS conferences', () => {
+  for (const label of ['SEC', 'Big Ten', 'Big 12', 'ACC', 'AAC']) {
+    assert.equal(isPolicyFcsConference(label), false, `${label} should not be FCS`);
+  }
+});
+
+test('isPolicyFcsConference preserves unknown/empty/unrecognized behavior as non-FCS', () => {
+  // Unknown / empty / unrecognized conferences are not policy FCS, so callers
+  // keep treating them exactly as before (e.g. as ownable FBS league teams).
+  assert.equal(isPolicyFcsConference(null), false);
+  assert.equal(isPolicyFcsConference(undefined), false);
+  assert.equal(isPolicyFcsConference(''), false);
+  assert.equal(isPolicyFcsConference('   '), false);
+  assert.equal(isPolicyFcsConference('Some Made Up League'), false);
+  // The bare synthetic token "FCS" is NOT a policy alias and is intentionally
+  // not treated as FCS — real conference names must be used.
+  assert.equal(isPolicyFcsConference('FCS'), false);
 });
 
 test('present-day policy resolves required FBS aliases', () => {

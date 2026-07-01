@@ -157,7 +157,8 @@ export const CURRENT_FOOTBALL_CONFERENCES: CurrentFootballConferencePolicy[] = [
     nickname: 'MVFC',
     abbreviation: 'MVFC',
     classification: 'fcs',
-    aliases: ['missourivalleyfootballconference', 'mvfc'],
+    // 'missourivalley' is the spelling CFBD reports for this conference.
+    aliases: ['missourivalleyfootballconference', 'missourivalley', 'mvfc'],
   },
   {
     key: 'nec',
