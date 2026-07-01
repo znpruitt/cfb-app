@@ -12,6 +12,7 @@ import { getGameParticipantTeamId } from '../schedule';
 import type { OverviewContext, OverviewGameItem } from '../overview';
 import type { StandingsHistory } from '../standingsHistory';
 import type { OwnerStandingsRow, StandingsCoverage } from '../standings';
+import type { CanonicalStandings } from './leagueStandings';
 import { selectResolvedStandingsWeeks } from './historyResolution';
 import {
   selectGamesBackTrend,
@@ -106,6 +107,29 @@ export const OVERVIEW_RESULTS_LIMIT = 6;
  * temporally-paired derivation should anchor on this pair so partial-week
  * unresolved state never causes the comparison to skip a week boundary.
  */
+/**
+ * Resolves which standings rows/history the Overview surface renders.
+ *
+ * Canonical is preferred: when a canonical snapshot is supplied, its `rows`
+ * (even when empty) and its `standingsHistory` (even when null) are used — never
+ * the client-derived rows/history. The local `standingsLeaders`/`standingsHistory`
+ * are used only when NO canonical snapshot is supplied (`undefined`/`null`, e.g.
+ * routes not yet loading canonical). Coverage, liveDelta, and selected games are
+ * intentionally NOT part of this resolution — coverage stays client/schedule-
+ * derived and liveDelta is not merged into rows this phase.
+ */
+export function resolveOverviewCanonicalInputs(params: {
+  canonicalStandings?: CanonicalStandings | null;
+  standingsLeaders: OwnerStandingsRow[];
+  standingsHistory?: StandingsHistory | null;
+}): { rows: OwnerStandingsRow[]; history: StandingsHistory | null } {
+  const { canonicalStandings, standingsLeaders, standingsHistory = null } = params;
+  return {
+    rows: canonicalStandings?.rows ?? standingsLeaders,
+    history: canonicalStandings ? canonicalStandings.standingsHistory : (standingsHistory ?? null),
+  };
+}
+
 export function deriveResolvedMovementStandings(standingsHistory?: StandingsHistory | null): {
   latest: OwnerStandingsRow[] | null;
   previous: OwnerStandingsRow[] | null;
