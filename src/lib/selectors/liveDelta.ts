@@ -188,3 +188,29 @@ function deriveIsStale(lastFetchedAt: string | null, now: number, thresholdMs: n
   if (!Number.isFinite(parsed)) return true;
   return now - parsed > thresholdMs;
 }
+
+/**
+ * Resolves the fresh, decision-bearing pending delta for a single owner, or
+ * `null` when no live badge should render. Centralizes the rules shared by the
+ * Standings and Members "Live this week" annotations:
+ *
+ *  - stale overlays are suppressed (`liveDelta.isStale`),
+ *  - a missing owner / missing delta yields `null`,
+ *  - `NoClaim` is never annotated,
+ *  - a zero-decision delta (no pending wins or losses — e.g. only tied
+ *    in-progress games) yields `null`.
+ *
+ * This is a pure read of the overlay; it never mutates canonical rows and does
+ * not compute projected rank/record/win%/differential.
+ */
+export function selectFreshOwnerPendingDelta(
+  liveDelta: LiveDelta | null | undefined,
+  owner: string | null | undefined
+): LivePendingOwnerDelta | null {
+  if (!liveDelta || liveDelta.isStale) return null;
+  if (!owner || owner === NO_CLAIM_OWNER) return null;
+  const pending = liveDelta.byOwner[owner];
+  if (!pending) return null;
+  if (pending.pendingWins + pending.pendingLosses <= 0) return null;
+  return pending;
+}

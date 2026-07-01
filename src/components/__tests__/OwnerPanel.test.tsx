@@ -6,6 +6,25 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import OwnerPanel from '../OwnerPanel';
 import type { OwnerViewSnapshot } from '../../lib/ownerView';
 import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
+import type { LiveDelta } from '../../lib/selectors/liveDelta';
+
+function liveDelta(
+  byOwner: Record<string, { pendingWins: number; pendingLosses: number }>,
+  opts: { isStale?: boolean } = {}
+): LiveDelta {
+  return {
+    weekKey: '2026:3',
+    generatedAt: '2026-10-01T00:00:00.000Z',
+    byGame: {},
+    byOwner: Object.fromEntries(
+      Object.entries(byOwner).map(([owner, d]) => [
+        owner,
+        { owner, pendingPointsFor: 0, pendingPointsAgainst: 0, ...d },
+      ])
+    ),
+    isStale: opts.isStale ?? false,
+  };
+}
 
 const snapshot: OwnerViewSnapshot = {
   selectedOwner: 'Ballard',
@@ -369,4 +388,83 @@ test('owner panel appends snapshot-only owners after canonical block (canonical 
   // From Dave (last in [Alice, Bob, Dave]): prev = Bob, next wraps to Alice.
   assert.match(html, /aria-label="Previous owner: Bob"/);
   assert.match(html, /aria-label="Next owner: Alice"/);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-046 — Members owner header liveDelta pending badge. The badge is a
+// separate annotation; it never changes the canonical header baseline.
+// ---------------------------------------------------------------------------
+
+function renderWithLiveDelta(delta: LiveDelta | null, override?: Partial<OwnerViewSnapshot>) {
+  return renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={{ ...snapshot, ...override }}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+      liveDelta={delta}
+    />
+  );
+}
+
+test('owner header renders a pending badge for a fresh, nonzero liveDelta without changing the baseline', () => {
+  const html = renderWithLiveDelta(liveDelta({ Ballard: { pendingWins: 1, pendingLosses: 0 } }));
+
+  assert.match(html, /data-owner-live-pending="1-0"/);
+  assert.match(html, /Live this week: 1–0/);
+  assert.match(html, /\+1–0/);
+  // Canonical baseline is untouched.
+  assert.match(html, /Rank #1/);
+  assert.match(html, /Record 4–1/);
+  assert.match(html, /Win % 0\.800/);
+  assert.match(html, /Pt Diff \+30/);
+});
+
+test('owner header aggregates multiple live games into a single badge', () => {
+  const html = renderWithLiveDelta(liveDelta({ Ballard: { pendingWins: 2, pendingLosses: 1 } }));
+
+  const matches = html.match(/data-owner-live-pending/g) ?? [];
+  assert.equal(matches.length, 1);
+  assert.match(html, /data-owner-live-pending="2-1"/);
+  assert.match(html, /\+2–1/);
+});
+
+test('owner header shows no badge for a stale liveDelta', () => {
+  const html = renderWithLiveDelta(
+    liveDelta({ Ballard: { pendingWins: 1, pendingLosses: 0 } }, { isStale: true })
+  );
+  assert.doesNotMatch(html, /data-owner-live-pending/);
+  assert.match(html, /Record 4–1/);
+});
+
+test('owner header shows no badge when the delta lacks the header owner', () => {
+  const html = renderWithLiveDelta(liveDelta({ Foster: { pendingWins: 2, pendingLosses: 0 } }));
+  assert.doesNotMatch(html, /data-owner-live-pending/);
+});
+
+test('owner header shows no badge for a zero-decision (tied) delta', () => {
+  const html = renderWithLiveDelta(liveDelta({ Ballard: { pendingWins: 0, pendingLosses: 0 } }));
+  assert.doesNotMatch(html, /data-owner-live-pending/);
+});
+
+test('a null header is not resurrected by liveDelta (no header, no badge)', () => {
+  const html = renderWithLiveDelta(liveDelta({ Ballard: { pendingWins: 3, pendingLosses: 0 } }), {
+    header: null,
+  });
+  assert.doesNotMatch(html, /data-owner-live-pending/);
+  assert.doesNotMatch(html, /Rank #/);
+  assert.doesNotMatch(html, /Record 4–1/);
+});
+
+test('no liveDelta prop renders the canonical header with no badge', () => {
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={snapshot}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+  assert.doesNotMatch(html, /data-owner-live-pending/);
+  assert.match(html, /Record 4–1/);
 });

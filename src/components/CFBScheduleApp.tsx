@@ -1972,6 +1972,7 @@ export default function CFBScheduleApp({
                   onOwnerChange={setSelectedOwner}
                   rankingsByTeamId={rankingsByTeamId}
                   canonicalStandings={canonicalStandings}
+                  liveDelta={liveDelta}
                 />
               ) : primarySurfaceKind === 'postseason' ? (
                 <PostseasonPanel

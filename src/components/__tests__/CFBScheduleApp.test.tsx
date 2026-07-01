@@ -120,6 +120,22 @@ test('owner surface remains reachable with owner data even when no week is selec
   assert.match(html, /League view unavailable/);
 });
 
+test('owner surface wires liveDelta to OwnerPanel; no live badge without in-progress scores (PLATFORM-046)', () => {
+  // The owner surface renders OwnerPanel with liveDelta wired through. Static
+  // render seeds no scores, so liveDelta has no in-progress games → no badge,
+  // while the canonical/local header baseline still renders.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      initialWeekViewMode="owner"
+      initialRoster={[{ owner: 'Alice', team: 'Texas' }]}
+      initialGames={[game({ csvAway: 'Texas', csvHome: 'Rice' })]}
+    />
+  );
+
+  assert.match(html, /Roster • Live • This week/);
+  assert.doesNotMatch(html, /data-owner-live-pending/);
+});
+
 test('active-season league surface uses the league status year, not the global default (PLATFORM-042)', () => {
   // The header subtitle renders "{leagueYear ?? selectedSeason} Season". With no
   // leagueYear, it reflects the resolved season. Under the old inline logic an
