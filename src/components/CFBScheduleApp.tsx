@@ -39,6 +39,7 @@ import {
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
+import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import {
   buildScheduleFromApi,
@@ -800,12 +801,24 @@ export default function CFBScheduleApp({
   // is absent. This is a deterministic per-route presence/absence check, not a
   // runtime readiness predicate — Phase 2+ migrates the remaining routes to
   // pass canonical and the fallback retires naturally.
-  const overviewSnapshotRows = canonicalStandings?.rows ?? standingsSnapshot.rows;
+  // Resolve the Overview canonical contract (rows/history/coverage) once so
+  // deriveOverviewSnapshot and OverviewPanel share the same canonical-preferred
+  // coverage — deriveOverviewSnapshot has no canonical input of its own.
+  const overviewCanonical = useMemo(
+    () =>
+      resolveOverviewCanonicalInputs({
+        canonicalStandings,
+        standingsLeaders: standingsSnapshot.rows,
+        standingsHistory,
+        standingsCoverage,
+      }),
+    [canonicalStandings, standingsSnapshot.rows, standingsHistory, standingsCoverage]
+  );
   const overviewSnapshot = useMemo(
     () =>
       deriveOverviewSnapshot({
-        standingsRows: overviewSnapshotRows,
-        standingsCoverage,
+        standingsRows: overviewCanonical.rows,
+        standingsCoverage: overviewCanonical.coverage,
         weekGames: overviewScope.games,
         allGames: games,
         rosterByTeam,
@@ -819,8 +832,8 @@ export default function CFBScheduleApp({
       overviewScope.label,
       rosterByTeam,
       scoresByKey,
-      standingsCoverage,
-      overviewSnapshotRows,
+      overviewCanonical.coverage,
+      overviewCanonical.rows,
     ]
   );
 

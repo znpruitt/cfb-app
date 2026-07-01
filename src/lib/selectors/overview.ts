@@ -102,34 +102,56 @@ export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
 export const OVERVIEW_RESULTS_LIMIT = 6;
 
 /**
- * Returns the standings snapshots from the latest fully-resolved week and the
- * one before it. Movement insights, rank-arrow comparisons, and any other
- * temporally-paired derivation should anchor on this pair so partial-week
- * unresolved state never causes the comparison to skip a week boundary.
+ * Conservative coverage returned when a canonical snapshot is supplied but its
+ * required `coverage` is missing/null at runtime. We do NOT silently fall back
+ * to client coverage in that case — a malformed canonical snapshot must not be
+ * papered over with schedule-derived coverage.
  */
+export const CANONICAL_COVERAGE_UNAVAILABLE: StandingsCoverage = {
+  state: 'error',
+  message: 'Standings coverage is unavailable.',
+};
+
 /**
- * Resolves which standings rows/history the Overview surface renders.
+ * Resolves which standings rows/history/coverage the Overview surface renders.
  *
  * Canonical is preferred: when a canonical snapshot is supplied, its `rows`
- * (even when empty) and its `standingsHistory` (even when null) are used — never
- * the client-derived rows/history. The local `standingsLeaders`/`standingsHistory`
- * are used only when NO canonical snapshot is supplied (`undefined`/`null`, e.g.
- * routes not yet loading canonical). Coverage, liveDelta, and selected games are
- * intentionally NOT part of this resolution — coverage stays client/schedule-
- * derived and liveDelta is not merged into rows this phase.
+ * (even when empty), its `standingsHistory` (even when null), and its `coverage`
+ * are used — never the client-derived equivalents. When canonical is supplied
+ * but `coverage` is missing/null at runtime, `CANONICAL_COVERAGE_UNAVAILABLE`
+ * is returned (defensive; the type keeps `coverage` required). The client-derived
+ * `standingsLeaders`/`standingsHistory`/`standingsCoverage` are used only when NO
+ * canonical snapshot is supplied (`undefined`/`null`, e.g. routes not yet loading
+ * canonical). liveDelta and selected games are intentionally NOT part of this
+ * resolution — liveDelta is not merged into rows this phase.
  */
 export function resolveOverviewCanonicalInputs(params: {
   canonicalStandings?: CanonicalStandings | null;
   standingsLeaders: OwnerStandingsRow[];
   standingsHistory?: StandingsHistory | null;
-}): { rows: OwnerStandingsRow[]; history: StandingsHistory | null } {
-  const { canonicalStandings, standingsLeaders, standingsHistory = null } = params;
+  standingsCoverage: StandingsCoverage;
+}): { rows: OwnerStandingsRow[]; history: StandingsHistory | null; coverage: StandingsCoverage } {
+  const {
+    canonicalStandings,
+    standingsLeaders,
+    standingsHistory = null,
+    standingsCoverage,
+  } = params;
   return {
     rows: canonicalStandings?.rows ?? standingsLeaders,
     history: canonicalStandings ? canonicalStandings.standingsHistory : (standingsHistory ?? null),
+    coverage: canonicalStandings
+      ? (canonicalStandings.coverage ?? CANONICAL_COVERAGE_UNAVAILABLE)
+      : standingsCoverage,
   };
 }
 
+/**
+ * Returns the standings snapshots from the latest fully-resolved week and the
+ * one before it. Movement insights, rank-arrow comparisons, and any other
+ * temporally-paired derivation should anchor on this pair so partial-week
+ * unresolved state never causes the comparison to skip a week boundary.
+ */
 export function deriveResolvedMovementStandings(standingsHistory?: StandingsHistory | null): {
   latest: OwnerStandingsRow[] | null;
   previous: OwnerStandingsRow[] | null;

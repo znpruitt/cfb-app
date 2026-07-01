@@ -1371,10 +1371,15 @@ export default function OverviewPanel({
   // It is not a merge predicate: when canonical is present it always wins.
   // (Resolution centralized in resolveOverviewCanonicalInputs — see its tests
   // for the pinned canonical-vs-local contract.)
-  const { rows: rowsForRender, history: historyForRender } = resolveOverviewCanonicalInputs({
+  const {
+    rows: rowsForRender,
+    history: historyForRender,
+    coverage: coverageForRender,
+  } = resolveOverviewCanonicalInputs({
     canonicalStandings,
     standingsLeaders,
     standingsHistory,
+    standingsCoverage,
   });
   // liveDelta is intentionally unused this phase; consumers come online in
   // Phase 2+. The void reference keeps lint quiet while the prop is wired
@@ -1410,7 +1415,7 @@ export default function OverviewPanel({
       selectOverviewViewModel({
         standingsLeaders: rowsForRender,
         standingsHistory: historyForRender,
-        standingsCoverage,
+        standingsCoverage: coverageForRender,
         context,
         liveItems,
         keyMatchups,
@@ -1420,7 +1425,7 @@ export default function OverviewPanel({
     [
       rowsForRender,
       historyForRender,
-      standingsCoverage,
+      coverageForRender,
       context,
       liveItems,
       keyMatchups,
@@ -1503,15 +1508,15 @@ export default function OverviewPanel({
 
       {/* Standings · FBS Polls · Insights */}
       <section>
-        {standingsCoverage.message ? (
+        {coverageForRender.message ? (
           <p
             className={`mb-3 text-sm ${
-              standingsCoverage.state === 'error'
+              coverageForRender.state === 'error'
                 ? 'text-amber-700 dark:text-amber-300'
                 : 'text-gray-600 dark:text-zinc-300'
             }`}
           >
-            {standingsCoverage.message}
+            {coverageForRender.message}
           </p>
         ) : null}
         {viewModel.standingsTopN.length === 0 ? (

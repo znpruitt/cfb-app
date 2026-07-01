@@ -129,6 +129,8 @@ test('offseason with archive present: reads final standings from the archive', a
   assert.equal(snapshot.noClaimRow!.owner, 'NoClaim');
   assert.equal(snapshot.standingsHistory !== null, true);
   assert.deepEqual(snapshot.ownerColorOrder, ['Alice', 'Bob']);
+  // PLATFORM-048: archive snapshots populate coverage (Overview reads it).
+  assert.equal(snapshot.coverage.state, 'complete');
 });
 
 test('offseason with archive missing but live CSV: falls back to live derivation', async () => {
@@ -151,6 +153,9 @@ test('offseason with archive missing but live CSV: falls back to live derivation
   assert.equal(snapshot.noClaimRow!.owner, 'NoClaim');
   assert.equal(snapshot.standingsHistory !== null, true);
   assert.equal(snapshot.standingsHistory!.weeks.length, 0);
+  // PLATFORM-048: live snapshots propagate derived coverage.
+  assert.ok(snapshot.coverage);
+  assert.equal(snapshot.coverage.state, 'complete');
 });
 
 test('offseason with archive missing and no CSV: empty snapshot', async () => {
@@ -167,6 +172,8 @@ test('offseason with archive missing and no CSV: empty snapshot', async () => {
   assert.deepEqual(snapshot.rows, []);
   assert.equal(snapshot.noClaimRow, null);
   assert.equal(snapshot.standingsHistory, null);
+  // PLATFORM-048: even an empty snapshot carries (complete) coverage.
+  assert.equal(snapshot.coverage.state, 'complete');
 });
 
 test('season live with CSV: produces per-owner rows at the correct shape', async () => {
