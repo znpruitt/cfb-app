@@ -6,6 +6,7 @@ import type { ScorePack } from './scores.ts';
 import type { CombinedOdds } from './odds.ts';
 import type { OwnerStandingsRow } from './standings.ts';
 import { hasEquivalentTeamName } from './teamIdentity.ts';
+import { getGameOwners as ownerTeamSides, sideIdentityCandidates } from './gameOwnership.ts';
 
 export type Insight = {
   id: string;
@@ -479,53 +480,6 @@ export const LEAGUE_TAG_LABELS: Record<LeagueGameTag, string> = {
 
 function getState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'unknown' {
   return gameStateFromScore(score);
-}
-
-function sideIdentityCandidates(game: AppGame, side: 'away' | 'home'): string[] {
-  const participant = game.participants[side];
-  const teamId = getGameParticipantTeamId(game, side);
-  const csvName = side === 'away' ? game.csvAway : game.csvHome;
-  const canonicalName = side === 'away' ? game.canAway : game.canHome;
-
-  const raw = [
-    teamId,
-    participant.kind === 'team' ? participant.canonicalName : null,
-    participant.kind === 'team' ? participant.displayName : null,
-    participant.kind === 'team' ? participant.rawName : null,
-    canonicalName,
-    csvName,
-  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
-
-  const unique: string[] = [];
-  const seen = new Set<string>();
-  for (const value of raw) {
-    if (seen.has(value)) continue;
-    seen.add(value);
-    unique.push(value);
-  }
-  return unique;
-}
-
-function ownerForSide(
-  game: AppGame,
-  side: 'away' | 'home',
-  ownershipMap: Map<string, string>
-): string | undefined {
-  for (const candidate of sideIdentityCandidates(game, side)) {
-    const owner = ownershipMap.get(candidate);
-    if (owner) return owner;
-  }
-  return undefined;
-}
-
-function ownerTeamSides(
-  game: AppGame,
-  ownershipMap: Map<string, string>
-): { awayOwner?: string; homeOwner?: string } {
-  return {
-    awayOwner: ownerForSide(game, 'away', ownershipMap),
-    homeOwner: ownerForSide(game, 'home', ownershipMap),
-  };
 }
 
 function spreadMagnitude(odds?: CombinedOdds): number | null {

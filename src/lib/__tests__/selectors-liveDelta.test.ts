@@ -143,6 +143,26 @@ test('selectLiveDelta credits leading owner pendingWins and trailing owner pendi
   assert.equal(result.isStale, false);
 });
 
+test('selectLiveDelta resolves the pending owner despite a provider-name mismatch (PLATFORM-039)', () => {
+  // Provider label "Wash St" differs from the stored/canonical "Washington State".
+  const g = game({ key: 'gm', csvAway: 'Wash St', canAway: 'Washington State', csvHome: 'Rice' });
+  const roster = new Map<string, string>([['Washington State', 'Alice']]);
+
+  const result = selectLiveDelta({
+    canonical: null,
+    scoresByKey: { gm: score('In Q3', 24, 10) },
+    games: [g],
+    rosterByTeam: roster,
+    weekKey: '2026:3',
+    lastFetchedAt: new Date(FIXED_NOW - 60_000).toISOString(),
+    now: FIXED_NOW,
+  });
+
+  assert.equal(result.byGame.gm?.status, 'inprogress');
+  assert.equal(result.byOwner.Alice?.pendingWins, 1);
+  assert.equal(result.byOwner.Alice?.pendingPointsFor, 24);
+});
+
 test('selectLiveDelta does not credit pending W/L for tied in-progress scores but still records points', () => {
   const g = game({ key: 'gt', csvAway: 'Texas', csvHome: 'Rice' });
   const roster = new Map<string, string>([

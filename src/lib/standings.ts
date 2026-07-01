@@ -1,4 +1,5 @@
 import { classifyScorePackStatus } from './gameStatus.ts';
+import { getGameOwners } from './gameOwnership.ts';
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
 
@@ -67,7 +68,8 @@ export function splitOutNoClaim(rows: OwnerStandingsRow[]): {
 }
 
 function hasOwnedTeam(game: AppGame, rosterByTeam: Map<string, string>): boolean {
-  return rosterByTeam.has(game.csvAway) || rosterByTeam.has(game.csvHome);
+  const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
+  return awayOwner !== undefined || homeOwner !== undefined;
 }
 
 export function deriveStandingsCoverage(
@@ -141,8 +143,7 @@ export function deriveFinalOwnedParticipations(
     const homeScore = score.home.score;
     if (awayScore == null || homeScore == null) continue;
 
-    const awayOwner = rosterByTeam.get(game.csvAway);
-    const homeOwner = rosterByTeam.get(game.csvHome);
+    const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
 
     if (awayScore === homeScore) {
       console.warn(
