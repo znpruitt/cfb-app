@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-047-OVERVIEW-CANONICAL-CONTRACT-CHARACTERIZATION-v1
+- Purpose: Test-first characterization of the Overview canonical-vs-local source boundary before any behavioral migration. No behavior change.
+- Scope: `src/lib/selectors/overview.ts` (new pure `resolveOverviewCanonicalInputs` extracted verbatim from the inline OverviewPanel resolution), `src/components/OverviewPanel.tsx` (call the helper — byte-identical behavior). Tests: new `overview-canonical-contract.test.ts`.
+- Notes: Pinned Overview contract — **rows**: canonical when a snapshot is supplied (empty stays empty; omitting an owner does not resurrect local), local only when no snapshot; **history**: canonical when supplied (null stays null), local only when no snapshot; **coverage**: always client/schedule-derived — canonical coverage is NOT consumed by the resolution (returns only rows/history); **liveDelta**: not an input, not merged into Overview rows this phase; **NoClaim**: excluded from canonical rows (held in `noClaimRow`). Behavior-neutral extraction (existing OverviewPanel tests unchanged/green). Characterization surfaced the real remaining gap: **coverage is still client-derived while canonical is authoritative** → next implementation prompt **PLATFORM-048-OVERVIEW-COVERAGE-CANONICAL-CONTRACT-v1** (consciously decide/flip coverage to canonical with tests). No Overview rewrite, no UI/coverage/liveDelta/Insights/matchup/ownership/CSV changes. Codex review: clean, no findings. `npm test` 1032 pass / 0 fail / 0 skipped; tsc/lint:all/build green.
+
 ### PLATFORM-044-CANONICAL-MEMBER-RECORDS-v1
 - Purpose: Make the Members view owner header (rank/record/win%/point differential) use canonical standings rows instead of locally derived standings, so Members agrees with the Standings surface.
 - Scope: `src/lib/ownerView.ts` (`deriveOwnerViewSnapshot` takes optional `canonicalStandingsRows`; header sourced from it), `src/components/CFBScheduleApp.tsx` (pass `canonicalStandings?.rows`). Tests: `ownerView.test.ts`.
