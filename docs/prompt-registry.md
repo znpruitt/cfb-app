@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-046-MEMBER-HEADER-LIVE-OVERLAY-v1
+- Purpose: Add a Standings-compatible `liveDelta` pending W–L badge to the Members owner header without changing the canonical header baseline (the follow-up deferred from PLATFORM-044).
+- Scope: `src/lib/selectors/liveDelta.ts` (new pure `selectFreshOwnerPendingDelta`), `src/components/StandingsPanel.tsx` (use the helper — behavior-neutral), `src/components/OwnerPanel.tsx` (optional `liveDelta` prop + badge beside Record), `src/components/CFBScheduleApp.tsx` (pass `liveDelta`). Tests: `selectors-liveDelta`, `OwnerPanel`, `StandingsPanel`, `CFBScheduleApp`.
+- Notes: `selectFreshOwnerPendingDelta(liveDelta, owner)` centralizes stale suppression, owner lookup, NoClaim exclusion, and the nonzero-decision check (returns the fresh pending delta or null); Standings now uses it (markup/copy unchanged) and Members reuses it. The Members badge renders beside the header Record (`+1–0`, title `Live this week: 1–0`), gated by `snapshot.header?.owner` — a null header is never resurrected by liveDelta; canonical rank/record/win%/differential are untouched; no projected standings; no `router.refresh`. Fresh nonzero → badge; stale/missing/zero-decision → none; NoClaim never annotated. Codex review: clean, no findings. Deferred follow-ups: **PLATFORM-045** (route-loader dedup), and candidates — Overview liveDelta overlay, Standings-surface canonical coverage. `npm test` 1050 pass / 0 fail / 0 skipped; tsc/lint:all/build green.
+
 ### PLATFORM-048-OVERVIEW-COVERAGE-CANONICAL-CONTRACT-v1
 - Purpose: Make Overview coverage canonical-preferred whenever a canonical standings snapshot is supplied (closing the remaining gap PLATFORM-047 characterized: rows/history were canonical but coverage stayed local).
 - Scope: `src/lib/selectors/overview.ts` (`resolveOverviewCanonicalInputs` now resolves coverage + exports `CANONICAL_COVERAGE_UNAVAILABLE`), `src/components/OverviewPanel.tsx` (resolved coverage → selector + visible warning), `src/components/CFBScheduleApp.tsx` (resolve once, feed `deriveOverviewSnapshot`). Tests: `overview-canonical-contract.test.ts`, `selectors-leagueStandings.test.ts`.
