@@ -87,6 +87,7 @@ import { useLiveRefresh } from './hooks/useLiveRefresh';
 import { useLiveDelta } from './hooks/useLiveDelta';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
+import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { Insight as EngineInsight } from '../lib/selectors/insights';
 import type { LifecycleState } from '../lib/insights/types';
@@ -256,8 +257,11 @@ export default function CFBScheduleApp({
 
   const hasBootstrappedRef = useRef<boolean>(false);
 
-  const [selectedSeason] = useState<number>(
-    leagueStatus?.state === 'preseason' ? leagueStatus.year : DEFAULT_SEASON
+  // Season-sensitive client operations (schedule/scores/aliases/rankings/
+  // insights/storage) must use the league-resolved season, not the global
+  // default — active-season and offseason leagues carry their own year.
+  const [selectedSeason] = useState<number>(() =>
+    resolveLeagueSeason({ leagueStatus, leagueYear, defaultSeason: DEFAULT_SEASON })
   );
   const storageKeys = useMemo(
     () => seasonStorageKeys(selectedSeason, leagueSlug),
@@ -1064,12 +1068,9 @@ export default function CFBScheduleApp({
   useAdminOddsUsage(isAdmin, setOddsUsage);
 
   // Load draft phase for contextual banner (non-blocking, best-effort).
-  // Use leagueStatus.year when available (preseason/season) so the fetch
-  // targets the correct draft year, not the lagging league.year value.
-  const draftLookupYear =
-    leagueStatus?.state === 'preseason' || leagueStatus?.state === 'season'
-      ? leagueStatus.year
-      : (leagueYear ?? selectedSeason);
+  // The league-resolved season already targets the correct draft year
+  // (preseason/season status year → leagueYear → default), so reuse it.
+  const draftLookupYear = selectedSeason;
   useEffect(() => {
     if (!leagueSlug) return;
     fetch(`/api/draft/${encodeURIComponent(leagueSlug)}/${draftLookupYear}`)

@@ -120,6 +120,18 @@ test('owner surface remains reachable with owner data even when no week is selec
   assert.match(html, /League view unavailable/);
 });
 
+test('active-season league surface uses the league status year, not the global default (PLATFORM-042)', () => {
+  // The header subtitle renders "{leagueYear ?? selectedSeason} Season". With no
+  // leagueYear, it reflects the resolved season. Under the old inline logic an
+  // active-season league fell back to DEFAULT_SEASON; it must now use
+  // leagueStatus.year (2099).
+  const html = renderWithAppContext(
+    <CFBScheduleApp initialGames={[game()]} leagueStatus={{ state: 'season', year: 2099 }} />
+  );
+
+  assert.match(html, /2099 Season/);
+});
+
 test('admin surface still renders dedicated admin and debug tooling', () => {
   const html = renderWithAppContext(<CFBScheduleApp surface="admin" />);
 
