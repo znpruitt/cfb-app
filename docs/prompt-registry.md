@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-049-STANDINGS-COVERAGE-CANONICAL-CONTRACT-v1
+- Purpose: Make Standings rows, history, and coverage all come from the same canonical snapshot when supplied (Standings already preferred canonical rows/history but still rendered raw local `standingsCoverage`, which could pair canonical archive rows with a stale client warning).
+- Scope: new pure `src/lib/selectors/standingsCanonicalInputs.ts` (`resolveStandingsCanonicalInputs` + `STANDINGS_COVERAGE_UNAVAILABLE`), `src/components/StandingsPanel.tsx` (resolve rows/history/coverage together; warning uses resolved coverage). Tests: `standingsCanonicalInputs.test.ts`, `StandingsPanel.test.tsx`.
+- Notes: Standings coverage now canonical-preferred; local coverage only when NO canonical snapshot is supplied; missing/null canonical coverage → conservative `{ state: 'error', message: 'Standings coverage is unavailable.' }` (never local; `CanonicalStandings.coverage` stays required — defensive runtime handling). Deliberately **not** reusing `resolveOverviewCanonicalInputs` (surfaces stay decoupled; new module imports only types so no server/appState code enters the client bundle). Coverage affects only the top warning paragraph/error styling — never row selection, sorting, movement/history, NoClaim, or liveDelta badges; canonical rows never mutated. No `CFBScheduleApp` wiring change (already supplies canonical + local coverage). Codex review: clean, no findings. Deferred: **PLATFORM-045** (route-loader dedup); candidate Overview liveDelta overlay. `npm test` 1060 pass / 0 fail / 0 skipped; tsc/lint:all/build green.
+
 ### PLATFORM-046-MEMBER-HEADER-LIVE-OVERLAY-v1
 - Purpose: Add a Standings-compatible `liveDelta` pending W–L badge to the Members owner header without changing the canonical header baseline (the follow-up deferred from PLATFORM-044).
 - Scope: `src/lib/selectors/liveDelta.ts` (new pure `selectFreshOwnerPendingDelta`), `src/components/StandingsPanel.tsx` (use the helper — behavior-neutral), `src/components/OwnerPanel.tsx` (optional `liveDelta` prop + badge beside Record), `src/components/CFBScheduleApp.tsx` (pass `liveDelta`). Tests: `selectors-liveDelta`, `OwnerPanel`, `StandingsPanel`, `CFBScheduleApp`.
