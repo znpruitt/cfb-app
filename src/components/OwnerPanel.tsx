@@ -3,6 +3,8 @@ import React from 'react';
 import type { OwnerRosterRow, OwnerViewSnapshot } from '../lib/ownerView';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
+import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
+import type { LiveDelta } from '../lib/selectors/liveDelta';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
 
@@ -355,6 +357,13 @@ type OwnerPanelProps = {
    * owner list when canonical is absent (Trends/History routes).
    */
   canonicalStandings?: CanonicalStandings | null;
+  /**
+   * Client-side partial-week overlay. Used only to render a compact "Live this
+   * week" pending W–L badge beside the header record — never to change the
+   * canonical header baseline (rank/record/win%/differential). Gated by
+   * `snapshot.header?.owner`; a null header cannot be resurrected by liveDelta.
+   */
+  liveDelta?: LiveDelta | null;
 };
 
 export default function OwnerPanel({
@@ -364,7 +373,13 @@ export default function OwnerPanel({
   onOwnerChange,
   rankingsByTeamId = new Map(),
   canonicalStandings = null,
+  liveDelta = null,
 }: OwnerPanelProps): React.ReactElement {
+  // Fresh pending delta for the header owner only — same helper Standings uses.
+  const headerPending = selectFreshOwnerPendingDelta(liveDelta, snapshot.header?.owner);
+  const headerPendingLabel = headerPending
+    ? `Live this week: ${headerPending.pendingWins}–${headerPending.pendingLosses}`
+    : null;
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   // Prefer canonical owner ordering when present so the picker matches the
   // alphabetical, NoClaim-filtered list rendered on Standings/Overview. Canonical
@@ -411,8 +426,18 @@ export default function OwnerPanel({
                   <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
                     Rank #{snapshot.header.rank}
                   </span>
-                  <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
-                    Record {snapshot.header.record}
+                  <span className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+                    <span>Record {snapshot.header.record}</span>
+                    {headerPending && headerPendingLabel ? (
+                      <span
+                        className="inline-flex items-center rounded-sm bg-emerald-100 px-1 py-0.5 text-[0.6rem] font-medium tracking-tight text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                        title={headerPendingLabel}
+                        aria-label={headerPendingLabel}
+                        data-owner-live-pending={`${headerPending.pendingWins}-${headerPending.pendingLosses}`}
+                      >
+                        +{headerPending.pendingWins}–{headerPending.pendingLosses}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
                     Win % {formatWinPct(snapshot.header.winPct)}

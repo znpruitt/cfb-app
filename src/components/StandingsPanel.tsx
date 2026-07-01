@@ -8,7 +8,8 @@ import {
   type Insight,
 } from '../lib/selectors/insights';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
-import type { LiveDelta, LivePendingOwnerDelta } from '../lib/selectors/liveDelta';
+import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
+import type { LiveDelta } from '../lib/selectors/liveDelta';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -214,13 +215,10 @@ export default function StandingsPanel({
     [rowsForRender, seasonContext, historyForRender]
   );
 
-  // liveDelta is suppressed when the overlay is stale — better to show no badge
-  // than to imply currency we cannot vouch for. This matches the architectural
-  // contract: canonical is authoritative, liveDelta is the partial-week
-  // annotation layer, and stale annotations should not visually masquerade as
-  // fresh.
-  const liveByOwner: Record<string, LivePendingOwnerDelta> =
-    liveDelta && !liveDelta.isStale ? liveDelta.byOwner : {};
+  // Per-owner fresh pending delta is resolved via selectFreshOwnerPendingDelta
+  // (stale suppression + NoClaim + zero-decision handling), the same helper the
+  // Members owner header uses. Canonical is authoritative; liveDelta is the
+  // partial-week annotation layer and stale annotations never render.
 
   const ownerColorFn = React.useCallback(
     (ownerId: string): string => ownerColorMap[ownerId] ?? '#888',
@@ -364,10 +362,7 @@ export default function StandingsPanel({
                         const hasActiveHighlight =
                           hoveredOwner !== null || selectedOwnerSet.size > 0;
                         const isHighlighted = isHovered || isSelected;
-                        const livePending = liveByOwner[row.owner];
-                        const livePendingTotal = livePending
-                          ? livePending.pendingWins + livePending.pendingLosses
-                          : 0;
+                        const livePending = selectFreshOwnerPendingDelta(liveDelta, row.owner);
                         const liveBadgeLabel = livePending
                           ? `Live this week: ${livePending.pendingWins}–${livePending.pendingLosses}`
                           : null;
@@ -434,7 +429,7 @@ export default function StandingsPanel({
                                 <span>
                                   {row.wins}–{row.losses}
                                 </span>
-                                {livePendingTotal > 0 && liveBadgeLabel ? (
+                                {livePending && liveBadgeLabel ? (
                                   <span
                                     className="inline-flex items-center rounded-sm bg-emerald-100 px-1 py-0.5 text-[0.6rem] font-medium tracking-tight text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
                                     title={liveBadgeLabel}

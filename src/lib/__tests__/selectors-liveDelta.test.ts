@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS, selectLiveDelta } from '../selectors/liveDelta.ts';
+import {
+  DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS,
+  selectFreshOwnerPendingDelta,
+  selectLiveDelta,
+} from '../selectors/liveDelta.ts';
+import type { LiveDelta } from '../selectors/liveDelta.ts';
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
 
@@ -310,4 +315,89 @@ test('selectLiveDelta marks isStale=false when lastFetchedAt is within the thres
     now: FIXED_NOW,
   });
   assert.equal(result.isStale, false);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-046 — selectFreshOwnerPendingDelta: the shared "Live this week"
+// pending-badge selector used by both Standings and the Members owner header.
+// ---------------------------------------------------------------------------
+
+function liveDelta(
+  byOwner: Record<string, { pendingWins: number; pendingLosses: number }>,
+  opts: { isStale?: boolean } = {}
+): LiveDelta {
+  return {
+    weekKey: '2026:3',
+    generatedAt: '2026-10-01T00:00:00.000Z',
+    byGame: {},
+    byOwner: Object.fromEntries(
+      Object.entries(byOwner).map(([owner, d]) => [
+        owner,
+        { owner, pendingPointsFor: 0, pendingPointsAgainst: 0, ...d },
+      ])
+    ),
+    isStale: opts.isStale ?? false,
+  };
+}
+
+test('selectFreshOwnerPendingDelta returns a fresh, nonzero pending delta for the owner', () => {
+  const delta = selectFreshOwnerPendingDelta(
+    liveDelta({ Alice: { pendingWins: 1, pendingLosses: 0 } }),
+    'Alice'
+  );
+  assert.equal(delta?.pendingWins, 1);
+  assert.equal(delta?.pendingLosses, 0);
+});
+
+test('selectFreshOwnerPendingDelta suppresses a stale overlay', () => {
+  const delta = selectFreshOwnerPendingDelta(
+    liveDelta({ Alice: { pendingWins: 1, pendingLosses: 0 } }, { isStale: true }),
+    'Alice'
+  );
+  assert.equal(delta, null);
+});
+
+test('selectFreshOwnerPendingDelta returns null when the owner has no delta', () => {
+  assert.equal(
+    selectFreshOwnerPendingDelta(liveDelta({ Bob: { pendingWins: 1, pendingLosses: 0 } }), 'Alice'),
+    null
+  );
+});
+
+test('selectFreshOwnerPendingDelta returns null for a zero-decision (tied) delta', () => {
+  assert.equal(
+    selectFreshOwnerPendingDelta(
+      liveDelta({ Alice: { pendingWins: 0, pendingLosses: 0 } }),
+      'Alice'
+    ),
+    null
+  );
+});
+
+test('selectFreshOwnerPendingDelta never annotates NoClaim', () => {
+  assert.equal(
+    selectFreshOwnerPendingDelta(
+      liveDelta({ NoClaim: { pendingWins: 3, pendingLosses: 1 } }),
+      'NoClaim'
+    ),
+    null
+  );
+});
+
+test('selectFreshOwnerPendingDelta returns null for missing owner / missing delta inputs', () => {
+  assert.equal(selectFreshOwnerPendingDelta(null, 'Alice'), null);
+  assert.equal(selectFreshOwnerPendingDelta(undefined, 'Alice'), null);
+  assert.equal(selectFreshOwnerPendingDelta(liveDelta({}), null), null);
+  assert.equal(selectFreshOwnerPendingDelta(liveDelta({}), undefined), null);
+});
+
+test('selectFreshOwnerPendingDelta reflects multiple in-progress games aggregated into one delta', () => {
+  // selectLiveDelta accumulates all in-progress games for an owner into a single
+  // byOwner entry; the helper reads that aggregate (one badge, not many).
+  const delta = selectFreshOwnerPendingDelta(
+    liveDelta({ Alice: { pendingWins: 2, pendingLosses: 1 } }),
+    'Alice'
+  );
+  assert.equal(delta?.pendingWins, 2);
+  assert.equal(delta?.pendingLosses, 1);
 });
