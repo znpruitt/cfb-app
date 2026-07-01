@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-043-SCHEDULE-ROUTE-CANONICAL-INPUTS-v1
+- Purpose: Make `/league/[slug]/schedule` provide the same canonical standings, league status, and archive context as the root league route, so entering directly through Schedule is a route-specific entry into the same canonical app state (WeekViewTabs can switch locally to Standings/Overview/Matchups/Members) rather than a lighter fallback-only entry.
+- Scope: `src/app/league/[slug]/schedule/page.tsx` (load `getCanonicalStandings` + `listSeasonArchives` + derive `leagueStatus`/`mostRecentArchivedYear`, mirroring the root route). Test: new `src/app/league/[slug]/schedule/__tests__/page.test.tsx`.
+- Notes: `/league/[slug]/schedule` now receives the same canonical standings/status/archive inputs as the root league route. Component fallbacks remain intentionally in place (empty/unavailable leagues still receive a canonical snapshot the fallback branches handle). Narrow change: no `WeekViewTabs`/UI behavior change, no `CFBScheduleApp` rewrite, no changes to canonical standings generation, schedule canonicalization, attachment, season resolution (PLATFORM-042), ownership (PLATFORM-039), FBS/FCS (PLATFORM-036), or CSV/bootstrap. Codex review: clean, no findings. The root/standings/schedule routes now share the same canonical-loader block — an optional dedup (`PLATFORM-044-LEAGUE-ROUTE-CANONICAL-LOADER-DEDUP-v1`) is deferred. Next reviewed item: Members canonical records. `npm test` 1016 pass / 0 fail / 0 skipped; tsc/lint:all/build green.
+
 ### PLATFORM-042-LEAGUE-SEASON-RESOLUTION-v1
 - Purpose: Make `CFBScheduleApp` schedule/scores/aliases/rankings/insights/storage use the league-resolved season instead of falling back to global `DEFAULT_SEASON` for active-season and offseason leagues.
 - Scope: new pure `src/lib/leagueSeason.ts` (`resolveLeagueSeason`); `src/components/CFBScheduleApp.tsx` (seed `selectedSeason` via the resolver; collapse the duplicate `draftLookupYear`). Tests: new `leagueSeason.test.ts` + a `CFBScheduleApp` active-season regression.
