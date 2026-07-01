@@ -267,6 +267,15 @@ export function deriveOwnerViewSnapshot(params: {
   weekGames: AppGame[];
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
+  /**
+   * Canonical standings rows. When provided and they contain the resolved
+   * owner, the owner header summary (rank / record / win% / point differential)
+   * is taken from canonical so Members agrees with the Standings surface.
+   * Owner options, selection, roster rows, and weekly game details remain
+   * schedule/client-derived from `standingsRows`; the header falls back to the
+   * local row when canonical is unavailable or omits the owner.
+   */
+  canonicalStandingsRows?: OwnerStandingsRow[];
 }): OwnerViewSnapshot {
   const { selectedOwner, standingsRows, allGames, weekGames, rosterByTeam, scoresByKey } = params;
 
@@ -287,7 +296,21 @@ export function deriveOwnerViewSnapshot(params: {
     };
   }
 
-  const headerRow = standingsRows.find((row) => row.owner === resolvedOwner) ?? null;
+  // Owner summary prefers the canonical standings row for this owner (rank from
+  // canonical order); falls back to the local row when canonical is unavailable
+  // or omits the owner (e.g. a mid-session local-only owner).
+  const canonicalStandingsRows = params.canonicalStandingsRows ?? [];
+  const canonicalHeaderIndex = canonicalStandingsRows.findIndex(
+    (row) => row.owner === resolvedOwner
+  );
+  const localHeaderIndex = standingsRows.findIndex((row) => row.owner === resolvedOwner);
+  const headerRow =
+    canonicalHeaderIndex >= 0
+      ? canonicalStandingsRows[canonicalHeaderIndex]
+      : localHeaderIndex >= 0
+        ? standingsRows[localHeaderIndex]
+        : null;
+  const headerRank = canonicalHeaderIndex >= 0 ? canonicalHeaderIndex + 1 : localHeaderIndex + 1;
   const rosterRows = deriveOwnerRoster(resolvedOwner, allGames, rosterByTeam, scoresByKey);
   const liveRows = rosterRows.filter((row) => row.currentStatus === 'Live');
   const weekRows = filterRosterRowsToWeek(rosterRows, weekGames, scoresByKey);
@@ -307,7 +330,7 @@ export function deriveOwnerViewSnapshot(params: {
     header: headerRow
       ? {
           owner: headerRow.owner,
-          rank: standingsRows.findIndex((row) => row.owner === headerRow.owner) + 1,
+          rank: headerRank,
           record: `${headerRow.wins}–${headerRow.losses}`,
           winPct: headerRow.winPct,
           pointDifferential: headerRow.pointDifferential,

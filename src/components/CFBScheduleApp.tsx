@@ -749,12 +749,17 @@ export default function CFBScheduleApp({
       deriveOwnerViewSnapshot({
         selectedOwner,
         standingsRows: standingsSnapshot.rows,
+        // Owner header (rank/record/win%/diff) prefers canonical standings so
+        // Members agrees with the Standings surface; roster/game details stay
+        // client-derived. Falls back to local rows when canonical is absent.
+        canonicalStandingsRows: canonicalStandings?.rows,
         allGames: games,
         weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
         rosterByTeam,
         scoresByKey,
       }),
     [
+      canonicalStandings?.rows,
       filteredWeekGames,
       games,
       postseasonGames,
