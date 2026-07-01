@@ -18,6 +18,7 @@ import type { LifecycleState } from '../lib/insights/types';
 import { prefersDarkMode } from '../lib/ownerColors';
 import {
   deriveResolvedMovementStandings,
+  resolveOverviewCanonicalInputs,
   selectOverviewViewModel,
   type PrioritizedOverviewItem,
 } from '../lib/selectors/overview';
@@ -1368,10 +1369,13 @@ export default function OverviewPanel({
   // The fallback to `standingsLeaders` / `standingsHistory` covers isolated
   // surfaces (e.g. unit tests rendering OverviewPanel without canonical).
   // It is not a merge predicate: when canonical is present it always wins.
-  const rowsForRender = canonicalStandings?.rows ?? standingsLeaders;
-  const historyForRender = canonicalStandings
-    ? canonicalStandings.standingsHistory
-    : (standingsHistory ?? null);
+  // (Resolution centralized in resolveOverviewCanonicalInputs — see its tests
+  // for the pinned canonical-vs-local contract.)
+  const { rows: rowsForRender, history: historyForRender } = resolveOverviewCanonicalInputs({
+    canonicalStandings,
+    standingsLeaders,
+    standingsHistory,
+  });
   // liveDelta is intentionally unused this phase; consumers come online in
   // Phase 2+. The void reference keeps lint quiet while the prop is wired
   // through as part of the Phase 1 interface.
