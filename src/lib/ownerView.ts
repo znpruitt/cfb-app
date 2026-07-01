@@ -268,12 +268,14 @@ export function deriveOwnerViewSnapshot(params: {
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
   /**
-   * Canonical standings rows. When provided and they contain the resolved
-   * owner, the owner header summary (rank / record / win% / point differential)
-   * is taken from canonical so Members agrees with the Standings surface.
-   * Owner options, selection, roster rows, and weekly game details remain
-   * schedule/client-derived from `standingsRows`; the header falls back to the
-   * local row when canonical is unavailable or omits the owner.
+   * Canonical standings rows. When **supplied** (any array, including empty),
+   * canonical is authoritative for the owner header summary (rank / record /
+   * win% / point differential): the header is the canonical row for the resolved
+   * owner, or `null` when canonical does not contain that owner — never the local
+   * row. This keeps Members from resurrecting owners/standings that canonical
+   * excludes. The local row is used only when NO canonical snapshot is supplied
+   * (`undefined`, e.g. Trends/History routes). Owner options, selection, roster
+   * rows, and weekly game details always remain schedule/client-derived.
    */
   canonicalStandingsRows?: OwnerStandingsRow[];
 }): OwnerViewSnapshot {
@@ -296,21 +298,15 @@ export function deriveOwnerViewSnapshot(params: {
     };
   }
 
-  // Owner summary prefers the canonical standings row for this owner (rank from
-  // canonical order); falls back to the local row when canonical is unavailable
-  // or omits the owner (e.g. a mid-session local-only owner).
-  const canonicalStandingsRows = params.canonicalStandingsRows ?? [];
-  const canonicalHeaderIndex = canonicalStandingsRows.findIndex(
-    (row) => row.owner === resolvedOwner
-  );
-  const localHeaderIndex = standingsRows.findIndex((row) => row.owner === resolvedOwner);
-  const headerRow =
-    canonicalHeaderIndex >= 0
-      ? canonicalStandingsRows[canonicalHeaderIndex]
-      : localHeaderIndex >= 0
-        ? standingsRows[localHeaderIndex]
-        : null;
-  const headerRank = canonicalHeaderIndex >= 0 ? canonicalHeaderIndex + 1 : localHeaderIndex + 1;
+  // Owner summary source: when a canonical snapshot is supplied it is
+  // authoritative (no local fallback) so Members never resurrects an owner or
+  // standings canonical excludes; the local row is used only when no canonical
+  // snapshot is supplied at all (Trends/History routes).
+  const { canonicalStandingsRows } = params;
+  const summaryRows = canonicalStandingsRows ?? standingsRows;
+  const headerIndex = summaryRows.findIndex((row) => row.owner === resolvedOwner);
+  const headerRow = headerIndex >= 0 ? summaryRows[headerIndex] : null;
+  const headerRank = headerIndex + 1;
   const rosterRows = deriveOwnerRoster(resolvedOwner, allGames, rosterByTeam, scoresByKey);
   const liveRows = rosterRows.filter((row) => row.currentStatus === 'Live');
   const weekRows = filterRosterRowsToWeek(rosterRows, weekGames, scoresByKey);

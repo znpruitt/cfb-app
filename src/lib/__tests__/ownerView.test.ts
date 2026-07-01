@@ -160,7 +160,8 @@ test('owner rank comes from canonical ordering', () => {
   assert.equal(snapshot.header?.rank, 2);
 });
 
-test('owner header falls back to local rows when canonical is unavailable', () => {
+test('owner header falls back to local rows only when NO canonical snapshot is supplied', () => {
+  // canonicalStandingsRows omitted (undefined) → Trends/History-style route.
   const snapshot = deriveOwnerViewSnapshot({
     selectedOwner: 'Alice',
     standingsRows: [
@@ -173,7 +174,8 @@ test('owner header falls back to local rows when canonical is unavailable', () =
   assert.equal(snapshot.header?.rank, 1);
 });
 
-test('owner header falls back to local rows when canonical rows are empty', () => {
+test('canonical is authoritative: an empty canonical snapshot does NOT fall back to local', () => {
+  // Supplied-but-empty canonical must not resurrect local standings.
   const snapshot = deriveOwnerViewSnapshot({
     selectedOwner: 'Alice',
     standingsRows: [standingsRow({ owner: 'Alice', wins: 4, losses: 1 })],
@@ -181,11 +183,10 @@ test('owner header falls back to local rows when canonical rows are empty', () =
     ...EMPTY_VIEW,
   });
 
-  assert.equal(snapshot.header?.record, '4–1');
-  assert.equal(snapshot.header?.rank, 1);
+  assert.equal(snapshot.header, null);
 });
 
-test('owner header falls back to local rows when canonical omits the owner (local-only owner)', () => {
+test('canonical is authoritative: a non-empty canonical omitting the owner yields no local header', () => {
   const snapshot = deriveOwnerViewSnapshot({
     selectedOwner: 'Alice',
     standingsRows: [standingsRow({ owner: 'Alice', wins: 3, losses: 2 })],
@@ -193,8 +194,7 @@ test('owner header falls back to local rows when canonical omits the owner (loca
     ...EMPTY_VIEW,
   });
 
-  assert.equal(snapshot.header?.record, '3–2');
-  assert.equal(snapshot.header?.rank, 1);
+  assert.equal(snapshot.header, null);
 });
 
 test('roster rows stay client-derived while the header uses canonical (PLATFORM-039 mismatch intact)', () => {
