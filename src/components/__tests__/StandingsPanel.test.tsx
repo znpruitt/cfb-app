@@ -1075,3 +1075,109 @@ test('standings panel uses canonical history for movement column when canonical 
   assert.match(html, /data-standings-move="↑1"/);
   assert.match(html, /data-standings-move="↓1"/);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-049 — Standings coverage is canonical-preferred: rows/history/
+// coverage all come from the same canonical snapshot when supplied.
+// ---------------------------------------------------------------------------
+
+const LOCAL_PARTIAL_MESSAGE =
+  'Standings may be incomplete — some completed game scores are still loading.';
+
+test('canonical partial coverage overrides contradictory local complete coverage', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: null }}
+      rows={[]}
+      canonicalStandings={{
+        ...canonicalArchiveSnapshot,
+        coverage: { state: 'partial', message: 'Canonical partial coverage.' },
+      }}
+    />
+  );
+
+  assert.match(html, /Canonical partial coverage\./);
+});
+
+test('archive canonical complete coverage suppresses a stale local partial warning', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'partial', message: LOCAL_PARTIAL_MESSAGE }}
+      rows={[]}
+      canonicalStandings={canonicalArchiveSnapshot}
+    />
+  );
+
+  // Canonical archive coverage is complete/no-message → no warning at all,
+  // and the contradictory local partial message must not render.
+  assert.doesNotMatch(html, new RegExp(LOCAL_PARTIAL_MESSAGE.replace(/[—.]/g, '.')));
+  // Canonical rows still render (coverage resolution never changes rows).
+  assert.match(html, /Casey/);
+  assert.match(html, /Drew/);
+});
+
+test('canonical snapshot with missing/null coverage shows conservative error, not local coverage', () => {
+  const malformed = { ...canonicalArchiveSnapshot };
+  (malformed as { coverage: unknown }).coverage = null;
+
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'complete', message: 'Local complete — must not appear.' }}
+      rows={[]}
+      canonicalStandings={malformed as typeof canonicalArchiveSnapshot}
+    />
+  );
+
+  assert.match(html, /Standings coverage is unavailable\./);
+  assert.doesNotMatch(html, /Local complete — must not appear\./);
+});
+
+test('no canonical snapshot preserves the local partial coverage warning', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'partial', message: LOCAL_PARTIAL_MESSAGE }}
+      rows={[
+        {
+          owner: 'Alex',
+          wins: 3,
+          losses: 1,
+          winPct: 0.75,
+          pointsFor: 120,
+          pointsAgainst: 99,
+          pointDifferential: 21,
+          gamesBack: 0,
+          finalGames: 4,
+        },
+      ]}
+    />
+  );
+
+  assert.match(html, new RegExp(LOCAL_PARTIAL_MESSAGE.replace(/[—.]/g, '.')));
+});
+
+test('liveDelta badges are unaffected by contradictory coverage fixtures', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'error', message: 'Local error — should be overridden.' }}
+      rows={[]}
+      canonicalStandings={canonicalArchiveSnapshot}
+      liveDelta={makeLiveDelta({ Casey: [1, 0], Drew: [0, 1] })}
+    />
+  );
+
+  // Canonical complete coverage suppresses the local error message…
+  assert.doesNotMatch(html, /Local error — should be overridden\./);
+  // …while liveDelta badges render exactly as before.
+  assert.match(html, /data-standings-live-pending="1-0"/);
+  assert.match(html, /data-standings-live-pending="0-1"/);
+});

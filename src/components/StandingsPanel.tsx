@@ -10,6 +10,7 @@ import {
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
+import { resolveStandingsCanonicalInputs } from '../lib/selectors/standingsCanonicalInputs';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -167,15 +168,17 @@ export default function StandingsPanel({
   leagueSlug,
 }: StandingsPanelProps): React.ReactElement {
   // Canonical owns the resolved-week snapshot for Standings: rows, history, and
-  // owner identity all flow from it directly when present. Falls back to the
-  // legacy client-derived props for routes not yet migrated to load canonical.
-  // Movement calculations key off the same canonical history so "Move" deltas
-  // line up with what Trends and Overview render — week-over-week only,
-  // liveDelta does not contribute (movement is resolved-week, not live).
-  const rowsForRender = canonicalStandings?.rows ?? rows;
-  const historyForRender = canonicalStandings
-    ? canonicalStandings.standingsHistory
-    : (standingsHistory ?? null);
+  // coverage all flow from it together when present (resolved via
+  // resolveStandingsCanonicalInputs) so canonical rows are never paired with a
+  // stale client coverage warning. Falls back to the legacy client-derived props
+  // for routes not yet migrated to load canonical. Movement keys off the same
+  // canonical history so "Move" deltas line up with Trends/Overview — week-over-
+  // week only, liveDelta does not contribute (movement is resolved-week, not live).
+  const {
+    rows: rowsForRender,
+    history: historyForRender,
+    coverage: coverageForRender,
+  } = resolveStandingsCanonicalInputs({ canonicalStandings, rows, standingsHistory, coverage });
   const showMoveColumn = seasonContext !== 'final';
   const visibleRows = React.useMemo(
     () => rowsForRender.filter((r) => r.owner !== 'NoClaim'),
@@ -262,15 +265,15 @@ export default function StandingsPanel({
 
   return (
     <section className="space-y-3 sm:rounded-xl sm:border sm:border-gray-300 sm:bg-gray-50 sm:p-4 sm:shadow-sm sm:dark:border-zinc-700 sm:dark:bg-zinc-900">
-      {coverage.message ? (
+      {coverageForRender.message ? (
         <p
           className={`text-sm ${
-            coverage.state === 'error'
+            coverageForRender.state === 'error'
               ? 'text-amber-700 dark:text-amber-300'
               : 'text-gray-600 dark:text-zinc-300'
           }`}
         >
-          {coverage.message}
+          {coverageForRender.message}
         </p>
       ) : null}
       <div
