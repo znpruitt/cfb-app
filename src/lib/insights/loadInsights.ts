@@ -9,10 +9,8 @@ import { loadSeasonRankings } from '@/lib/server/rankings';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getGlobalAliases } from '@/lib/server/globalAliasStore';
 import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '@/lib/schedule';
-import { fetchScoresByGame, type ScorePack } from '@/lib/scores';
 import type { AliasMap } from '@/lib/teamNames';
-import { deriveStandings } from '@/lib/standings';
-import { deriveStandingsHistory } from '@/lib/standingsHistory';
+import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
 import { selectSeasonContext } from '@/lib/selectors/seasonContext';
 import type { Insight } from '@/lib/selectors/insights';
 import type { LifecycleState } from '@/lib/insights/types';
@@ -124,37 +122,25 @@ export async function loadInsightsForLeague(
       games = [];
     }
 
-    let scoresByKey: Record<string, ScorePack> = {};
-    if (games.length > 0 && origin) {
-      try {
-        const result = await fetchScoresByGame({
-          games,
-          aliasMap,
-          season: resolvedYear,
-          teams,
-          apiBaseUrl: origin,
-        });
-        scoresByKey = result.scoresByKey;
-      } catch {
-        scoresByKey = {};
-      }
-    }
-
-    const standingsSnapshot = deriveStandings(games, currentRoster, scoresByKey);
-    const standingsHistory = deriveStandingsHistory({
-      games,
-      rosterByTeam: currentRoster,
-      scoresByKey,
-    });
-    const weeklyStandings = standingsHistory.weeks
-      .map((w) => standingsHistory.byWeek[w])
-      .filter((s): s is NonNullable<typeof s> => Boolean(s));
+    // Standings rows/history come from the canonical selector — the single
+    // source of truth — rather than an Insights-local re-derivation. Canonical
+    // is authoritative even when empty/null; we never fall back to locally
+    // derived standings. (This also drops the redundant score fetch that only
+    // fed the old local derivation; `games` is still loaded for non-standings
+    // generator inputs.)
+    const canonical = await getCanonicalStandings({ slug, year: resolvedYear, currentDate });
+    const standingsHistory = canonical.standingsHistory;
+    const weeklyStandings = standingsHistory
+      ? standingsHistory.weeks
+          .map((w) => standingsHistory.byWeek[w])
+          .filter((s): s is NonNullable<typeof s> => Boolean(s))
+      : [];
     const seasonContext = selectSeasonContext({ standingsHistory });
 
     const context = await buildInsightContext(
       slug,
       league,
-      standingsSnapshot.rows,
+      canonical.rows,
       weeklyStandings,
       games,
       seasonContext,
