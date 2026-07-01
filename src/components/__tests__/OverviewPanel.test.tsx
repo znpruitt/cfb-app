@@ -7,6 +7,7 @@ import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { selectSeasonContext } from '../../lib/selectors/seasonContext';
+import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
@@ -1910,4 +1911,159 @@ test('overview panel renders trends detail link in League Trends section', () =>
 
   assert.match(html, /GB Race/);
   assert.match(html, /href="\/standings\?view=trends#trends"/);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-051 — Overview Top-N standings rows show a presentation-only
+// liveDelta pending W–L badge (same helper/copy as Standings/Members). It never
+// changes canonical row values or order; the existing "{n} live" pill is a
+// separate signal and stays.
+// ---------------------------------------------------------------------------
+
+function overviewLiveDelta(
+  byOwner: Record<string, { pendingWins: number; pendingLosses: number }>,
+  opts: { isStale?: boolean } = {}
+): LiveDelta {
+  return {
+    weekKey: '2026:3',
+    generatedAt: '2026-10-01T00:00:00.000Z',
+    byGame: {},
+    byOwner: Object.fromEntries(
+      Object.entries(byOwner).map(([owner, d]) => [
+        owner,
+        { owner, pendingPointsFor: 0, pendingPointsAgainst: 0, ...d },
+      ])
+    ),
+    isStale: opts.isStale ?? false,
+  };
+}
+
+function renderOverview(props: {
+  liveDelta?: LiveDelta | null;
+  standingsLeaders?: OwnerStandingsRow[];
+}): string {
+  return renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={props.standingsLeaders ?? standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      liveDelta={props.liveDelta ?? null}
+    />
+  );
+}
+
+const bob: OwnerStandingsRow = {
+  owner: 'Bob',
+  wins: 3,
+  losses: 2,
+  winPct: 0.6,
+  pointsFor: 110,
+  pointsAgainst: 101,
+  pointDifferential: 9,
+  gamesBack: 1,
+  finalGames: 5,
+};
+
+test('overview top-N row shows a fresh pending badge without changing canonical values', () => {
+  const html = renderOverview({
+    liveDelta: overviewLiveDelta({ Alice: { pendingWins: 1, pendingLosses: 0 } }),
+  });
+
+  assert.match(html, /data-overview-live-pending="1-0"/);
+  assert.match(html, /Live this week: 1–0/);
+  assert.match(html, /\+1–0/);
+  // Canonical row values unchanged.
+  assert.match(html, /4–1/);
+  assert.match(html, /Win% 0\.800/);
+  assert.match(html, /Diff \+20/);
+});
+
+test('overview top-N badge aggregates multiple live games into one badge', () => {
+  const html = renderOverview({
+    liveDelta: overviewLiveDelta({ Alice: { pendingWins: 2, pendingLosses: 1 } }),
+  });
+  const matches = html.match(/data-overview-live-pending/g) ?? [];
+  assert.equal(matches.length, 1);
+  assert.match(html, /data-overview-live-pending="2-1"/);
+});
+
+test('overview top-N badge is suppressed for stale liveDelta', () => {
+  const html = renderOverview({
+    liveDelta: overviewLiveDelta(
+      { Alice: { pendingWins: 1, pendingLosses: 0 } },
+      { isStale: true }
+    ),
+  });
+  assert.doesNotMatch(html, /data-overview-live-pending/);
+  assert.match(html, /4–1/);
+});
+
+test('overview top-N badge is absent when the delta lacks the rendered row owner', () => {
+  const html = renderOverview({
+    liveDelta: overviewLiveDelta({ Zoe: { pendingWins: 2, pendingLosses: 0 } }),
+  });
+  assert.doesNotMatch(html, /data-overview-live-pending/);
+});
+
+test('overview top-N badge is absent for a zero-decision (tied) delta', () => {
+  const html = renderOverview({
+    liveDelta: overviewLiveDelta({ Alice: { pendingWins: 0, pendingLosses: 0 } }),
+  });
+  assert.doesNotMatch(html, /data-overview-live-pending/);
+});
+
+test('overview top-N badge never renders for NoClaim', () => {
+  const html = renderOverview({
+    liveDelta: overviewLiveDelta({ NoClaim: { pendingWins: 3, pendingLosses: 1 } }),
+  });
+  assert.doesNotMatch(html, /data-overview-live-pending/);
+});
+
+test('overview top-N shows no badge when liveDelta is absent', () => {
+  const html = renderOverview({ liveDelta: null });
+  assert.doesNotMatch(html, /data-overview-live-pending/);
+  assert.match(html, /4–1/);
+});
+
+test('overview top-N row order is unchanged with and without liveDelta', () => {
+  const rows = [standingsLeaders[0]!, bob];
+  const without = renderOverview({ standingsLeaders: rows, liveDelta: null });
+  const withDelta = renderOverview({
+    standingsLeaders: rows,
+    liveDelta: overviewLiveDelta({ Bob: { pendingWins: 1, pendingLosses: 0 } }),
+  });
+  // Alice (rank 1) precedes Bob in both renders.
+  for (const html of [without, withDelta]) {
+    assert.ok(html.indexOf('Alice') < html.indexOf('Bob'), 'Alice should precede Bob');
+  }
+});
+
+test('overview podium/hero cards do not receive a live badge (Top-N table only)', () => {
+  // Three owners → podium renders all three; a fresh delta for the leader must
+  // produce exactly ONE badge (the Top-N table row), not a duplicate on podium.
+  const rows = [
+    standingsLeaders[0]!,
+    bob,
+    {
+      owner: 'Cara',
+      wins: 2,
+      losses: 3,
+      winPct: 0.4,
+      pointsFor: 90,
+      pointsAgainst: 110,
+      pointDifferential: -20,
+      gamesBack: 2,
+      finalGames: 5,
+    },
+  ];
+  const html = renderOverview({
+    standingsLeaders: rows,
+    liveDelta: overviewLiveDelta({ Alice: { pendingWins: 1, pendingLosses: 0 } }),
+  });
+  const matches = html.match(/data-overview-live-pending/g) ?? [];
+  assert.equal(matches.length, 1);
 });
