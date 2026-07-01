@@ -127,6 +127,37 @@ test('deriveGameWeekPanelViewModel marks placeholders and canonical-label rule',
   assert.ok((card?.summaryState ?? '').length > 0);
 });
 
+test('owner matchup resolves despite a provider-name mismatch (PLATFORM-039)', () => {
+  // csvAway "Wash St" differs from the stored/canonical "Washington State".
+  const vm = deriveGameWeekPanelViewModel({
+    games: [
+      game({
+        key: 'mismatch',
+        csvAway: 'Wash St',
+        canAway: 'Washington State',
+        csvHome: 'Oregon',
+        canHome: 'Oregon',
+        awayConf: 'Big Ten',
+        homeConf: 'Big Ten',
+      }),
+    ],
+    oddsByKey: {},
+    scoresByKey: {},
+    rosterByTeam: new Map([
+      ['Washington State', 'Alice'],
+      ['Oregon', 'Bob'],
+    ]),
+    rankingsByTeamId: new Map(),
+    displayTimeZone: 'America/New_York',
+  });
+
+  const card = vm.groupedGames[0]?.games[0];
+  assert.ok(card);
+  assert.equal(card?.awayOwner, 'Alice');
+  assert.equal(card?.homeOwner, 'Bob');
+  assert.equal(card?.showOwnerMatchup, true);
+});
+
 test('an FCS participant cannot create an owner matchup (PLATFORM-036)', () => {
   // Real FCS conference (Big Sky) that does not contain the token "FCS"; even
   // though both teams appear in the roster, the FCS team must not be owned and

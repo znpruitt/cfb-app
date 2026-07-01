@@ -4,6 +4,7 @@ import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import { deriveFinalOwnedParticipations } from './standings.ts';
 import { isPolicyFcsConference } from './conferenceSubdivision.ts';
+import { getOwnerForGameSide } from './gameOwnership.ts';
 
 export type MatchupBucket = {
   game: AppGame;
@@ -73,8 +74,12 @@ export function deriveWeekMatchupSections(
       game.participants.home.kind === 'team' && !isPolicyFcsConference(game.homeConf);
     const awayIsLeagueTeam =
       game.participants.away.kind === 'team' && !isPolicyFcsConference(game.awayConf);
-    const homeOwner = homeIsLeagueTeam ? rosterByTeam.get(game.csvHome) : undefined;
-    const awayOwner = awayIsLeagueTeam ? rosterByTeam.get(game.csvAway) : undefined;
+    const homeOwner = homeIsLeagueTeam
+      ? getOwnerForGameSide(game, 'home', rosterByTeam)
+      : undefined;
+    const awayOwner = awayIsLeagueTeam
+      ? getOwnerForGameSide(game, 'away', rosterByTeam)
+      : undefined;
 
     const bucket = {
       game,

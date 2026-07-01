@@ -10,6 +10,7 @@ import {
   formatSlateSummaryText,
   summarizeSlateOpponents,
 } from '../selectors/matchups.ts';
+import { deriveWeekMatchupSections } from '../matchups';
 import type { OwnerSlateGame, OwnerWeekSlate } from '../matchups';
 import type { AppGame } from '../schedule';
 
@@ -194,4 +195,27 @@ test('deriveOpponentDescriptor labels an unowned FBS opponent as NoClaim (FBS)',
     })
   );
   assert.equal(descriptor, 'NoClaim (FBS)');
+});
+
+test('deriveWeekMatchupSections resolves owners despite a provider-name mismatch (PLATFORM-039)', () => {
+  // csvAway "Wash St" differs from the stored/canonical "Washington State".
+  const g = game({
+    key: 'mismatch',
+    csvAway: 'Wash St',
+    canAway: 'Washington State',
+    csvHome: 'Oregon',
+    canHome: 'Oregon',
+    awayConf: 'Big Ten',
+    homeConf: 'Big Ten',
+  });
+  const rosterByTeam = new Map([
+    ['Washington State', 'Alice'],
+    ['Oregon', 'Bob'],
+  ]);
+
+  const sections = deriveWeekMatchupSections([g], rosterByTeam);
+
+  assert.equal(sections.ownerMatchups.length, 1);
+  assert.equal(sections.ownerMatchups[0]?.awayOwner, 'Alice');
+  assert.equal(sections.ownerMatchups[0]?.homeOwner, 'Bob');
 });

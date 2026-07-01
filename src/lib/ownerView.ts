@@ -1,3 +1,4 @@
+import { getGameSideForTeam } from './gameOwnership.ts';
 import { gameStateFromScore, usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
 import type { ScorePack } from './scores.ts';
@@ -60,29 +61,33 @@ function buildScoreLine(score?: ScorePack): string | null {
   return `${score.away.team} ${score.away.score} - ${score.home.score} ${score.home.team}`;
 }
 
+// Ownership side is resolved through canonical game identity candidates so a
+// stored assigned team ("Washington State") still matches provider labels
+// ("Wash St"). Opponent/team *display* still uses provider-facing csv labels.
+function getOwnerTeamSide(teamName: string, game: AppGame): 'away' | 'home' {
+  return getGameSideForTeam(game, teamName) ?? 'home';
+}
+
 function getTeamGames(teamName: string, games: AppGame[]): AppGame[] {
-  return games.filter((game) => game.csvAway === teamName || game.csvHome === teamName);
+  return games.filter((game) => getGameSideForTeam(game, teamName) !== null);
 }
 
 function getTeamId(teamName: string, teamGames: AppGame[]): string {
-  const firstGame = teamGames.find(
-    (game) => game.csvAway === teamName || game.csvHome === teamName
-  );
+  const firstGame = teamGames[0];
   if (!firstGame) return teamName;
-  return (
-    (firstGame.csvAway === teamName
-      ? getGameParticipantTeamId(firstGame, 'away')
-      : getGameParticipantTeamId(firstGame, 'home')) ?? teamName
-  );
+  return getGameParticipantTeamId(firstGame, getOwnerTeamSide(teamName, firstGame)) ?? teamName;
 }
 
 function getOpponentTeamId(teamName: string, game: AppGame): string {
+  const opponentSide = getOwnerTeamSide(teamName, game) === 'away' ? 'home' : 'away';
   return (
-    (game.csvAway === teamName
-      ? getGameParticipantTeamId(game, 'home')
-      : getGameParticipantTeamId(game, 'away')) ??
-    (game.csvAway === teamName ? game.canHome : game.canAway)
+    getGameParticipantTeamId(game, opponentSide) ??
+    (opponentSide === 'home' ? game.canHome : game.canAway)
   );
+}
+
+function getOpponentProviderName(teamName: string, game: AppGame): string {
+  return getOwnerTeamSide(teamName, game) === 'away' ? game.csvHome : game.csvAway;
 }
 
 function isAttachedFinalGame(score?: ScorePack): boolean {
@@ -93,17 +98,13 @@ function isLiveGame(game: AppGame, score?: ScorePack): boolean {
   return game.status === 'in_progress' || gameStateFromScore(score) === 'inprogress';
 }
 
-function getOwnerTeamSide(teamName: string, game: AppGame): 'away' | 'home' {
-  return game.csvAway === teamName ? 'away' : 'home';
-}
-
 function buildNextGameLabel(teamName: string, game: AppGame): string {
-  const opponent = game.csvAway === teamName ? game.csvHome : game.csvAway;
+  const opponent = getOpponentProviderName(teamName, game);
   if (usesNeutralSiteSemantics(game) || game.neutral) {
     return `vs ${opponent}`;
   }
 
-  return game.csvAway === teamName ? `at ${opponent}` : `vs ${opponent}`;
+  return getOwnerTeamSide(teamName, game) === 'away' ? `at ${opponent}` : `vs ${opponent}`;
 }
 
 export function deriveOwnerRoster(
@@ -128,8 +129,9 @@ export function deriveOwnerRoster(
       const score = scoresByKey[game.key];
       if (!isAttachedFinalGame(score)) continue;
 
-      const teamScore = game.csvAway === teamName ? score?.away.score : score?.home.score;
-      const opponentScore = game.csvAway === teamName ? score?.home.score : score?.away.score;
+      const side = getOwnerTeamSide(teamName, game);
+      const teamScore = side === 'away' ? score?.away.score : score?.home.score;
+      const opponentScore = side === 'away' ? score?.home.score : score?.away.score;
       if (teamScore == null || opponentScore == null || teamScore === opponentScore) continue;
 
       if (teamScore > opponentScore) wins += 1;
@@ -144,7 +146,7 @@ export function deriveOwnerRoster(
         teamId,
         teamName,
         record: `${wins}–${losses}`,
-        nextOpponent: liveGame.csvAway === teamName ? liveGame.csvHome : liveGame.csvAway,
+        nextOpponent: getOpponentProviderName(teamName, liveGame),
         nextOpponentTeamId: getOpponentTeamId(teamName, liveGame),
         nextGameLabel: buildNextGameLabel(teamName, liveGame),
         ownerTeamSide,
@@ -163,7 +165,7 @@ export function deriveOwnerRoster(
         teamId,
         teamName,
         record: `${wins}–${losses}`,
-        nextOpponent: nextGame.csvAway === teamName ? nextGame.csvHome : nextGame.csvAway,
+        nextOpponent: getOpponentProviderName(teamName, nextGame),
         nextOpponentTeamId: getOpponentTeamId(teamName, nextGame),
         nextGameLabel: buildNextGameLabel(teamName, nextGame),
         ownerTeamSide,
@@ -193,29 +195,19 @@ export function deriveOwnerRoster(
 }
 
 function filterRosterRowsToWeek(
-  owner: string,
   allRosterRows: OwnerRosterRow[],
   weekGames: AppGame[],
-  rosterByTeam: Map<string, string>,
   scoresByKey: Record<string, ScorePack>
 ): OwnerRosterRow[] {
-  const weekTeamSet = new Set(
-    weekGames.flatMap((game) => {
-      const teams: string[] = [];
-      if (rosterByTeam.get(game.csvAway) === owner) teams.push(game.csvAway);
-      if (rosterByTeam.get(game.csvHome) === owner) teams.push(game.csvHome);
-      return teams;
-    })
-  );
-
+  // Rows are already this owner's teams; a row belongs to the week when its
+  // stored team plays a week game (resolved via canonical game identity).
   return allRosterRows
-    .filter((row) => weekTeamSet.has(row.teamName))
+    .filter((row) => getTeamGames(row.teamName, weekGames).length > 0)
     .map((row) => {
       const teamWeekGames = getTeamGames(row.teamName, weekGames).sort(compareGamesByKickoff);
       const liveGame = teamWeekGames.find((game) => isLiveGame(game, scoresByKey[game.key]));
       if (liveGame) {
-        const opponentTeamName =
-          liveGame.csvAway === row.teamName ? liveGame.csvHome : liveGame.csvAway;
+        const opponentTeamName = getOpponentProviderName(row.teamName, liveGame);
         return {
           ...row,
           nextOpponent: opponentTeamName,
@@ -232,8 +224,7 @@ function filterRosterRowsToWeek(
 
       const nextGame = teamWeekGames.find((game) => !isAttachedFinalGame(scoresByKey[game.key]));
       if (nextGame) {
-        const opponentTeamName =
-          nextGame.csvAway === row.teamName ? nextGame.csvHome : nextGame.csvAway;
+        const opponentTeamName = getOpponentProviderName(row.teamName, nextGame);
         return {
           ...row,
           nextOpponent: opponentTeamName,
@@ -250,8 +241,7 @@ function filterRosterRowsToWeek(
 
       const latestWeekGame = teamWeekGames.at(-1);
       if (latestWeekGame) {
-        const opponentTeamName =
-          latestWeekGame.csvAway === row.teamName ? latestWeekGame.csvHome : latestWeekGame.csvAway;
+        const opponentTeamName = getOpponentProviderName(row.teamName, latestWeekGame);
         return {
           ...row,
           nextOpponent: opponentTeamName,
@@ -300,13 +290,7 @@ export function deriveOwnerViewSnapshot(params: {
   const headerRow = standingsRows.find((row) => row.owner === resolvedOwner) ?? null;
   const rosterRows = deriveOwnerRoster(resolvedOwner, allGames, rosterByTeam, scoresByKey);
   const liveRows = rosterRows.filter((row) => row.currentStatus === 'Live');
-  const weekRows = filterRosterRowsToWeek(
-    resolvedOwner,
-    rosterRows,
-    weekGames,
-    rosterByTeam,
-    scoresByKey
-  );
+  const weekRows = filterRosterRowsToWeek(rosterRows, weekGames, scoresByKey);
 
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
   const ownerSlates = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey);

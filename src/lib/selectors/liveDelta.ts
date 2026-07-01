@@ -1,3 +1,4 @@
+import { getGameOwners } from '../gameOwnership.ts';
 import { gameStateFromScore } from '../gameUi.ts';
 import { getGameParticipantTeamId, type AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
@@ -117,8 +118,7 @@ export function selectLiveDelta(input: SelectLiveDeltaInput): LiveDelta {
     const homeScore = score.home.score;
     if (awayScore == null || homeScore == null) continue;
 
-    const awayOwner = rosterByTeam.get(game.csvAway);
-    const homeOwner = rosterByTeam.get(game.csvHome);
+    const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
 
     if (awayOwner && awayOwner !== NO_CLAIM_OWNER) {
       const isLeading = awayScore > homeScore;

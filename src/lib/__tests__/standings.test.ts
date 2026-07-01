@@ -185,6 +185,32 @@ test('self-matchups count as one win and one loss with net-zero differential fro
   });
 });
 
+test('canonical stored assignment receives final W/L despite a provider-name mismatch (PLATFORM-039)', () => {
+  // Provider label "Wash St" differs from the stored/canonical "Washington State".
+  const games = [
+    game({ key: 'mismatch', csvAway: 'Wash St', canAway: 'Washington State', csvHome: 'Oregon' }),
+  ];
+  const rosterByTeam = new Map([['Washington State', 'Alex']]);
+  const scoresByKey = {
+    mismatch: {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Wash St', score: 31 },
+      home: { team: 'Oregon', score: 17 },
+    },
+  };
+
+  const participations = deriveFinalOwnedParticipations(games, rosterByTeam, scoresByKey);
+  const standings = deriveStandings(games, rosterByTeam, scoresByKey);
+
+  assert.equal(participations.length, 1);
+  assert.equal(participations[0]?.owner, 'Alex');
+  assert.equal(participations[0]?.result, 'win');
+  assert.equal(standings.rows[0]?.owner, 'Alex');
+  assert.equal(standings.rows[0]?.wins, 1);
+  assert.equal(standings.rows[0]?.losses, 0);
+});
+
 test('standings sort by wins, then win percentage, then point differential', () => {
   const games = [
     game({ key: 'a-win1', csvAway: 'A1', csvHome: 'U1' }),

@@ -5,6 +5,7 @@ import MiniTrendsGrid from './MiniTrendsGrid';
 import ViewMoreLink, { viewMoreLinkClass } from './navigation/ViewMoreLink';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
+import { getGameOwners } from '../lib/gameOwnership';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -1394,8 +1395,7 @@ export default function OverviewPanel({
     for (const game of games) {
       const score = scoresByKey[game.key];
       if (gameStateFromScore(score) !== 'inprogress') continue;
-      const awayOwner = rosterByTeam.get(game.csvAway);
-      const homeOwner = rosterByTeam.get(game.csvHome);
+      const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
       if (awayOwner) standings.set(awayOwner, (standings.get(awayOwner) ?? 0) + 1);
       if (homeOwner) standings.set(homeOwner, (standings.get(homeOwner) ?? 0) + 1);
     }

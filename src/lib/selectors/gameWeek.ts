@@ -11,6 +11,7 @@ import type { ScorePack } from '../scores';
 import { getGameParticipantTeamId, type AppGame } from '../schedule';
 import { groupGamesByDisplayDate } from '../weekPresentation';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
+import { getOwnerForGameSide } from '../gameOwnership';
 
 function resolveSummaryStateLabel(
   game: AppGame,
@@ -123,8 +124,12 @@ export function deriveGameWeekPanelViewModel(params: {
         game.participants.home.kind === 'team' && !isPolicyFcsConference(game.homeConf);
       const awayIsLeagueTeam =
         game.participants.away.kind === 'team' && !isPolicyFcsConference(game.awayConf);
-      const homeOwner = homeIsLeagueTeam ? rosterByTeam.get(game.csvHome) : undefined;
-      const awayOwner = awayIsLeagueTeam ? rosterByTeam.get(game.csvAway) : undefined;
+      const homeOwner = homeIsLeagueTeam
+        ? getOwnerForGameSide(game, 'home', rosterByTeam)
+        : undefined;
+      const awayOwner = awayIsLeagueTeam
+        ? getOwnerForGameSide(game, 'away', rosterByTeam)
+        : undefined;
       const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
       const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
       const hasRankedTeam =
