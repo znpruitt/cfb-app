@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-051-OVERVIEW-LIVEDELTA-OVERLAY-v1
+- Purpose: Add the Standings/Members-compatible pending W–L `liveDelta` badge to Overview Top-N standings rows (Overview previously received `liveDelta` but `void`ed it). Preceded by the read-only **PLATFORM-050-OVERVIEW-LIVEDELTA-OVERLAY-AUDIT-v1**.
+- Scope: `src/components/OverviewPanel.tsx` (consume `liveDelta`; thread into `CondensedStandingsTable`; badge beside record). Tests: `OverviewPanel.test.tsx`.
+- Notes: Presentation-only badge on Top-N rows via the shared `selectFreshOwnerPendingDelta` — visible `+1–0`, title/aria `Live this week: 1–0`, `data-overview-live-pending`; gated by the rendered `row.owner`. Never mutates/projects rank/record/win%/differential and never re-sorts; canonical rows/history/coverage resolution (PLATFORM-047/048) untouched. Stale/missing/tied/NoClaim/absent deltas render nothing. The existing `{n} live` pill (a distinct signal) is unchanged; podium/hero cards get no badge this phase; no `router.refresh`. Codex review: clean, no findings. Deferred: **PLATFORM-052** (podium/hero live badge, candidate), `liveCountByOwner` staleness alignment (candidate), **PLATFORM-045** route-loader dedup. `npm test` 1069 pass / 0 fail / 0 skipped; tsc/lint:all/build green.
+
 ### PLATFORM-049-STANDINGS-COVERAGE-CANONICAL-CONTRACT-v1
 - Purpose: Make Standings rows, history, and coverage all come from the same canonical snapshot when supplied (Standings already preferred canonical rows/history but still rendered raw local `standingsCoverage`, which could pair canonical archive rows with a stale client warning).
 - Scope: new pure `src/lib/selectors/standingsCanonicalInputs.ts` (`resolveStandingsCanonicalInputs` + `STANDINGS_COVERAGE_UNAVAILABLE`), `src/components/StandingsPanel.tsx` (resolve rows/history/coverage together; warning uses resolved coverage). Tests: `standingsCanonicalInputs.test.ts`, `StandingsPanel.test.tsx`.
