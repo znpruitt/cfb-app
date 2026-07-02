@@ -97,6 +97,58 @@ async function seedPreseasonOwners(slug: string, year: number, owners: string[])
   await setAppState(`preseason-owners:${slug}`, String(year), owners);
 }
 
+// A single scored regular-season game. Score rows match the schedule item by
+// provider event id, so score attachment is independent of team-name
+// resolution — the alias map is therefore the sole determinant of which roster
+// owner is credited, which is exactly what the alias-scope tests exercise.
+async function seedScoredGame(
+  year: number,
+  params: {
+    id: string;
+    homeProvider: string;
+    awayProvider: string;
+    homeScore: number;
+    awayScore: number;
+  }
+): Promise<void> {
+  const { id, homeProvider, awayProvider, homeScore, awayScore } = params;
+  await setAppState('schedule', `${year}-all-all`, {
+    items: [
+      {
+        id,
+        week: 1,
+        startDate: `${year}-09-01T18:00:00.000Z`,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: homeProvider,
+        awayTeam: awayProvider,
+        homeConference: 'Test Conf',
+        awayConference: 'Test Conf',
+        status: 'final',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('scores', `${year}-all-regular`, {
+    items: [
+      {
+        id,
+        seasonType: 'regular',
+        startDate: `${year}-09-01T18:00:00.000Z`,
+        week: 1,
+        status: 'final',
+        home: { team: homeProvider, score: homeScore },
+        away: { team: awayProvider, score: awayScore },
+        time: null,
+      },
+    ],
+  });
+}
+
+async function seedAliasScope(scope: string, map: Record<string, string>): Promise<void> {
+  await setAppState(scope, 'map', map);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -729,4 +781,136 @@ test('currentDate threads through main cached path: generatedAt reflects caller-
   const snapshot = await getCanonicalStandings({ slug, currentDate: fixedDate });
 
   assert.equal(snapshot.generatedAt, fixedDate.toISOString());
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-055: canonical standings consume the effective (scoped) alias map.
+// Game identity — and therefore ownership — must resolve through the global
+// alias store, with precedence global > league+year > year. Each test seeds a
+// single scored game whose HOME provider label is only resolvable via an alias,
+// so the alias map is the sole determinant of whether the home roster owner is
+// credited a win. Score attachment is by provider event id, independent of
+// name resolution.
+// ---------------------------------------------------------------------------
+
+const ALIAS_STATUS = { state: 'season', year: 2025 } as const;
+
+async function aliasScenarioSnapshot(slug: string) {
+  await seedLeague(makeLeague({ slug, year: 2025, status: ALIAS_STATUS }));
+  await seedOwnersCsv(slug, 2025, ['team,owner', 'Texas,Alice', 'Rival Tech,Bob'].join('\n'));
+  await seedScoredGame(2025, {
+    id: 'game-1',
+    homeProvider: 'Gulf Coast Tech',
+    awayProvider: 'Rival Tech',
+    homeScore: 31,
+    awayScore: 10,
+  });
+  return getCanonicalStandings({ slug, leagueStatusOverride: ALIAS_STATUS });
+}
+
+test('alias: global-only alias resolves the scored game and credits the canonical owner', async () => {
+  const slug = 'alias-global-only';
+  await seedAliasScope('aliases:global', { 'gulf coast tech': 'Texas' });
+  const snapshot = await aliasScenarioSnapshot(slug);
+
+  assert.equal(snapshot.source, 'live');
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  assert.ok(alice, 'Alice present in standings');
+  assert.equal(alice!.wins, 1);
+  assert.equal(alice!.losses, 0);
+});
+
+test('alias: without any alias the global-only game is NOT credited (control for the fix)', async () => {
+  // Same fixture, no alias seeded: "Gulf Coast Tech" does not resolve to
+  // "Texas", so Alice earns no win. This is the 0-0 vs 1-0 regression the
+  // audit fixture demonstrated.
+  const slug = 'alias-none-control';
+  const snapshot = await aliasScenarioSnapshot(slug);
+
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  // Alice may appear at 0-0 (roster present) but must not have a win.
+  assert.equal(alice?.wins ?? 0, 0);
+});
+
+test('alias: global overrides league+year on conflict (global precedence)', async () => {
+  const slug = 'alias-global-over-league';
+  // Global maps the provider label to Texas (Alice); a conflicting league+year
+  // alias maps it to Georgia (Carol). Global must win, so Alice is credited.
+  await seedAliasScope('aliases:global', { 'gulf coast tech': 'Texas' });
+  await seedAliasScope('aliases:alias-global-over-league:2025', { 'gulf coast tech': 'Georgia' });
+  await seedLeague(makeLeague({ slug, year: 2025, status: ALIAS_STATUS }));
+  await seedOwnersCsv(
+    slug,
+    2025,
+    ['team,owner', 'Texas,Alice', 'Georgia,Carol', 'Rival Tech,Bob'].join('\n')
+  );
+  await seedScoredGame(2025, {
+    id: 'game-1',
+    homeProvider: 'Gulf Coast Tech',
+    awayProvider: 'Rival Tech',
+    homeScore: 31,
+    awayScore: 10,
+  });
+
+  const snapshot = await getCanonicalStandings({ slug, leagueStatusOverride: ALIAS_STATUS });
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  const carol = snapshot.rows.find((r) => r.owner === 'Carol');
+  assert.equal(alice?.wins ?? 0, 1, 'global target (Texas/Alice) credited');
+  assert.equal(carol?.wins ?? 0, 0, 'league target (Georgia/Carol) NOT credited');
+});
+
+test('alias: global wins over a legacy key that only differs by normalization (P1)', async () => {
+  const slug = 'alias-global-over-normalized-legacy';
+  // Global uses the spaced key; the legacy league scope uses the space-stripped
+  // form. Both collapse to the same resolver identity. Before the P1 fix the
+  // legacy entry (inserted first by the merge) won in buildCanonicalRegistry and
+  // credited Carol; global precedence must credit Alice.
+  await seedAliasScope('aliases:global', { 'gulf coast tech': 'Texas' });
+  await seedAliasScope(`aliases:${slug}:2025`, { gulfcoasttech: 'Georgia' });
+  await seedLeague(makeLeague({ slug, year: 2025, status: ALIAS_STATUS }));
+  await seedOwnersCsv(
+    slug,
+    2025,
+    ['team,owner', 'Texas,Alice', 'Georgia,Carol', 'Rival Tech,Bob'].join('\n')
+  );
+  await seedScoredGame(2025, {
+    id: 'game-1',
+    homeProvider: 'Gulf Coast Tech',
+    awayProvider: 'Rival Tech',
+    homeScore: 31,
+    awayScore: 10,
+  });
+
+  const snapshot = await getCanonicalStandings({ slug, leagueStatusOverride: ALIAS_STATUS });
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  const carol = snapshot.rows.find((r) => r.owner === 'Carol');
+  assert.equal(alice?.wins ?? 0, 1, 'global target (Texas/Alice) credited');
+  assert.equal(carol?.wins ?? 0, 0, 'legacy normalized-dup target (Georgia/Carol) NOT credited');
+});
+
+test('alias: league-only alias still resolves as a deprecated fallback', async () => {
+  const slug = 'alias-league-only';
+  await seedAliasScope('aliases:alias-league-only:2025', { 'gulf coast tech': 'Texas' });
+  const snapshot = await aliasScenarioSnapshot(slug);
+
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  assert.equal(alice?.wins ?? 0, 1);
+});
+
+test('alias: catalog/no-alias path still credits directly-named teams', async () => {
+  const slug = 'alias-catalog-direct';
+  // Provider names match roster team labels directly; no alias needed.
+  await seedLeague(makeLeague({ slug, year: 2025, status: ALIAS_STATUS }));
+  await seedOwnersCsv(slug, 2025, ['team,owner', 'Texas,Alice', 'Rival Tech,Bob'].join('\n'));
+  await seedScoredGame(2025, {
+    id: 'game-1',
+    homeProvider: 'Texas',
+    awayProvider: 'Rival Tech',
+    homeScore: 24,
+    awayScore: 17,
+  });
+
+  const snapshot = await getCanonicalStandings({ slug, leagueStatusOverride: ALIAS_STATUS });
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  assert.equal(alice?.wins ?? 0, 1);
 });

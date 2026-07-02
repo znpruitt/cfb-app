@@ -51,10 +51,19 @@ export async function GET(req: Request): Promise<Response> {
     // sentinel on entry and returns immediately once migration has run.
     const leagues = await getLeagues();
     const migrationYear = leagues.length > 0 ? leagues[0]!.year : new Date().getFullYear();
-    await migrateYearScopedAliasesToGlobal(
+    const { migrated } = await migrateYearScopedAliasesToGlobal(
       leagues.map((l) => l.slug),
       migrationYear
     );
+    // Migration writes legacy entries into the global store, which canonical
+    // standings now consume. If it actually moved entries, invalidate every
+    // registered league so warm canonical snapshots pick up the new aliases.
+    // Idempotent: the migration sentinel makes migrated > 0 fire at most once.
+    if (migrated > 0) {
+      for (const league of leagues) {
+        invalidateStandings(league.slug);
+      }
+    }
     const map = await getGlobalAliases();
     return Response.json({ scope: 'global', map });
   }
@@ -94,9 +103,13 @@ export async function PUT(req: Request): Promise<Response> {
         : {};
     const upserts: AliasMap = isAliasMap(obj.upserts) ? obj.upserts : {};
     const next = await upsertGlobalAliases(upserts);
-    // FUTURE: global alias writes affect every league that reads global
-    // aliases. invalidateStandings is per-slug; enumerating the league
-    // registry to invalidate all is out of scope for Phase 0.
+    // Global aliases feed canonical standings via getScopedAliasMap and can
+    // affect any cached year of any league, so invalidate every registered
+    // league's umbrella standings tag (year omitted → busts all cached years).
+    const leagues = await getLeagues();
+    for (const league of leagues) {
+      invalidateStandings(league.slug);
+    }
     return Response.json({ scope: 'global', map: next });
   }
   const year = clampYearMaybe(url.searchParams.get('year'));
@@ -180,6 +193,16 @@ export async function PUT(req: Request): Promise<Response> {
   }
 
   await writeAliases(year, next, league);
-  if (league) invalidateStandings(league, year);
+  if (league) {
+    invalidateStandings(league, year);
+  } else {
+    // Year-only scope (`aliases:${year}`) is a deprecated fallback consumed by
+    // every league's canonical standings for that year, so invalidate all
+    // registered leagues rather than leaving warm snapshots stale.
+    const leagues = await getLeagues();
+    for (const registered of leagues) {
+      invalidateStandings(registered.slug, year);
+    }
+  }
   return Response.json({ year, league: league ?? null, map: next });
 }

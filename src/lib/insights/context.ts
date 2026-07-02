@@ -7,32 +7,18 @@ import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
 import type { AppGame } from '../schedule';
 import { getSeasonArchive, listSeasonArchives, type SeasonArchive } from '../seasonArchive';
-import { getAppState } from '../server/appStateStore';
+import { getScopedAliasMap } from '../server/globalAliasStore';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore';
 import type { SeasonContext } from '../selectors/seasonContext';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistoryWeekSnapshot } from '../standingsHistory';
 import { createTeamIdentityResolver } from '../teamIdentity';
-import type { AliasMap } from '../teamNames';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from './lifecycle';
 import { selectAllRecords } from '../selectors/leagueRecords';
 import type { InsightContext, OwnerCareerStats, OwnerSeasonStats } from './types';
 
 const NO_CLAIM_OWNER = 'NoClaim';
-
-async function loadAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
-  let aliasMap: AliasMap = {};
-  const scopes = [`aliases:${leagueSlug}:${year}`, `aliases:${year}`, 'aliases:global'];
-  for (const scope of scopes) {
-    const record = await getAppState<AliasMap>(scope, 'map');
-    const value = record?.value;
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      aliasMap = { ...value, ...aliasMap };
-    }
-  }
-  return aliasMap;
-}
 
 async function loadArchives(leagueSlug: string): Promise<SeasonArchive[]> {
   const years = await listSeasonArchives(leagueSlug);
@@ -60,7 +46,7 @@ export async function loadOwnerSeasonStats(
 
   const [teams, aliasMap] = await Promise.all([
     getTeamDatabaseItems(),
-    loadAliasMap(leagueSlug, year),
+    getScopedAliasMap(leagueSlug, year),
   ]);
   const observedNames = Array.from(
     new Set(games.flatMap((game) => [game.csvAway, game.csvHome]).filter(Boolean))

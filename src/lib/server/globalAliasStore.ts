@@ -1,6 +1,6 @@
 import { getAppState, listAppStateKeys, setAppState } from './appStateStore.ts';
 import type { AliasMap } from '../teamNames.ts';
-import { normalizeAliasLookup } from '../teamNormalization.ts';
+import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts';
 
 // ---------------------------------------------------------------------------
 // Global alias store
@@ -38,6 +38,17 @@ export async function getGlobalAliases(): Promise<AliasMap> {
  * This matches how the owners upload path merges aliases (global last/highest).
  * Among the two legacy scopes, the more specific league+year wins over year.
  *
+ * Precedence is enforced by the resolver's canonical identity, NOT by raw key
+ * text. The team-identity resolver keys aliases by `normalizeTeamName`
+ * (space- and punctuation-stripping) and is first-wins, so two textually
+ * different keys that normalize to the same identity (e.g. `gulf coast tech`
+ * globally and `gulfcoasttech` in a legacy scope) would otherwise let the
+ * lower-precedence scope win purely on insertion order. Collapsing by
+ * normalized identity here guarantees the higher-precedence scope's target
+ * survives regardless of key formatting. Exact-key conflicts are a subset of
+ * this (same identity → global processed first wins), so this preserves the
+ * prior exact-key behavior.
+ *
  * Server-safe: reads only appState (no `localStorage`, no static-file fetch),
  * so it works during server render — unlike the browser-era loader in
  * `src/lib/aliases.ts`. Returns {} when no scope holds an alias map; never
@@ -45,15 +56,23 @@ export async function getGlobalAliases(): Promise<AliasMap> {
  * failure in callers.
  */
 export async function getScopedAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
-  let aliasMap: AliasMap = {};
-  // Highest precedence first; the accumulator wins on conflict, so later
-  // (lower-precedence) scopes only fill gaps.
+  // Highest precedence first: global > league+year > year.
   const scopes = [GLOBAL_SCOPE, `aliases:${leagueSlug}:${year}`, `aliases:${year}`];
+  const aliasMap: AliasMap = {};
+  const seenIdentities = new Set<string>();
   for (const scope of scopes) {
     const record = await getAppState<AliasMap>(scope, GLOBAL_KEY);
     const value = record?.value;
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      aliasMap = { ...value, ...aliasMap };
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    for (const [key, target] of Object.entries(value)) {
+      if (typeof target !== 'string') continue;
+      const identity = normalizeTeamName(key);
+      // Keys that normalize to nothing can never be matched by the resolver
+      // (its registry is keyed by the same normalization), so skipping them is
+      // harmless and avoids a bogus empty-identity dedup bucket.
+      if (!identity || seenIdentities.has(identity)) continue;
+      seenIdentities.add(identity);
+      aliasMap[key] = target;
     }
   }
   return aliasMap;
