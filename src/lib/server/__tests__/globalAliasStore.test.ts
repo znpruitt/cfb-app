@@ -11,6 +11,8 @@ import {
   getGlobalAliases,
   getScopedAliasMap,
   migrateSeedAliasesToGlobal,
+  migrateYearScopedAliasesToGlobal,
+  upsertGlobalAliases,
 } from '../globalAliasStore.ts';
 import { SEED_ALIASES } from '../../teamNames.ts';
 
@@ -160,4 +162,58 @@ test('migrateSeedAliasesToGlobal: seeds participate in getScopedAliasMap precede
     SEED_ALIASES['ole miss'],
     'migrated seed (global) beats league scope'
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-057 remediation: direct-reader coverage, cross-migration precedence,
+// and concurrent-write safety.
+// ---------------------------------------------------------------------------
+
+test('getGlobalAliases: direct read migrates and surfaces SEED_ALIASES (no prior scoped read)', async () => {
+  const global = await getGlobalAliases();
+  assert.equal(global['ole miss'], SEED_ALIASES['ole miss']);
+  assert.equal(global.byu, SEED_ALIASES.byu);
+});
+
+test('migration order: static seed beats a conflicting legacy year-scoped alias', async () => {
+  // Legacy year-scoped alias for a seed key. After migrations, the seed value
+  // must win regardless of entry-point order, because year-scope promotion runs
+  // seed migration first and then only fills missing keys.
+  await setAppState('aliases:2024', 'map', { 'ole miss': 'Legacy Target' });
+  await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+  const global = await getGlobalAliases();
+  assert.equal(global['ole miss'], SEED_ALIASES['ole miss'], 'seed wins over legacy scope');
+});
+
+test('migration order: manual global alias beats both seed and legacy', async () => {
+  await setAppState('aliases:global', 'map', { 'ole miss': 'Manual Correction' });
+  await setAppState('aliases:2024', 'map', { 'ole miss': 'Legacy Target' });
+  await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+  const global = await getGlobalAliases();
+  assert.equal(global['ole miss'], 'Manual Correction');
+});
+
+test('migration order: legacy alias still fills a non-seed key', async () => {
+  await setAppState('aliases:2024', 'map', { 'gulf coast tech': 'Legacy Only' });
+  await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+  const global = await getGlobalAliases();
+  // Non-conflicting legacy entry is promoted...
+  assert.equal(global['gulf coast tech'], 'Legacy Only');
+  // ...and seeds are present too.
+  assert.equal(global['ole miss'], SEED_ALIASES['ole miss']);
+});
+
+test('concurrent writes: seed migration + upsert do not clobber each other', async () => {
+  // Fire a manual upsert and the seed migration concurrently. The write lock
+  // serializes their read-modify-writes, so both the manual entry and the seeds
+  // survive rather than the last writer erasing the other.
+  const [, upserted] = await Promise.all([
+    migrateSeedAliasesToGlobal(),
+    upsertGlobalAliases({ 'brand new': 'Manual Team' }),
+  ]);
+  void upserted;
+  const global = await getGlobalAliases();
+  assert.equal(global['brand new'], 'Manual Team', 'manual upsert survived');
+  assert.equal(global['ole miss'], SEED_ALIASES['ole miss'], 'seeds survived');
+  assert.equal(global.byu, SEED_ALIASES.byu);
 });

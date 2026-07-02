@@ -5,6 +5,7 @@ import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import {
   getGlobalAliases,
   upsertGlobalAliases,
+  migrateSeedAliasesToGlobal,
   migrateYearScopedAliasesToGlobal,
 } from '../../../lib/server/globalAliasStore.ts';
 
@@ -51,15 +52,18 @@ export async function GET(req: Request): Promise<Response> {
     // sentinel on entry and returns immediately once migration has run.
     const leagues = await getLeagues();
     const migrationYear = leagues.length > 0 ? leagues[0]!.year : new Date().getFullYear();
-    const { migrated } = await migrateYearScopedAliasesToGlobal(
+    // Seed migration first (so seed-over-legacy precedence holds), then legacy
+    // year-scope promotion. Both write into the global store that canonical
+    // standings consume; if either moved entries, invalidate every registered
+    // league so warm canonical snapshots pick up the new aliases. This request
+    // handler is a safe place to call revalidateTag (unlike the render-path
+    // getScopedAliasMap trigger). Idempotent: sentinels make each fire once.
+    const { migrated: seedMigrated } = await migrateSeedAliasesToGlobal();
+    const { migrated: legacyMigrated } = await migrateYearScopedAliasesToGlobal(
       leagues.map((l) => l.slug),
       migrationYear
     );
-    // Migration writes legacy entries into the global store, which canonical
-    // standings now consume. If it actually moved entries, invalidate every
-    // registered league so warm canonical snapshots pick up the new aliases.
-    // Idempotent: the migration sentinel makes migrated > 0 fire at most once.
-    if (migrated > 0) {
+    if (seedMigrated > 0 || legacyMigrated > 0) {
       for (const league of leagues) {
         invalidateStandings(league.slug);
       }
