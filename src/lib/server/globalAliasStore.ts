@@ -1,5 +1,5 @@
 import { getAppState, listAppStateKeys, setAppState } from './appStateStore.ts';
-import type { AliasMap } from '../teamNames.ts';
+import { SEED_ALIASES, type AliasMap } from '../teamNames.ts';
 import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts';
 
 // ---------------------------------------------------------------------------
@@ -15,11 +15,17 @@ import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts
 // reads them once and merges their entries into the global store. Legacy
 // entries are left in place for backward compatibility with the runtime
 // teamIdentity resolver which still reads league-scoped maps.
+//
+// The static SEED_ALIASES bundle (universal aliases like `ole miss` →
+// `mississippi`) is migrated into the global store by
+// migrateSeedAliasesToGlobal(), invoked lazily from getScopedAliasMap() so the
+// seeds are globally available to all server consumers without manual action.
 // ---------------------------------------------------------------------------
 
 const GLOBAL_SCOPE = 'aliases:global';
 const GLOBAL_KEY = 'map';
 const MIGRATION_DONE_KEY = 'migration-done';
+const SEED_MIGRATION_DONE_KEY = 'seed-migration-done';
 
 export async function getGlobalAliases(): Promise<AliasMap> {
   const record = await getAppState<AliasMap>(GLOBAL_SCOPE, GLOBAL_KEY);
@@ -56,6 +62,14 @@ export async function getGlobalAliases(): Promise<AliasMap> {
  * failure in callers.
  */
 export async function getScopedAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
+  // Ensure the universal static aliases (SEED_ALIASES) live in the global store
+  // before any consumer read. Idempotent + sentinel-guarded, so once migrated
+  // this is a single cheap sentinel read. This is the shared chokepoint for all
+  // server-side alias consumers (canonical standings, Insights, draft board),
+  // so seeding here makes the static aliases available everywhere without any
+  // manual admin action.
+  await migrateSeedAliasesToGlobal();
+
   // Highest precedence first: global > league+year > year.
   const scopes = [GLOBAL_SCOPE, `aliases:${leagueSlug}:${year}`, `aliases:${year}`];
   const aliasMap: AliasMap = {};
@@ -95,6 +109,52 @@ export async function upsertGlobalAliases(entries: AliasMap): Promise<AliasMap> 
   }
   await setAppState(GLOBAL_SCOPE, GLOBAL_KEY, next);
   return next;
+}
+
+/**
+ * One-time migration of the static `SEED_ALIASES` bundle (universal team
+ * aliases such as `ole miss` → `mississippi`, `byu` → `brigham young`) into the
+ * global alias store. Once global, they are consumed by every server-side alias
+ * reader through `getScopedAliasMap` (canonical standings, Insights, draft
+ * board) rather than depending on the client's per-league seed-if-empty path.
+ *
+ * Fill-only precedence: existing global entries always win. A seed is skipped
+ * when the global store already holds a key with the same resolver identity
+ * (`normalizeTeamName`) — the same identity `getScopedAliasMap` dedupes on — so
+ * a manually corrected global alias is never shadowed by a static seed that
+ * collapses to the same identity.
+ *
+ * Idempotent: guarded by its own sentinel (separate from the year-scoped
+ * migration), so it does work once and is safe to call on every
+ * `getScopedAliasMap` invocation.
+ */
+export async function migrateSeedAliasesToGlobal(): Promise<{ migrated: number }> {
+  const done = await getAppState<boolean>(GLOBAL_SCOPE, SEED_MIGRATION_DONE_KEY);
+  if (done?.value === true) return { migrated: 0 };
+
+  const current = await getGlobalAliases();
+  const next: AliasMap = { ...current };
+  // Existing global identities win — seeds only fill genuinely-missing ones.
+  const existingIdentities = new Set(
+    Object.keys(current)
+      .map((k) => normalizeTeamName(k))
+      .filter(Boolean)
+  );
+
+  let migrated = 0;
+  for (const [rawKey, rawValue] of Object.entries(SEED_ALIASES)) {
+    const key = normalizeAliasLookup(rawKey);
+    const identity = normalizeTeamName(rawKey);
+    if (!key || !identity || typeof rawValue !== 'string' || !rawValue.trim()) continue;
+    if (existingIdentities.has(identity)) continue;
+    next[key] = rawValue.trim();
+    existingIdentities.add(identity);
+    migrated++;
+  }
+
+  await setAppState(GLOBAL_SCOPE, GLOBAL_KEY, next);
+  await setAppState(GLOBAL_SCOPE, SEED_MIGRATION_DONE_KEY, true);
+  return { migrated };
 }
 
 /**

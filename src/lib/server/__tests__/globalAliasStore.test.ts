@@ -4,9 +4,15 @@ import test from 'node:test';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  getAppState,
   setAppState,
 } from '../appStateStore.ts';
-import { getScopedAliasMap } from '../globalAliasStore.ts';
+import {
+  getGlobalAliases,
+  getScopedAliasMap,
+  migrateSeedAliasesToGlobal,
+} from '../globalAliasStore.ts';
+import { SEED_ALIASES } from '../../teamNames.ts';
 
 const SLUG = 'league-a';
 const YEAR = 2025;
@@ -16,9 +22,13 @@ test.beforeEach(async () => {
   __resetAppStateForTests();
 });
 
-test('getScopedAliasMap: no scopes seeded returns empty map', async () => {
+// PLATFORM-057: with no scopes seeded, getScopedAliasMap now surfaces the
+// migrated static SEED_ALIASES (they are lazily written into the global store
+// on first read), rather than an empty map.
+test('getScopedAliasMap: with no scopes seeded, static SEED_ALIASES are surfaced', async () => {
   const map = await getScopedAliasMap(SLUG, YEAR);
-  assert.deepEqual(map, {});
+  assert.equal(map['ole miss'], SEED_ALIASES['ole miss']);
+  assert.equal(map.byu, SEED_ALIASES.byu);
 });
 
 test('getScopedAliasMap: global-only alias is returned', async () => {
@@ -41,10 +51,12 @@ test('getScopedAliasMap: global overrides league+year on key conflict', async ()
 });
 
 test('getScopedAliasMap: league+year overrides year-only on key conflict', async () => {
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'ole miss': 'Mississippi (league)' });
-  await setAppState(`aliases:${YEAR}`, 'map', { 'ole miss': 'Mississippi (year)' });
+  // Uses a non-seed key so migrated SEED_ALIASES (now global-tier) don't
+  // pre-empt this league-vs-year precedence check.
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Target (league)' });
+  await setAppState(`aliases:${YEAR}`, 'map', { 'gulf coast tech': 'Target (year)' });
   const map = await getScopedAliasMap(SLUG, YEAR);
-  assert.equal(map['ole miss'], 'Mississippi (league)');
+  assert.equal(map['gulf coast tech'], 'Target (league)');
 });
 
 test('getScopedAliasMap: full precedence global > league+year > year, non-conflicting keys union', async () => {
@@ -93,4 +105,59 @@ test('getScopedAliasMap: normalized-identity conflict, league beats year (both n
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map['gulf coast tech'], 'Texas');
   assert.equal(Object.prototype.hasOwnProperty.call(map, 'gulfcoasttech'), false);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-057: migrateSeedAliasesToGlobal — static seed bundle → global store
+// ---------------------------------------------------------------------------
+
+test('migrateSeedAliasesToGlobal: writes SEED_ALIASES into the global store', async () => {
+  const { migrated } = await migrateSeedAliasesToGlobal();
+  assert.ok(migrated > 0, 'reports entries migrated');
+  const global = await getGlobalAliases();
+  assert.equal(global['ole miss'], SEED_ALIASES['ole miss']);
+  assert.equal(global.byu, SEED_ALIASES.byu);
+});
+
+test('migrateSeedAliasesToGlobal: is idempotent (sentinel-guarded)', async () => {
+  const first = await migrateSeedAliasesToGlobal();
+  assert.ok(first.migrated > 0);
+  const second = await migrateSeedAliasesToGlobal();
+  assert.equal(second.migrated, 0, 'second run is a no-op');
+  const sentinel = await getAppState<boolean>('aliases:global', 'seed-migration-done');
+  assert.equal(sentinel?.value, true);
+});
+
+test('migrateSeedAliasesToGlobal: never overwrites an existing global entry', async () => {
+  // A manually corrected global entry for a seed key must survive migration.
+  await setAppState('aliases:global', 'map', { 'ole miss': 'Manually Corrected' });
+  const { migrated } = await migrateSeedAliasesToGlobal();
+  const global = await getGlobalAliases();
+  assert.equal(global['ole miss'], 'Manually Corrected', 'manual global entry preserved');
+  // Other seeds still land.
+  assert.equal(global.byu, SEED_ALIASES.byu);
+  assert.ok(migrated > 0);
+});
+
+test('migrateSeedAliasesToGlobal: existing global wins on normalized-identity collision', async () => {
+  // `texas am` (existing global) and the seed `texas a&m` collapse to the same
+  // resolver identity via normalizeTeamName; the existing global entry wins and
+  // no colliding seed key is added.
+  await setAppState('aliases:global', 'map', { 'texas am': 'Existing Target' });
+  await migrateSeedAliasesToGlobal();
+  const global = await getGlobalAliases();
+  assert.equal(global['texas am'], 'Existing Target');
+  assert.equal(Object.prototype.hasOwnProperty.call(global, 'texas a&m'), false);
+});
+
+test('migrateSeedAliasesToGlobal: seeds participate in getScopedAliasMap precedence as global-tier', async () => {
+  // A league-scoped alias that conflicts (by identity) with a migrated seed must
+  // lose — the seed is now a global-tier entry.
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'ole miss': 'League Override' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(
+    map['ole miss'],
+    SEED_ALIASES['ole miss'],
+    'migrated seed (global) beats league scope'
+  );
 });
