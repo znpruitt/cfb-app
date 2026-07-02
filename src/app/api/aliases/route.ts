@@ -94,9 +94,13 @@ export async function PUT(req: Request): Promise<Response> {
         : {};
     const upserts: AliasMap = isAliasMap(obj.upserts) ? obj.upserts : {};
     const next = await upsertGlobalAliases(upserts);
-    // FUTURE: global alias writes affect every league that reads global
-    // aliases. invalidateStandings is per-slug; enumerating the league
-    // registry to invalidate all is out of scope for Phase 0.
+    // Global aliases feed canonical standings via getScopedAliasMap and can
+    // affect any cached year of any league, so invalidate every registered
+    // league's umbrella standings tag (year omitted → busts all cached years).
+    const leagues = await getLeagues();
+    for (const league of leagues) {
+      invalidateStandings(league.slug);
+    }
     return Response.json({ scope: 'global', map: next });
   }
   const year = clampYearMaybe(url.searchParams.get('year'));

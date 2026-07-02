@@ -19,6 +19,7 @@ import { getSeasonArchive, listSeasonArchives } from '../seasonArchive.ts';
 import { getScheduleProbeState } from '../scheduleProbe.ts';
 import { selectSeasonContext } from './seasonContext.ts';
 import { getAppState } from '../server/appStateStore.ts';
+import { getScopedAliasMap } from '../server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
 import {
   NO_CLAIM_OWNER,
@@ -30,7 +31,6 @@ import {
 } from '../standings.ts';
 import { deriveStandingsHistory, type StandingsHistory } from '../standingsHistory.ts';
 import { createTeamIdentityResolver } from '../teamIdentity.ts';
-import type { AliasMap } from '../teamNames.ts';
 import { isLikelyInvalidTeamLabel } from '../teamNormalization.ts';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection.ts';
 
@@ -270,7 +270,8 @@ export async function getCanonicalStandings(
  *
  * Wired into:
  * - PUT /api/owners (league-scoped roster CSV)
- * - PUT /api/aliases (league-scoped only — see gap below)
+ * - PUT /api/aliases (league-scoped: invalidates that league+year;
+ *   global-scoped: invalidates every registered league's umbrella tag)
  * - PUT /api/postseason-overrides
  * - POST + DELETE /api/draft/[slug]/[year]/confirm
  * - GET /api/schedule (admin refresh, walks registry)
@@ -278,14 +279,16 @@ export async function getCanonicalStandings(
  * - POST /api/admin/backfill (single league/year)
  * - POST /api/admin/rollover (per league, stage-1 archive loop)
  *
+ * Global alias writes (PUT /api/aliases?scope=global) enumerate the league
+ * registry and call `invalidateStandings(slug)` (no year) for each, so a
+ * corrected global alias busts every affected league's cached snapshot across
+ * all years.
+ *
  * Known gaps (low-frequency paths, deferred for future work):
  * - `confirmPreseasonOwners` server action — runs ~once per season at
  *   preseason setup. Workaround: hard refresh in admin UI after running it.
  * - Cron season transitions — runs ~once per season at season-start.
  *   Same workaround applies.
- * - Global alias writes (PUT /api/aliases?scope=global) — would require
- *   enumerating the league registry to invalidate every league that reads
- *   the global alias map. Out of scope for Phase 0.
  *
  * If a deferred path is hit, the cache may serve stale canonical data until
  * a subsequent invalidation fires from another path.
@@ -716,7 +719,7 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
 
   const [teams, aliasMap, manualOverrides] = await Promise.all([
     getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
-    loadAliasMap(slug, year),
+    getScopedAliasMap(slug, year),
     loadManualOverrides(slug, year),
   ]);
 
@@ -819,13 +822,6 @@ function toNormalizedScoreRow(
     home: item.home,
     away: item.away,
   };
-}
-
-async function loadAliasMap(slug: string, year: number): Promise<AliasMap> {
-  const record = await getAppState<AliasMap>(`aliases:${slug}:${year}`, 'map');
-  const value = record?.value;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return value;
 }
 
 async function loadManualOverrides(
