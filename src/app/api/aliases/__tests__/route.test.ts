@@ -174,34 +174,20 @@ test('global GET lazy migration invalidates registered leagues when it moves ent
   assert.ok(tags.includes('standings:league-b'), 'league-b invalidated after migration');
 });
 
-test('global GET migrates static seeds and invalidates even without legacy scopes (P2)', async () => {
-  await setAppState('leagues', 'registry', [makeLeague('league-a'), makeLeague('league-b')]);
-  // No legacy scopes, but the first global GET still migrates SEED_ALIASES into
-  // the global store, which are a canonical standings input — so it invalidates.
+test('global GET surfaces static seeds without writing or invalidating (P2)', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('league-a')]);
+  // No legacy scopes. SEED_ALIASES are merged in-memory (not persisted), so the
+  // response includes them but nothing migrates → no standings invalidation.
   const { result: res, tags } = await runCapturingTags(() =>
     GET(new Request('https://example.com/api/aliases?scope=global', { method: 'GET' }))
   );
   assert.equal(res.status, 200);
   const body = (await res.json()) as { map: Record<string, string> };
-  assert.equal(body.map['ole miss'], 'mississippi', 'seeds present in global map');
-  assert.ok(tags.includes('standings:league-a'));
-  assert.ok(tags.includes('standings:league-b'));
-});
-
-test('global GET does not invalidate once all migrations are complete (P2)', async () => {
-  await setAppState('leagues', 'registry', [makeLeague('league-a')]);
-  // First GET runs the one-time migrations (seeds + legacy) and invalidates.
-  await runCapturingTags(() =>
-    GET(new Request('https://example.com/api/aliases?scope=global', { method: 'GET' }))
-  );
-  // Second GET: sentinels set, nothing migrates → no standings invalidation.
-  const { result: res, tags } = await runCapturingTags(() =>
-    GET(new Request('https://example.com/api/aliases?scope=global', { method: 'GET' }))
-  );
-  assert.equal(res.status, 200);
+  assert.equal(body.map['ole miss'], 'mississippi', 'seeds present in merged global map');
   assert.deepEqual(
     tags.filter((t) => t.startsWith('standings:')),
-    []
+    [],
+    'no invalidation when only in-memory seeds are surfaced'
   );
 });
 
