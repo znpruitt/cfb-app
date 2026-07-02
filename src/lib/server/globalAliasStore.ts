@@ -55,6 +55,29 @@ const SEED_ENTRIES: ReadonlyArray<{ key: string; identity: string; target: strin
 // thereby outrank the seed it collides with.
 const SEED_IDENTITIES: ReadonlySet<string> = new Set(SEED_ENTRIES.map((e) => e.identity));
 
+/**
+ * Deterministic FNV-1a hash of the SEED_ALIASES contents (order-independent).
+ * Because seeds are code-defined and merged in-memory (never persisted, so no
+ * runtime write fires an invalidation), any cache whose output depends on the
+ * seed set — notably canonical standings — must fold this hash into its cache
+ * identity. When SEED_ALIASES changes, the hash changes and those caches miss
+ * naturally, with no manual alias write required.
+ */
+export function hashSeedAliases(seeds: AliasMap): string {
+  const serialized = Object.entries(seeds)
+    .map(([k, v]) => `${normalizeAliasLookup(k)}=${typeof v === 'string' ? v.trim() : ''}`)
+    .sort()
+    .join(';');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i++) {
+    h ^= serialized.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+export const SEED_ALIASES_HASH = hashSeedAliases(SEED_ALIASES);
+
 // Process-local serialization for global-alias mutations. Every writer of
 // `aliases:global/map` (year-scoped migration, upsert) does a read-modify-write
 // of the whole map, so concurrent writers could otherwise read a stale map and
@@ -110,10 +133,21 @@ function addSeedLayer(into: AliasMap, claimed: Set<string>): void {
 }
 
 /**
- * Public global alias read: the stored global map with the static SEED_ALIASES
- * merged underneath (stored entries win on identity conflict). Direct global
- * readers (owner validation, owner writes, Insights game building, the admin
- * alias GET) therefore always see the seeds without any persisted migration.
+ * Stored/manual global aliases only — the persisted `aliases:global/map`
+ * WITHOUT the in-memory seed layer. Use this for admin/editor storage views so
+ * a normal save can never round-trip the code-defined seeds back into the store
+ * as manual entries (which would then permanently shadow future seed edits).
+ */
+export async function getStoredGlobalAliases(): Promise<AliasMap> {
+  return readGlobalAliasMapRaw();
+}
+
+/**
+ * Effective global alias read: the stored global map with the static
+ * SEED_ALIASES merged underneath (stored entries win on identity conflict).
+ * Resolver consumers (owner validation, owner writes, Insights game building)
+ * use this so they always see the seeds. NOT for editable admin views — see
+ * getStoredGlobalAliases.
  */
 export async function getGlobalAliases(): Promise<AliasMap> {
   const stored = await readGlobalAliasMapRaw();

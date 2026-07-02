@@ -3,7 +3,7 @@ import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isValidSlug, getLeague, getLeagues } from '../../../lib/leagueRegistry.ts';
 import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import {
-  getGlobalAliases,
+  getStoredGlobalAliases,
   upsertGlobalAliases,
   migrateYearScopedAliasesToGlobal,
 } from '../../../lib/server/globalAliasStore.ts';
@@ -65,7 +65,10 @@ export async function GET(req: Request): Promise<Response> {
         invalidateStandings(league.slug);
       }
     }
-    const map = await getGlobalAliases();
+    // Return stored/manual global aliases only — never the in-memory seed layer.
+    // The admin editor re-posts every returned row as an upsert, so including
+    // seeds here would persist them and permanently shadow future seed edits.
+    const map = await getStoredGlobalAliases();
     return Response.json({ scope: 'global', map });
   }
 

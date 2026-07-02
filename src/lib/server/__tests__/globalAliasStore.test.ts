@@ -10,7 +10,10 @@ import {
 import {
   getGlobalAliases,
   getScopedAliasMap,
+  getStoredGlobalAliases,
+  hashSeedAliases,
   migrateYearScopedAliasesToGlobal,
+  SEED_ALIASES_HASH,
   upsertGlobalAliases,
 } from '../globalAliasStore.ts';
 import { SEED_ALIASES } from '../../teamNames.ts';
@@ -183,4 +186,44 @@ test('concurrent upserts: the write lock preserves both entries', async () => {
   const stored = (await getAppState<Record<string, string>>('aliases:global', 'map'))?.value ?? {};
   assert.equal(stored['first key'], 'First');
   assert.equal(stored['second key'], 'Second');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-057 remediation: stored-vs-effective separation + seed hash
+// ---------------------------------------------------------------------------
+
+test('getStoredGlobalAliases: returns stored entries only, never the in-memory seeds', async () => {
+  await setAppState('aliases:global', 'map', { 'brand new': 'Manual Team' });
+  const stored = await getStoredGlobalAliases();
+  assert.equal(stored['brand new'], 'Manual Team');
+  // Seeds are NOT included in the stored view.
+  assert.equal(Object.prototype.hasOwnProperty.call(stored, 'ole miss'), false);
+  // ...but the effective read still surfaces them.
+  const effective = await getGlobalAliases();
+  assert.equal(effective['ole miss'], SEED_ALIASES['ole miss']);
+  assert.equal(effective['brand new'], 'Manual Team');
+});
+
+test('getStoredGlobalAliases: empty store returns empty (no seeds leak in)', async () => {
+  const stored = await getStoredGlobalAliases();
+  assert.deepEqual(stored, {});
+});
+
+test('hashSeedAliases: deterministic and order-independent', async () => {
+  const a = hashSeedAliases({ 'ole miss': 'mississippi', byu: 'brigham young' });
+  const b = hashSeedAliases({ byu: 'brigham young', 'ole miss': 'mississippi' });
+  assert.equal(a, b, 'same contents in different order → same hash');
+});
+
+test('hashSeedAliases: changes when the seed set changes', async () => {
+  const base = hashSeedAliases({ 'ole miss': 'mississippi' });
+  const added = hashSeedAliases({ 'ole miss': 'mississippi', newseed: 'new target' });
+  const changed = hashSeedAliases({ 'ole miss': 'different target' });
+  assert.notEqual(base, added, 'adding a seed changes the hash');
+  assert.notEqual(base, changed, 'changing a target changes the hash');
+});
+
+test('SEED_ALIASES_HASH: matches the hash of the shipped SEED_ALIASES', async () => {
+  assert.equal(SEED_ALIASES_HASH, hashSeedAliases(SEED_ALIASES));
+  assert.ok(SEED_ALIASES_HASH.length > 0);
 });
