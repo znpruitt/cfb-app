@@ -69,3 +69,28 @@ test('getScopedAliasMap: ASCII keys from global and league coincide, global wins
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map['texas am'], 'Texas A&M (global)');
 });
+
+// PLATFORM-055 P1: precedence must hold by the resolver's canonical identity,
+// not raw key text. `gulf coast tech` and `gulfcoasttech` are textually
+// distinct but normalize (via normalizeTeamName, the resolver's alias-key
+// normalization) to the same identity. The lower-precedence scope must NOT
+// survive alongside the global entry, or buildCanonicalRegistry's first-wins
+// could credit the legacy target.
+test('getScopedAliasMap: normalized-identity conflict resolves to global, dropping the legacy key', async () => {
+  await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { gulfcoasttech: 'Georgia' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  // Global entry survives...
+  assert.equal(map['gulf coast tech'], 'Texas');
+  // ...and the legacy key that collapses to the same identity is dropped, so
+  // it cannot win by insertion order in the resolver registry.
+  assert.equal(Object.prototype.hasOwnProperty.call(map, 'gulfcoasttech'), false);
+});
+
+test('getScopedAliasMap: normalized-identity conflict, league beats year (both non-global)', async () => {
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
+  await setAppState(`aliases:${YEAR}`, 'map', { gulfcoasttech: 'Georgia' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(map['gulf coast tech'], 'Texas');
+  assert.equal(Object.prototype.hasOwnProperty.call(map, 'gulfcoasttech'), false);
+});

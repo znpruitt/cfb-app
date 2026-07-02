@@ -7,7 +7,7 @@ import test from 'node:test';
 import '../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
-import { PUT } from '../route';
+import { GET, PUT } from '../route';
 import type { League } from '../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
@@ -128,6 +128,60 @@ test('global alias PUT succeeds with an empty league registry', async () => {
   const body = (await res.json()) as { map: Record<string, string> };
   assert.equal(body.map['gulf coast tech'], 'Texas');
   // No leagues → no standings tags invalidated.
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    []
+  );
+});
+
+test('year-only alias PUT invalidates every registered league for that year (P2)', async () => {
+  // `aliases:${year}` is a deprecated fallback consumed by every league's
+  // canonical standings for that year, so a year-only write must invalidate all
+  // registered leagues — not leave them stale as it did before the P2 fix.
+  await setAppState('leagues', 'registry', [makeLeague('league-a'), makeLeague('league-b')]);
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(
+      new Request('https://example.com/api/aliases?year=2025', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
+        body: JSON.stringify({ upserts: { 'gulf coast tech': 'Texas' } }),
+      })
+    )
+  );
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { league: string | null; map: Record<string, string> };
+  assert.equal(body.league, null);
+  assert.ok(tags.includes('standings:league-a'));
+  assert.ok(tags.includes('standings:league-b'));
+  assert.ok(tags.includes('standings:league-a:2025'));
+  assert.ok(tags.includes('standings:league-b:2025'));
+});
+
+test('global GET lazy migration invalidates registered leagues when it moves entries (P2)', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('league-a'), makeLeague('league-b')]);
+  // A legacy year-scoped alias within the migration scan range (migrationYear
+  // 2025 → scans 2015..2026). Its presence makes the lazy migration actually
+  // populate the global store (migrated > 0).
+  await setAppState('aliases:league-a:2024', 'map', { 'legacy team': 'Texas' });
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    GET(new Request('https://example.com/api/aliases?scope=global', { method: 'GET' }))
+  );
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { scope: string; map: Record<string, string> };
+  assert.equal(body.map['legacy team'], 'Texas');
+  assert.ok(tags.includes('standings:league-a'), 'league-a invalidated after migration');
+  assert.ok(tags.includes('standings:league-b'), 'league-b invalidated after migration');
+});
+
+test('global GET does not invalidate when there is nothing to migrate (P2)', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('league-a')]);
+  // No legacy scopes seeded → migration is a no-op (migrated === 0) → no
+  // standings invalidation from a plain read.
+  const { result: res, tags } = await runCapturingTags(() =>
+    GET(new Request('https://example.com/api/aliases?scope=global', { method: 'GET' }))
+  );
+  assert.equal(res.status, 200);
   assert.deepEqual(
     tags.filter((t) => t.startsWith('standings:')),
     []

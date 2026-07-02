@@ -859,6 +859,35 @@ test('alias: global overrides league+year on conflict (global precedence)', asyn
   assert.equal(carol?.wins ?? 0, 0, 'league target (Georgia/Carol) NOT credited');
 });
 
+test('alias: global wins over a legacy key that only differs by normalization (P1)', async () => {
+  const slug = 'alias-global-over-normalized-legacy';
+  // Global uses the spaced key; the legacy league scope uses the space-stripped
+  // form. Both collapse to the same resolver identity. Before the P1 fix the
+  // legacy entry (inserted first by the merge) won in buildCanonicalRegistry and
+  // credited Carol; global precedence must credit Alice.
+  await seedAliasScope('aliases:global', { 'gulf coast tech': 'Texas' });
+  await seedAliasScope(`aliases:${slug}:2025`, { gulfcoasttech: 'Georgia' });
+  await seedLeague(makeLeague({ slug, year: 2025, status: ALIAS_STATUS }));
+  await seedOwnersCsv(
+    slug,
+    2025,
+    ['team,owner', 'Texas,Alice', 'Georgia,Carol', 'Rival Tech,Bob'].join('\n')
+  );
+  await seedScoredGame(2025, {
+    id: 'game-1',
+    homeProvider: 'Gulf Coast Tech',
+    awayProvider: 'Rival Tech',
+    homeScore: 31,
+    awayScore: 10,
+  });
+
+  const snapshot = await getCanonicalStandings({ slug, leagueStatusOverride: ALIAS_STATUS });
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  const carol = snapshot.rows.find((r) => r.owner === 'Carol');
+  assert.equal(alice?.wins ?? 0, 1, 'global target (Texas/Alice) credited');
+  assert.equal(carol?.wins ?? 0, 0, 'legacy normalized-dup target (Georgia/Carol) NOT credited');
+});
+
 test('alias: league-only alias still resolves as a deprecated fallback', async () => {
   const slug = 'alias-league-only';
   await seedAliasScope('aliases:alias-league-only:2025', { 'gulf coast tech': 'Texas' });

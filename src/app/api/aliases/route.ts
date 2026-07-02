@@ -51,10 +51,19 @@ export async function GET(req: Request): Promise<Response> {
     // sentinel on entry and returns immediately once migration has run.
     const leagues = await getLeagues();
     const migrationYear = leagues.length > 0 ? leagues[0]!.year : new Date().getFullYear();
-    await migrateYearScopedAliasesToGlobal(
+    const { migrated } = await migrateYearScopedAliasesToGlobal(
       leagues.map((l) => l.slug),
       migrationYear
     );
+    // Migration writes legacy entries into the global store, which canonical
+    // standings now consume. If it actually moved entries, invalidate every
+    // registered league so warm canonical snapshots pick up the new aliases.
+    // Idempotent: the migration sentinel makes migrated > 0 fire at most once.
+    if (migrated > 0) {
+      for (const league of leagues) {
+        invalidateStandings(league.slug);
+      }
+    }
     const map = await getGlobalAliases();
     return Response.json({ scope: 'global', map });
   }
@@ -184,6 +193,16 @@ export async function PUT(req: Request): Promise<Response> {
   }
 
   await writeAliases(year, next, league);
-  if (league) invalidateStandings(league, year);
+  if (league) {
+    invalidateStandings(league, year);
+  } else {
+    // Year-only scope (`aliases:${year}`) is a deprecated fallback consumed by
+    // every league's canonical standings for that year, so invalidate all
+    // registered leagues rather than leaving warm snapshots stale.
+    const leagues = await getLeagues();
+    for (const registered of leagues) {
+      invalidateStandings(registered.slug, year);
+    }
+  }
   return Response.json({ year, league: league ?? null, map: next });
 }
