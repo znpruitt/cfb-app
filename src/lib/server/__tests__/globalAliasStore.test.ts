@@ -72,6 +72,18 @@ test('getScopedAliasMap: year-scoped repair also beats the static seed default',
   assert.equal(map['ole miss'], 'Year Override');
 });
 
+test('getScopedAliasMap: no-league form ("") still applies global + year + seeds', async () => {
+  // Owners routes call getScopedAliasMap(league ?? '', year) for the year-only
+  // path — the empty slug just yields no league scope; year repair still beats
+  // the seed, and seeds still fill.
+  await setAppState('aliases:global', 'map', { 'brand new': 'Global Team' });
+  await setAppState(`aliases:${YEAR}`, 'map', { uh: 'Hawaii' });
+  const map = await getScopedAliasMap('', YEAR);
+  assert.equal(map['brand new'], 'Global Team');
+  assert.equal(map.uh, 'Hawaii', 'year repair beats seed');
+  assert.equal(map['ole miss'], SEED_ALIASES['ole miss'], 'seed still fills');
+});
+
 test('getScopedAliasMap: seed fills as fallback when no stored/scoped alias covers it', async () => {
   await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
   const map = await getScopedAliasMap(SLUG, YEAR);

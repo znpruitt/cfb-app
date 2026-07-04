@@ -4,9 +4,8 @@ import { isAuthorizedForLeague } from '../../../lib/leagueAuth.ts';
 import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
 import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import { getTeamDatabaseItems } from '../../../lib/server/teamDatabaseStore.ts';
-import { getGlobalAliases } from '../../../lib/server/globalAliasStore.ts';
+import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { validateRosterCSV } from '../../../lib/rosterUploadValidator.ts';
-import type { AliasMap } from '../../../lib/teamNames.ts';
 
 function clampYearMaybe(s: string | null): number {
   const fallback = new Date().getFullYear();
@@ -86,18 +85,13 @@ export async function PUT(req: Request): Promise<Response> {
   if (typeof csvText === 'string' && csvText.trim()) {
     // Server-side safety guard: reject uploads that contain unresolved team names.
     // The UI enforces this too, but the API must enforce it independently.
-    const [teams, globalAliases, leagueAliasRecord] = await Promise.all([
+    const [teams, mergedAliases] = await Promise.all([
       getTeamDatabaseItems(),
-      getGlobalAliases(),
-      getAppState<AliasMap>(league ? `aliases:${league}:${year}` : `aliases:${year}`, 'map'),
+      // Effective, league-aware precedence (stored global > league+year > year >
+      // seed defaults). Must NOT be built by spreading getGlobalAliases() after
+      // the scoped map — that would let a seed default override a scoped repair.
+      getScopedAliasMap(league ?? '', year),
     ]);
-    const leagueAliasMap = leagueAliasRecord?.value;
-    const mergedAliases: AliasMap = {
-      ...(leagueAliasMap && typeof leagueAliasMap === 'object' && !Array.isArray(leagueAliasMap)
-        ? (leagueAliasMap as AliasMap)
-        : {}),
-      ...globalAliases,
-    };
     const validation = validateRosterCSV(csvText, mergedAliases, teams);
     if (!validation.isComplete) {
       const unresolvedTeams = validation.needsConfirmation.map((u) => u.inputName);
