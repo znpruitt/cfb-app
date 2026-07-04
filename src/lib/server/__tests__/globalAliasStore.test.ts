@@ -130,21 +130,36 @@ test('getScopedAliasMap: ASCII keys from global and league coincide, global wins
   assert.equal(map['texas am'], 'Texas A&M (global)');
 });
 
-// PLATFORM-055 P1: precedence holds by resolver identity, not raw key text.
-test('getScopedAliasMap: normalized-identity conflict resolves to global, dropping the legacy key', async () => {
+// PLATFORM-055 P1 + PLATFORM-057 spelling preservation: precedence holds by
+// resolver identity, and the lower-layer spelling is KEPT but remapped to the
+// higher-precedence winning target (so exact-key consumers still resolve it).
+test('getScopedAliasMap: normalized-identity conflict keeps both spellings, both → global target', async () => {
   await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
   await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { gulfcoasttech: 'Georgia' });
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map['gulf coast tech'], 'Texas');
-  assert.equal(Object.prototype.hasOwnProperty.call(map, 'gulfcoasttech'), false);
+  // Legacy spelling preserved but remapped to the winning (global) target.
+  assert.equal(map.gulfcoasttech, 'Texas');
 });
 
-test('getScopedAliasMap: normalized-identity conflict, league beats year (both non-global)', async () => {
+test('getScopedAliasMap: normalized-identity conflict, league beats year (both spellings → league target)', async () => {
   await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
   await setAppState(`aliases:${YEAR}`, 'map', { gulfcoasttech: 'Georgia' });
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map['gulf coast tech'], 'Texas');
-  assert.equal(Object.prototype.hasOwnProperty.call(map, 'gulfcoasttech'), false);
+  assert.equal(map.gulfcoasttech, 'Texas', 'year spelling remapped to the league winner');
+});
+
+test('getScopedAliasMap: preserves a shadowed lower-layer spelling for exact-key validation', async () => {
+  // The finding's exact example: validateRosterCSV does exact normalizeAliasLookup
+  // indexing, so `gulfcoasttech` must be present (mapped to the winning target).
+  await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Global Target' });
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { gulfcoasttech: 'Legacy Target' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.deepEqual(
+    { 'gulf coast tech': map['gulf coast tech'], gulfcoasttech: map.gulfcoasttech },
+    { 'gulf coast tech': 'Global Target', gulfcoasttech: 'Global Target' }
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -170,11 +185,12 @@ test('getGlobalAliases: manual/stored global entry beats the seed for the same k
 
 test('getGlobalAliases: manual global beats seed on normalized-identity collision', async () => {
   // `texas am` (stored) and seed `texas a&m` share a resolver identity; stored
-  // wins and no colliding seed key is added.
+  // wins. The seed spelling is preserved but remapped to the stored target so
+  // an exact-key lookup of either spelling resolves to the manual value.
   await setAppState('aliases:global', 'map', { 'texas am': 'Existing Target' });
   const global = await getGlobalAliases();
   assert.equal(global['texas am'], 'Existing Target');
-  assert.equal(Object.prototype.hasOwnProperty.call(global, 'texas a&m'), false);
+  assert.equal(global['texas a&m'], 'Existing Target', 'seed spelling remapped to stored winner');
 });
 
 // ---------------------------------------------------------------------------
@@ -211,6 +227,36 @@ test('legacy promotion: a non-seed key is still promoted into the global store',
   const global = await getGlobalAliases();
   assert.equal(global['gulf coast tech'], 'Legacy Only');
   assert.equal(global['ole miss'], SEED_ALIASES['ole miss']); // seeds still present
+});
+
+test('legacy promotion: a copied seed default (bootstrap) is NOT promoted', async () => {
+  // bootstrapAliasesAndCaches writes the whole SEED_ALIASES bundle into an empty
+  // scope; an exact copy (same key AND target) is a default, not a manual repair,
+  // so it must not be promoted into the stored global map.
+  await setAppState('aliases:2024', 'map', {
+    'ole miss': SEED_ALIASES['ole miss']!, // exact seed copy → skip
+    'gulf coast tech': 'Real Repair', // genuine repair → promote
+  });
+  const { migrated } = await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+  const stored = (await getAppState<Record<string, string>>('aliases:global', 'map'))?.value ?? {};
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(stored, 'ole miss'),
+    false,
+    'seed copy skipped'
+  );
+  assert.equal(stored['gulf coast tech'], 'Real Repair', 'genuine repair still promoted');
+  assert.equal(migrated, 1, 'only the genuine repair counts');
+});
+
+test('legacy promotion: a scope of only copied seed defaults migrates nothing', async () => {
+  await setAppState('aliases:2024', 'map', {
+    'ole miss': SEED_ALIASES['ole miss']!,
+    byu: SEED_ALIASES.byu!,
+  });
+  const { migrated } = await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+  assert.equal(migrated, 0, 'no genuine repairs → nothing promoted (no invalidation)');
+  const stored = (await getAppState<Record<string, string>>('aliases:global', 'map'))?.value ?? {};
+  assert.equal(Object.keys(stored).length, 0);
 });
 
 // ---------------------------------------------------------------------------

@@ -108,25 +108,39 @@ async function readGlobalAliasMapRaw(): Promise<AliasMap> {
 }
 
 /**
- * Merge one precedence layer into `into`. Dedup is ACROSS layers only, never
- * within a layer: an identity already claimed by a HIGHER layer is skipped, but
- * every distinct stored spelling within THIS layer is preserved (two keys that
- * collapse to the same coarse team identity — e.g. `gulf coast tech` and
- * `gulfcoasttech` — are both kept, so exact-key consumers like validateRosterCSV
- * resolve either spelling). Identities are claimed only after the whole layer is
- * processed, so same-layer siblings don't shadow each other.
+ * Merge one precedence layer into `into`, resolving cross-layer conflicts by the
+ * resolver's canonical identity (`normalizeTeamName`) while PRESERVING every
+ * distinct lookup spelling.
+ *
+ * `identityWinner` maps a normalized team identity → the target chosen by the
+ * highest-precedence layer that owns it. When a lower layer has a key whose
+ * identity is already owned (e.g. global `gulf coast tech` owns `gulfcoasttech`,
+ * and a scoped `gulfcoasttech` arrives later), the spelling is KEPT but remapped
+ * to the winning target — so exact-key consumers like validateRosterCSV resolve
+ * that spelling to the correct (higher-precedence) team instead of missing it.
+ * Same-layer siblings don't shadow each other: identities are registered only
+ * after the whole layer is processed.
  */
-function addAliasLayer(into: AliasMap, claimed: Set<string>, map: AliasMap): void {
-  const layerIdentities: string[] = [];
+function addAliasLayer(into: AliasMap, identityWinner: Map<string, string>, map: AliasMap): void {
+  const firstSeen: Array<[string, string]> = [];
   for (const [key, target] of Object.entries(map)) {
     if (typeof target !== 'string') continue;
     const identity = normalizeTeamName(key);
     // Keys that normalize to nothing can never be matched by the resolver.
-    if (!identity || claimed.has(identity)) continue;
-    into[key] = target;
-    layerIdentities.push(identity);
+    if (!identity) continue;
+    const winner = identityWinner.get(identity);
+    if (winner !== undefined) {
+      // A higher-precedence layer owns this identity: preserve this spelling but
+      // point it at the winning target.
+      into[key] = winner;
+    } else {
+      into[key] = target;
+      firstSeen.push([identity, target]);
+    }
   }
-  for (const identity of layerIdentities) claimed.add(identity);
+  for (const [identity, target] of firstSeen) {
+    if (!identityWinner.has(identity)) identityWinner.set(identity, target);
+  }
 }
 
 /**
@@ -149,9 +163,9 @@ export async function getStoredGlobalAliases(): Promise<AliasMap> {
 export async function getGlobalAliases(): Promise<AliasMap> {
   const stored = await readGlobalAliasMapRaw();
   const result: AliasMap = {};
-  const claimed = new Set<string>();
-  addAliasLayer(result, claimed, stored); // 1. stored/manual global wins
-  addAliasLayer(result, claimed, SEED_ALIAS_MAP); // 2. seed defaults fill gaps
+  const identityWinner = new Map<string, string>();
+  addAliasLayer(result, identityWinner, stored); // 1. stored/manual global wins
+  addAliasLayer(result, identityWinner, SEED_ALIAS_MAP); // 2. seed defaults fill gaps
   return result;
 }
 
@@ -178,11 +192,11 @@ export async function getScopedAliasMap(leagueSlug: string, year: number): Promi
   ]);
 
   const aliasMap: AliasMap = {};
-  const claimed = new Set<string>();
-  addAliasLayer(aliasMap, claimed, storedGlobal); //   1. stored/manual global
-  addAliasLayer(aliasMap, claimed, leagueMap); //      2. deprecated league+year
-  addAliasLayer(aliasMap, claimed, yearMap); //        3. deprecated year-only
-  addAliasLayer(aliasMap, claimed, SEED_ALIAS_MAP); // 4. static seed defaults
+  const identityWinner = new Map<string, string>();
+  addAliasLayer(aliasMap, identityWinner, storedGlobal); // 1. stored/manual global
+  addAliasLayer(aliasMap, identityWinner, leagueMap); //    2. deprecated league+year
+  addAliasLayer(aliasMap, identityWinner, yearMap); //      3. deprecated year-only
+  addAliasLayer(aliasMap, identityWinner, SEED_ALIAS_MAP); // 4. static seed defaults
   return aliasMap;
 }
 
@@ -226,9 +240,12 @@ export async function upsertGlobalAliases(entries: AliasMap): Promise<AliasMap> 
  *
  * Fill-only: existing stored global entries are never overwritten. Promoted
  * entries become stored global aliases, which correctly outrank the static seed
- * defaults (seeds are the lowest layer), so no seed-identity special-casing is
- * needed. Records a migration sentinel after all discovered scopes are processed
- * so subsequent calls are no-ops. Safe to call repeatedly.
+ * defaults (seeds are the lowest layer). Entries that are exact copies of a seed
+ * default (same normalized key AND target) are NOT promoted — those are
+ * bootstrap-written defaults, not manual repairs, and promoting them would
+ * permanently shadow future seed edits. Records a migration sentinel after all
+ * discovered scopes are processed so subsequent calls are no-ops. Safe to call
+ * repeatedly.
  */
 export async function migrateYearScopedAliasesToGlobal(
   leagueSlugs: string[],
@@ -272,6 +289,12 @@ export async function migrateYearScopedAliasesToGlobal(
         const key = normalizeAliasLookup(k);
         if (!key || typeof v !== 'string' || !v.trim()) continue;
         if (next[key]) continue; // existing stored global wins
+        // Skip copied bootstrap defaults: `bootstrapAliasesAndCaches` writes the
+        // full SEED_ALIASES bundle into empty scopes, and those are NOT manual
+        // repairs — promoting them would turn a code default into a stored
+        // global entry that permanently shadows future seed edits. A seed KEY
+        // with a DIFFERENT target is a genuine repair and still promotes.
+        if (SEED_ALIAS_MAP[key] === v.trim()) continue;
         next[key] = v.trim();
         migrated++;
       }
