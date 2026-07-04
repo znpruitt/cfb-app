@@ -57,13 +57,39 @@ test('getScopedAliasMap: stored global overrides league+year on key conflict', a
   assert.equal(map['gulf coast tech'], 'Global Target');
 });
 
-test('getScopedAliasMap: static seed beats a conflicting league/year alias', async () => {
-  // Seeds sit above the deprecated scoped stores, so a league alias for a seed
-  // key must lose to the seed.
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'ole miss': 'League Override' });
+test('getScopedAliasMap: a scoped manual repair beats the static seed default', async () => {
+  // Seeds are the lowest layer (defaults), so a persisted scoped repair for a
+  // seed key wins. `uh` seeds to houston; a league repair maps it to Hawaii.
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { uh: 'Hawaii' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(map.uh, 'Hawaii', 'scoped repair wins over seed default');
+  assert.notEqual(map.uh, SEED_ALIASES.uh);
+});
+
+test('getScopedAliasMap: year-scoped repair also beats the static seed default', async () => {
   await setAppState(`aliases:${YEAR}`, 'map', { 'ole miss': 'Year Override' });
   const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(map['ole miss'], 'Year Override');
+});
+
+test('getScopedAliasMap: seed fills as fallback when no stored/scoped alias covers it', async () => {
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  // The unrelated scoped alias is present, and the seed still fills its own key.
+  assert.equal(map['gulf coast tech'], 'Texas');
   assert.equal(map['ole miss'], SEED_ALIASES['ole miss']);
+});
+
+test('getScopedAliasMap: preserves multiple stored spellings of one identity in a layer', async () => {
+  // Both spellings collapse to the same coarse identity but must both survive so
+  // an exact-key consumer resolves either one.
+  await setAppState('aliases:global', 'map', {
+    'gulf coast tech': 'Texas',
+    gulfcoasttech: 'Texas',
+  });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(map['gulf coast tech'], 'Texas');
+  assert.equal(map.gulfcoasttech, 'Texas', 'sibling stored spelling preserved');
 });
 
 test('getScopedAliasMap: league+year overrides year-only on key conflict', async () => {
@@ -140,19 +166,20 @@ test('getGlobalAliases: manual global beats seed on normalized-identity collisio
 });
 
 // ---------------------------------------------------------------------------
-// Legacy year-scope promotion: fill-only, and never above a seed identity
+// Legacy year-scope promotion: fill-only (seeds are the lowest layer, so a
+// promoted manual repair correctly outranks the seed default)
 // ---------------------------------------------------------------------------
 
-test('legacy promotion: a seed-identity key is never promoted (seed keeps precedence)', async () => {
+test('legacy promotion: a seed-key repair is promoted and beats the seed default', async () => {
   await setAppState('aliases:2024', 'map', { 'ole miss': 'Legacy Target' });
   const { migrated } = await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
-  // Not promoted into the stored global map...
+  // Promoted into the stored global map (it's a persisted manual repair)...
   const stored = (await getAppState<Record<string, string>>('aliases:global', 'map'))?.value ?? {};
-  assert.equal(Object.prototype.hasOwnProperty.call(stored, 'ole miss'), false);
-  assert.equal(migrated, 0);
-  // ...so the seed still wins in the effective map.
+  assert.equal(stored['ole miss'], 'Legacy Target');
+  assert.ok(migrated > 0);
+  // ...so it beats the seed default in the effective map.
   const map = await getScopedAliasMap(SLUG, 2025);
-  assert.equal(map['ole miss'], SEED_ALIASES['ole miss']);
+  assert.equal(map['ole miss'], 'Legacy Target');
 });
 
 test('legacy promotion: manual global alias beats both seed and legacy', async () => {
@@ -202,6 +229,21 @@ test('getStoredGlobalAliases: returns stored entries only, never the in-memory s
   const effective = await getGlobalAliases();
   assert.equal(effective['ole miss'], SEED_ALIASES['ole miss']);
   assert.equal(effective['brand new'], 'Manual Team');
+});
+
+test('getGlobalAliases/getStoredGlobalAliases: preserve every stored spelling of one identity', async () => {
+  // Both spellings collapse to the same coarse identity; validateRosterCSV does
+  // an exact-key lookup, so dropping either would leave that upload unresolved.
+  await setAppState('aliases:global', 'map', {
+    'gulf coast tech': 'Texas',
+    gulfcoasttech: 'Texas',
+  });
+  const stored = await getStoredGlobalAliases();
+  assert.equal(stored['gulf coast tech'], 'Texas');
+  assert.equal(stored.gulfcoasttech, 'Texas');
+  const effective = await getGlobalAliases();
+  assert.equal(effective['gulf coast tech'], 'Texas');
+  assert.equal(effective.gulfcoasttech, 'Texas', 'sibling spelling not dropped by seed merge');
 });
 
 test('getStoredGlobalAliases: empty store returns empty (no seeds leak in)', async () => {

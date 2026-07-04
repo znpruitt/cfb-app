@@ -17,18 +17,19 @@ import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts
 // teamIdentity resolver which still reads league-scoped maps.
 //
 // The static SEED_ALIASES bundle (universal aliases like `ole miss` →
-// `mississippi`) is NOT persisted. It is merged in-memory as a fixed
-// lowest-but-one precedence layer by both getGlobalAliases() and
+// `mississippi`) is NOT persisted. It is merged in-memory as the LOWEST
+// precedence layer (a code-defined default) by both getGlobalAliases() and
 // getScopedAliasMap(), so every server reader sees it, it is always current
 // with the shipped code (no version sentinel to reconcile), and no read path
 // ever writes to `aliases:global` (so there is no write that would need — and
 // bypass — canonical standings invalidation). The only writers of the global
 // map are upsertGlobalAliases() and migrateYearScopedAliasesToGlobal(), both
-// invoked from request handlers that invalidate. Legacy promotion deliberately
-// skips any scoped key whose identity is owned by a seed, so seed-over-legacy
-// precedence holds even after promotion.
+// invoked from request handlers that invalidate.
 //
-// Effective precedence: manual/stored global > SEED_ALIASES > league+year > year.
+// Effective precedence: stored global > league+year > year > SEED_ALIASES.
+// Seeds are DEFAULTS, weaker than any persisted alias, so a manual repair for a
+// seed key (global or scoped) always wins. Cross-layer conflicts dedup by
+// resolver identity; distinct spellings within one layer are all preserved.
 //
 // All global-map writes are serialized through withGlobalAliasWriteLock() with
 // a re-read inside the lock, so concurrent read-modify-writes cannot clobber
@@ -39,21 +40,19 @@ const GLOBAL_SCOPE = 'aliases:global';
 const GLOBAL_KEY = 'map';
 const MIGRATION_DONE_KEY = 'migration-done';
 
-// Precompute the seed layer once: normalized lookup key + resolver identity +
-// trimmed target. Entries that normalize to nothing (unmatchable) are dropped.
-const SEED_ENTRIES: ReadonlyArray<{ key: string; identity: string; target: string }> =
-  Object.entries(SEED_ALIASES)
-    .map(([rawKey, rawValue]) => ({
-      key: normalizeAliasLookup(rawKey),
-      identity: normalizeTeamName(rawKey),
-      target: typeof rawValue === 'string' ? rawValue.trim() : '',
-    }))
-    .filter((e) => e.key && e.identity && e.target);
-
-// Identities owned by a static seed. Legacy promotion skips these so a
-// deprecated scoped alias can never be promoted into the global store and
-// thereby outrank the seed it collides with.
-const SEED_IDENTITIES: ReadonlySet<string> = new Set(SEED_ENTRIES.map((e) => e.identity));
+// Precompute the seed layer once as a normalized lookup-key → target map. Seeds
+// are code-defined DEFAULTS: they are the lowest-precedence layer, below every
+// persisted alias (stored global, league+year, year), so a persisted manual
+// repair for a seed key (e.g. mapping ambiguous `uh` → Hawaii) always wins.
+const SEED_ALIAS_MAP: AliasMap = (() => {
+  const map: AliasMap = {};
+  for (const [rawKey, rawValue] of Object.entries(SEED_ALIASES)) {
+    const key = normalizeAliasLookup(rawKey);
+    const target = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (key && target && !(key in map)) map[key] = target;
+  }
+  return map;
+})();
 
 /**
  * Deterministic FNV-1a hash of the SEED_ALIASES contents (order-independent).
@@ -109,27 +108,25 @@ async function readGlobalAliasMapRaw(): Promise<AliasMap> {
 }
 
 /**
- * Add `map`'s entries to `into`, first-wins by resolver identity: an identity
- * already claimed by a higher-precedence layer is skipped, so lower-precedence
- * layers only fill genuine gaps. Keys that normalize to nothing are ignored.
+ * Merge one precedence layer into `into`. Dedup is ACROSS layers only, never
+ * within a layer: an identity already claimed by a HIGHER layer is skipped, but
+ * every distinct stored spelling within THIS layer is preserved (two keys that
+ * collapse to the same coarse team identity — e.g. `gulf coast tech` and
+ * `gulfcoasttech` — are both kept, so exact-key consumers like validateRosterCSV
+ * resolve either spelling). Identities are claimed only after the whole layer is
+ * processed, so same-layer siblings don't shadow each other.
  */
 function addAliasLayer(into: AliasMap, claimed: Set<string>, map: AliasMap): void {
+  const layerIdentities: string[] = [];
   for (const [key, target] of Object.entries(map)) {
     if (typeof target !== 'string') continue;
     const identity = normalizeTeamName(key);
+    // Keys that normalize to nothing can never be matched by the resolver.
     if (!identity || claimed.has(identity)) continue;
-    claimed.add(identity);
     into[key] = target;
+    layerIdentities.push(identity);
   }
-}
-
-/** Fill the static seed layer into `into` for any identity not already claimed. */
-function addSeedLayer(into: AliasMap, claimed: Set<string>): void {
-  for (const { key, identity, target } of SEED_ENTRIES) {
-    if (claimed.has(identity)) continue;
-    claimed.add(identity);
-    into[key] = target;
-  }
+  for (const identity of layerIdentities) claimed.add(identity);
 }
 
 /**
@@ -144,30 +141,29 @@ export async function getStoredGlobalAliases(): Promise<AliasMap> {
 
 /**
  * Effective global alias read: the stored global map with the static
- * SEED_ALIASES merged underneath (stored entries win on identity conflict).
- * Resolver consumers (owner validation, owner writes, Insights game building)
- * use this so they always see the seeds. NOT for editable admin views — see
- * getStoredGlobalAliases.
+ * SEED_ALIASES merged underneath as a default (stored entries win; every stored
+ * spelling is preserved). Resolver consumers (owner validation, owner writes,
+ * Insights game building) use this so they always see the seed defaults. NOT for
+ * editable admin views — see getStoredGlobalAliases.
  */
 export async function getGlobalAliases(): Promise<AliasMap> {
   const stored = await readGlobalAliasMapRaw();
   const result: AliasMap = {};
   const claimed = new Set<string>();
-  addAliasLayer(result, claimed, stored); // manual/stored global wins
-  addSeedLayer(result, claimed); // seeds fill missing identities
+  addAliasLayer(result, claimed, stored); // 1. stored/manual global wins
+  addAliasLayer(result, claimed, SEED_ALIAS_MAP); // 2. seed defaults fill gaps
   return result;
 }
 
 /**
  * Resolves the effective alias map for a league/year on the server.
  *
- * Precedence (highest first): stored global > SEED_ALIASES > league+year > year.
- * Enforced by the resolver's canonical identity (`normalizeTeamName`), NOT raw
- * key text — the resolver keys aliases by that normalization and is first-wins,
- * so two textually different keys that collapse to the same identity (e.g.
- * `gulf coast tech` vs `gulfcoasttech`) must not let a lower-precedence layer
- * win on insertion order. The static seeds sit just below the stored global
- * store (manual corrections win) and above the deprecated scoped/year stores.
+ * Precedence (highest first): stored global > league+year > year > SEED_ALIASES.
+ * Static seeds are code-defined DEFAULTS — the LOWEST layer — so any persisted
+ * manual repair (global or scoped) always beats them. Cross-layer conflicts are
+ * resolved by the resolver's canonical identity (`normalizeTeamName`, first-wins
+ * across layers), but every distinct stored spelling WITHIN a layer is
+ * preserved so exact-key consumers don't lose a valid alias.
  *
  * Server-safe: reads only appState and the in-memory seed constant (no
  * `localStorage`, no static-file fetch, no writes), so it is safe during server
@@ -183,10 +179,10 @@ export async function getScopedAliasMap(leagueSlug: string, year: number): Promi
 
   const aliasMap: AliasMap = {};
   const claimed = new Set<string>();
-  addAliasLayer(aliasMap, claimed, storedGlobal); // 1. stored/manual global
-  addSeedLayer(aliasMap, claimed); //                2. static seeds
-  addAliasLayer(aliasMap, claimed, leagueMap); //    3. deprecated league+year
-  addAliasLayer(aliasMap, claimed, yearMap); //      4. deprecated year-only
+  addAliasLayer(aliasMap, claimed, storedGlobal); //   1. stored/manual global
+  addAliasLayer(aliasMap, claimed, leagueMap); //      2. deprecated league+year
+  addAliasLayer(aliasMap, claimed, yearMap); //        3. deprecated year-only
+  addAliasLayer(aliasMap, claimed, SEED_ALIAS_MAP); // 4. static seed defaults
   return aliasMap;
 }
 
@@ -228,11 +224,11 @@ export async function upsertGlobalAliases(entries: AliasMap): Promise<AliasMap> 
  * verify each candidate scope has a 'map' key before reading, so only scopes
  * with actual data are touched.
  *
- * Fill-only: existing stored global entries are never overwritten, and any
- * scoped key whose identity is owned by a static seed is skipped — so promotion
- * can never push a deprecated alias above the seed it collides with. Records a
- * migration sentinel after all discovered scopes are processed so subsequent
- * calls are no-ops. Safe to call repeatedly.
+ * Fill-only: existing stored global entries are never overwritten. Promoted
+ * entries become stored global aliases, which correctly outrank the static seed
+ * defaults (seeds are the lowest layer), so no seed-identity special-casing is
+ * needed. Records a migration sentinel after all discovered scopes are processed
+ * so subsequent calls are no-ops. Safe to call repeatedly.
  */
 export async function migrateYearScopedAliasesToGlobal(
   leagueSlugs: string[],
@@ -276,8 +272,6 @@ export async function migrateYearScopedAliasesToGlobal(
         const key = normalizeAliasLookup(k);
         if (!key || typeof v !== 'string' || !v.trim()) continue;
         if (next[key]) continue; // existing stored global wins
-        // A seed owns this identity → never promote a deprecated alias above it.
-        if (SEED_IDENTITIES.has(normalizeTeamName(key))) continue;
         next[key] = v.trim();
         migrated++;
       }
