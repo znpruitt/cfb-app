@@ -393,3 +393,20 @@ test('legacy promotion: a demoted seed copy does not win an identity over a diff
   assert.equal(map.uh, 'Hawaii', 'copied spelling resolves to the repair winner');
   assert.notEqual(map.uh, SEED_ALIASES.uh);
 });
+
+test('legacy promotion: an exact-key manual repair promotes over a copied seed default', async () => {
+  // Stored global has a bootstrap copy `uh`→houston at the exact key `uh`. A
+  // legacy scope has the manual repair `uh`→Hawaii at the SAME key. The copy is
+  // demoted at read time, so it must be treated as absent here and the repair
+  // must promote (otherwise every league keeps resolving `uh` to the seed).
+  await setAppState('aliases:global', 'map', { uh: SEED_ALIASES.uh! }); // uh→houston (copy)
+  await setAppState('aliases:2024', 'map', { uh: 'Hawaii' });
+  const { migrated } = await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+  assert.ok(migrated > 0, 'repair counted as promoted');
+
+  const stored = (await getAppState<Record<string, string>>('aliases:global', 'map'))?.value ?? {};
+  assert.equal(stored.uh, 'Hawaii', 'repair overwrote the copied seed default');
+
+  const map = await getScopedAliasMap(SLUG, 2025);
+  assert.equal(map.uh, 'Hawaii');
+});

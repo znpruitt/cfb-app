@@ -348,7 +348,11 @@ export async function migrateYearScopedAliasesToGlobal(
       for (const [k, v] of Object.entries(legacyMap)) {
         const key = normalizeAliasLookup(k);
         if (!key || typeof v !== 'string' || !v.trim()) continue;
-        if (next[key]) continue; // exact key already stored → stored global wins
+        // A real stored global entry at this exact key wins. A copied seed
+        // default there is demoted at read time, so treat it as absent — a
+        // same-key manual repair must be able to promote over it.
+        const existing = next[key];
+        if (existing !== undefined && !isCopiedSeedDefault(key, existing)) continue;
         const identity = normalizeTeamName(key);
         const winner = identity ? identityWinner.get(identity) : undefined;
         if (winner !== undefined) {
