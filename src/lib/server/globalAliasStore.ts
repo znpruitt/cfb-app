@@ -1,5 +1,5 @@
 import { getAppState, listAppStateKeys, setAppState } from './appStateStore.ts';
-import type { AliasMap } from '../teamNames.ts';
+import { SEED_ALIASES, type AliasMap } from '../teamNames.ts';
 import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts';
 
 // ---------------------------------------------------------------------------
@@ -15,86 +15,263 @@ import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts
 // reads them once and merges their entries into the global store. Legacy
 // entries are left in place for backward compatibility with the runtime
 // teamIdentity resolver which still reads league-scoped maps.
+//
+// The static SEED_ALIASES bundle (universal aliases like `ole miss` →
+// `mississippi`) is NOT persisted. It is merged in-memory as the LOWEST
+// precedence layer (a code-defined default) by both getGlobalAliases() and
+// getScopedAliasMap(), so every server reader sees it, it is always current
+// with the shipped code (no version sentinel to reconcile), and no read path
+// ever writes to `aliases:global` (so there is no write that would need — and
+// bypass — canonical standings invalidation). The only writers of the global
+// map are upsertGlobalAliases() and migrateYearScopedAliasesToGlobal(), both
+// invoked from request handlers that invalidate.
+//
+// Effective precedence: stored global > league+year > year > SEED_ALIASES.
+// Seeds are DEFAULTS, weaker than any persisted alias, so a manual repair for a
+// seed key (global or scoped) always wins. Cross-layer conflicts dedup by
+// resolver identity; distinct spellings within one layer are all preserved.
+//
+// All global-map writes are serialized through withGlobalAliasWriteLock() with
+// a re-read inside the lock, so concurrent read-modify-writes cannot clobber
+// one another.
 // ---------------------------------------------------------------------------
 
 const GLOBAL_SCOPE = 'aliases:global';
 const GLOBAL_KEY = 'map';
 const MIGRATION_DONE_KEY = 'migration-done';
 
-export async function getGlobalAliases(): Promise<AliasMap> {
+// Precompute the seed layer once as a normalized lookup-key → target map. Seeds
+// are code-defined DEFAULTS: they are the lowest-precedence layer, below every
+// persisted alias (stored global, league+year, year), so a persisted manual
+// repair for a seed key (e.g. mapping ambiguous `uh` → Hawaii) always wins.
+const SEED_ALIAS_MAP: AliasMap = (() => {
+  const map: AliasMap = {};
+  for (const [rawKey, rawValue] of Object.entries(SEED_ALIASES)) {
+    const key = normalizeAliasLookup(rawKey);
+    const target = typeof rawValue === 'string' ? rawValue.trim() : '';
+    if (key && target && !(key in map)) map[key] = target;
+  }
+  return map;
+})();
+
+// (normalizedKey, target) pairs that SEED_ALIASES has EVER shipped. A persisted
+// alias whose key+target matches one of these is a bootstrap/default copy —
+// `bootstrapAliasesAndCaches` writes the whole seed bundle into empty scopes,
+// and earlier attempts persisted seeds too — NOT a manual repair. Such copies
+// are demoted from the effective stored layers (so the current code seed fills
+// the identity) and are never promoted into stored global. When a seed's target
+// changes or is removed, add the OLD (key, target) to RETIRED_SEED_DEFAULTS so
+// existing installs' stale persisted copies stop shadowing the corrected seed.
+//
+// Residual limitation (documented, accepted): a genuine MANUAL repair whose
+// key+target happens to exactly equal a known seed default is indistinguishable
+// from a bootstrap copy and is treated as one. The outcome — the current code
+// seed applies for that identity — is the reasonable default.
+const RETIRED_SEED_DEFAULTS: ReadonlyArray<readonly [string, string]> = [
+  // ['uh', 'houston'], // e.g. superseded by a corrected seed target
+];
+const KNOWN_SEED_DEFAULTS: ReadonlySet<string> = new Set<string>([
+  ...Object.entries(SEED_ALIAS_MAP).map(([k, v]) => `${k}\u0000${v}`),
+  ...RETIRED_SEED_DEFAULTS.map(([k, v]) => `${normalizeAliasLookup(k)}\u0000${v.trim()}`),
+]);
+
+export function isCopiedSeedDefault(normalizedKey: string, target: string): boolean {
+  return KNOWN_SEED_DEFAULTS.has(`${normalizedKey}\u0000${target.trim()}`);
+}
+
+/**
+ * Drop persisted entries that are copies of a known seed default, so the current
+ * code-defined seed (not a stale persisted copy) resolves that identity. A
+ * same-key DIFFERENT-target entry is a manual repair and is preserved.
+ */
+function withoutCopiedSeedDefaults(map: AliasMap): AliasMap {
+  const result: AliasMap = {};
+  for (const [key, target] of Object.entries(map)) {
+    if (typeof target !== 'string') continue;
+    if (isCopiedSeedDefault(normalizeAliasLookup(key), target)) continue;
+    result[key] = target;
+  }
+  return result;
+}
+
+/**
+ * Deterministic FNV-1a hash of the SEED_ALIASES contents (order-independent).
+ * Because seeds are code-defined and merged in-memory (never persisted, so no
+ * runtime write fires an invalidation), any cache whose output depends on the
+ * seed set — notably canonical standings — must fold this hash into its cache
+ * identity. When SEED_ALIASES changes, the hash changes and those caches miss
+ * naturally, with no manual alias write required.
+ */
+export function hashSeedAliases(seeds: AliasMap): string {
+  const serialized = Object.entries(seeds)
+    .map(([k, v]) => `${normalizeAliasLookup(k)}=${typeof v === 'string' ? v.trim() : ''}`)
+    .sort()
+    .join(';');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i++) {
+    h ^= serialized.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+export const SEED_ALIASES_HASH = hashSeedAliases(SEED_ALIASES);
+
+// Process-local serialization for global-alias mutations. Every writer of
+// `aliases:global/map` (year-scoped migration, upsert) does a read-modify-write
+// of the whole map, so concurrent writers could otherwise read a stale map and
+// clobber each other's entries. Chaining all writes through this lock — and
+// re-reading the current map *inside* the lock — makes each read-modify-write
+// atomic within the process. (Cross-instance atomicity would require
+// transactional KV support and is intentionally out of scope.)
+let globalAliasWriteLock: Promise<unknown> = Promise.resolve();
+function withGlobalAliasWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = globalAliasWriteLock.then(fn, fn);
+  // Keep the chain alive regardless of success/failure so one rejected write
+  // never wedges the lock.
+  globalAliasWriteLock = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+/**
+ * Raw read of the stored global alias map (no seed layer, no migration). Used
+ * by the writers, which must persist only real stored entries — never the
+ * in-memory seed layer.
+ */
+async function readGlobalAliasMapRaw(): Promise<AliasMap> {
   const record = await getAppState<AliasMap>(GLOBAL_SCOPE, GLOBAL_KEY);
   const map = record?.value;
   return map && typeof map === 'object' && !Array.isArray(map) ? (map as AliasMap) : {};
 }
 
 /**
- * Resolves the effective alias map for a league/year on the server by walking
- * the global store plus the deprecated league/year scopes.
+ * Merge one precedence layer into `into`, resolving cross-layer conflicts by the
+ * resolver's canonical identity (`normalizeTeamName`) while PRESERVING every
+ * distinct lookup spelling.
  *
- * Precedence is global > league+year > year: the canonical global store wins on
- * key conflicts, because legacy league/year scopes are deprecated and
- * migrateYearScopedAliasesToGlobal() deliberately preserves existing global
- * entries — so a stale scoped mapping must not override the current global one.
- * This matches how the owners upload path merges aliases (global last/highest).
- * Among the two legacy scopes, the more specific league+year wins over year.
- *
- * Precedence is enforced by the resolver's canonical identity, NOT by raw key
- * text. The team-identity resolver keys aliases by `normalizeTeamName`
- * (space- and punctuation-stripping) and is first-wins, so two textually
- * different keys that normalize to the same identity (e.g. `gulf coast tech`
- * globally and `gulfcoasttech` in a legacy scope) would otherwise let the
- * lower-precedence scope win purely on insertion order. Collapsing by
- * normalized identity here guarantees the higher-precedence scope's target
- * survives regardless of key formatting. Exact-key conflicts are a subset of
- * this (same identity → global processed first wins), so this preserves the
- * prior exact-key behavior.
- *
- * Server-safe: reads only appState (no `localStorage`, no static-file fetch),
- * so it works during server render — unlike the browser-era loader in
- * `src/lib/aliases.ts`. Returns {} when no scope holds an alias map; never
- * throws on missing data, so an empty result cannot masquerade as an unrelated
- * failure in callers.
+ * `identityWinner` maps a normalized team identity → the target chosen by the
+ * highest-precedence layer that owns it. When a lower layer has a key whose
+ * identity is already owned (e.g. global `gulf coast tech` owns `gulfcoasttech`,
+ * and a scoped `gulfcoasttech` arrives later), the spelling is KEPT but remapped
+ * to the winning target — so exact-key consumers like validateRosterCSV resolve
+ * that spelling to the correct (higher-precedence) team instead of missing it.
+ * Same-layer siblings don't shadow each other: identities are registered only
+ * after the whole layer is processed.
  */
-export async function getScopedAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
-  // Highest precedence first: global > league+year > year.
-  const scopes = [GLOBAL_SCOPE, `aliases:${leagueSlug}:${year}`, `aliases:${year}`];
-  const aliasMap: AliasMap = {};
-  const seenIdentities = new Set<string>();
-  for (const scope of scopes) {
-    const record = await getAppState<AliasMap>(scope, GLOBAL_KEY);
-    const value = record?.value;
-    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-    for (const [key, target] of Object.entries(value)) {
-      if (typeof target !== 'string') continue;
-      const identity = normalizeTeamName(key);
-      // Keys that normalize to nothing can never be matched by the resolver
-      // (its registry is keyed by the same normalization), so skipping them is
-      // harmless and avoids a bogus empty-identity dedup bucket.
-      if (!identity || seenIdentities.has(identity)) continue;
-      seenIdentities.add(identity);
-      aliasMap[key] = target;
+function addAliasLayer(into: AliasMap, identityWinner: Map<string, string>, map: AliasMap): void {
+  const firstSeen: Array<[string, string]> = [];
+  for (const [key, target] of Object.entries(map)) {
+    if (typeof target !== 'string') continue;
+    const identity = normalizeTeamName(key);
+    // Keys that normalize to nothing can never be matched by the resolver.
+    if (!identity) continue;
+    const winner = identityWinner.get(identity);
+    if (winner !== undefined) {
+      // A higher-precedence layer owns this identity: preserve this spelling but
+      // point it at the winning target.
+      into[key] = winner;
+    } else {
+      into[key] = target;
+      firstSeen.push([identity, target]);
     }
   }
-  return aliasMap;
+  for (const [identity, target] of firstSeen) {
+    if (!identityWinner.has(identity)) identityWinner.set(identity, target);
+  }
 }
 
 /**
- * Merges the given entries into the global alias store.
- * Keys are lowercased for consistent lookup. Existing entries are preserved
- * when the incoming map does not include them.
- * Returns the full updated alias map.
+ * Stored/manual global aliases only — the persisted `aliases:global/map`
+ * WITHOUT the in-memory seed layer. Use this for admin/editor storage views so
+ * a normal save can never round-trip the code-defined seeds back into the store
+ * as manual entries (which would then permanently shadow future seed edits).
+ */
+export async function getStoredGlobalAliases(): Promise<AliasMap> {
+  return readGlobalAliasMapRaw();
+}
+
+/**
+ * Effective global alias read: the stored global map with the static
+ * SEED_ALIASES merged underneath as a default (stored entries win; every stored
+ * spelling is preserved). Resolver consumers (owner validation, owner writes,
+ * Insights game building) use this so they always see the seed defaults. NOT for
+ * editable admin views — see getStoredGlobalAliases.
+ */
+export async function getGlobalAliases(): Promise<AliasMap> {
+  const stored = await readGlobalAliasMapRaw();
+  const result: AliasMap = {};
+  const identityWinner = new Map<string, string>();
+  // Demote persisted copies of known seed defaults so the CURRENT code seed
+  // resolves the identity (manual repairs — different targets — are preserved).
+  addAliasLayer(result, identityWinner, withoutCopiedSeedDefaults(stored)); // 1. stored/manual
+  addAliasLayer(result, identityWinner, SEED_ALIAS_MAP); //                     2. seed defaults
+  return result;
+}
+
+/**
+ * Resolves the effective alias map for a league/year on the server.
+ *
+ * Precedence (highest first): stored global > league+year > year > SEED_ALIASES.
+ * Static seeds are code-defined DEFAULTS — the LOWEST layer — so any persisted
+ * manual repair (global or scoped) always beats them. Cross-layer conflicts are
+ * resolved by the resolver's canonical identity (`normalizeTeamName`, first-wins
+ * across layers), but every distinct stored spelling WITHIN a layer is
+ * preserved so exact-key consumers don't lose a valid alias.
+ *
+ * Server-safe: reads only appState and the in-memory seed constant (no
+ * `localStorage`, no static-file fetch, no writes), so it is safe during server
+ * render. Returns {} only if nothing (not even a seed) matches; never throws on
+ * missing data.
+ */
+export async function getScopedAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
+  const [storedGlobal, leagueMap, yearMap] = await Promise.all([
+    readGlobalAliasMapRaw(),
+    readScopedMap(`aliases:${leagueSlug}:${year}`),
+    readScopedMap(`aliases:${year}`),
+  ]);
+
+  const aliasMap: AliasMap = {};
+  const identityWinner = new Map<string, string>();
+  // Persisted copies of known seed defaults are demoted from every stored layer
+  // so a corrected code seed is never shadowed by a stale bootstrap copy; genuine
+  // manual repairs (different targets) survive and keep their precedence.
+  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(storedGlobal)); // 1. global
+  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(leagueMap)); //   2. league+year
+  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(yearMap)); //     3. year
+  addAliasLayer(aliasMap, identityWinner, SEED_ALIAS_MAP); //                          4. seed defaults
+  return aliasMap;
+}
+
+async function readScopedMap(scope: string): Promise<AliasMap> {
+  const record = await getAppState<AliasMap>(scope, GLOBAL_KEY);
+  const value = record?.value;
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as AliasMap) : {};
+}
+
+/**
+ * Merges the given entries into the stored global alias map.
+ * Keys are normalized for consistent lookup. Existing entries are preserved
+ * when the incoming map does not include them. Returns the full updated stored
+ * map (seed layer is not persisted and not included).
  */
 export async function upsertGlobalAliases(entries: AliasMap): Promise<AliasMap> {
-  const current = await getGlobalAliases();
-  const next: AliasMap = { ...current };
-  for (const [k, v] of Object.entries(entries)) {
-    const key = normalizeAliasLookup(k);
-    if (key && typeof v === 'string' && v.trim()) {
-      next[key] = v.trim();
+  return withGlobalAliasWriteLock(async () => {
+    // Re-read inside the lock so we merge onto the freshest map, not a snapshot
+    // that a concurrent writer may have already superseded.
+    const current = await readGlobalAliasMapRaw();
+    const next: AliasMap = { ...current };
+    for (const [k, v] of Object.entries(entries)) {
+      const key = normalizeAliasLookup(k);
+      if (key && typeof v === 'string' && v.trim()) {
+        next[key] = v.trim();
+      }
     }
-  }
-  await setAppState(GLOBAL_SCOPE, GLOBAL_KEY, next);
-  return next;
+    await setAppState(GLOBAL_SCOPE, GLOBAL_KEY, next);
+    return next;
+  });
 }
 
 /**
@@ -106,10 +283,18 @@ export async function upsertGlobalAliases(entries: AliasMap): Promise<AliasMap> 
  * verify each candidate scope has a 'map' key before reading, so only scopes
  * with actual data are touched.
  *
- * Existing global entries are never overwritten. Records a migration sentinel
- * after all discovered scopes are processed so subsequent calls are no-ops.
- *
- * Safe to call repeatedly — only performs work once per deployment.
+ * Fill-only: existing stored global entries are never overwritten. Promoted
+ * entries become stored global aliases, which correctly outrank the static seed
+ * defaults (seeds are the lowest layer). Two guards keep this consistent with
+ * the effective-map precedence:
+ *   - Copies of a known seed default (current or RETIRED, same normalized key
+ *     AND target) are NOT promoted — those are bootstrap-written defaults, not
+ *     manual repairs, and promoting them would permanently shadow future seeds.
+ *   - A legacy key that collides by normalized identity with an existing stored
+ *     global winner is promoted with the WINNER's target (spelling preserved for
+ *     exact-key validation), never the conflicting lower-precedence target.
+ * Records a migration sentinel after all discovered scopes are processed so
+ * subsequent calls are no-ops. Safe to call repeatedly.
  */
 export async function migrateYearScopedAliasesToGlobal(
   leagueSlugs: string[],
@@ -118,12 +303,8 @@ export async function migrateYearScopedAliasesToGlobal(
   const migrationRecord = await getAppState<boolean>(GLOBAL_SCOPE, MIGRATION_DONE_KEY);
   if (migrationRecord?.value === true) return { migrated: 0 };
 
-  const current = await getGlobalAliases();
-  const next: AliasMap = { ...current };
-  let migrated = 0;
-
-  // Build the full candidate scope list across all leagues and a year range.
-  // This ensures multi-league, multi-year alias data is not silently skipped.
+  // Discover legacy scopes with data OUTSIDE the write lock (read-only, and the
+  // scan is the slow part) so we hold the lock only for the read-modify-write.
   const yearStart = Math.max(2000, year - 10);
   const yearEnd = year + 1;
   const candidateScopes: string[] = [];
@@ -134,25 +315,68 @@ export async function migrateYearScopedAliasesToGlobal(
     }
   }
 
-  // Use listAppStateKeys() to verify each scope has a 'map' key before reading.
-  // Only scopes with actual alias data incur a second read.
+  const legacyMaps: AliasMap[] = [];
   for (const scope of candidateScopes) {
     const keys = await listAppStateKeys(scope);
     if (!keys.includes('map')) continue;
     const record = await getAppState<AliasMap>(scope, 'map');
     const legacyMap = record?.value;
     if (!legacyMap || typeof legacyMap !== 'object' || Array.isArray(legacyMap)) continue;
-    for (const [k, v] of Object.entries(legacyMap as AliasMap)) {
-      const key = normalizeAliasLookup(k);
-      if (key && typeof v === 'string' && v.trim() && !next[key]) {
+    legacyMaps.push(legacyMap as AliasMap);
+  }
+
+  return withGlobalAliasWriteLock(async () => {
+    // Re-check the sentinel and re-read the map inside the lock.
+    const doneInLock = await getAppState<boolean>(GLOBAL_SCOPE, MIGRATION_DONE_KEY);
+    if (doneInLock?.value === true) return { migrated: 0 };
+
+    const current = await readGlobalAliasMapRaw();
+    const next: AliasMap = { ...current };
+    // Winning target per normalized identity in the stored global map, so a
+    // promoted spelling never contradicts an existing global winner (mirrors the
+    // effective-map remap). Updated as we promote so later legacy siblings agree.
+    // Built from the FILTERED map: a demoted bootstrap seed copy (e.g.
+    // `uh`→houston) must NOT count as a winner, or a differently-spelled repair
+    // (`u h`→Hawaii) would be remapped to the copy's target and defeat the repair.
+    const identityWinner = new Map<string, string>();
+    for (const [k, v] of Object.entries(withoutCopiedSeedDefaults(next))) {
+      const id = normalizeTeamName(k);
+      if (id && !identityWinner.has(id)) identityWinner.set(id, v);
+    }
+    let migrated = 0;
+    for (const legacyMap of legacyMaps) {
+      for (const [k, v] of Object.entries(legacyMap)) {
+        const key = normalizeAliasLookup(k);
+        if (!key || typeof v !== 'string' || !v.trim()) continue;
+        // A real stored global entry at this exact key wins. A copied seed
+        // default there is demoted at read time, so treat it as absent — a
+        // same-key manual repair must be able to promote over it.
+        const existing = next[key];
+        if (existing !== undefined && !isCopiedSeedDefault(key, existing)) continue;
+        const identity = normalizeTeamName(key);
+        const winner = identity ? identityWinner.get(identity) : undefined;
+        if (winner !== undefined) {
+          // Identity already owned by a higher-precedence stored global winner:
+          // preserve the spelling but map it to the winner — never promote the
+          // conflicting lower-precedence target.
+          if (next[key] !== winner) {
+            next[key] = winner;
+            migrated++;
+          }
+          continue;
+        }
+        // Copied bootstrap/default (current or retired): NOT a manual repair, so
+        // don't promote a code default into stored global. A seed KEY with a
+        // DIFFERENT target is a genuine repair and still promotes below.
+        if (isCopiedSeedDefault(key, v)) continue;
         next[key] = v.trim();
+        if (identity) identityWinner.set(identity, v.trim());
         migrated++;
       }
     }
-  }
 
-  // Write global store and sentinel only after all scopes are processed.
-  await setAppState(GLOBAL_SCOPE, GLOBAL_KEY, next);
-  await setAppState(GLOBAL_SCOPE, MIGRATION_DONE_KEY, true);
-  return { migrated };
+    await setAppState(GLOBAL_SCOPE, GLOBAL_KEY, next);
+    await setAppState(GLOBAL_SCOPE, MIGRATION_DONE_KEY, true);
+    return { migrated };
+  });
 }

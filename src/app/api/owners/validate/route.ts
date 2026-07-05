@@ -1,21 +1,14 @@
 import { requireAdminRequest } from '../../../../lib/server/adminAuth.ts';
 import { getTeamDatabaseItems } from '../../../../lib/server/teamDatabaseStore.ts';
-import { getGlobalAliases } from '../../../../lib/server/globalAliasStore.ts';
-import { getAppState } from '../../../../lib/server/appStateStore.ts';
+import { getScopedAliasMap } from '../../../../lib/server/globalAliasStore.ts';
 import { isValidSlug, getLeague } from '../../../../lib/leagueRegistry.ts';
 import { validateRosterCSV, getFBSTeams } from '../../../../lib/rosterUploadValidator.ts';
-import type { AliasMap } from '../../../../lib/teamNames.ts';
 
 function clampYearMaybe(s: string | null): number {
   const fallback = new Date().getFullYear();
   if (!s) return fallback;
   const n = Number(s);
   return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-function aliasesScope(year: number, leagueSlug?: string): string {
-  if (leagueSlug) return `aliases:${leagueSlug}:${year}`;
-  return `aliases:${year}`;
 }
 
 /**
@@ -63,20 +56,13 @@ export async function POST(req: Request): Promise<Response> {
     return new Response('csvText is required and must be a non-empty string', { status: 400 });
   }
 
-  const [teams, globalAliases, leagueAliasRecord] = await Promise.all([
+  const [teams, mergedAliases] = await Promise.all([
     getTeamDatabaseItems(),
-    getGlobalAliases(),
-    getAppState<AliasMap>(aliasesScope(year, league), 'map'),
+    // Effective, league-aware precedence (stored global > league+year > year >
+    // seed defaults) in one map — NOT scoped-then-global-spread, which would let
+    // a seed default override a scoped repair.
+    getScopedAliasMap(league ?? '', year),
   ]);
-
-  // Merge league-scoped aliases with global aliases; global takes precedence.
-  const leagueAliasMap = leagueAliasRecord?.value;
-  const mergedAliases: AliasMap = {
-    ...(leagueAliasMap && typeof leagueAliasMap === 'object' && !Array.isArray(leagueAliasMap)
-      ? (leagueAliasMap as AliasMap)
-      : {}),
-    ...globalAliases,
-  };
 
   const result = validateRosterCSV(csvText, mergedAliases, teams);
   const fbsTeams = getFBSTeams(teams);

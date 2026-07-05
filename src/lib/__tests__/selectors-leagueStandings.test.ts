@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getCanonicalStandings, resolveStandingsYear } from '../selectors/leagueStandings.ts';
+import {
+  canonicalStandingsCacheKeyParts,
+  getCanonicalStandings,
+  resolveStandingsYear,
+} from '../selectors/leagueStandings.ts';
+import { SEED_ALIASES_HASH } from '../server/globalAliasStore.ts';
 import type { League } from '../league.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow } from '../standingsHistory.ts';
@@ -913,4 +918,24 @@ test('alias: catalog/no-alias path still credits directly-named teams', async ()
   const snapshot = await getCanonicalStandings({ slug, leagueStatusOverride: ALIAS_STATUS });
   const alice = snapshot.rows.find((r) => r.owner === 'Alice');
   assert.equal(alice?.wins ?? 0, 1);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-057: canonical standings cache identity is versioned by the seed set,
+// so a SEED_ALIASES change busts warm snapshots without a runtime alias write.
+// ---------------------------------------------------------------------------
+
+test('canonicalStandingsCacheKeyParts: includes the SEED_ALIASES hash', () => {
+  const parts = canonicalStandingsCacheKeyParts('my-league', 2025);
+  assert.ok(parts.includes(`seeds:${SEED_ALIASES_HASH}`), 'seed hash is part of the cache key');
+  // Sanity: still keyed by slug + resolved year.
+  assert.ok(parts.includes('my-league'));
+  assert.ok(parts.includes('2025'));
+});
+
+test('canonicalStandingsCacheKeyParts: differs when the seed hash differs', () => {
+  const a = canonicalStandingsCacheKeyParts('my-league', 2025).join('|');
+  // Simulate a different seed set by swapping the hash segment.
+  const withDifferentSeeds = a.replace(`seeds:${SEED_ALIASES_HASH}`, 'seeds:deadbeef');
+  assert.notEqual(a, withDifferentSeeds, 'a different seed set yields a different cache key');
 });

@@ -174,17 +174,26 @@ test('global GET lazy migration invalidates registered leagues when it moves ent
   assert.ok(tags.includes('standings:league-b'), 'league-b invalidated after migration');
 });
 
-test('global GET does not invalidate when there is nothing to migrate (P2)', async () => {
+test('global GET returns stored aliases only — never the in-memory seeds (P2)', async () => {
   await setAppState('leagues', 'registry', [makeLeague('league-a')]);
-  // No legacy scopes seeded → migration is a no-op (migrated === 0) → no
-  // standings invalidation from a plain read.
+  await setAppState('aliases:global', 'map', { 'manual key': 'Manual Target' });
+  // Returning seeds here would let a normal admin save persist them, so the
+  // editable global view must be stored-only. Nothing migrates → no invalidation.
   const { result: res, tags } = await runCapturingTags(() =>
     GET(new Request('https://example.com/api/aliases?scope=global', { method: 'GET' }))
   );
   assert.equal(res.status, 200);
+  const body = (await res.json()) as { map: Record<string, string> };
+  assert.equal(body.map['manual key'], 'Manual Target', 'stored/manual entry returned');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(body.map, 'ole miss'),
+    false,
+    'in-memory seed NOT included in editable global response'
+  );
   assert.deepEqual(
     tags.filter((t) => t.startsWith('standings:')),
-    []
+    [],
+    'no invalidation when nothing migrates'
   );
 });
 

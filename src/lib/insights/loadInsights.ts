@@ -7,7 +7,7 @@ import { getLeague } from '@/lib/leagueRegistry';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { getAppState } from '@/lib/server/appStateStore';
-import { getGlobalAliases } from '@/lib/server/globalAliasStore';
+import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '@/lib/schedule';
 import type { AliasMap } from '@/lib/teamNames';
 import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
@@ -88,31 +88,27 @@ export async function loadInsightsForLeague(
   const origin = await deriveOrigin();
 
   try {
-    const [csvText, scheduleRes, teamsRes, globalAliases, leagueAliasRecord, rankings] =
-      await Promise.all([
-        loadOwnersCsv(slug, resolvedYear),
-        origin
-          ? fetchJson<{ items?: ScheduleWireItem[] }>(`${origin}/api/schedule?year=${resolvedYear}`)
-          : Promise.resolve(null),
-        origin
-          ? fetchJson<{ items?: Array<Record<string, unknown>> }>(`${origin}/api/teams`)
-          : Promise.resolve(null),
-        getGlobalAliases().catch(() => ({}) as AliasMap),
-        getAppState<AliasMap>(`aliases:${slug}:${resolvedYear}`, 'map').catch(() => null),
-        loadSeasonRankings(resolvedYear).catch(() => null),
-      ]);
+    const [csvText, scheduleRes, teamsRes, scopedAliasMap, rankings] = await Promise.all([
+      loadOwnersCsv(slug, resolvedYear),
+      origin
+        ? fetchJson<{ items?: ScheduleWireItem[] }>(`${origin}/api/schedule?year=${resolvedYear}`)
+        : Promise.resolve(null),
+      origin
+        ? fetchJson<{ items?: Array<Record<string, unknown>> }>(`${origin}/api/teams`)
+        : Promise.resolve(null),
+      getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
+      loadSeasonRankings(resolvedYear).catch(() => null),
+    ]);
 
     const roster = parseOwnersCsv(csvText ?? '');
     const currentRoster = new Map(roster.map((r) => [r.team, r.owner]));
     const scheduleItems = scheduleRes?.items ?? [];
     const teams = (teamsRes?.items ?? []) as never[];
-    const leagueAliasMap = leagueAliasRecord?.value;
-    const aliasMap: AliasMap = {
-      ...(leagueAliasMap && typeof leagueAliasMap === 'object' && !Array.isArray(leagueAliasMap)
-        ? (leagueAliasMap as AliasMap)
-        : {}),
-      ...globalAliases,
-    };
+    // Effective, league-aware precedence (stored global > league+year > year >
+    // seed defaults). Using getScopedAliasMap instead of spreading
+    // getGlobalAliases() after the scoped map keeps seed defaults from
+    // overriding a scoped repair.
+    const aliasMap: AliasMap = scopedAliasMap;
 
     let games: AppGame[] = [];
     try {

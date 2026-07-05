@@ -19,7 +19,7 @@ import { getSeasonArchive, listSeasonArchives } from '../seasonArchive.ts';
 import { getScheduleProbeState } from '../scheduleProbe.ts';
 import { selectSeasonContext } from './seasonContext.ts';
 import { getAppState } from '../server/appStateStore.ts';
-import { getScopedAliasMap } from '../server/globalAliasStore.ts';
+import { getScopedAliasMap, SEED_ALIASES_HASH } from '../server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
 import {
   NO_CLAIM_OWNER,
@@ -129,6 +129,20 @@ export type GetCanonicalStandingsInput = {
  * call site is intentionally the only adoption point so a future migration to
  * a stable equivalent stays one-file.
  */
+/**
+ * Cache-key parts for the canonical standings data cache. Includes the
+ * SEED_ALIASES hash so that a change to the code-defined static aliases (which
+ * are merged in-memory and never fire a runtime invalidation) naturally busts
+ * every canonical snapshot — resolver output depends on the seed set, so the
+ * seed set is part of the cache identity.
+ */
+export function canonicalStandingsCacheKeyParts(
+  slug: string,
+  resolvedYear: number | null
+): string[] {
+  return ['canonical-standings', slug, String(resolvedYear), `seeds:${SEED_ALIASES_HASH}`];
+}
+
 const dataCachedCanonicalStandings = (
   slug: string,
   yearOverride: number | null,
@@ -137,7 +151,7 @@ const dataCachedCanonicalStandings = (
 ) =>
   unstable_cache(
     async () => computeCanonicalStandings(slug, yearOverride, undefined, currentDate),
-    ['canonical-standings', slug, String(resolvedYear)],
+    canonicalStandingsCacheKeyParts(slug, resolvedYear),
     {
       tags: [
         `standings:${slug}`,

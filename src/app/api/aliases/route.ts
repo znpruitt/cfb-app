@@ -3,7 +3,7 @@ import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isValidSlug, getLeague, getLeagues } from '../../../lib/leagueRegistry.ts';
 import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import {
-  getGlobalAliases,
+  getStoredGlobalAliases,
   upsertGlobalAliases,
   migrateYearScopedAliasesToGlobal,
 } from '../../../lib/server/globalAliasStore.ts';
@@ -51,20 +51,24 @@ export async function GET(req: Request): Promise<Response> {
     // sentinel on entry and returns immediately once migration has run.
     const leagues = await getLeagues();
     const migrationYear = leagues.length > 0 ? leagues[0]!.year : new Date().getFullYear();
+    // Lazy one-time legacy promotion. Static SEED_ALIASES are merged in-memory
+    // by getGlobalAliases (no write), so only legacy promotion mutates the
+    // global store here. If it moved entries, invalidate every registered
+    // league so warm canonical snapshots pick up the promoted aliases. This
+    // request handler is a safe place to call revalidateTag.
     const { migrated } = await migrateYearScopedAliasesToGlobal(
       leagues.map((l) => l.slug),
       migrationYear
     );
-    // Migration writes legacy entries into the global store, which canonical
-    // standings now consume. If it actually moved entries, invalidate every
-    // registered league so warm canonical snapshots pick up the new aliases.
-    // Idempotent: the migration sentinel makes migrated > 0 fire at most once.
     if (migrated > 0) {
       for (const league of leagues) {
         invalidateStandings(league.slug);
       }
     }
-    const map = await getGlobalAliases();
+    // Return stored/manual global aliases only — never the in-memory seed layer.
+    // The admin editor re-posts every returned row as an upsert, so including
+    // seeds here would persist them and permanently shadow future seed edits.
+    const map = await getStoredGlobalAliases();
     return Response.json({ scope: 'global', map });
   }
 
