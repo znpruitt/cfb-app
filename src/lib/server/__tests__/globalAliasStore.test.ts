@@ -12,6 +12,7 @@ import {
   getScopedAliasMap,
   getStoredGlobalAliases,
   hashSeedAliases,
+  isCopiedSeedDefault,
   migrateYearScopedAliasesToGlobal,
   SEED_ALIASES_HASH,
   upsertGlobalAliases,
@@ -326,4 +327,55 @@ test('hashSeedAliases: changes when the seed set changes', async () => {
 test('SEED_ALIASES_HASH: matches the hash of the shipped SEED_ALIASES', async () => {
   assert.equal(SEED_ALIASES_HASH, hashSeedAliases(SEED_ALIASES));
   assert.ok(SEED_ALIASES_HASH.length > 0);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-057 remediation: persisted bootstrap-default reconciliation +
+// normalized-identity precedence during legacy promotion
+// ---------------------------------------------------------------------------
+
+test('isCopiedSeedDefault: recognizes current seed defaults, rejects manual values', () => {
+  assert.equal(isCopiedSeedDefault('ole miss', SEED_ALIASES['ole miss']!), true);
+  assert.equal(isCopiedSeedDefault('byu', SEED_ALIASES.byu!), true);
+  // Same key, different (manual) target → NOT a copied default.
+  assert.equal(isCopiedSeedDefault('ole miss', 'Some Manual Target'), false);
+  // Non-seed key → not a default.
+  assert.equal(isCopiedSeedDefault('gulf coast tech', 'Texas'), false);
+});
+
+test('effective read: a persisted copy of a current seed default is demoted (seed still resolves)', async () => {
+  // A stored global copy of the seed default is not treated as a manual override;
+  // the identity resolves to the current code seed (same value today, but the
+  // copy can never permanently shadow a future corrected seed).
+  await setAppState('aliases:global', 'map', { 'ole miss': SEED_ALIASES['ole miss']! });
+  const global = await getGlobalAliases();
+  assert.equal(global['ole miss'], SEED_ALIASES['ole miss']);
+  // Raw stored view still shows the persisted entry (demotion is effective-only).
+  const stored = await getStoredGlobalAliases();
+  assert.equal(stored['ole miss'], SEED_ALIASES['ole miss']);
+});
+
+test('effective read: a manual repair (different target) for a seed key survives and wins', async () => {
+  await setAppState('aliases:global', 'map', { uh: 'Hawaii' }); // seed is uh→houston
+  const global = await getGlobalAliases();
+  assert.equal(global.uh, 'Hawaii', 'manual repair not demoted');
+  const scoped = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(scoped.uh, 'Hawaii');
+});
+
+test('legacy promotion: identity collision remaps the promoted spelling to the global winner', async () => {
+  // stored global owns identity `gulfcoasttech` via `gulf coast tech`→Texas; a
+  // legacy scope has `gulfcoasttech`→Georgia. Promotion must NOT introduce the
+  // conflicting Georgia target — it maps the spelling to the winner (Texas).
+  await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
+  await setAppState('aliases:2024', 'map', { gulfcoasttech: 'Georgia' });
+  await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+
+  const stored = (await getAppState<Record<string, string>>('aliases:global', 'map'))?.value ?? {};
+  assert.equal(stored['gulf coast tech'], 'Texas');
+  assert.equal(stored.gulfcoasttech, 'Texas', 'promoted spelling remapped to winner, not Georgia');
+
+  const map = await getScopedAliasMap(SLUG, 2025);
+  assert.equal(map['gulf coast tech'], 'Texas');
+  assert.equal(map.gulfcoasttech, 'Texas');
 });
