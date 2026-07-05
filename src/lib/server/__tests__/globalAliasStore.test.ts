@@ -379,3 +379,17 @@ test('legacy promotion: identity collision remaps the promoted spelling to the g
   assert.equal(map['gulf coast tech'], 'Texas');
   assert.equal(map.gulfcoasttech, 'Texas');
 });
+
+test('legacy promotion: a demoted seed copy does not win an identity over a differently-spelled repair', async () => {
+  // Stored global holds a bootstrap copy `uh`→houston (== seed). A legacy scope
+  // has a differently-formatted manual repair `u h`→Hawaii (same identity). The
+  // copy must NOT count as the identity winner, so the repair promotes and wins.
+  await setAppState('aliases:global', 'map', { uh: SEED_ALIASES.uh! }); // uh→houston (seed copy)
+  await setAppState('aliases:2024', 'map', { 'u h': 'Hawaii' });
+  await migrateYearScopedAliasesToGlobal(['league-a'], 2025);
+
+  const map = await getScopedAliasMap(SLUG, 2025);
+  assert.equal(map['u h'], 'Hawaii', 'repair promoted and wins, not remapped to the seed copy');
+  assert.equal(map.uh, 'Hawaii', 'copied spelling resolves to the repair winner');
+  assert.notEqual(map.uh, SEED_ALIASES.uh);
+});
