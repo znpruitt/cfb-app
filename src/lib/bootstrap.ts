@@ -1,4 +1,4 @@
-import { loadServerAliases, saveServerAliases } from './aliasesApi.ts';
+import { loadServerAliases, loadEffectiveAliases } from './aliasesApi.ts';
 import { loadServerOwnersCsv } from './ownersApi.ts';
 import {
   loadServerPostseasonOverrides,
@@ -96,6 +96,7 @@ export async function bootstrapAliasesAndCaches(params: {
   leagueSlug?: string;
 }): Promise<{
   aliasMap: AliasMap;
+  effectiveAliasMap: AliasMap;
   aliasLoadIssue?: string;
   ownersCsvText: string | null;
   ownersLoadIssue?: string;
@@ -108,16 +109,26 @@ export async function bootstrapAliasesAndCaches(params: {
   // Only relevant when leagueSlug is provided — otherwise the keys are identical.
   const oldSeasonKeys = leagueSlug ? seasonOnlyStorageKeys(season) : null;
 
+  // Two alias maps with distinct purposes:
+  // - aliasMap:          STORED league aliases (`aliases:${slug}:${year}`) — the
+  //                      editable view the in-app alias editor manages.
+  // - effectiveAliasMap: the RESOLVER view (stored global > league+year > year >
+  //                      SEED_ALIASES) used to build the client schedule/games so
+  //                      client identity matches server canonical. SEED_ALIASES
+  //                      now come from the server effective map, so the client no
+  //                      longer seeds them into the league scope.
   let aliasMap: AliasMap = {};
+  let effectiveAliasMap: AliasMap = {};
   let aliasLoadIssue: string | undefined;
 
   try {
-    let serverMap = await loadServerAliases(season, leagueSlug);
-    if (!Object.keys(serverMap).length && Object.keys(seedAliases).length) {
-      serverMap = await saveServerAliases(seedAliases, [], season, leagueSlug);
-    }
-    aliasMap = serverMap;
-    window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(serverMap));
+    const [storedMap, effectiveMap] = await Promise.all([
+      loadServerAliases(season, leagueSlug),
+      loadEffectiveAliases(season, leagueSlug),
+    ]);
+    aliasMap = storedMap;
+    effectiveAliasMap = effectiveMap;
+    window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(storedMap));
   } catch (err) {
     aliasLoadIssue = `Aliases load failed: ${(err as Error).message}`;
     const cached = readWithMigrationChain(
@@ -134,6 +145,9 @@ export async function bootstrapAliasesAndCaches(params: {
     } else {
       aliasMap = { ...seedAliases };
     }
+    // Degraded offline fallback only (server effective map unavailable): resolve
+    // with the cached stored league aliases over the static seed defaults.
+    effectiveAliasMap = { ...seedAliases, ...aliasMap };
   }
 
   let ownersCsvText = readOwnersCsvWithMigration(
@@ -176,6 +190,7 @@ export async function bootstrapAliasesAndCaches(params: {
 
   return {
     aliasMap,
+    effectiveAliasMap,
     aliasLoadIssue,
     ownersCsvText,
     ownersLoadIssue,

@@ -26,7 +26,7 @@ import { type ScorePack } from '../lib/scores';
 import { getRefreshPlan } from '../lib/refreshPolicy';
 import { type AliasMap } from '../lib/teamNames';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
-import { saveServerAliases } from '../lib/aliasesApi';
+import { saveServerAliases, loadEffectiveAliases } from '../lib/aliasesApi';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
@@ -297,7 +297,11 @@ export default function CFBScheduleApp({
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
+  // Stored league aliases — the editable view the alias editor manages.
   const [aliasMap, setAliasMap] = useState<AliasMap>({});
+  // Effective resolver map (stored global > league+year > year > SEED_ALIASES) —
+  // used to build the client schedule/games so identity matches server canonical.
+  const [effectiveAliasMap, setEffectiveAliasMap] = useState<AliasMap>({});
   const [editOpen, setEditOpen] = useState<boolean>(false);
   const [editDraft, setEditDraft] = useState<Array<{ key: string; value: string }>>([]);
 
@@ -454,7 +458,9 @@ export default function CFBScheduleApp({
         const built = buildScheduleFromApi({
           scheduleItems,
           teams,
-          aliasMap: overrideAliasMap ?? aliasMap,
+          // Effective resolver map (not the stored league editor map) so client
+          // game identity matches server canonical for global/year/seed aliases.
+          aliasMap: overrideAliasMap ?? effectiveAliasMap,
           season: selectedSeason,
           manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
           conferenceRecords,
@@ -504,7 +510,7 @@ export default function CFBScheduleApp({
       }
     },
     [
-      aliasMap,
+      effectiveAliasMap,
       clearScheduleDerivedState,
       loadRankings,
       manualPostseasonOverrides,
@@ -522,6 +528,21 @@ export default function CFBScheduleApp({
     clearOwnersDerivedState();
   }, [clearOwnersDerivedState, storageKeys.ownersCsv]);
 
+  // After an in-app league alias edit, the effective resolver map changes, so
+  // refetch it and rebuild the schedule with the fresh map (passed as override
+  // to avoid a stale-state race). Falls back to the current effective map if the
+  // refetch fails — the save already succeeded.
+  const reloadScheduleWithFreshEffective = useCallback(async () => {
+    let fresh = effectiveAliasMap;
+    try {
+      fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
+      setEffectiveAliasMap(fresh);
+    } catch {
+      // keep current effective map; schedule still reloads
+    }
+    await loadScheduleFromApi(fresh);
+  }, [effectiveAliasMap, leagueSlug, loadScheduleFromApi, selectedSeason]);
+
   const showAliasToast = useCallback((message: string, timeoutMs: number = 1200) => {
     setAliasToast(message);
     setTimeout(() => setAliasToast(null), timeoutMs);
@@ -532,6 +553,7 @@ export default function CFBScheduleApp({
     selectedSeason,
     leagueSlug,
     setAliasMap,
+    setEffectiveAliasMap,
     setIssues,
     setHasCachedOwners,
     setManualPostseasonOverrides,
@@ -1063,7 +1085,9 @@ export default function CFBScheduleApp({
     games,
     visibleGames,
     scoreScopeGames,
-    aliasMap,
+    // Effective resolver map so live score/odds attachment matches server
+    // canonical identity (the stored league map drives the editor only).
+    aliasMap: effectiveAliasMap,
     oddsUsage,
     refreshPlan,
     scoreHydrationState,
@@ -1169,7 +1193,7 @@ export default function CFBScheduleApp({
       setAliasStaging({ upserts: {}, deletes: [] });
       showAliasToast('Aliases saved. Rebuilding…', 1800);
 
-      await loadScheduleFromApi();
+      await reloadScheduleWithFreshEffective();
       // Refresh the current RSC tree so canonical standings reflect the alias
       // mutation (alias changes can re-resolve roster team identities).
       router.refresh();
@@ -1177,7 +1201,7 @@ export default function CFBScheduleApp({
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
       showAliasToast('Alias save failed.', 1800);
     }
-  }, [aliasStaging, persistAliasChanges, showAliasToast, loadScheduleFromApi, router]);
+  }, [aliasStaging, persistAliasChanges, showAliasToast, reloadScheduleWithFreshEffective, router]);
 
   const openEditor = useCallback(() => {
     setEditDraft(
@@ -1221,7 +1245,7 @@ export default function CFBScheduleApp({
     try {
       await persistAliasChanges(cleaned, deletes);
       setEditOpen(false);
-      await loadScheduleFromApi();
+      await reloadScheduleWithFreshEffective();
       // Refresh the current RSC tree so canonical standings (server-rendered)
       // pick up the alias mutation; the alias API route already invalidates
       // the standings cache tag.
@@ -1229,7 +1253,7 @@ export default function CFBScheduleApp({
     } catch (err) {
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
     }
-  }, [editDraft, aliasMap, persistAliasChanges, loadScheduleFromApi, router]);
+  }, [editDraft, aliasMap, persistAliasChanges, reloadScheduleWithFreshEffective, router]);
 
   const savePostseasonOverride = useCallback(
     (eventId: string, patch: Partial<AppGame>) => {

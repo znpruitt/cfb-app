@@ -15,6 +15,7 @@ type UseScheduleBootstrapParams = {
   selectedSeason: number;
   leagueSlug?: string;
   setAliasMap: (next: AliasMap) => void;
+  setEffectiveAliasMap: (next: AliasMap) => void;
   setIssues: Dispatch<SetStateAction<string[]>>;
   setHasCachedOwners: (next: boolean) => void;
   setManualPostseasonOverrides: (next: Record<string, Partial<AppGame>>) => void;
@@ -32,6 +33,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     selectedSeason,
     leagueSlug,
     setAliasMap,
+    setEffectiveAliasMap,
     setIssues,
     setHasCachedOwners,
     setManualPostseasonOverrides,
@@ -55,6 +57,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     (async () => {
       const {
         aliasMap: bootAliasMap,
+        effectiveAliasMap: bootEffectiveAliasMap,
         aliasLoadIssue,
         ownersCsvText,
         ownersLoadIssue,
@@ -67,6 +70,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
       });
 
       setAliasMap(bootAliasMap);
+      setEffectiveAliasMap(bootEffectiveAliasMap);
       if (aliasLoadIssue) setIssues((p) => [...p, aliasLoadIssue]);
       if (ownersLoadIssue) setIssues((p) => [...p, ownersLoadIssue]);
       if (postseasonOverridesLoadIssue) setIssues((p) => [...p, postseasonOverridesLoadIssue]);
@@ -74,7 +78,9 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
       setHasCachedOwners(Boolean(ownersCsvText));
       setManualPostseasonOverrides(loadedOverrides);
 
-      await loadScheduleFromApi(bootAliasMap, loadedOverrides);
+      // Build the client schedule with the EFFECTIVE map so client game identity
+      // matches server canonical (stored league map drives the editor only).
+      await loadScheduleFromApi(bootEffectiveAliasMap, loadedOverrides);
 
       if (ownersCsvText) {
         setOwnersLoadedFromCache(true);
@@ -87,6 +93,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     loadScheduleFromApi,
     selectedSeason,
     setAliasMap,
+    setEffectiveAliasMap,
     setHasCachedOwners,
     setIssues,
     setManualPostseasonOverrides,
