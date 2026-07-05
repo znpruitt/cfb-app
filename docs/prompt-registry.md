@@ -16,6 +16,12 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-059-CANONICAL-ALIAS-SERVER-CONSUMERS-v1
+- Purpose: Align the last server-side alias consumer with the effective scoped alias map after PLATFORM-055/057, so rollover/backfill archives can't diverge from live canonical.
+- Scope: `src/lib/seasonRollover.ts` (`buildSeasonArchive`). Tests: new `src/lib/__tests__/seasonRollover-aliases.test.ts`.
+- Notes: **`buildSeasonArchive` now consumes `getScopedAliasMap(slug, year)`** (stored global > league+year > year > `SEED_ALIASES`) instead of loading only `aliases:${slug}:${year}` for game identity — the same effective resolution live canonical standings use, feeding both `buildScheduleFromApi` and the score-attachment resolver. Removed the private league-only alias load; archive persistence format and display labels unchanged. `loadInsightsForLeague`'s games builder was already migrated in PLATFORM-057 — verified, not changed. Tests prove the archive resolves games via global-only / year-only / `SEED_ALIASES` fallbacks, a league+year repair beating the seed, and archive standings agreeing with live canonical for the same fixture. Codex review clean (no findings). Focused suites 186 pass / 0 fail; tsc/lint:all/build green. Full `npm test` not run (documented Overview hang).
+- Follow-up (final alias-model item): **PLATFORM-058-CLIENT-EFFECTIVE-ALIAS-BOOTSTRAP** — now fully unblocked; change the client GET/bootstrap to consume the effective map.
+
 ### PLATFORM-057-SEED-ALIASES-TO-GLOBAL-v1
 - Purpose: Make the static `SEED_ALIASES` bundle globally available to all server alias consumers so PLATFORM-058 can safely change client alias bootstrap. Prerequisite for 058.
 - Scope: `src/lib/server/globalAliasStore.ts` (effective-map model + reconciliation), `src/lib/selectors/leagueStandings.ts` (cache-key seed versioning), `src/app/api/aliases/route.ts` (stored-only global GET), `src/app/api/owners/route.ts` + `src/app/api/owners/validate/route.ts` + `src/lib/insights/loadInsights.ts` (league-aware consumers → `getScopedAliasMap`). Tests: `globalAliasStore.test.ts` (expanded), new `owners/validate/__tests__/route.test.ts`, updated aliases-route + standings tests.
