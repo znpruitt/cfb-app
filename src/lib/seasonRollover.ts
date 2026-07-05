@@ -1,4 +1,5 @@
 import { getAppState } from './server/appStateStore.ts';
+import { getScopedAliasMap } from './server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
 import { buildScheduleFromApi, type ScheduleWireItem, type AppGame } from './schedule.ts';
 import { createTeamIdentityResolver } from './teamIdentity.ts';
@@ -155,12 +156,11 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   // Load team database
   const teams = await getTeamDatabaseItems();
 
-  // Load alias map
-  const aliasRecord = await getAppState<AliasMap>(`aliases:${leagueSlug}:${year}`, 'map');
-  const aliasMap: AliasMap =
-    aliasRecord?.value && typeof aliasRecord.value === 'object' && !Array.isArray(aliasRecord.value)
-      ? aliasRecord.value
-      : {};
+  // Load the effective, league-aware alias map (stored global > league+year >
+  // year > SEED_ALIASES) — the SAME resolution live canonical standings use, so
+  // archived standings/history can't disagree with live for the same
+  // games/roster/scores. Must NOT be the league-only scope.
+  const aliasMap: AliasMap = await getScopedAliasMap(leagueSlug, year);
 
   // Load owners CSV
   const ownersRecord = await getAppState<string>(`owners:${leagueSlug}:${year}`, 'csv');
