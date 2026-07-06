@@ -134,37 +134,55 @@ export async function bootstrapAliasesAndCaches(params: {
   let effectiveAliasMap: AliasMap = {};
   let aliasLoadIssue: string | undefined;
 
-  try {
-    const [storedMap, effectiveMap] = await Promise.all([
-      loadServerAliases(season, leagueSlug),
-      loadEffectiveAliases(season, leagueSlug),
-    ]);
-    aliasMap = storedMap;
-    effectiveAliasMap = effectiveMap;
-    window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(storedMap));
-    window.localStorage.setItem(storageKeys.effectiveAliasMap, JSON.stringify(effectiveMap));
-  } catch (err) {
-    aliasLoadIssue = `Aliases load failed: ${(err as Error).message}`;
-
-    // Editor map: cached STORED league aliases only — never seeds. This map
-    // backs the alias editor, and a save would persist whatever it contains into
-    // the league scope, so seeding it would leak defaults there.
-    const cachedStored = readWithMigrationChain(
-      storageKeys.aliasMap,
-      oldSeasonKeys?.aliasMap ?? null,
-      null
+  // Editor-map fallback: cached STORED league aliases only — never seeds. This
+  // map backs the alias editor, and a save persists whatever it contains into
+  // the league scope, so seeding it would leak defaults there.
+  const storedFallback = (): AliasMap =>
+    parseAliasMap(
+      readWithMigrationChain(storageKeys.aliasMap, oldSeasonKeys?.aliasMap ?? null, null),
+      {}
     );
-    aliasMap = parseAliasMap(cachedStored, {});
+  // Resolver-map fallback: prefer the separately cached EFFECTIVE map so
+  // global/year aliases survive a degraded bootstrap; only if no effective cache
+  // exists fall back to seeds over the stored map (drops global/year — the last
+  // resort on a first-ever offline load).
+  const effectiveFallback = (stored: AliasMap): AliasMap => {
+    const cached = window.localStorage.getItem(storageKeys.effectiveAliasMap);
+    return cached != null
+      ? parseAliasMap(cached, { ...seedAliases, ...stored })
+      : { ...seedAliases, ...stored };
+  };
 
-    // Resolver map: prefer the separately cached EFFECTIVE map so global/year
-    // aliases survive a degraded bootstrap. Only if no effective cache exists do
-    // we fall back to seeds over the cached stored map (drops global/year — the
-    // last resort on a first-ever offline load).
-    const cachedEffective = window.localStorage.getItem(storageKeys.effectiveAliasMap);
-    effectiveAliasMap =
-      cachedEffective != null
-        ? parseAliasMap(cachedEffective, { ...seedAliases, ...aliasMap })
-        : { ...seedAliases, ...aliasMap };
+  // Fetch both maps independently: a transient failure of one must NOT discard a
+  // successful fetch of the other (which would reintroduce a client/server
+  // identity mismatch).
+  const [storedResult, effectiveResult] = await Promise.allSettled([
+    loadServerAliases(season, leagueSlug),
+    loadEffectiveAliases(season, leagueSlug),
+  ]);
+
+  if (storedResult.status === 'fulfilled') {
+    aliasMap = storedResult.value;
+    try {
+      window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(aliasMap));
+    } catch {
+      // ignore quota/serialization failures — cache is best-effort
+    }
+  } else {
+    aliasLoadIssue = `Aliases load failed: ${(storedResult.reason as Error)?.message ?? 'unknown'}`;
+    aliasMap = storedFallback();
+  }
+
+  if (effectiveResult.status === 'fulfilled') {
+    effectiveAliasMap = effectiveResult.value;
+    try {
+      window.localStorage.setItem(storageKeys.effectiveAliasMap, JSON.stringify(effectiveAliasMap));
+    } catch {
+      // ignore quota/serialization failures — cache is best-effort
+    }
+  } else {
+    aliasLoadIssue ??= `Aliases load failed: ${(effectiveResult.reason as Error)?.message ?? 'unknown'}`;
+    effectiveAliasMap = effectiveFallback(aliasMap);
   }
 
   let ownersCsvText = readOwnersCsvWithMigration(

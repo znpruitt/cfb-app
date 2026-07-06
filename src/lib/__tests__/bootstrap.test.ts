@@ -352,3 +352,64 @@ test('bootstrap fallback: restores the cached effective map, preserving global/y
     'effective restored from its own cache — global/year not dropped'
   );
 });
+
+test('bootstrap partial failure: a failed stored fetch must not discard a successful effective fetch', async () => {
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) {
+      // Effective request succeeds; stored request fails.
+      return url.includes('scope=effective')
+        ? Response.json({ scope: 'effective', map: { global: 'Global', league: 'League' } })
+        : new Response('boom', { status: 500 });
+    }
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug });
+
+  // The freshly fetched effective map is preserved (not clobbered by the failed
+  // stored request); the editor map falls back to (empty) cache.
+  assert.deepEqual(result.effectiveAliasMap, { global: 'Global', league: 'League' });
+  assert.deepEqual(result.aliasMap, {});
+  assert.match(result.aliasLoadIssue ?? '', /Aliases load failed/);
+});
+
+test('bootstrap partial failure: a failed effective fetch keeps the fresh stored map', async () => {
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) {
+      return url.includes('scope=effective')
+        ? new Response('boom', { status: 500 })
+        : Response.json({ year: season, league: leagueSlug, map: { league: 'League' } });
+    }
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({
+    season,
+    seedAliases: { byu: 'brigham young' },
+    leagueSlug,
+  });
+
+  assert.deepEqual(result.aliasMap, { league: 'League' }, 'fresh stored map kept');
+  // Effective falls back to seeds over the fresh stored map (no effective cache).
+  assert.deepEqual(result.effectiveAliasMap, { byu: 'brigham young', league: 'League' });
+});

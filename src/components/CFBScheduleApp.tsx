@@ -530,18 +530,14 @@ export default function CFBScheduleApp({
 
   // After an in-app league alias edit, the effective resolver map changes, so
   // refetch it and rebuild the schedule with the fresh map (passed as override
-  // to avoid a stale-state race). Falls back to the current effective map if the
-  // refetch fails — the save already succeeded.
+  // to avoid a stale-state race). If the refetch fails, THROW so the caller
+  // surfaces it — silently rebuilding with the stale pre-save map would hide the
+  // just-saved repair from the schedule/live attachment while reporting success.
   const reloadScheduleWithFreshEffective = useCallback(async () => {
-    let fresh = effectiveAliasMap;
-    try {
-      fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
-      setEffectiveAliasMap(fresh);
-    } catch {
-      // keep current effective map; schedule still reloads
-    }
+    const fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
+    setEffectiveAliasMap(fresh);
     await loadScheduleFromApi(fresh);
-  }, [effectiveAliasMap, leagueSlug, loadScheduleFromApi, selectedSeason]);
+  }, [leagueSlug, loadScheduleFromApi, selectedSeason]);
 
   const showAliasToast = useCallback((message: string, timeoutMs: number = 1200) => {
     setAliasToast(message);
