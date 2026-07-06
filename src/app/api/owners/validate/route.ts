@@ -58,9 +58,9 @@ export async function POST(req: Request): Promise<Response> {
 
   const [teams, mergedAliases] = await Promise.all([
     getTeamDatabaseItems(),
-    // Effective, league-aware precedence (stored global > league+year > year >
-    // seed defaults) in one map — NOT scoped-then-global-spread, which would let
-    // a seed default override a scoped repair.
+    // Effective precedence (stored global > year > seed defaults) in one map —
+    // NOT scoped-then-global-spread, which would let a seed default override a
+    // year repair.
     getScopedAliasMap(league ?? '', year),
   ]);
 

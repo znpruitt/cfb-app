@@ -58,9 +58,9 @@ function parseAliasMap(raw: string | null, fallback: AliasMap): AliasMap {
   }
 }
 
-// The effective-alias fetch is the ONLY client path that surfaces league-scoped
-// stored repairs (via getScopedAliasMap: stored global > league+year > year >
-// seeds); the league-scoped stored GET was removed with the in-app editor. So a
+// The effective-alias fetch is the ONLY client path that surfaces stored
+// global/year repairs (via getScopedAliasMap: stored global > year > seeds);
+// the league-scoped stored GET was removed with the in-app editor. So a
 // transient failure of this single request on a cold cache would drop identity
 // to the local fallback (cached effective / legacy stored / seeds) and diverge
 // from server canonical until a reload. A small bounded retry closes that window
@@ -157,8 +157,8 @@ export async function bootstrapAliasesAndCaches(params: {
   // Only relevant when leagueSlug is provided — otherwise the keys are identical.
   const oldSeasonKeys = leagueSlug ? seasonOnlyStorageKeys(season) : null;
 
-  // effectiveAliasMap is the RESOLVER view (stored global > league+year > year >
-  // SEED_ALIASES) used to build the client schedule/games so client identity
+  // effectiveAliasMap is the RESOLVER view (stored global > year > SEED_ALIASES)
+  // used to build the client schedule/games so client identity
   // matches server canonical. It is the only client alias map — the former
   // stored-league editor map was removed with the (unreachable) in-app editor.
   let effectiveAliasMap: AliasMap = {};

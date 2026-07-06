@@ -474,8 +474,8 @@ export async function GET(req: Request): Promise<Response> {
 
     const [teams, aliasMap] = await Promise.all([
       getTeamDatabaseItems(),
-      // Canonical effective resolution (stored global > league+year > year >
-      // SEED_ALIASES) — audit identity must match live/canonical behavior.
+      // Canonical effective resolution (stored global > year > SEED_ALIASES) —
+      // audit identity must match live/canonical behavior.
       getScopedAliasMap(leagueSlug, year),
     ]);
 

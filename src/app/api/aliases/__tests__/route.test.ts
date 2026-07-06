@@ -224,8 +224,8 @@ test('a ?league= param on PUT is rejected (410) — no silent broadening to the 
 
 // ---------------------------------------------------------------------------
 // PLATFORM-058: GET ?scope=effective — resolver view for the client bootstrap
-// (stored global > league+year > year > SEED_ALIASES). Read-only; the default
-// (stored) league GET stays the editable view.
+// (stored global > year > SEED_ALIASES; league-scoped aliases ignored per
+// PLATFORM-067). Read-only; the default (stored) year GET stays the editable view.
 // ---------------------------------------------------------------------------
 
 const LEAGUE = 'league-a';
@@ -263,16 +263,16 @@ test('effective GET: returns SEED_ALIASES as a fallback', async () => {
   assert.equal(map['ole miss'], SEED_ALIASES['ole miss']);
 });
 
-test('effective GET: stored global beats league+year, year, and seed', async () => {
+test('effective GET: stored global beats year and seed; a league entry is ignored', async () => {
   await setAppState('aliases:global', 'map', { uh: 'Global Target' });
   await setAppState(`aliases:${LEAGUE}:${YR}`, 'map', { uh: 'League Target' });
   await setAppState(`aliases:${YR}`, 'map', { uh: 'Year Target' });
   assert.equal((await effectiveMap()).uh, 'Global Target');
 });
 
-test('effective GET: a league+year repair beats year and seed', async () => {
+test('effective GET: a league+year repair is IGNORED; uh falls back to the seed (PLATFORM-067)', async () => {
   await setAppState(`aliases:${LEAGUE}:${YR}`, 'map', { uh: 'Hawaii' }); // seed is uh→houston
-  assert.equal((await effectiveMap()).uh, 'Hawaii');
+  assert.equal((await effectiveMap()).uh, SEED_ALIASES.uh);
 });
 
 test('effective GET: a year alias beats the seed fallback', async () => {

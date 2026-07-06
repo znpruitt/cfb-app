@@ -7,10 +7,11 @@ import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import { resolveDraftScheduleGames } from '../draftSchedule';
 
 // PLATFORM-060 — the draft page must resolve its cached schedule through the
-// canonical effective alias map (getScopedAliasMap: stored global > league+year
-// > year > SEED_ALIASES), NOT a hand-rolled scope merge that missed stored
-// global and used inverted precedence. Each case seeds only the layer under
-// test with an alias-only home label and asserts the resolved canonical team.
+// canonical effective alias map (getScopedAliasMap: stored global > year >
+// SEED_ALIASES), NOT a hand-rolled scope merge that missed stored global and
+// used inverted precedence. League-scoped aliases are ignored at runtime
+// (PLATFORM-067). Each case seeds only the layer under test with an alias-only
+// home label and asserts the resolved canonical team.
 
 const TEAMS: TeamCatalogItem[] = [
   {
@@ -88,18 +89,18 @@ test('draft schedule resolves a SEED_ALIASES fallback', async () => {
   assert.equal(await resolveHome('tsc', year, 'App State'), 'Appalachian State');
 });
 
-test('draft schedule: stored global beats a conflicting league+year scope', async () => {
+test('draft schedule: stored global beats a conflicting year scope', async () => {
   const slug = 'alias-global-wins';
   const year = 2043;
-  await setAppState(`aliases:${slug}:${year}`, 'map', { 'conflict team': 'Michigan' });
+  await setAppState(`aliases:${year}`, 'map', { 'conflict team': 'Michigan' });
   await setAppState('aliases:global', 'map', { 'conflict team': 'Ohio State' });
   assert.equal(await resolveHome(slug, year, 'Conflict Team'), 'Ohio State');
 });
 
-test('draft schedule: league+year beats a conflicting year-only scope', async () => {
-  const slug = 'alias-league-wins';
+test('draft schedule: a league+year scope is IGNORED; the year target wins (PLATFORM-067)', async () => {
+  const slug = 'alias-league-ignored';
   const year = 2044;
   await setAppState(`aliases:${year}`, 'map', { 'scoped team': 'Michigan' });
   await setAppState(`aliases:${slug}:${year}`, 'map', { 'scoped team': 'Ohio State' });
-  assert.equal(await resolveHome(slug, year, 'Scoped Team'), 'Ohio State');
+  assert.equal(await resolveHome(slug, year, 'Scoped Team'), 'Michigan');
 });

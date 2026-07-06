@@ -76,9 +76,10 @@ export async function GET(req: Request): Promise<Response> {
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
 
   // Effective scope: ?scope=effective — the RESOLVER view (stored global >
-  // league+year > year > SEED_ALIASES), the same map server canonical uses. This
-  // is read-only for client schedule/liveDelta identity; a league may be provided
-  // so a league page gets its league-aware resolver map.
+  // year > SEED_ALIASES), the same map server canonical uses. This is read-only
+  // for client schedule/liveDelta identity. A league may still be provided for
+  // call-site compatibility, but it no longer affects resolution — team aliases
+  // are not league-specific (PLATFORM-067).
   if (url.searchParams.get('scope') === 'effective') {
     const map = await getScopedAliasMap(league ?? '', year);
     return Response.json({ year, league: league ?? null, scope: 'effective', map });

@@ -284,8 +284,11 @@ export async function getCanonicalStandings(
  *
  * Wired into:
  * - PUT /api/owners (league-scoped roster CSV)
- * - PUT /api/aliases (league-scoped: invalidates that league+year;
- *   global-scoped: invalidates every registered league's umbrella tag)
+ * - PUT /api/aliases (year-scoped: `aliases:${year}` feeds every league, so it
+ *   invalidates that year for every registered league; global-scoped:
+ *   invalidates every registered league's umbrella tag). The league-scoped PUT
+ *   was removed (PLATFORM-064) and league aliases no longer resolve at runtime
+ *   (PLATFORM-067).
  * - PUT /api/postseason-overrides
  * - POST + DELETE /api/draft/[slug]/[year]/confirm
  * - GET /api/schedule (admin refresh, walks registry)

@@ -791,7 +791,8 @@ test('currentDate threads through main cached path: generatedAt reflects caller-
 // ---------------------------------------------------------------------------
 // PLATFORM-055: canonical standings consume the effective (scoped) alias map.
 // Game identity — and therefore ownership — must resolve through the global
-// alias store, with precedence global > league+year > year. Each test seeds a
+// alias store, with precedence global > year > SEED_ALIASES (league-scoped
+// aliases are ignored at runtime, PLATFORM-067). Each test seeds a
 // single scored game whose HOME provider label is only resolvable via an alias,
 // so the alias map is the sole determinant of whether the home roster owner is
 // credited a win. Score attachment is by provider event id, independent of
@@ -837,10 +838,10 @@ test('alias: without any alias the global-only game is NOT credited (control for
   assert.equal(alice?.wins ?? 0, 0);
 });
 
-test('alias: global overrides league+year on conflict (global precedence)', async () => {
+test('alias: global wins and a league+year scope is ignored (PLATFORM-067)', async () => {
   const slug = 'alias-global-over-league';
-  // Global maps the provider label to Texas (Alice); a conflicting league+year
-  // alias maps it to Georgia (Carol). Global must win, so Alice is credited.
+  // Global maps the provider label to Texas (Alice); a league+year alias maps it
+  // to Georgia (Carol) but is IGNORED, so Alice is credited.
   await seedAliasScope('aliases:global', { 'gulf coast tech': 'Texas' });
   await seedAliasScope('aliases:alias-global-over-league:2025', { 'gulf coast tech': 'Georgia' });
   await seedLeague(makeLeague({ slug, year: 2025, status: ALIAS_STATUS }));
@@ -864,14 +865,14 @@ test('alias: global overrides league+year on conflict (global precedence)', asyn
   assert.equal(carol?.wins ?? 0, 0, 'league target (Georgia/Carol) NOT credited');
 });
 
-test('alias: global wins over a legacy key that only differs by normalization (P1)', async () => {
+test('alias: global wins over a year key that only differs by normalization (P1)', async () => {
   const slug = 'alias-global-over-normalized-legacy';
-  // Global uses the spaced key; the legacy league scope uses the space-stripped
-  // form. Both collapse to the same resolver identity. Before the P1 fix the
-  // legacy entry (inserted first by the merge) won in buildCanonicalRegistry and
+  // Global uses the spaced key; the year scope uses the space-stripped form.
+  // Both collapse to the same resolver identity. Before the P1 fix the lower
+  // entry (inserted first by the merge) won in buildCanonicalRegistry and
   // credited Carol; global precedence must credit Alice.
   await seedAliasScope('aliases:global', { 'gulf coast tech': 'Texas' });
-  await seedAliasScope(`aliases:${slug}:2025`, { gulfcoasttech: 'Georgia' });
+  await seedAliasScope('aliases:2025', { gulfcoasttech: 'Georgia' });
   await seedLeague(makeLeague({ slug, year: 2025, status: ALIAS_STATUS }));
   await seedOwnersCsv(
     slug,
@@ -893,13 +894,16 @@ test('alias: global wins over a legacy key that only differs by normalization (P
   assert.equal(carol?.wins ?? 0, 0, 'legacy normalized-dup target (Georgia/Carol) NOT credited');
 });
 
-test('alias: league-only alias still resolves as a deprecated fallback', async () => {
+test('alias: a league-only alias is IGNORED and does NOT credit a win (PLATFORM-067)', async () => {
+  // Team aliases are not league-specific. A stored `aliases:${slug}:${year}` map
+  // is legacy storage only, so "Gulf Coast Tech" no longer resolves to "Texas"
+  // and Alice earns no win — same outcome as the no-alias control.
   const slug = 'alias-league-only';
   await seedAliasScope('aliases:alias-league-only:2025', { 'gulf coast tech': 'Texas' });
   const snapshot = await aliasScenarioSnapshot(slug);
 
   const alice = snapshot.rows.find((r) => r.owner === 'Alice');
-  assert.equal(alice?.wins ?? 0, 1);
+  assert.equal(alice?.wins ?? 0, 0, 'league-scoped alias does not resolve game identity');
 });
 
 test('alias: catalog/no-alias path still credits directly-named teams', async () => {

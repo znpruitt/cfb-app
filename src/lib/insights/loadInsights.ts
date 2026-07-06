@@ -104,8 +104,8 @@ export async function loadInsightsForLeague(
     const currentRoster = new Map(roster.map((r) => [r.team, r.owner]));
     const scheduleItems = scheduleRes?.items ?? [];
     const teams = (teamsRes?.items ?? []) as never[];
-    // Effective, league-aware precedence (stored global > league+year > year >
-    // seed defaults). Using getScopedAliasMap instead of spreading
+    // Effective precedence (stored global > year > seed defaults). Using
+    // getScopedAliasMap instead of spreading
     // getGlobalAliases() after the scoped map keeps seed defaults from
     // overriding a scoped repair.
     const aliasMap: AliasMap = scopedAliasMap;

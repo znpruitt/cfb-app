@@ -157,8 +157,8 @@ export async function GET(req: Request): Promise<Response> {
 
   for (const year of YEARS) {
     try {
-      // Canonical effective resolution (stored global > league+year > year >
-      // SEED_ALIASES) — diagnostic identity must match live/canonical behavior.
+      // Canonical effective resolution (stored global > year > SEED_ALIASES) —
+      // diagnostic identity must match live/canonical behavior.
       const aliasMap = await getScopedAliasMap(LEAGUE_SLUG, year);
 
       const resolver = createTeamIdentityResolver({ teams, aliasMap });

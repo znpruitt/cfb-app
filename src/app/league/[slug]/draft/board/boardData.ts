@@ -7,8 +7,8 @@ import type { TeamCatalogItem } from '@/lib/teamIdentity';
  * Loads the cached schedule for the spectator draft board and derives canonical
  * games using server-safe scoped alias resolution.
  *
- * Alias resolution goes through `getScopedAliasMap` (appState scopes:
- * league+year → year → global), never the browser-era loader in
+ * Alias resolution goes through `getScopedAliasMap` (precedence:
+ * stored global > year > SEED_ALIASES), never the browser-era loader in
  * `src/lib/aliases.ts` — so it works during server render and schedule-derived
  * draft insights populate instead of silently emptying out. Returns `[]` when
  * no schedule is cached for the season.
