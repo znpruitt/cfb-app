@@ -107,11 +107,7 @@ test('IssuesPanel keeps actionable score-attachment diagnostics in the main issu
     <IssuesPanel
       issues={[]}
       diag={[actionableIgnoredScoreRow, ignoredRow]}
-      aliasStaging={{ upserts: {}, deletes: [] }}
-      aliasToast={null}
       pillClass={() => 'pill'}
-      onCommitStagedAliases={() => undefined}
-      onStageAlias={() => undefined}
     />
   );
 
@@ -120,28 +116,6 @@ test('IssuesPanel keeps actionable score-attachment diagnostics in the main issu
   assert.match(html, /Action required: canonical schedule match is ambiguous/);
   assert.match(html, /Ignored provider rows \(informational\) \(1\)/);
   assert.match(html, /Ignored non-league provider row\./);
-});
-
-test('IssuesPanel keeps save staged aliases visible in ignored-row-only states', () => {
-  const html = renderToStaticMarkup(
-    <IssuesPanel
-      issues={[]}
-      diag={[ignoredRow]}
-      aliasStaging={{ upserts: { 'UTSA Roadrunners': 'UTSA' }, deletes: [] }}
-      aliasToast={null}
-      pillClass={() => 'pill'}
-      onCommitStagedAliases={() => undefined}
-      onStageAlias={() => undefined}
-    />
-  );
-
-  assert.match(html, /Staged alias changes/);
-  assert.match(html, /Save staged aliases/);
-  assert.match(
-    html,
-    /Save staged alias mappings to preserve commissioner repairs discovered in debug tools\./
-  );
-  assert.match(html, /Ignored provider rows \(informational\) \(1\)/);
 });
 
 test('admin alert count excludes informational ignored rows and includes actionable score diagnostics and staged aliases', () => {

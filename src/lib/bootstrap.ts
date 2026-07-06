@@ -1,4 +1,4 @@
-import { loadServerAliases, loadEffectiveAliases } from './aliasesApi.ts';
+import { loadEffectiveAliases } from './aliasesApi.ts';
 import { mergeAliasLayers } from './aliasLayers.ts';
 import { readEffectiveAliasCache, serializeEffectiveAliasCache } from './effectiveAliasCache.ts';
 import { loadServerOwnersCsv } from './ownersApi.ts';
@@ -58,6 +58,40 @@ function parseAliasMap(raw: string | null, fallback: AliasMap): AliasMap {
   }
 }
 
+// The effective-alias fetch is the ONLY client path that surfaces league-scoped
+// stored repairs (via getScopedAliasMap: stored global > league+year > year >
+// seeds); the league-scoped stored GET was removed with the in-app editor. So a
+// transient failure of this single request on a cold cache would drop identity
+// to the local fallback (cached effective / legacy stored / seeds) and diverge
+// from server canonical until a reload. A small bounded retry closes that window
+// for momentary blips while re-fetching the FULL resolver map (all repair
+// layers), so it beats fetching any narrower sub-scope. Only the failure path
+// pays the delay — a first-attempt success returns immediately.
+const EFFECTIVE_ALIAS_FETCH_ATTEMPTS = 3; // 1 initial + 2 retries
+const EFFECTIVE_ALIAS_RETRY_BASE_MS = 150; // linear backoff: 150ms, 300ms
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function loadEffectiveAliasesWithRetry(
+  season: number,
+  leagueSlug: string | undefined
+): Promise<AliasMap> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= EFFECTIVE_ALIAS_FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      return await loadEffectiveAliases(season, leagueSlug);
+    } catch (err) {
+      lastError = err;
+      if (attempt < EFFECTIVE_ALIAS_FETCH_ATTEMPTS) {
+        await sleep(EFFECTIVE_ALIAS_RETRY_BASE_MS * attempt);
+      }
+    }
+  }
+  throw lastError;
+}
+
 function readOwnersCsvWithMigration(
   storageKey: string,
   seasonOnlyKey: string | null
@@ -110,7 +144,6 @@ export async function bootstrapAliasesAndCaches(params: {
   seedAliases: AliasMap;
   leagueSlug?: string;
 }): Promise<{
-  aliasMap: AliasMap;
   effectiveAliasMap: AliasMap;
   aliasLoadIssue?: string;
   ownersCsvText: string | null;
@@ -124,73 +157,64 @@ export async function bootstrapAliasesAndCaches(params: {
   // Only relevant when leagueSlug is provided — otherwise the keys are identical.
   const oldSeasonKeys = leagueSlug ? seasonOnlyStorageKeys(season) : null;
 
-  // Two alias maps with distinct purposes:
-  // - aliasMap:          STORED league aliases (`aliases:${slug}:${year}`) — the
-  //                      editable view the in-app alias editor manages.
-  // - effectiveAliasMap: the RESOLVER view (stored global > league+year > year >
-  //                      SEED_ALIASES) used to build the client schedule/games so
-  //                      client identity matches server canonical. SEED_ALIASES
-  //                      now come from the server effective map, so the client no
-  //                      longer seeds them into the league scope.
-  let aliasMap: AliasMap = {};
+  // effectiveAliasMap is the RESOLVER view (stored global > league+year > year >
+  // SEED_ALIASES) used to build the client schedule/games so client identity
+  // matches server canonical. It is the only client alias map — the former
+  // stored-league editor map was removed with the (unreachable) in-app editor.
   let effectiveAliasMap: AliasMap = {};
   let aliasLoadIssue: string | undefined;
 
-  // Editor-map fallback: cached STORED league aliases only — never seeds. This
-  // map backs the alias editor, and a save persists whatever it contains into
-  // the league scope, so seeding it would leak defaults there.
-  const storedFallback = (): AliasMap =>
-    parseAliasMap(
-      readWithMigrationChain(storageKeys.aliasMap, oldSeasonKeys?.aliasMap ?? null, null),
-      {}
-    );
   // Resolver-map fallback: reconcile rather than trust a flattened cache. Layer
-  // (highest first) the (possibly freshly-fetched) stored map, then the cached
-  // effective map IF its seed version still matches (else discarded so a
-  // deploy-changed seed set can't resurrect stale identities), then the current
-  // seed defaults. mergeAliasLayers gives the same stored > … > seeds precedence
-  // (by normalized identity, spellings preserved) as the server resolver.
-  const effectiveFallback = (stored: AliasMap): AliasMap => {
+  // (highest first) the cached effective map IF its seed version still matches
+  // (else discarded so a deploy-changed seed set can't resurrect stale
+  // identities), then any legacy STORED league-alias cache, then the current seed
+  // defaults.
+  //
+  // The `cfb_name_map:*` legacy cache is a pre-064 client artifact — the in-app
+  // editor and its write path were removed, so nothing writes it anymore and it
+  // can go stale. It must therefore sit BELOW the effective cache: the effective
+  // cache is the last SUCCESSFUL full resolver fetch, so a stale legacy entry
+  // must never override it (that would regress identity during a later outage).
+  // The legacy layer still earns its place when NO effective cache exists yet —
+  // a client freshly upgraded from pre-064 may hold persisted league repairs only
+  // there, and without it a cold-cache outage would rebuild identity from seeds
+  // alone. Once an effective fetch succeeds we clear the legacy key (below), so
+  // this layer only ever matters on that first post-upgrade load.
+  const effectiveFallback = (): AliasMap => {
     const cached = readEffectiveAliasCache(
       window.localStorage.getItem(storageKeys.effectiveAliasMap),
       seedAliases
     );
-    return mergeAliasLayers(cached ? [stored, cached, seedAliases] : [stored, seedAliases]);
+    const storedLegacy = parseAliasMap(
+      readWithMigrationChain(storageKeys.aliasMap, oldSeasonKeys?.aliasMap ?? null, null),
+      {}
+    );
+    return mergeAliasLayers(
+      cached ? [cached, storedLegacy, seedAliases] : [storedLegacy, seedAliases]
+    );
   };
 
-  // Fetch both maps independently: a transient failure of one must NOT discard a
-  // successful fetch of the other (which would reintroduce a client/server
-  // identity mismatch).
-  const [storedResult, effectiveResult] = await Promise.allSettled([
-    loadServerAliases(season, leagueSlug),
-    loadEffectiveAliases(season, leagueSlug),
-  ]);
-
-  if (storedResult.status === 'fulfilled') {
-    aliasMap = storedResult.value;
-    try {
-      window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(aliasMap));
-    } catch {
-      // ignore quota/serialization failures — cache is best-effort
-    }
-  } else {
-    aliasLoadIssue = `Aliases load failed: ${(storedResult.reason as Error)?.message ?? 'unknown'}`;
-    aliasMap = storedFallback();
-  }
-
-  if (effectiveResult.status === 'fulfilled') {
-    effectiveAliasMap = effectiveResult.value;
+  try {
+    effectiveAliasMap = await loadEffectiveAliasesWithRetry(season, leagueSlug);
     try {
       window.localStorage.setItem(
         storageKeys.effectiveAliasMap,
         serializeEffectiveAliasCache(effectiveAliasMap, seedAliases)
       );
+      // The effective cache now holds the authoritative resolver view, so the
+      // legacy `cfb_name_map:*` cache is redundant and could only go stale and
+      // interfere with a future degraded bootstrap. Drop it once the effective
+      // cache is durably written. Ordering matters: if setItem above throws
+      // (quota), control skips these removals so the legacy cache survives as the
+      // sole fallback (see effectiveFallback).
+      window.localStorage.removeItem(storageKeys.aliasMap);
+      if (oldSeasonKeys?.aliasMap) window.localStorage.removeItem(oldSeasonKeys.aliasMap);
     } catch {
       // ignore quota/serialization failures — cache is best-effort
     }
-  } else {
-    aliasLoadIssue ??= `Aliases load failed: ${(effectiveResult.reason as Error)?.message ?? 'unknown'}`;
-    effectiveAliasMap = effectiveFallback(aliasMap);
+  } catch (err) {
+    aliasLoadIssue = `Aliases load failed: ${(err as Error)?.message ?? 'unknown'}`;
+    effectiveAliasMap = effectiveFallback();
   }
 
   let ownersCsvText = readOwnersCsvWithMigration(
@@ -232,7 +256,6 @@ export async function bootstrapAliasesAndCaches(params: {
   }
 
   return {
-    aliasMap,
     effectiveAliasMap,
     aliasLoadIssue,
     ownersCsvText,

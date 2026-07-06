@@ -14,7 +14,6 @@ type UseScheduleBootstrapParams = {
   hasBootstrappedRef: MutableRefObject<boolean>;
   selectedSeason: number;
   leagueSlug?: string;
-  setAliasMap: (next: AliasMap) => void;
   setEffectiveAliasMap: (next: AliasMap) => void;
   setIssues: Dispatch<SetStateAction<string[]>>;
   setHasCachedOwners: (next: boolean) => void;
@@ -32,7 +31,6 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     hasBootstrappedRef,
     selectedSeason,
     leagueSlug,
-    setAliasMap,
     setEffectiveAliasMap,
     setIssues,
     setHasCachedOwners,
@@ -56,7 +54,6 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
 
     (async () => {
       const {
-        aliasMap: bootAliasMap,
         effectiveAliasMap: bootEffectiveAliasMap,
         aliasLoadIssue,
         ownersCsvText,
@@ -69,7 +66,6 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
         leagueSlug,
       });
 
-      setAliasMap(bootAliasMap);
       setEffectiveAliasMap(bootEffectiveAliasMap);
       if (aliasLoadIssue) setIssues((p) => [...p, aliasLoadIssue]);
       if (ownersLoadIssue) setIssues((p) => [...p, ownersLoadIssue]);
@@ -79,7 +75,7 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
       setManualPostseasonOverrides(loadedOverrides);
 
       // Build the client schedule with the EFFECTIVE map so client game identity
-      // matches server canonical (stored league map drives the editor only).
+      // matches server canonical.
       await loadScheduleFromApi(bootEffectiveAliasMap, loadedOverrides);
 
       if (ownersCsvText) {
@@ -92,7 +88,6 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     leagueSlug,
     loadScheduleFromApi,
     selectedSeason,
-    setAliasMap,
     setEffectiveAliasMap,
     setHasCachedOwners,
     setIssues,

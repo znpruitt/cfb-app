@@ -18,17 +18,13 @@ import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
 import WeekControls from './WeekControls';
 import type { StandingsSubview } from './StandingsPanel';
-import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
+import type { DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import { type ScorePack } from '../lib/scores';
 import { getRefreshPlan } from '../lib/refreshPolicy';
-import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
-import { serializeEffectiveAliasCache } from '../lib/effectiveAliasCache';
-import { normalizeAliasLookup } from '../lib/teamNormalization';
-import { saveServerAliases, loadEffectiveAliases } from '../lib/aliasesApi';
-import { stageAliasFromMiss } from '../lib/aliasStaging';
+import type { AliasMap } from '../lib/teamNames';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
 import { deriveStandingsHistory } from '../lib/standingsHistory';
@@ -298,20 +294,14 @@ export default function CFBScheduleApp({
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
-  // Stored league aliases — the editable view the alias editor manages.
-  const [aliasMap, setAliasMap] = useState<AliasMap>({});
   // Effective resolver map (stored global > league+year > year > SEED_ALIASES) —
   // used to build the client schedule/games so identity matches server canonical.
   const [effectiveAliasMap, setEffectiveAliasMap] = useState<AliasMap>({});
-  const [editOpen, setEditOpen] = useState<boolean>(false);
-  const [editDraft, setEditDraft] = useState<Array<{ key: string; value: string }>>([]);
 
   const [diag, setDiag] = useState<DiagEntry[]>([]);
   const [manualPostseasonOverrides, setManualPostseasonOverrides] = useState<
     Record<string, Partial<AppGame>>
   >({});
-  const [aliasStaging, setAliasStaging] = useState<AliasStaging>({ upserts: {}, deletes: [] });
-  const [aliasToast, setAliasToast] = useState<string | null>(null);
 
   const [ownersLoadedFromCache, setOwnersLoadedFromCache] = useState<boolean>(false);
   const [hasCachedOwners, setHasCachedOwners] = useState<boolean>(false);
@@ -331,23 +321,6 @@ export default function CFBScheduleApp({
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
-
-  const applySavedAliasMap = useCallback(
-    (saved: AliasMap) => {
-      setAliasMap(saved);
-      window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(saved));
-    },
-    [storageKeys.aliasMap]
-  );
-
-  const persistAliasChanges = useCallback(
-    async (upserts: AliasMap, deletes: string[] = []): Promise<AliasMap> => {
-      const saved = await saveServerAliases(upserts, deletes, selectedSeason, leagueSlug);
-      applySavedAliasMap(saved);
-      return saved;
-    },
-    [applySavedAliasMap, selectedSeason]
-  );
 
   const tryParseOwnersCSV = useCallback((text: string) => {
     setRoster(parseOwnersCsv(text));
@@ -529,45 +502,10 @@ export default function CFBScheduleApp({
     clearOwnersDerivedState();
   }, [clearOwnersDerivedState, storageKeys.ownersCsv]);
 
-  // After an in-app league alias edit, the effective resolver map changes.
-  // Rebuild the games with the fresh map FIRST (passed as override), and only
-  // publish it to state + cache AFTER a successful rebuild — otherwise the
-  // resolver map and the `games` (still built with the old map) would diverge,
-  // and live refreshes could attach scores/odds with identities inconsistent
-  // with existing game keys. loadScheduleFromApi resolves to false (not reject)
-  // on fetch failure, no games, or an in-flight refresh; treat that as a rebuild
-  // failure and THROW without publishing so the caller surfaces it and state
-  // stays consistent with the current games.
-  const reloadScheduleWithFreshEffective = useCallback(async () => {
-    const fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
-    const rebuilt = await loadScheduleFromApi(fresh);
-    if (!rebuilt) {
-      throw new Error('schedule did not rebuild with the updated aliases');
-    }
-    setEffectiveAliasMap(fresh);
-    // Keep the effective cache in sync so a later degraded bootstrap doesn't
-    // prefer a stale effective map. Versioned by the seed set so bootstrap can
-    // validate it.
-    try {
-      window.localStorage.setItem(
-        storageKeys.effectiveAliasMap,
-        serializeEffectiveAliasCache(fresh, SEED_ALIASES)
-      );
-    } catch {
-      // best-effort cache
-    }
-  }, [leagueSlug, loadScheduleFromApi, selectedSeason, storageKeys.effectiveAliasMap]);
-
-  const showAliasToast = useCallback((message: string, timeoutMs: number = 1200) => {
-    setAliasToast(message);
-    setTimeout(() => setAliasToast(null), timeoutMs);
-  }, []);
-
   useScheduleBootstrap({
     hasBootstrappedRef,
     selectedSeason,
     leagueSlug,
-    setAliasMap,
     setEffectiveAliasMap,
     setIssues,
     setHasCachedOwners,
@@ -1193,106 +1131,6 @@ export default function CFBScheduleApp({
     };
   }, [leagueSlug, selectedSeason]);
 
-  const stageAliasWithToast = useCallback(
-    (providerName: string, csvName: string) => {
-      setAliasStaging((prev) => stageAliasFromMiss(providerName, csvName, prev));
-      showAliasToast(`Staged alias: "${providerName}" → "${csvName}"`);
-    },
-    [showAliasToast]
-  );
-
-  const commitStagedAliases = useCallback(async () => {
-    if (!Object.keys(aliasStaging.upserts).length && !aliasStaging.deletes.length) return;
-    // The write and the client rebuild fail independently: a persisted save must
-    // stay acknowledged even if the effective-map refetch/rebuild fails.
-    try {
-      await persistAliasChanges(aliasStaging.upserts, aliasStaging.deletes);
-    } catch (err) {
-      setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
-      showAliasToast('Alias save failed.', 1800);
-      return;
-    }
-    setAliasStaging({ upserts: {}, deletes: [] });
-    showAliasToast('Aliases saved. Rebuilding…', 1800);
-    try {
-      await reloadScheduleWithFreshEffective();
-    } catch (err) {
-      setIssues((p) => [
-        ...p,
-        `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
-      ]);
-      showAliasToast('Saved; rebuild failed — reload.', 2400);
-    } finally {
-      // The save persisted and its cache tags are invalidated, so refresh the
-      // RSC tree (server-rendered canonical standings) even if the client
-      // rebuild failed — otherwise standings stay stale until a manual reload.
-      router.refresh();
-    }
-  }, [aliasStaging, persistAliasChanges, showAliasToast, reloadScheduleWithFreshEffective, router]);
-
-  const openEditor = useCallback(() => {
-    setEditDraft(
-      Object.entries(aliasMap)
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([key, value]) => ({ key, value }))
-    );
-    setEditOpen(true);
-  }, [aliasMap]);
-
-  const updateDraftKey = useCallback((idx: number, v: string) => {
-    setEditDraft((prev) => prev.map((row, i) => (i === idx ? { ...row, key: v } : row)));
-  }, []);
-
-  const updateDraftValue = useCallback((idx: number, v: string) => {
-    setEditDraft((prev) => prev.map((row, i) => (i === idx ? { ...row, value: v } : row)));
-  }, []);
-
-  const addDraftRow = useCallback(() => {
-    setEditDraft((prev) => [...prev, { key: '', value: '' }]);
-  }, []);
-
-  const removeDraftRow = useCallback((idx: number) => {
-    setEditDraft((prev) => prev.filter((_, i) => i !== idx));
-  }, []);
-
-  const saveDraft = useCallback(async () => {
-    const cleaned: AliasMap = {};
-    for (const row of editDraft) {
-      const k = normalizeAliasLookup(row.key);
-      const v = row.value.trim();
-      if (!k || !v) continue;
-      cleaned[k] = v;
-    }
-
-    const deletes: string[] = [];
-    for (const k of Object.keys(aliasMap)) {
-      if (!(k in cleaned)) deletes.push(k);
-    }
-
-    // Write and rebuild fail independently — a persisted save stays acknowledged
-    // even if the effective-map refetch/rebuild fails.
-    try {
-      await persistAliasChanges(cleaned, deletes);
-    } catch (err) {
-      setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
-      return;
-    }
-    setEditOpen(false);
-    try {
-      await reloadScheduleWithFreshEffective();
-    } catch (err) {
-      setIssues((p) => [
-        ...p,
-        `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
-      ]);
-    } finally {
-      // Refresh the RSC tree so server-rendered canonical standings pick up the
-      // persisted alias mutation (the route already busted the standings tag),
-      // even if the client rebuild failed.
-      router.refresh();
-    }
-  }, [editDraft, aliasMap, persistAliasChanges, reloadScheduleWithFreshEffective, router]);
-
   const savePostseasonOverride = useCallback(
     (eventId: string, patch: Partial<AppGame>) => {
       const applyOverride = (base: AppGame, override: Partial<AppGame>): AppGame => ({
@@ -1778,12 +1616,8 @@ export default function CFBScheduleApp({
 
       {isAdminSurface ? (
         <AdminDebugSurface
-          aliasStaging={aliasStaging}
-          aliasToast={aliasToast}
           conferences={conferences}
           diag={diag}
-          editDraft={editDraft}
-          editOpen={editOpen}
           games={games}
           hasCachedOwners={hasCachedOwners}
           issues={issues}
@@ -1799,11 +1633,7 @@ export default function CFBScheduleApp({
           scheduleMeta={scheduleMeta}
           season={selectedSeason}
           weeks={weeks}
-          onAddDraftRow={addDraftRow}
           onClearCachedOwners={clearCachedOwners}
-          onCloseAliasEditor={() => setEditOpen(false)}
-          onCommitStagedAliases={() => void commitStagedAliases()}
-          onOpenAliasEditor={openEditor}
           onOwnersFile={onOwnersFile}
           onRefreshData={() =>
             void refreshLiveData({
@@ -1814,11 +1644,6 @@ export default function CFBScheduleApp({
           onRebuildSchedule={() =>
             void loadScheduleFromApi(undefined, undefined, { bypassCache: true })
           }
-          onRemoveDraftRow={removeDraftRow}
-          onSaveAliases={() => void saveDraft()}
-          onStageAlias={stageAliasWithToast}
-          onUpdateDraftKey={updateDraftKey}
-          onUpdateDraftValue={updateDraftValue}
         />
       ) : null}
 

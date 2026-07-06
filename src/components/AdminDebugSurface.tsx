@@ -8,9 +8,8 @@ import AdminUsagePanel from './AdminUsagePanel';
 import AdminTeamDatabasePanel from './AdminTeamDatabasePanel';
 import ScoreAttachmentDebugPanel from './ScoreAttachmentDebugPanel';
 import IssuesPanel from './IssuesPanel';
-import AliasEditorPanel from './AliasEditorPanel';
 import UploadPanel from './UploadPanel';
-import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
+import type { DiagEntry } from '../lib/diagnostics';
 import type { AppGame, ScheduleFetchMeta } from '../lib/schedule';
 import type { OwnerRow } from '../lib/parseOwnersCsv';
 import { pillClass } from '../lib/gameUi';
@@ -21,12 +20,8 @@ const secondaryButtonClass =
   'px-3 py-2 rounded border border-gray-200 bg-gray-50 text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800';
 
 type AdminDebugSurfaceProps = {
-  aliasStaging: AliasStaging;
-  aliasToast: string | null;
   conferences: string[];
   diag: DiagEntry[];
-  editDraft: Array<{ key: string; value: string }>;
-  editOpen: boolean;
   games: AppGame[];
   hasCachedOwners: boolean;
   issues: string[];
@@ -42,28 +37,15 @@ type AdminDebugSurfaceProps = {
   scheduleMeta: ScheduleFetchMeta;
   season: number;
   weeks: number[];
-  onAddDraftRow: () => void;
   onClearCachedOwners: () => void;
-  onCloseAliasEditor: () => void;
-  onCommitStagedAliases: () => void;
-  onOpenAliasEditor: () => void;
   onOwnersFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onRefreshData: () => void;
   onRebuildSchedule: () => void;
-  onRemoveDraftRow: (index: number) => void;
-  onSaveAliases: () => void;
-  onStageAlias: (sourceName: string, canonicalName: string) => void;
-  onUpdateDraftKey: (index: number, value: string) => void;
-  onUpdateDraftValue: (index: number, value: string) => void;
 };
 
 export default function AdminDebugSurface({
-  aliasStaging,
-  aliasToast,
   conferences,
   diag,
-  editDraft,
-  editOpen,
   games,
   hasCachedOwners,
   issues,
@@ -79,19 +61,10 @@ export default function AdminDebugSurface({
   scheduleMeta,
   season,
   weeks,
-  onAddDraftRow,
   onClearCachedOwners,
-  onCloseAliasEditor,
-  onCommitStagedAliases,
-  onOpenAliasEditor,
   onOwnersFile,
   onRefreshData,
   onRebuildSchedule,
-  onRemoveDraftRow,
-  onSaveAliases,
-  onStageAlias,
-  onUpdateDraftKey,
-  onUpdateDraftValue,
 }: AdminDebugSurfaceProps): React.ReactElement {
   return (
     <section className="space-y-6 rounded-2xl border border-gray-300 bg-gray-50/80 p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60">
@@ -120,13 +93,6 @@ export default function AdminDebugSurface({
             }
           >
             {loadingLive ? 'Refreshing…' : 'Refresh data'}
-          </button>
-          <button
-            className={controlButtonClass}
-            onClick={onOpenAliasEditor}
-            title="Edit alias map (persists on server)"
-          >
-            Edit Aliases
           </button>
           <button
             className={secondaryButtonClass}
@@ -167,29 +133,15 @@ export default function AdminDebugSurface({
       <AdminStorageStatusPanel />
       <AdminUsagePanel />
       <AdminTeamDatabasePanel />
-      <ScoreAttachmentDebugPanel season={season} onStageAlias={onStageAlias} />
-
-      <IssuesPanel
-        issues={issues}
-        diag={diag}
-        aliasStaging={aliasStaging}
-        aliasToast={aliasToast}
-        pillClass={pillClass}
-        onCommitStagedAliases={onCommitStagedAliases}
-        onStageAlias={onStageAlias}
-      />
-
-      <AliasEditorPanel
-        open={editOpen}
+      <ScoreAttachmentDebugPanel
         season={season}
-        draft={editDraft}
-        onClose={onCloseAliasEditor}
-        onAddRow={onAddDraftRow}
-        onSave={onSaveAliases}
-        onUpdateKey={onUpdateDraftKey}
-        onUpdateValue={onUpdateDraftValue}
-        onRemoveRow={onRemoveDraftRow}
+        onStageAlias={() => {
+          // Alias staging requires the full alias editor on the Aliases page.
+          alert('To stage alias repairs, use the Aliases page (/admin/aliases).');
+        }}
       />
+
+      <IssuesPanel issues={issues} diag={diag} pillClass={pillClass} />
 
       <UploadPanel
         gamesCount={games.length}
