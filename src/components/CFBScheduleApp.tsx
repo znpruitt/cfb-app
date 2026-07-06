@@ -536,8 +536,15 @@ export default function CFBScheduleApp({
   const reloadScheduleWithFreshEffective = useCallback(async () => {
     const fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
     setEffectiveAliasMap(fresh);
+    // Keep the effective cache in sync so a later degraded bootstrap doesn't
+    // prefer a stale effective map (dropping added / resurrecting deleted aliases).
+    try {
+      window.localStorage.setItem(storageKeys.effectiveAliasMap, JSON.stringify(fresh));
+    } catch {
+      // best-effort cache
+    }
     await loadScheduleFromApi(fresh);
-  }, [leagueSlug, loadScheduleFromApi, selectedSeason]);
+  }, [leagueSlug, loadScheduleFromApi, selectedSeason, storageKeys.effectiveAliasMap]);
 
   const showAliasToast = useCallback((message: string, timeoutMs: number = 1200) => {
     setAliasToast(message);
@@ -1184,18 +1191,28 @@ export default function CFBScheduleApp({
 
   const commitStagedAliases = useCallback(async () => {
     if (!Object.keys(aliasStaging.upserts).length && !aliasStaging.deletes.length) return;
+    // The write and the client rebuild fail independently: a persisted save must
+    // stay acknowledged even if the effective-map refetch/rebuild fails.
     try {
       await persistAliasChanges(aliasStaging.upserts, aliasStaging.deletes);
-      setAliasStaging({ upserts: {}, deletes: [] });
-      showAliasToast('Aliases saved. Rebuilding…', 1800);
-
+    } catch (err) {
+      setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
+      showAliasToast('Alias save failed.', 1800);
+      return;
+    }
+    setAliasStaging({ upserts: {}, deletes: [] });
+    showAliasToast('Aliases saved. Rebuilding…', 1800);
+    try {
       await reloadScheduleWithFreshEffective();
       // Refresh the current RSC tree so canonical standings reflect the alias
       // mutation (alias changes can re-resolve roster team identities).
       router.refresh();
     } catch (err) {
-      setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
-      showAliasToast('Alias save failed.', 1800);
+      setIssues((p) => [
+        ...p,
+        `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
+      ]);
+      showAliasToast('Saved; rebuild failed — reload.', 2400);
     }
   }, [aliasStaging, persistAliasChanges, showAliasToast, reloadScheduleWithFreshEffective, router]);
 
@@ -1238,16 +1255,26 @@ export default function CFBScheduleApp({
       if (!(k in cleaned)) deletes.push(k);
     }
 
+    // Write and rebuild fail independently — a persisted save stays acknowledged
+    // even if the effective-map refetch/rebuild fails.
     try {
       await persistAliasChanges(cleaned, deletes);
-      setEditOpen(false);
+    } catch (err) {
+      setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
+      return;
+    }
+    setEditOpen(false);
+    try {
       await reloadScheduleWithFreshEffective();
       // Refresh the current RSC tree so canonical standings (server-rendered)
       // pick up the alias mutation; the alias API route already invalidates
       // the standings cache tag.
       router.refresh();
     } catch (err) {
-      setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
+      setIssues((p) => [
+        ...p,
+        `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
+      ]);
     }
   }, [editDraft, aliasMap, persistAliasChanges, reloadScheduleWithFreshEffective, router]);
 
