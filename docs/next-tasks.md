@@ -46,11 +46,36 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Polish              | Design Audit (remaining pages)                                                          | Planned     |
 | Polish              | Copy / UX Writing Audit                                                                 | Planned     |
 | Polish              | Back Button Audit                                                                       | Planned     |
-| Polish              | Aliases Platform Migration                                                              | Planned     |
+| Polish              | Aliases Platform Migration                                                              | ✅ Done      |
 | Polish              | History Page — Filter Former Owners                                                     | Planned     |
-| Polish              | Test Suite Baseline Cleanup (TEST-SUITE-BASELINE-CLEANUP)                               | Planned     |
+| Polish              | Test Suite Baseline Cleanup (TEST-SUITE-BASELINE-CLEANUP)                               | ✅ Done      |
 
 ## Active priorities
+
+### 0. Audit-driven correctness + docs sequence (from the PLATFORM-068 app-wide audit)
+
+Accepted order for the audit follow-ups. No P0s were found; these are P1/P2 correctness fixes plus the docs cleanup, sequenced so docs describe shipped behavior. **Do not mark the PLATFORM-069+ items complete until each ships** — they are open correctness risks today.
+
+- **DOCS-001A** — deployment runbook secrets + privacy wording. ✅ Done (PR #356).
+- **DOCS-001B** — governance-correctness docs cleanup (this pass): stale hang/`TeamsDebugPanel` warnings, role model, `gameOwnership.ts` invariant, docs-closeout rule, honest CSV wording, next-tasks reconciliation. ⏳ Current.
+- **PLATFORM-069** — draft/win-totals alias-source bypass → resolve via `getScopedAliasMap` (P1; highest user impact). Next correctness task.
+- **PLATFORM-070** — team-database write → canonical standings invalidation / cache-key versioning (P1).
+- **PLATFORM-071** — invalidation sweep: cron season-rollover, season-transition, preseason-owner confirm (P2).
+- **PLATFORM-072** — post-confirm draft edit ownership drift (P2).
+- **PLATFORM-073** — postseason attachment edge cases: half-hydrated games unindexed even by provider id, null-`seasonType` cross-phase rematch, week-remap guard when postseason-only input (P2).
+
+Remaining audit findings (deferred until the P1s above land; proposed IDs, not yet formal registry entries — enumerated so none is lost):
+
+- **PLATFORM-074** — gate `/debug/*` pages via middleware; shared platform-admin predicate (V14, P2).
+- **PLATFORM-075** — provider quota hardening: anon stale-serve for odds, CFBD quota guard on scores, season in the in-memory odds cache key, remove dead `dayKey` (V13/V10, P2). Needs a product call on public odds/scores fetch policy first.
+- **PLATFORM-076** — debug-route canonical parity: effective aliases (`?scope=effective`), `manualOverrides`, `observedNames`, `providerWeek` in the postseason debug index (V9, P2).
+- **PLATFORM-077** — Insights consume canonical games/lifecycle in-process (drop HTTP self-fetch + private schedule build) (V5, P2).
+- **PLATFORM-078** — dead-code sweep: delete `src/lib/aliases.ts`, the orphan `teamNames.ts` helpers, and `AdminDebugSurface` + the unreachable `surface==='admin'` branch/test (P3).
+- **PLATFORM-079** — Members owner options/selection + owner color palette off `canonicalStandings`; retire the client `deriveStandings` path in `CFBScheduleApp.tsx` that lives outside `src/lib/selectors/` (V11, P2).
+- **Seed-key cleanup** (formerly the informal "PLATFORM-068" earmark; ID TBD) — delete redundant production `aliases:${slug}:${year}` seed-copy keys; consider retiring the legacy league-scope migration scan after a safety check.
+- Deferred product decisions surfaced by the audit: CSV current-season guard vs sanctioned override; delete vs wire `AdminDebugSurface`; public odds/scores fetch policy; owner-identity mapping across seasons; whether to schedule PLATFORM-040.
+
+Finally, **DOCS-002** (larger structural docs restructure) after the correctness work lands.
 
 ### 1. INSIGHTS-018 — NEW tag + signature system
 
@@ -113,14 +138,14 @@ Items surfaced during the Standings Ownership Model Redesign campaign and queued
 
 - **INSIGHTS-LIFECYCLE-AWARENESS** — ✅ Resolved in Season Launch Hardening Phase 3 (`385a071`, `6358c2c`). Engine-level `shouldSuppressGenerator` suppresses `rookie_benchmark` during rollover; framing helpers (`applyLastSeasonFraming`, `applyReturningOwnerFraming`) reframe archived-roster output; zero-game guards added to `deriveLeagueInsights`, `deriveTightRaceInsight`, `deriveTightClusterInsight`.
 - **POSTSEASON-START-WEEK-SCHEDULE-DERIVED** — `POSTSEASON_START_WEEK` is currently a hardcoded constant (`= 16`) with a rationale comment (Option B). Option A (derive from schedule data — the week of the earliest `seasonType === 'postseason'` game) is the correct long-term solution. Deferred because the constant works for current seasons; revisit before any season with an unusual CFP bracket structure.
-- **INVALIDATE-STANDINGS-PER-LEAGUE** — `invalidateStandings` currently enumerates all leagues when called for global-scope mutations (e.g., alias writes that apply across leagues). Documented limitation in the `invalidateStandings` JSDoc. A per-league alias scope would allow more targeted invalidation. Prerequisite: alias per-league scoping work (tracked separately under Aliases Platform Migration).
+- **INVALIDATE-STANDINGS-PER-LEAGUE** — `invalidateStandings` enumerates all leagues when called for global/year-scope mutations (e.g., global or year alias writes that apply across leagues). Documented limitation in the `invalidateStandings` JSDoc. Note: the original "per-league alias scope would allow targeted invalidation" premise is now moot — **PLATFORM-067 removed league-scoped aliases from runtime resolution** (team aliases are not league-specific). Alias writes are inherently global/year, so the fan-out is correct by construction; any future targeting must be justified on different grounds (e.g., which leagues actually reference a changed alias), not per-league alias scope.
 - **HEADER-ARCHITECTURE-UNIFICATION** — `LeaguePageShell` and `CFBScheduleApp` render independent header regions; they should share a single `LeagueHeader` component. Flagged during LEAGUE-HEADER-USER-MENU work but out of scope for this campaign. Separate Polish prompt when header structure stabilizes.
 
 ## Planned backlog (from PRE-LAUNCH-TIDYUP)
 
-Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP (PR #306, commit `1d1b451`). The PRE-LAUNCH-TIDYUP campaign itself shipped: `npm test` script added, `papaparse` removed, doc drift fixes for cron schedule and custom domain redirect landed, ADMIN_API_TOKEN sunset timeline documented. Residual backlog below — the test-baseline cleanup is the unfinished work surfaced by the new test script:
+Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP (PR #306, commit `1d1b451`). The PRE-LAUNCH-TIDYUP campaign itself shipped: `npm test` script added, `papaparse` removed, doc drift fixes for cron schedule and custom domain redirect landed, ADMIN_API_TOKEN sunset timeline documented. The test-baseline cleanup surfaced by the new test script is now **complete** (retained below as a shipped record):
 
-- **TEST-SUITE-BASELINE-CLEANUP** — _Largely shipped._ Two prerequisite prompts landed: `TEST-SUITE-HANG-BASELINE-FIX` (PR #324, commit `dcdadd4`) added `--test-timeout=30000` so `npm test` terminates instead of hanging, and `PLATFORM-001-TEST-BASELINE-CLEANUP-v1` (commit `711a032`) eliminated both cancelled (timed-out) files and the stale-markup / postseason-week-remapping failures. Full suite now: **0 cancelled, ~895/911 pass** (was 818/854 + 34 fail + 2 cancelled — note the earlier "71/679" figure predated several campaigns and the test count has since grown).
+- **TEST-SUITE-BASELINE-CLEANUP** — _✅ Done (arc complete; see final line of this item)._ Two prerequisite prompts landed: `TEST-SUITE-HANG-BASELINE-FIX` (PR #324, commit `dcdadd4`) added `--test-timeout=30000` so `npm test` terminates instead of hanging, and `PLATFORM-001-TEST-BASELINE-CLEANUP-v1` (commit `711a032`) eliminated both cancelled (timed-out) files and the stale-markup / postseason-week-remapping failures. Full suite now: **0 cancelled, ~895/911 pass** (was 818/854 + 34 fail + 2 cancelled — note the earlier "71/679" figure predated several campaigns and the test count has since grown).
   - ✅ Done: stale HTML/DOM expectations updated (OverviewPanel, TrendsDetailSurface, MatchupsWeekPanel, MatchupMatrixView, StandingsPanel, RankingsPageContent, WeekViewTabs, GameWeekPanel) and architecture-adjacent lib tests (teamIdentity, schedule-eligibility) made guardrail-aware — all confirmed stale tests, no product bugs.
   - ✅ Done: **`PLATFORM-002-TEST-ROUTER-CLERK-CONTEXT-v1`** — the 12 `CFBScheduleApp.test.tsx` failures fixed via a shared `renderWithAppContext()` helper (App Router + Clerk context stubs) and `tsconfig.test.json` (`jsx: "react-jsx"`, wired via `TSX_TSCONFIG_PATH`) so the test transform matches production's automatic JSX runtime. Full suite now **907/911, 0 cancelled**.
   - ✅ Done: **`PLATFORM-004-TEST-TSC-FIXTURE-CLEANUP-v1`** — added `inferredSeasonStart: null` to 4 `CanonicalStandings` test fixtures; `npx tsc --noEmit` is clean again (was 4 TS2741 errors carried in from the PLATFORM-001 markup work).

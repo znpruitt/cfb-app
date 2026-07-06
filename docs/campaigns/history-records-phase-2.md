@@ -118,6 +118,8 @@ Codified in AGENTS.md during this campaign: don't run full `npm test` (it hangs 
 
 The convention should propagate to future campaigns until the underlying test-suite hang is fixed.
 
+> **Update (superseded):** the underlying hang was subsequently fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc — full `npm test` is now deterministic and a valid verification gate. This retrospective is preserved as the historical record; the current convention lives in `AGENTS.md` → "Verification and reference conventions." Scoped suites remain the fast path, not a workaround for a hang.
+
 ### Markdown-block dispatch instructions
 
 Mid-campaign request from the user: dispatch instructions should be in markdown code blocks for one-click copy-paste. This sped up the dispatch cycle noticeably and reduced the friction of going from "we agreed on the fix" to "Codex is working on it." Worth being default behavior for any prompts going forward.
