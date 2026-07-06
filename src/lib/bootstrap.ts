@@ -45,6 +45,19 @@ function readWithMigrationChain(
   return null;
 }
 
+/** Parse a cached alias-map JSON string, returning `fallback` on null/invalid. */
+function parseAliasMap(raw: string | null, fallback: AliasMap): AliasMap {
+  if (raw == null) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as AliasMap)
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function readOwnersCsvWithMigration(
   storageKey: string,
   seasonOnlyKey: string | null
@@ -117,16 +130,32 @@ export async function bootstrapAliasesAndCaches(params: {
   let effectiveAliasMap: AliasMap = {};
   let aliasLoadIssue: string | undefined;
 
-  // Resolver-map fallback: reconcile rather than trust a flattened cache. Use the
-  // cached effective map IF its seed version still matches (else discarded so a
-  // deploy-changed seed set can't resurrect stale identities), layered over the
-  // current seed defaults via mergeAliasLayers (same precedence as the server).
+  // Resolver-map fallback: reconcile rather than trust a flattened cache. Layer
+  // (highest first) any legacy STORED league-alias cache, then the cached
+  // effective map IF its seed version still matches (else discarded so a
+  // deploy-changed seed set can't resurrect stale identities), then the current
+  // seed defaults. mergeAliasLayers gives the same stored > effective > seeds
+  // precedence as the server resolver.
+  //
+  // The `cfb_name_map:*` cache is read-only here: the in-app editor and its
+  // write path were removed (PLATFORM-064), so nothing writes this key anymore.
+  // Reading it still matters during an effective-alias outage — a client
+  // upgraded from pre-064 may hold persisted league repairs ONLY in this key
+  // (e.g. a mid-bootstrap quota failure dropped the effective cache). Without
+  // this layer that outage would rebuild identity from seeds alone and break
+  // game/score attachment until the next successful fetch.
   const effectiveFallback = (): AliasMap => {
     const cached = readEffectiveAliasCache(
       window.localStorage.getItem(storageKeys.effectiveAliasMap),
       seedAliases
     );
-    return mergeAliasLayers(cached ? [cached, seedAliases] : [seedAliases]);
+    const storedLegacy = parseAliasMap(
+      readWithMigrationChain(storageKeys.aliasMap, oldSeasonKeys?.aliasMap ?? null, null),
+      {}
+    );
+    return mergeAliasLayers(
+      cached ? [storedLegacy, cached, seedAliases] : [storedLegacy, seedAliases]
+    );
   };
 
   try {

@@ -347,6 +347,75 @@ test('bootstrap fallback reconciles a version-matched cached effective map over 
   });
 });
 
+test('bootstrap fallback layers a legacy stored league-alias cache over seeds when the effective fetch fails and no effective cache exists', async () => {
+  // Regression (PLATFORM-064 follow-up): a client upgraded from pre-064 may hold
+  // persisted league repairs ONLY in the legacy stored `cfb_name_map:*` cache
+  // (e.g. a mid-bootstrap quota failure dropped the effective cache). During an
+  // effective-alias outage the resolver fallback must still apply those repairs
+  // rather than rebuilding identity from seeds alone.
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+  const seedAliases = { byu: 'brigham young' };
+
+  // Legacy stored league-alias cache present; effective cache absent.
+  localStorage.setItem(storageKeys.aliasMap, JSON.stringify({ league: 'League Repair' }));
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) return new Response('boom', { status: 500 });
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases, leagueSlug });
+
+  assert.deepEqual(
+    result.effectiveAliasMap,
+    { league: 'League Repair', byu: 'brigham young' },
+    'legacy stored repairs are layered over the current seeds'
+  );
+  assert.match(result.aliasLoadIssue ?? '', /Aliases load failed/);
+});
+
+test('bootstrap fallback layers the legacy stored cache above a version-matched effective cache', async () => {
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+  const seedAliases = { byu: 'brigham young' };
+
+  // Both caches present: stored league repairs take precedence over the effective
+  // cache, which takes precedence over seeds (stored > effective > seeds).
+  localStorage.setItem(storageKeys.aliasMap, JSON.stringify({ league: 'Stored Wins' }));
+  localStorage.setItem(
+    storageKeys.effectiveAliasMap,
+    serializeEffectiveAliasCache({ league: 'Effective Loses', year: 'Year' }, seedAliases)
+  );
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) return new Response('boom', { status: 500 });
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases, leagueSlug });
+
+  assert.equal(result.effectiveAliasMap.league, 'Stored Wins', 'stored layer wins over effective');
+  assert.equal(result.effectiveAliasMap.year, 'Year', 'effective-only entries survive');
+  assert.equal(result.effectiveAliasMap.byu, 'brigham young', 'seeds fill the rest');
+});
+
 test('bootstrap fallback discards a stale-seed-version cached effective map', async () => {
   const season = 2026;
   const storageKeys = seasonStorageKeys(season);
