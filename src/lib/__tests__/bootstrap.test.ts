@@ -413,3 +413,37 @@ test('bootstrap partial failure: a failed effective fetch keeps the fresh stored
   // Effective falls back to seeds over the fresh stored map (no effective cache).
   assert.deepEqual(result.effectiveAliasMap, { byu: 'brigham young', league: 'League' });
 });
+
+test('bootstrap effective fallback preserves stored-over-seed precedence by identity', async () => {
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  // Cached STORED league repair `u-h`→Hawaii; NO cached effective map, so the
+  // fallback merges stored over seeds. Both alias fetches fail.
+  localStorage.setItem(storageKeys.aliasMap, JSON.stringify({ 'u-h': 'Hawaii' }));
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) return new Response('boom', { status: 500 });
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  // Seed maps `uh`→Houston, which collides with the stored `u-h`→Hawaii identity.
+  const result = await bootstrapAliasesAndCaches({
+    season,
+    seedAliases: { uh: 'Houston' },
+    leagueSlug,
+  });
+
+  assert.deepEqual(result.aliasMap, { 'u-h': 'Hawaii' }, 'editor keeps cached stored repair');
+  // Stored repair wins the `uh` identity over the seed; both spellings → Hawaii.
+  assert.equal(result.effectiveAliasMap['u-h'], 'Hawaii');
+  assert.equal(result.effectiveAliasMap.uh, 'Hawaii', 'seed does not beat the stored repair');
+});

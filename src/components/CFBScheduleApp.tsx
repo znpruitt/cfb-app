@@ -543,7 +543,13 @@ export default function CFBScheduleApp({
     } catch {
       // best-effort cache
     }
-    await loadScheduleFromApi(fresh);
+    // loadScheduleFromApi resolves to false (not reject) on fetch failure, no
+    // games, or an in-flight refresh — treat that as a rebuild failure so the
+    // caller doesn't report success / refresh canonical with un-rebuilt games.
+    const rebuilt = await loadScheduleFromApi(fresh);
+    if (!rebuilt) {
+      throw new Error('schedule did not rebuild with the updated aliases');
+    }
   }, [leagueSlug, loadScheduleFromApi, selectedSeason, storageKeys.effectiveAliasMap]);
 
   const showAliasToast = useCallback((message: string, timeoutMs: number = 1200) => {

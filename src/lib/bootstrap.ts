@@ -1,4 +1,5 @@
 import { loadServerAliases, loadEffectiveAliases } from './aliasesApi.ts';
+import { mergeAliasLayers } from './aliasLayers.ts';
 import { loadServerOwnersCsv } from './ownersApi.ts';
 import {
   loadServerPostseasonOverrides,
@@ -144,13 +145,14 @@ export async function bootstrapAliasesAndCaches(params: {
     );
   // Resolver-map fallback: prefer the separately cached EFFECTIVE map so
   // global/year aliases survive a degraded bootstrap; only if no effective cache
-  // exists fall back to seeds over the stored map (drops global/year — the last
-  // resort on a first-ever offline load).
+  // exists fall back to the stored map over the seed defaults (drops global/year
+  // — the last resort on a first-ever offline load). Uses mergeAliasLayers so
+  // stored-over-seed precedence matches the server (a stored `u-h`→Hawaii repair
+  // beats the seed `uh`→Houston by normalized identity, spellings preserved).
   const effectiveFallback = (stored: AliasMap): AliasMap => {
+    const merged = mergeAliasLayers([stored, seedAliases]);
     const cached = window.localStorage.getItem(storageKeys.effectiveAliasMap);
-    return cached != null
-      ? parseAliasMap(cached, { ...seedAliases, ...stored })
-      : { ...seedAliases, ...stored };
+    return cached != null ? parseAliasMap(cached, merged) : merged;
   };
 
   // Fetch both maps independently: a transient failure of one must NOT discard a

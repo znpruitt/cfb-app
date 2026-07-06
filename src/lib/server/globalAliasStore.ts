@@ -1,4 +1,5 @@
 import { getAppState, listAppStateKeys, setAppState } from './appStateStore.ts';
+import { mergeAliasLayers } from '../aliasLayers.ts';
 import { SEED_ALIASES, type AliasMap } from '../teamNames.ts';
 import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts';
 
@@ -148,42 +149,6 @@ async function readGlobalAliasMapRaw(): Promise<AliasMap> {
 }
 
 /**
- * Merge one precedence layer into `into`, resolving cross-layer conflicts by the
- * resolver's canonical identity (`normalizeTeamName`) while PRESERVING every
- * distinct lookup spelling.
- *
- * `identityWinner` maps a normalized team identity → the target chosen by the
- * highest-precedence layer that owns it. When a lower layer has a key whose
- * identity is already owned (e.g. global `gulf coast tech` owns `gulfcoasttech`,
- * and a scoped `gulfcoasttech` arrives later), the spelling is KEPT but remapped
- * to the winning target — so exact-key consumers like validateRosterCSV resolve
- * that spelling to the correct (higher-precedence) team instead of missing it.
- * Same-layer siblings don't shadow each other: identities are registered only
- * after the whole layer is processed.
- */
-function addAliasLayer(into: AliasMap, identityWinner: Map<string, string>, map: AliasMap): void {
-  const firstSeen: Array<[string, string]> = [];
-  for (const [key, target] of Object.entries(map)) {
-    if (typeof target !== 'string') continue;
-    const identity = normalizeTeamName(key);
-    // Keys that normalize to nothing can never be matched by the resolver.
-    if (!identity) continue;
-    const winner = identityWinner.get(identity);
-    if (winner !== undefined) {
-      // A higher-precedence layer owns this identity: preserve this spelling but
-      // point it at the winning target.
-      into[key] = winner;
-    } else {
-      into[key] = target;
-      firstSeen.push([identity, target]);
-    }
-  }
-  for (const [identity, target] of firstSeen) {
-    if (!identityWinner.has(identity)) identityWinner.set(identity, target);
-  }
-}
-
-/**
  * Stored/manual global aliases only — the persisted `aliases:global/map`
  * WITHOUT the in-memory seed layer. Use this for admin/editor storage views so
  * a normal save can never round-trip the code-defined seeds back into the store
@@ -202,13 +167,12 @@ export async function getStoredGlobalAliases(): Promise<AliasMap> {
  */
 export async function getGlobalAliases(): Promise<AliasMap> {
   const stored = await readGlobalAliasMapRaw();
-  const result: AliasMap = {};
-  const identityWinner = new Map<string, string>();
   // Demote persisted copies of known seed defaults so the CURRENT code seed
   // resolves the identity (manual repairs — different targets — are preserved).
-  addAliasLayer(result, identityWinner, withoutCopiedSeedDefaults(stored)); // 1. stored/manual
-  addAliasLayer(result, identityWinner, SEED_ALIAS_MAP); //                     2. seed defaults
-  return result;
+  return mergeAliasLayers([
+    withoutCopiedSeedDefaults(stored), // 1. stored/manual global
+    SEED_ALIAS_MAP, //                    2. seed defaults
+  ]);
 }
 
 /**
@@ -233,16 +197,15 @@ export async function getScopedAliasMap(leagueSlug: string, year: number): Promi
     readScopedMap(`aliases:${year}`),
   ]);
 
-  const aliasMap: AliasMap = {};
-  const identityWinner = new Map<string, string>();
   // Persisted copies of known seed defaults are demoted from every stored layer
   // so a corrected code seed is never shadowed by a stale bootstrap copy; genuine
   // manual repairs (different targets) survive and keep their precedence.
-  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(storedGlobal)); // 1. global
-  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(leagueMap)); //   2. league+year
-  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(yearMap)); //     3. year
-  addAliasLayer(aliasMap, identityWinner, SEED_ALIAS_MAP); //                          4. seed defaults
-  return aliasMap;
+  return mergeAliasLayers([
+    withoutCopiedSeedDefaults(storedGlobal), // 1. stored/manual global
+    withoutCopiedSeedDefaults(leagueMap), //    2. league+year
+    withoutCopiedSeedDefaults(yearMap), //      3. year
+    SEED_ALIAS_MAP, //                          4. seed defaults
+  ]);
 }
 
 async function readScopedMap(scope: string): Promise<AliasMap> {
