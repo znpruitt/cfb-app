@@ -74,6 +74,7 @@ Remaining audit findings (deferred until the P1s above land; proposed IDs, not y
 - **PLATFORM-079** — Members owner options/selection + owner color palette off `canonicalStandings`; retire the client `deriveStandings` path in `CFBScheduleApp.tsx` that lives outside `src/lib/selectors/` (V11, P2).
 - **Seed-key cleanup** (formerly the informal "PLATFORM-068" earmark; ID TBD) — delete redundant production `aliases:${slug}:${year}` seed-copy keys; consider retiring the legacy league-scope migration scan after a safety check.
 - Deferred product decisions surfaced by the audit: CSV current-season guard vs sanctioned override; delete vs wire `AdminDebugSurface`; public odds/scores fetch policy; owner-identity mapping across seasons; whether to schedule PLATFORM-040.
+- **`STANDINGS-PRESEASON-STATE` docs contradiction** (pre-existing; surfaced during DOCS-001B / PR #357, ID TBD) — the campaign/status table marks `STANDINGS-PRESEASON-STATE` complete, but active-priority prose still describes the cold-cache blank-standings issue as unresolved. Needs a separate verification pass to determine whether the code shipped and only the docs are stale, or whether a correctness task remains. Track only — do not resolve here.
 
 Finally, **DOCS-002** (larger structural docs restructure) after the correctness work lands.
 
