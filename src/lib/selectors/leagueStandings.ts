@@ -143,6 +143,14 @@ export function canonicalStandingsCacheKeyParts(
   return ['canonical-standings', slug, String(resolvedYear), `seeds:${SEED_ALIASES_HASH}`];
 }
 
+/**
+ * Shared tag carried by EVERY canonical-standings snapshot, regardless of league
+ * or year. Global mutations bust this single tag instead of enumerating the
+ * registry, so a league registered at any time — including one created while a
+ * global mutation is in flight — is covered without a pre/post snapshot race.
+ */
+export const ALL_STANDINGS_TAG = 'standings:all';
+
 const dataCachedCanonicalStandings = (
   slug: string,
   yearOverride: number | null,
@@ -154,11 +162,15 @@ const dataCachedCanonicalStandings = (
     canonicalStandingsCacheKeyParts(slug, resolvedYear),
     {
       tags: [
+        ALL_STANDINGS_TAG,
         `standings:${slug}`,
         ...(resolvedYear != null ? [`standings:${slug}:${resolvedYear}`] : []),
       ],
-      // Tag-only invalidation; no time-based expiry. Mutations call
-      // `invalidateStandings(slug, year)` to bust this entry.
+      // Tag-only invalidation; no time-based expiry. Year/league-scoped
+      // mutations call `invalidateStandings(slug, year)`; global mutations
+      // (global aliases, team-database syncs) call
+      // `invalidateAllLeaguesStandings()`, which busts the shared
+      // `ALL_STANDINGS_TAG` carried by every snapshot.
       //
       // `currentDate` is intentionally NOT part of the cache key — it would
       // bust the cache on every request. The closure captures the first
@@ -315,6 +327,30 @@ export function invalidateStandings(slug: string, year?: number): void {
   if (year != null) {
     revalidateTag(`standings:${slug}:${year}`);
   }
+}
+
+/**
+ * Invalidate cached canonical standings for EVERY league, across all cached
+ * years, by busting the shared `ALL_STANDINGS_TAG` that every snapshot carries.
+ *
+ * Use for GLOBAL mutations whose effect is not league- or year-scoped — the
+ * inputs they change feed the resolver / canonical derivation shared by every
+ * league and every year:
+ * - Global alias writes (`PUT /api/aliases?scope=global`, and the lazy legacy
+ *   promotion in `GET /api/aliases?scope=global`).
+ * - Team-database syncs (`POST /api/admin/team-database`) — a resynced catalog
+ *   can change team identity, canonical IDs, derived alts/aliases, and FBS/FCS
+ *   classification, all of which `computeCanonicalStandings` consumes via
+ *   `getTeamDatabaseItems()`.
+ *
+ * A single shared tag (rather than enumerating the registry) means there is no
+ * `getLeagues()` call to fail after a commit, and no pre/post-snapshot race: a
+ * league registered at any moment — including concurrently with the mutation —
+ * still carries `ALL_STANDINGS_TAG`, so this bust reaches it. Must be called
+ * from a context where `revalidateTag` is valid (a request handler).
+ */
+export function invalidateAllLeaguesStandings(): void {
+  revalidateTag(ALL_STANDINGS_TAG);
 }
 
 async function computeCanonicalStandings(

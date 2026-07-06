@@ -58,9 +58,9 @@ Accepted order for the audit follow-ups. No P0s were found; these are P1/P2 corr
 
 - **DOCS-001A** — deployment runbook secrets + privacy wording. ✅ Done (PR #356).
 - **DOCS-001B** — governance-correctness docs cleanup + three-doc deconfliction: stale hang/`TeamsDebugPanel` warnings, role model, `gameOwnership.ts` invariant, docs-closeout rule, honest CSV wording, next-tasks reconciliation, doc-authority headers. ✅ Done (PR #357).
-- **PLATFORM-069** — draft/win-totals alias-source bypass → resolved via `getScopedAliasMap` (P1; highest user impact). ✅ Done (PR #359): draft `pick`/`pick/[n]` and win-totals import now resolve through the shared scoped alias source (stored global > year > SEED) instead of local year+seed maps. Next correctness task is **PLATFORM-070**.
-- **PLATFORM-070** — team-database write → canonical standings invalidation / cache-key versioning (P1).
-- **PLATFORM-071** — invalidation sweep: cron season-rollover, season-transition, preseason-owner confirm (P2).
+- **PLATFORM-069** — draft/win-totals alias-source bypass → resolved via `getScopedAliasMap` (P1; highest user impact). ✅ Done (PR #359): draft `pick`/`pick/[n]` and win-totals import now resolve through the shared scoped alias source (stored global > year > SEED) instead of local year+seed maps.
+- **PLATFORM-070** — team-database write → canonical standings invalidation (P1). ✅ Done (PR #360): team-database syncs now bust a shared `standings:all` tag carried by every canonical snapshot (also wired the two global-alias paths through it), and the team catalog is read per-request (React `cache`) instead of a process-lifetime singleton so a sync on one instance is observed cross-instance. Next correctness task is **PLATFORM-071**.
+- **PLATFORM-071** — invalidation sweep: cron season-rollover, season-transition, preseason-owner confirm (P2). These remain the known `invalidateStandings` gaps documented in `leagueStandings.ts`; **next correctness task.**
 - **PLATFORM-072** — post-confirm draft edit ownership drift (P2).
 - **PLATFORM-073** — postseason attachment edge cases: half-hydrated games unindexed even by provider id, null-`seasonType` cross-phase rematch, week-remap guard when postseason-only input (P2).
 
