@@ -4,10 +4,10 @@ import { notFound, redirect } from 'next/navigation';
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
+import { resolveDraftScheduleGames } from './draftSchedule';
 import { draftScope, type DraftState } from '@/lib/draft';
-import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
 import { loadSeasonRankings } from '@/lib/server/rankings';
-import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
+import type { AppGame, ScheduleWireItem } from '@/lib/schedule';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
 import type { SpRatingEntry, WinTotalEntry, ApPollEntry } from '@/lib/selectors/draftTeamInsights';
 import {
@@ -17,7 +17,6 @@ import {
   type SeasonPhase,
 } from '@/lib/scoreAttachment';
 import { createTeamIdentityResolver } from '@/lib/teamIdentity';
-import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import DraftBoardClient from '@/components/draft/DraftBoardClient';
@@ -87,35 +86,20 @@ export default async function DraftBoardPage({
   }
 
   // Load schedule for home/away/neutral counts and ranked opponent detection
-  let games: ReturnType<typeof buildScheduleFromApi>['games'] = [];
+  let games: AppGame[] = [];
   try {
     const schedRecord = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
     const schedItems = (schedRecord?.value?.items ?? []) as ScheduleWireItem[];
     if (schedItems.length > 0) {
-      const [globalAliasRec, leagueAliasRec] = await Promise.all([
-        getAppState<AliasMap>(`aliases:${year}`, 'map'),
-        getAppState<AliasMap>(`aliases:${slug}:${year}`, 'map'),
-      ]);
-      const aliasMap: AliasMap = {
-        ...SEED_ALIASES,
-        ...(globalAliasRec?.value &&
-        typeof globalAliasRec.value === 'object' &&
-        !Array.isArray(globalAliasRec.value)
-          ? globalAliasRec.value
-          : {}),
-        ...(leagueAliasRec?.value &&
-        typeof leagueAliasRec.value === 'object' &&
-        !Array.isArray(leagueAliasRec.value)
-          ? leagueAliasRec.value
-          : {}),
-      };
-      const built = buildScheduleFromApi({
-        scheduleItems: schedItems,
+      // Effective, league-aware resolution via getScopedAliasMap — the same map
+      // canonical/live paths use, so draft-board game identity matches.
+      const resolved = await resolveDraftScheduleGames({
+        slug,
+        year,
         teams,
-        aliasMap,
-        season: year,
+        scheduleItems: schedItems,
       });
-      games = built.games;
+      games = resolved.games;
     }
   } catch {
     // schedule not cached — insights will have 0 home/away/neutral counts
@@ -146,30 +130,17 @@ export default async function DraftBoardPage({
     );
     const priorSchedItems = (priorSchedRecord?.value?.items ?? []) as ScheduleWireItem[];
     if (priorSchedItems.length > 0) {
-      const [priorGlobalAliasRec, priorLeagueAliasRec] = await Promise.all([
-        getAppState<AliasMap>(`aliases:${priorYear}`, 'map'),
-        getAppState<AliasMap>(`aliases:${slug}:${priorYear}`, 'map'),
-      ]);
-      const priorAliasMap: AliasMap = {
-        ...SEED_ALIASES,
-        ...(priorGlobalAliasRec?.value &&
-        typeof priorGlobalAliasRec.value === 'object' &&
-        !Array.isArray(priorGlobalAliasRec.value)
-          ? priorGlobalAliasRec.value
-          : {}),
-        ...(priorLeagueAliasRec?.value &&
-        typeof priorLeagueAliasRec.value === 'object' &&
-        !Array.isArray(priorLeagueAliasRec.value)
-          ? priorLeagueAliasRec.value
-          : {}),
-      };
-      const priorBuilt = buildScheduleFromApi({
-        scheduleItems: priorSchedItems,
-        teams,
-        aliasMap: priorAliasMap,
-        season: priorYear,
-      });
-      priorYearGames = priorBuilt.games;
+      // Same effective, league-aware resolution as the current year (for prior
+      // season record derivation), so identity matches canonical. Reuse the
+      // resolved alias map for the score-attachment resolver below.
+      const { games: priorResolvedGames, aliasMap: priorAliasMap } =
+        await resolveDraftScheduleGames({
+          slug,
+          year: priorYear,
+          teams,
+          scheduleItems: priorSchedItems,
+        });
+      priorYearGames = priorResolvedGames;
 
       const [regularCache, postseasonCache] = await Promise.all([
         getAppState<{ items: unknown[] }>('scores', `${priorYear}-all-regular`),
