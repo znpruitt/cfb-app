@@ -8,7 +8,7 @@ import {
 } from '@/lib/teamIdentity';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
-import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
+import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -111,11 +111,11 @@ export async function POST(req: Request): Promise<Response> {
 
   const { items } = teamsData as TeamsJson;
 
-  const aliasRecord = await getAppState<AliasMap>(`aliases:${year}`, 'map');
-  const aliasMap: AliasMap =
-    aliasRecord?.value && typeof aliasRecord.value === 'object' && !Array.isArray(aliasRecord.value)
-      ? { ...SEED_ALIASES, ...aliasRecord.value }
-      : { ...SEED_ALIASES };
+  // Use the shared scoped alias source so stored global aliases are honored
+  // (precedence: stored global > year > SEED_ALIASES) — the same map canonical
+  // runtime resolution sees. Building it locally from year+seed here silently
+  // bypassed stored global aliases (PLATFORM-069).
+  const aliasMap = await getScopedAliasMap('', year);
 
   const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
   const { resolved, unresolved } = parseWinTotalsCsv(csvText, resolver);

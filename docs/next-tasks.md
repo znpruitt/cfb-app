@@ -57,8 +57,8 @@ All foundational phases are complete. Work is now organized into named workstrea
 Accepted order for the audit follow-ups. No P0s were found; these are P1/P2 correctness fixes plus the docs cleanup, sequenced so docs describe shipped behavior. **Do not mark the PLATFORM-069+ items complete until each ships** — they are open correctness risks today.
 
 - **DOCS-001A** — deployment runbook secrets + privacy wording. ✅ Done (PR #356).
-- **DOCS-001B** — governance-correctness docs cleanup (this pass): stale hang/`TeamsDebugPanel` warnings, role model, `gameOwnership.ts` invariant, docs-closeout rule, honest CSV wording, next-tasks reconciliation. ⏳ Current.
-- **PLATFORM-069** — draft/win-totals alias-source bypass → resolve via `getScopedAliasMap` (P1; highest user impact). Next correctness task.
+- **DOCS-001B** — governance-correctness docs cleanup + three-doc deconfliction: stale hang/`TeamsDebugPanel` warnings, role model, `gameOwnership.ts` invariant, docs-closeout rule, honest CSV wording, next-tasks reconciliation, doc-authority headers. ✅ Done (PR #357).
+- **PLATFORM-069** — draft/win-totals alias-source bypass → resolved via `getScopedAliasMap` (P1; highest user impact). ✅ Done (PR #359): draft `pick`/`pick/[n]` and win-totals import now resolve through the shared scoped alias source (stored global > year > SEED) instead of local year+seed maps. Next correctness task is **PLATFORM-070**.
 - **PLATFORM-070** — team-database write → canonical standings invalidation / cache-key versioning (P1).
 - **PLATFORM-071** — invalidation sweep: cron season-rollover, season-transition, preseason-owner confirm (P2).
 - **PLATFORM-072** — post-confirm draft edit ownership drift (P2).

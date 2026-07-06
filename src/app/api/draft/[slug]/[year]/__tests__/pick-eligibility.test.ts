@@ -193,3 +193,60 @@ test('PUT /pick/[n] accepts a valid catalog team and updates the pick', async ()
   const persisted = await readPersisted();
   assert.equal(persisted.picks[0]!.team, 'Georgia');
 });
+
+// --- PLATFORM-069: stored global aliases must be honored by pick routes ------
+//
+// The pick routes previously built their alias map from year-scoped + SEED
+// aliases only, silently bypassing stored global aliases. They now resolve
+// through getScopedAliasMap (precedence: stored global > year > SEED), the same
+// source canonical runtime resolution uses. A stored global alias whose target
+// is an eligible catalog team must be accepted; the same label with no stored
+// global alias must still be rejected (control), proving the alias is what makes
+// it resolve — and that the old year+seed-only path would have failed it.
+
+const GLOBAL_ALIAS_SCOPE = 'aliases:global';
+const GLOBAL_ALIAS_KEY = 'map';
+// A label that is NOT a seed alias and NOT a catalog team; only a stored global
+// alias maps it to 'Texas' (an eligible FBS catalog team).
+const STORED_GLOBAL_LABEL = 'bevo nation';
+
+async function setStoredGlobalAlias(map: Record<string, string>): Promise<void> {
+  await setAppState<Record<string, string>>(GLOBAL_ALIAS_SCOPE, GLOBAL_ALIAS_KEY, map);
+}
+
+test('POST /pick rejects the stored-global-only label when no stored global alias is set (control)', async () => {
+  await seed(liveDraft());
+
+  const res = await PICK(pickRequest(STORED_GLOBAL_LABEL), { params: pickParams });
+  assert.equal(res.status, 400, 'label must be unresolvable without a stored global alias');
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 0, 'no pick should persist for an unresolvable label');
+});
+
+test('POST /pick honors a stored global alias resolving to a catalog team', async () => {
+  await seed(liveDraft());
+  await setStoredGlobalAlias({ [STORED_GLOBAL_LABEL]: 'texas' });
+
+  const res = await PICK(pickRequest(STORED_GLOBAL_LABEL), { params: pickParams });
+  assert.equal(res.status, 200, await res.text());
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 1);
+  assert.equal(
+    persisted.picks[0]!.team,
+    'Texas',
+    'stored global alias must resolve to the canonical catalog team'
+  );
+});
+
+test('PUT /pick/[n] honors a stored global alias resolving to a catalog team', async () => {
+  await seed(liveDraft({ currentPickIndex: 1, picks: [existingPick('Georgia')] }));
+  await setStoredGlobalAlias({ [STORED_GLOBAL_LABEL]: 'texas' });
+
+  const res = await EDIT_PICK(editPickRequest(STORED_GLOBAL_LABEL), { params: editParams });
+  assert.equal(res.status, 200, await res.text());
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks[0]!.team, 'Texas');
+});
