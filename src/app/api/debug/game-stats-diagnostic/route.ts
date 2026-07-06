@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server';
 
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState } from '@/lib/server/appStateStore';
+import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import { createTeamIdentityResolver, type TeamIdentityResolver } from '@/lib/teamIdentity';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { listCachedGameStatsWeeks, getCachedGameStats } from '@/lib/gameStats/cache';
 import { getSeasonArchive } from '@/lib/seasonArchive';
-import type { AliasMap } from '@/lib/teamNames';
 import type { CfbdSeasonType } from '@/lib/cfbd';
 import type { TeamGameStats } from '@/lib/gameStats/types';
 
@@ -157,14 +157,9 @@ export async function GET(req: Request): Promise<Response> {
 
   for (const year of YEARS) {
     try {
-      // Load alias map — try league-scoped, year-only, and global; merge all
-      let aliasMap: AliasMap = {};
-      for (const scope of [`aliases:${LEAGUE_SLUG}:${year}`, `aliases:${year}`, 'aliases:global']) {
-        const record = await getAppState<AliasMap>(scope, 'map');
-        if (record?.value && typeof record.value === 'object' && !Array.isArray(record.value)) {
-          aliasMap = { ...record.value, ...aliasMap };
-        }
-      }
+      // Canonical effective resolution (stored global > league+year > year >
+      // SEED_ALIASES) — diagnostic identity must match live/canonical behavior.
+      const aliasMap = await getScopedAliasMap(LEAGUE_SLUG, year);
 
       const resolver = createTeamIdentityResolver({ teams, aliasMap });
 

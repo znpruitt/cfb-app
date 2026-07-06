@@ -3,10 +3,9 @@ import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { getSeasonArchive, type SeasonArchive } from '@/lib/seasonArchive';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
-import { getAppState } from '@/lib/server/appStateStore';
+import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import { createTeamIdentityResolver, type TeamIdentityResolver } from '@/lib/teamIdentity';
-import type { AliasMap } from '@/lib/teamNames';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,19 +27,6 @@ type OwnerTotal = {
   pointsAgainst: number;
   games: number;
 };
-
-async function loadAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
-  let aliasMap: AliasMap = {};
-  const scopes = [`aliases:${leagueSlug}:${year}`, `aliases:${year}`, 'aliases:global'];
-  for (const scope of scopes) {
-    const record = await getAppState<AliasMap>(scope, 'map');
-    const value = record?.value;
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      aliasMap = { ...value, ...aliasMap };
-    }
-  }
-  return aliasMap;
-}
 
 function resolveIdentity(
   resolver: TeamIdentityResolver,
@@ -488,7 +474,9 @@ export async function GET(req: Request): Promise<Response> {
 
     const [teams, aliasMap] = await Promise.all([
       getTeamDatabaseItems(),
-      loadAliasMap(leagueSlug, year),
+      // Canonical effective resolution (stored global > league+year > year >
+      // SEED_ALIASES) — audit identity must match live/canonical behavior.
+      getScopedAliasMap(leagueSlug, year),
     ]);
 
     const observedNames = Array.from(
