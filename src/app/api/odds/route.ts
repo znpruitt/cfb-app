@@ -33,8 +33,9 @@ import {
 } from '../../../lib/server/apiUsageBudget.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
-import { SEED_ALIASES, type AliasMap } from '../../../lib/teamNames.ts';
+import type { AliasMap } from '../../../lib/teamNames.ts';
 import {
   normalizeUpstreamOddsEvent,
   oddsCache,
@@ -247,15 +248,6 @@ async function readTeamsCatalog(): Promise<TeamCatalogItem[]> {
   const raw = await fs.readFile(path.join(process.cwd(), 'src/data/teams.json'), 'utf8');
   const parsed = JSON.parse(raw) as { items?: TeamCatalogItem[] };
   return Array.isArray(parsed.items) ? parsed.items : [];
-}
-
-async function readAliasesForSeason(season: number): Promise<AliasMap> {
-  const record = await getAppState<AliasMap>(`aliases:${season}`, 'map');
-  if (!record?.value || typeof record.value !== 'object' || Array.isArray(record.value)) {
-    return { ...SEED_ALIASES };
-  }
-
-  return { ...SEED_ALIASES, ...record.value };
 }
 
 async function fetchCanonicalSchedule(req: Request, season: number): Promise<ScheduleWireItem[]> {
@@ -609,7 +601,11 @@ export async function GET(req: Request): Promise<Response> {
     const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([
       fetchCanonicalSchedule(req, query.season),
       readTeamsCatalog(),
-      readAliasesForSeason(query.season),
+      // Canonical effective resolution (stored global > year > SEED_ALIASES).
+      // Odds are league-agnostic (the /api/odds request carries no league), so
+      // the empty slug yields global > year > seed — matching schedule/standings
+      // identity instead of the old year-only + hand-merged seeds.
+      getScopedAliasMap('', query.season),
       readConferenceRecords(req),
     ]);
 

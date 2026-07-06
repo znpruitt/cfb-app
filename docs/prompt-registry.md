@@ -16,6 +16,13 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-062-CANONICAL-ALIAS-ODDS-TRENDS-v1
+- Purpose: Align the remaining odds/trends alias consumers with canonical effective resolution. Focused correctness PR — does NOT remove league-scoped aliases or the hidden editor.
+- Scope: `src/app/api/odds/route.ts` (+ `route.test.ts`). Trends was found to be **dead code** (see below) — not modified.
+- Notes: `odds/route.ts` `readAliasesForSeason` read only `aliases:${season}` (year scope) + hand-merged `SEED_ALIASES`, **missing stored global aliases**, so odds identity could diverge from canonical schedule/standings. Odds requests carry **no league context** (`/api/odds` query is season+markets; client fetches `?year=` only), so odds now resolves via `getScopedAliasMap('', season)` → stored global > year > SEED_ALIASES (league+year layer N/A). Removed the obsolete `readAliasesForSeason` helper + unused `SEED_ALIASES` import; no raw merge remains. Codex review clean ("odds route now uses the canonical effective alias map with the intended precedence … No regressions"). Tests: end-to-end GET proving an odds-provider label resolves to its canonical game ONLY via a stored global alias (impossible under the old year-only read), plus focused `getScopedAliasMap('', season)` source tests (year-only, SEED_ALIASES fallback, global-over-year precedence). Focused suites (218 tests) + tsc/lint:all/build green. Full `npm test` not run (documented Overview hang).
+- **Trends finding:** `src/lib/trendsPageData.ts` (`loadCanonicalTrendsPageData`) is **DEAD CODE** — imported only by its own test; the trends page (`src/app/league/[slug]/trends/page.tsx`) redirects to `standings?view=trends`, which renders via the canonical client bootstrap (`effectiveAliasMap`) + standings selectors. No live trends divergence exists, so it was NOT "fixed." Scheduled for deletion under **PLATFORM-063-REMOVE-DEAD-TRENDS-PAGEDATA-v1** (delete `trendsPageData.ts` + its test after confirming no imports).
+- Follow-ups (separate, from the PLATFORM-061 audit): (1) PLATFORM-063 delete dead `trendsPageData`; (2) hidden league alias editor removal (safe now); (3) data-gated league-scope layer removal (needs prod data check + product decision).
+
 ### PLATFORM-060-CANONICAL-ALIAS-REMAINING-CONSUMERS-v1
 - Purpose: Fix the two remaining raw alias-consumer divergences found after the alias-model sequence (055→057→059→058). Focused correctness PR — does NOT remove league-scoped aliases.
 - Scope: `src/app/league/[slug]/draft/page.tsx`, new `src/app/league/[slug]/draft/draftSchedule.ts` (+ test), `src/app/api/debug/{archive-audit,archive-integrity,game-stats-diagnostic}/route.ts`.
