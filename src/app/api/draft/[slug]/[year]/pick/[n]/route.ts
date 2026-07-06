@@ -5,7 +5,7 @@ import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { type DraftState, draftScope, getDraftEligibleTeams } from '@/lib/draft';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
-import { SEED_ALIASES, type AliasMap } from '@/lib/teamNames';
+import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import teamsData from '@/data/teams.json';
 
 type TeamsJson = { items: TeamCatalogItem[] };
@@ -80,13 +80,13 @@ export async function PUT(
 
   const teamName = team.trim();
 
-  // Resolve team via canonical teamIdentity resolver (handles aliases, normalization)
+  // Resolve team via canonical teamIdentity resolver (handles aliases, normalization).
+  // Use the shared scoped alias source so stored global aliases are honored
+  // (precedence: stored global > year > SEED_ALIASES) — the same map canonical
+  // runtime resolution sees. Building it locally from year+seed here silently
+  // bypassed stored global aliases (PLATFORM-069).
   const { items } = teamsData as TeamsJson;
-  const aliasRecord = await getAppState<AliasMap>(`aliases:${year}`, 'map');
-  const aliasMap: AliasMap =
-    aliasRecord?.value && typeof aliasRecord.value === 'object' && !Array.isArray(aliasRecord.value)
-      ? { ...SEED_ALIASES, ...aliasRecord.value }
-      : { ...SEED_ALIASES };
+  const aliasMap = await getScopedAliasMap('', year);
   const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
   const resolution = resolver.resolveName(teamName);
 
