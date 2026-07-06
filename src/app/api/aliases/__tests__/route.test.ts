@@ -198,7 +198,7 @@ test('global GET returns stored aliases only — never the in-memory seeds (P2)'
   );
 });
 
-test('a ?league= param on PUT is ignored — writes the year scope, not a league scope', async () => {
+test('a ?league= param on PUT is rejected (410) — no silent broadening to the year scope', async () => {
   await setAppState('leagues', 'registry', [makeLeague('league-a'), makeLeague('league-b')]);
   const { result: res, tags } = await runCapturingTags(() =>
     PUT(
@@ -209,20 +209,17 @@ test('a ?league= param on PUT is ignored — writes the year scope, not a league
       })
     )
   );
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as { map: Record<string, string> };
-  assert.equal(body.map['ole miss'], 'Mississippi');
-  // The league-scoped write path was removed with the in-app editor: the write
-  // lands in the YEAR scope and the league param is ignored.
+  // The league-scoped write path was removed with the in-app editor. Silently
+  // writing to the YEAR scope would mutate every league's aliases, so the request
+  // is rejected outright rather than reinterpreted.
+  assert.equal(res.status, 410);
+  // Nothing was written — not the year scope, not any league scope.
   const yearScope = await getAppState<Record<string, string>>('aliases:2025', 'map');
-  assert.equal(yearScope?.value?.['ole miss'], 'Mississippi', 'written to the year scope');
+  assert.equal(yearScope?.value, undefined, 'no year-scoped write');
   const leagueScope = await getAppState<Record<string, string>>('aliases:league-a:2025', 'map');
   assert.equal(leagueScope?.value, undefined, 'no league-scoped write');
-  // Year-scope write invalidates every registered league for that year.
-  assert.ok(tags.includes('standings:league-a'));
-  assert.ok(tags.includes('standings:league-b'));
-  assert.ok(tags.includes('standings:league-a:2025'));
-  assert.ok(tags.includes('standings:league-b:2025'));
+  // A rejected write invalidates nothing.
+  assert.equal(tags.length, 0, 'no standings tags invalidated on a rejected write');
 });
 
 // ---------------------------------------------------------------------------

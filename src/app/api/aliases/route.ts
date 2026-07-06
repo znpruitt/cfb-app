@@ -126,8 +126,21 @@ export async function PUT(req: Request): Promise<Response> {
     }
     return Response.json({ scope: 'global', map: next });
   }
-  // Year-scoped writes only (the admin Teams debug panel). League-scoped writes
-  // were removed with the in-app editor; a `?league=` param is ignored here.
+  // League-scoped stored writes were removed with the in-app editor. A `?league=`
+  // param here previously targeted `aliases:${slug}:${year}`; silently treating
+  // it as a year-scoped write would mutate EVERY league's aliases for that year
+  // (the year scope feeds all leagues' canonical standings). Reject it explicitly
+  // so a legacy/manual caller fails loudly instead of clobbering all leagues.
+  if (url.searchParams.get('league')) {
+    return new Response(
+      "League-scoped alias writes were removed. 'PUT /api/aliases?league=' is no longer " +
+        'supported — use ?scope=global for cross-league aliases, or omit ?league= for a ' +
+        'year-scoped write.',
+      { status: 410 }
+    );
+  }
+
+  // Year-scoped writes only (the admin Teams debug panel).
   const year = clampYearMaybe(url.searchParams.get('year'));
 
   let bodyUnknown: unknown;
