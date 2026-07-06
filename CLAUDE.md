@@ -2,20 +2,19 @@
 
 Claude Code-specific companion to `AGENTS.md`. Read `AGENTS.md` first — this file adds Claude-specific context only and does not restate shared project operating content.
 
+> **Doc authority (source of truth):** `AGENTS.md` = code architecture + agent operating rules (canonical). `DESIGN.md` = UI/UX + design system (canonical). `CLAUDE.md` (this file) = Claude-specific working guidance, which **points to** those two rather than restating them. If anything here duplicates and drifts from `AGENTS.md`/`DESIGN.md`, those win — fix the pointer here.
+
 ---
 
 ## Role on this project
 
-Claude's role is **AI Architect / Debug Analyst**, not implementation engine.
+Roles are assigned **per task by the prompt**, not fixed by tool. Claude may plan, implement, remediate, diagnose, or review depending on what the prompt asks. Codex commonly provides independent read-only review of Claude's work (and can also take scoped implementation), but either system can receive scoped work of any kind.
 
-Responsibilities:
-- diagnose issues
-- design solutions
-- generate Codex prompts
-- review implementations
-- ensure architectural consistency
-
-Codex handles implementation. Claude generates the prompts Codex executes.
+Whatever the assigned role, Claude is expected to:
+- diagnose accurately and flag architectural inconsistencies
+- keep changes within the prompt's stated scope
+- follow the prompt/response and commit conventions in the docs below
+- report outcomes honestly, preserving known unresolved risks as unresolved
 
 ---
 
@@ -73,23 +72,17 @@ Before implementing any UI work, read `DESIGN.md` at the project root. All UI de
 
 ## Architectural guardrails
 
-Never recommend or generate prompts that violate:
+The **binding, canonical** guardrails live in `AGENTS.md` — its **Core rules**, **Standings Ownership Invariants**, **Auth Architecture Invariants**, and **Season Launch Hardening Invariants**. Read the relevant sections there before generating or implementing prompts that touch schedule/identity, standings, ownership, the draft, auth, or the insights engine. Prefer pointing at `AGENTS.md` over re-deriving its rules here.
 
-- **Schedule-first game identity** — all game identity flows from the schedule; no parallel matching systems.
-- **Centralized team matching** — all team matching through `src/lib/teamIdentity.ts`; no duplicate logic elsewhere.
-- **API-first ingestion boundaries** — CFBD for schedule/scores, The Odds API for odds; no raw provider shapes in UI state.
-- **Admin-only refresh semantics** — season-persistent data updates only via commissioner/admin flows, never from public traffic.
-- **Quota-conscious API usage** — CFBD ~1000/month, Odds API ~500/month; cache-first, no wasteful polling.
+The list below is a **deliberate minimal echo** of the few invariants worth keeping in front of Claude for day-to-day implementation safety — not a second source of truth. `AGENTS.md` states each one authoritatively; if this echo and `AGENTS.md` ever disagree, `AGENTS.md` wins and this echo is the bug. Kept short precisely so it rarely needs to change; detail (e.g. exact deferred-module lists) is pointed at, not copied.
 
-If a proposed solution conflicts with any of these, flag it explicitly before generating a Codex prompt.
+- **Schedule/canonical games are the source of truth.** Scores, odds, ownership, standings, archive, insights, and UI attach to schedule-derived canonical `AppGame`s — no parallel game-identity construction.
+- **Team identity resolution goes through `src/lib/teamIdentity.ts`** — no duplicate/raw-label matching elsewhere. (Roster fuzzy matching stays in the CSV upload layer only.)
+- **Current-season ownership attribution flows through `src/lib/gameOwnership.ts`** — no duplicated ownership-resolution logic or raw provider-label owner equality on current-season paths. Two *separate* known deferrals exist (do not conflate): normalized ownership-**key** indexing (`PLATFORM-040`) and the historical/archive surfaces that still raw-label match. Both are known, not fresh violations — see `AGENTS.md` Core rule #11 for the authoritative deferral list and exact modules.
+- **League password access is separate from Clerk/admin authorization.** Clerk provides identity + app roles; the league password gate (`LEAGUE_AUTH_SECRET`) only unlocks a passworded league's pages and grants no role. See `AGENTS.md` → Auth Architecture Invariants and `docs/deployment-runbook.md`.
+- **CSV is not the default current-season ownership path** — draft/team-assignment is; current-season CSV import is explicit admin repair. CSV is never a game-identity source. (See `AGENTS.md` Core rule on CSV — honest transitional state noted there.)
 
-**This list is not exhaustive.** Before generating prompts that touch auth, standings, the draft, or the insights engine, the following invariant sections in `AGENTS.md` are equally binding and must be read first:
-
-- **Auth Architecture Invariants** — Clerk is the sole auth provider; three roles in `publicMetadata`; gate via `requireAdminAuth(req)`; no inline role checks.
-- **Standings Ownership Invariants** — `getCanonicalStandings` is the only standings truth; `LiveDelta` is a client-only overlay; never merge canonical + live at render time; all mutation routes call `invalidateStandings`.
-- **Season Launch Hardening Invariants** — phase-aware draft polling; no `Date.now()` inside cached selectors; layered, `bypassSuppression`-able insights suppression.
-
-Two further core rules in `AGENTS.md` extend the guardrails above: **postseason canonical week** (`canonicalWeek = maxRegularSeasonWeek + providerWeek`, never bypass) and **roster fuzzy matching is upload-layer only** (not in `teamIdentity.ts`).
+If a proposed solution conflicts with any `AGENTS.md` guardrail, flag it explicitly before proceeding. Quota discipline (CFBD ~1000/mo, Odds ~500/mo, cache-first) and admin-only refresh of season-persistent data also remain binding — see `AGENTS.md`.
 
 ---
 
@@ -107,21 +100,17 @@ Two further core rules in `AGENTS.md` extend the guardrails above: **postseason 
 
 There is no Vitest/Jest config — test runner is Node's built-in. There is no CI workflow checked in; `npm run lint:all` is the intended pre-merge gate.
 
-**Do not verify with full `npm test`.** The full suite hangs on Overview-related tests (pending the `TEST-SUITE-BASELINE-CLEANUP` backlog item) and produces no usable signal. Verify by running only the scoped test files relevant to your change, plus selector tests in `src/lib/selectors/__tests__/`. See `AGENTS.md` → "Verification and reference conventions" for the full convention.
+**Full `npm test` is now a valid gate.** The historical Overview-related hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc, so the full suite runs deterministically to completion. Running only the scoped test files relevant to your change (plus selector tests in `src/lib/selectors/__tests__/`) is still the quickest way to iterate. See `AGENTS.md` → "Verification and reference conventions" for the full convention.
 
 ---
 
 ## Architecture at a glance
 
-Claude should know the data flow shape before diagnosing:
+The canonical architecture map (runtime flow, module catalog, selectors, invariants) lives in `AGENTS.md` → **Architecture overview** and `docs/CFB_APP_ARCHITECTURE.md`. Read those rather than a duplicate here. The orientation Claude needs before diagnosing:
 
-- `src/components/CFBScheduleApp.tsx` — top-level orchestrator only; no parsing/matching logic
-- `src/app/api/{schedule,scores,odds,teams,aliases}/` — provider adapter routes; normalize CFBD/Odds API shapes
-- `src/lib/teamIdentity.ts` — single entry point for runtime team matching
-- `src/lib/schedule.ts` + `src/lib/scoreAttachment.ts` — canonical game model + score attachment (postseason-week-aware)
-- `src/lib/selectors/` — **single source of derived truth** for standings, insights, trends, matchups, momentum. Pure functions. Any league derivation outside this directory is an architecture violation
-- `src/lib/selectors/leagueStandings.ts` — exports `getCanonicalStandings` (cached server canonical) and `invalidateStandings` (tag invalidation). `LiveDelta` overlay computed client-side via `selectLiveDelta` / `useLiveDelta` and never merged with canonical at render time
-- Static data: `src/data/teams.json` (canonical) + `src/data/alias-overrides.json` only
+- Upstream → downstream flow: CFBD → schedule normalization → canonical game model → identity resolution (`teamIdentity.ts`) → score/odds/ownership attachment → server-derived summaries → client selectors/state → UI. Diagnose in that order (see Debugging order below).
+- `getCanonicalStandings` (`src/lib/selectors/leagueStandings.ts`) is the standings source of truth; `LiveDelta` is a client-only overlay never merged with canonical at render time.
+- `src/lib/selectors/` is the intended home for cross-surface derived view models. Note (per the PLATFORM-068 audit): a client-side `deriveStandings` path still exists in `CFBScheduleApp.tsx` outside `selectors/`, so treat "all derivation lives in selectors" as the target rule, not a fully-true statement today.
 
 ---
 
@@ -146,6 +135,7 @@ Never start at the UI when an upstream layer may be wrong.
 - Check `AGENTS.md` and `docs/next-tasks.md` for current campaign status before planning work.
 - Reference all prior prompts by explicit `PROMPT_ID` — never use vague references like "that earlier prompt."
 - When generating a new prompt, verify the candidate ID does not collide with an existing one in `docs/prompt-registry.md`.
+- **Current unresolved correctness work** lives in one canonical place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (next item, order, and what's still open). Read it there before planning; do not copy the item statuses into this file (they drift as work ships).
 
 ---
 

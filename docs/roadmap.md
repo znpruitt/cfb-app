@@ -272,9 +272,9 @@ Systematic review and rewrite of all user-facing strings for consistent voice an
 - App-wide review of back links: styling consistency, copy, destinations
 - Ensure all "← Back" links follow a single visual pattern and navigate to the correct parent
 
-#### Aliases Platform Migration (planned)
-- Complete migration of aliases from year-scoped to global platform scope
-- Remove legacy year-scoped alias support code
+#### Aliases Platform Migration (done — with one goal superseded)
+- ✅ Alias-model sequence complete (PLATFORM-055 → 067): stored global scope is the primary alias store; the hidden league editor and league-scoped runtime layer were removed (PLATFORM-064/067). Final runtime precedence: **stored global → year → SEED_ALIASES**.
+- **Superseded goal:** "remove legacy year-scoped alias support code" is no longer pursued — the accepted final model (PLATFORM-067) **intentionally retains the year scope as a runtime layer** below stored global. Year-scoped aliases are a supported precedence tier, not legacy code pending deletion.
 
 #### History Page — Filter Former Owners (planned)
 - Add a "filter former owners" tab or toggle on the history page so members can collapse the view to active roster only

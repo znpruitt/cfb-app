@@ -1,5 +1,7 @@
 # AGENTS.md
 
+> **Doc authority (source of truth):** `AGENTS.md` is canonical for **code architecture and agent operating rules**. `DESIGN.md` is canonical for **UI/UX and the design system** — defer to it on any visual/layout question and do not restate its content here. `CLAUDE.md` holds **Claude-specific working guidance only** and points back here rather than duplicating architecture. When these disagree, this hierarchy wins for architecture/rules and `DESIGN.md` wins for UI.
+
 ## Project purpose
 
 This repository contains a Next.js college football office pool web app.
@@ -21,6 +23,8 @@ Changes should favor low-risk, behavior-preserving refactors unless explicitly a
 All foundational phases are complete (architecture, production hardening, league UX, multi-league, historical analytics, draft tool, admin auth, design audit, commissioner self-service, season lifecycle, launch prep). Work is now organized into named workstream campaigns — see `docs/roadmap.md` and `docs/next-tasks.md`.
 
 Active campaigns: INSIGHTS (Game Stats Pipeline → Insights Engine), DRAFT (Slow Draft Mode), POLISH (Copy/UX Writing Audit), PLATFORM (Auth Hardening).
+
+**Unresolved correctness work** is tracked in one place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (the app-wide audit findings, their order, and what remains open). That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
 
 ---
 
@@ -181,6 +185,16 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
     - The FBS-only match pool constraint applies to roster uploads only — schedule and game identity resolution uses the full team catalog including FCS opponents.
     - Confirmed fuzzy matches and manual selections are saved as global aliases; the upload pipeline must not write unresolved teams to storage.
 
+11. **Centralized game ownership**
+    - Current-season game ownership attribution must flow through `src/lib/gameOwnership.ts` (canonical-identity candidate resolution: participant `teamId` → canonical/display/raw → `canHome/away` → `csvHome/away` legacy fallback).
+    - UI surfaces, routes, and selectors must not duplicate ownership-resolution logic or attribute ownership by raw provider-label equality. Schedule-derived canonical `AppGame` identity remains the source of truth for game identity; ownership is an overlay on it.
+    - Known deferrals (do not document as fixed): normalized ownership-key indexing (`PLATFORM-040`) and historical/archive ownership surfaces (`historySelectors`, `trends`, `leagueRecords`, and the Insights context/generators — `insights/context.ts`, `insights/generators/*`, which still resolve owners from `game.csvHome/csvAway` raw labels) that still match by raw label. These historical surfaces are a distinct deferral from `PLATFORM-040` (which is normalized-key-only), recorded under `PLATFORM-039`. A canonical **owner-identity** mapping across seasons (for renamed/returning owners) is also deferred — owner display names are currently raw strings.
+
+12. **CSV is roster-import support, never a game-identity source (transitional)**
+    - CSV is never a schedule or game-identity source, and must not reintroduce CSV-first schedule/identity architecture.
+    - The in-app **draft / team-assignment flow is the intended current-season ownership mechanism.** A current-season owner CSV import is an explicit **admin repair** path, not the default user flow.
+    - Honest current state: some current-season roster persistence still serializes via CSV (`owners:{slug}:{year}`), and `PUT /api/owners` can still write the current season, so CSV cannot yet be declared strictly history-only. Do not overstate this as resolved. Historical archives legitimately preserve roster CSV snapshots.
+
 ---
 
 ## File size / complexity guardrails
@@ -203,12 +217,7 @@ Preferred checks:
 
 - `npm run lint`
 - `npx tsc --noEmit`
-- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`. **For verification of campaign work, prefer scoped suites over the full run** — see `## Verification and reference conventions` below for the current convention.
-
-Known pre-existing issue:
-
-- A TypeScript issue exists in `src/components/TeamsDebugPanel.tsx`.
-- Do not report it as a regression unless that file is modified.
+- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`. The full suite is now deterministic and green (the earlier Overview-related hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc), so it is a valid verification gate. Scoped suites are still fine — and faster — for tightly-focused changes; see `## Verification and reference conventions` below.
 
 When practical, verify key runtime flows still behave:
 
@@ -223,10 +232,10 @@ When practical, verify key runtime flows still behave:
 
 ## Verification and reference conventions
 
-1. **Verification uses scoped test suites, not full `npm test`.**
-   - Full-suite runs hang on Overview-related tests pending the `TEST-SUITE-BASELINE-CLEANUP` backlog item, providing no usable signal.
-   - Run only the test files relevant to the changes, plus any selector tests in `src/lib/selectors/__tests__/`.
-   - Confirm the relevant scoped suite count holds or grows; do not compare against the historical 71-failure full-suite baseline.
+1. **The full `npm test` suite is a valid verification gate; scoped suites are the fast path.**
+   - The historical Overview-related full-suite hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc (`--test-timeout` + baseline cleanup + per-process app-state isolation), so `npm test` now runs deterministically to completion. Do not repeat the old "the full suite hangs / gives no signal" warning.
+   - For tightly-scoped changes, running only the relevant test files plus selector tests in `src/lib/selectors/__tests__/` is still the quickest way to iterate.
+   - Confirm the relevant suite count holds or grows; the historical "71-failure" full-suite baseline is obsolete — do not compare against it.
 
 2. **Visual references must exist at the path a prompt references.**
    - Mockups (HTML/PNG) belong in `mockups/`; design specs (markdown) belong in `docs/`.
@@ -247,6 +256,14 @@ When completing work, report clearly:
 6. Any known unrelated failures
 
 Be explicit and accurate.
+
+---
+
+## Documentation closeout timing
+
+- Implementation prompts should include the relevant documentation updates **in scope** (registry entry, roadmap/next-tasks status, invariant or architecture notes the change affects).
+- Finalize documentation **immediately before merge, after code review/remediation is complete**, so the docs describe the actual shipped behavior — not the plan. Do not mark work "complete" in governance/registry/roadmap docs while review findings remain open.
+- When a change resolves or supersedes a previously-documented risk or follow-up, update that earlier note; when it leaves a known risk unresolved, keep it documented as unresolved rather than quietly dropping it.
 
 ---
 
@@ -274,7 +291,7 @@ These rules apply from the Standings Ownership Redesign campaign onward and must
 
 These rules apply from Phase 6 onward and must not be violated:
 
-1. **Clerk is the auth provider** — no other auth systems, no custom session handling, no roll-your-own JWT verification.
+1. **Clerk is the user-identity and app-role provider** — no other identity systems, no custom session handling, no roll-your-own JWT verification. Clerk establishes who the user is and their app/admin role (`platform_admin`, etc.). This is distinct from the per-league **password access gate** (`src/lib/leagueAuth.ts`, keyed by `LEAGUE_AUTH_SECRET`): the league password only unlocks a passworded league's pages via a signed `league_auth_<slug>` cookie — it is **not** Clerk authentication and **not** admin authorization, and it grants no elevated role. A canonical **owner-identity** mapping (a league member's identity across seasons) is a separate concern and remains deferred; today owner names are raw roster strings.
 
 2. **Three roles defined in Clerk `publicMetadata`**: `platform_admin`, `commissioner`, `member`. Role storage shape: `{ role: 'platform_admin' | 'commissioner' | 'member' }`. Commissioner league scoping: `{ role: 'commissioner', leagues: ['tsc', 'family'] }` — defined now, enforced in Phase 7.
 

@@ -1,5 +1,7 @@
 # CFB App Design Principles
 
+> **Doc authority (source of truth):** this file is canonical for **UI/UX and the design system** — layout, tables, cards, color, typography, and component presentation. Code architecture and agent operating rules live in `AGENTS.md`; Claude-specific working guidance lives in `CLAUDE.md`. This file should not carry code-architecture claims.
+
 ## Core philosophy
 - The app should feel thoughtfully laid out and highly functional, not AI-assembled
 - Every UI element must earn its place — if it duplicates information available elsewhere, remove it
