@@ -43,6 +43,19 @@ function readWithMigrationChain(
   return null;
 }
 
+/** Parse a cached alias-map JSON string, returning `fallback` on null/invalid. */
+function parseAliasMap(raw: string | null, fallback: AliasMap): AliasMap {
+  if (raw == null) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as AliasMap)
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function readOwnersCsvWithMigration(
   storageKey: string,
   seasonOnlyKey: string | null
@@ -129,25 +142,29 @@ export async function bootstrapAliasesAndCaches(params: {
     aliasMap = storedMap;
     effectiveAliasMap = effectiveMap;
     window.localStorage.setItem(storageKeys.aliasMap, JSON.stringify(storedMap));
+    window.localStorage.setItem(storageKeys.effectiveAliasMap, JSON.stringify(effectiveMap));
   } catch (err) {
     aliasLoadIssue = `Aliases load failed: ${(err as Error).message}`;
-    const cached = readWithMigrationChain(
+
+    // Editor map: cached STORED league aliases only — never seeds. This map
+    // backs the alias editor, and a save would persist whatever it contains into
+    // the league scope, so seeding it would leak defaults there.
+    const cachedStored = readWithMigrationChain(
       storageKeys.aliasMap,
       oldSeasonKeys?.aliasMap ?? null,
       null
     );
-    if (cached) {
-      try {
-        aliasMap = JSON.parse(cached) as AliasMap;
-      } catch {
-        aliasMap = { ...seedAliases };
-      }
-    } else {
-      aliasMap = { ...seedAliases };
-    }
-    // Degraded offline fallback only (server effective map unavailable): resolve
-    // with the cached stored league aliases over the static seed defaults.
-    effectiveAliasMap = { ...seedAliases, ...aliasMap };
+    aliasMap = parseAliasMap(cachedStored, {});
+
+    // Resolver map: prefer the separately cached EFFECTIVE map so global/year
+    // aliases survive a degraded bootstrap. Only if no effective cache exists do
+    // we fall back to seeds over the cached stored map (drops global/year — the
+    // last resort on a first-ever offline load).
+    const cachedEffective = window.localStorage.getItem(storageKeys.effectiveAliasMap);
+    effectiveAliasMap =
+      cachedEffective != null
+        ? parseAliasMap(cachedEffective, { ...seedAliases, ...aliasMap })
+        : { ...seedAliases, ...aliasMap };
   }
 
   let ownersCsvText = readOwnersCsvWithMigration(

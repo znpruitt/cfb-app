@@ -7,6 +7,10 @@ export function seasonStorageKeys(season: number, leagueSlug?: string) {
   const scope = leagueSlug ? `${leagueSlug}:${season}` : `${season}`;
   return {
     aliasMap: `cfb_name_map:${scope}`,
+    // Effective resolver map (stored global > league+year > year > seeds) cached
+    // separately so a degraded (offline) bootstrap can restore it without seeds
+    // leaking into the stored/editor aliasMap.
+    effectiveAliasMap: `cfb_effective_name_map:${scope}`,
     ownersCsv: `cfb_owners_csv:${scope}`,
     postseasonOverrides: `cfb_postseason_overrides:${scope}`,
   } as const;

@@ -255,3 +255,100 @@ test('bootstrap keeps cached owners and overrides when the server load fails', a
     /Postseason overrides load failed: postseason overrides GET 500/
   );
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-058: stored (editor) vs effective (resolver) alias separation, and
+// the offline/error fallback behavior for each.
+// ---------------------------------------------------------------------------
+
+test('bootstrap returns stored + effective alias maps and caches both', async () => {
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) {
+      return url.includes('scope=effective')
+        ? Response.json({ scope: 'effective', map: { global: 'Global', league: 'League' } })
+        : Response.json({ year: season, league: leagueSlug, map: { league: 'League' } });
+    }
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug });
+
+  assert.deepEqual(result.aliasMap, { league: 'League' }, 'editor gets stored league aliases only');
+  assert.deepEqual(
+    result.effectiveAliasMap,
+    { global: 'Global', league: 'League' },
+    'resolver gets the effective map'
+  );
+  assert.equal(localStorage.getItem(storageKeys.aliasMap), JSON.stringify({ league: 'League' }));
+  assert.equal(
+    localStorage.getItem(storageKeys.effectiveAliasMap),
+    JSON.stringify({ global: 'Global', league: 'League' })
+  );
+});
+
+test('bootstrap fallback: editor map gets NO seeds; effective map gets seeds (no cache)', async () => {
+  const season = 2026;
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) return new Response('boom', { status: 500 });
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const seedAliases = { byu: 'brigham young' };
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases });
+
+  assert.deepEqual(result.aliasMap, {}, 'editor fallback is empty — seeds must not leak into it');
+  assert.deepEqual(result.effectiveAliasMap, seedAliases, 'resolver fallback carries the seeds');
+  assert.match(result.aliasLoadIssue ?? '', /Aliases load failed/);
+});
+
+test('bootstrap fallback: restores the cached effective map, preserving global/year aliases', async () => {
+  const season = 2026;
+  const storageKeys = seasonStorageKeys(season);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  // A prior successful bootstrap cached both maps.
+  localStorage.setItem(storageKeys.aliasMap, JSON.stringify({ league: 'League' }));
+  localStorage.setItem(
+    storageKeys.effectiveAliasMap,
+    JSON.stringify({ global: 'Global', year: 'Year', league: 'League' })
+  );
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) return new Response('boom', { status: 500 });
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: { byu: 'brigham young' } });
+
+  assert.deepEqual(result.aliasMap, { league: 'League' }, 'editor restored from stored cache');
+  assert.deepEqual(
+    result.effectiveAliasMap,
+    { global: 'Global', year: 'Year', league: 'League' },
+    'effective restored from its own cache — global/year not dropped'
+  );
+});
