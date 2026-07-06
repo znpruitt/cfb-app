@@ -58,6 +58,40 @@ function parseAliasMap(raw: string | null, fallback: AliasMap): AliasMap {
   }
 }
 
+// The effective-alias fetch is the ONLY client path that surfaces league-scoped
+// stored repairs (via getScopedAliasMap: stored global > league+year > year >
+// seeds); the league-scoped stored GET was removed with the in-app editor. So a
+// transient failure of this single request on a cold cache would drop identity
+// to the local fallback (cached effective / legacy stored / seeds) and diverge
+// from server canonical until a reload. A small bounded retry closes that window
+// for momentary blips while re-fetching the FULL resolver map (all repair
+// layers), so it beats fetching any narrower sub-scope. Only the failure path
+// pays the delay — a first-attempt success returns immediately.
+const EFFECTIVE_ALIAS_FETCH_ATTEMPTS = 3; // 1 initial + 2 retries
+const EFFECTIVE_ALIAS_RETRY_BASE_MS = 150; // linear backoff: 150ms, 300ms
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function loadEffectiveAliasesWithRetry(
+  season: number,
+  leagueSlug: string | undefined
+): Promise<AliasMap> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= EFFECTIVE_ALIAS_FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      return await loadEffectiveAliases(season, leagueSlug);
+    } catch (err) {
+      lastError = err;
+      if (attempt < EFFECTIVE_ALIAS_FETCH_ATTEMPTS) {
+        await sleep(EFFECTIVE_ALIAS_RETRY_BASE_MS * attempt);
+      }
+    }
+  }
+  throw lastError;
+}
+
 function readOwnersCsvWithMigration(
   storageKey: string,
   seasonOnlyKey: string | null
@@ -159,7 +193,7 @@ export async function bootstrapAliasesAndCaches(params: {
   };
 
   try {
-    effectiveAliasMap = await loadEffectiveAliases(season, leagueSlug);
+    effectiveAliasMap = await loadEffectiveAliasesWithRetry(season, leagueSlug);
     try {
       window.localStorage.setItem(
         storageKeys.effectiveAliasMap,

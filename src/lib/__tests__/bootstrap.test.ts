@@ -290,6 +290,44 @@ test('bootstrap returns the effective alias map and caches it', async () => {
   );
 });
 
+test('bootstrap retries a transient effective-alias failure and uses the recovered fresh map', async () => {
+  // The effective fetch is the only path that surfaces league-scoped repairs, so a
+  // bounded retry recovers the FULL resolver map after a transient blip rather than
+  // dropping to the degraded local fallback.
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  let aliasCalls = 0;
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) {
+      aliasCalls += 1;
+      // Fail the first two attempts, succeed on the third.
+      if (aliasCalls < 3) return new Response('boom', { status: 503 });
+      return Response.json({ scope: 'effective', map: { league: 'League Repair' } });
+    }
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug });
+
+  assert.equal(aliasCalls, 3, 'retried until the fetch succeeded');
+  assert.deepEqual(result.effectiveAliasMap, { league: 'League Repair' }, 'used the recovered map');
+  assert.equal(result.aliasLoadIssue, undefined, 'no load issue after successful retry');
+  // Recovered map is cached like any successful fetch.
+  assert.deepEqual(
+    readEffectiveAliasCache(localStorage.getItem(storageKeys.effectiveAliasMap), {}),
+    { league: 'League Repair' }
+  );
+});
+
 test('bootstrap effective fallback carries seeds when the fetch fails (no cache)', async () => {
   const season = 2026;
   const localStorage = new MemoryStorage();
