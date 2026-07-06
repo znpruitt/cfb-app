@@ -16,6 +16,12 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-063-REMOVE-DEAD-TRENDS-PAGEDATA-v1
+- Purpose: Delete the dead `trendsPageData` module + its test (dead-code cleanup surfaced by PLATFORM-062). No live behavior change.
+- Scope: deleted `src/lib/trendsPageData.ts` and `src/lib/__tests__/trendsPageData.test.ts`.
+- Notes: `trendsPageData.ts` (`loadCanonicalTrendsPageData` / `TrendsPageData`) was imported only by its own test — no production importers, no barrel re-exports. The live trends page (`src/app/league/[slug]/trends/page.tsx`) redirects to `standings?view=trends`, which renders through the canonical standings/client-bootstrap path; that redirect is untouched. Post-delete: zero dangling references, tsc/lint:all/build green, focused standings/aliases/odds/selectors/globalAliasStore suites (115 tests) green. Codex review clean ("deleted module was referenced only by its deleted test; the live trends route uses the canonical standings flow"). Full `npm test` not run (documented Overview hang).
+- Follow-ups (remaining from the PLATFORM-061 audit): (1) hidden league alias editor removal (safe now — unreachable UI); (2) data-gated league alias layer removal (needs prod data check + product decision).
+
 ### PLATFORM-062-CANONICAL-ALIAS-ODDS-TRENDS-v1
 - Purpose: Align the remaining odds/trends alias consumers with canonical effective resolution. Focused correctness PR — does NOT remove league-scoped aliases or the hidden editor.
 - Scope: `src/app/api/odds/route.ts` (+ `route.test.ts`). Trends was found to be **dead code** (see below) — not modified.
