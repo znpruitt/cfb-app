@@ -150,8 +150,8 @@ test('year-only alias PUT invalidates every registered league for that year (P2)
     )
   );
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { league: string | null; map: Record<string, string> };
-  assert.equal(body.league, null);
+  const body = (await res.json()) as { map: Record<string, string> };
+  assert.equal(body.map['gulf coast tech'], 'Texas');
   assert.ok(tags.includes('standings:league-a'));
   assert.ok(tags.includes('standings:league-b'));
   assert.ok(tags.includes('standings:league-a:2025'));
@@ -198,8 +198,8 @@ test('global GET returns stored aliases only — never the in-memory seeds (P2)'
   );
 });
 
-test('league-scoped alias PUT still invalidates only that league+year (regression guard)', async () => {
-  await setAppState('leagues', 'registry', [makeLeague('league-a')]);
+test('a ?league= param on PUT is ignored — writes the year scope, not a league scope', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('league-a'), makeLeague('league-b')]);
   const { result: res, tags } = await runCapturingTags(() =>
     PUT(
       new Request('https://example.com/api/aliases?league=league-a&year=2025', {
@@ -210,14 +210,19 @@ test('league-scoped alias PUT still invalidates only that league+year (regressio
     )
   );
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { league: string | null; map: Record<string, string> };
-  assert.equal(body.league, 'league-a');
+  const body = (await res.json()) as { map: Record<string, string> };
   assert.equal(body.map['ole miss'], 'Mississippi');
-  // League-scoped write invalidates the umbrella + the specific year, and no
-  // other league.
+  // The league-scoped write path was removed with the in-app editor: the write
+  // lands in the YEAR scope and the league param is ignored.
+  const yearScope = await getAppState<Record<string, string>>('aliases:2025', 'map');
+  assert.equal(yearScope?.value?.['ole miss'], 'Mississippi', 'written to the year scope');
+  const leagueScope = await getAppState<Record<string, string>>('aliases:league-a:2025', 'map');
+  assert.equal(leagueScope?.value, undefined, 'no league-scoped write');
+  // Year-scope write invalidates every registered league for that year.
   assert.ok(tags.includes('standings:league-a'));
+  assert.ok(tags.includes('standings:league-b'));
   assert.ok(tags.includes('standings:league-a:2025'));
-  assert.ok(!tags.some((t) => t.startsWith('standings:league-b')));
+  assert.ok(tags.includes('standings:league-b:2025'));
 });
 
 // ---------------------------------------------------------------------------
@@ -286,14 +291,14 @@ test('effective GET: does not persist anything (read-only)', async () => {
   assert.equal(storedLeague?.value, undefined, 'no league-scope write');
 });
 
-test('default (stored) league GET stays editor-only — never returns global/seed', async () => {
+test('default (stored) GET returns the year-scoped editable view — never global/seed', async () => {
   await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
-  await setAppState(`aliases:${LEAGUE}:${YR}`, 'map', { 'league key': 'League Team' });
+  await setAppState(`aliases:${YR}`, 'map', { 'year key': 'Year Team' });
   const res = await GET(
-    new Request(`https://example.com/api/aliases?league=${LEAGUE}&year=${YR}`, { method: 'GET' })
+    new Request(`https://example.com/api/aliases?year=${YR}`, { method: 'GET' })
   );
   const body = (await res.json()) as { map: Record<string, string> };
-  assert.equal(body.map['league key'], 'League Team', 'stored league entry returned');
+  assert.equal(body.map['year key'], 'Year Team', 'stored year entry returned');
   assert.equal(
     Object.prototype.hasOwnProperty.call(body.map, 'gulf coast tech'),
     false,

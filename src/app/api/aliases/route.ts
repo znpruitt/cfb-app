@@ -1,6 +1,6 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
-import { isValidSlug, getLeague, getLeagues } from '../../../lib/leagueRegistry.ts';
+import { isValidSlug, getLeagues } from '../../../lib/leagueRegistry.ts';
 import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import {
   getScopedAliasMap,
@@ -27,19 +27,17 @@ function clampYearMaybe(s: string | null): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function aliasesScope(year: number, leagueSlug?: string): string {
-  if (leagueSlug) return `aliases:${leagueSlug}:${year}`;
-  return `aliases:${year}`;
-}
-
-async function readAliases(year: number, league?: string): Promise<AliasMap> {
-  const record = await getAppState<AliasMap>(aliasesScope(year, league), 'map');
+// Year-scoped stored aliases (`aliases:${year}`) — the editable view the admin
+// Teams debug panel manages. The former league-scoped write path (and its in-app
+// editor) was removed; league aliases are read-only via getScopedAliasMap.
+async function readAliases(year: number): Promise<AliasMap> {
+  const record = await getAppState<AliasMap>(`aliases:${year}`, 'map');
   const map = record?.value;
   return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
-async function writeAliases(year: number, map: AliasMap, league?: string): Promise<void> {
-  await setAppState(aliasesScope(year, league), 'map', map);
+async function writeAliases(year: number, map: AliasMap): Promise<void> {
+  await setAppState(`aliases:${year}`, 'map', map);
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -79,16 +77,17 @@ export async function GET(req: Request): Promise<Response> {
 
   // Effective scope: ?scope=effective — the RESOLVER view (stored global >
   // league+year > year > SEED_ALIASES), the same map server canonical uses. This
-  // is read-only for client schedule/liveDelta identity; the default (stored)
-  // view below stays the editable one, so admin/editor saves never round-trip
-  // global/seed defaults into a scope.
+  // is read-only for client schedule/liveDelta identity; a league may be provided
+  // so a league page gets its league-aware resolver map.
   if (url.searchParams.get('scope') === 'effective') {
     const map = await getScopedAliasMap(league ?? '', year);
     return Response.json({ year, league: league ?? null, scope: 'effective', map });
   }
 
-  const map = await readAliases(year, league);
-  return Response.json({ year, league: league ?? null, map });
+  // Default: year-scoped stored aliases (the admin Teams debug panel's editable
+  // view). League-scoped stored reads are gone with the in-app editor.
+  const map = await readAliases(year);
+  return Response.json({ year, map });
 }
 
 export async function PUT(req: Request): Promise<Response> {
@@ -127,22 +126,9 @@ export async function PUT(req: Request): Promise<Response> {
     }
     return Response.json({ scope: 'global', map: next });
   }
+  // Year-scoped writes only (the admin Teams debug panel). League-scoped writes
+  // were removed with the in-app editor; a `?league=` param is ignored here.
   const year = clampYearMaybe(url.searchParams.get('year'));
-  const leagueParam = url.searchParams.get('league') ?? undefined;
-  const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
-
-  if (leagueParam && !league) {
-    return new Response(
-      `Invalid league slug format: '${leagueParam}'. Slugs must be lowercase alphanumeric words separated by hyphens.`,
-      { status: 400 }
-    );
-  }
-
-  if (league) {
-    const registered = await getLeague(league);
-    if (!registered)
-      return new Response(`League '${league}' not found in registry`, { status: 404 });
-  }
 
   let bodyUnknown: unknown;
   try {
@@ -185,7 +171,7 @@ export async function PUT(req: Request): Promise<Response> {
     });
   }
 
-  const current = await readAliases(year, league);
+  const current = await readAliases(year);
 
   let next: AliasMap;
   if ('map' in body) {
@@ -207,17 +193,13 @@ export async function PUT(req: Request): Promise<Response> {
     }
   }
 
-  await writeAliases(year, next, league);
-  if (league) {
-    invalidateStandings(league, year);
-  } else {
-    // Year-only scope (`aliases:${year}`) is a deprecated fallback consumed by
-    // every league's canonical standings for that year, so invalidate all
-    // registered leagues rather than leaving warm snapshots stale.
-    const leagues = await getLeagues();
-    for (const registered of leagues) {
-      invalidateStandings(registered.slug, year);
-    }
+  await writeAliases(year, next);
+  // Year scope (`aliases:${year}`) is consumed by every league's canonical
+  // standings for that year, so invalidate all registered leagues rather than
+  // leaving warm snapshots stale.
+  const leagues = await getLeagues();
+  for (const registered of leagues) {
+    invalidateStandings(registered.slug, year);
   }
-  return Response.json({ year, league: league ?? null, map: next });
+  return Response.json({ year, map: next });
 }

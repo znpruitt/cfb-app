@@ -1,59 +1,29 @@
 import React from 'react';
 
-import type { AliasStaging, DiagEntry } from '../lib/diagnostics';
-import { hasStagedAliasChanges, splitIssueDiagnostics } from '../lib/adminDiagnostics';
+import type { DiagEntry } from '../lib/diagnostics';
+import { splitIssueDiagnostics } from '../lib/adminDiagnostics';
 
 type IssuesPanelProps = {
   issues: string[];
   diag: DiagEntry[];
-  aliasStaging: AliasStaging;
-  aliasToast: string | null;
   pillClass: () => string;
-  onCommitStagedAliases: () => void;
-  onStageAlias: (providerName: string, csvName: string) => void;
 };
 
 export default function IssuesPanel({
   issues,
   diag,
-  aliasStaging,
-  aliasToast,
   pillClass,
-  onCommitStagedAliases,
-  onStageAlias,
 }: IssuesPanelProps): React.ReactElement | null {
   const { actionableDiag, ignoredDebugDiag } = splitIssueDiagnostics(diag);
-  const hasStagedAliases = hasStagedAliasChanges(aliasStaging);
   const hasPrimaryIssues = issues.length > 0 || actionableDiag.length > 0;
 
-  if (!hasPrimaryIssues && !hasStagedAliases && ignoredDebugDiag.length === 0) return null;
+  if (!hasPrimaryIssues && ignoredDebugDiag.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      {hasPrimaryIssues || hasStagedAliases ? (
+      {hasPrimaryIssues ? (
         <div className="rounded border border-l-4 border-gray-300 border-l-red-600 bg-red-50 p-3 text-sm text-gray-900 dark:border-zinc-700 dark:border-l-red-400 dark:bg-red-900/25 dark:text-zinc-100 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-medium">
-              {hasPrimaryIssues ? 'Issues' : 'Staged alias changes'}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                className="px-3 py-1.5 rounded border border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 disabled:opacity-50"
-                disabled={!hasStagedAliases}
-                onClick={onCommitStagedAliases}
-                title="Save staged aliases and refresh"
-              >
-                Save staged aliases
-              </button>
-              {aliasToast && <span className="text-xs">{aliasToast}</span>}
-            </div>
-          </div>
-
-          {!hasPrimaryIssues && hasStagedAliases ? (
-            <p className="text-xs text-gray-600 dark:text-zinc-300">
-              Save staged alias mappings to preserve commissioner repairs discovered in debug tools.
-            </p>
-          ) : null}
+          <div className="font-medium">Issues</div>
 
           {issues.length > 0 && (
             <ul className="list-disc pl-5 space-y-1">
@@ -100,24 +70,7 @@ export default function IssuesPanel({
                               </div>
                             ) : null}
                           </td>
-                          <td className="p-2">
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                className="px-3 py-1.5 rounded border"
-                                onClick={() => onStageAlias(d.providerHome, d.providerHome)}
-                                title='Map provider "home" label to its own canonical (fixes diacritics/case/spacing)'
-                              >
-                                Map Home→Home
-                              </button>
-                              <button
-                                className="px-3 py-1.5 rounded border"
-                                onClick={() => onStageAlias(d.providerAway, d.providerAway)}
-                                title='Map provider "away" label to its own canonical'
-                              >
-                                Map Away→Away
-                              </button>
-                            </div>
-                          </td>
+                          <td className="p-2">Manage alias repairs on the Aliases page.</td>
                         </tr>
                       );
                     }
@@ -164,28 +117,7 @@ export default function IssuesPanel({
                               '—'
                             )}
                           </td>
-                          <td className="p-2">
-                            <div className="flex flex-wrap gap-2">
-                              {d.candidates?.slice(0, 4).map((c, idx) => (
-                                <div key={idx} className="flex gap-1">
-                                  <button
-                                    className="px-3 py-1.5 rounded border"
-                                    onClick={() => onStageAlias(d.providerHome, c.csvHome)}
-                                    title={`Map provider home → ${c.csvHome}`}
-                                  >
-                                    Map Home→{c.csvHome}
-                                  </button>
-                                  <button
-                                    className="px-3 py-1.5 rounded border"
-                                    onClick={() => onStageAlias(d.providerAway, c.csvAway)}
-                                    title={`Map provider away → ${c.csvAway}`}
-                                  >
-                                    Map Away→{c.csvAway}
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          </td>
+                          <td className="p-2">Manage alias repairs on the Aliases page.</td>
                         </tr>
                       );
                     }
