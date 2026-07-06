@@ -33,6 +33,8 @@ Set these for **Production** (and **Preview** for preview deploys):
 - `ODDS_API_KEY`
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
+- `CRON_SECRET` — long random value (e.g. `openssl rand -hex 32`). Bearer token the scheduled cron jobs in `vercel.json` (`/api/cron/season-transition`, `/api/cron/season-rollover`, `/api/cron/game-stats`) must present. The cron routes **fail closed**: if this is missing or unset, every scheduled run returns `401` and automated season transition, season rollover, and weekly game-stats ingestion silently stop. Treat as required in any environment that runs the crons.
+- `LEAGUE_AUTH_SECRET` — long random value (e.g. `openssl rand -hex 32`). HMAC-SHA256 signing key for the per-league password gate's `league_auth_<slug>` session cookie. Required whenever **any** league has a password set; the gate logic **throws on a missing/empty value** (fails loud), so a passworded league cannot be unlocked without it. No in-code default. See `docs/campaigns/league-privacy-password.md`.
 
 Fallback auth (optional — only needed during Clerk migration):
 
@@ -87,7 +89,10 @@ This makes the user's `publicMetadata` (including `role`) available in the sessi
 
 - **Middleware** (`src/middleware.ts`): All `/admin` routes require a Clerk session with `publicMetadata.role === "platform_admin"`. Unauthenticated users are redirected to `/login`. Authenticated users without the role are redirected to `/`.
 - **API routes** (`src/lib/server/adminAuth.ts`): `requireAdminAuth` checks the Clerk JWT first (platform_admin role required), then falls back to `ADMIN_API_TOKEN` header matching for backward compatibility.
-- **Public routes**: No authentication required. League pages, schedules, and standings are publicly accessible.
+- **League page access** (`src/lib/leagueAuth.ts`): a league may set a password. When set, its pages are gated behind that password via a signed `league_auth_<slug>` session cookie (HMAC keyed by `LEAGUE_AUTH_SECRET`). This is a **per-league access gate**, separate from — and not a substitute for — Clerk authentication or app-admin authorization: Clerk establishes user identity and the `platform_admin` role; the league password only unlocks that one league's pages. A league with no password set remains open.
+- **Public surfaces**: No authentication required. Cross-league/provider surfaces (odds and scores endpoints) are public. Individual league pages/schedules/standings are public **only when that league has no password set**; once a password is configured they sit behind the league access gate above.
+
+These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_API_TOKEN` (admin API fallback), and `LEAGUE_AUTH_SECRET` (league password gate).
 
 ## 6) Trigger the first production deployment
 
