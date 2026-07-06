@@ -18,6 +18,8 @@ import {
   setDurableOddsStore,
 } from '../../../lib/server/durableOddsStore.ts';
 
+import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
+
 import { GET } from './route.ts';
 import { __resetOddsRouteCacheForTests, resolveDefaultSeason } from './routeInternals.ts';
 
@@ -1271,4 +1273,117 @@ test('fresh cached odds entries without commenceTime are served without an upstr
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-062 — odds identity must resolve through the canonical effective
+// alias map (getScopedAliasMap: stored global > year > SEED_ALIASES), NOT the
+// old year-only + hand-merged-seeds read that missed stored global aliases.
+// Odds requests carry no league, so the empty slug yields global > year > seed.
+// ---------------------------------------------------------------------------
+
+test('odds resolves an odds-provider label to a canonical game via a STORED GLOBAL alias', async () => {
+  const originalFetch = global.fetch;
+
+  // 'gotham knights' is not a real team or a seed alias — only a stored GLOBAL
+  // alias maps it to Georgia. The schedule uses the canonical name; the odds
+  // event uses the alias-only label, so they match ONLY if odds reads global.
+  await setAppState('aliases:global', 'map', { 'gotham knights': 'Georgia' });
+
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.includes('/api/schedule')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'game-1',
+              week: 1,
+              startDate: '2026-09-01T19:30:00.000Z',
+              neutralSite: false,
+              conferenceGame: false,
+              homeTeam: 'Georgia',
+              awayTeam: 'Clemson',
+              homeConference: 'SEC',
+              awayConference: 'ACC',
+              status: 'scheduled',
+              seasonType: 'regular',
+              gamePhase: 'regular',
+            },
+          ],
+          meta: { source: 'cfbd', cache: 'miss', generatedAt: '2026-09-01T18:00:00.000Z' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    return new Response(
+      JSON.stringify([
+        {
+          home_team: 'Gotham Knights', // alias-only label; resolves to Georgia via stored global
+          away_team: 'Clemson Tigers',
+          bookmakers: [
+            {
+              key: 'draftkings',
+              title: 'DraftKings',
+              markets: [
+                {
+                  key: 'spreads',
+                  outcomes: [
+                    { name: 'Gotham Knights', point: -3.5, price: -110 },
+                    { name: 'Clemson', point: 3.5, price: -110 },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '1',
+        },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+    );
+    assert.equal(res.status, 200);
+    const json = (await res.json()) as {
+      items: Array<{ odds: { spread: number | null } }>;
+    };
+    // Odds attach to the Georgia/Clemson game only because the global alias
+    // resolved 'Gotham Knights' -> Georgia (pre-fix: year-only + seed missed it).
+    assert.equal(json.items.length, 1);
+    assert.equal(json.items[0]?.odds.spread, -3.5);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('odds alias source (getScopedAliasMap, no league) sees a year-only alias', async () => {
+  const season = 2031;
+  await setAppState(`aliases:${season}`, 'map', { 'year label': 'Georgia' });
+  const map = await getScopedAliasMap('', season);
+  assert.equal(map['year label'], 'Georgia');
+});
+
+test('odds alias source resolves a SEED_ALIASES fallback with no stored scopes', async () => {
+  const season = 2032; // nothing seeded — SEED_ALIASES maps 'app state' -> 'appalachian state'
+  const map = await getScopedAliasMap('', season);
+  assert.equal(map['app state'], 'appalachian state');
+});
+
+test('odds alias source: stored global beats a conflicting year scope (and seed)', async () => {
+  const season = 2033;
+  await setAppState(`aliases:${season}`, 'map', { 'conflict label': 'Clemson' });
+  await setAppState('aliases:global', 'map', { 'conflict label': 'Georgia' });
+  const map = await getScopedAliasMap('', season);
+  assert.equal(map['conflict label'], 'Georgia');
 });
