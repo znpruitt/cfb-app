@@ -24,9 +24,10 @@ import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import { type ScorePack } from '../lib/scores';
 import { getRefreshPlan } from '../lib/refreshPolicy';
-import { type AliasMap } from '../lib/teamNames';
+import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
+import { serializeEffectiveAliasCache } from '../lib/effectiveAliasCache';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
-import { saveServerAliases } from '../lib/aliasesApi';
+import { saveServerAliases, loadEffectiveAliases } from '../lib/aliasesApi';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
@@ -297,7 +298,11 @@ export default function CFBScheduleApp({
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
+  // Stored league aliases — the editable view the alias editor manages.
   const [aliasMap, setAliasMap] = useState<AliasMap>({});
+  // Effective resolver map (stored global > league+year > year > SEED_ALIASES) —
+  // used to build the client schedule/games so identity matches server canonical.
+  const [effectiveAliasMap, setEffectiveAliasMap] = useState<AliasMap>({});
   const [editOpen, setEditOpen] = useState<boolean>(false);
   const [editDraft, setEditDraft] = useState<Array<{ key: string; value: string }>>([]);
 
@@ -454,7 +459,9 @@ export default function CFBScheduleApp({
         const built = buildScheduleFromApi({
           scheduleItems,
           teams,
-          aliasMap: overrideAliasMap ?? aliasMap,
+          // Effective resolver map (not the stored league editor map) so client
+          // game identity matches server canonical for global/year/seed aliases.
+          aliasMap: overrideAliasMap ?? effectiveAliasMap,
           season: selectedSeason,
           manualOverrides: overrideManualOverrides ?? manualPostseasonOverrides,
           conferenceRecords,
@@ -504,7 +511,7 @@ export default function CFBScheduleApp({
       }
     },
     [
-      aliasMap,
+      effectiveAliasMap,
       clearScheduleDerivedState,
       loadRankings,
       manualPostseasonOverrides,
@@ -522,6 +529,35 @@ export default function CFBScheduleApp({
     clearOwnersDerivedState();
   }, [clearOwnersDerivedState, storageKeys.ownersCsv]);
 
+  // After an in-app league alias edit, the effective resolver map changes.
+  // Rebuild the games with the fresh map FIRST (passed as override), and only
+  // publish it to state + cache AFTER a successful rebuild — otherwise the
+  // resolver map and the `games` (still built with the old map) would diverge,
+  // and live refreshes could attach scores/odds with identities inconsistent
+  // with existing game keys. loadScheduleFromApi resolves to false (not reject)
+  // on fetch failure, no games, or an in-flight refresh; treat that as a rebuild
+  // failure and THROW without publishing so the caller surfaces it and state
+  // stays consistent with the current games.
+  const reloadScheduleWithFreshEffective = useCallback(async () => {
+    const fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
+    const rebuilt = await loadScheduleFromApi(fresh);
+    if (!rebuilt) {
+      throw new Error('schedule did not rebuild with the updated aliases');
+    }
+    setEffectiveAliasMap(fresh);
+    // Keep the effective cache in sync so a later degraded bootstrap doesn't
+    // prefer a stale effective map. Versioned by the seed set so bootstrap can
+    // validate it.
+    try {
+      window.localStorage.setItem(
+        storageKeys.effectiveAliasMap,
+        serializeEffectiveAliasCache(fresh, SEED_ALIASES)
+      );
+    } catch {
+      // best-effort cache
+    }
+  }, [leagueSlug, loadScheduleFromApi, selectedSeason, storageKeys.effectiveAliasMap]);
+
   const showAliasToast = useCallback((message: string, timeoutMs: number = 1200) => {
     setAliasToast(message);
     setTimeout(() => setAliasToast(null), timeoutMs);
@@ -532,6 +568,7 @@ export default function CFBScheduleApp({
     selectedSeason,
     leagueSlug,
     setAliasMap,
+    setEffectiveAliasMap,
     setIssues,
     setHasCachedOwners,
     setManualPostseasonOverrides,
@@ -1063,7 +1100,9 @@ export default function CFBScheduleApp({
     games,
     visibleGames,
     scoreScopeGames,
-    aliasMap,
+    // Effective resolver map so live score/odds attachment matches server
+    // canonical identity (the stored league map drives the editor only).
+    aliasMap: effectiveAliasMap,
     oddsUsage,
     refreshPlan,
     scoreHydrationState,
@@ -1164,20 +1203,32 @@ export default function CFBScheduleApp({
 
   const commitStagedAliases = useCallback(async () => {
     if (!Object.keys(aliasStaging.upserts).length && !aliasStaging.deletes.length) return;
+    // The write and the client rebuild fail independently: a persisted save must
+    // stay acknowledged even if the effective-map refetch/rebuild fails.
     try {
       await persistAliasChanges(aliasStaging.upserts, aliasStaging.deletes);
-      setAliasStaging({ upserts: {}, deletes: [] });
-      showAliasToast('Aliases saved. Rebuilding…', 1800);
-
-      await loadScheduleFromApi();
-      // Refresh the current RSC tree so canonical standings reflect the alias
-      // mutation (alias changes can re-resolve roster team identities).
-      router.refresh();
     } catch (err) {
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
       showAliasToast('Alias save failed.', 1800);
+      return;
     }
-  }, [aliasStaging, persistAliasChanges, showAliasToast, loadScheduleFromApi, router]);
+    setAliasStaging({ upserts: {}, deletes: [] });
+    showAliasToast('Aliases saved. Rebuilding…', 1800);
+    try {
+      await reloadScheduleWithFreshEffective();
+    } catch (err) {
+      setIssues((p) => [
+        ...p,
+        `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
+      ]);
+      showAliasToast('Saved; rebuild failed — reload.', 2400);
+    } finally {
+      // The save persisted and its cache tags are invalidated, so refresh the
+      // RSC tree (server-rendered canonical standings) even if the client
+      // rebuild failed — otherwise standings stay stale until a manual reload.
+      router.refresh();
+    }
+  }, [aliasStaging, persistAliasChanges, showAliasToast, reloadScheduleWithFreshEffective, router]);
 
   const openEditor = useCallback(() => {
     setEditDraft(
@@ -1218,18 +1269,29 @@ export default function CFBScheduleApp({
       if (!(k in cleaned)) deletes.push(k);
     }
 
+    // Write and rebuild fail independently — a persisted save stays acknowledged
+    // even if the effective-map refetch/rebuild fails.
     try {
       await persistAliasChanges(cleaned, deletes);
-      setEditOpen(false);
-      await loadScheduleFromApi();
-      // Refresh the current RSC tree so canonical standings (server-rendered)
-      // pick up the alias mutation; the alias API route already invalidates
-      // the standings cache tag.
-      router.refresh();
     } catch (err) {
       setIssues((p) => [...p, `Alias save failed: ${(err as Error).message}`]);
+      return;
     }
-  }, [editDraft, aliasMap, persistAliasChanges, loadScheduleFromApi, router]);
+    setEditOpen(false);
+    try {
+      await reloadScheduleWithFreshEffective();
+    } catch (err) {
+      setIssues((p) => [
+        ...p,
+        `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
+      ]);
+    } finally {
+      // Refresh the RSC tree so server-rendered canonical standings pick up the
+      // persisted alias mutation (the route already busted the standings tag),
+      // even if the client rebuild failed.
+      router.refresh();
+    }
+  }, [editDraft, aliasMap, persistAliasChanges, reloadScheduleWithFreshEffective, router]);
 
   const savePostseasonOverride = useCallback(
     (eventId: string, patch: Partial<AppGame>) => {

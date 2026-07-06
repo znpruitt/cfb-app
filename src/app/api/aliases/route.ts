@@ -3,6 +3,7 @@ import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isValidSlug, getLeague, getLeagues } from '../../../lib/leagueRegistry.ts';
 import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
 import {
+  getScopedAliasMap,
   getStoredGlobalAliases,
   upsertGlobalAliases,
   migrateYearScopedAliasesToGlobal,
@@ -75,6 +76,16 @@ export async function GET(req: Request): Promise<Response> {
   const year = clampYearMaybe(url.searchParams.get('year'));
   const leagueParam = url.searchParams.get('league') ?? undefined;
   const league = leagueParam && isValidSlug(leagueParam) ? leagueParam : undefined;
+
+  // Effective scope: ?scope=effective — the RESOLVER view (stored global >
+  // league+year > year > SEED_ALIASES), the same map server canonical uses. This
+  // is read-only for client schedule/liveDelta identity; the default (stored)
+  // view below stays the editable one, so admin/editor saves never round-trip
+  // global/seed defaults into a scope.
+  if (url.searchParams.get('scope') === 'effective') {
+    const map = await getScopedAliasMap(league ?? '', year);
+    return Response.json({ year, league: league ?? null, scope: 'effective', map });
+  }
 
   const map = await readAliases(year, league);
   return Response.json({ year, league: league ?? null, map });

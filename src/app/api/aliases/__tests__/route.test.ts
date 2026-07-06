@@ -9,6 +9,7 @@ import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage
 
 import { GET, PUT } from '../route';
 import type { League } from '../../../../lib/league.ts';
+import { SEED_ALIASES } from '../../../../lib/teamNames.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -217,4 +218,90 @@ test('league-scoped alias PUT still invalidates only that league+year (regressio
   assert.ok(tags.includes('standings:league-a'));
   assert.ok(tags.includes('standings:league-a:2025'));
   assert.ok(!tags.some((t) => t.startsWith('standings:league-b')));
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-058: GET ?scope=effective — resolver view for the client bootstrap
+// (stored global > league+year > year > SEED_ALIASES). Read-only; the default
+// (stored) league GET stays the editable view.
+// ---------------------------------------------------------------------------
+
+const LEAGUE = 'league-a';
+const YR = 2025;
+
+function effectiveGet(): Request {
+  return new Request(
+    `https://example.com/api/aliases?scope=effective&league=${LEAGUE}&year=${YR}`,
+    {
+      method: 'GET',
+    }
+  );
+}
+
+async function effectiveMap(): Promise<Record<string, string>> {
+  const res = await GET(effectiveGet());
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { scope: string; map: Record<string, string> };
+  assert.equal(body.scope, 'effective');
+  return body.map;
+}
+
+test('effective GET: returns a global-only alias', async () => {
+  await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
+  assert.equal((await effectiveMap())['gulf coast tech'], 'Texas');
+});
+
+test('effective GET: returns a year-only alias fallback', async () => {
+  await setAppState(`aliases:${YR}`, 'map', { 'gulf coast tech': 'Texas' });
+  assert.equal((await effectiveMap())['gulf coast tech'], 'Texas');
+});
+
+test('effective GET: returns SEED_ALIASES as a fallback', async () => {
+  const map = await effectiveMap();
+  assert.equal(map['ole miss'], SEED_ALIASES['ole miss']);
+});
+
+test('effective GET: stored global beats league+year, year, and seed', async () => {
+  await setAppState('aliases:global', 'map', { uh: 'Global Target' });
+  await setAppState(`aliases:${LEAGUE}:${YR}`, 'map', { uh: 'League Target' });
+  await setAppState(`aliases:${YR}`, 'map', { uh: 'Year Target' });
+  assert.equal((await effectiveMap()).uh, 'Global Target');
+});
+
+test('effective GET: a league+year repair beats year and seed', async () => {
+  await setAppState(`aliases:${LEAGUE}:${YR}`, 'map', { uh: 'Hawaii' }); // seed is uh→houston
+  assert.equal((await effectiveMap()).uh, 'Hawaii');
+});
+
+test('effective GET: a year alias beats the seed fallback', async () => {
+  await setAppState(`aliases:${YR}`, 'map', { uh: 'Hawaii' });
+  assert.equal((await effectiveMap()).uh, 'Hawaii');
+});
+
+test('effective GET: does not persist anything (read-only)', async () => {
+  await effectiveMap();
+  const storedGlobal = await getAppState<Record<string, string>>('aliases:global', 'map');
+  const storedLeague = await getAppState<Record<string, string>>(`aliases:${LEAGUE}:${YR}`, 'map');
+  assert.equal(storedGlobal?.value, undefined, 'no global write');
+  assert.equal(storedLeague?.value, undefined, 'no league-scope write');
+});
+
+test('default (stored) league GET stays editor-only — never returns global/seed', async () => {
+  await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
+  await setAppState(`aliases:${LEAGUE}:${YR}`, 'map', { 'league key': 'League Team' });
+  const res = await GET(
+    new Request(`https://example.com/api/aliases?league=${LEAGUE}&year=${YR}`, { method: 'GET' })
+  );
+  const body = (await res.json()) as { map: Record<string, string> };
+  assert.equal(body.map['league key'], 'League Team', 'stored league entry returned');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(body.map, 'gulf coast tech'),
+    false,
+    'global alias NOT in the editable stored view'
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(body.map, 'ole miss'),
+    false,
+    'seed alias NOT in the editable stored view'
+  );
 });

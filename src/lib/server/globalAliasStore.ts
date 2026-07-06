@@ -1,4 +1,5 @@
 import { getAppState, listAppStateKeys, setAppState } from './appStateStore.ts';
+import { hashSeedAliases, mergeAliasLayers } from '../aliasLayers.ts';
 import { SEED_ALIASES, type AliasMap } from '../teamNames.ts';
 import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts';
 
@@ -94,27 +95,10 @@ function withoutCopiedSeedDefaults(map: AliasMap): AliasMap {
   return result;
 }
 
-/**
- * Deterministic FNV-1a hash of the SEED_ALIASES contents (order-independent).
- * Because seeds are code-defined and merged in-memory (never persisted, so no
- * runtime write fires an invalidation), any cache whose output depends on the
- * seed set — notably canonical standings — must fold this hash into its cache
- * identity. When SEED_ALIASES changes, the hash changes and those caches miss
- * naturally, with no manual alias write required.
- */
-export function hashSeedAliases(seeds: AliasMap): string {
-  const serialized = Object.entries(seeds)
-    .map(([k, v]) => `${normalizeAliasLookup(k)}=${typeof v === 'string' ? v.trim() : ''}`)
-    .sort()
-    .join(';');
-  let h = 0x811c9dc5;
-  for (let i = 0; i < serialized.length; i++) {
-    h ^= serialized.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16);
-}
-
+// Re-exported for existing importers; the implementation is the shared,
+// client-safe `hashSeedAliases` in ../aliasLayers.ts. Folded into the canonical
+// standings cache identity so a SEED_ALIASES change misses those caches.
+export { hashSeedAliases };
 export const SEED_ALIASES_HASH = hashSeedAliases(SEED_ALIASES);
 
 // Process-local serialization for global-alias mutations. Every writer of
@@ -148,42 +132,6 @@ async function readGlobalAliasMapRaw(): Promise<AliasMap> {
 }
 
 /**
- * Merge one precedence layer into `into`, resolving cross-layer conflicts by the
- * resolver's canonical identity (`normalizeTeamName`) while PRESERVING every
- * distinct lookup spelling.
- *
- * `identityWinner` maps a normalized team identity → the target chosen by the
- * highest-precedence layer that owns it. When a lower layer has a key whose
- * identity is already owned (e.g. global `gulf coast tech` owns `gulfcoasttech`,
- * and a scoped `gulfcoasttech` arrives later), the spelling is KEPT but remapped
- * to the winning target — so exact-key consumers like validateRosterCSV resolve
- * that spelling to the correct (higher-precedence) team instead of missing it.
- * Same-layer siblings don't shadow each other: identities are registered only
- * after the whole layer is processed.
- */
-function addAliasLayer(into: AliasMap, identityWinner: Map<string, string>, map: AliasMap): void {
-  const firstSeen: Array<[string, string]> = [];
-  for (const [key, target] of Object.entries(map)) {
-    if (typeof target !== 'string') continue;
-    const identity = normalizeTeamName(key);
-    // Keys that normalize to nothing can never be matched by the resolver.
-    if (!identity) continue;
-    const winner = identityWinner.get(identity);
-    if (winner !== undefined) {
-      // A higher-precedence layer owns this identity: preserve this spelling but
-      // point it at the winning target.
-      into[key] = winner;
-    } else {
-      into[key] = target;
-      firstSeen.push([identity, target]);
-    }
-  }
-  for (const [identity, target] of firstSeen) {
-    if (!identityWinner.has(identity)) identityWinner.set(identity, target);
-  }
-}
-
-/**
  * Stored/manual global aliases only — the persisted `aliases:global/map`
  * WITHOUT the in-memory seed layer. Use this for admin/editor storage views so
  * a normal save can never round-trip the code-defined seeds back into the store
@@ -202,13 +150,12 @@ export async function getStoredGlobalAliases(): Promise<AliasMap> {
  */
 export async function getGlobalAliases(): Promise<AliasMap> {
   const stored = await readGlobalAliasMapRaw();
-  const result: AliasMap = {};
-  const identityWinner = new Map<string, string>();
   // Demote persisted copies of known seed defaults so the CURRENT code seed
   // resolves the identity (manual repairs — different targets — are preserved).
-  addAliasLayer(result, identityWinner, withoutCopiedSeedDefaults(stored)); // 1. stored/manual
-  addAliasLayer(result, identityWinner, SEED_ALIAS_MAP); //                     2. seed defaults
-  return result;
+  return mergeAliasLayers([
+    withoutCopiedSeedDefaults(stored), // 1. stored/manual global
+    SEED_ALIAS_MAP, //                    2. seed defaults
+  ]);
 }
 
 /**
@@ -233,16 +180,15 @@ export async function getScopedAliasMap(leagueSlug: string, year: number): Promi
     readScopedMap(`aliases:${year}`),
   ]);
 
-  const aliasMap: AliasMap = {};
-  const identityWinner = new Map<string, string>();
   // Persisted copies of known seed defaults are demoted from every stored layer
   // so a corrected code seed is never shadowed by a stale bootstrap copy; genuine
   // manual repairs (different targets) survive and keep their precedence.
-  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(storedGlobal)); // 1. global
-  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(leagueMap)); //   2. league+year
-  addAliasLayer(aliasMap, identityWinner, withoutCopiedSeedDefaults(yearMap)); //     3. year
-  addAliasLayer(aliasMap, identityWinner, SEED_ALIAS_MAP); //                          4. seed defaults
-  return aliasMap;
+  return mergeAliasLayers([
+    withoutCopiedSeedDefaults(storedGlobal), // 1. stored/manual global
+    withoutCopiedSeedDefaults(leagueMap), //    2. league+year
+    withoutCopiedSeedDefaults(yearMap), //      3. year
+    SEED_ALIAS_MAP, //                          4. seed defaults
+  ]);
 }
 
 async function readScopedMap(scope: string): Promise<AliasMap> {
