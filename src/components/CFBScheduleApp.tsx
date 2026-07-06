@@ -294,8 +294,8 @@ export default function CFBScheduleApp({
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
-  // Effective resolver map (stored global > league+year > year > SEED_ALIASES) —
-  // used to build the client schedule/games so identity matches server canonical.
+  // Effective resolver map (stored global > year > SEED_ALIASES) — used to build
+  // the client schedule/games so identity matches server canonical.
   const [effectiveAliasMap, setEffectiveAliasMap] = useState<AliasMap>({});
 
   const [diag, setDiag] = useState<DiagEntry[]>([]);

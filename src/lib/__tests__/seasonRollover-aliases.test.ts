@@ -146,11 +146,12 @@ test('buildSeasonArchive: resolves a game via a SEED_ALIASES fallback', async ()
   assert.equal(winsFor(archive.finalStandings, 'Alice'), 1, 'seed fallback credits Alice');
 });
 
-test('buildSeasonArchive: a league+year repair beats the seed fallback', async () => {
-  // Seed `byu`→brigham young; a league repair maps `byu`→Texas. The repair wins,
+test('buildSeasonArchive: a year-scoped repair beats the seed fallback', async () => {
+  // Seed `byu`→brigham young; a year repair maps `byu`→Texas. The repair wins,
   // so the game credits the Texas owner, not the Brigham Young owner.
+  // (League scope is ignored at runtime, PLATFORM-067.)
   await seedTeamDb(['Texas', 'Brigham Young', 'Rival Tech']);
-  await seedAlias(`aliases:${SLUG}:${YEAR}`, { byu: 'Texas' });
+  await seedAlias(`aliases:${YEAR}`, { byu: 'Texas' });
   await seedOwners(
     ['team,owner', 'Texas,Alice', 'Brigham Young,Carol', 'Rival Tech,Bob'].join('\n')
   );
@@ -162,7 +163,7 @@ test('buildSeasonArchive: a league+year repair beats the seed fallback', async (
   });
 
   const archive = await buildSeasonArchive(SLUG, YEAR);
-  assert.equal(winsFor(archive.finalStandings, 'Alice'), 1, 'league repair (Texas) credited');
+  assert.equal(winsFor(archive.finalStandings, 'Alice'), 1, 'year repair (Texas) credited');
   assert.equal(
     winsFor(archive.finalStandings, 'Carol'),
     0,

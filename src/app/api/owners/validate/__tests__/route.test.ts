@@ -54,11 +54,11 @@ function validateRequest(csvText: string): Request {
   });
 }
 
-test('owner validation honors a scoped uh→Hawaii repair over the static seed uh→houston', async () => {
+test('owner validation honors a year-scoped uh→Hawaii repair over the static seed uh→houston', async () => {
   await setAppState('leagues', 'registry', [makeLeague()]);
   await seedTeamDbWithHawaiiOnly();
-  // Persisted scoped repair for the ambiguous `uh`.
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { uh: 'Hawaii' });
+  // Persisted year-scoped repair for the ambiguous `uh` (league scope is ignored, PLATFORM-067).
+  await setAppState(`aliases:${YEAR}`, 'map', { uh: 'Hawaii' });
 
   const res = await POST(validateRequest('team,owner\nuh,Alice'));
   assert.equal(res.status, 200);

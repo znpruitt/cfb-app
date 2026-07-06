@@ -156,10 +156,9 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   // Load team database
   const teams = await getTeamDatabaseItems();
 
-  // Load the effective, league-aware alias map (stored global > league+year >
-  // year > SEED_ALIASES) — the SAME resolution live canonical standings use, so
-  // archived standings/history can't disagree with live for the same
-  // games/roster/scores. Must NOT be the league-only scope.
+  // Load the effective alias map (stored global > year > SEED_ALIASES) — the
+  // SAME resolution live canonical standings use, so archived standings/history
+  // can't disagree with live for the same games/roster/scores.
   const aliasMap: AliasMap = await getScopedAliasMap(leagueSlug, year);
 
   // Load owners CSV

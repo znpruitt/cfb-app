@@ -28,7 +28,8 @@ test.beforeEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// getScopedAliasMap precedence: stored global > SEED_ALIASES > league+year > year
+// getScopedAliasMap precedence: stored global > year > SEED_ALIASES
+// (league-scoped aliases are legacy storage only and ignored at runtime, PLATFORM-067)
 // ---------------------------------------------------------------------------
 
 // PLATFORM-057: static SEED_ALIASES are merged in-memory (not persisted), so
@@ -45,26 +46,27 @@ test('getScopedAliasMap: stored global alias is returned', async () => {
   assert.equal(map['gulf coast tech'], 'Texas');
 });
 
-test('getScopedAliasMap: league-only alias is returned as deprecated fallback', async () => {
+test('getScopedAliasMap: a league-scoped alias is IGNORED (PLATFORM-067, legacy storage only)', async () => {
+  // Team aliases are not league-specific. A stored `aliases:${slug}:${year}`
+  // entry must not affect runtime resolution at all.
   await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Georgia' });
   const map = await getScopedAliasMap(SLUG, YEAR);
-  assert.equal(map['gulf coast tech'], 'Georgia');
+  assert.equal(map['gulf coast tech'], undefined, 'league-scoped alias does not resolve');
 });
 
-test('getScopedAliasMap: stored global overrides league+year on key conflict', async () => {
+test('getScopedAliasMap: a league-scoped repair does NOT beat the static seed default (ignored)', async () => {
+  // `uh` seeds to houston. A LEAGUE repair to Hawaii is ignored, so the seed wins.
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { uh: 'Hawaii' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(map.uh, SEED_ALIASES.uh, 'seed default wins; league repair ignored');
+});
+
+test('getScopedAliasMap: stored global beats year on key conflict; league entry irrelevant', async () => {
   await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Global Target' });
+  await setAppState(`aliases:${YEAR}`, 'map', { 'gulf coast tech': 'Year Target' });
   await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'League Target' });
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map['gulf coast tech'], 'Global Target');
-});
-
-test('getScopedAliasMap: a scoped manual repair beats the static seed default', async () => {
-  // Seeds are the lowest layer (defaults), so a persisted scoped repair for a
-  // seed key wins. `uh` seeds to houston; a league repair maps it to Hawaii.
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { uh: 'Hawaii' });
-  const map = await getScopedAliasMap(SLUG, YEAR);
-  assert.equal(map.uh, 'Hawaii', 'scoped repair wins over seed default');
-  assert.notEqual(map.uh, SEED_ALIASES.uh);
 });
 
 test('getScopedAliasMap: year-scoped repair also beats the static seed default', async () => {
@@ -85,10 +87,10 @@ test('getScopedAliasMap: no-league form ("") still applies global + year + seeds
   assert.equal(map['ole miss'], SEED_ALIASES['ole miss'], 'seed still fills');
 });
 
-test('getScopedAliasMap: seed fills as fallback when no stored/scoped alias covers it', async () => {
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
+test('getScopedAliasMap: seed fills as fallback when no stored alias covers it', async () => {
+  await setAppState(`aliases:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
   const map = await getScopedAliasMap(SLUG, YEAR);
-  // The unrelated scoped alias is present, and the seed still fills its own key.
+  // The unrelated year alias is present, and the seed still fills its own key.
   assert.equal(map['gulf coast tech'], 'Texas');
   assert.equal(map['ole miss'], SEED_ALIASES['ole miss']);
 });
@@ -105,28 +107,29 @@ test('getScopedAliasMap: preserves multiple stored spellings of one identity in 
   assert.equal(map.gulfcoasttech, 'Texas', 'sibling stored spelling preserved');
 });
 
-test('getScopedAliasMap: league+year overrides year-only on key conflict', async () => {
-  // Non-seed key so the seed layer doesn't pre-empt this league-vs-year check.
+test('getScopedAliasMap: a league entry does NOT override year on key conflict (ignored)', async () => {
+  // Non-seed key so the seed layer doesn't pre-empt this check. The league entry
+  // is ignored, so the year target wins.
   await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Target (league)' });
   await setAppState(`aliases:${YEAR}`, 'map', { 'gulf coast tech': 'Target (year)' });
   const map = await getScopedAliasMap(SLUG, YEAR);
-  assert.equal(map['gulf coast tech'], 'Target (league)');
+  assert.equal(map['gulf coast tech'], 'Target (year)');
 });
 
-test('getScopedAliasMap: full precedence global > league+year > year, non-conflicting keys union', async () => {
+test('getScopedAliasMap: full precedence global > year, league entry excluded, non-conflicting keys union', async () => {
   await setAppState('aliases:global', 'map', { g: 'from-global', shared: 'global-wins' });
   await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { l: 'from-league', shared: 'league-loses' });
   await setAppState(`aliases:${YEAR}`, 'map', { y: 'from-year', shared: 'year-loses' });
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map.shared, 'global-wins');
   assert.equal(map.g, 'from-global');
-  assert.equal(map.l, 'from-league');
+  assert.equal(map.l, undefined, 'league-scoped key is not resolved');
   assert.equal(map.y, 'from-year');
 });
 
-test('getScopedAliasMap: ASCII keys from global and league coincide, global wins', async () => {
+test('getScopedAliasMap: ASCII keys from global and year coincide, global wins', async () => {
   await setAppState('aliases:global', 'map', { 'texas am': 'Texas A&M (global)' });
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'texas am': 'Texas A&M (league)' });
+  await setAppState(`aliases:${YEAR}`, 'map', { 'texas am': 'Texas A&M (year)' });
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map['texas am'], 'Texas A&M (global)');
 });
@@ -136,26 +139,27 @@ test('getScopedAliasMap: ASCII keys from global and league coincide, global wins
 // higher-precedence winning target (so exact-key consumers still resolve it).
 test('getScopedAliasMap: normalized-identity conflict keeps both spellings, both → global target', async () => {
   await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { gulfcoasttech: 'Georgia' });
-  const map = await getScopedAliasMap(SLUG, YEAR);
-  assert.equal(map['gulf coast tech'], 'Texas');
-  // Legacy spelling preserved but remapped to the winning (global) target.
-  assert.equal(map.gulfcoasttech, 'Texas');
-});
-
-test('getScopedAliasMap: normalized-identity conflict, league beats year (both spellings → league target)', async () => {
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
   await setAppState(`aliases:${YEAR}`, 'map', { gulfcoasttech: 'Georgia' });
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.equal(map['gulf coast tech'], 'Texas');
-  assert.equal(map.gulfcoasttech, 'Texas', 'year spelling remapped to the league winner');
+  // Lower-layer (year) spelling preserved but remapped to the winning (global) target.
+  assert.equal(map.gulfcoasttech, 'Texas');
+});
+
+test('getScopedAliasMap: a league-scoped spelling variant is ignored while the year spelling resolves', async () => {
+  // The league entry must not contribute a spelling. Only the year spelling is present.
+  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { gulfcoasttech: 'Georgia' });
+  await setAppState(`aliases:${YEAR}`, 'map', { 'gulf coast tech': 'Texas' });
+  const map = await getScopedAliasMap(SLUG, YEAR);
+  assert.equal(map['gulf coast tech'], 'Texas', 'year spelling resolves');
+  assert.equal(map.gulfcoasttech, undefined, 'league-only spelling is not resolved');
 });
 
 test('getScopedAliasMap: preserves a shadowed lower-layer spelling for exact-key validation', async () => {
-  // The finding's exact example: validateRosterCSV does exact normalizeAliasLookup
-  // indexing, so `gulfcoasttech` must be present (mapped to the winning target).
+  // validateRosterCSV does exact normalizeAliasLookup indexing, so `gulfcoasttech`
+  // must be present (mapped to the winning target) when it comes from the year layer.
   await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Global Target' });
-  await setAppState(`aliases:${SLUG}:${YEAR}`, 'map', { gulfcoasttech: 'Legacy Target' });
+  await setAppState(`aliases:${YEAR}`, 'map', { gulfcoasttech: 'Legacy Target' });
   const map = await getScopedAliasMap(SLUG, YEAR);
   assert.deepEqual(
     { 'gulf coast tech': map['gulf coast tech'], gulfcoasttech: map.gulfcoasttech },

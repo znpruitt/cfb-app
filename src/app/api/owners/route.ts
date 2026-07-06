@@ -87,9 +87,9 @@ export async function PUT(req: Request): Promise<Response> {
     // The UI enforces this too, but the API must enforce it independently.
     const [teams, mergedAliases] = await Promise.all([
       getTeamDatabaseItems(),
-      // Effective, league-aware precedence (stored global > league+year > year >
-      // seed defaults). Must NOT be built by spreading getGlobalAliases() after
-      // the scoped map — that would let a seed default override a scoped repair.
+      // Effective precedence (stored global > year > seed defaults). Must NOT be
+      // built by spreading getGlobalAliases() after the scoped map — that would
+      // let a seed default override a year repair.
       getScopedAliasMap(league ?? '', year),
     ]);
     const validation = validateRosterCSV(csvText, mergedAliases, teams);

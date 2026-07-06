@@ -55,15 +55,16 @@ function makeTeam(school: string, points: number, homeAway: 'home' | 'away'): Te
 }
 
 // PLATFORM-055 remediation P2: Insights stat aggregation must resolve team
-// identity through the same effective alias map (global > league+year > year)
+// identity through the same effective alias map (global > year > SEED_ALIASES)
 // as canonical standings. Before the fix, insights/context used a private
-// league-first merge, so a conflicting global vs league alias could attribute a
-// team's stats to a different owner than the standings show.
+// league-first merge, so a conflicting global vs scoped alias could attribute a
+// team's stats to a different owner than the standings show. Per PLATFORM-067,
+// league-scoped aliases are ignored at runtime, so the global mapping wins.
 test('insights context resolves owner stats with global-first alias precedence', async () => {
   const slug = 'insights-alias-precedence';
   const year = 2025;
-  // Conflicting scopes: global maps the provider label to Texas (Alice); the
-  // deprecated league scope maps it to Georgia (Bob). Global must win.
+  // Global maps the provider label to Texas (Alice); a league scope maps it to
+  // Georgia (Bob) but is IGNORED, so global (Texas/Alice) must win.
   await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
   await setAppState(`aliases:${slug}:${year}`, 'map', { 'gulf coast tech': 'Georgia' });
 

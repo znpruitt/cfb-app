@@ -91,8 +91,8 @@ export default async function DraftBoardPage({
     const schedRecord = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
     const schedItems = (schedRecord?.value?.items ?? []) as ScheduleWireItem[];
     if (schedItems.length > 0) {
-      // Effective, league-aware resolution via getScopedAliasMap — the same map
-      // canonical/live paths use, so draft-board game identity matches.
+      // Effective resolution via getScopedAliasMap — the same map canonical/live
+      // paths use, so draft-board game identity matches.
       const resolved = await resolveDraftScheduleGames({
         slug,
         year,
@@ -130,8 +130,8 @@ export default async function DraftBoardPage({
     );
     const priorSchedItems = (priorSchedRecord?.value?.items ?? []) as ScheduleWireItem[];
     if (priorSchedItems.length > 0) {
-      // Same effective, league-aware resolution as the current year (for prior
-      // season record derivation), so identity matches canonical. Reuse the
+      // Same effective resolution as the current year (for prior season record
+      // derivation), so identity matches canonical. Reuse the
       // resolved alias map for the score-attachment resolver below.
       const { games: priorResolvedGames, aliasMap: priorAliasMap } =
         await resolveDraftScheduleGames({

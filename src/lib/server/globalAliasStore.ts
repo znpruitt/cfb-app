@@ -11,11 +11,14 @@ import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts
 // manual roster upload selections are written here and apply to all future
 // uploads across all leagues and years.
 //
-// Legacy year-scoped alias maps (scope 'aliases:${league}:${year}' or
+// Legacy scoped alias maps (scope 'aliases:${league}:${year}' or
 // 'aliases:${year}') are DEPRECATED. migrateYearScopedAliasesToGlobal()
-// reads them once and merges their entries into the global store. Legacy
-// entries are left in place for backward compatibility with the runtime
-// teamIdentity resolver which still reads league-scoped maps.
+// reads them once and merges their entries into the global store. As of
+// PLATFORM-067, runtime resolution (getScopedAliasMap) NO LONGER reads
+// league-scoped maps at all — team aliases are not league-specific — so
+// those keys are legacy storage only; the migration scan remains as a
+// promotion safety net for any historical app-state. Year-scoped maps are
+// still read at runtime as a resolution layer below stored global.
 //
 // The static SEED_ALIASES bundle (universal aliases like `ole miss` →
 // `mississippi`) is NOT persisted. It is merged in-memory as the LOWEST
@@ -27,9 +30,9 @@ import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts
 // map are upsertGlobalAliases() and migrateYearScopedAliasesToGlobal(), both
 // invoked from request handlers that invalidate.
 //
-// Effective precedence: stored global > league+year > year > SEED_ALIASES.
+// Effective precedence: stored global > year > SEED_ALIASES.
 // Seeds are DEFAULTS, weaker than any persisted alias, so a manual repair for a
-// seed key (global or scoped) always wins. Cross-layer conflicts dedup by
+// seed key (global or year) always wins. Cross-layer conflicts dedup by
 // resolver identity; distinct spellings within one layer are all preserved.
 //
 // All global-map writes are serialized through withGlobalAliasWriteLock() with
@@ -43,8 +46,8 @@ const MIGRATION_DONE_KEY = 'migration-done';
 
 // Precompute the seed layer once as a normalized lookup-key → target map. Seeds
 // are code-defined DEFAULTS: they are the lowest-precedence layer, below every
-// persisted alias (stored global, league+year, year), so a persisted manual
-// repair for a seed key (e.g. mapping ambiguous `uh` → Hawaii) always wins.
+// persisted alias (stored global, year), so a persisted manual repair for a
+// seed key (e.g. mapping ambiguous `uh` → Hawaii) always wins.
 const SEED_ALIAS_MAP: AliasMap = (() => {
   const map: AliasMap = {};
   for (const [rawKey, rawValue] of Object.entries(SEED_ALIASES)) {
@@ -161,22 +164,28 @@ export async function getGlobalAliases(): Promise<AliasMap> {
 /**
  * Resolves the effective alias map for a league/year on the server.
  *
- * Precedence (highest first): stored global > league+year > year > SEED_ALIASES.
+ * Precedence (highest first): stored global > year > SEED_ALIASES.
  * Static seeds are code-defined DEFAULTS — the LOWEST layer — so any persisted
- * manual repair (global or scoped) always beats them. Cross-layer conflicts are
+ * manual repair (global or year) always beats them. Cross-layer conflicts are
  * resolved by the resolver's canonical identity (`normalizeTeamName`, first-wins
  * across layers), but every distinct stored spelling WITHIN a layer is
  * preserved so exact-key consumers don't lose a valid alias.
+ *
+ * League-scoped aliases (`aliases:${slug}:${year}`) are legacy storage only.
+ * Per the settled product decision, team aliases are NOT league-specific, so
+ * runtime resolution ignores them (PLATFORM-067). The `_leagueSlug` argument is
+ * retained for call-site/API compatibility but no longer affects resolution.
+ * `migrateYearScopedAliasesToGlobal` still scans league scopes as a promotion
+ * safety net for any historical app-state.
  *
  * Server-safe: reads only appState and the in-memory seed constant (no
  * `localStorage`, no static-file fetch, no writes), so it is safe during server
  * render. Returns {} only if nothing (not even a seed) matches; never throws on
  * missing data.
  */
-export async function getScopedAliasMap(leagueSlug: string, year: number): Promise<AliasMap> {
-  const [storedGlobal, leagueMap, yearMap] = await Promise.all([
+export async function getScopedAliasMap(_leagueSlug: string, year: number): Promise<AliasMap> {
+  const [storedGlobal, yearMap] = await Promise.all([
     readGlobalAliasMapRaw(),
-    readScopedMap(`aliases:${leagueSlug}:${year}`),
     readScopedMap(`aliases:${year}`),
   ]);
 
@@ -185,9 +194,8 @@ export async function getScopedAliasMap(leagueSlug: string, year: number): Promi
   // manual repairs (different targets) survive and keep their precedence.
   return mergeAliasLayers([
     withoutCopiedSeedDefaults(storedGlobal), // 1. stored/manual global
-    withoutCopiedSeedDefaults(leagueMap), //    2. league+year
-    withoutCopiedSeedDefaults(yearMap), //      3. year
-    SEED_ALIAS_MAP, //                          4. seed defaults
+    withoutCopiedSeedDefaults(yearMap), //      2. year
+    SEED_ALIAS_MAP, //                          3. seed defaults
   ]);
 }
 
