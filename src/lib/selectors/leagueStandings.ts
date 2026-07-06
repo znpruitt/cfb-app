@@ -335,11 +335,22 @@ export function invalidateStandings(slug: string, year?: number): void {
  * Centralizes the "enumerate the registry, bust each umbrella tag" pattern so
  * global mutation paths share one mechanism instead of duplicating the loop.
  * Must be called from a context where `revalidateTag` is valid (a request
- * handler); enumerates `getLeagues()` (React.cache-wrapped, no extra cost).
+ * handler).
+ *
+ * Pass a `leagues` snapshot obtained BEFORE committing the mutation. Callers
+ * that mutate persistent state (write a catalog, promote legacy aliases) should
+ * read the registry first and hand it in: `getLeagues()` can fail on its own,
+ * and a failure AFTER the commit would strand a persisted mutation with a stale
+ * cache (e.g. the alias `migration-done` sentinel is already set, so no retry
+ * re-invalidates). With a pre-commit snapshot, the only post-commit work here is
+ * `revalidateTag`, which does not touch the store. Omit `leagues` only for
+ * read-only callers where a registry-read failure has nothing to strand.
  */
-export async function invalidateAllLeaguesStandings(): Promise<void> {
-  const leagues = await getLeagues();
-  for (const league of leagues) {
+export async function invalidateAllLeaguesStandings(
+  leagues?: readonly { slug: string }[]
+): Promise<void> {
+  const list = leagues ?? (await getLeagues());
+  for (const league of list) {
     invalidateStandings(league.slug);
   }
 }
