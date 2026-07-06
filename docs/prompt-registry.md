@@ -16,6 +16,12 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-064-REMOVE-HIDDEN-LEAGUE-ALIAS-EDITOR-v1
+- Purpose: Remove the unreachable in-app league-scoped alias editor + its write path (surfaced by the PLATFORM-061 audit; safe now per PLATFORM-062/063 follow-ups). No reachable behavior change.
+- Scope: `CFBScheduleApp.tsx` (editor state/handlers), `AdminDebugSurface.tsx`, `IssuesPanel.tsx`, `aliasesApi.ts` (`saveServerAliases`/`loadServerAliases`), `bootstrap.ts` + `useScheduleBootstrap.ts` (stored-editor map load), `src/app/api/aliases/route.ts` (`?league=` PUT branch); rewrote `bootstrap`/`aliases-route`/`IssuesPanel` tests. Kept `AliasEditorPanel` (`/admin/aliases` global editor) and `ScoreAttachmentDebugPanel` (`/admin/diagnostics`).
+- Notes: The league editor rendered only under `CFBScheduleApp surface==='admin'`, which no route mounts (only a test), so its `PUT /api/aliases?league=` write path had no reachable caller. The league RESOLUTION layer in `getScopedAliasMap` is untouched (separate data-gated follow-up). Codex review (P2) caught a bootstrap resilience regression: removing the editor also dropped the STORED league-alias cache (`cfb_name_map:*`) from the effective-alias outage fallback, leaving `[effectiveCache, seeds]` — an upgraded pre-064 client holding league repairs ONLY in that legacy key (e.g. a mid-bootstrap quota failure dropped the effective cache) would rebuild identity from seeds alone during an outage. Fixed in commit `172a56b` by restoring the stored cache as a READ-ONLY fallback layer (`[storedLegacy, effectiveCache, seeds]` — same `stored > effective > seeds` precedence as the server resolver via `mergeAliasLayers`); does NOT reintroduce the editor or write path (nothing writes `cfb_name_map:*` anymore). Tests: 2 new `bootstrap` cases for the legacy layer (over seeds with no effective cache; above a version-matched effective cache). Focused bootstrap/alias suites + tsc/lint:all green. Full `npm test` not run (documented Overview hang). PR #353 (draft).
+- Follow-up (remaining from the PLATFORM-061 audit): data-gated league alias layer removal — needs prod data check + product decision.
+
 ### PLATFORM-063-REMOVE-DEAD-TRENDS-PAGEDATA-v1
 - Purpose: Delete the dead `trendsPageData` module + its test (dead-code cleanup surfaced by PLATFORM-062). No live behavior change.
 - Scope: deleted `src/lib/trendsPageData.ts` and `src/lib/__tests__/trendsPageData.test.ts`.
