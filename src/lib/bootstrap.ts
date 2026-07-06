@@ -1,5 +1,6 @@
 import { loadServerAliases, loadEffectiveAliases } from './aliasesApi.ts';
 import { mergeAliasLayers } from './aliasLayers.ts';
+import { readEffectiveAliasCache, serializeEffectiveAliasCache } from './effectiveAliasCache.ts';
 import { loadServerOwnersCsv } from './ownersApi.ts';
 import {
   loadServerPostseasonOverrides,
@@ -143,16 +144,18 @@ export async function bootstrapAliasesAndCaches(params: {
       readWithMigrationChain(storageKeys.aliasMap, oldSeasonKeys?.aliasMap ?? null, null),
       {}
     );
-  // Resolver-map fallback: prefer the separately cached EFFECTIVE map so
-  // global/year aliases survive a degraded bootstrap; only if no effective cache
-  // exists fall back to the stored map over the seed defaults (drops global/year
-  // — the last resort on a first-ever offline load). Uses mergeAliasLayers so
-  // stored-over-seed precedence matches the server (a stored `u-h`→Hawaii repair
-  // beats the seed `uh`→Houston by normalized identity, spellings preserved).
+  // Resolver-map fallback: reconcile rather than trust a flattened cache. Layer
+  // (highest first) the (possibly freshly-fetched) stored map, then the cached
+  // effective map IF its seed version still matches (else discarded so a
+  // deploy-changed seed set can't resurrect stale identities), then the current
+  // seed defaults. mergeAliasLayers gives the same stored > … > seeds precedence
+  // (by normalized identity, spellings preserved) as the server resolver.
   const effectiveFallback = (stored: AliasMap): AliasMap => {
-    const merged = mergeAliasLayers([stored, seedAliases]);
-    const cached = window.localStorage.getItem(storageKeys.effectiveAliasMap);
-    return cached != null ? parseAliasMap(cached, merged) : merged;
+    const cached = readEffectiveAliasCache(
+      window.localStorage.getItem(storageKeys.effectiveAliasMap),
+      seedAliases
+    );
+    return mergeAliasLayers(cached ? [stored, cached, seedAliases] : [stored, seedAliases]);
   };
 
   // Fetch both maps independently: a transient failure of one must NOT discard a
@@ -178,7 +181,10 @@ export async function bootstrapAliasesAndCaches(params: {
   if (effectiveResult.status === 'fulfilled') {
     effectiveAliasMap = effectiveResult.value;
     try {
-      window.localStorage.setItem(storageKeys.effectiveAliasMap, JSON.stringify(effectiveAliasMap));
+      window.localStorage.setItem(
+        storageKeys.effectiveAliasMap,
+        serializeEffectiveAliasCache(effectiveAliasMap, seedAliases)
+      );
     } catch {
       // ignore quota/serialization failures — cache is best-effort
     }

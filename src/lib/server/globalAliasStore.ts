@@ -1,5 +1,5 @@
 import { getAppState, listAppStateKeys, setAppState } from './appStateStore.ts';
-import { mergeAliasLayers } from '../aliasLayers.ts';
+import { hashSeedAliases, mergeAliasLayers } from '../aliasLayers.ts';
 import { SEED_ALIASES, type AliasMap } from '../teamNames.ts';
 import { normalizeAliasLookup, normalizeTeamName } from '../teamNormalization.ts';
 
@@ -95,27 +95,10 @@ function withoutCopiedSeedDefaults(map: AliasMap): AliasMap {
   return result;
 }
 
-/**
- * Deterministic FNV-1a hash of the SEED_ALIASES contents (order-independent).
- * Because seeds are code-defined and merged in-memory (never persisted, so no
- * runtime write fires an invalidation), any cache whose output depends on the
- * seed set — notably canonical standings — must fold this hash into its cache
- * identity. When SEED_ALIASES changes, the hash changes and those caches miss
- * naturally, with no manual alias write required.
- */
-export function hashSeedAliases(seeds: AliasMap): string {
-  const serialized = Object.entries(seeds)
-    .map(([k, v]) => `${normalizeAliasLookup(k)}=${typeof v === 'string' ? v.trim() : ''}`)
-    .sort()
-    .join(';');
-  let h = 0x811c9dc5;
-  for (let i = 0; i < serialized.length; i++) {
-    h ^= serialized.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16);
-}
-
+// Re-exported for existing importers; the implementation is the shared,
+// client-safe `hashSeedAliases` in ../aliasLayers.ts. Folded into the canonical
+// standings cache identity so a SEED_ALIASES change misses those caches.
+export { hashSeedAliases };
 export const SEED_ALIASES_HASH = hashSeedAliases(SEED_ALIASES);
 
 // Process-local serialization for global-alias mutations. Every writer of

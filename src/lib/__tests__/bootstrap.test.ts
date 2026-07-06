@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { bootstrapAliasesAndCaches } from '../bootstrap.ts';
+import { readEffectiveAliasCache, serializeEffectiveAliasCache } from '../effectiveAliasCache.ts';
 import { LEGACY_STORAGE_KEYS, seasonOnlyStorageKeys, seasonStorageKeys } from '../storageKeys.ts';
 
 class MemoryStorage {
@@ -291,9 +292,13 @@ test('bootstrap returns stored + effective alias maps and caches both', async ()
     'resolver gets the effective map'
   );
   assert.equal(localStorage.getItem(storageKeys.aliasMap), JSON.stringify({ league: 'League' }));
-  assert.equal(
-    localStorage.getItem(storageKeys.effectiveAliasMap),
-    JSON.stringify({ global: 'Global', league: 'League' })
+  // Effective cache is a seed-versioned envelope; read it back through the helper.
+  assert.deepEqual(
+    readEffectiveAliasCache(localStorage.getItem(storageKeys.effectiveAliasMap), {}),
+    {
+      global: 'Global',
+      league: 'League',
+    }
   );
 });
 
@@ -320,17 +325,19 @@ test('bootstrap fallback: editor map gets NO seeds; effective map gets seeds (no
   assert.match(result.aliasLoadIssue ?? '', /Aliases load failed/);
 });
 
-test('bootstrap fallback: restores the cached effective map, preserving global/year aliases', async () => {
+test('bootstrap fallback: reconciles the version-matched cached effective map, preserving global/year', async () => {
   const season = 2026;
   const storageKeys = seasonStorageKeys(season);
   const localStorage = new MemoryStorage();
   installWindow(localStorage);
+  const seedAliases = { byu: 'brigham young' };
 
-  // A prior successful bootstrap cached both maps.
+  // A prior successful bootstrap cached both maps (effective as a seed-versioned
+  // envelope keyed by the SAME seeds used below).
   localStorage.setItem(storageKeys.aliasMap, JSON.stringify({ league: 'League' }));
   localStorage.setItem(
     storageKeys.effectiveAliasMap,
-    JSON.stringify({ global: 'Global', year: 'Year', league: 'League' })
+    serializeEffectiveAliasCache({ global: 'Global', year: 'Year', league: 'League' }, seedAliases)
   );
 
   setMockFetch(async (input: URL | string) => {
@@ -343,14 +350,46 @@ test('bootstrap fallback: restores the cached effective map, preserving global/y
     throw new Error(`Unexpected request: ${url}`);
   });
 
-  const result = await bootstrapAliasesAndCaches({ season, seedAliases: { byu: 'brigham young' } });
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases });
 
   assert.deepEqual(result.aliasMap, { league: 'League' }, 'editor restored from stored cache');
-  assert.deepEqual(
-    result.effectiveAliasMap,
-    { global: 'Global', year: 'Year', league: 'League' },
-    'effective restored from its own cache — global/year not dropped'
+  // Reconciled from stored + version-matched cached effective + seeds: global/year
+  // preserved, and the current seed is present too.
+  assert.deepEqual(result.effectiveAliasMap, {
+    league: 'League',
+    global: 'Global',
+    year: 'Year',
+    byu: 'brigham young',
+  });
+});
+
+test('bootstrap fallback: a stale-seed-version cached effective map is discarded', async () => {
+  const season = 2026;
+  const storageKeys = seasonStorageKeys(season);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  // Cache built from an OLD seed set (uh→houston); current seeds differ.
+  localStorage.setItem(storageKeys.aliasMap, JSON.stringify({}));
+  localStorage.setItem(
+    storageKeys.effectiveAliasMap,
+    serializeEffectiveAliasCache({ uh: 'Houston' }, { uh: 'Houston' })
   );
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?')) return new Response('boom', { status: 500 });
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  // Current seeds map uh→Hawaii — different set, so the old cache is discarded.
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: { uh: 'Hawaii' } });
+
+  assert.equal(result.effectiveAliasMap.uh, 'Hawaii', 'stale cached seed value not resurrected');
 });
 
 test('bootstrap partial failure: a failed stored fetch must not discard a successful effective fetch', async () => {

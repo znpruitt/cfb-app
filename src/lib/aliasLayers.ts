@@ -1,5 +1,24 @@
 import type { AliasMap } from './teamNames.ts';
-import { normalizeTeamName } from './teamNormalization.ts';
+import { normalizeAliasLookup, normalizeTeamName } from './teamNormalization.ts';
+
+/**
+ * Deterministic FNV-1a hash of an alias set's contents (order-independent).
+ * Used to version caches whose output depends on the seed set (canonical
+ * standings cache identity; the client's effective-alias cache) so a change to
+ * the seeds invalidates them with no manual write. Pure and client-safe.
+ */
+export function hashSeedAliases(seeds: AliasMap): string {
+  const serialized = Object.entries(seeds)
+    .map(([k, v]) => `${normalizeAliasLookup(k)}=${typeof v === 'string' ? v.trim() : ''}`)
+    .sort()
+    .join(';');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i++) {
+    h ^= serialized.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
 
 /**
  * Merge alias layers, highest precedence FIRST. Cross-layer conflicts are

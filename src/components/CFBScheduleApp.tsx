@@ -24,7 +24,8 @@ import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import { type ScorePack } from '../lib/scores';
 import { getRefreshPlan } from '../lib/refreshPolicy';
-import { type AliasMap } from '../lib/teamNames';
+import { SEED_ALIASES, type AliasMap } from '../lib/teamNames';
+import { serializeEffectiveAliasCache } from '../lib/effectiveAliasCache';
 import { normalizeAliasLookup } from '../lib/teamNormalization';
 import { saveServerAliases, loadEffectiveAliases } from '../lib/aliasesApi';
 import { stageAliasFromMiss } from '../lib/aliasStaging';
@@ -537,9 +538,13 @@ export default function CFBScheduleApp({
     const fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
     setEffectiveAliasMap(fresh);
     // Keep the effective cache in sync so a later degraded bootstrap doesn't
-    // prefer a stale effective map (dropping added / resurrecting deleted aliases).
+    // prefer a stale effective map (dropping added / resurrecting deleted
+    // aliases). Versioned by the seed set so bootstrap can validate it.
     try {
-      window.localStorage.setItem(storageKeys.effectiveAliasMap, JSON.stringify(fresh));
+      window.localStorage.setItem(
+        storageKeys.effectiveAliasMap,
+        serializeEffectiveAliasCache(fresh, SEED_ALIASES)
+      );
     } catch {
       // best-effort cache
     }
