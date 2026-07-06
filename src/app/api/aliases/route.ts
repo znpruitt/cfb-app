@@ -1,7 +1,10 @@
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isValidSlug, getLeagues } from '../../../lib/leagueRegistry.ts';
-import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
+import {
+  invalidateStandings,
+  invalidateAllLeaguesStandings,
+} from '../../../lib/selectors/leagueStandings.ts';
 import {
   getScopedAliasMap,
   getStoredGlobalAliases,
@@ -60,9 +63,7 @@ export async function GET(req: Request): Promise<Response> {
       migrationYear
     );
     if (migrated > 0) {
-      for (const league of leagues) {
-        invalidateStandings(league.slug);
-      }
+      await invalidateAllLeaguesStandings();
     }
     // Return stored/manual global aliases only — never the in-memory seed layer.
     // The admin editor re-posts every returned row as an upsert, so including
@@ -121,10 +122,7 @@ export async function PUT(req: Request): Promise<Response> {
     // Global aliases feed canonical standings via getScopedAliasMap and can
     // affect any cached year of any league, so invalidate every registered
     // league's umbrella standings tag (year omitted → busts all cached years).
-    const leagues = await getLeagues();
-    for (const league of leagues) {
-      invalidateStandings(league.slug);
-    }
+    await invalidateAllLeaguesStandings();
     return Response.json({ scope: 'global', map: next });
   }
   // League-scoped stored writes were removed with the in-app editor. A `?league=`

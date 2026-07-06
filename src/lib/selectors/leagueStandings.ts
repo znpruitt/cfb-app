@@ -4,7 +4,7 @@ import { cache } from 'react';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from '../insights/lifecycle.ts';
 import type { LifecycleState } from '../insights/types.ts';
 import type { League, LeagueStatus } from '../league.ts';
-import { getLeague } from '../leagueRegistry.ts';
+import { getLeague, getLeagues } from '../leagueRegistry.ts';
 import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import { getPreseasonOwners } from '../preseasonOwnerStore.ts';
 import type { AppGame, ScheduleWireItem } from '../schedule.ts';
@@ -314,6 +314,33 @@ export function invalidateStandings(slug: string, year?: number): void {
   revalidateTag(`standings:${slug}`);
   if (year != null) {
     revalidateTag(`standings:${slug}:${year}`);
+  }
+}
+
+/**
+ * Invalidate cached canonical standings for EVERY registered league, across all
+ * cached years (per-slug umbrella tag, year omitted).
+ *
+ * Use for GLOBAL mutations whose effect is not league- or year-scoped — the
+ * inputs they change feed the resolver / canonical derivation shared by every
+ * league and every year:
+ * - Global alias writes (`PUT /api/aliases?scope=global`, and the lazy legacy
+ *   promotion in `GET /api/aliases?scope=global`).
+ * - Team-database syncs (`POST /api/admin/team-database`) — a resynced catalog
+ *   can change team identity, canonical IDs, derived alts/aliases, and FBS/FCS
+ *   classification, all of which `computeCanonicalStandings` consumes via
+ *   `getTeamDatabaseItems()`. Without this bust, warm snapshots keep resolving
+ *   against the pre-sync catalog until an unrelated invalidation fires.
+ *
+ * Centralizes the "enumerate the registry, bust each umbrella tag" pattern so
+ * global mutation paths share one mechanism instead of duplicating the loop.
+ * Must be called from a context where `revalidateTag` is valid (a request
+ * handler); enumerates `getLeagues()` (React.cache-wrapped, no extra cost).
+ */
+export async function invalidateAllLeaguesStandings(): Promise<void> {
+  const leagues = await getLeagues();
+  for (const league of leagues) {
+    invalidateStandings(league.slug);
   }
 }
 

@@ -4,6 +4,7 @@ import { buildCfbdTeamsUrl } from '@/lib/cfbd';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildTeamDatabaseFile, type CfbdTeamRecord } from '@/lib/teamDatabase';
 import { getTeamDatabaseFile, setTeamDatabaseFile } from '@/lib/server/teamDatabaseStore';
+import { invalidateAllLeaguesStandings } from '@/lib/selectors/leagueStandings';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -40,6 +41,13 @@ export async function POST(req: Request): Promise<NextResponse> {
     });
 
     await setTeamDatabaseFile(file);
+
+    // A resynced catalog can change team identity, canonical IDs, derived
+    // alts/aliases, and FBS/FCS classification — all consumed by canonical
+    // standings via getTeamDatabaseItems(). Bust every league's cached snapshot
+    // so warm standings recompute against the new catalog instead of the stale
+    // pre-sync one. Team-database data is global, so no year scoping applies.
+    await invalidateAllLeaguesStandings();
 
     return NextResponse.json(
       {
