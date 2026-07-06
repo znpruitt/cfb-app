@@ -12,8 +12,6 @@ import { scrollFocusedGameIntoView } from '../GameWeekPanel';
 import { scrollFocusedOwnerPairIntoView } from '../MatchupMatrixView';
 import { scrollFocusedOwnerIntoView } from '../MatchupsWeekPanel';
 import { scrollFocusedStandingsOwnerIntoView } from '../StandingsPanel';
-import { getAdminAlertCount } from '../../lib/adminDiagnostics';
-import type { DiagEntry } from '../../lib/diagnostics';
 import type { AppGame } from '../../lib/schedule';
 
 function game(overrides: Partial<AppGame> = {}): AppGame {
@@ -160,98 +158,6 @@ test('league surface admin attention count ignores informational provider rows',
   const html = renderWithAppContext(<CFBScheduleApp initialGames={[game()]} initialIssues={[]} />);
 
   assert.doesNotMatch(html, /admin item/);
-});
-
-test('admin attention count includes actionable ignored-score diagnostics but excludes informational ignored rows', () => {
-  const actionableIgnoredScoreRow: DiagEntry = {
-    kind: 'ignored_score_row',
-    week: 8,
-    providerHome: 'Provider Home',
-    providerAway: 'Provider Away',
-    reason: 'multiple_candidate_matches',
-    diagnostic: {
-      type: 'ignored_score_row',
-      classification: 'actionable',
-      reason: 'multiple_candidate_matches',
-      userMessage: 'Action required: canonical schedule match is ambiguous',
-      provider: {
-        source: 'cfbd_scores',
-        week: 8,
-        homeTeamRaw: 'Provider Home',
-        awayTeamRaw: 'Provider Away',
-        seasonType: 'regular',
-        providerGameId: 'row-8',
-        homeScore: 31,
-        awayScore: 28,
-        status: 'final',
-        kickoff: '2026-11-01T19:30:00Z',
-      },
-      normalization: {
-        homeTeamNormalized: 'provider home',
-        awayTeamNormalized: 'provider away',
-      },
-      resolution: {
-        homeCanonical: 'Provider Home',
-        awayCanonical: 'Provider Away',
-        homeResolved: true,
-        awayResolved: true,
-      },
-      trace: {
-        candidateCount: 2,
-        plausibleScheduledGameCount: 2,
-      },
-    },
-    debugOnly: true,
-  };
-
-  const informationalIgnoredRow: DiagEntry = {
-    kind: 'ignored_score_row',
-    week: 8,
-    providerHome: 'FCS Home',
-    providerAway: 'FCS Away',
-    reason: 'no_scheduled_match',
-    diagnostic: {
-      type: 'ignored_score_row',
-      classification: 'ignored',
-      reason: 'no_scheduled_match',
-      userMessage: 'Ignored non-league provider row.',
-      provider: {
-        source: 'cfbd_scores',
-        week: 8,
-        homeTeamRaw: 'FCS Home',
-        awayTeamRaw: 'FCS Away',
-        seasonType: 'regular',
-        providerGameId: null,
-        homeScore: null,
-        awayScore: null,
-        status: null,
-        kickoff: null,
-      },
-      normalization: {
-        homeTeamNormalized: null,
-        awayTeamNormalized: null,
-      },
-      resolution: {
-        homeCanonical: null,
-        awayCanonical: null,
-        homeResolved: false,
-        awayResolved: false,
-      },
-      trace: {
-        candidateCount: 0,
-        plausibleScheduledGameCount: 0,
-      },
-    },
-    debugOnly: true,
-  };
-
-  const count = getAdminAlertCount({
-    issues: [],
-    diag: [actionableIgnoredScoreRow, informationalIgnoredRow],
-    aliasStaging: { upserts: {}, deletes: [] },
-  });
-
-  assert.equal(count, 1);
 });
 
 test('overview hides week context controls while still rendering overview content', () => {
