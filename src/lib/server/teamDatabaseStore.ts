@@ -1,6 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { cache } from 'react';
+
 import type { TeamCatalogItem } from '../teamIdentity.ts';
 import type { TeamDatabaseFile } from '../teamDatabase.ts';
 import { normalizeTeamName } from '../teamNormalization.ts';
@@ -11,7 +13,6 @@ type TeamCatalogSourceFile = {
   items?: unknown;
 };
 
-let memoryStore: TeamDatabaseFile | null | undefined;
 let writeQueue: Promise<void> = Promise.resolve();
 
 function teamDatabaseScope(): string {
@@ -111,11 +112,24 @@ async function readStoreFile(): Promise<TeamDatabaseFile> {
   return toTeamDatabaseFile(record?.value) ?? (await readSourceCatalogFallback());
 }
 
+/**
+ * Per-request memoization of the durable catalog read. `cache` dedups repeated
+ * reads within a single render (standings, matchups, insights, etc. all resolve
+ * to one durable read) while still re-reading the store on every NEW request.
+ *
+ * This intentionally replaces a former module-level singleton that cached the
+ * catalog for the process lifetime. On a multi-instance deployment that singleton
+ * let a warm instance keep serving its pre-sync catalog after ANOTHER instance
+ * ran `POST /api/admin/team-database` — so a standings recompute (triggered by the
+ * sync's tag invalidation) would repopulate the cache with stale team data,
+ * defeating the invalidation (PLATFORM-070). `getAppState` reads the durable
+ * store on every call, so a per-request cache observes cross-instance syncs on
+ * the next request.
+ */
+const readTeamDatabaseFileForRequest = cache(readStoreFile);
+
 export async function getTeamDatabaseFile(): Promise<TeamDatabaseFile> {
-  if (memoryStore !== undefined && memoryStore !== null) return memoryStore;
-  const loaded = await readStoreFile();
-  memoryStore = loaded;
-  return loaded;
+  return readTeamDatabaseFileForRequest();
 }
 
 export async function getTeamDatabaseItems(): Promise<TeamCatalogItem[]> {
@@ -124,11 +138,14 @@ export async function getTeamDatabaseItems(): Promise<TeamCatalogItem[]> {
 }
 
 export async function setTeamDatabaseFile(file: TeamDatabaseFile): Promise<void> {
+  // Writes go straight to the durable store. There is no process-local snapshot
+  // to update — readers re-read the durable store per request (see
+  // getTeamDatabaseFile), so cross-instance syncs are observed without a shared
+  // in-memory cache to keep coherent.
   const writeOperation = writeQueue
     .catch(() => undefined)
     .then(async () => {
       await setAppState(teamDatabaseScope(), 'current', file);
-      memoryStore = file;
     });
 
   writeQueue = writeOperation.then(
@@ -140,12 +157,13 @@ export async function setTeamDatabaseFile(file: TeamDatabaseFile): Promise<void>
 }
 
 export function __resetTeamDatabaseStoreForTests(): void {
-  memoryStore = undefined;
+  // No process-local catalog cache remains; outside a React request `cache` does
+  // not memoize, so each read already hits the durable store. Only the write
+  // serialization queue needs resetting between tests.
   writeQueue = Promise.resolve();
 }
 
 export async function __deleteTeamDatabaseStoreFileForTests(): Promise<void> {
-  memoryStore = undefined;
   await deleteAppState(teamDatabaseScope(), 'current');
 }
 
