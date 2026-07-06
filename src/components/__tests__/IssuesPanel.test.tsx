@@ -4,7 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import IssuesPanel from '../IssuesPanel';
-import { getAdminAlertCount, splitIssueDiagnostics } from '../../lib/adminDiagnostics';
+import { splitIssueDiagnostics } from '../../lib/adminDiagnostics';
 import type { DiagEntry } from '../../lib/diagnostics';
 
 const ignoredRow: DiagEntry = {
@@ -116,14 +116,4 @@ test('IssuesPanel keeps actionable score-attachment diagnostics in the main issu
   assert.match(html, /Action required: canonical schedule match is ambiguous/);
   assert.match(html, /Ignored provider rows \(informational\) \(1\)/);
   assert.match(html, /Ignored non-league provider row\./);
-});
-
-test('admin alert count excludes informational ignored rows and includes actionable score diagnostics and staged aliases', () => {
-  const count = getAdminAlertCount({
-    issues: ['Alias repair needed'],
-    diag: [ignoredRow, actionableIgnoredScoreRow],
-    aliasStaging: { upserts: { 'UTSA Roadrunners': 'UTSA' }, deletes: ['Old Alias'] },
-  });
-
-  assert.equal(count, 4);
 });

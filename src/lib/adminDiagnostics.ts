@@ -1,4 +1,4 @@
-import type { AliasStaging, DiagEntry } from './diagnostics';
+import type { DiagEntry } from './diagnostics';
 import {
   isActionableScoreAttachmentIssue,
   isIgnoredOutOfScopeProviderRow,
@@ -20,22 +20,4 @@ export function splitIssueDiagnostics(diag: DiagEntry[]): {
         isIgnoredOutOfScopeProviderRow(entry.diagnostic)
     ),
   };
-}
-
-export function hasStagedAliasChanges(aliasStaging: AliasStaging): boolean {
-  return Object.keys(aliasStaging.upserts).length > 0 || aliasStaging.deletes.length > 0;
-}
-
-export function getAdminAlertCount(params: {
-  issues: string[];
-  diag: DiagEntry[];
-  aliasStaging: AliasStaging;
-}): number {
-  const { actionableDiag } = splitIssueDiagnostics(params.diag);
-  return (
-    params.issues.length +
-    actionableDiag.length +
-    params.aliasStaging.deletes.length +
-    Object.keys(params.aliasStaging.upserts).length
-  );
 }
