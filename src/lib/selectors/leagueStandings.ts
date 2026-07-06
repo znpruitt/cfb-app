@@ -307,20 +307,21 @@ export async function getCanonicalStandings(
  * - GET /api/scores (cache miss + fallback paths, walks registry)
  * - POST /api/admin/backfill (single league/year)
  * - POST /api/admin/rollover (per league, stage-1 archive loop)
+ * - `confirmPreseasonOwners` + `beginPreseason` server actions (PLATFORM-071,
+ *   league-scoped: preseason owners / offseason→preseason lifecycle change)
+ * - GET /api/cron/season-rollover (per rolled-over league) and
+ *   GET /api/cron/season-transition (per transitioned league) — PLATFORM-071
  *
- * Global alias writes (PUT /api/aliases?scope=global) enumerate the league
- * registry and call `invalidateStandings(slug)` (no year) for each, so a
- * corrected global alias busts every affected league's cached snapshot across
- * all years.
+ * Global mutations (team-database sync, `PUT /api/aliases?scope=global`, and the
+ * lazy legacy promotion in `GET /api/aliases?scope=global`) call
+ * `invalidateAllLeaguesStandings()`, which busts the shared `ALL_STANDINGS_TAG`
+ * carried by every snapshot — no registry enumeration (PLATFORM-070).
  *
- * Known gaps (low-frequency paths, deferred for future work):
- * - `confirmPreseasonOwners` server action — runs ~once per season at
- *   preseason setup. Workaround: hard refresh in admin UI after running it.
- * - Cron season transitions — runs ~once per season at season-start.
- *   Same workaround applies.
- *
- * If a deferred path is hit, the cache may serve stale canonical data until
- * a subsequent invalidation fires from another path.
+ * Remaining un-wired lifecycle mutators (intentional): `completeSetup` (flips a
+ * setupComplete flag; no standings-content change) and the `slug='test'` dev-
+ * tooling actions in `admin/[slug]/actions.ts`. If a genuinely un-wired mutating
+ * path is hit, the cache may serve stale canonical data until a subsequent
+ * invalidation fires from another path.
  */
 export function invalidateStandings(slug: string, year?: number): void {
   revalidateTag(`standings:${slug}`);

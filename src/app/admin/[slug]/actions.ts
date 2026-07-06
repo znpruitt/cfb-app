@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
   listAppStateKeys,
   deleteAppState,
@@ -90,6 +91,11 @@ export async function beginPreseason(slug: string): Promise<void> {
   const league = await getLeague(slug);
   if (!league) throw new Error('League not found');
   await updateLeagueStatus(slug, { state: 'preseason', year: league.year + 1 });
+  // Offseason→preseason changes the league's standings surface (prior-season
+  // final → preseason owner list). Bust its cached snapshots (umbrella, all
+  // years) so the public page reflects the new lifecycle state. Before the
+  // redirect, which throws.
+  invalidateStandings(slug);
   redirect(`/admin/${slug}/preseason`);
 }
 
@@ -107,6 +113,10 @@ export async function confirmPreseasonOwners(
 ): Promise<void> {
   if (owners.length < 2) throw new Error('At least 2 owners required');
   await savePreseasonOwners(slug, year, owners);
+  // Preseason owners feed the preseason standings snapshot; bust this league's
+  // cached standings so the confirmed roster shows without a hard refresh.
+  // Before the redirect, which throws.
+  invalidateStandings(slug, year);
   redirect(`/admin/${slug}/preseason`);
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getLeagues, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { setAppState } from '@/lib/server/appStateStore';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { mapCfbdScheduleGame, type ScheduleItem } from '@/lib/schedule/cfbdSchedule';
@@ -146,6 +147,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             await updateLeagueStatus(league.slug, { state: 'season', year: targetYear });
             await updateLeague(league.slug, { year: targetYear });
             yearResult.leagues.push(league.slug);
+            // Preseason→season changes this league's standings surface (preseason
+            // owner list → live season standings). Bust its cached snapshots
+            // (umbrella, all years) so the public page reflects the transition.
+            invalidateStandings(league.slug);
           }
           yearResult.transitioned = yearResult.leagues.length > 0;
         }
