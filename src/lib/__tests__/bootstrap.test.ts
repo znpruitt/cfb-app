@@ -421,7 +421,11 @@ test('bootstrap fallback layers a legacy stored league-alias cache over seeds wh
   assert.match(result.aliasLoadIssue ?? '', /Aliases load failed/);
 });
 
-test('bootstrap fallback layers the legacy stored cache above a version-matched effective cache', async () => {
+test('bootstrap fallback prefers the version-matched effective cache over a stale legacy stored cache', async () => {
+  // The legacy `cfb_name_map:*` cache can go stale (nothing writes it post-064),
+  // so it must NOT override the effective cache — the last successful full
+  // resolver fetch. On a collision the effective value wins; the legacy layer
+  // only contributes identities the effective cache lacks.
   const season = 2026;
   const leagueSlug = 'tsc';
   const storageKeys = seasonStorageKeys(season, leagueSlug);
@@ -429,12 +433,13 @@ test('bootstrap fallback layers the legacy stored cache above a version-matched 
   installWindow(localStorage);
   const seedAliases = { byu: 'brigham young' };
 
-  // Both caches present: stored league repairs take precedence over the effective
-  // cache, which takes precedence over seeds (stored > effective > seeds).
-  localStorage.setItem(storageKeys.aliasMap, JSON.stringify({ league: 'Stored Wins' }));
+  localStorage.setItem(
+    storageKeys.aliasMap,
+    JSON.stringify({ league: 'Stale Legacy', legacyonly: 'Legacy Only' })
+  );
   localStorage.setItem(
     storageKeys.effectiveAliasMap,
-    serializeEffectiveAliasCache({ league: 'Effective Loses', year: 'Year' }, seedAliases)
+    serializeEffectiveAliasCache({ league: 'Fresh Effective', year: 'Year' }, seedAliases)
   );
 
   setMockFetch(async (input: URL | string) => {
@@ -449,9 +454,55 @@ test('bootstrap fallback layers the legacy stored cache above a version-matched 
 
   const result = await bootstrapAliasesAndCaches({ season, seedAliases, leagueSlug });
 
-  assert.equal(result.effectiveAliasMap.league, 'Stored Wins', 'stored layer wins over effective');
+  assert.equal(
+    result.effectiveAliasMap.league,
+    'Fresh Effective',
+    'effective cache wins the collision over stale legacy'
+  );
   assert.equal(result.effectiveAliasMap.year, 'Year', 'effective-only entries survive');
+  assert.equal(result.effectiveAliasMap.legacyonly, 'Legacy Only', 'legacy fills gaps only');
   assert.equal(result.effectiveAliasMap.byu, 'brigham young', 'seeds fill the rest');
+});
+
+test('bootstrap clears the legacy stored cache after a successful effective fetch', async () => {
+  // Once the authoritative effective cache is durably written, the redundant
+  // legacy `cfb_name_map:*` cache is removed so it can never go stale and
+  // interfere with a future degraded bootstrap.
+  const season = 2026;
+  const leagueSlug = 'tsc';
+  const oldKeys = seasonOnlyStorageKeys(season);
+  const storageKeys = seasonStorageKeys(season, leagueSlug);
+  const localStorage = new MemoryStorage();
+  installWindow(localStorage);
+
+  localStorage.setItem(storageKeys.aliasMap, JSON.stringify({ league: 'Legacy' }));
+  localStorage.setItem(oldKeys.aliasMap, JSON.stringify({ league: 'Legacy Season-Only' }));
+
+  setMockFetch(async (input: URL | string) => {
+    const url = String(input);
+    if (url.includes('/api/aliases?'))
+      return Response.json({ scope: 'effective', map: { league: 'League' } });
+    if (url.includes('/api/owners?'))
+      return Response.json({ csvText: null, hasStoredValue: false });
+    if (url.includes('/api/postseason-overrides?'))
+      return Response.json({ map: {}, hasStoredValue: false });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+
+  const result = await bootstrapAliasesAndCaches({ season, seedAliases: {}, leagueSlug });
+
+  assert.deepEqual(result.effectiveAliasMap, { league: 'League' });
+  assert.equal(
+    localStorage.getItem(storageKeys.aliasMap),
+    null,
+    'legacy league-scoped key cleared'
+  );
+  assert.equal(localStorage.getItem(oldKeys.aliasMap), null, 'legacy season-only key cleared');
+  // The authoritative effective cache is written.
+  assert.deepEqual(
+    readEffectiveAliasCache(localStorage.getItem(storageKeys.effectiveAliasMap), {}),
+    { league: 'League' }
+  );
 });
 
 test('bootstrap fallback discards a stale-seed-version cached effective map', async () => {

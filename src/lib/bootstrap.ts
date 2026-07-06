@@ -165,19 +165,21 @@ export async function bootstrapAliasesAndCaches(params: {
   let aliasLoadIssue: string | undefined;
 
   // Resolver-map fallback: reconcile rather than trust a flattened cache. Layer
-  // (highest first) any legacy STORED league-alias cache, then the cached
-  // effective map IF its seed version still matches (else discarded so a
-  // deploy-changed seed set can't resurrect stale identities), then the current
-  // seed defaults. mergeAliasLayers gives the same stored > effective > seeds
-  // precedence as the server resolver.
+  // (highest first) the cached effective map IF its seed version still matches
+  // (else discarded so a deploy-changed seed set can't resurrect stale
+  // identities), then any legacy STORED league-alias cache, then the current seed
+  // defaults.
   //
-  // The `cfb_name_map:*` cache is read-only here: the in-app editor and its
-  // write path were removed (PLATFORM-064), so nothing writes this key anymore.
-  // Reading it still matters during an effective-alias outage — a client
-  // upgraded from pre-064 may hold persisted league repairs ONLY in this key
-  // (e.g. a mid-bootstrap quota failure dropped the effective cache). Without
-  // this layer that outage would rebuild identity from seeds alone and break
-  // game/score attachment until the next successful fetch.
+  // The `cfb_name_map:*` legacy cache is a pre-064 client artifact — the in-app
+  // editor and its write path were removed, so nothing writes it anymore and it
+  // can go stale. It must therefore sit BELOW the effective cache: the effective
+  // cache is the last SUCCESSFUL full resolver fetch, so a stale legacy entry
+  // must never override it (that would regress identity during a later outage).
+  // The legacy layer still earns its place when NO effective cache exists yet —
+  // a client freshly upgraded from pre-064 may hold persisted league repairs only
+  // there, and without it a cold-cache outage would rebuild identity from seeds
+  // alone. Once an effective fetch succeeds we clear the legacy key (below), so
+  // this layer only ever matters on that first post-upgrade load.
   const effectiveFallback = (): AliasMap => {
     const cached = readEffectiveAliasCache(
       window.localStorage.getItem(storageKeys.effectiveAliasMap),
@@ -188,7 +190,7 @@ export async function bootstrapAliasesAndCaches(params: {
       {}
     );
     return mergeAliasLayers(
-      cached ? [storedLegacy, cached, seedAliases] : [storedLegacy, seedAliases]
+      cached ? [cached, storedLegacy, seedAliases] : [storedLegacy, seedAliases]
     );
   };
 
@@ -199,6 +201,14 @@ export async function bootstrapAliasesAndCaches(params: {
         storageKeys.effectiveAliasMap,
         serializeEffectiveAliasCache(effectiveAliasMap, seedAliases)
       );
+      // The effective cache now holds the authoritative resolver view, so the
+      // legacy `cfb_name_map:*` cache is redundant and could only go stale and
+      // interfere with a future degraded bootstrap. Drop it once the effective
+      // cache is durably written. Ordering matters: if setItem above throws
+      // (quota), control skips these removals so the legacy cache survives as the
+      // sole fallback (see effectiveFallback).
+      window.localStorage.removeItem(storageKeys.aliasMap);
+      if (oldSeasonKeys?.aliasMap) window.localStorage.removeItem(oldSeasonKeys.aliasMap);
     } catch {
       // ignore quota/serialization failures — cache is best-effort
     }
