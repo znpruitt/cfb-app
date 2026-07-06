@@ -4,7 +4,7 @@ import { cache } from 'react';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from '../insights/lifecycle.ts';
 import type { LifecycleState } from '../insights/types.ts';
 import type { League, LeagueStatus } from '../league.ts';
-import { getLeague, getLeagues } from '../leagueRegistry.ts';
+import { getLeague } from '../leagueRegistry.ts';
 import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import { getPreseasonOwners } from '../preseasonOwnerStore.ts';
 import type { AppGame, ScheduleWireItem } from '../schedule.ts';
@@ -143,6 +143,14 @@ export function canonicalStandingsCacheKeyParts(
   return ['canonical-standings', slug, String(resolvedYear), `seeds:${SEED_ALIASES_HASH}`];
 }
 
+/**
+ * Shared tag carried by EVERY canonical-standings snapshot, regardless of league
+ * or year. Global mutations bust this single tag instead of enumerating the
+ * registry, so a league registered at any time — including one created while a
+ * global mutation is in flight — is covered without a pre/post snapshot race.
+ */
+export const ALL_STANDINGS_TAG = 'standings:all';
+
 const dataCachedCanonicalStandings = (
   slug: string,
   yearOverride: number | null,
@@ -154,11 +162,15 @@ const dataCachedCanonicalStandings = (
     canonicalStandingsCacheKeyParts(slug, resolvedYear),
     {
       tags: [
+        ALL_STANDINGS_TAG,
         `standings:${slug}`,
         ...(resolvedYear != null ? [`standings:${slug}:${resolvedYear}`] : []),
       ],
-      // Tag-only invalidation; no time-based expiry. Mutations call
-      // `invalidateStandings(slug, year)` to bust this entry.
+      // Tag-only invalidation; no time-based expiry. Year/league-scoped
+      // mutations call `invalidateStandings(slug, year)`; global mutations
+      // (global aliases, team-database syncs) call
+      // `invalidateAllLeaguesStandings()`, which busts the shared
+      // `ALL_STANDINGS_TAG` carried by every snapshot.
       //
       // `currentDate` is intentionally NOT part of the cache key — it would
       // bust the cache on every request. The closure captures the first
@@ -318,8 +330,8 @@ export function invalidateStandings(slug: string, year?: number): void {
 }
 
 /**
- * Invalidate cached canonical standings for EVERY registered league, across all
- * cached years (per-slug umbrella tag, year omitted).
+ * Invalidate cached canonical standings for EVERY league, across all cached
+ * years, by busting the shared `ALL_STANDINGS_TAG` that every snapshot carries.
  *
  * Use for GLOBAL mutations whose effect is not league- or year-scoped — the
  * inputs they change feed the resolver / canonical derivation shared by every
@@ -329,30 +341,16 @@ export function invalidateStandings(slug: string, year?: number): void {
  * - Team-database syncs (`POST /api/admin/team-database`) — a resynced catalog
  *   can change team identity, canonical IDs, derived alts/aliases, and FBS/FCS
  *   classification, all of which `computeCanonicalStandings` consumes via
- *   `getTeamDatabaseItems()`. Without this bust, warm snapshots keep resolving
- *   against the pre-sync catalog until an unrelated invalidation fires.
+ *   `getTeamDatabaseItems()`.
  *
- * Centralizes the "enumerate the registry, bust each umbrella tag" pattern so
- * global mutation paths share one mechanism instead of duplicating the loop.
- * Must be called from a context where `revalidateTag` is valid (a request
- * handler).
- *
- * Pass a `leagues` snapshot obtained BEFORE committing the mutation. Callers
- * that mutate persistent state (write a catalog, promote legacy aliases) should
- * read the registry first and hand it in: `getLeagues()` can fail on its own,
- * and a failure AFTER the commit would strand a persisted mutation with a stale
- * cache (e.g. the alias `migration-done` sentinel is already set, so no retry
- * re-invalidates). With a pre-commit snapshot, the only post-commit work here is
- * `revalidateTag`, which does not touch the store. Omit `leagues` only for
- * read-only callers where a registry-read failure has nothing to strand.
+ * A single shared tag (rather than enumerating the registry) means there is no
+ * `getLeagues()` call to fail after a commit, and no pre/post-snapshot race: a
+ * league registered at any moment — including concurrently with the mutation —
+ * still carries `ALL_STANDINGS_TAG`, so this bust reaches it. Must be called
+ * from a context where `revalidateTag` is valid (a request handler).
  */
-export async function invalidateAllLeaguesStandings(
-  leagues?: readonly { slug: string }[]
-): Promise<void> {
-  const list = leagues ?? (await getLeagues());
-  for (const league of list) {
-    invalidateStandings(league.slug);
-  }
+export function invalidateAllLeaguesStandings(): void {
+  revalidateTag(ALL_STANDINGS_TAG);
 }
 
 async function computeCanonicalStandings(

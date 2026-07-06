@@ -30,8 +30,8 @@ import {
 // changes team identity, canonical IDs, derived alts/aliases, and FBS/FCS
 // classification, so warm standings snapshots must be busted or they keep
 // resolving against the pre-sync catalog. Before the fix the route wrote the
-// new catalog but invalidated nothing (0 standings tags); it now busts every
-// registered league's umbrella tag.
+// new catalog but invalidated nothing (0 standings tags); it now busts the
+// shared ALL_STANDINGS_TAG carried by every snapshot.
 // ---------------------------------------------------------------------------
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
@@ -107,7 +107,7 @@ test.after(() => {
   globalThis.fetch = ORIGINAL_FETCH;
 });
 
-test('a successful sync invalidates every registered league and persists the new catalog', async () => {
+test('a successful sync busts the shared standings tag and persists the new catalog', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague('league-a'),
     makeLeague('league-b'),
@@ -118,13 +118,12 @@ test('a successful sync invalidates every registered league and persists the new
   const { result: res, tags } = await runCapturingTags(() => POST(postRequest()));
   assert.equal(res.status, 200, await res.text());
 
-  // Every league's umbrella tag busted so warm standings recompute.
-  assert.ok(tags.includes('standings:league-a'), 'league-a umbrella tag invalidated');
-  assert.ok(tags.includes('standings:league-b'), 'league-b umbrella tag invalidated');
-  assert.ok(tags.includes('standings:league-c'), 'league-c umbrella tag invalidated');
-  // Team-database data is global, not year-scoped — no year tags.
+  // Global mutation → the shared tag every standings snapshot carries. One tag
+  // covers all leagues and all years without enumerating the registry.
+  assert.ok(tags.includes('standings:all'), 'shared standings tag invalidated');
+  // No year-scoped tags — team-database data is global, not year-scoped.
   assert.ok(
-    !tags.some((t) => /^standings:league-[abc]:\d+$/.test(t)),
+    !tags.some((t) => /^standings:.+:\d+$/.test(t)),
     'no year-scoped standings tags for a global team-database sync'
   );
 
@@ -134,15 +133,16 @@ test('a successful sync invalidates every registered league and persists the new
   assert.deepEqual(schools, ['Alpha State', 'Beta Tech']);
 });
 
-test('a successful sync with no registered leagues invalidates nothing (still succeeds)', async () => {
+test('a successful sync busts the shared tag even with no registered leagues', async () => {
+  // The shared tag does not depend on the registry, so a league registered
+  // concurrently (after any snapshot would have been read) is still covered.
   stubFetchOk(CFBD_ROWS);
 
   const { result: res, tags } = await runCapturingTags(() => POST(postRequest()));
   assert.equal(res.status, 200, await res.text());
-  assert.deepEqual(
-    tags.filter((t) => t.startsWith('standings:')),
-    [],
-    'no leagues → no standings tags'
+  assert.ok(
+    tags.includes('standings:all'),
+    'shared standings tag invalidated regardless of registry'
   );
 });
 

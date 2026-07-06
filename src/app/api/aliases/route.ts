@@ -63,10 +63,9 @@ export async function GET(req: Request): Promise<Response> {
       migrationYear
     );
     if (migrated > 0) {
-      // Reuse the snapshot read before migration: the `migration-done` sentinel
-      // is now set, so a fresh registry read that failed here would leave the
-      // promotion permanently un-invalidated.
-      await invalidateAllLeaguesStandings(leagues);
+      // Promoted legacy aliases feed every league's canonical standings; bust
+      // the shared standings tag so all cached snapshots pick them up.
+      invalidateAllLeaguesStandings();
     }
     // Return stored/manual global aliases only — never the in-memory seed layer.
     // The admin editor re-posts every returned row as an upsert, so including
@@ -121,15 +120,11 @@ export async function PUT(req: Request): Promise<Response> {
         ? (bodyUnknown as Record<string, unknown>)
         : {};
     const upserts: AliasMap = isAliasMap(obj.upserts) ? obj.upserts : {};
-    // Read the registry snapshot BEFORE committing the upsert so a registry-read
-    // failure aborts before persistence rather than stranding a committed write
-    // with a stale cache.
-    const leagues = await getLeagues();
     const next = await upsertGlobalAliases(upserts);
     // Global aliases feed canonical standings via getScopedAliasMap and can
-    // affect any cached year of any league, so invalidate every registered
-    // league's umbrella standings tag (year omitted → busts all cached years).
-    await invalidateAllLeaguesStandings(leagues);
+    // affect any cached year of any league, so bust the shared standings tag
+    // carried by every snapshot (covers all leagues and all cached years).
+    invalidateAllLeaguesStandings();
     return Response.json({ scope: 'global', map: next });
   }
   // League-scoped stored writes were removed with the in-app editor. A `?league=`

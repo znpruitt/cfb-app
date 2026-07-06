@@ -97,7 +97,7 @@ test('global alias PUT upserts into the global store and returns the merged map'
   assert.equal(stored?.value['gulf coast tech'], 'Texas');
 });
 
-test('global alias PUT invalidates the standings umbrella tag for every registered league', async () => {
+test('global alias PUT busts the shared standings tag for every league', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague('league-a'),
     makeLeague('league-b'),
@@ -109,29 +109,28 @@ test('global alias PUT invalidates the standings umbrella tag for every register
   );
   assert.equal(res.status, 200);
 
-  // Every registered league's umbrella tag (no year → busts all cached years).
-  assert.ok(tags.includes('standings:league-a'), 'league-a umbrella tag invalidated');
-  assert.ok(tags.includes('standings:league-b'), 'league-b umbrella tag invalidated');
-  assert.ok(tags.includes('standings:league-c'), 'league-c umbrella tag invalidated');
-  // No year-scoped tags: global aliases can affect any cached year, so only the
-  // umbrella tag is used.
+  // One shared tag carried by every snapshot → covers all leagues, all years,
+  // without enumerating the registry.
+  assert.ok(tags.includes('standings:all'), 'shared standings tag invalidated');
+  // No year-scoped tags: global aliases can affect any cached year.
   assert.ok(
-    !tags.some((t) => /^standings:league-[abc]:\d+$/.test(t)),
+    !tags.some((t) => /^standings:.+:\d+$/.test(t)),
     'no year-scoped standings tags invalidated for global writes'
   );
 });
 
-test('global alias PUT succeeds with an empty league registry', async () => {
+test('global alias PUT busts the shared tag even with an empty league registry', async () => {
+  // The shared tag does not depend on the registry, so a league registered
+  // concurrently with the write is still covered — no pre/post snapshot race.
   const { result: res, tags } = await runCapturingTags(() =>
     PUT(globalPutRequest({ upserts: { 'gulf coast tech': 'Texas' } }))
   );
   assert.equal(res.status, 200);
   const body = (await res.json()) as { map: Record<string, string> };
   assert.equal(body.map['gulf coast tech'], 'Texas');
-  // No leagues → no standings tags invalidated.
-  assert.deepEqual(
-    tags.filter((t) => t.startsWith('standings:')),
-    []
+  assert.ok(
+    tags.includes('standings:all'),
+    'shared standings tag invalidated regardless of registry'
   );
 });
 
@@ -171,8 +170,7 @@ test('global GET lazy migration invalidates registered leagues when it moves ent
   assert.equal(res.status, 200);
   const body = (await res.json()) as { scope: string; map: Record<string, string> };
   assert.equal(body.map['legacy team'], 'Texas');
-  assert.ok(tags.includes('standings:league-a'), 'league-a invalidated after migration');
-  assert.ok(tags.includes('standings:league-b'), 'league-b invalidated after migration');
+  assert.ok(tags.includes('standings:all'), 'shared standings tag invalidated after migration');
 });
 
 test('global GET returns stored aliases only — never the in-memory seeds (P2)', async () => {
