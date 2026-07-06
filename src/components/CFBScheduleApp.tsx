@@ -529,17 +529,25 @@ export default function CFBScheduleApp({
     clearOwnersDerivedState();
   }, [clearOwnersDerivedState, storageKeys.ownersCsv]);
 
-  // After an in-app league alias edit, the effective resolver map changes, so
-  // refetch it and rebuild the schedule with the fresh map (passed as override
-  // to avoid a stale-state race). If the refetch fails, THROW so the caller
-  // surfaces it — silently rebuilding with the stale pre-save map would hide the
-  // just-saved repair from the schedule/live attachment while reporting success.
+  // After an in-app league alias edit, the effective resolver map changes.
+  // Rebuild the games with the fresh map FIRST (passed as override), and only
+  // publish it to state + cache AFTER a successful rebuild — otherwise the
+  // resolver map and the `games` (still built with the old map) would diverge,
+  // and live refreshes could attach scores/odds with identities inconsistent
+  // with existing game keys. loadScheduleFromApi resolves to false (not reject)
+  // on fetch failure, no games, or an in-flight refresh; treat that as a rebuild
+  // failure and THROW without publishing so the caller surfaces it and state
+  // stays consistent with the current games.
   const reloadScheduleWithFreshEffective = useCallback(async () => {
     const fresh = await loadEffectiveAliases(selectedSeason, leagueSlug);
+    const rebuilt = await loadScheduleFromApi(fresh);
+    if (!rebuilt) {
+      throw new Error('schedule did not rebuild with the updated aliases');
+    }
     setEffectiveAliasMap(fresh);
     // Keep the effective cache in sync so a later degraded bootstrap doesn't
-    // prefer a stale effective map (dropping added / resurrecting deleted
-    // aliases). Versioned by the seed set so bootstrap can validate it.
+    // prefer a stale effective map. Versioned by the seed set so bootstrap can
+    // validate it.
     try {
       window.localStorage.setItem(
         storageKeys.effectiveAliasMap,
@@ -547,13 +555,6 @@ export default function CFBScheduleApp({
       );
     } catch {
       // best-effort cache
-    }
-    // loadScheduleFromApi resolves to false (not reject) on fetch failure, no
-    // games, or an in-flight refresh — treat that as a rebuild failure so the
-    // caller doesn't report success / refresh canonical with un-rebuilt games.
-    const rebuilt = await loadScheduleFromApi(fresh);
-    if (!rebuilt) {
-      throw new Error('schedule did not rebuild with the updated aliases');
     }
   }, [leagueSlug, loadScheduleFromApi, selectedSeason, storageKeys.effectiveAliasMap]);
 
@@ -1215,15 +1216,17 @@ export default function CFBScheduleApp({
     showAliasToast('Aliases saved. Rebuilding…', 1800);
     try {
       await reloadScheduleWithFreshEffective();
-      // Refresh the current RSC tree so canonical standings reflect the alias
-      // mutation (alias changes can re-resolve roster team identities).
-      router.refresh();
     } catch (err) {
       setIssues((p) => [
         ...p,
         `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
       ]);
       showAliasToast('Saved; rebuild failed — reload.', 2400);
+    } finally {
+      // The save persisted and its cache tags are invalidated, so refresh the
+      // RSC tree (server-rendered canonical standings) even if the client
+      // rebuild failed — otherwise standings stay stale until a manual reload.
+      router.refresh();
     }
   }, [aliasStaging, persistAliasChanges, showAliasToast, reloadScheduleWithFreshEffective, router]);
 
@@ -1277,15 +1280,16 @@ export default function CFBScheduleApp({
     setEditOpen(false);
     try {
       await reloadScheduleWithFreshEffective();
-      // Refresh the current RSC tree so canonical standings (server-rendered)
-      // pick up the alias mutation; the alias API route already invalidates
-      // the standings cache tag.
-      router.refresh();
     } catch (err) {
       setIssues((p) => [
         ...p,
         `Aliases saved, but the schedule rebuild failed — reload to apply: ${(err as Error).message}`,
       ]);
+    } finally {
+      // Refresh the RSC tree so server-rendered canonical standings pick up the
+      // persisted alias mutation (the route already busted the standings tag),
+      // even if the client rebuild failed.
+      router.refresh();
     }
   }, [editDraft, aliasMap, persistAliasChanges, reloadScheduleWithFreshEffective, router]);
 
