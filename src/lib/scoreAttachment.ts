@@ -782,11 +782,21 @@ export function attachScoresToSchedule(params: {
       continue;
     }
 
+    // Store in SCHEDULE orientation. Downstream (standings, live delta) maps
+    // scoresByKey.home/.away positionally onto the schedule's csvHome/csvAway, so a
+    // reversed match (provider home/away opposite the schedule's, e.g. neutral-site or
+    // a reversed_pair_week/pair_date fallback) must be swapped here — otherwise each
+    // side is credited with its opponent's score. Orientation is reliable for every
+    // strategy that reaches this point: provider_event_id is only accepted as 'direct'
+    // (its guard rejects unvalidatable/reversed sides), and the week/pair/date
+    // fallbacks run after team resolution, so their identity-key comparison is valid.
+    const rowHome = { team: row.home.team, score: row.home.score };
+    const rowAway = { team: row.away.team, score: row.away.score };
     scoresByKey[match.entry.gameKey] = {
       status: row.status,
       time: row.time,
-      home: { team: row.home.team, score: row.home.score },
-      away: { team: row.away.team, score: row.away.score },
+      home: match.orientation === 'reversed' ? rowAway : rowHome,
+      away: match.orientation === 'reversed' ? rowHome : rowAway,
     };
   }
 

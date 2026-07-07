@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  attachScoresToSchedule,
   buildScheduleIndex,
   matchScoreRowToSchedule,
   type NormalizedScoreRow,
@@ -243,6 +244,48 @@ test('a direct row attaches by provider id to a half-hydrated game (known side l
   );
   assert.equal(match.matched, true);
   assert.equal(match.matched && match.strategy, 'provider_event_id');
+});
+
+test('a reversed row is stored in schedule orientation (correct owner attribution)', () => {
+  const resolver = makeResolver();
+  // Schedule home = Alabama. A reversed row (provider id present but home/away flipped)
+  // is declined by the provider-id guard and re-matched via reversed_pair_week.
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'bama-uga',
+        week: 12,
+        canHome: 'Alabama',
+        canAway: 'Georgia',
+        providerGameId: 'g-rev',
+      }),
+    ],
+    resolver
+  );
+
+  const { scoresByKey } = attachScoresToSchedule({
+    rows: [
+      row({
+        week: 12,
+        seasonType: 'regular',
+        providerEventId: 'g-rev',
+        home: { team: 'Georgia', score: 17 },
+        away: { team: 'Alabama', score: 24 },
+        status: 'final',
+      }),
+    ],
+    scheduleIndex: index,
+    resolver,
+  });
+
+  const pack = scoresByKey['bama-uga'];
+  assert.ok(pack, 'expected the reversed row to attach');
+  // Stored in schedule orientation: Alabama (schedule home) carries its own score (24),
+  // not Georgia's (17) — otherwise standings would credit the wrong owner.
+  assert.equal(pack.home.team, 'Alabama');
+  assert.equal(pack.home.score, 24);
+  assert.equal(pack.away.team, 'Georgia');
+  assert.equal(pack.away.score, 17);
 });
 
 test('a fully hydrated game with real teams still indexes normally by team+week', () => {
