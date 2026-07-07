@@ -193,6 +193,34 @@ test('editing a pick after confirmation resyncs the owners CSV and invalidates s
   assert.equal(draft?.value?.phase, 'complete');
 });
 
+test('a post-confirm edit preserves unrelated /api/owners overrides (patches, not rebuilds)', async () => {
+  await seedConfirmed();
+
+  // Simulate an admin repair via PUT /api/owners: reassign an unrelated team
+  // (TEAM_B, Owner2's pick) to a manually-corrected owner name. This shares the
+  // owners:${slug}:${year} store and leaves the draft phase 'complete'.
+  const confirmed = await readOwnerByTeam();
+  assert.equal(confirmed?.get(TEAM_B.toLowerCase()), 'Owner2');
+  const overridden = (await getAppState<string>(`owners:${SLUG}:${YEAR}`, 'csv'))!.value.replace(
+    `${TEAM_B},Owner2`,
+    `${TEAM_B},Owner2 (corrected)`
+  );
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', overridden);
+
+  // Now edit Owner1's pick #1 (TEAM_A → TEAM_C).
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = await readOwnerByTeam();
+  // The edit applied...
+  assert.equal(after?.get(TEAM_C.toLowerCase()), 'Owner1');
+  assert.equal(after?.get(TEAM_A.toLowerCase()), 'NoClaim');
+  // ...and the unrelated manual override survived (not clobbered by a rebuild).
+  assert.equal(after?.get(TEAM_B.toLowerCase()), 'Owner2 (corrected)', 'override preserved');
+});
+
 test('editing a pick before confirmation does not write owners or invalidate', async () => {
   // A live (never-confirmed) draft — no authoritative owners CSV exists.
   await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('live'));

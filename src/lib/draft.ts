@@ -1,4 +1,5 @@
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
+import { parseOwnersCsv, type OwnerRow } from '@/lib/parseOwnersCsv';
 
 export type DraftPhase = 'setup' | 'settings' | 'preview' | 'live' | 'paused' | 'complete';
 
@@ -77,6 +78,9 @@ export function getDraftEligibleTeams<T extends Pick<TeamCatalogItem, 'school'>>
   return items.filter(isDraftEligibleTeam);
 }
 
+/** Placeholder owner for a team that belongs to no one. */
+const NO_CLAIM_OWNER = 'NoClaim';
+
 /** RFC 4180 CSV field serialization. */
 function csvField(value: string): string {
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
@@ -85,30 +89,73 @@ function csvField(value: string): string {
   return value;
 }
 
+/** Serialize owner rows to the canonical `owners` CSV (header + one row each). */
+function serializeOwnerRows(rows: readonly OwnerRow[]): string {
+  const lines = ['team,owner'];
+  for (const row of rows) {
+    lines.push(`${csvField(row.team)},${csvField(row.owner)}`);
+  }
+  return lines.join('\n');
+}
+
 /**
  * Build the confirmed owner-assignment CSV from a draft's picks — the canonical
  * `owners:${slug}:${year}` / `'csv'` payload the schedule/ownership pipeline
  * (`parseOwnersCsv` → `gameOwnership`) consumes: header `team,owner`, one row per
  * pick, then `NoClaim` for every undrafted eligible team.
  *
- * Single source for this serialization, shared by the draft confirm route and
- * the post-confirm pick edit so an edit to a confirmed draft can never leave the
- * persisted ownership out of sync with the picks (PLATFORM-072). Pure — callers
- * are responsible for validation (pick counts, duplicates, eligibility).
+ * The authoritative full-roster write, used by the draft confirm route. Returns
+ * `rowCount` (data rows, header excluded) as a structural count taken before
+ * serialization so callers can validate it without re-splitting the CSV string —
+ * a split on `\n` miscounts any quoted field that itself contains a newline.
+ * Pure — callers are responsible for validation (pick counts, duplicates,
+ * eligibility).
  */
 export function buildConfirmedOwnersCsv(
   picks: readonly DraftPick[],
   eligibleTeams: readonly Pick<TeamCatalogItem, 'school'>[]
-): string {
-  const csvLines = ['team,owner'];
-  for (const pick of picks) {
-    csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
-  }
+): { csv: string; rowCount: number } {
+  const rows: OwnerRow[] = picks.map((pick) => ({ team: pick.team, owner: pick.owner }));
   const draftedTeamsLower = new Set(picks.map((p) => p.team.toLowerCase()));
   for (const team of eligibleTeams) {
     if (!draftedTeamsLower.has(team.school.toLowerCase())) {
-      csvLines.push(`${csvField(team.school)},NoClaim`);
+      rows.push({ team: team.school, owner: NO_CLAIM_OWNER });
     }
   }
-  return csvLines.join('\n');
+  return { csv: serializeOwnerRows(rows), rowCount: rows.length };
+}
+
+/**
+ * Apply a single confirmed-draft pick edit (its team changed `oldTeam → newTeam`
+ * for `owner`) to the ALREADY-PERSISTED owners CSV, preserving every other row.
+ *
+ * A post-confirm pick edit must keep the persisted ownership in sync, but the
+ * `owners:${slug}:${year}` store is shared with `PUT /api/owners` — the admin
+ * repair/override path — and an override leaves the draft phase `complete`.
+ * Rebuilding the whole CSV from the draft picks would silently discard those
+ * unrelated manual reassignments, so this patches only the two affected teams:
+ * `newTeam` is credited to `owner`, and `oldTeam` is released to `NoClaim` only
+ * if it is still credited to that same owner (if a manual override already
+ * reassigned it elsewhere, that owner is not being displaced by this edit, so
+ * it is left untouched). Row order and all other rows are preserved.
+ */
+export function patchConfirmedOwnersCsv(
+  currentCsv: string,
+  edit: { oldTeam: string; newTeam: string; owner: string }
+): string {
+  const { oldTeam, newTeam, owner } = edit;
+  const rows = parseOwnersCsv(currentCsv);
+  let sawNewTeam = false;
+  for (const row of rows) {
+    if (row.team.toLowerCase() === newTeam.toLowerCase()) {
+      row.owner = owner;
+      sawNewTeam = true;
+    } else if (row.team.toLowerCase() === oldTeam.toLowerCase() && row.owner === owner) {
+      row.owner = NO_CLAIM_OWNER;
+    }
+  }
+  if (!sawNewTeam) {
+    rows.push({ team: newTeam, owner });
+  }
+  return serializeOwnerRows(rows);
 }

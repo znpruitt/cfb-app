@@ -132,16 +132,15 @@ export async function POST(
 
   // Build owner assignment CSV — same format as the CSV upload route (header
   // "team,owner" + one row per pick, then NoClaim for undrafted eligible teams).
-  // Shared with the post-confirm pick-edit path so the two can't diverge.
+  // Shared builder with the post-confirm pick-edit path so the two can't diverge.
   const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
   const undraftedEligibleCount = eligibleTeams.filter(
     (t) => !draftedTeamsLower.has(t.school.toLowerCase())
   ).length;
-  const csvString = buildConfirmedOwnersCsv(draft.picks, eligibleTeams);
+  const { csv: csvString, rowCount } = buildConfirmedOwnersCsv(draft.picks, eligibleTeams);
 
-  // Belt-and-suspenders: verify CSV row count before writing.
+  // Belt-and-suspenders: verify the builder's structural row count before writing.
   const expectedTotalRows = totalExpectedPicks + undraftedEligibleCount;
-  const rowCount = csvString.split('\n').length - 1; // exclude header
   if (rowCount !== expectedTotalRows) {
     return NextResponse.json(
       {
