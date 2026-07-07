@@ -4,7 +4,12 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
-import { type DraftState, draftScope, getDraftEligibleTeams } from '@/lib/draft';
+import {
+  type DraftState,
+  draftScope,
+  getDraftEligibleTeams,
+  buildConfirmedOwnersCsv,
+} from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
 
@@ -15,14 +20,6 @@ export const dynamic = 'force-dynamic';
 function parseYear(raw: string): number | null {
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n >= 2000 ? n : null;
-}
-
-/** RFC 4180 CSV field serialization. */
-function csvField(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
 }
 
 /**
@@ -133,36 +130,25 @@ export async function POST(
     );
   }
 
-  // Build owner assignment CSV — same format as the CSV upload route:
-  // header row "team,owner" + one data row per pick.
-  // parseOwnersCsv() in the schedule pipeline reads this format.
-  const csvLines = ['team,owner'];
-  for (const pick of draft.picks) {
-    csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
-  }
-
-  // Append NoClaim rows for undrafted eligible teams (remainder after even division).
+  // Build owner assignment CSV — same format as the CSV upload route (header
+  // "team,owner" + one row per pick, then NoClaim for undrafted eligible teams).
+  // Shared builder with the post-confirm pick-edit path so the two can't diverge.
   const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
-  const undraftedEligibleTeams = eligibleTeams
-    .filter((t) => !draftedTeamsLower.has(t.school.toLowerCase()))
-    .map((t) => t.school);
-  for (const teamName of undraftedEligibleTeams) {
-    csvLines.push(`${csvField(teamName)},NoClaim`);
-  }
+  const undraftedEligibleCount = eligibleTeams.filter(
+    (t) => !draftedTeamsLower.has(t.school.toLowerCase())
+  ).length;
+  const { csv: csvString, rowCount } = buildConfirmedOwnersCsv(draft.picks, eligibleTeams);
 
-  // Belt-and-suspenders: verify CSV row count before writing.
-  const expectedTotalRows = totalExpectedPicks + undraftedEligibleTeams.length;
-  const rowCount = csvLines.length - 1; // exclude header
+  // Belt-and-suspenders: verify the builder's structural row count before writing.
+  const expectedTotalRows = totalExpectedPicks + undraftedEligibleCount;
   if (rowCount !== expectedTotalRows) {
     return NextResponse.json(
       {
-        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedEligibleTeams.length} unclaimed) but produced ${rowCount}. Do not write partial data.`,
+        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedEligibleCount} unclaimed) but produced ${rowCount}. Do not write partial data.`,
       },
       { status: 422 }
     );
   }
-
-  const csvString = csvLines.join('\n');
 
   // Write to the same scope/key pattern as /api/owners PUT:
   //   scope = owners:${slug}:${year}   key = 'csv'
