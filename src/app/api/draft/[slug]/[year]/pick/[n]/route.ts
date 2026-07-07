@@ -3,9 +3,15 @@ import { NextResponse } from 'next/server';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
-import { type DraftState, draftScope, getDraftEligibleTeams } from '@/lib/draft';
+import {
+  type DraftState,
+  draftScope,
+  getDraftEligibleTeams,
+  buildConfirmedOwnersCsv,
+} from '@/lib/draft';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import teamsData from '@/data/teams.json';
 
 type TeamsJson = { items: TeamCatalogItem[] };
@@ -133,6 +139,21 @@ export async function PUT(
   };
 
   await setAppState<DraftState>(draftScope(slug), String(year), updated);
+
+  // PLATFORM-072: if the draft is already confirmed, the persisted owner
+  // assignment (owners:${slug}:${year} / 'csv', written at confirm) is the
+  // authoritative ownership source that standings / gameOwnership consume —
+  // editing a pick in draft state alone would leave it crediting the old
+  // team→owner. Keep the confirmed CSV in sync with the edited picks (same
+  // builder the confirm route uses) and bust the cached standings snapshot.
+  // Pre-confirm phases ('live'/'paused', incl. a draft reopened via DELETE,
+  // which intentionally keeps the last confirmed CSV until re-confirm) are
+  // unaffected: no authoritative CSV is derived from in-progress picks.
+  if (updated.phase === 'complete') {
+    const ownersCsv = buildConfirmedOwnersCsv(newPicks, getDraftEligibleTeams(items));
+    await setAppState(`owners:${slug}:${year}`, 'csv', ownersCsv);
+    invalidateStandings(slug, year);
+  }
 
   return NextResponse.json({ draft: updated, pick: newPicks[pickIndex] });
 }

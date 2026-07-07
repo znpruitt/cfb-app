@@ -76,3 +76,39 @@ export function isDraftEligibleTeam(team: Pick<TeamCatalogItem, 'school'>): bool
 export function getDraftEligibleTeams<T extends Pick<TeamCatalogItem, 'school'>>(items: T[]): T[] {
   return items.filter(isDraftEligibleTeam);
 }
+
+/** RFC 4180 CSV field serialization. */
+function csvField(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Build the confirmed owner-assignment CSV from a draft's picks — the canonical
+ * `owners:${slug}:${year}` / `'csv'` payload the schedule/ownership pipeline
+ * (`parseOwnersCsv` → `gameOwnership`) consumes: header `team,owner`, one row per
+ * pick, then `NoClaim` for every undrafted eligible team.
+ *
+ * Single source for this serialization, shared by the draft confirm route and
+ * the post-confirm pick edit so an edit to a confirmed draft can never leave the
+ * persisted ownership out of sync with the picks (PLATFORM-072). Pure — callers
+ * are responsible for validation (pick counts, duplicates, eligibility).
+ */
+export function buildConfirmedOwnersCsv(
+  picks: readonly DraftPick[],
+  eligibleTeams: readonly Pick<TeamCatalogItem, 'school'>[]
+): string {
+  const csvLines = ['team,owner'];
+  for (const pick of picks) {
+    csvLines.push(`${csvField(pick.team)},${csvField(pick.owner)}`);
+  }
+  const draftedTeamsLower = new Set(picks.map((p) => p.team.toLowerCase()));
+  for (const team of eligibleTeams) {
+    if (!draftedTeamsLower.has(team.school.toLowerCase())) {
+      csvLines.push(`${csvField(team.school)},NoClaim`);
+    }
+  }
+  return csvLines.join('\n');
+}
