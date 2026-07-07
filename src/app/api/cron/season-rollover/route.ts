@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { buildSeasonArchive, findNationalChampionshipGameDate } from '@/lib/seasonRollover';
 
 export const dynamic = 'force-dynamic';
@@ -94,6 +95,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       try {
         await updateLeagueStatus(league.slug, { state: 'offseason' });
         leaguesRolledOver.push(league.slug);
+        // Season→offseason changes this league's standings surface (live →
+        // prior-season final from the archive just written). Bust its cached
+        // snapshots so the public page reflects the rollover. League-scoped: only
+        // the leagues that actually rolled over are affected.
+        invalidateStandings(league.slug);
       } catch (err) {
         errors.push({
           leagueSlug: league.slug,
