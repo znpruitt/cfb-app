@@ -145,12 +145,16 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         if (nowMs >= oneDayBeforeMs) {
           for (const league of yearLeagues) {
             await updateLeagueStatus(league.slug, { state: 'season', year: targetYear });
-            await updateLeague(league.slug, { year: targetYear });
             yearResult.leagues.push(league.slug);
-            // Preseason→season changes this league's standings surface (preseason
-            // owner list → live season standings). Bust its cached snapshots
-            // (umbrella, all years) so the public page reflects the transition.
+            // Invalidate immediately on the status flip — this is the change that
+            // alters the standings surface (preseason owner list → live season
+            // standings) AND drops the league from future cron-transition retries
+            // (the route only re-processes `preseason` leagues). It must not be
+            // gated behind the separate year-sync write below: if that threw, the
+            // league would be stranded in `season` with a stale preseason snapshot
+            // and no retry to re-invalidate.
             invalidateStandings(league.slug);
+            await updateLeague(league.slug, { year: targetYear });
           }
           yearResult.transitioned = yearResult.leagues.length > 0;
         }
