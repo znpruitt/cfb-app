@@ -232,6 +232,52 @@ test('a null-seasonType row does not attach across a regular/postseason rematch'
   assert.equal(postseason.matched && postseason.entry.gameKey, 'cfp-final');
 });
 
+test('a null-seasonType rematch attaches by kickoff date when week is cross-phase ambiguous', () => {
+  const resolver = makeResolver();
+  // Same collision as above (regular wk1 + postseason providerWeek 1), but both
+  // schedule games are dated and the row carries the postseason kickoff.
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'reg-wk1',
+        week: 1,
+        canHome: 'Alabama',
+        canAway: 'Georgia',
+        date: '2025-08-30T18:00:00Z',
+      }),
+      game({
+        key: 'cfp-final',
+        week: 17,
+        providerWeek: 1,
+        canonicalWeek: 17,
+        stage: 'playoff',
+        canHome: 'Alabama',
+        canAway: 'Georgia',
+        date: '2026-01-19T23:30:00Z',
+      }),
+    ],
+    resolver
+  );
+
+  // Week alone is cross-phase ambiguous, but the kickoff date is within tolerance of
+  // exactly one meeting → attach to it instead of rejecting.
+  const match = matchScoreRowToSchedule(
+    row({
+      week: 1,
+      seasonType: null,
+      date: '2026-01-19T23:40:00Z',
+      home: { team: 'Alabama', score: 34 },
+      away: { team: 'Georgia', score: 31 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+  assert.equal(match.matched, true);
+  assert.equal(match.matched && match.strategy, 'pair_date');
+  assert.equal(match.matched && match.entry.gameKey, 'cfp-final');
+});
+
 test('a null-seasonType row still attaches when only one phase has the pair', () => {
   const resolver = makeResolver();
   const index = buildScheduleIndex(

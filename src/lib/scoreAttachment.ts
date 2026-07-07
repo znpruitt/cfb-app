@@ -516,6 +516,24 @@ export function matchScoreRowToSchedule(
     ? [row.seasonType]
     : ['regular', 'postseason'];
 
+  const crossPhaseWeekAmbiguity = (entries: ScheduleIndexEntry[]): MatchResult => ({
+    matched: false,
+    reason: 'multiple_candidate_matches',
+    homeResolution,
+    awayResolution,
+    trace: {
+      candidateCount: entries.length,
+      candidates: debugTrace ? traceCandidates(entries, 'cross_phase_week_ambiguity') : undefined,
+      finalNote:
+        'row without a season type matched scheduled games in multiple phases (regular + postseason)',
+    },
+  });
+  // A cross-phase week match is only truly ambiguous if a kickoff date can't separate
+  // the two meetings. When the row carries a date, defer the rejection to the date
+  // fallback (regular vs postseason rematches are days/weeks apart, so the 18h window
+  // uniquely identifies one); if the date can't narrow it, this is surfaced afterward.
+  let deferredCrossPhaseWeek: ScheduleIndexEntry[] | null = null;
+
   if (row.week != null) {
     const week = row.week;
     const perPhase = fallbackPhases
@@ -538,23 +556,12 @@ export function matchScoreRowToSchedule(
           ? [p.result.entry]
           : (p.result as { entries: ScheduleIndexEntry[] }).entries
       );
-      return {
-        matched: false,
-        reason: 'multiple_candidate_matches',
-        homeResolution,
-        awayResolution,
-        trace: {
-          candidateCount: entries.length,
-          candidates: debugTrace
-            ? traceCandidates(entries, 'cross_phase_week_ambiguity')
-            : undefined,
-          finalNote:
-            'row without a season type matched scheduled games in multiple phases (regular + postseason)',
-        },
-      };
-    }
-
-    if (perPhase.length === 1) {
+      // Defer to the date fallback when a kickoff date is available; otherwise reject.
+      if (!row.date) {
+        return crossPhaseWeekAmbiguity(entries);
+      }
+      deferredCrossPhaseWeek = entries;
+    } else if (perPhase.length === 1) {
       const { result } = perPhase[0]!;
       if (result.kind === 'multiple') {
         return {
@@ -668,6 +675,13 @@ export function matchScoreRowToSchedule(
         };
       }
     }
+  }
+
+  // A cross-phase week ambiguity deferred above (row had a date) that the date
+  // fallback could not uniquely resolve remains genuinely ambiguous — surface it
+  // rather than a generic no-match.
+  if (deferredCrossPhaseWeek) {
+    return crossPhaseWeekAmbiguity(deferredCrossPhaseWeek);
   }
 
   return {
