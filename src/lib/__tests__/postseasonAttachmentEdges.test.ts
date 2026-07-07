@@ -143,6 +143,40 @@ test('provider-id match attaches even when a score-row team label is unresolved'
   assert.equal(match.matched && match.entry.gameKey, 'sugar-bowl');
 });
 
+test('an unresolved-team row does NOT attach by provider id to a hydrated (owned) game', () => {
+  const resolver = makeResolver();
+  // A fully hydrated game with real, ownable sides.
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'reg-owned',
+        week: 10,
+        canHome: 'Alabama',
+        canAway: 'Georgia',
+        providerGameId: 'evt-owned',
+      }),
+    ],
+    resolver
+  );
+
+  // A row with a matching provider id but an unresolvable team label AND reversed
+  // order. Attached scores are stored positionally, so accepting this could swap the
+  // score onto the wrong owner. It must NOT attach — side attribution can't be
+  // established for an owned game.
+  const match = matchScoreRowToSchedule(
+    row({
+      seasonType: 'regular',
+      providerEventId: 'evt-owned',
+      home: { team: 'Some Unlisted School', score: 10 },
+      away: { team: 'Alabama', score: 41 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+  assert.equal(match.matched, false);
+});
+
 test('a fully hydrated game with real teams still indexes normally by team+week', () => {
   const resolver = makeResolver();
   const index = buildScheduleIndex(
