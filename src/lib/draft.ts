@@ -126,36 +126,46 @@ export function buildConfirmedOwnersCsv(
 }
 
 /**
- * Apply a single confirmed-draft pick edit (its team changed `oldTeam → newTeam`
- * for `owner`) to the ALREADY-PERSISTED owners CSV, preserving every other row.
+ * Apply a single confirmed-draft pick edit (its team changed `oldTeam → newTeam`)
+ * to the ALREADY-PERSISTED owners CSV by MOVING that pick's roster claim from the
+ * old team to the new one, preserving every other row.
  *
  * A post-confirm pick edit must keep the persisted ownership in sync, but the
  * `owners:${slug}:${year}` store is shared with `PUT /api/owners` — the admin
  * repair/override path — and an override leaves the draft phase `complete`.
- * Rebuilding the whole CSV from the draft picks would silently discard those
- * unrelated manual reassignments, so this patches only the two affected teams:
- * `newTeam` is credited to `owner`, and `oldTeam` is released to `NoClaim` only
- * if it is still credited to that same owner (if a manual override already
- * reassigned it elsewhere, that owner is not being displaced by this edit, so
- * it is left untouched). Row order and all other rows are preserved.
+ * Rebuilding the whole CSV from the draft picks would silently discard unrelated
+ * manual reassignments, so this touches only the two affected teams.
+ *
+ * The owner carried to `newTeam` is the owner the PERSISTED roster currently
+ * credits for `oldTeam`, NOT the draft pick's owner field — `oldTeam` was this
+ * pick's only team (each team appears in at most one pick), so its row IS this
+ * pick's slot, and honoring the persisted value carries an `/api/owners`
+ * owner-name correction instead of resurrecting the stale draft name. `oldTeam`
+ * is then released to `NoClaim`. `fallbackOwner` (the draft pick's owner) is used
+ * only if `oldTeam` is absent from the roster entirely. Row order and all other
+ * rows are preserved.
  */
 export function patchConfirmedOwnersCsv(
   currentCsv: string,
-  edit: { oldTeam: string; newTeam: string; owner: string }
+  edit: { oldTeam: string; newTeam: string; fallbackOwner: string }
 ): string {
-  const { oldTeam, newTeam, owner } = edit;
+  const { oldTeam, newTeam, fallbackOwner } = edit;
   const rows = parseOwnersCsv(currentCsv);
+
+  const oldRow = rows.find((r) => r.team.toLowerCase() === oldTeam.toLowerCase());
+  const effectiveOwner = oldRow?.owner ?? fallbackOwner;
+
   let sawNewTeam = false;
   for (const row of rows) {
     if (row.team.toLowerCase() === newTeam.toLowerCase()) {
-      row.owner = owner;
+      row.owner = effectiveOwner;
       sawNewTeam = true;
-    } else if (row.team.toLowerCase() === oldTeam.toLowerCase() && row.owner === owner) {
+    } else if (row.team.toLowerCase() === oldTeam.toLowerCase()) {
       row.owner = NO_CLAIM_OWNER;
     }
   }
   if (!sawNewTeam) {
-    rows.push({ team: newTeam, owner });
+    rows.push({ team: newTeam, owner: effectiveOwner });
   }
   return serializeOwnerRows(rows);
 }

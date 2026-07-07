@@ -167,7 +167,7 @@ export async function PUT(
         ? patchConfirmedOwnersCsv(currentCsv, {
             oldTeam: previousTeam,
             newTeam: canonicalTeam,
-            owner: newPicks[pickIndex]!.owner,
+            fallbackOwner: newPicks[pickIndex]!.owner,
           })
         : buildConfirmedOwnersCsv(newPicks, getDraftEligibleTeams(items)).csv;
     await setAppState(`owners:${slug}:${year}`, 'csv', nextCsv);

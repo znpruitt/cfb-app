@@ -221,6 +221,31 @@ test('a post-confirm edit preserves unrelated /api/owners overrides (patches, no
   assert.equal(after?.get(TEAM_B.toLowerCase()), 'Owner2 (corrected)', 'override preserved');
 });
 
+test('a post-confirm edit carries an /api/owners owner-name correction to the new team', async () => {
+  await seedConfirmed();
+
+  // Simulate an admin owner-name correction on THIS pick's team row (TEAM_A):
+  // Owner1 → 'Owner One'. The draft state still stores the stale 'Owner1'.
+  const corrected = (await getAppState<string>(`owners:${SLUG}:${YEAR}`, 'csv'))!.value.replace(
+    `${TEAM_A},Owner1`,
+    `${TEAM_A},Owner One`
+  );
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', corrected);
+
+  // Edit pick #1 (TEAM_A → TEAM_C).
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = await readOwnerByTeam();
+  // The corrected identity is carried to the new team, the old team is released,
+  // and the stale draft name never appears — no split/duplicate owner identity.
+  assert.equal(after?.get(TEAM_C.toLowerCase()), 'Owner One', 'corrected owner carried forward');
+  assert.equal(after?.get(TEAM_A.toLowerCase()), 'NoClaim', 'old team released');
+  assert.ok(![...after!.values()].includes('Owner1'), 'stale draft owner name is not resurrected');
+});
+
 test('editing a pick before confirmation does not write owners or invalidate', async () => {
   // A live (never-confirmed) draft — no authoritative owners CSV exists.
   await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('live'));
