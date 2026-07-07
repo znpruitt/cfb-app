@@ -297,9 +297,19 @@ export function buildScheduleFromApi(params: {
   // appear AFTER regular season in standingsHistory. CFBD postseason week numbers
   // restart from 1, which would otherwise collide with regular season week 1, 2, …
   // in the standings history week buckets (and trend charts would truncate at week 16).
-  const maxRegularSeasonWeek = scheduleItems
-    .filter((i) => i.seasonType !== 'postseason')
-    .reduce((max, i) => Math.max(max, typeof i.week === 'number' ? i.week : 0), 0);
+  //
+  // The remap is only meaningful when this build actually has regular-season context.
+  // For a postseason-only input (archive rebuilds, partial/postseason-only fetches)
+  // there is no regular-season span to append postseason weeks to, so the remap is
+  // skipped and provider weeks are preserved as-is — appending to a phantom span (or,
+  // if stray non-postseason rows were present, an unrelated one) would corrupt the
+  // postseason week buckets. `hasRegularSeasonContext` makes that guard explicit.
+  const regularSeasonItems = scheduleItems.filter((i) => i.seasonType !== 'postseason');
+  const hasRegularSeasonContext = regularSeasonItems.length > 0;
+  const maxRegularSeasonWeek = regularSeasonItems.reduce(
+    (max, i) => Math.max(max, typeof i.week === 'number' ? i.week : 0),
+    0
+  );
 
   for (const rawItem of scheduleItems) {
     const regularSeasonWeek = deriveCanonicalRegularSeasonWeek(rawItem, regularSeasonWeekCalendar);
@@ -315,7 +325,7 @@ export function buildScheduleFromApi(params: {
     // history timeline. providerWeek is kept as-is so score fetching and attachment
     // (which index games by both canonicalWeek and providerWeek) still work correctly.
     const postseasonCanonicalWeek =
-      item.seasonType === 'postseason' && maxRegularSeasonWeek > 0
+      item.seasonType === 'postseason' && hasRegularSeasonContext && maxRegularSeasonWeek > 0
         ? maxRegularSeasonWeek + providerWeek
         : canonicalWeek;
     const hasConferenceChampionshipMetadata =
