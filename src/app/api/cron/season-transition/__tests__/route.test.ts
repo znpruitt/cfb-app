@@ -22,8 +22,9 @@ import {
 // (documented gap).
 //
 // The success path drives the transition from a seeded schedule-probe with a
-// past firstGameDate; the CFBD fetch short-circuits (no key configured in the
-// test env), and the seeded probe alone satisfies the transition time gate.
+// past firstGameDate; the upstream CFBD fetch is stubbed (empty schedule) so the
+// test is deterministic regardless of whether a real CFBD_API_KEY is present,
+// and the seeded probe alone satisfies the transition time gate.
 // ---------------------------------------------------------------------------
 
 const CRON_SECRET = 'test-cron-secret';
@@ -31,6 +32,20 @@ const YEAR = 2023;
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const ORIGINAL_CRON_SECRET = process.env.CRON_SECRET;
+const ORIGINAL_FETCH = globalThis.fetch;
+
+// Neutralize the upstream CFBD fetch so the test is deterministic even when the
+// process inherits a real CFBD_API_KEY (the route captures it in a module-load
+// const, so clearing the env after import cannot un-capture it). Returning an
+// empty schedule leaves the seeded past-firstGameDate probe as the sole driver
+// of the transition — no real network, no quota use.
+function stubFetchEmptySchedule(): void {
+  globalThis.fetch = (async () =>
+    new Response('[]', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+}
 
 function makeLeague(slug: string, status: League['status']): League {
   return {
@@ -76,12 +91,14 @@ test.beforeEach(async () => {
   __resetAppStateForTests();
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
+  stubFetchEmptySchedule();
 });
 
 test.after(() => {
   MUTABLE_ENV.NODE_ENV = ORIGINAL_NODE_ENV;
   if (ORIGINAL_CRON_SECRET === undefined) delete MUTABLE_ENV.CRON_SECRET;
   else MUTABLE_ENV.CRON_SECRET = ORIGINAL_CRON_SECRET;
+  globalThis.fetch = ORIGINAL_FETCH;
 });
 
 test('a completed transition invalidates standings for each transitioned league', async () => {
