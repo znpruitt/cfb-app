@@ -431,27 +431,34 @@ export function matchScoreRowToSchedule(
   //
   // Side-attribution safety: the attached score's home/away are stored positionally
   // and standings maps them onto the schedule's home/away, so an id match may only be
-  // accepted when the row's sides can be attributed to the schedule's sides. That
-  // holds when both row teams resolve (orientation is validated the same as today) OR
-  // when the schedule game has NO canonical sides — a pure placeholder that the row is
-  // hydrating, which by definition has no owner and so cannot mis-credit standings. A
-  // hydrated game (real, owned sides) matched by a row whose teams can't be resolved is
-  // NOT side-safe (a reversed row would swap scores to the wrong owner), so it falls
-  // through to the team-resolution gate instead of attaching.
+  // accepted when the row's sides line up DIRECTLY with the schedule's sides. Validate
+  // each KNOWN schedule side (re-resolving the game's own canonical name, since a
+  // half-hydrated game's index identity keys are blanked): the correspondingly-
+  // positioned row team must resolve to that same identity. A placeholder side (no
+  // canonical team, hence no owner) imposes no constraint. If any known side is not a
+  // direct match — reversed home/away, an unresolvable row, or a mismatch — the id
+  // match is declined and falls through, because a positional attach would credit an
+  // owned side with its opponent's score. A pure placeholder game passes trivially
+  // (both sides unconstrained) and is hydrated by the row as-is.
   if (row.providerEventId) {
     const idMatches = scheduleIndex.byProviderGameId.get(row.providerEventId) ?? [];
     const matchedById = chooseSingle(idMatches);
     if (matchedById) {
-      const bothTeamsResolved =
-        homeResolution.status === 'resolved' && awayResolution.status === 'resolved';
-      const schedulePlaceholder = !matchedById.game.canHome && !matchedById.game.canAway;
-      if (bothTeamsResolved || schedulePlaceholder) {
+      const homeKnownKey = matchedById.game.canHome
+        ? (resolver.resolveName(matchedById.game.canHome).identityKey ?? null)
+        : null;
+      const awayKnownKey = matchedById.game.canAway
+        ? (resolver.resolveName(matchedById.game.canAway).identityKey ?? null)
+        : null;
+      const homeSideDirectOk = homeKnownKey == null || homeResolution.identityKey === homeKnownKey;
+      const awaySideDirectOk = awayKnownKey == null || awayResolution.identityKey === awayKnownKey;
+
+      if (homeSideDirectOk && awaySideDirectOk) {
         return {
           matched: true,
           strategy: 'provider_event_id',
           entry: matchedById,
-          orientation:
-            matchedById.homeIdentityKey === homeResolution.identityKey ? 'direct' : 'reversed',
+          orientation: 'direct',
           trace: debugTrace
             ? {
                 candidateCount: 1,
@@ -471,8 +478,8 @@ export function matchScoreRowToSchedule(
             : undefined,
         };
       }
-      // Not side-safe (hydrated game + unresolvable row) — fall through to the
-      // team-resolution gate rather than risk a swapped-orientation attach.
+      // Not side-safe (reversed / unresolvable known side) — fall through rather
+      // than risk a swapped-orientation positional attach.
     }
     if (idMatches.length > 1) {
       return {

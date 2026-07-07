@@ -177,6 +177,74 @@ test('an unresolved-team row does NOT attach by provider id to a hydrated (owned
   assert.equal(match.matched, false);
 });
 
+test('a reversed row does NOT attach by provider id to a half-hydrated game with one owned side', () => {
+  const resolver = makeResolver();
+  // One owned side (home = Alabama), the other still a placeholder.
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'half-bowl',
+        week: 17,
+        canHome: 'Alabama',
+        canAway: '',
+        stage: 'bowl',
+        providerGameId: 'evt-half',
+        participants: { home: { kind: 'team' }, away: { kind: 'placeholder' } },
+      }),
+    ],
+    resolver
+  );
+
+  // Reversed: the schedule home (Alabama) appears as the row's AWAY side. A positional
+  // attach would credit Alabama with the away score — reject instead.
+  const match = matchScoreRowToSchedule(
+    row({
+      seasonType: 'postseason',
+      providerEventId: 'evt-half',
+      home: { team: 'Georgia', score: 10 },
+      away: { team: 'Alabama', score: 41 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+  assert.equal(match.matched, false);
+});
+
+test('a direct row attaches by provider id to a half-hydrated game (known side lines up)', () => {
+  const resolver = makeResolver();
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'half-bowl',
+        week: 17,
+        canHome: 'Alabama',
+        canAway: '',
+        stage: 'bowl',
+        providerGameId: 'evt-half2',
+        participants: { home: { kind: 'team' }, away: { kind: 'placeholder' } },
+      }),
+    ],
+    resolver
+  );
+
+  // Direct: the schedule home (Alabama) is the row's home side → side attribution is
+  // safe (the placeholder away side is hydrated by the row).
+  const match = matchScoreRowToSchedule(
+    row({
+      seasonType: 'postseason',
+      providerEventId: 'evt-half2',
+      home: { team: 'Alabama', score: 41 },
+      away: { team: 'Georgia', score: 10 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+  assert.equal(match.matched, true);
+  assert.equal(match.matched && match.strategy, 'provider_event_id');
+});
+
 test('a fully hydrated game with real teams still indexes normally by team+week', () => {
   const resolver = makeResolver();
   const index = buildScheduleIndex(
