@@ -142,25 +142,42 @@ export function buildConfirmedOwnersCsv(
  * pick's slot, and honoring the persisted value carries an `/api/owners`
  * owner-name correction instead of resurrecting the stale draft name. `oldTeam`
  * is then released to `NoClaim`. `fallbackOwner` (the draft pick's owner) is used
- * only if `oldTeam` is absent from the roster entirely. Row order and all other
+ * when `oldTeam` is absent from the roster OR currently unclaimed (`NoClaim`),
+ * so a prior repair can't leave the new team unclaimed. Row order and all other
  * rows are preserved.
+ *
+ * Persisted labels are matched through `resolveTeam` (the canonical team-identity
+ * resolver) rather than by raw string, so a validated alias/alternate label
+ * stored by `/api/owners` still resolves to the same slot as the canonical
+ * `oldTeam`/`newTeam` — preventing a stale alias row from surviving alongside a
+ * duplicate canonical row. `resolveTeam` must return a stable canonical label for
+ * a resolvable name and (by convention) the input for an unresolvable one.
  */
 export function patchConfirmedOwnersCsv(
   currentCsv: string,
-  edit: { oldTeam: string; newTeam: string; fallbackOwner: string }
+  edit: {
+    oldTeam: string;
+    newTeam: string;
+    fallbackOwner: string;
+    resolveTeam: (label: string) => string;
+  }
 ): string {
-  const { oldTeam, newTeam, fallbackOwner } = edit;
+  const { oldTeam, newTeam, fallbackOwner, resolveTeam } = edit;
   const rows = parseOwnersCsv(currentCsv);
 
-  const oldRow = rows.find((r) => r.team.toLowerCase() === oldTeam.toLowerCase());
-  const effectiveOwner = oldRow?.owner ?? fallbackOwner;
+  const oldCanon = resolveTeam(oldTeam).toLowerCase();
+  const newCanon = resolveTeam(newTeam).toLowerCase();
+
+  const oldRow = rows.find((r) => resolveTeam(r.team).toLowerCase() === oldCanon);
+  const effectiveOwner = oldRow && oldRow.owner !== NO_CLAIM_OWNER ? oldRow.owner : fallbackOwner;
 
   let sawNewTeam = false;
   for (const row of rows) {
-    if (row.team.toLowerCase() === newTeam.toLowerCase()) {
+    const canon = resolveTeam(row.team).toLowerCase();
+    if (canon === newCanon) {
       row.owner = effectiveOwner;
       sawNewTeam = true;
-    } else if (row.team.toLowerCase() === oldTeam.toLowerCase()) {
+    } else if (canon === oldCanon) {
       row.owner = NO_CLAIM_OWNER;
     }
   }

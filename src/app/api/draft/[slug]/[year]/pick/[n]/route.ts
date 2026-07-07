@@ -168,6 +168,10 @@ export async function PUT(
             oldTeam: previousTeam,
             newTeam: canonicalTeam,
             fallbackOwner: newPicks[pickIndex]!.owner,
+            // Match persisted rows through the same canonical resolver used to
+            // validate the incoming team, so an alias/alt label stored via
+            // /api/owners resolves to the same slot (no stale duplicate row).
+            resolveTeam: (label: string) => resolver.resolveName(label).canonicalName ?? label,
           })
         : buildConfirmedOwnersCsv(newPicks, getDraftEligibleTeams(items)).csv;
     await setAppState(`owners:${slug}:${year}`, 'csv', nextCsv);
