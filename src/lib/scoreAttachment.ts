@@ -423,33 +423,13 @@ export function matchScoreRowToSchedule(
   const homeResolution = resolveCanonicalTeamIdentity(row.home.team, resolver);
   const awayResolution = resolveCanonicalTeamIdentity(row.away.team, resolver);
 
-  const unresolved = unresolvedReason(homeResolution, awayResolution);
-  if (unresolved) {
-    const plausibleScheduledGameCount = countPlausibleScheduledGames({
-      row,
-      scheduleIndex,
-      homeResolution,
-      awayResolution,
-    });
-
-    return {
-      matched: false,
-      reason: unresolved,
-      homeResolution,
-      awayResolution,
-      trace: {
-        candidateCount: 0,
-        plausibleScheduledGameCount,
-        finalNote:
-          plausibleScheduledGameCount > 0
-            ? 'team identity could not be resolved for a plausible in-scope scheduled game'
-            : 'team identity could not be resolved for an out-of-scope or unmatched provider row',
-      },
-    };
-  }
-
-  // Attachment precedence: provider event id is the strongest key and should win whenever
-  // present and unique, because it survives neutral-site/home-away representation differences.
+  // Attachment precedence: provider event id is the strongest key and wins whenever
+  // present and unique. It is BOTH hydration-independent AND resolution-independent —
+  // it survives neutral-site/home-away representation differences, and it must attach
+  // even when the row's team labels can't be resolved (catalog/alias lag, the same
+  // condition that can leave the matching schedule game half-hydrated). So it is tried
+  // BEFORE the team-resolution gate below, which only guards the schedule-derived
+  // (week/pair/date) fallbacks.
   if (row.providerEventId) {
     const idMatches = scheduleIndex.byProviderGameId.get(row.providerEventId) ?? [];
     const matchedById = chooseSingle(idMatches);
@@ -494,6 +474,34 @@ export function matchScoreRowToSchedule(
         },
       };
     }
+  }
+
+  // Team resolution is required only for the schedule-derived fallbacks (they key on
+  // identity/canonical name). A row that reached here without a provider-id match and
+  // whose teams can't be resolved has no usable fallback signal.
+  const unresolved = unresolvedReason(homeResolution, awayResolution);
+  if (unresolved) {
+    const plausibleScheduledGameCount = countPlausibleScheduledGames({
+      row,
+      scheduleIndex,
+      homeResolution,
+      awayResolution,
+    });
+
+    return {
+      matched: false,
+      reason: unresolved,
+      homeResolution,
+      awayResolution,
+      trace: {
+        candidateCount: 0,
+        plausibleScheduledGameCount,
+        finalNote:
+          plausibleScheduledGameCount > 0
+            ? 'team identity could not be resolved for a plausible in-scope scheduled game'
+            : 'team identity could not be resolved for an out-of-scope or unmatched provider row',
+      },
+    };
   }
 
   // Fallbacks remain schedule-derived (week/season/pair/date) to support postseason,

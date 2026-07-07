@@ -107,6 +107,42 @@ test('a placeholder postseason game with a provider id is indexed by provider id
   assert.equal(match.matched && match.entry.gameKey, 'orange-bowl');
 });
 
+test('provider-id match attaches even when a score-row team label is unresolved', () => {
+  const resolver = makeResolver();
+  const index = buildScheduleIndex(
+    [
+      game({
+        key: 'sugar-bowl',
+        week: 17,
+        canHome: '',
+        canAway: '',
+        stage: 'bowl',
+        providerGameId: 'evt-888',
+        participants: { home: { kind: 'placeholder' }, away: { kind: 'placeholder' } },
+      }),
+    ],
+    resolver
+  );
+
+  // Catalog/alias lag: one side's label is not in the catalog, so it can't be
+  // resolved — the SAME lag that can leave the schedule game half-hydrated. The
+  // unique provider id must still attach (it precedes the team-resolution gate).
+  const match = matchScoreRowToSchedule(
+    row({
+      seasonType: 'postseason',
+      providerEventId: 'evt-888',
+      home: { team: 'Notre Dame', score: 31 },
+      away: { team: 'Some Unlisted School', score: 28 },
+      status: 'final',
+    }),
+    index,
+    resolver
+  );
+  assert.equal(match.matched, true);
+  assert.equal(match.matched && match.strategy, 'provider_event_id');
+  assert.equal(match.matched && match.entry.gameKey, 'sugar-bowl');
+});
+
 test('a fully hydrated game with real teams still indexes normally by team+week', () => {
   const resolver = makeResolver();
   const index = buildScheduleIndex(
