@@ -218,6 +218,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
             season: selectedSeason,
             teams,
             debugTrace: isDebug,
+            // Manual refresh is an admin-only control (AdminDebugSurface); mirror
+            // the odds path and authorize the scores upstream refresh so it still
+            // updates scores. The public/auto path stays cache-only (PLATFORM-075).
+            refresh: manual,
+            authHeaders: manual ? requireAdminAuthHeaders() : undefined,
           });
 
           if (isDebug) {

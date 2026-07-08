@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 
-import { loadDebugSeasonContext, parseDebugYear } from '../_lib/loadDebugSeasonContext';
+import {
+  forwardAdminAuthHeaders,
+  loadDebugSeasonContext,
+  parseDebugYear,
+} from '../_lib/loadDebugSeasonContext';
 import { buildScheduleFromApi, type AppGame } from '@/lib/schedule';
 import {
   buildScheduleIndex,
@@ -125,7 +129,12 @@ export async function GET(req: Request) {
 
   const [context, scoresRes] = await Promise.all([
     loadDebugSeasonContext({ year, origin }),
-    fetch(`${origin}/api/scores?year=${year}&seasonType=postseason`, { cache: 'no-store' }),
+    // Authenticated diagnostic: refresh upstream (forwarding the admin's own
+    // credentials) so a cold/stale cache does not report misleading zero rows.
+    fetch(`${origin}/api/scores?year=${year}&seasonType=postseason&refresh=1`, {
+      cache: 'no-store',
+      headers: forwardAdminAuthHeaders(req),
+    }),
   ]);
 
   const built = buildScheduleFromApi({

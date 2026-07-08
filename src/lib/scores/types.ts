@@ -8,7 +8,11 @@ export type CfbdFallbackReason =
   | 'cfbd-network'
   | 'cfbd-http'
   | 'cfbd-parse'
-  | 'cfbd-unknown-error';
+  | 'cfbd-unknown-error'
+  // Public/anonymous request with no usable cache: upstream CFBD/ESPN was not
+  // contacted to protect provider quota (PLATFORM-075). Distinct from
+  // 'cfbd-empty' (which means the provider WAS called and returned no rows).
+  | 'upstream-suppressed';
 
 export interface ScorePack {
   id?: string | null;
@@ -23,7 +27,12 @@ export interface ScorePack {
 
 export interface ScoresMeta {
   source: 'cfbd' | 'espn';
-  cache: 'hit' | 'miss';
+  // 'hit'  — served a fresh cache entry (within TTL)
+  // 'miss' — fetched fresh from upstream (authorized refresh only)
+  // 'stale' — public/anonymous best-effort read: served cached data that may be
+  //           past TTL, or an empty response when nothing is cached, WITHOUT any
+  //           upstream call (PLATFORM-075).
+  cache: 'hit' | 'miss' | 'stale';
   fallbackUsed: boolean;
   generatedAt: string;
   cfbdFallbackReason: CfbdFallbackReason;
@@ -73,10 +82,12 @@ export interface EspnTeamRef {
 export interface EspnCompetition {
   status: { type: { name: string; description: string; shortDetail?: string } };
   competitors: EspnTeamRef[];
+  date?: string | null;
 }
 
 export interface EspnEvent {
   competitions: EspnCompetition[];
+  date?: string | null;
 }
 
 export interface EspnScoreboard {

@@ -100,3 +100,49 @@ test('postseason score attachment debug route emits canonical attachment fields'
   assert.equal(json.games[0].matchedNormalizedScore, true);
   assert.equal('homeCanonicalId' in json.games[0], true);
 });
+
+test('PLATFORM-075: forwards refresh=1 and the admin credential to the scores sub-request', async () => {
+  let scoresUrl: string | null = null;
+  let scoresToken: string | null = null;
+  setMockFetch(async (input: URL | string, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    const req = new URL(url);
+    if (req.pathname === '/api/scores') {
+      scoresUrl = url;
+      scoresToken = new Headers(init?.headers).get('x-admin-token');
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    // Minimal season context for the rest of the pipeline.
+    if (req.pathname === '/api/schedule' || req.pathname === '/api/teams') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (req.pathname === '/api/aliases') {
+      return new Response(JSON.stringify({ map: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (req.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`Unhandled fetch: ${req.pathname}`);
+  });
+
+  const req = new Request('http://localhost/api/debug/postseason-score-attachment?year=2025', {
+    headers: { 'x-admin-token': 'diag-token' },
+  });
+  const res = await GET(req);
+  assert.equal(res.status, 200);
+  assert.ok(scoresUrl, 'the debug route must request scores');
+  assert.match(String(scoresUrl), /[?&]refresh=1(&|$)/);
+  assert.equal(scoresToken, 'diag-token', 'the admin credential must be forwarded');
+});

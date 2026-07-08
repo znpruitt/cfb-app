@@ -16,6 +16,24 @@ export function parseDebugYear(url: URL): number {
   return Number.isFinite(parsed) ? parsed : new Date().getFullYear();
 }
 
+/**
+ * Forward the incoming admin request's authorization onto an internal fetch.
+ * These debug routes are already `requireAdminAuth`-gated, so re-authorizing an
+ * internal `/api/scores?refresh=1` sub-request as the same admin (Clerk session
+ * cookie or ADMIN_API_TOKEN) is exactly the caller's own credentials — required
+ * because scores upstream fetches are gated to authorized callers (PLATFORM-075).
+ */
+export function forwardAdminAuthHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const cookie = req.headers.get('cookie');
+  if (cookie) headers.cookie = cookie;
+  const authorization = req.headers.get('authorization');
+  if (authorization) headers.authorization = authorization;
+  const adminToken = req.headers.get('x-admin-token');
+  if (adminToken) headers['x-admin-token'] = adminToken;
+  return headers;
+}
+
 export async function loadDebugSeasonContext(params: {
   year: number;
   origin: string;

@@ -333,3 +333,190 @@ test('score refresh keeps provider week 1 rows in scope for canonical week 0 gam
     globalThis.fetch = originalFetch;
   }
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-075 — the public score fetch is cache-only; the admin manual refresh
+// propagates refresh=1 + credentials; a suppressed (503) season response falls
+// through to week-scoped cache reads instead of hiding warm week caches.
+// ---------------------------------------------------------------------------
+
+test('PLATFORM-075: manual refresh propagates refresh=1 and admin credentials to score requests', async () => {
+  const games = [
+    game({
+      key: 'week-1',
+      eventId: 'week-1',
+      providerGameId: 'w1',
+      week: 1,
+      csvHome: 'Notre Dame',
+      csvAway: 'Navy',
+      canHome: 'Notre Dame',
+      canAway: 'Navy',
+      date: '2025-09-06T12:00:00.000Z',
+    }),
+  ];
+  const requested: string[] = [];
+  const seenAuth: Array<string | null> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    seenAuth.push(new Headers(init?.headers).get('x-admin-token'));
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchScoresByGame({
+      games,
+      fallbackScopeGames: games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+      refresh: true,
+      authHeaders: { 'x-admin-token': 'secret-token' },
+    });
+    assert.ok(requested.length > 0, 'a score request should have been made');
+    assert.ok(
+      requested.every((u) => u.includes('refresh=1')),
+      'manual refresh must add refresh=1 to every score request'
+    );
+    assert.ok(
+      seenAuth.every((t) => t === 'secret-token'),
+      'admin credentials must be forwarded on the refresh'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('PLATFORM-075: public score fetch omits refresh=1 (cache-only)', async () => {
+  const games = [
+    game({
+      key: 'week-1',
+      eventId: 'week-1',
+      providerGameId: 'w1',
+      week: 1,
+      csvHome: 'Notre Dame',
+      csvAway: 'Navy',
+      canHome: 'Notre Dame',
+      canAway: 'Navy',
+      date: '2025-09-06T12:00:00.000Z',
+    }),
+  ];
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchScoresByGame({
+      games,
+      fallbackScopeGames: games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+    });
+    assert.ok(requested.length > 0, 'a score request should have been made');
+    assert.ok(
+      requested.every((u) => !u.includes('refresh=1')),
+      'public fetch must not add refresh=1'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('PLATFORM-075: the loader falls through to week reads when the season response is not ok', async () => {
+  // Real path: an authorized refresh where the season-wide request is unavailable
+  // (e.g. ESPN deployment, CFBD season-wide 502) still fans out to week-scoped
+  // reads, propagating refresh=1. (The public path no longer returns a non-200
+  // for cold reads — the route reconciles week caches server-side instead.)
+  const games = [
+    game({
+      key: 'week-3',
+      eventId: 'week-3',
+      providerGameId: 'w3',
+      week: 3,
+      csvHome: 'Alabama',
+      csvAway: 'Georgia',
+      canHome: 'Alabama',
+      canAway: 'Georgia',
+      date: '2025-09-20T12:00:00.000Z',
+    }),
+  ];
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    const req = new URL(url, 'http://localhost');
+    // Season-wide (no week param): unavailable -> 502.
+    if (!req.searchParams.has('week')) {
+      return new Response(JSON.stringify({ error: 'season-wide fallback unavailable' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    // Week-scoped cache warm -> 200 with data.
+    return new Response(
+      JSON.stringify({
+        items: [
+          {
+            id: 'w3',
+            week: 3,
+            seasonType: 'regular',
+            status: 'final',
+            startDate: '2025-09-20T12:00:00.000Z',
+            home: 'Alabama',
+            away: 'Georgia',
+            homeScore: 21,
+            awayScore: 14,
+            time: 'Final',
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games,
+      fallbackScopeGames: games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+      refresh: true,
+    });
+    assert.ok(
+      requested.some((u) => !new URL(u, 'http://localhost').searchParams.has('week')),
+      'season-wide request fired'
+    );
+    const weekRequests = requested.filter((u) =>
+      new URL(u, 'http://localhost').searchParams.has('week')
+    );
+    assert.ok(
+      weekRequests.length > 0,
+      'week-scoped fallback fired after the non-ok season response'
+    );
+    assert.ok(
+      weekRequests.every((u) => u.includes('refresh=1')),
+      'the refresh flag propagates to the week fallback requests'
+    );
+    assert.equal(
+      result.scoresByKey['week-3']?.home.score,
+      21,
+      'the week data surfaces via the fallback'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

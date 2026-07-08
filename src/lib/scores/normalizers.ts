@@ -103,7 +103,11 @@ export function toScorePackFromEspn(
   return {
     id: event.id ?? null,
     seasonType,
-    startDate: null,
+    // Carry ESPN's kickoff timestamp so downstream identity reconciliation can
+    // key on the UTC date: without it, an ESPN fallback row cannot be matched to
+    // the same game in a CFBD season snapshot (which does carry start_date), and
+    // the two provider/canonical week aliases would duplicate (PLATFORM-075).
+    startDate: event.date ?? competition.date ?? null,
     week,
     status,
     time: statusType?.shortDetail ?? null,

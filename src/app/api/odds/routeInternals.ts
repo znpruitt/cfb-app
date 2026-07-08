@@ -55,17 +55,14 @@ export type SharedOddsCacheEntry = {
 
 type OddsCache = {
   entries: Record<string, SharedOddsCacheEntry>;
-  dayKey: string | null;
 };
 
 export const oddsCache: OddsCache = {
   entries: {},
-  dayKey: null,
 };
 
 export function __resetOddsRouteCacheForTests(): void {
   oddsCache.entries = {};
-  oddsCache.dayKey = null;
 }
 
 /**

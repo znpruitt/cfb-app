@@ -163,7 +163,7 @@ test('explicit request year stays authoritative when filters are combined', asyn
         });
       }) as typeof fetch;
 
-      const res = await GET(new Request(`http://localhost/api/odds${testCase.query}`));
+      const res = await GET(new Request(`http://localhost/api/odds${testCase.query}&refresh=1`));
       assert.equal(res.status, 200, testCase.label);
       const json = (await res.json()) as {
         items: Array<{ canonicalGameId: string }>;
@@ -212,7 +212,7 @@ test('402 with valid usage headers persists authoritative header-derived snapsho
     })) as typeof fetch;
 
   try {
-    const res = await GET(new Request('http://localhost/api/odds?markets=h2h,spreads'));
+    const res = await GET(new Request('http://localhost/api/odds?markets=h2h,spreads&refresh=1'));
     assert.equal(res.status, 402);
 
     const usage = await getLatestKnownOddsUsage();
@@ -235,7 +235,7 @@ test('429 without usable usage headers persists fallback-labeled depleted snapsh
     })) as typeof fetch;
 
   try {
-    const res = await GET(new Request('http://localhost/api/odds?markets=totals'));
+    const res = await GET(new Request('http://localhost/api/odds?markets=totals&refresh=1'));
     assert.equal(res.status, 429);
 
     const usage = await getLatestKnownOddsUsage();
@@ -325,7 +325,9 @@ test('filtered odds requests do not overwrite the shared durable store with part
 
   try {
     const res = await GET(
-      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&markets=h2h`)
+      new Request(
+        `http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&markets=h2h&refresh=1`
+      )
     );
     assert.equal(res.status, 200);
 
@@ -350,7 +352,86 @@ test('filtered odds requests do not overwrite the shared durable store with part
   }
 });
 
-test('stale shared odds cache entries are refetched instead of treated as permanently fresh', async () => {
+test('PLATFORM-075: filtered odds request never leaks the unfiltered durable snapshot', async () => {
+  const originalFetch = global.fetch;
+
+  // Seed a full canonical durable snapshot (spread/total/ml, all markets).
+  await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
+    '1-georgia-clemson-H': {
+      canonicalGameId: '1-georgia-clemson-H',
+      latestSnapshot: {
+        capturedAt: '2026-09-01T18:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingSnapshot: null,
+      closingFrozenAt: null,
+    },
+  });
+
+  let oddsHostCalls = 0;
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://localhost');
+    if (url.hostname === 'api.the-odds-api.com') {
+      oddsHostCalls += 1;
+      return new Response(JSON.stringify([buildOddsEvent()]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [buildScheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    // Cold cache for the filtered (non-canonical) key + no upstream fetch on the
+    // anonymous path -> must NOT seed from / leak the unfiltered durable snapshot.
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&markets=h2h`)
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(oddsHostCalls, 0, 'anonymous request must not call the Odds API');
+
+    const json = (await res.json()) as { items: Array<{ odds: unknown }> };
+    // A filtered response is built from its own (here empty) events only. Games
+    // may still be listed, but none may carry odds sourced from the durable store.
+    assert.ok(
+      json.items.every((item) => item.odds == null),
+      'a filtered read must not surface odds seeded from the canonical durable store'
+    );
+    const serialized = JSON.stringify(json.items);
+    assert.ok(!serialized.includes('52.5'), 'the durable total must not leak into a filtered read');
+    assert.ok(
+      !serialized.includes('-3.5'),
+      'the durable spread must not leak into a filtered read'
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('authorized refresh refetches a stale shared odds cache entry instead of serving it', async () => {
+  // PLATFORM-075: the public/anonymous path serves stale entries without an
+  // upstream call (covered separately). An authorized refresh=1 always refetches.
   const originalFetch = global.fetch;
   const cacheKey =
     'bookmakers=bet365,betmgm,caesars,draftkings,espnbet,fanduel,pointsbet|markets=h2h,spreads,totals|regions=us';
@@ -396,7 +477,7 @@ test('stale shared odds cache entries are refetched instead of treated as perman
   }) as typeof fetch;
 
   try {
-    const res = await GET(new Request('http://localhost/api/odds?year=2026'));
+    const res = await GET(new Request('http://localhost/api/odds?year=2026&refresh=1'));
     const json = (await res.json()) as { meta: { cache: 'hit' | 'miss' } };
 
     assert.equal(res.status, 200);
@@ -488,7 +569,7 @@ test('successful fetch attaches odds to canonical schedule games and persists la
 
   try {
     const res = await GET(
-      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`)
     );
     assert.equal(res.status, 200);
 
@@ -701,7 +782,7 @@ test('post-kickoff refresh freezes closingSnapshot and later refreshes do not ov
 
   try {
     const json = (await (
-      await GET(new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`))
+      await GET(new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`))
     ).json()) as {
       items: Array<{ canonicalGameId: string; odds: { lineSourceStatus: string } }>;
     };
@@ -713,7 +794,7 @@ test('post-kickoff refresh freezes closingSnapshot and later refreshes do not ov
     assert.equal(typeof persisted?.closingFrozenAt, 'string');
 
     oddsSpread = -7.5;
-    await GET(new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`));
+    await GET(new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`));
 
     persisted = await getDurableOddsRecord(DURABLE_ODDS_TEST_SEASON, canonicalGameId);
     assert.equal(persisted?.closingSnapshot?.spread, -3.5);
@@ -789,7 +870,7 @@ test('first seen after kickoff does not persist a closing snapshot fallback', as
 
   try {
     const res = await GET(
-      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`)
     );
     assert.equal(res.status, 200);
 
@@ -922,7 +1003,7 @@ test('kickoff delays reopen an early frozen line and allow a later pre-kickoff r
     oddsSpread = -7.5;
 
     const res = await GET(
-      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`)
     );
     assert.equal(res.status, 200);
 
@@ -1069,7 +1150,7 @@ test('repeat matchup odds persist independently for regular season and conferenc
 
   try {
     const res = await GET(
-      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`)
     );
     assert.equal(res.status, 200);
 
@@ -1195,7 +1276,7 @@ test('dated upstream odds attach to the date-aligned canonical game, not the fir
 
   try {
     const res = await GET(
-      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`)
     );
     assert.equal(res.status, 200);
 
@@ -1352,7 +1433,7 @@ test('odds resolves an odds-provider label to a canonical game via a STORED GLOB
 
   try {
     const res = await GET(
-      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}`)
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&refresh=1`)
     );
     assert.equal(res.status, 200);
     const json = (await res.json()) as {

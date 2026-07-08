@@ -127,11 +127,6 @@ function createCacheKey(query: {
   return `bookmakers=${bookmakers}|markets=${markets}|regions=${regions}`;
 }
 
-function dayKeyUTC(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
-}
-
 function parseCsvList(raw: string | null): string[] | null {
   if (!raw) return null;
   const values = raw
@@ -297,6 +292,7 @@ async function buildCanonicalOddsItems(params: {
   requestTime: string;
   snapshotCapturedAt: string;
   persistDurableStore: boolean;
+  seedDurableStore: boolean;
 }): Promise<CanonicalOddsItem[]> {
   const {
     season,
@@ -308,6 +304,7 @@ async function buildCanonicalOddsItems(params: {
     requestTime,
     snapshotCapturedAt,
     persistDurableStore,
+    seedDurableStore,
   } = params;
   const builtSchedule = buildScheduleFromApi({
     scheduleItems,
@@ -408,9 +405,17 @@ async function buildCanonicalOddsItems(params: {
     return nextStore;
   };
 
+  // Filtered (non-canonical) queries must NOT seed from the shared durable
+  // store: it holds a full-market, preferred-book snapshot per game that cannot
+  // be projected to arbitrary market/bookmaker/region filters, so seeding would
+  // leak spreads/totals and games absent from the filtered payload. Such
+  // responses are built purely from the fetched/cached filtered events; games
+  // without a matching event simply carry no odds. Canonical queries still seed
+  // (and, when authorized, persist) the durable store. persistDurableStore is
+  // never set for filtered queries, so the persist branch always seeds durable.
   const nextStore = persistDurableStore
     ? await updateDurableOddsStore(season, applyOddsStoreUpdates)
-    : applyOddsStoreUpdates(await getDurableOddsStore(season));
+    : applyOddsStoreUpdates(seedDurableStore ? await getDurableOddsStore(season) : {});
 
   const items: CanonicalOddsItem[] = [];
   for (const game of games) {
@@ -446,11 +451,8 @@ export async function GET(req: Request): Promise<Response> {
 
     const query = parsedQuery.query;
 
-    const dayKey = dayKeyUTC();
-    if (oddsCache.dayKey !== dayKey) {
-      oddsCache.dayKey = dayKey;
-    }
-
+    // Only an authorized admin refresh may spend upstream Odds API quota
+    // (PLATFORM-075). Public/anonymous traffic is a pure cache reader below.
     const refreshRequested = new URL(req.url).searchParams.get('refresh') === '1';
     if (refreshRequested) {
       const authFailure = await requireAdminRequest(req);
@@ -458,57 +460,51 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     const cacheKey = createCacheKey(query);
+    // In-memory and durable entries share the same season-scoped key so odds
+    // for different seasons can never collide in the process cache. Previously
+    // the in-memory key omitted the season (only the durable key carried it),
+    // so a 2025 and 2026 request with identical bookmakers/markets/regions
+    // aliased the same in-memory entry (PLATFORM-075 item 3).
+    const seasonScopedKey = `${query.season}:${cacheKey}`;
     const now = Date.now();
-    const cachedEntry = oddsCache.entries[cacheKey];
+    const cachedEntry = oddsCache.entries[seasonScopedKey];
     let responseEntry: SharedOddsCacheEntry | undefined = cachedEntry;
     let fetchedFromUpstream = false;
-
-    if (!refreshRequested && isFreshOddsCacheEntry(cachedEntry, now)) {
-      recordRouteCacheHit('odds');
-    } else if (!refreshRequested) {
-      const stored = await getAppState<SharedOddsCacheEntry>(
-        'odds-cache',
-        `${query.season}:${cacheKey}`
-      );
-      const storedValue = stored?.value;
-      if (storedValue && isFreshOddsCacheEntry(storedValue, now)) {
-        oddsCache.entries[cacheKey] = storedValue;
-        responseEntry = storedValue;
-        recordRouteCacheHit('odds');
-      } else {
-        responseEntry = undefined;
-      }
-    }
-
-    // Quota guard (server-side): on the non-admin auto path, never spend
-    // upstream Odds API quota when the saved usage snapshot says remaining is
-    // below the auto-disable threshold. Public callers carry no admin usage
-    // data, so this must be enforced here rather than in the UI. Admin-driven
-    // refreshes (refresh=1, already auth-gated above) intentionally bypass it.
     let quotaSuppressed = false;
     let suppressedUsage: OddsUsageSnapshot | null = null;
-    if (!responseEntry && !refreshRequested) {
-      // Read through to durable storage so the suppression decision is never
-      // made from a stale process-memoized usage snapshot (multi-instance safe).
-      const latestKnownUsage = await getLatestKnownOddsUsage({ forceRefresh: true });
-      if (getOddsQuotaGuardState(latestKnownUsage?.remaining).disableAutoRefresh) {
-        quotaSuppressed = true;
-        // Report the current (low) usage snapshot, not the fallback entry's
-        // possibly-stale higher usage, so the client guard/warnings still engage.
-        suppressedUsage = latestKnownUsage;
-        recordRouteCacheMiss('odds');
-        // Serve the freshest cached data we have (possibly stale) without an
-        // upstream call, preferring whichever of the in-memory or durable entry
-        // has the newer lastFetch. If nothing is cached, continue with empty odds.
-        const storedFallback = await getAppState<SharedOddsCacheEntry>(
-          'odds-cache',
-          `${query.season}:${cacheKey}`
-        );
-        responseEntry = pickFreshestOddsFallback(cachedEntry, storedFallback?.value);
-      }
-    }
+    let servedStaleFallback = false;
 
-    if ((!responseEntry || refreshRequested) && !quotaSuppressed) {
+    if (!refreshRequested) {
+      // ---- Public/anonymous path: never spends upstream quota (PLATFORM-075) ----
+      if (isFreshOddsCacheEntry(cachedEntry, now)) {
+        recordRouteCacheHit('odds');
+      } else {
+        const stored = await getAppState<SharedOddsCacheEntry>('odds-cache', seasonScopedKey);
+        const storedValue = stored?.value;
+        if (storedValue && isFreshOddsCacheEntry(storedValue, now)) {
+          oddsCache.entries[seasonScopedKey] = storedValue;
+          responseEntry = storedValue;
+          recordRouteCacheHit('odds');
+        } else {
+          // No fresh cache. Serve the freshest STALE fallback (in-memory or
+          // durable) without any upstream call; if nothing is cached, serve
+          // empty odds. Anonymous callers never trigger a cold-cache fetch.
+          recordRouteCacheMiss('odds');
+          responseEntry = pickFreshestOddsFallback(cachedEntry, storedValue);
+          servedStaleFallback = true;
+          // Surface the current (low) usage snapshot when the saved quota guard
+          // is tripped so the client can self-throttle its own manual refresh
+          // (preserves PLATFORM-020 usage reporting). Read through durable
+          // storage so the decision is not made from a stale process memo.
+          const latestKnownUsage = await getLatestKnownOddsUsage({ forceRefresh: true });
+          if (getOddsQuotaGuardState(latestKnownUsage?.remaining).disableAutoRefresh) {
+            quotaSuppressed = true;
+            suppressedUsage = latestKnownUsage;
+          }
+        }
+      }
+    } else {
+      // ---- Authorized admin refresh: the only path allowed to spend quota ----
       recordRouteCacheMiss('odds');
 
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
@@ -592,12 +588,21 @@ export async function GET(req: Request): Promise<Response> {
         lastFetch: Date.now(),
         usage,
       };
-      oddsCache.entries[cacheKey] = responseEntry;
-      await setAppState('odds-cache', `${query.season}:${cacheKey}`, responseEntry);
+      oddsCache.entries[seasonScopedKey] = responseEntry;
+      await setAppState('odds-cache', seasonScopedKey, responseEntry);
       fetchedFromUpstream = true;
     }
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
+
+    // Only the canonical/default query reads the shared durable odds store; it
+    // holds a full-market, preferred-book snapshot per game that cannot be
+    // projected to arbitrary market/bookmaker/region filters. A filtered
+    // (non-canonical) response is therefore built purely from its own fetched/
+    // cached events (seedDurableStore=false), so it can never leak spreads/totals
+    // or games absent from the filtered payload — whether the filtered cache is
+    // cold (empty result) or a partial subset.
+    const isCanonicalQuery = isCanonicalDurableQuery(query);
     const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([
       fetchCanonicalSchedule(req, query.season),
       readTeamsCatalog(),
@@ -618,9 +623,11 @@ export async function GET(req: Request): Promise<Response> {
       conferenceRecords,
       requestTime,
       snapshotCapturedAt,
-      // Never persist the durable store from a suppressed, possibly-stale
-      // fallback — it must not downgrade newer durable snapshots.
-      persistDurableStore: !quotaSuppressed && isCanonicalDurableQuery(query),
+      // Never persist the durable store from a stale served fallback (quota
+      // suppressed or not) — it must not downgrade newer durable snapshots.
+      // Only fresh cache hits and authorized upstream refreshes persist.
+      persistDurableStore: !servedStaleFallback && isCanonicalQuery,
+      seedDurableStore: isCanonicalQuery,
     });
 
     return responseFrom(items, {
