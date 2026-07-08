@@ -82,10 +82,12 @@ export interface EspnTeamRef {
 export interface EspnCompetition {
   status: { type: { name: string; description: string; shortDetail?: string } };
   competitors: EspnTeamRef[];
+  date?: string | null;
 }
 
 export interface EspnEvent {
   competitions: EspnCompetition[];
+  date?: string | null;
 }
 
 export interface EspnScoreboard {

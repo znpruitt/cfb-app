@@ -352,7 +352,7 @@ test('filtered odds requests do not overwrite the shared durable store with part
   }
 });
 
-test('PLATFORM-075: cold anonymous filtered odds request returns empty, not the unfiltered durable snapshot', async () => {
+test('PLATFORM-075: filtered odds request never leaks the unfiltered durable snapshot', async () => {
   const originalFetch = global.fetch;
 
   // Seed a full canonical durable snapshot (spread/total/ml, all markets).
@@ -404,15 +404,26 @@ test('PLATFORM-075: cold anonymous filtered odds request returns empty, not the 
 
   try {
     // Cold cache for the filtered (non-canonical) key + no upstream fetch on the
-    // anonymous path -> must NOT leak the unfiltered durable snapshot.
+    // anonymous path -> must NOT seed from / leak the unfiltered durable snapshot.
     const res = await GET(
       new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&markets=h2h`)
     );
     assert.equal(res.status, 200, await res.clone().text());
     assert.equal(oddsHostCalls, 0, 'anonymous request must not call the Odds API');
 
-    const json = (await res.json()) as { items: unknown[] };
-    assert.deepEqual(json.items, [], 'a cold filtered read must not serve the canonical snapshot');
+    const json = (await res.json()) as { items: Array<{ odds: unknown }> };
+    // A filtered response is built from its own (here empty) events only. Games
+    // may still be listed, but none may carry odds sourced from the durable store.
+    assert.ok(
+      json.items.every((item) => item.odds == null),
+      'a filtered read must not surface odds seeded from the canonical durable store'
+    );
+    const serialized = JSON.stringify(json.items);
+    assert.ok(!serialized.includes('52.5'), 'the durable total must not leak into a filtered read');
+    assert.ok(
+      !serialized.includes('-3.5'),
+      'the durable spread must not leak into a filtered read'
+    );
   } finally {
     global.fetch = originalFetch;
   }
