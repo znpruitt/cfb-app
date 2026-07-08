@@ -243,13 +243,22 @@ export async function GET(req: Request) {
         cfbdFallbackReason: staleEntry.cfbdFallbackReason,
       });
     }
-    return responseFrom([], {
-      source: 'cfbd',
-      cache: 'stale',
-      fallbackUsed: false,
-      generatedAt: new Date(now).toISOString(),
-      cfbdFallbackReason: 'upstream-suppressed',
-    });
+    // Nothing cached at all: a controlled "unavailable" response. Returning a
+    // non-200 lets the internal score loader (fetchScoreRows) treat this as a
+    // miss and fall through to week-scoped cache probes, rather than accepting
+    // an empty season-wide payload as authoritative and skipping the week reads
+    // (which is where ESPN-fallback week caches live). No upstream call is made.
+    return responseFrom(
+      [],
+      {
+        source: 'cfbd',
+        cache: 'stale',
+        fallbackUsed: false,
+        generatedAt: new Date(now).toISOString(),
+        cfbdFallbackReason: 'upstream-suppressed',
+      },
+      503
+    );
   }
 
   // ---- Authorized refresh path: fetch upstream (CFBD -> ESPN fallback) ----

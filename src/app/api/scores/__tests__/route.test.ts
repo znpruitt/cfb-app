@@ -156,7 +156,9 @@ test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD/ESPN'
   );
   const json = await res.json();
 
-  assert.equal(res.status, 200);
+  // Controlled "unavailable" (503) — a non-200 lets the internal loader fall
+  // through to week-scoped cache probes rather than accepting an empty payload.
+  assert.equal(res.status, 503);
   assert.equal(fetchCalls, 0, 'anonymous cold cache must not spend CFBD/ESPN quota');
   assert.equal(json.meta.cache, 'stale');
   assert.equal(json.meta.cfbdFallbackReason, 'upstream-suppressed');

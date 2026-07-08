@@ -333,3 +333,178 @@ test('score refresh keeps provider week 1 rows in scope for canonical week 0 gam
     globalThis.fetch = originalFetch;
   }
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-075 — the public score fetch is cache-only; the admin manual refresh
+// propagates refresh=1 + credentials; a suppressed (503) season response falls
+// through to week-scoped cache reads instead of hiding warm week caches.
+// ---------------------------------------------------------------------------
+
+test('PLATFORM-075: manual refresh propagates refresh=1 and admin credentials to score requests', async () => {
+  const games = [
+    game({
+      key: 'week-1',
+      eventId: 'week-1',
+      providerGameId: 'w1',
+      week: 1,
+      csvHome: 'Notre Dame',
+      csvAway: 'Navy',
+      canHome: 'Notre Dame',
+      canAway: 'Navy',
+      date: '2025-09-06T12:00:00.000Z',
+    }),
+  ];
+  const requested: string[] = [];
+  const seenAuth: Array<string | null> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    seenAuth.push(new Headers(init?.headers).get('x-admin-token'));
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchScoresByGame({
+      games,
+      fallbackScopeGames: games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+      refresh: true,
+      authHeaders: { 'x-admin-token': 'secret-token' },
+    });
+    assert.ok(requested.length > 0, 'a score request should have been made');
+    assert.ok(
+      requested.every((u) => u.includes('refresh=1')),
+      'manual refresh must add refresh=1 to every score request'
+    );
+    assert.ok(
+      seenAuth.every((t) => t === 'secret-token'),
+      'admin credentials must be forwarded on the refresh'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('PLATFORM-075: public score fetch omits refresh=1 (cache-only)', async () => {
+  const games = [
+    game({
+      key: 'week-1',
+      eventId: 'week-1',
+      providerGameId: 'w1',
+      week: 1,
+      csvHome: 'Notre Dame',
+      csvAway: 'Navy',
+      canHome: 'Notre Dame',
+      canAway: 'Navy',
+      date: '2025-09-06T12:00:00.000Z',
+    }),
+  ];
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    await fetchScoresByGame({
+      games,
+      fallbackScopeGames: games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+    });
+    assert.ok(requested.length > 0, 'a score request should have been made');
+    assert.ok(
+      requested.every((u) => !u.includes('refresh=1')),
+      'public fetch must not add refresh=1'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('PLATFORM-075: a suppressed (503) season response falls through to week-scoped cache reads', async () => {
+  const games = [
+    game({
+      key: 'week-3',
+      eventId: 'week-3',
+      providerGameId: 'w3',
+      week: 3,
+      csvHome: 'Alabama',
+      csvAway: 'Georgia',
+      canHome: 'Alabama',
+      canAway: 'Georgia',
+      date: '2025-09-20T12:00:00.000Z',
+    }),
+  ];
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    requested.push(url);
+    const req = new URL(url, 'http://localhost');
+    // Season-wide (no week param): cold public read -> 503 unavailable.
+    if (!req.searchParams.has('week')) {
+      return new Response(
+        JSON.stringify({ items: [], meta: { cfbdFallbackReason: 'upstream-suppressed' } }),
+        { status: 503, headers: { 'content-type': 'application/json' } }
+      );
+    }
+    // Week-scoped cache warm -> 200 with data.
+    return new Response(
+      JSON.stringify({
+        items: [
+          {
+            id: 'w3',
+            week: 3,
+            seasonType: 'regular',
+            status: 'final',
+            startDate: '2025-09-20T12:00:00.000Z',
+            home: 'Alabama',
+            away: 'Georgia',
+            homeScore: 21,
+            awayScore: 14,
+            time: 'Final',
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await fetchScoresByGame({
+      games,
+      fallbackScopeGames: games,
+      aliasMap: {},
+      season: 2025,
+      teams,
+    });
+    assert.ok(
+      requested.some((u) => !new URL(u, 'http://localhost').searchParams.has('week')),
+      'season-wide request fired'
+    );
+    assert.ok(
+      requested.some((u) => new URL(u, 'http://localhost').searchParams.has('week')),
+      'week-scoped fallback fired after the 503'
+    );
+    assert.equal(
+      result.scoresByKey['week-3']?.home.score,
+      21,
+      'a warm week cache must surface despite a cold season key'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

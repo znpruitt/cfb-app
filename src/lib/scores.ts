@@ -143,8 +143,19 @@ async function fetchScoreRows(params: {
   seasonTypes: Array<'regular' | 'postseason'>;
   issues: string[];
   apiBaseUrl?: string;
+  refresh?: boolean;
+  authHeaders?: HeadersInit;
 }): Promise<{ rows: ScoreRow[]; requestUrls: string[] }> {
-  const { season, weeks, seasonTypes, issues, apiBaseUrl } = params;
+  const { season, weeks, seasonTypes, issues, apiBaseUrl, refresh = false, authHeaders } = params;
+
+  // Only an authorized (admin) refresh may spend CFBD/ESPN quota (PLATFORM-075).
+  // The public path omits refresh and reads cache only; the admin manual refresh
+  // propagates refresh=1 + admin credentials so scores still update upstream.
+  const refreshSuffix = refresh ? '&refresh=1' : '';
+  const fetchInit: RequestInit = {
+    cache: 'no-store',
+    ...(authHeaders ? { headers: authHeaders } : {}),
+  };
 
   const rows: ScoreRow[] = [];
   const requestUrls: string[] = [];
@@ -152,13 +163,11 @@ async function fetchScoreRows(params: {
   for (const seasonType of seasonTypes) {
     let seasonTypeRowCount = 0;
     const seasonUrl = buildApiUrl(
-      `/api/scores?year=${season}&seasonType=${seasonType}`,
+      `/api/scores?year=${season}&seasonType=${seasonType}${refreshSuffix}`,
       apiBaseUrl
     );
     requestUrls.push(seasonUrl);
-    const seasonRes = await fetch(seasonUrl, {
-      cache: 'no-store',
-    });
+    const seasonRes = await fetch(seasonUrl, fetchInit);
     if (seasonRes.ok) {
       const seasonRaw = parseScorePayload(await seasonRes.json());
       const parsedSeasonRows = seasonRaw
@@ -174,13 +183,11 @@ async function fetchScoreRows(params: {
 
     for (const w of weeks) {
       const weekUrl = buildApiUrl(
-        `/api/scores?week=${w}&year=${season}&seasonType=${seasonType}`,
+        `/api/scores?week=${w}&year=${season}&seasonType=${seasonType}${refreshSuffix}`,
         apiBaseUrl
       );
       requestUrls.push(weekUrl);
-      const weekRes = await fetch(weekUrl, {
-        cache: 'no-store',
-      });
+      const weekRes = await fetch(weekUrl, fetchInit);
       if (!weekRes.ok) {
         const weekErr = await weekRes.text().catch(() => '');
         issues.push(`Scores week ${w} (${seasonType}): ${weekRes.status} ${weekErr}`);
@@ -241,6 +248,10 @@ export async function fetchScoresByGame(params: {
   debugTrace?: boolean;
   apiBaseUrl?: string;
   fallbackScopeGames?: GameLike[];
+  // Authorized (admin) manual refresh: propagate refresh=1 + admin credentials
+  // so scores update upstream. Omitted on the public/auto path (cache-only).
+  refresh?: boolean;
+  authHeaders?: HeadersInit;
 }): Promise<{
   scoresByKey: Record<string, ScorePack>;
   issues: string[];
@@ -263,6 +274,8 @@ export async function fetchScoresByGame(params: {
     debugTrace = false,
     apiBaseUrl,
     fallbackScopeGames,
+    refresh = false,
+    authHeaders,
   } = params;
   const issues: string[] = [];
 
@@ -307,6 +320,8 @@ export async function fetchScoresByGame(params: {
     seasonTypes: loadedSeasonTypes,
     issues,
     apiBaseUrl,
+    refresh,
+    authHeaders,
   });
   const normalizedRows: NormalizedScoreRow[] = rows.map((row) => ({
     week: row.week,
