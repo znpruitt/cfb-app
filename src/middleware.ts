@@ -1,21 +1,20 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { clerkMiddleware } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
-const isAdminRoute = createRouteMatcher(['/admin(.*)']);
+import { isPlatformAdminClaims, requiresPlatformAdminPage } from '@/lib/auth/platformAdmin';
 
 export default clerkMiddleware(async (auth, req) => {
-  if (isAdminRoute(req)) {
+  // Platform-admin-only browser page families (/admin/*, /debug/*). Fails closed:
+  // signed-out → /login, signed-in non-admin → /. API routes (incl. /api/debug/*)
+  // are gated at the route boundary by requireAdminAuth (which also honors the
+  // ADMIN_API_TOKEN fallback middleware can't express), so they are not matched here.
+  if (requiresPlatformAdminPage(req.nextUrl.pathname)) {
     const { userId, sessionClaims } = await auth();
 
     if (!userId) {
       return NextResponse.redirect(new URL('/login', req.url));
     }
-
-    const claims = sessionClaims as Record<string, unknown> & {
-      publicMetadata?: Record<string, unknown>;
-    };
-    const role = claims?.publicMetadata?.role;
-    if (role !== 'platform_admin') {
+    if (!isPlatformAdminClaims(sessionClaims)) {
       return NextResponse.redirect(new URL('/', req.url));
     }
   }

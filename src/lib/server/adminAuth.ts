@@ -1,5 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 
+import { isPlatformAdminClaims } from '../auth/platformAdmin.ts';
+
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === 'production';
 }
@@ -40,7 +42,8 @@ export function isAuthorizedAdminRequest(req: Request): boolean {
  *
  * Behavior:
  *   1. Clerk session check via auth() — returns true if a signed-in user's
- *      sessionClaims.publicMetadata.role === 'platform_admin'.
+ *      claims satisfy the shared isPlatformAdminClaims predicate (the single
+ *      definition of the platform-admin app role, also used by middleware).
  *   2. If a Request is provided, falls back to the ADMIN_API_TOKEN path via
  *      isAuthorizedAdminRequest(req) — Phase 6 transition fallback; sunset
  *      tracked under docs/next-tasks.md item #5.
@@ -50,17 +53,12 @@ export function isAuthorizedAdminRequest(req: Request): boolean {
  * req from gated API routes; page-render context calls without req and gets
  * Clerk-only evaluation). AGENTS.md invariant #6 prohibits inline
  * publicMetadata.role checks outside these helpers, so new callers use this
- * instead of re-reading sessionClaims.
+ * (or isPlatformAdminClaims) instead of re-reading sessionClaims.
  */
 export async function isPlatformAdminSession(req?: Request): Promise<boolean> {
   try {
     const { userId, sessionClaims } = await auth();
-    if (userId) {
-      const claims = sessionClaims as Record<string, unknown> & {
-        publicMetadata?: Record<string, unknown>;
-      };
-      if (claims?.publicMetadata?.role === 'platform_admin') return true;
-    }
+    if (userId && isPlatformAdminClaims(sessionClaims)) return true;
   } catch {
     // Clerk not configured or session unreadable — fall through to token path.
   }

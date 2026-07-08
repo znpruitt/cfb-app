@@ -66,7 +66,7 @@ Accepted order for the audit follow-ups. No P0s were found; these are P1/P2 corr
 
 Remaining audit findings (deferred until the P1s above land; proposed IDs, not yet formal registry entries — enumerated so none is lost):
 
-- **PLATFORM-074** — gate `/debug/*` pages via middleware; shared platform-admin predicate (V14, P2).
+- **PLATFORM-074** — gate `/debug/*` pages via middleware; shared platform-admin predicate (V14, P2). ✅ Done (PR #364): new `src/lib/auth/platformAdmin.ts` holds the single platform-admin definition — `isPlatformAdminClaims` (app role at `publicMetadata.role`) + `requiresPlatformAdminPage` (`/admin` + `/debug` browser families, `/api/*` excluded). Middleware gates `/admin/*` and `/debug/*` through it (fail-closed: signed-out → `/login`, signed-in non-admin → `/`), replacing its inline role check; `isPlatformAdminSession` now delegates to the shared predicate so the role literal lives in one place. `/api/debug/*` stays route-gated by `requireAdminAuth` (keeps the `ADMIN_API_TOKEN` fallback middleware can't express). Next correctness task is **PLATFORM-075** (needs the public odds/scores fetch-policy product call first — see below).
 - **PLATFORM-075** — provider quota hardening: anon stale-serve for odds, CFBD quota guard on scores, season in the in-memory odds cache key, remove dead `dayKey` (V13/V10, P2). Needs a product call on public odds/scores fetch policy first.
 - **PLATFORM-076** — debug-route canonical parity: effective aliases (`?scope=effective`), `manualOverrides`, `observedNames`, `providerWeek` in the postseason debug index (V9, P2).
 - **PLATFORM-077** — Insights consume canonical games/lifecycle in-process (drop HTTP self-fetch + private schedule build) (V5, P2).

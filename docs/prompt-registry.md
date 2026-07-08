@@ -16,6 +16,11 @@ The registry should remain:
 
 ## Active Prompts
 
+### PLATFORM-074-DEBUG-ROUTES-PLATFORM-ADMIN-MIDDLEWARE-GATE-v1
+- Purpose: Gate the `/debug/*` browser page family behind platform-admin authorization (the `/debug/teams` page had no server-side gate) and consolidate the platform-admin definition into one shared predicate.
+- Scope: `src/lib/auth/platformAdmin.ts` (new — `isPlatformAdminClaims(sessionClaims)` = app role at `publicMetadata.role`; `requiresPlatformAdminPage(pathname)` = `/admin` + `/debug` families, prefix-or-segment match, `/api/*` excluded), `src/middleware.ts` (gate `/admin/*` + `/debug/*` via the shared helpers; removed the inline `publicMetadata.role` check; fail-closed redirects), `src/lib/server/adminAuth.ts` (`isPlatformAdminSession` delegates its role decision to `isPlatformAdminClaims`). New test: `src/lib/auth/__tests__/platformAdmin.test.ts`.
+- Notes: `/api/debug/*` is intentionally NOT middleware-gated — all 12 routes already call `requireAdminAuth` at the route boundary (PLATFORM-020), which uniquely supports the `ADMIN_API_TOKEN` fallback middleware can't express. The four concerns stay distinct: Clerk auth, Clerk admin role, league password (`LEAGUE_AUTH_SECRET`), admin API token. Satisfies AGENTS.md Auth invariant #6 (no inline `publicMetadata.role` checks outside the shared helper — verified zero remain). Middleware wiring is a thin layer over the two pure functions (not executed under `node:test`; its logic is fully unit-covered). Codex review clean first pass. Verification: `tsc`/`lint:all`/`git diff --check` clean; new suite 6/6; existing `admin-debug-auth` 13/13; auth sweep 35/35. PR #364.
+
 ### PLATFORM-073-POSTSEASON-ATTACHMENT-EDGE-CASES-v1
 - Purpose: Fix three postseason edge cases in the canonical score/schedule attachment layer without introducing cross-phase mismatches or missing provider-id matches.
 - Scope: `src/lib/scoreAttachment.ts` (index by `providerGameId` independent of team hydration; null-`seasonType` rows scored per phase with cross-phase-rematch refusal that defers to a kickoff-date tiebreak; per-side provider-id side-attribution guard; `attachScoresToSchedule` stores in schedule orientation via `match.orientation`), `src/lib/schedule.ts` (explicit `hasRegularSeasonContext` guard on the postseason week remap). New tests: `lib/__tests__/postseasonAttachmentEdges.test.ts`.
