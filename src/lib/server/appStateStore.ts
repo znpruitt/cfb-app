@@ -208,6 +208,35 @@ export async function setAppState<T>(
   return { value, updatedAt };
 }
 
+export async function getAppStateEntries<T>(
+  scope: string
+): Promise<Array<AppStateRecord<T> & { key: string }>> {
+  assertDurableStorageAvailable();
+
+  if (hasDatabaseConfig()) {
+    await ensureDatabase();
+    const result = await getPool().query<{ key: string; value: T; updated_at: Date | string }>(
+      'select key, value, updated_at from app_state where scope = $1',
+      [scope]
+    );
+    return result.rows.map((row) => ({
+      key: row.key,
+      value: row.value,
+      updatedAt: new Date(row.updated_at).toISOString(),
+    }));
+  }
+
+  const entries = await readFileStore();
+  const prefix = `${scope}::`;
+  return Object.entries(entries)
+    .filter(([k]) => k.startsWith(prefix))
+    .map(([k, entry]) => ({
+      key: k.slice(prefix.length),
+      value: entry.value as T,
+      updatedAt: entry.updatedAt,
+    }));
+}
+
 export async function listAppStateKeys(scope: string): Promise<string[]> {
   assertDurableStorageAvailable();
 

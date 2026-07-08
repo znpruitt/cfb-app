@@ -434,7 +434,11 @@ test('PLATFORM-075: public score fetch omits refresh=1 (cache-only)', async () =
   }
 });
 
-test('PLATFORM-075: a suppressed (503) season response falls through to week-scoped cache reads', async () => {
+test('PLATFORM-075: the loader falls through to week reads when the season response is not ok', async () => {
+  // Real path: an authorized refresh where the season-wide request is unavailable
+  // (e.g. ESPN deployment, CFBD season-wide 502) still fans out to week-scoped
+  // reads, propagating refresh=1. (The public path no longer returns a non-200
+  // for cold reads — the route reconciles week caches server-side instead.)
   const games = [
     game({
       key: 'week-3',
@@ -454,12 +458,12 @@ test('PLATFORM-075: a suppressed (503) season response falls through to week-sco
     const url = typeof input === 'string' ? input : input.toString();
     requested.push(url);
     const req = new URL(url, 'http://localhost');
-    // Season-wide (no week param): cold public read -> 503 unavailable.
+    // Season-wide (no week param): unavailable -> 502.
     if (!req.searchParams.has('week')) {
-      return new Response(
-        JSON.stringify({ items: [], meta: { cfbdFallbackReason: 'upstream-suppressed' } }),
-        { status: 503, headers: { 'content-type': 'application/json' } }
-      );
+      return new Response(JSON.stringify({ error: 'season-wide fallback unavailable' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      });
     }
     // Week-scoped cache warm -> 200 with data.
     return new Response(
@@ -490,19 +494,27 @@ test('PLATFORM-075: a suppressed (503) season response falls through to week-sco
       aliasMap: {},
       season: 2025,
       teams,
+      refresh: true,
     });
     assert.ok(
       requested.some((u) => !new URL(u, 'http://localhost').searchParams.has('week')),
       'season-wide request fired'
     );
+    const weekRequests = requested.filter((u) =>
+      new URL(u, 'http://localhost').searchParams.has('week')
+    );
     assert.ok(
-      requested.some((u) => new URL(u, 'http://localhost').searchParams.has('week')),
-      'week-scoped fallback fired after the 503'
+      weekRequests.length > 0,
+      'week-scoped fallback fired after the non-ok season response'
+    );
+    assert.ok(
+      weekRequests.every((u) => u.includes('refresh=1')),
+      'the refresh flag propagates to the week fallback requests'
     );
     assert.equal(
       result.scoresByKey['week-3']?.home.score,
       21,
-      'a warm week cache must surface despite a cold season key'
+      'the week data surfaces via the fallback'
     );
   } finally {
     globalThis.fetch = originalFetch;

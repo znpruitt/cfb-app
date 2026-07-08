@@ -150,19 +150,108 @@ test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD/ESPN'
     return new Response('[]', { status: 200 });
   });
 
-  // Unique (valid) key untouched by other tests so the in-memory cache is cold.
+  // Unique (valid) week-scoped key untouched by other tests so the cache is cold.
   const res = await GET(
     new Request('http://localhost/api/scores?year=2026&week=50&seasonType=regular')
   );
   const json = await res.json();
 
-  // Controlled "unavailable" (503) — a non-200 lets the internal loader fall
-  // through to week-scoped cache probes rather than accepting an empty payload.
-  assert.equal(res.status, 503);
+  // Controlled empty (200) — a week request is a leaf, so no downstream fan-out.
+  assert.equal(res.status, 200);
   assert.equal(fetchCalls, 0, 'anonymous cold cache must not spend CFBD/ESPN quota');
   assert.equal(json.meta.cache, 'stale');
   assert.equal(json.meta.cfbdFallbackReason, 'upstream-suppressed');
   assert.deepEqual(json.items, []);
+});
+
+test('PLATFORM-075: season-wide read reconciles week caches server-side (no fan-out)', async () => {
+  // Seed two week-scoped caches directly (as an authorized refresh would); the
+  // season-wide read must merge them in a single request without calling upstream.
+  const mkEntry = (week: number, home: string, away: string) => ({
+    at: Date.now() - 30 * 60 * 1000,
+    items: [
+      {
+        id: `${home}-${away}-w${week}`,
+        week,
+        status: 'STATUS_FINAL',
+        startDate: `2027-12-${10 + week}T00:00:00Z`,
+        home: { team: home, score: 21 },
+        away: { team: away, score: 14 },
+        time: null,
+      },
+    ],
+    source: 'cfbd' as const,
+    cfbdFallbackReason: 'none' as const,
+  });
+  await setAppState('scores', '2027-5-postseason', mkEntry(5, 'Georgia', 'Clemson'));
+  await setAppState('scores', '2027-6-postseason', mkEntry(6, 'Texas', 'Rice'));
+
+  let fetchCalls = 0;
+  setMockFetch(async () => {
+    fetchCalls += 1;
+    return new Response('[]', { status: 200 });
+  });
+
+  // Season-wide request (no week param): merges the two week caches.
+  const res = await GET(new Request('http://localhost/api/scores?year=2027&seasonType=postseason'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(fetchCalls, 0, 'season-wide reconciliation must not call upstream');
+  assert.equal(json.meta.cache, 'stale');
+  assert.equal(json.items.length, 2, 'both week caches surface in one season-wide response');
+});
+
+test('PLATFORM-075: a fresher week cache overrides a stale season entry for the same game', async () => {
+  const gameId = 'ND-Navy-w2';
+  // Stale season-wide entry: old score for the game.
+  await setAppState('scores', '2027-all-regular', {
+    at: Date.now() - 2 * 60 * 60 * 1000, // 2h old
+    items: [
+      {
+        id: gameId,
+        week: 2,
+        status: 'STATUS_IN_PROGRESS',
+        startDate: '2027-09-12T00:00:00Z',
+        home: { team: 'Notre Dame', score: 7 },
+        away: { team: 'Navy', score: 3 },
+        time: 'Q2',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+  // Fresher week-scoped entry: final score for the same game.
+  await setAppState('scores', '2027-2-regular', {
+    at: Date.now() - 5 * 60 * 1000, // 5m old -> newer than the season entry
+    items: [
+      {
+        id: gameId,
+        week: 2,
+        status: 'STATUS_FINAL',
+        startDate: '2027-09-12T00:00:00Z',
+        home: { team: 'Notre Dame', score: 28 },
+        away: { team: 'Navy', score: 10 },
+        time: 'Final',
+      },
+    ],
+    source: 'espn',
+    cfbdFallbackReason: 'cfbd-http',
+  });
+
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  const res = await GET(new Request('http://localhost/api/scores?year=2027&seasonType=regular'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(json.items.length, 1, 'the same game is merged, not duplicated');
+  assert.equal(
+    json.items[0].home.score,
+    28,
+    'the fresher week score wins over the stale season score'
+  );
+  assert.equal(json.items[0].status, 'STATUS_FINAL');
 });
 
 test('PLATFORM-075: anonymous request serves cached scores without calling upstream', async () => {

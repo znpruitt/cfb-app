@@ -8,7 +8,7 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
-import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getAppState, getAppStateEntries, setAppState } from '@/lib/server/appStateStore';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
@@ -83,6 +83,100 @@ function pickFreshestScoresEntry(
   if (!a) return b;
   if (!b) return a;
   return b.at > a.at ? b : a;
+}
+
+/**
+ * Whether an app-state `scores` key is a week-scoped entry for this (year,
+ * seasonType) — i.e. `${year}-<numericWeek>-${seasonType}`, excluding the
+ * season-wide `${year}-all-${seasonType}` key.
+ */
+function isWeekScopedScoresKey(key: string, year: number, seasonType: SeasonType): boolean {
+  const prefix = `${year}-`;
+  const suffix = `-${seasonType}`;
+  if (!key.startsWith(prefix) || !key.endsWith(suffix)) return false;
+  const week = key.slice(prefix.length, key.length - suffix.length);
+  return /^\d+$/.test(week);
+}
+
+function scoreItemKey(item: ScorePack): string {
+  const id = item.id?.trim();
+  if (id) return `id:${id}`;
+  return `pair:${item.home.team}|${item.away.team}|${item.startDate ?? ''}|${item.week ?? ''}`;
+}
+
+/**
+ * Merge cached score entries, newest-wins per game. Given the (possibly stale)
+ * season-wide entry plus week-scoped entries, a fresher week entry overrides the
+ * same game from an older season snapshot — so a stale season cache never masks
+ * a more recently refreshed week cache (PLATFORM-075). Returns the merged items
+ * plus the newest contributor's timestamp/source for the response meta.
+ */
+function mergeScoreEntries(entries: CacheEntry[]): {
+  items: ScorePack[];
+  newestAt: number;
+  source: 'cfbd' | 'espn';
+  cfbdFallbackReason: CfbdFallbackReason;
+} {
+  const sorted = [...entries].sort((a, b) => a.at - b.at); // oldest first
+  const byKey = new Map<string, ScorePack>();
+  for (const entry of sorted) {
+    for (const item of entry.items) {
+      byKey.set(scoreItemKey(item), item); // a newer entry overwrites an older one
+    }
+  }
+  const newest = sorted[sorted.length - 1];
+  return {
+    items: [...byKey.values()],
+    newestAt: newest.at,
+    source: newest.source,
+    cfbdFallbackReason: newest.cfbdFallbackReason,
+  };
+}
+
+/**
+ * Season-wide (week=null) public read. Reconciles the (possibly stale) season
+ * entry with every week-scoped cache in ONE storage read, so the internal loader
+ * needs no per-week client fan-out (bounded, single read instead of dozens of
+ * requests) and fresher week caches are never masked by a stale season entry.
+ * No upstream call is made.
+ */
+async function aggregateSeasonScoresResponse(params: {
+  year: number;
+  seasonType: SeasonType;
+  now: number;
+  seasonEntry: CacheEntry | undefined;
+}) {
+  const { year, seasonType, now, seasonEntry } = params;
+
+  const weekEntries = (await getAppStateEntries<CacheEntry>('scores'))
+    .filter((record) => isWeekScopedScoresKey(record.key, year, seasonType))
+    .map((record) => record.value)
+    .filter((value): value is CacheEntry => Boolean(value));
+
+  const contributors: CacheEntry[] = [];
+  if (seasonEntry) contributors.push(seasonEntry);
+  contributors.push(...weekEntries);
+
+  if (contributors.length === 0) {
+    // Nothing cached at all — controlled empty (200 so the loader treats it as a
+    // resolved response and does not fan out to per-week requests).
+    return responseFrom([], {
+      source: 'cfbd',
+      cache: 'stale',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'upstream-suppressed',
+    });
+  }
+
+  const merged = mergeScoreEntries(contributors);
+  return responseFrom(merged.items, {
+    source: merged.source,
+    cache: 'stale',
+    fallbackUsed: merged.source === 'espn',
+    generatedAt: new Date(merged.newestAt).toISOString(),
+    cfbdFallbackReason: merged.cfbdFallbackReason,
+  });
 }
 
 function badRequest(field: string, value: string | null, error: string) {
@@ -225,11 +319,26 @@ export async function GET(req: Request) {
       });
     }
 
-    // No fresh cache: serve the freshest STALE entry (in-memory or durable)
-    // without any upstream call; if nothing is cached, return a controlled
-    // empty response. Anonymous callers never trigger a cold-cache fetch.
+    // No fresh cache for this key. Anonymous callers never trigger an upstream
+    // fetch (PLATFORM-075).
     recordRouteCacheMiss('scores');
     const staleEntry = pickFreshestScoresEntry(memoryHit, storedValue);
+
+    if (week === null) {
+      // Season-wide read: reconcile the (possibly stale) season entry with every
+      // week-scoped cache server-side, in one storage read, so the loader needs
+      // no per-week fan-out and a stale season entry never masks a fresher week
+      // cache. If nothing is cached, returns a controlled empty (200) response.
+      return await aggregateSeasonScoresResponse({
+        year,
+        seasonType,
+        now,
+        seasonEntry: staleEntry,
+      });
+    }
+
+    // Week-scoped read: a leaf request (no downstream fan-out). Serve the stale
+    // entry, or a controlled empty response.
     if (staleEntry) {
       if (staleEntry === storedValue) {
         SCORES_CACHE[cacheKey] = staleEntry;
@@ -243,22 +352,13 @@ export async function GET(req: Request) {
         cfbdFallbackReason: staleEntry.cfbdFallbackReason,
       });
     }
-    // Nothing cached at all: a controlled "unavailable" response. Returning a
-    // non-200 lets the internal score loader (fetchScoreRows) treat this as a
-    // miss and fall through to week-scoped cache probes, rather than accepting
-    // an empty season-wide payload as authoritative and skipping the week reads
-    // (which is where ESPN-fallback week caches live). No upstream call is made.
-    return responseFrom(
-      [],
-      {
-        source: 'cfbd',
-        cache: 'stale',
-        fallbackUsed: false,
-        generatedAt: new Date(now).toISOString(),
-        cfbdFallbackReason: 'upstream-suppressed',
-      },
-      503
-    );
+    return responseFrom([], {
+      source: 'cfbd',
+      cache: 'stale',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'upstream-suppressed',
+    });
   }
 
   // ---- Authorized refresh path: fetch upstream (CFBD -> ESPN fallback) ----
