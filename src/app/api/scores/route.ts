@@ -134,32 +134,36 @@ function mergeScoreEntries(entries: CacheEntry[]): {
 }
 
 /**
- * Season-wide (week=null) public read. Reconciles the (possibly stale) season
- * entry with every week-scoped cache in ONE storage read, so the internal loader
- * needs no per-week client fan-out (bounded, single read instead of dozens of
- * requests) and fresher week caches are never masked by a stale season entry.
- * No upstream call is made.
+ * Season-wide (week=null) public read. Reconciles the season entry with every
+ * week-scoped cache for this (year, seasonType) in ONE year-prefixed storage
+ * read, merging newest-wins per game. This runs on EVERY season-wide read — even
+ * when the season entry is still within TTL — so a week cache refreshed after the
+ * season snapshot is never masked, and the internal loader needs no per-week
+ * client fan-out (one bounded read instead of dozens of requests). No upstream
+ * call is made. Cache meta reports 'hit' when the freshest contributor is within
+ * TTL, else 'stale'.
  */
 async function aggregateSeasonScoresResponse(params: {
   year: number;
   seasonType: SeasonType;
   now: number;
-  seasonEntry: CacheEntry | undefined;
 }) {
-  const { year, seasonType, now, seasonEntry } = params;
+  const { year, seasonType, now } = params;
 
-  const weekEntries = (await getAppStateEntries<CacheEntry>('scores'))
-    .filter((record) => isWeekScopedScoresKey(record.key, year, seasonType))
-    .map((record) => record.value)
-    .filter((value): value is CacheEntry => Boolean(value));
-
+  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  const seasonKey = `${year}-all-${seasonType}`;
   const contributors: CacheEntry[] = [];
-  if (seasonEntry) contributors.push(seasonEntry);
-  contributors.push(...weekEntries);
+  for (const record of records) {
+    if (!record.value) continue;
+    if (record.key === seasonKey || isWeekScopedScoresKey(record.key, year, seasonType)) {
+      contributors.push(record.value);
+    }
+  }
 
   if (contributors.length === 0) {
     // Nothing cached at all — controlled empty (200 so the loader treats it as a
     // resolved response and does not fan out to per-week requests).
+    recordRouteCacheMiss('scores');
     return responseFrom([], {
       source: 'cfbd',
       cache: 'stale',
@@ -170,9 +174,15 @@ async function aggregateSeasonScoresResponse(params: {
   }
 
   const merged = mergeScoreEntries(contributors);
+  const isFresh = now - merged.newestAt < CACHE_TTL_MS;
+  if (isFresh) {
+    recordRouteCacheHit('scores');
+  } else {
+    recordRouteCacheMiss('scores');
+  }
   return responseFrom(merged.items, {
     source: merged.source,
-    cache: 'stale',
+    cache: isFresh ? 'hit' : 'stale',
     fallbackUsed: merged.source === 'espn',
     generatedAt: new Date(merged.newestAt).toISOString(),
     cfbdFallbackReason: merged.cfbdFallbackReason,
@@ -292,6 +302,16 @@ export async function GET(req: Request) {
 
   if (!refreshRequested) {
     // ---- Public/anonymous path: never spends CFBD/ESPN quota ----
+    if (week === null) {
+      // Season-wide read: always reconcile the season entry with every
+      // week-scoped cache server-side (even when the season entry is fresh), so a
+      // week cache refreshed after the season snapshot is never masked, and the
+      // loader needs no per-week client fan-out. Nothing cached -> controlled
+      // empty (200) response. No upstream call.
+      return await aggregateSeasonScoresResponse({ year, seasonType, now });
+    }
+
+    // Week-scoped read: a leaf request (no downstream fan-out).
     const memoryHit = SCORES_CACHE[cacheKey];
     if (memoryHit && now - memoryHit.at < CACHE_TTL_MS) {
       recordRouteCacheHit('scores');
@@ -319,26 +339,10 @@ export async function GET(req: Request) {
       });
     }
 
-    // No fresh cache for this key. Anonymous callers never trigger an upstream
-    // fetch (PLATFORM-075).
+    // No fresh week cache. Serve the stale entry, or a controlled empty response.
+    // Anonymous callers never trigger an upstream fetch (PLATFORM-075).
     recordRouteCacheMiss('scores');
     const staleEntry = pickFreshestScoresEntry(memoryHit, storedValue);
-
-    if (week === null) {
-      // Season-wide read: reconcile the (possibly stale) season entry with every
-      // week-scoped cache server-side, in one storage read, so the loader needs
-      // no per-week fan-out and a stale season entry never masks a fresher week
-      // cache. If nothing is cached, returns a controlled empty (200) response.
-      return await aggregateSeasonScoresResponse({
-        year,
-        seasonType,
-        now,
-        seasonEntry: staleEntry,
-      });
-    }
-
-    // Week-scoped read: a leaf request (no downstream fan-out). Serve the stale
-    // entry, or a controlled empty response.
     if (staleEntry) {
       if (staleEntry === storedValue) {
         SCORES_CACHE[cacheKey] = staleEntry;

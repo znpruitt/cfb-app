@@ -254,6 +254,59 @@ test('PLATFORM-075: a fresher week cache overrides a stale season entry for the 
   assert.equal(json.items[0].status, 'STATUS_FINAL');
 });
 
+test('PLATFORM-075: season-wide read reflects a week cache refreshed within the season entry TTL', async () => {
+  const gameId = 'UGA-Bama-w1';
+  // Fresh season-wide entry (within the 5-min TTL) with an older score.
+  await setAppState('scores', '2027-all-regular', {
+    at: Date.now() - 2 * 60 * 1000, // 2m old -> fresh
+    items: [
+      {
+        id: gameId,
+        week: 1,
+        status: 'STATUS_IN_PROGRESS',
+        startDate: '2027-08-30T00:00:00Z',
+        home: { team: 'Georgia', score: 3 },
+        away: { team: 'Alabama', score: 0 },
+        time: 'Q1',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+  // Week cache refreshed a moment later (also within TTL) with the final score.
+  await setAppState('scores', '2027-1-regular', {
+    at: Date.now() - 30 * 1000, // 30s old -> newer than the season entry
+    items: [
+      {
+        id: gameId,
+        week: 1,
+        status: 'STATUS_FINAL',
+        startDate: '2027-08-30T00:00:00Z',
+        home: { team: 'Georgia', score: 34 },
+        away: { team: 'Alabama', score: 20 },
+        time: 'Final',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  const res = await GET(new Request('http://localhost/api/scores?year=2027&seasonType=regular'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(json.meta.cache, 'hit', 'freshest contributor within TTL reports a hit');
+  assert.equal(json.items.length, 1);
+  assert.equal(
+    json.items[0].home.score,
+    34,
+    'a week cache refreshed within the season TTL is not masked by the fresh season snapshot'
+  );
+  assert.equal(json.items[0].status, 'STATUS_FINAL');
+});
+
 test('PLATFORM-075: anonymous request serves cached scores without calling upstream', async () => {
   let cfbdCalls = 0;
   setMockFetch(async (input: URL | string) => {
