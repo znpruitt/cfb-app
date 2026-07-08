@@ -352,6 +352,72 @@ test('filtered odds requests do not overwrite the shared durable store with part
   }
 });
 
+test('PLATFORM-075: cold anonymous filtered odds request returns empty, not the unfiltered durable snapshot', async () => {
+  const originalFetch = global.fetch;
+
+  // Seed a full canonical durable snapshot (spread/total/ml, all markets).
+  await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
+    '1-georgia-clemson-H': {
+      canonicalGameId: '1-georgia-clemson-H',
+      latestSnapshot: {
+        capturedAt: '2026-09-01T18:00:00.000Z',
+        bookmakerKey: 'draftkings',
+        favorite: 'Georgia',
+        source: 'DraftKings',
+        spread: -3.5,
+        homeSpread: -3.5,
+        awaySpread: 3.5,
+        spreadPriceHome: -110,
+        spreadPriceAway: -110,
+        moneylineHome: -150,
+        moneylineAway: 130,
+        total: 52.5,
+        overPrice: -108,
+        underPrice: -112,
+      },
+      closingSnapshot: null,
+      closingFrozenAt: null,
+    },
+  });
+
+  let oddsHostCalls = 0;
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString(), 'http://localhost');
+    if (url.hostname === 'api.the-odds-api.com') {
+      oddsHostCalls += 1;
+      return new Response(JSON.stringify([buildOddsEvent()]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [buildScheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    // Cold cache for the filtered (non-canonical) key + no upstream fetch on the
+    // anonymous path -> must NOT leak the unfiltered durable snapshot.
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${DURABLE_ODDS_TEST_SEASON}&markets=h2h`)
+    );
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(oddsHostCalls, 0, 'anonymous request must not call the Odds API');
+
+    const json = (await res.json()) as { items: unknown[] };
+    assert.deepEqual(json.items, [], 'a cold filtered read must not serve the canonical snapshot');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('authorized refresh refetches a stale shared odds cache entry instead of serving it', async () => {
   // PLATFORM-075: the public/anonymous path serves stale entries without an
   // upstream call (covered separately). An authorized refresh=1 always refetches.

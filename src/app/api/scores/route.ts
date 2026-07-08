@@ -86,62 +86,36 @@ function pickFreshestScoresEntry(
 }
 
 /**
- * Whether an app-state `scores` key is a week-scoped entry for this (year,
- * seasonType) — i.e. `${year}-<numericWeek>-${seasonType}`, excluding the
- * season-wide `${year}-all-${seasonType}` key.
+ * Parse the numeric week from an app-state `scores` key for this (year,
+ * seasonType) — `${year}-<week>-${seasonType}`. Returns the week number for a
+ * week-scoped key, or null for the season-wide `${year}-all-${seasonType}` key
+ * (and any non-matching key).
  */
-function isWeekScopedScoresKey(key: string, year: number, seasonType: SeasonType): boolean {
+function weekFromScoresKey(key: string, year: number, seasonType: SeasonType): number | null {
   const prefix = `${year}-`;
   const suffix = `-${seasonType}`;
-  if (!key.startsWith(prefix) || !key.endsWith(suffix)) return false;
-  const week = key.slice(prefix.length, key.length - suffix.length);
-  return /^\d+$/.test(week);
-}
-
-function scoreItemKey(item: ScorePack): string {
-  const id = item.id?.trim();
-  if (id) return `id:${id}`;
-  return `pair:${item.home.team}|${item.away.team}|${item.startDate ?? ''}|${item.week ?? ''}`;
+  if (!key.startsWith(prefix) || !key.endsWith(suffix)) return null;
+  const middle = key.slice(prefix.length, key.length - suffix.length);
+  return /^\d+$/.test(middle) ? Number(middle) : null;
 }
 
 /**
- * Merge cached score entries, newest-wins per game. Given the (possibly stale)
- * season-wide entry plus week-scoped entries, a fresher week entry overrides the
- * same game from an older season snapshot — so a stale season cache never masks
- * a more recently refreshed week cache (PLATFORM-075). Returns the merged items
- * plus the newest contributor's timestamp/source for the response meta.
- */
-function mergeScoreEntries(entries: CacheEntry[]): {
-  items: ScorePack[];
-  newestAt: number;
-  source: 'cfbd' | 'espn';
-  cfbdFallbackReason: CfbdFallbackReason;
-} {
-  const sorted = [...entries].sort((a, b) => a.at - b.at); // oldest first
-  const byKey = new Map<string, ScorePack>();
-  for (const entry of sorted) {
-    for (const item of entry.items) {
-      byKey.set(scoreItemKey(item), item); // a newer entry overwrites an older one
-    }
-  }
-  const newest = sorted[sorted.length - 1];
-  return {
-    items: [...byKey.values()],
-    newestAt: newest.at,
-    source: newest.source,
-    cfbdFallbackReason: newest.cfbdFallbackReason,
-  };
-}
-
-/**
- * Season-wide (week=null) public read. Reconciles the season entry with every
- * week-scoped cache for this (year, seasonType) in ONE year-prefixed storage
- * read, merging newest-wins per game. This runs on EVERY season-wide read — even
- * when the season entry is still within TTL — so a week cache refreshed after the
- * season snapshot is never masked, and the internal loader needs no per-week
- * client fan-out (one bounded read instead of dozens of requests). No upstream
- * call is made. Cache meta reports 'hit' when the freshest contributor is within
- * TTL, else 'stale'.
+ * Season-wide (week=null) public read. Reconciles the season-wide cache entry
+ * with the per-week cache entries for this (year, seasonType) in ONE
+ * year-prefixed storage read. Reconciliation is at the WEEK level: for each
+ * week, the games come from a single source — the week-scoped entry when it is
+ * at least as fresh as the season snapshot, otherwise the season snapshot. This
+ * means:
+ *   - a week cache refreshed after the season snapshot is never masked (runs on
+ *     every read, even when the season entry is within TTL);
+ *   - the internal loader needs no per-week client fan-out (one bounded read);
+ *   - no per-game cross-source dedup / raw-label identity matching is required —
+ *     a week's games are never sourced from two entries at once, so mixing e.g.
+ *     a CFBD season snapshot with an ESPN week fallback cannot produce duplicate
+ *     games (canonical identity resolution still happens downstream at
+ *     attachment time).
+ * No upstream call is made. Cache meta reports 'hit' when the freshest
+ * contributor is within TTL, else 'stale'.
  */
 async function aggregateSeasonScoresResponse(params: {
   year: number;
@@ -150,17 +124,21 @@ async function aggregateSeasonScoresResponse(params: {
 }) {
   const { year, seasonType, now } = params;
 
-  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
   const seasonKey = `${year}-all-${seasonType}`;
-  const contributors: CacheEntry[] = [];
+  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  let seasonEntry: CacheEntry | undefined;
+  const weekEntries = new Map<number, CacheEntry>();
   for (const record of records) {
     if (!record.value) continue;
-    if (record.key === seasonKey || isWeekScopedScoresKey(record.key, year, seasonType)) {
-      contributors.push(record.value);
+    if (record.key === seasonKey) {
+      seasonEntry = record.value;
+      continue;
     }
+    const week = weekFromScoresKey(record.key, year, seasonType);
+    if (week !== null) weekEntries.set(week, record.value);
   }
 
-  if (contributors.length === 0) {
+  if (!seasonEntry && weekEntries.size === 0) {
     // Nothing cached at all — controlled empty (200 so the loader treats it as a
     // resolved response and does not fan out to per-week requests).
     recordRouteCacheMiss('scores');
@@ -173,19 +151,61 @@ async function aggregateSeasonScoresResponse(params: {
     });
   }
 
-  const merged = mergeScoreEntries(contributors);
-  const isFresh = now - merged.newestAt < CACHE_TTL_MS;
+  // Group the season snapshot's games by week (games without a week are always
+  // carried through — they cannot be superseded by a week-scoped entry).
+  const seasonByWeek = new Map<number, ScorePack[]>();
+  const seasonNoWeek: ScorePack[] = [];
+  for (const item of seasonEntry?.items ?? []) {
+    if (item.week === null || item.week === undefined) {
+      seasonNoWeek.push(item);
+      continue;
+    }
+    const bucket = seasonByWeek.get(item.week);
+    if (bucket) bucket.push(item);
+    else seasonByWeek.set(item.week, [item]);
+  }
+
+  const seasonAt = seasonEntry?.at ?? -Infinity;
+  const items: ScorePack[] = [...seasonNoWeek];
+  let newestAt = seasonEntry?.at ?? 0;
+  let source: 'cfbd' | 'espn' = seasonEntry?.source ?? 'cfbd';
+  let cfbdFallbackReason: CfbdFallbackReason = seasonEntry?.cfbdFallbackReason ?? 'none';
+  const trackNewest = (entry: CacheEntry) => {
+    if (entry.at >= newestAt) {
+      newestAt = entry.at;
+      source = entry.source;
+      cfbdFallbackReason = entry.cfbdFallbackReason;
+    }
+  };
+  if (seasonEntry) trackNewest(seasonEntry);
+
+  const allWeeks = new Set<number>([...seasonByWeek.keys(), ...weekEntries.keys()]);
+  for (const week of allWeeks) {
+    const weekEntry = weekEntries.get(week);
+    const seasonGames = seasonByWeek.get(week);
+    // A week entry that is at least as fresh as the season snapshot is
+    // authoritative for its week; otherwise the (fresher) season snapshot wins,
+    // and a week entry is only used when the season snapshot lacks that week.
+    if (weekEntry && (weekEntry.at >= seasonAt || !seasonGames || seasonGames.length === 0)) {
+      items.push(...weekEntry.items);
+      trackNewest(weekEntry);
+    } else if (seasonGames && seasonGames.length > 0) {
+      items.push(...seasonGames);
+    }
+  }
+
+  const isFresh = now - newestAt < CACHE_TTL_MS;
   if (isFresh) {
     recordRouteCacheHit('scores');
   } else {
     recordRouteCacheMiss('scores');
   }
-  return responseFrom(merged.items, {
-    source: merged.source,
+  return responseFrom(items, {
+    source,
     cache: isFresh ? 'hit' : 'stale',
-    fallbackUsed: merged.source === 'espn',
-    generatedAt: new Date(merged.newestAt).toISOString(),
-    cfbdFallbackReason: merged.cfbdFallbackReason,
+    fallbackUsed: source === 'espn',
+    generatedAt: new Date(newestAt).toISOString(),
+    cfbdFallbackReason,
   });
 }
 

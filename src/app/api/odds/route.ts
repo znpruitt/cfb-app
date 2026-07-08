@@ -584,31 +584,45 @@ export async function GET(req: Request): Promise<Response> {
     }
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
-    const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([
-      fetchCanonicalSchedule(req, query.season),
-      readTeamsCatalog(),
-      // Canonical effective resolution (stored global > year > SEED_ALIASES).
-      // Odds are league-agnostic (the /api/odds request carries no league), so
-      // the empty slug yields global > year > seed — matching schedule/standings
-      // identity instead of the old year-only + hand-merged seeds.
-      getScopedAliasMap('', query.season),
-      readConferenceRecords(req),
-    ]);
 
-    const items = await buildCanonicalOddsItems({
-      season: query.season,
-      scheduleItems,
-      oddsEvents: responseEntry?.data ?? [],
-      teams,
-      aliasMap,
-      conferenceRecords,
-      requestTime,
-      snapshotCapturedAt,
-      // Never persist the durable store from a stale served fallback (quota
-      // suppressed or not) — it must not downgrade newer durable snapshots.
-      // Only fresh cache hits and authorized upstream refreshes persist.
-      persistDurableStore: !servedStaleFallback && isCanonicalDurableQuery(query),
-    });
+    // The canonical durable odds store holds a full-market, preferred-book
+    // snapshot per game and cannot be projected to arbitrary market/bookmaker/
+    // region filters. A cold, filtered (non-canonical) read has no fetched
+    // events to build from, so building would leak the unfiltered canonical
+    // snapshot (spread/total and unrequested books) for a filtered query. Serve
+    // an empty filtered result instead. The canonical/default query still
+    // stale-serves the durable store, and the authorized refresh path always has
+    // fetched events (responseEntry) to build the filtered response from.
+    const canServeFromDurable = Boolean(responseEntry) || isCanonicalDurableQuery(query);
+
+    let items: CanonicalOddsItem[] = [];
+    if (canServeFromDurable) {
+      const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([
+        fetchCanonicalSchedule(req, query.season),
+        readTeamsCatalog(),
+        // Canonical effective resolution (stored global > year > SEED_ALIASES).
+        // Odds are league-agnostic (the /api/odds request carries no league), so
+        // the empty slug yields global > year > seed — matching schedule/standings
+        // identity instead of the old year-only + hand-merged seeds.
+        getScopedAliasMap('', query.season),
+        readConferenceRecords(req),
+      ]);
+
+      items = await buildCanonicalOddsItems({
+        season: query.season,
+        scheduleItems,
+        oddsEvents: responseEntry?.data ?? [],
+        teams,
+        aliasMap,
+        conferenceRecords,
+        requestTime,
+        snapshotCapturedAt,
+        // Never persist the durable store from a stale served fallback (quota
+        // suppressed or not) — it must not downgrade newer durable snapshots.
+        // Only fresh cache hits and authorized upstream refreshes persist.
+        persistDurableStore: !servedStaleFallback && isCanonicalDurableQuery(query),
+      });
+    }
 
     return responseFrom(items, {
       source: 'odds-api',
