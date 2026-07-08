@@ -42,7 +42,12 @@ export async function loadDebugSeasonContext(params: {
   const [scheduleRes, teamsRes, aliasesRes, conferencesRes] = await Promise.all([
     fetch(`${origin}/api/schedule?year=${year}`, { cache: 'no-store' }),
     fetch(`${origin}/api/teams`, { cache: 'no-store' }),
-    fetch(`${origin}/api/aliases?year=${year}`, { cache: 'no-store' }),
+    // `scope=effective` returns the RESOLVER alias map (stored global > year >
+    // SEED_ALIASES) — the exact precedence production identity resolution uses
+    // via getScopedAliasMap('', year). The default (year-only stored) scope would
+    // drop global + SEED aliases, making debug diagnostics resolve against a
+    // strictly weaker alias set than production (PLATFORM-076).
+    fetch(`${origin}/api/aliases?year=${year}&scope=effective`, { cache: 'no-store' }),
     fetch(`${origin}/api/conferences`, { cache: 'no-store' }),
   ]);
 

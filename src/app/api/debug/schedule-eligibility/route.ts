@@ -53,7 +53,10 @@ export async function GET(req: Request) {
       cache: 'no-store',
     }),
     fetch(`${origin}/api/teams`, { cache: 'no-store' }),
-    fetch(`${origin}/api/aliases?year=${year}`, { cache: 'no-store' }),
+    // Effective alias precedence (stored global > year > SEED) — the same map
+    // production identity resolution uses; the year-only stored scope would
+    // resolve fewer names and flip eligibility verdicts (PLATFORM-076).
+    fetch(`${origin}/api/aliases?year=${year}&scope=effective`, { cache: 'no-store' }),
     fetch(`${origin}/api/conferences`, { cache: 'no-store' }),
   ]);
 
@@ -217,6 +220,8 @@ export async function GET(req: Request) {
     year,
     week,
     seasonType: seasonTypeParam ?? 'all',
+    aliasScope: 'effective',
+    observedNamesCount: providerNames.length,
     totalScheduleRows: scheduleItems.length,
     regularRowsAnalyzed: analyzed.length,
     canonicalTrackedCount: built.games.length,
