@@ -58,9 +58,19 @@ export default function GlobalRefreshPanel({
     setScoresStatus('loading');
     setScoresError(undefined);
     try {
+      // refresh=1 + admin headers: scores upstream fetches are gated to
+      // authorized callers (PLATFORM-075). This admin panel is the dedicated
+      // scores-refresh surface; public/anonymous traffic only reads cache.
+      const adminHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const [regularRes, postseasonRes] = await Promise.all([
-        fetch(`/api/scores?seasonType=regular&year=${year}`, { cache: 'no-store' }),
-        fetch(`/api/scores?seasonType=postseason&year=${year}`, { cache: 'no-store' }),
+        fetch(`/api/scores?seasonType=regular&year=${year}&refresh=1`, {
+          cache: 'no-store',
+          headers: adminHeaders,
+        }),
+        fetch(`/api/scores?seasonType=postseason&year=${year}&refresh=1`, {
+          cache: 'no-store',
+          headers: adminHeaders,
+        }),
       ]);
       const failed = [
         !regularRes.ok ? `regular ${regularRes.status}` : null,

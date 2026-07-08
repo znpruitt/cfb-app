@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
+import { requireAdminAuth } from '@/lib/server/adminAuth';
 import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
@@ -67,6 +68,21 @@ function mapCfbdErrorToReason(error: unknown): CfbdFallbackReason {
 
 function responseFrom(items: ScorePack[], meta: ScoresMeta, status = 200) {
   return NextResponse.json<ScoresResponse>({ items, meta }, { status });
+}
+
+/**
+ * Pick the freshest of two scores cache entries by `at`. Used on the public
+ * stale-serve path so an older in-memory entry never shadows a newer durable
+ * entry written by an authorized refresh or another instance. Ties keep `a`
+ * (the in-memory entry).
+ */
+function pickFreshestScoresEntry(
+  a: CacheEntry | undefined,
+  b: CacheEntry | undefined
+): CacheEntry | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return b.at > a.at ? b : a;
 }
 
 function badRequest(field: string, value: string | null, error: string) {
@@ -170,32 +186,73 @@ export async function GET(req: Request) {
 
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   const now = Date.now();
-  const hit = SCORES_CACHE[cacheKey];
-  if (hit && now - hit.at < CACHE_TTL_MS) {
-    recordRouteCacheHit('scores');
-    return responseFrom(hit.items, {
-      source: hit.source,
-      cache: 'hit',
-      fallbackUsed: hit.source === 'espn',
-      generatedAt: new Date(hit.at).toISOString(),
-      cfbdFallbackReason: hit.cfbdFallbackReason,
+
+  // Only an authorized admin refresh may spend upstream CFBD/ESPN quota
+  // (PLATFORM-075). Public/anonymous traffic is a pure cache reader below and
+  // can never trigger a cold-cache provider fetch.
+  const refreshRequested = url.searchParams.get('refresh') === '1';
+  if (refreshRequested) {
+    const authFailure = await requireAdminAuth(req);
+    if (authFailure) return authFailure;
+  }
+
+  if (!refreshRequested) {
+    // ---- Public/anonymous path: never spends CFBD/ESPN quota ----
+    const memoryHit = SCORES_CACHE[cacheKey];
+    if (memoryHit && now - memoryHit.at < CACHE_TTL_MS) {
+      recordRouteCacheHit('scores');
+      return responseFrom(memoryHit.items, {
+        source: memoryHit.source,
+        cache: 'hit',
+        fallbackUsed: memoryHit.source === 'espn',
+        generatedAt: new Date(memoryHit.at).toISOString(),
+        cfbdFallbackReason: memoryHit.cfbdFallbackReason,
+      });
+    }
+
+    const stored = await getAppState<CacheEntry>('scores', cacheKey);
+    const storedValue = stored?.value;
+    if (storedValue && now - storedValue.at < CACHE_TTL_MS) {
+      SCORES_CACHE[cacheKey] = storedValue;
+      pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES);
+      recordRouteCacheHit('scores');
+      return responseFrom(storedValue.items, {
+        source: storedValue.source,
+        cache: 'hit',
+        fallbackUsed: storedValue.source === 'espn',
+        generatedAt: new Date(storedValue.at).toISOString(),
+        cfbdFallbackReason: storedValue.cfbdFallbackReason,
+      });
+    }
+
+    // No fresh cache: serve the freshest STALE entry (in-memory or durable)
+    // without any upstream call; if nothing is cached, return a controlled
+    // empty response. Anonymous callers never trigger a cold-cache fetch.
+    recordRouteCacheMiss('scores');
+    const staleEntry = pickFreshestScoresEntry(memoryHit, storedValue);
+    if (staleEntry) {
+      if (staleEntry === storedValue) {
+        SCORES_CACHE[cacheKey] = staleEntry;
+        pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES);
+      }
+      return responseFrom(staleEntry.items, {
+        source: staleEntry.source,
+        cache: 'stale',
+        fallbackUsed: staleEntry.source === 'espn',
+        generatedAt: new Date(staleEntry.at).toISOString(),
+        cfbdFallbackReason: staleEntry.cfbdFallbackReason,
+      });
+    }
+    return responseFrom([], {
+      source: 'cfbd',
+      cache: 'stale',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'upstream-suppressed',
     });
   }
 
-  const stored = await getAppState<CacheEntry>('scores', cacheKey);
-  if (stored?.value && now - stored.value.at < CACHE_TTL_MS) {
-    SCORES_CACHE[cacheKey] = stored.value;
-    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES);
-    recordRouteCacheHit('scores');
-    return responseFrom(stored.value.items, {
-      source: stored.value.source,
-      cache: 'hit',
-      fallbackUsed: stored.value.source === 'espn',
-      generatedAt: new Date(stored.value.at).toISOString(),
-      cfbdFallbackReason: stored.value.cfbdFallbackReason,
-    });
-  }
-
+  // ---- Authorized refresh path: fetch upstream (CFBD -> ESPN fallback) ----
   recordRouteCacheMiss('scores');
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';

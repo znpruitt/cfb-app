@@ -27,14 +27,14 @@ import {
 } from '../routeInternals.ts';
 
 // ---------------------------------------------------------------------------
-// PLATFORM-020 — server-side odds quota guard.
+// PLATFORM-020 / PLATFORM-075 — odds quota protection for public traffic.
 //
-// Public/non-admin callers do not carry admin usage data, so /api/odds must
-// enforce the saved odds quota guard itself: on the non-admin auto path it must
-// NOT call the upstream Odds API when the saved usage snapshot says remaining
-// quota is below the auto-disable threshold (<= 10). Admin-driven refreshes
-// (refresh=1, auth-gated) intentionally bypass the guard. Cache-serving and
-// safe/absent-usage behavior must be unchanged.
+// PLATFORM-075 hardened the model: the public/anonymous path (`/api/odds`
+// without refresh=1) is now a pure cache reader — it NEVER spends upstream Odds
+// API quota, cold or stale. Only an authorized admin refresh (refresh=1,
+// auth-gated) reaches upstream. The saved quota guard still surfaces the current
+// low-usage snapshot on the anonymous path so the client can self-throttle its
+// own manual refresh (PLATFORM-020). Cache-serving behavior must be unchanged.
 // ---------------------------------------------------------------------------
 
 const ODDS_TEST_SEASON = 2026;
@@ -131,13 +131,16 @@ test('does not call the upstream Odds API when saved quota is below the auto-dis
   }
 });
 
-test('calls the upstream Odds API when no saved usage snapshot exists (existing behavior preserved)', async () => {
-  // No setLatestKnownOddsUsage -> getLatestKnownOddsUsage() is null -> guard allows.
+test('authorized refresh fetches upstream when no saved usage snapshot exists', async () => {
+  // No setLatestKnownOddsUsage -> guard has no low-quota signal. An authorized
+  // refresh reaches upstream. (Anonymous cold-cache never fetches — PLATFORM-075.)
   const stub = installFetchStub();
   try {
-    const res = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}&refresh=1`)
+    );
     assert.equal(res.status, 200, await res.clone().text());
-    assert.ok(stub.oddsCalls() >= 1, 'absent usage snapshot must not suppress the upstream fetch');
+    assert.ok(stub.oddsCalls() >= 1, 'authorized refresh must reach the upstream Odds API');
 
     const body = (await res.json()) as OddsResponseBody;
     assert.equal(body.meta.cache, 'miss');
@@ -146,27 +149,32 @@ test('calls the upstream Odds API when no saved usage snapshot exists (existing 
   }
 });
 
-test('calls the upstream Odds API when saved quota is comfortably above the threshold', async () => {
+test('authorized refresh fetches upstream when saved quota is comfortably above the threshold', async () => {
   await setLatestKnownOddsUsage(usageSnapshot(400)); // safe -> guard allows
   const stub = installFetchStub();
   try {
-    const res = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    const res = await GET(
+      new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}&refresh=1`)
+    );
     assert.equal(res.status, 200, await res.clone().text());
-    assert.ok(stub.oddsCalls() >= 1, 'safe quota must allow the upstream fetch');
+    assert.ok(stub.oddsCalls() >= 1, 'authorized refresh must reach the upstream Odds API');
   } finally {
     stub.restore();
   }
 });
 
 test('serves a fresh cache entry without a second upstream call (cache-serving not broken)', async () => {
-  await setLatestKnownOddsUsage(usageSnapshot(400)); // safe -> first call hits upstream
+  await setLatestKnownOddsUsage(usageSnapshot(400)); // safe -> refresh hits upstream
   const stub = installFetchStub();
   try {
-    const first = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    const first = await GET(
+      new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}&refresh=1`)
+    );
     assert.equal(first.status, 200, await first.clone().text());
     assert.equal((await first.json()).meta.cache, 'miss');
     assert.equal(stub.oddsCalls(), 1);
 
+    // Anonymous follow-up is served from the fresh cache seeded by the refresh.
     const second = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
     assert.equal(second.status, 200, await second.clone().text());
     assert.equal(
@@ -186,14 +194,17 @@ test('suppressed response reports the current low usage, not the stale cached en
   await setLatestKnownOddsUsage(usageSnapshot(400));
   const stub = installFetchStub();
   try {
-    const seed = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    const seed = await GET(
+      new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}&refresh=1`)
+    );
     assert.equal(seed.status, 200, await seed.clone().text());
     assert.equal((await seed.json()).meta.cache, 'miss');
     assert.equal(stub.oddsCalls(), 1);
 
     // 2. Make the cached fallback STALE and stamp it with an old, high usage so a
-    //    naive response would surface remaining=450. Mirror it into appState so
-    //    the route does not treat the stored copy as a fresh hit.
+    //    naive response would surface remaining=450. The in-memory key is now
+    //    season-scoped (PLATFORM-075) and identical to the durable key, so mirror
+    //    it into appState under the same key.
     const cacheKey = Object.keys(oddsCache.entries)[0]!;
     const staleEntry = {
       ...oddsCache.entries[cacheKey]!,
@@ -201,7 +212,7 @@ test('suppressed response reports the current low usage, not the stale cached en
       usage: usageSnapshot(450),
     };
     oddsCache.entries[cacheKey] = staleEntry;
-    await setAppState('odds-cache', `${ODDS_TEST_SEASON}:${cacheKey}`, staleEntry);
+    await setAppState('odds-cache', cacheKey, staleEntry);
 
     // 3. Saved quota is now low -> guard suppresses upstream and serves the stale
     //    fallback odds, but must report the CURRENT low usage.
@@ -354,10 +365,12 @@ function installMappedFetchStub(): FetchStub {
 }
 
 test('suppressed fallback does not persist (downgrade) a newer durable odds snapshot', async () => {
-  await setLatestKnownOddsUsage(usageSnapshot(400)); // safe -> first GET persists durable
+  await setLatestKnownOddsUsage(usageSnapshot(400)); // safe -> refresh persists durable
   const stub = installMappedFetchStub();
   try {
-    const seed = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    const seed = await GET(
+      new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}&refresh=1`)
+    );
     assert.equal(seed.status, 200, await seed.clone().text());
     const seedBody = (await seed.json()) as OddsResponseBody;
     const gameId = seedBody.items[0]?.canonicalGameId;
@@ -368,15 +381,16 @@ test('suppressed fallback does not persist (downgrade) a newer durable odds snap
     const seededCapturedAt = seededRecord?.latestSnapshot?.capturedAt;
     assert.ok(seededCapturedAt, 'durable record should have a latest snapshot');
 
-    // Make the cache fallback stale (older lastFetch) so the next auto request
-    // hits the guard and serves this stale entry; mirror it into appState too.
+    // Make the cache fallback stale (older lastFetch) so the next anonymous
+    // request serves this stale entry; mirror it into appState under the same
+    // season-scoped key (PLATFORM-075).
     const cacheKey = Object.keys(oddsCache.entries)[0]!;
     const staleEntry = {
       ...oddsCache.entries[cacheKey]!,
       lastFetch: Date.now() - 10 * 60 * 1000,
     };
     oddsCache.entries[cacheKey] = staleEntry;
-    await setAppState('odds-cache', `${ODDS_TEST_SEASON}:${cacheKey}`, staleEntry);
+    await setAppState('odds-cache', cacheKey, staleEntry);
 
     await setLatestKnownOddsUsage(usageSnapshot(5)); // low -> suppress
     const callsBefore = stub.oddsCalls();
@@ -394,4 +408,52 @@ test('suppressed fallback does not persist (downgrade) a newer durable odds snap
   } finally {
     stub.restore();
   }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-075 — public odds traffic is a pure cache reader; season-scoped
+// in-memory cache key; removed dead dayKey.
+// ---------------------------------------------------------------------------
+
+test('PLATFORM-075: anonymous cold-cache odds request does not call upstream', async () => {
+  const stub = installFetchStub();
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(stub.oddsCalls(), 0, 'anonymous cold cache must not spend Odds API quota');
+
+    const body = (await res.json()) as OddsResponseBody & { items: unknown[] };
+    assert.equal(body.meta.cache, 'hit', 'best-effort empty read reports a cache hit');
+    assert.deepEqual(body.items, []);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('PLATFORM-075: in-memory odds cache is keyed by season (no cross-season collision)', async () => {
+  const stub = installFetchStub();
+  try {
+    await GET(new Request('http://localhost/api/odds?year=2025&refresh=1'));
+    await GET(new Request('http://localhost/api/odds?year=2026&refresh=1'));
+
+    const keys = Object.keys(oddsCache.entries);
+    assert.ok(
+      keys.some((k) => k.startsWith('2025:')),
+      'a 2025 entry must occupy its own cache slot'
+    );
+    assert.ok(
+      keys.some((k) => k.startsWith('2026:')),
+      'a 2026 entry must occupy its own cache slot'
+    );
+    assert.equal(new Set(keys).size, keys.length, 'cache keys must be unique');
+    assert.ok(keys.length >= 2, 'distinct seasons must not alias the same in-memory entry');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('PLATFORM-075: odds cache exposes only entries (dead dayKey field removed)', () => {
+  __resetOddsRouteCacheForTests();
+  assert.ok(!('dayKey' in oddsCache), 'dayKey must be removed from the odds cache');
+  assert.deepEqual(Object.keys(oddsCache), ['entries']);
 });
