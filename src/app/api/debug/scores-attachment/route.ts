@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 
-import { loadDebugSeasonContext, parseDebugYear } from '../_lib/loadDebugSeasonContext';
+import {
+  forwardAdminAuthHeaders,
+  loadDebugSeasonContext,
+  parseDebugYear,
+} from '../_lib/loadDebugSeasonContext';
 import { buildScheduleFromApi } from '@/lib/schedule';
 import {
   isActionableScoreAttachmentIssue,
@@ -50,6 +54,10 @@ export async function GET(req: Request) {
     teams: context.teamItems as never[],
     debugTrace: true,
     apiBaseUrl: origin,
+    // Authenticated diagnostic: refresh upstream (forwarding the admin's own
+    // credentials) so a cold/stale cache does not report misleading zero rows.
+    refresh: true,
+    authHeaders: forwardAdminAuthHeaders(req),
   });
 
   const diagnostics = scores.debugDiagnostics ?? [];

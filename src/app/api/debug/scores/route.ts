@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { fetchScoresByGame } from '@/lib/scores';
 import { buildScheduleFromApi, type ScheduleWireItem } from '@/lib/schedule';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
+import { forwardAdminAuthHeaders } from '../_lib/loadDebugSeasonContext';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,11 @@ export async function GET(req: Request) {
     aliasMap: aliasesJson.map ?? {},
     season: year,
     teams: (teamsJson.items ?? []) as never[],
+    apiBaseUrl: origin,
+    // Authenticated diagnostic: refresh upstream (forwarding the admin's own
+    // credentials) so a cold/stale cache does not report misleading zero rows.
+    refresh: true,
+    authHeaders: forwardAdminAuthHeaders(req),
   });
 
   return NextResponse.json({
