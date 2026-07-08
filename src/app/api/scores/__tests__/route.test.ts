@@ -254,6 +254,95 @@ test('PLATFORM-075: a fresher week cache overrides a stale season entry for the 
   assert.equal(json.items[0].status, 'STATUS_FINAL');
 });
 
+test('PLATFORM-075: a postseason game under provider and canonical week aliases reconciles to one row', async () => {
+  // CFBD season snapshot stores the bowl under its PROVIDER week (1).
+  await setAppState('scores', '2027-all-postseason', {
+    at: Date.now() - 30 * 60 * 1000, // 30m old
+    items: [
+      {
+        id: 'cfbd-9001',
+        week: 1,
+        status: 'STATUS_IN_PROGRESS',
+        startDate: '2027-12-31T20:00:00Z',
+        home: { team: 'Georgia', score: 7 },
+        away: { team: 'Texas', score: 3 },
+        time: 'Q2',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+  // ESPN fallback stores the SAME game under its CANONICAL week (16) with a
+  // different provider id — newer, final. Keyed by week these would duplicate;
+  // keyed by canonical identity (team pair + date) they reconcile.
+  await setAppState('scores', '2027-16-postseason', {
+    at: Date.now() - 60 * 1000, // 1m old
+    items: [
+      {
+        id: 'espn-4242',
+        week: 16,
+        status: 'STATUS_FINAL',
+        startDate: '2027-12-31T20:00:00Z',
+        home: { team: 'Georgia', score: 24 },
+        away: { team: 'Texas', score: 21 },
+        time: 'Final',
+      },
+    ],
+    source: 'espn',
+    cfbdFallbackReason: 'cfbd-http',
+  });
+
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  const res = await GET(new Request('http://localhost/api/scores?year=2027&seasonType=postseason'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(json.items.length, 1, 'provider/canonical week aliases are not double-counted');
+  assert.equal(json.items[0].home.score, 24, 'the fresher ESPN row wins the alias reconciliation');
+  assert.equal(json.items[0].status, 'STATUS_FINAL');
+});
+
+test('PLATFORM-075: an empty newer week fallback does not erase populated season scores', async () => {
+  await setAppState('scores', '2027-all-regular', {
+    at: Date.now() - 10 * 60 * 1000, // 10m old, populated
+    items: [
+      {
+        id: 'cfbd-7',
+        week: 3,
+        status: 'STATUS_FINAL',
+        startDate: '2027-09-20T00:00:00Z',
+        home: { team: 'Ohio State', score: 35 },
+        away: { team: 'Purdue', score: 10 },
+        time: 'Final',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+  // A newer week entry from an ESPN fallback that returned no games.
+  await setAppState('scores', '2027-3-regular', {
+    at: Date.now() - 60 * 1000, // 1m old (newer) but EMPTY
+    items: [],
+    source: 'espn',
+    cfbdFallbackReason: 'cfbd-http',
+  });
+
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  const res = await GET(new Request('http://localhost/api/scores?year=2027&seasonType=regular'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(json.items.length, 1, 'the populated season row survives a newer empty week entry');
+  assert.equal(json.items[0].home.score, 35);
+  assert.equal(
+    json.meta.source,
+    'cfbd',
+    'meta source reflects the newest entry that actually had rows'
+  );
+});
+
 test('PLATFORM-075: season-wide read reflects a week cache refreshed within the season entry TTL', async () => {
   const gameId = 'UGA-Bama-w1';
   // Fresh season-wide entry (within the 5-min TTL) with an older score.
