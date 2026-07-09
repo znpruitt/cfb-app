@@ -22,7 +22,6 @@ import { isLiveIssue } from '../../lib/cfbScheduleAppHelpers';
 import type { AliasMap } from '../../lib/teamNames';
 import type { AppGame } from '../../lib/schedule';
 import type { OddsUsageSnapshot } from '../../lib/apiUsage';
-import type { DiagEntry } from '../../lib/diagnostics';
 
 type UseLiveRefreshParams = {
   selectedSeason: number;
@@ -39,12 +38,9 @@ type UseLiveRefreshParams = {
   scoreHydrationState: ScoreHydrationState;
   setScoreHydrationState: Dispatch<SetStateAction<ScoreHydrationState>>;
   setIssues: Dispatch<SetStateAction<string[]>>;
-  setDiag: Dispatch<SetStateAction<DiagEntry[]>>;
   setOddsByKey: Dispatch<SetStateAction<Record<string, CombinedOdds>>>;
   setScoresByKey: Dispatch<SetStateAction<Record<string, ScorePack>>>;
-  setOddsCacheState: Dispatch<SetStateAction<'hit' | 'miss' | 'unknown'>>;
   setOddsUsage: Dispatch<SetStateAction<OddsUsageSnapshot | null>>;
-  setLastOddsRefreshAt: Dispatch<SetStateAction<string>>;
   setLastScoresRefreshAt: Dispatch<SetStateAction<string>>;
   loadingLive: boolean;
   setLoadingLive: Dispatch<SetStateAction<boolean>>;
@@ -86,12 +82,9 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     scoreHydrationState,
     setScoreHydrationState,
     setIssues,
-    setDiag,
     setOddsByKey,
     setScoresByKey,
-    setOddsCacheState,
     setOddsUsage,
-    setLastOddsRefreshAt,
     setLastScoresRefreshAt,
     loadingLive,
     setLoadingLive,
@@ -139,7 +132,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       }
 
       setIssues((prev) => prev.filter((issue) => !isLiveIssue(issue)));
-      setDiag([]);
 
       liveRefreshInFlightRef.current = true;
       setLoadingLive(true);
@@ -182,12 +174,9 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
               };
 
               const canonicalItems = oddsPayload.items ?? [];
-              const cacheState = oddsPayload.meta?.cache ?? 'unknown';
 
-              setOddsCacheState(cacheState);
               setOddsUsage(oddsPayload.meta?.usage ?? null);
               setOddsByKey(buildOddsLookup(canonicalItems));
-              setLastOddsRefreshAt(new Date().toLocaleString());
             } else {
               const t = await oddsRes.text().catch(() => '');
               setIssues((p) => [
@@ -209,7 +198,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           const {
             scoresByKey: nextScores,
             issues: scoreIssues,
-            diag: scoreDiag,
             debugSnapshot,
           } = await fetchScoresByGame({
             games,
@@ -218,9 +206,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
             season: selectedSeason,
             teams,
             debugTrace: isDebug,
-            // Manual refresh is an admin-only control (AdminDebugSurface); mirror
-            // the odds path and authorize the scores upstream refresh so it still
-            // updates scores. The public/auto path stays cache-only (PLATFORM-075).
+            // Manual refresh authorizes the scores upstream refresh (mirrors the
+            // odds path) so it can update scores; the public/auto path stays
+            // cache-only (PLATFORM-075). The manual trigger is retained refresh
+            // infrastructure — no live caller passes it since AdminDebugSurface
+            // was removed, but the authorized-refresh capability is preserved.
             refresh: manual,
             authHeaders: manual ? requireAdminAuthHeaders() : undefined,
           });
@@ -260,7 +250,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           }
 
           if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
-          if (scoreDiag.length) setDiag((p) => [...p, ...scoreDiag]);
           setScoresByKey((prev) => {
             const retained: Record<string, ScorePack> = {};
             for (const game of games) {
@@ -302,12 +291,9 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       selectedSeason,
       selectedTab,
       selectedWeek,
-      setDiag,
       setIssues,
-      setLastOddsRefreshAt,
       setLastScoresRefreshAt,
       setOddsByKey,
-      setOddsCacheState,
       setOddsUsage,
       setScoreHydrationState,
       setScoresByKey,
