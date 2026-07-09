@@ -72,10 +72,17 @@ export function parseAliasScope(scope: string): {
  * Classifies a stored league-scoped alias map against the current stored global
  * map. Each entry is one of:
  *   - a seed copy (same normalized key AND target as a known seed default),
- *   - a PROMOTED manual repair (its normalized key is present in stored global),
+ *   - a PROMOTED manual repair (stored global holds this exact key→target),
  *   - an UN-PROMOTED manual repair (neither) — the only thing that blocks
  *     deletion, since deleting it could drop a repair that was never promoted.
  * `unpromotedRepairCount === 0` ⇒ the key is redundant and safe to delete.
+ *
+ * "Promoted" requires the stored global VALUE to match, not just the key to
+ * exist: `aliases:global` can hold a demoted copied seed default (e.g.
+ * `uh → houston`) at the same key while this repair maps it elsewhere
+ * (`uh → Hawaii`). Runtime demotes that seed copy and the migration would
+ * overwrite it with the repair, so a bare key-existence check would delete the
+ * only copy of an un-promoted repair. Comparing targets keeps it skipped.
  */
 export function classifyLeagueScopedAliasMap(
   map: AliasMap,
@@ -96,9 +103,13 @@ export function classifyLeagueScopedAliasMap(
     const normalizedKey = normalizeAliasLookup(key);
     if (isCopiedSeedDefault(normalizedKey, target)) {
       seedCopyCount++;
-    } else if (storedGlobal[normalizedKey] !== undefined) {
-      // The migration promotes a legacy key under normalizeAliasLookup(key), so
-      // its presence in stored global means this identity is already live there.
+    } else if (
+      typeof storedGlobal[normalizedKey] === 'string' &&
+      storedGlobal[normalizedKey].trim() === target.trim()
+    ) {
+      // Promoted only when stored global holds THIS repair's exact target — not
+      // merely the same key (which could be a demoted seed copy pointing
+      // elsewhere that the migration would overwrite with this repair).
       promotedRepairCount++;
     } else {
       unpromotedRepairCount++;

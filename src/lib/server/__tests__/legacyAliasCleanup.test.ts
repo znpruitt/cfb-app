@@ -117,6 +117,28 @@ test('manual-repair league key becomes safe to delete once its identity is promo
   assert.equal((await getAppState('aliases:manual:2025', 'map'))?.value, undefined);
 });
 
+test('manual repair is NOT promoted when global holds a demoted seed copy at the same key', async () => {
+  // Codex P1 scenario: SEED_ALIASES maps 'ole miss' → 'mississippi'. Global has
+  // a persisted copy of that seed default, while the league scope repairs the
+  // SAME key to a DIFFERENT target. Runtime demotes the seed copy and the
+  // migration would overwrite it with the repair, so key-existence alone must
+  // not count the repair as promoted — the repair's exact target must be live.
+  await setAppState('aliases:global', 'map', { 'ole miss': 'mississippi' });
+  await setAppState('aliases:conflict:2025', 'map', { 'ole miss': 'some other school' });
+
+  const applied = await cleanupLegacyLeagueScopedAliases({ apply: true });
+
+  assert.deepEqual(applied.deleted, [], 'repair over a demoted seed copy not deleted');
+  assert.ok(
+    applied.skipped.some((s) => s.scope === 'aliases:conflict:2025'),
+    'repair over a demoted seed copy skipped'
+  );
+  assert.ok(
+    (await getAppState('aliases:conflict:2025', 'map'))?.value,
+    'repair over a demoted seed copy preserved'
+  );
+});
+
 test('un-promoted manual repair is skipped even when the migration-done sentinel is set', async () => {
   // Codex P2-1 scenario: the migration only scans registered slugs in a bounded
   // year window before setting the sentinel, so an unregistered/out-of-window
