@@ -11,12 +11,20 @@
 //
 // Requires the same durable-storage env (DATABASE_URL, etc.) as the app so it
 // reads/writes the real app-state store. Run the dry run first and review it.
+//
+// The dry run is read-only and works against a read-only connection (e.g. a
+// production read replica) — it never creates tables or writes. `--apply`
+// verifies the connection is genuinely writable up front and refuses to run on
+// a read-only connection.
 
 import path from 'node:path';
 
 import dotenv from 'dotenv';
 
-import { getAppStateStorageStatus } from '../src/lib/server/appStateStore.ts';
+import {
+  assertAppStateWritable,
+  getAppStateStorageStatus,
+} from '../src/lib/server/appStateStore.ts';
 import {
   cleanupLegacyLeagueScopedAliases,
   reportLegacyLeagueScopedAliases,
@@ -41,6 +49,26 @@ async function main(): Promise<void> {
   }
 
   const apply = process.argv.includes('--apply');
+
+  // A dry run only READS existing keys, so it works against a read-only
+  // connection (e.g. inspecting production via a read replica, where the
+  // app-state table's `create table if not exists` bootstrap would otherwise
+  // fail with a read-only-transaction error). `--apply` deletes, so require a
+  // genuinely writable connection first and fail fast if it is read-only —
+  // before any report or deletion runs.
+  if (apply) {
+    try {
+      await assertAppStateWritable();
+    } catch (error) {
+      console.error(
+        'Refusing to --apply: the postgres connection is not writable ' +
+          '(read-only transaction/replica, or missing write access). ' +
+          'Point at a writable primary to delete.'
+      );
+      console.error(error);
+      process.exit(1);
+    }
+  }
 
   const report = await reportLegacyLeagueScopedAliases();
   console.log(`Alias migration complete: ${report.migrationDone ? 'yes' : 'no'}`);
