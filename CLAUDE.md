@@ -138,7 +138,7 @@ Never start at the UI when an upstream layer may be wrong.
 - Check `AGENTS.md` and `docs/next-tasks.md` for current campaign status before planning work.
 - Reference all prior prompts by explicit `PROMPT_ID` — never use vague references like "that earlier prompt."
 - When generating a new prompt, verify the candidate ID does not collide with an existing one in `docs/prompt-registry.md`.
-- **Current unresolved correctness work** lives in one canonical place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (next item, order, and what's still open). Read it there before planning; do not copy the item statuses into this file (they drift as work ships).
+- **Unresolved decisions and deferrals** live in one canonical place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" → "Unresolved decisions & known deferrals" (the audit's P1/P2 correctness sequence has shipped; per-item history is in `docs/prompt-registry.md`). Read it there before planning; do not copy the item statuses into this file (they drift as work ships).
 
 ---
 

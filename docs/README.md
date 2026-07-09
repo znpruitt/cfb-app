@@ -2,7 +2,7 @@
 
 This is the **source-of-truth map** for the project's documentation. Start here to find which document owns a given concern, rather than searching across files. Each doc owns one thing; when two docs disagree, the authority hierarchy below decides.
 
-> Scope note: this index was established by **DOCS-002A** (governance + documentation index). The deeper cleanup of the planning/history and architecture docs is deliberately deferred — see [Planned documentation work](#planned-documentation-work) at the bottom.
+> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup. The remaining architecture/operations extraction (**DOCS-002C**) and the design/metadata follow-ups are still deferred — see [Planned documentation work](#planned-documentation-work) at the bottom.
 
 ## Source-of-truth map
 
@@ -43,9 +43,9 @@ When documents disagree, this ownership hierarchy decides:
 - **`DESIGN.md`** — durable UI principles and the design system. Canonical for anything visual/layout. Wins on UI.
 - **`CLAUDE.md`** — Claude-specific workflow guidance only. Points at `AGENTS.md`/`DESIGN.md`; never restates or overrides them.
 - **`docs/README.md`** (this file) — the documentation map and source-of-truth ownership. It does not carry architecture, design, or **product/engineering** planning content — it points at the doc that owns each. The one exception is the **documentation-system's own maintenance roadmap** (the DOCS-002x consolidation follow-ups below), which this index owns because they are meta-work on the docs themselves; each graduates to `docs/next-tasks.md` when it becomes active implementation work.
-- **`docs/next-tasks.md`** — the active product/engineering queue and the single home for unresolved **product** decisions/deferrals. *(Scoped for a deliberate split under DOCS-002B; treat as current for now.)*
-- **`docs/prompt-registry.md`** — the historical prompt ledger. *(Scoped for a cleanup pass under DOCS-002B; treat as current for now.)*
-- **`docs/roadmap.md`** — the product/platform roadmap. *(Scoped for reduction under DOCS-002B; treat as current for now.)*
+- **`docs/next-tasks.md`** — the active product/engineering queue and the single home for unresolved **product** decisions/deferrals.
+- **`docs/prompt-registry.md`** — the historical prompt ledger.
+- **`docs/roadmap.md`** — the product/platform roadmap.
 
 ## Planned documentation work
 
