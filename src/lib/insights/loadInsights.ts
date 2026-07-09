@@ -1,5 +1,3 @@
-import { headers } from 'next/headers';
-
 import { buildInsightContext } from '@/lib/insights/context';
 import { runInsightsEngine } from '@/lib/insights/engine';
 import '@/lib/insights/generators';
@@ -8,7 +6,12 @@ import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
-import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '@/lib/schedule';
+import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
+import {
+  loadCachedScheduleItems,
+  loadPostseasonOverrides,
+} from '@/lib/server/canonicalScheduleCache';
+import { buildScheduleFromApi, type AppGame } from '@/lib/schedule';
 import type { AliasMap } from '@/lib/teamNames';
 import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
 import { selectSeasonContext } from '@/lib/selectors/seasonContext';
@@ -31,16 +34,6 @@ async function loadOwnersCsv(slug: string, year: number): Promise<string | null>
   return typeof record?.value === 'string' ? record.value : null;
 }
 
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
 function emptyResponse(
   lifecycleState: LifecycleState = 'offseason',
   error?: string
@@ -51,19 +44,6 @@ function emptyResponse(
     generatedAt: new Date().toISOString(),
     ...(error ? { error } : {}),
   };
-}
-
-async function deriveOrigin(): Promise<string | null> {
-  try {
-    const hdrs = await headers();
-    const host = hdrs.get('x-forwarded-host') ?? hdrs.get('host');
-    if (!host) return null;
-    const protocol =
-      hdrs.get('x-forwarded-proto') ?? (process.env.NODE_ENV === 'development' ? 'http' : 'https');
-    return `${protocol}://${host}`;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -85,34 +65,42 @@ export async function loadInsightsForLeague(
   const resolvedYear =
     typeof year === 'number' && Number.isFinite(year) && year >= 2000 ? year : league.year;
 
-  const origin = await deriveOrigin();
-
   try {
-    const [csvText, scheduleRes, teamsRes, scopedAliasMap, rankings] = await Promise.all([
-      loadOwnersCsv(slug, resolvedYear),
-      origin
-        ? fetchJson<{ items?: ScheduleWireItem[] }>(`${origin}/api/schedule?year=${resolvedYear}`)
-        : Promise.resolve(null),
-      origin
-        ? fetchJson<{ items?: Array<Record<string, unknown>> }>(`${origin}/api/teams`)
-        : Promise.resolve(null),
-      getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
-      loadSeasonRankings(resolvedYear).catch(() => null),
-    ]);
+    // Everything is read in-process from the same canonical sources production
+    // uses — no HTTP self-fetch of /api/schedule or /api/teams (PLATFORM-077).
+    // The schedule read is cache-only, so Insights never triggers an upstream
+    // provider fetch (PLATFORM-075).
+    const [csvText, scheduleItems, teams, scopedAliasMap, manualOverrides, rankings] =
+      await Promise.all([
+        loadOwnersCsv(slug, resolvedYear),
+        loadCachedScheduleItems(resolvedYear).catch(() => []),
+        getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
+        getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
+        loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),
+        loadSeasonRankings(resolvedYear).catch(() => null),
+      ]);
 
     const roster = parseOwnersCsv(csvText ?? '');
     const currentRoster = new Map(roster.map((r) => [r.team, r.owner]));
-    const scheduleItems = scheduleRes?.items ?? [];
-    const teams = (teamsRes?.items ?? []) as never[];
     // Effective precedence (stored global > year > seed defaults). Using
     // getScopedAliasMap instead of spreading
     // getGlobalAliases() after the scoped map keeps seed defaults from
     // overriding a scoped repair.
     const aliasMap: AliasMap = scopedAliasMap;
 
+    // Build canonical games with the SAME inputs the standings selector's
+    // liveDeriveStandings uses (schedule items + team catalog + effective
+    // aliases + postseason overrides), so Insights sees the identical canonical
+    // game model — no Insights-private schedule/game reconstruction.
     let games: AppGame[] = [];
     try {
-      const built = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season: resolvedYear });
+      const built = buildScheduleFromApi({
+        scheduleItems,
+        teams,
+        aliasMap,
+        season: resolvedYear,
+        manualOverrides,
+      });
       games = built.games;
     } catch {
       games = [];

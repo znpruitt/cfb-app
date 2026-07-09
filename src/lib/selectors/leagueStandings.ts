@@ -7,7 +7,7 @@ import type { League, LeagueStatus } from '../league.ts';
 import { getLeague } from '../leagueRegistry.ts';
 import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import { getPreseasonOwners } from '../preseasonOwnerStore.ts';
-import type { AppGame, ScheduleWireItem } from '../schedule.ts';
+import type { AppGame } from '../schedule.ts';
 import { buildScheduleFromApi } from '../schedule.ts';
 import {
   attachScoresToSchedule,
@@ -21,6 +21,10 @@ import { selectSeasonContext } from './seasonContext.ts';
 import { getAppState } from '../server/appStateStore.ts';
 import { getScopedAliasMap, SEED_ALIASES_HASH } from '../server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
+import {
+  loadCachedScheduleItems,
+  loadPostseasonOverrides,
+} from '../server/canonicalScheduleCache.ts';
 import {
   NO_CLAIM_OWNER,
   deriveStandings,
@@ -733,7 +737,6 @@ type LiveDerivation = {
   games: AppGame[];
 };
 
-type ScheduleCacheEntry = { items?: ScheduleWireItem[] };
 type ScoresCacheItem = {
   id?: string | null;
   seasonType?: string | null;
@@ -831,17 +834,10 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   return { rows, noClaimRow, standingsHistory, coverage, roster, games };
 }
 
-async function loadScheduleItems(year: number): Promise<ScheduleWireItem[]> {
-  const combined = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-all`);
-  if (combined?.value?.items && combined.value.items.length > 0) {
-    return combined.value.items;
-  }
-  const [regular, postseason] = await Promise.all([
-    getAppState<ScheduleCacheEntry>('schedule', `${year}-all-regular`),
-    getAppState<ScheduleCacheEntry>('schedule', `${year}-all-postseason`),
-  ]);
-  return [...(regular?.value?.items ?? []), ...(postseason?.value?.items ?? [])];
-}
+// The canonical schedule-cache read + postseason overrides live in one shared
+// in-process module so the standings selector and Insights build identical
+// canonical games from identical inputs (PLATFORM-077).
+const loadScheduleItems = loadCachedScheduleItems;
 
 async function loadNormalizedScoreRows(year: number): Promise<NormalizedScoreRow[]> {
   const [regular, postseason] = await Promise.all([
@@ -878,15 +874,4 @@ function toNormalizedScoreRow(
   };
 }
 
-async function loadManualOverrides(
-  slug: string,
-  year: number
-): Promise<Record<string, Partial<AppGame>>> {
-  const record = await getAppState<Record<string, Partial<AppGame>>>(
-    `postseason-overrides:${slug}:${year}`,
-    'map'
-  );
-  const value = record?.value;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return value;
-}
+const loadManualOverrides = loadPostseasonOverrides;
