@@ -38,7 +38,7 @@ Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/READM
 
 ## Interaction preferences
 
-From Section 1 of Engineering Operating Instructions:
+(Originally from the now-historical `docs/cfb-engineering-operating-instructions.md`; these preferences remain current.)
 
 - Concise, technically precise, professional but direct.
 - No engagement bait, artificial hooks, or teasing.
@@ -51,7 +51,7 @@ From Section 1 of Engineering Operating Instructions:
 
 Every Codex prompt Claude produces must:
 
-1. Begin with the standard header (Section 3.1 of Engineering Operating Instructions):
+1. Begin with the standard header (the binding rule lives in `AGENTS.md` → prompt governance):
    ```
    PROMPT_ID: <CAMPAIGN>-<###>-<SHORT_NAME>-v<version>
    PURPOSE: <1–2 sentences>
@@ -61,7 +61,7 @@ Every Codex prompt Claude produces must:
    Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
    Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
 2. Include a **Final Response Requirement** section (Section 3.11) that restates the expected `PROMPT_ID` first-line and required response structure.
-3. Be registered in `docs/prompt-registry.md` after execution.
+3. Be registered in `docs/prompt-registry.md` as part of the **pre-merge documentation closeout** — finalized after implementation and independent review/remediation are complete, immediately before merge, so the entry describes actual final behavior (see `AGENTS.md` → "Documentation closeout timing", the binding rule). Do not mark work complete in the registry while review findings remain open.
 
 Check `docs/prompt-registry.md` for related existing prompts before assigning a new ID.
 

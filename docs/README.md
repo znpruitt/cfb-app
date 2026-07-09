@@ -9,7 +9,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | Document | Owns (source of truth for) | Status |
 |----------|----------------------------|--------|
 | [`AGENTS.md`](../AGENTS.md) | Code architecture + **binding engineering/architecture invariants** + agent operating rules | Current (canonical) |
-| [`DESIGN.md`](../DESIGN.md) | UI/UX and the design system — layout, tables, cards, color, typography, component presentation | Current (canonical) |
+| [`DESIGN.md`](../DESIGN.md) | UI/UX and the design system — layout, tables, cards, color, typography, component presentation | Current (canonical; a few known open contradictions tracked below — not yet fully reconciled) |
 | [`CLAUDE.md`](../CLAUDE.md) | Claude-specific working guidance only; points back at `AGENTS.md`/`DESIGN.md` | Current |
 | [`docs/README.md`](README.md) | This documentation map + doc-ownership boundaries | Current |
 | [`docs/next-tasks.md`](next-tasks.md) | Active queue + unresolved product decisions/deferrals ("what's next / still open") | Current |
@@ -17,7 +17,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/prompt-registry.md`](prompt-registry.md) | Historical ledger of implementation/audit prompts (IDs, scope, outcomes) — **not a backlog** | Current (ledger) |
 | [`docs/completed-work.md`](completed-work.md) | Append-only record of shipped milestones | Historical (append-only) |
 | [`docs/completed-work-archive.md`](completed-work-archive.md) | Older shipped work (Phases 1–3) | Archived |
-| [`docs/cfb-engineering-operating-instructions.md`](cfb-engineering-operating-instructions.md) | Prompt governance, response structure, commit format | Current |
+| [`docs/cfb-engineering-operating-instructions.md`](cfb-engineering-operating-instructions.md) | Original engineering/prompt-governance model — **superseded** by `AGENTS.md` (binding rules) + `CLAUDE.md` (Claude workflow); retained for context/section references, does not override them | Historical / superseded |
 | [`docs/deployment-runbook.md`](deployment-runbook.md) | Hosted deployment / operator checklist | Current |
 | [`docs/vision.md`](vision.md) | Product vision + canonical production data policy | Current |
 | [`docs/CFB_APP_ARCHITECTURE.md`](CFB_APP_ARCHITECTURE.md) | Quick upstream→downstream pipeline sketch (reference; `AGENTS.md` is canonical for architecture) | Current (reference) |
@@ -53,3 +53,13 @@ Deferred out of DOCS-002A (which was intentionally kept to governance + this ind
 
 - **DOCS-002B — planning/history cleanup.** Reduce `docs/next-tasks.md` to a concise active queue + unresolved-decisions section (the completed PLATFORM-068 audit sequence collapses to a ledger pointer); reconcile stale "planned" status where behavior has shipped (e.g. the `roadmap.md` completed-work table); trim `docs/prompt-registry.md` so it reads strictly as a ledger; consolidate `docs/roadmap.md` so it does not duplicate `next-tasks` item status. Preserve all unresolved product decisions and historical campaign detail.
 - **DOCS-002C — architecture/operations docs.** Extract the durable architecture map and operations references into dedicated docs (today architecture lives in `AGENTS.md` + the `CFB_APP_ARCHITECTURE.md` sketch, and operations in `deployment-runbook.md`). Decide whether `docs/campaigns/**` and the phase/spec records should move under an explicit `archive/` path. No file moves are performed yet.
+- **Design-contradiction cleanup (deferred).** `DESIGN.md` is canonical but not fully reconciled — resolve these known open contradictions against the current intended UI (fold into DOCS-002B or a dedicated design-cleanup prompt): (1) standings rank numbers owner-colored vs muted/plain; (2) game cards no border vs retain borders. Tracked here rather than resolved in DOCS-002A because the correct choice isn't unambiguously established by the current docs.
+- **Doc lifecycle metadata block (deferred).** Rolling a per-doc metadata header onto active/canonical docs is deferred (not done in DOCS-002A). When adopted, each active doc should carry:
+
+  ```md
+  Status:
+  Last verified:
+  Owner:
+  Canonical for:
+  Supersedes:
+  ```
