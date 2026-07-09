@@ -125,6 +125,38 @@ function getPool(): Pool {
   return pool;
 }
 
+const APP_STATE_TABLE_DDL = `
+  create table if not exists app_state (
+    scope text not null,
+    key text not null,
+    value jsonb not null,
+    updated_at timestamptz not null default now(),
+    primary key (scope, key)
+  )
+`;
+
+/**
+ * True when a pg error is SQLSTATE 25006 (read_only_sql_transaction), raised
+ * when DDL/DML is attempted on a read-only connection — e.g. a standby replica
+ * or a read-only role an operator points at to inspect production. Exported for
+ * tests. Kept narrow (exact code) so genuine failures are never swallowed.
+ */
+export function isReadOnlyTransactionError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === '25006'
+  );
+}
+
+async function appStateTableExists(pool: Pool): Promise<boolean> {
+  const result = await pool.query<{ present: boolean }>(
+    "select to_regclass('app_state') is not null as present"
+  );
+  return result.rows[0]?.present === true;
+}
+
 async function ensureDatabase(): Promise<void> {
   assertDurableStorageAvailable();
   if (!hasDatabaseConfig()) return;
@@ -132,15 +164,19 @@ async function ensureDatabase(): Promise<void> {
 
   initPromise = (async () => {
     const nextPool = getPool();
-    await nextPool.query(`
-      create table if not exists app_state (
-        scope text not null,
-        key text not null,
-        value jsonb not null,
-        updated_at timestamptz not null default now(),
-        primary key (scope, key)
-      )
-    `);
+    try {
+      await nextPool.query(APP_STATE_TABLE_DDL);
+    } catch (error) {
+      // Read-only connection (e.g. an operator inspecting production against a
+      // read replica): the `create table if not exists` DDL fails with 25006.
+      // That is fine for READ callers as long as the table already exists —
+      // verify and proceed. Any writer still fails on its own INSERT/DELETE, so
+      // this degradation never enables an unsafe write.
+      if (isReadOnlyTransactionError(error) && (await appStateTableExists(nextPool))) {
+        return;
+      }
+      throw error;
+    }
   })();
 
   try {
@@ -149,6 +185,22 @@ async function ensureDatabase(): Promise<void> {
     initPromise = null;
     throw error;
   }
+}
+
+/**
+ * Confirms the durable store is writable BEFORE a destructive operation. Runs
+ * the table DDL directly (a no-op when the table already exists), so a
+ * read-only connection fails fast with 25006 instead of part-way through a
+ * delete. Unlike `ensureDatabase`, this NEVER tolerates the read-only error —
+ * a caller that intends to write must get a hard failure. Throws when durable
+ * storage is unavailable or DATABASE_URL is missing.
+ */
+export async function assertAppStateWritable(): Promise<void> {
+  assertDurableStorageAvailable();
+  if (!hasDatabaseConfig()) {
+    throw new Error(APP_STATE_PRODUCTION_CONFIG_ERROR);
+  }
+  await getPool().query(APP_STATE_TABLE_DDL);
 }
 
 export async function getAppState<T>(
