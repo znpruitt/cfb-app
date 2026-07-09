@@ -12,9 +12,7 @@ The product remains **API-first**:
 
 ## Prompt governance (execution hygiene)
 
-- Codex implementation prompts for this project should include a standardized header with `PROMPT_ID`, `PURPOSE`, and `SCOPE`.
-- Prompt IDs should follow `<PHASE>-<AREA>-<SHORT_NAME>-v<version>` and be referenced explicitly in later discussion.
-- Use `docs/prompt-registry.md` as the lightweight reference list for important prompts.
+- Current prompt and documentation-governance rules live in `AGENTS.md` (binding) and `CLAUDE.md` (Claude-specific workflow) — including the standardized `PROMPT_ID`/`PURPOSE`/`SCOPE` header and the current ID format. `docs/prompt-registry.md` is the historical ledger of executed prompts.
 
 ## Production direction
 

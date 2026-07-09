@@ -1928,9 +1928,11 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 
 ---
 
-## Prompt Template
+## Ledger entry template (example only)
 
-### <PHASE>-<AREA>-<SHORT_NAME>-v<version>
+Illustrative shape for a ledger entry — **not** current prompt-governance authority. The binding ID format and header rules live in `AGENTS.md` / `CLAUDE.md`; entries follow the current `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>` format (campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`).
+
+### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 - Purpose: [one sentence]
 - Scope: [files or modules affected]
 - Notes: [optional — branch, PR refs, follow-up items, superseded IDs]

@@ -26,7 +26,7 @@ Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/READM
 |-----|---------|
 | `docs/README.md` | Documentation map — which doc owns what (start here when unsure) |
 | `AGENTS.md` | Project operating instructions (shared across all AI coders) |
-| `docs/cfb-engineering-operating-instructions.md` | Prompt governance, response structure, commit format |
+| `docs/cfb-engineering-operating-instructions.md` | _Historical / superseded_ — original prompt-governance model; retained for context, does not override `AGENTS.md`/`CLAUDE.md` |
 | `docs/next-tasks.md` | Active task queue and current phase focus |
 | `docs/prompt-registry.md` | Prompt ID registry — check before assigning new IDs |
 | `docs/completed-work.md` | Append-only milestone log |
