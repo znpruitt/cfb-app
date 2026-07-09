@@ -2,7 +2,7 @@
 
 Claude Code-specific companion to `AGENTS.md`. Read `AGENTS.md` first — this file adds Claude-specific context only and does not restate shared project operating content.
 
-> **Doc authority (source of truth):** `AGENTS.md` = code architecture + agent operating rules (canonical). `DESIGN.md` = UI/UX + design system (canonical). `CLAUDE.md` (this file) = Claude-specific working guidance, which **points to** those two rather than restating them. If anything here duplicates and drifts from `AGENTS.md`/`DESIGN.md`, those win — fix the pointer here.
+> **Doc authority (source of truth):** `AGENTS.md` = code architecture + agent operating rules (canonical). `DESIGN.md` = UI/UX + design system (canonical). `CLAUDE.md` (this file) = Claude-specific working guidance, which **points to** those two rather than restating them. If anything here duplicates and drifts from `AGENTS.md`/`DESIGN.md`, those win — fix the pointer here. [`docs/README.md`](docs/README.md) is the full documentation map and per-doc ownership index.
 
 ---
 
@@ -20,8 +20,11 @@ Whatever the assigned role, Claude is expected to:
 
 ## Canonical doc pointers
 
+Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/README.md). The Claude-relevant subset:
+
 | Doc | Purpose |
 |-----|---------|
+| `docs/README.md` | Documentation map — which doc owns what (start here when unsure) |
 | `AGENTS.md` | Project operating instructions (shared across all AI coders) |
 | `docs/cfb-engineering-operating-instructions.md` | Prompt governance, response structure, commit format |
 | `docs/next-tasks.md` | Active task queue and current phase focus |

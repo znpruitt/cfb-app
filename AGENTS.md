@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> **Doc authority (source of truth):** `AGENTS.md` is canonical for **code architecture and agent operating rules**. `DESIGN.md` is canonical for **UI/UX and the design system** — defer to it on any visual/layout question and do not restate its content here. `CLAUDE.md` holds **Claude-specific working guidance only** and points back here rather than duplicating architecture. When these disagree, this hierarchy wins for architecture/rules and `DESIGN.md` wins for UI.
+> **Doc authority (source of truth):** `AGENTS.md` is canonical for **code architecture and agent operating rules**. `DESIGN.md` is canonical for **UI/UX and the design system** — defer to it on any visual/layout question and do not restate its content here. `CLAUDE.md` holds **Claude-specific working guidance only** and points back here rather than duplicating architecture. When these disagree, this hierarchy wins for architecture/rules and `DESIGN.md` wins for UI. See [`docs/README.md`](docs/README.md) for the full documentation map and per-doc ownership.
 
 ## Project purpose
 
@@ -24,7 +24,7 @@ All foundational phases are complete (architecture, production hardening, league
 
 Active campaigns: INSIGHTS (Game Stats Pipeline → Insights Engine), DRAFT (Slow Draft Mode), POLISH (Copy/UX Writing Audit), PLATFORM (Auth Hardening).
 
-**Unresolved correctness work** is tracked in one place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (the app-wide audit findings, their order, and what remains open). That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
+**Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (from the app-wide PLATFORM-068 audit); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
 
 ---
 
