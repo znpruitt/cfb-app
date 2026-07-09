@@ -26,8 +26,7 @@ import { type ScorePack } from '../lib/scores';
 import { getRefreshPlan } from '../lib/refreshPolicy';
 import type { AliasMap } from '../lib/teamNames';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
-import { deriveStandings, deriveStandingsCoverage } from '../lib/standings';
-import { deriveStandingsHistory } from '../lib/standingsHistory';
+import type { StandingsCoverage } from '../lib/standings';
 import {
   deriveAutonomousOverviewScope,
   deriveOverviewSnapshot,
@@ -644,10 +643,20 @@ export default function CFBScheduleApp({
 
   const hasPostseasonGames = canonicalPostseasonGames.length > 0;
 
-  const standingsSnapshot = useMemo(
-    () => deriveStandings(games, rosterByTeam, scoresByKey),
-    [games, rosterByTeam, scoresByKey]
-  );
+  // PLATFORM-079: canonical standings is the single source for standings + owner
+  // data on the client. The four league routes always pass `canonicalStandings`,
+  // and every downstream panel/selector already prefers it over the retired
+  // client `deriveStandings` fallback — so sourcing directly from canonical here
+  // removes the parallel client derivation with no production behavior change
+  // (canonical was already winning). The `?? …` guards cover only non-canonical
+  // test renders; live in-session standings updates still flow via `liveDelta`.
+  const canonicalRows = canonicalStandings?.rows ?? [];
+  const canonicalHistory = canonicalStandings?.standingsHistory ?? null;
+  const canonicalCoverage: StandingsCoverage = canonicalStandings?.coverage ?? {
+    state: 'complete',
+    message: null,
+  };
+  const canonicalOwnerColorOrder = canonicalStandings?.ownerColorOrder ?? [];
 
   const [isDark, setIsDark] = useState(prefersDarkMode());
 
@@ -659,57 +668,17 @@ export default function CFBScheduleApp({
   }, []);
 
   const ownerColorMap = useMemo(() => {
-    // Canonical's NoClaim-filtered, alphabetically-stable owner list anchors the
-    // palette so palette assignments remain consistent across cold-start →
-    // hydrated transitions. Canonical is server-rendered and goes stale after
-    // in-session roster uploads, though, so any owners in the live client
-    // snapshot that canonical doesn't know about are appended (alphabetically,
-    // case-insensitive — matching canonical's own ordering) so new/renamed
-    // owners get deterministic colors instead of falling back to gray. Removed
-    // owners' color slots remain in the map, unused — that's the cost of
-    // keeping known owners' colors stable.
-    const canonicalOwners = canonicalStandings?.ownerColorOrder ?? [];
-    const canonicalSet = new Set(canonicalOwners);
-    const additionalOwners = standingsSnapshot.rows
-      .map((r) => r.owner)
-      .filter((owner) => !canonicalSet.has(owner))
-      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-    const owners = [...canonicalOwners, ...additionalOwners];
-    return buildOwnerColorMap(owners, isDark);
-  }, [canonicalStandings, standingsSnapshot.rows, isDark]);
+    // Canonical's NoClaim-filtered, alphabetically-stable owner list is the sole
+    // palette anchor (PLATFORM-079): assignments stay consistent across
+    // cold-start → hydrated transitions and match the Standings/Members owner
+    // ordering. Owners introduced by an in-session roster upload get their color
+    // once canonical revalidates — no client-derived supplement re-enters here.
+    return buildOwnerColorMap(canonicalOwnerColorOrder, isDark);
+  }, [canonicalOwnerColorOrder, isDark]);
 
-  const hasScoreLoadError = useMemo(
-    () =>
-      issues.some(
-        (issue) => issue.startsWith('Scores ') || issue.startsWith('Scores fetch failed:')
-      ),
-    [issues]
-  );
-
-  const standingsCoverage = useMemo(
-    () =>
-      deriveStandingsCoverage(games, rosterByTeam, scoresByKey, {
-        isLoadingScores: loadingLive,
-        hasScoreLoadError,
-      }),
-    [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
-  );
-  const standingsHistory = useMemo(
-    () =>
-      deriveStandingsHistory({
-        games,
-        rosterByTeam,
-        scoresByKey,
-        coverageOptions: {
-          isLoadingScores: loadingLive,
-          hasScoreLoadError,
-        },
-      }),
-    [games, hasScoreLoadError, loadingLive, rosterByTeam, scoresByKey]
-  );
   const seasonContext = useMemo(
-    () => selectSeasonContext({ standingsHistory }),
-    [standingsHistory]
+    () => selectSeasonContext({ standingsHistory: canonicalHistory }),
+    [canonicalHistory]
   );
 
   const activeWeekForDisplay = selectedWeek ?? 0;
@@ -724,18 +693,20 @@ export default function CFBScheduleApp({
     () =>
       deriveOwnerViewSnapshot({
         selectedOwner,
-        standingsRows: standingsSnapshot.rows,
-        // Owner header (rank/record/win%/diff) prefers canonical standings so
-        // Members agrees with the Standings surface; roster/game details stay
-        // client-derived. Falls back to local rows when canonical is absent.
-        canonicalStandingsRows: canonicalStandings?.rows,
+        // PLATFORM-079: owner options/selection + the owner header
+        // (rank/record/win%/diff) both come from canonical standings, so Members
+        // agrees with the Standings surface. Roster/game details stay
+        // schedule-derived (games/rosterByTeam/scoresByKey) — those are game-level,
+        // not standings derivation.
+        standingsRows: canonicalRows,
+        canonicalStandingsRows: canonicalRows,
         allGames: games,
         weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
         rosterByTeam,
         scoresByKey,
       }),
     [
-      canonicalStandings?.rows,
+      canonicalRows,
       filteredWeekGames,
       games,
       postseasonGames,
@@ -743,7 +714,6 @@ export default function CFBScheduleApp({
       scoresByKey,
       selectedOwner,
       selectedTab,
-      standingsSnapshot.rows,
     ]
   );
 
@@ -783,11 +753,11 @@ export default function CFBScheduleApp({
     () =>
       resolveOverviewCanonicalInputs({
         canonicalStandings,
-        standingsLeaders: standingsSnapshot.rows,
-        standingsHistory,
-        standingsCoverage,
+        standingsLeaders: canonicalRows,
+        standingsHistory: canonicalHistory,
+        standingsCoverage: canonicalCoverage,
       }),
-    [canonicalStandings, standingsSnapshot.rows, standingsHistory, standingsCoverage]
+    [canonicalStandings, canonicalRows, canonicalHistory, canonicalCoverage]
   );
   const overviewSnapshot = useMemo(
     () =>
@@ -998,11 +968,11 @@ export default function CFBScheduleApp({
     () =>
       deriveOwnerMatchupMatrix({
         weekGames: matrixViewGames,
-        standingsRows: standingsSnapshot.rows,
+        standingsRows: canonicalRows,
         rosterByTeam,
         scoresByKey,
       }),
-    [matrixViewGames, standingsSnapshot.rows, rosterByTeam, scoresByKey]
+    [matrixViewGames, canonicalRows, rosterByTeam, scoresByKey]
   );
 
   const scoreScopeGames = useMemo(() => {
@@ -1808,8 +1778,8 @@ export default function CFBScheduleApp({
                   canonicalStandings={canonicalStandings}
                   liveDelta={liveDelta}
                   standingsLeaders={overviewSnapshot.standingsLeaders}
-                  standingsHistory={standingsHistory}
-                  standingsCoverage={standingsCoverage}
+                  standingsHistory={canonicalHistory}
+                  standingsCoverage={canonicalCoverage}
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
                   keyMatchups={overviewSnapshot.keyMatchups}
@@ -1834,14 +1804,14 @@ export default function CFBScheduleApp({
                 />
               ) : primarySurfaceKind === 'standings' ? (
                 <StandingsPanel
-                  rows={standingsSnapshot.rows}
+                  rows={canonicalRows}
                   season={selectedSeason}
-                  coverage={standingsCoverage}
+                  coverage={canonicalCoverage}
                   ownerColorMap={ownerColorMap}
                   canonicalStandings={canonicalStandings}
                   liveDelta={liveDelta}
                   focusedOwner={focusedOwner}
-                  standingsHistory={standingsHistory}
+                  standingsHistory={canonicalHistory}
                   seasonContext={seasonContext}
                   trendIssues={standingsIssues}
                   onOwnerSelect={(owner) => {

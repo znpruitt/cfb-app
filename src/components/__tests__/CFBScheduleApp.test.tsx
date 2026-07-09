@@ -13,6 +13,41 @@ import { scrollFocusedOwnerPairIntoView } from '../MatchupMatrixView';
 import { scrollFocusedOwnerIntoView } from '../MatchupsWeekPanel';
 import { scrollFocusedStandingsOwnerIntoView } from '../StandingsPanel';
 import type { AppGame } from '../../lib/schedule';
+import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
+
+// PLATFORM-079: standings/owner data (owner options, selection, colors, matrix)
+// is sourced from the server-passed `canonicalStandings` prop, not a client
+// deriveStandings fallback. Tests that assert on owner/standings content supply
+// a minimal canonical snapshot for the owners they exercise.
+function canonicalStandings(owners: string[]): CanonicalStandings {
+  return {
+    slug: 'test',
+    year: 2026,
+    source: 'live',
+    lifecycle: 'mid_season',
+    rows: owners.map((owner) => ({
+      owner,
+      wins: 0,
+      losses: 0,
+      winPct: 0,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: 0,
+      finalGames: 0,
+    })),
+    noClaimRow: null,
+    ownerColorOrder: [...owners].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' })
+    ),
+    standingsHistory: null,
+    coverage: { state: 'complete', message: null },
+    ownersRosterSource: 'csv',
+    archiveYearResolved: null,
+    inferredSeasonStart: null,
+    generatedAt: '2026-01-01T00:00:00.000Z',
+  };
+}
 
 function game(overrides: Partial<AppGame> = {}): AppGame {
   return {
@@ -106,6 +141,7 @@ test('owner surface remains reachable with owner data even when no week is selec
       initialRoster={[{ owner: 'Alice', team: 'Texas' }]}
       initialGames={[]}
       initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
+      canonicalStandings={canonicalStandings(['Alice'])}
     />
   );
 
@@ -127,11 +163,30 @@ test('owner surface wires liveDelta to OwnerPanel; no live badge without in-prog
       initialWeekViewMode="owner"
       initialRoster={[{ owner: 'Alice', team: 'Texas' }]}
       initialGames={[game({ csvAway: 'Texas', csvHome: 'Rice' })]}
+      canonicalStandings={canonicalStandings(['Alice'])}
     />
   );
 
   assert.match(html, /Roster • Live • This week/);
   assert.doesNotMatch(html, /data-owner-live-pending/);
+});
+
+test('PLATFORM-079: Members owner options/selection come from canonical standings, not the client roster', () => {
+  // The client roster carries only "Zed"; canonical carries only "Alice". If
+  // owner options were still derived client-side from the roster, the picker
+  // would offer Zed. Sourcing from canonical, it must offer Alice and never Zed
+  // — proving the retired client deriveStandings path no longer feeds Members.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      initialWeekViewMode="owner"
+      initialRoster={[{ owner: 'Zed', team: 'Texas' }]}
+      initialGames={[game({ csvAway: 'Texas', csvHome: 'Rice' })]}
+      canonicalStandings={canonicalStandings(['Alice'])}
+    />
+  );
+
+  assert.match(html, /aria-label="Choose Alice"/);
+  assert.doesNotMatch(html, /Choose Zed/);
 });
 
 test('active-season league surface uses the league status year, not the global default (PLATFORM-042)', () => {
@@ -172,6 +227,7 @@ test('overview hides week context controls while still rendering overview conten
         { owner: 'Bob', team: 'Oklahoma' },
         { owner: 'Cory', team: 'Notre Dame' },
       ]}
+      canonicalStandings={canonicalStandings(['Alice', 'Bob', 'Cory'])}
     />
   );
 
@@ -215,6 +271,7 @@ test('matrix mode renders dedicated matchup matrix surface and not weekly matchu
         { owner: 'Bob', team: 'Oklahoma' },
         { owner: 'Cara', team: 'USC' },
       ]}
+      canonicalStandings={canonicalStandings(['Alice', 'Bob', 'Cara'])}
     />
   );
 
@@ -242,6 +299,7 @@ test('matrix mode remains available in postseason contexts', () => {
         { owner: 'Alice', team: 'Texas' },
         { owner: 'Bob', team: 'Oklahoma' },
       ]}
+      canonicalStandings={canonicalStandings(['Alice', 'Bob'])}
     />
   );
 
