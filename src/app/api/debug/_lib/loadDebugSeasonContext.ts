@@ -37,18 +37,27 @@ export function forwardAdminAuthHeaders(req: Request): Record<string, string> {
 export async function loadDebugSeasonContext(params: {
   year: number;
   origin: string;
+  req: Request;
 }): Promise<DebugSeasonContext> {
-  const { year, origin } = params;
+  const { year, origin, req } = params;
+  // Forward the caller's admin credentials onto every internal sub-request.
+  // These context endpoints are admin-gated for cold-cache rebuilds (e.g.
+  // /api/conferences returns 503 to an unauthenticated caller when its cache is
+  // cold, then `.catch` would silently degrade conferenceItems to []). Since the
+  // debug route is itself requireAdminAuth-gated, forwarding the admin's own
+  // Clerk cookie / ADMIN_API_TOKEN is exactly the caller's authority.
+  const authHeaders = forwardAdminAuthHeaders(req);
+  const init: RequestInit = { cache: 'no-store', headers: authHeaders };
   const [scheduleRes, teamsRes, aliasesRes, conferencesRes] = await Promise.all([
-    fetch(`${origin}/api/schedule?year=${year}`, { cache: 'no-store' }),
-    fetch(`${origin}/api/teams`, { cache: 'no-store' }),
+    fetch(`${origin}/api/schedule?year=${year}`, init),
+    fetch(`${origin}/api/teams`, init),
     // `scope=effective` returns the RESOLVER alias map (stored global > year >
     // SEED_ALIASES) — the exact precedence production identity resolution uses
     // via getScopedAliasMap('', year). The default (year-only stored) scope would
     // drop global + SEED aliases, making debug diagnostics resolve against a
     // strictly weaker alias set than production (PLATFORM-076).
-    fetch(`${origin}/api/aliases?year=${year}&scope=effective`, { cache: 'no-store' }),
-    fetch(`${origin}/api/conferences`, { cache: 'no-store' }),
+    fetch(`${origin}/api/aliases?year=${year}&scope=effective`, init),
+    fetch(`${origin}/api/conferences`, init),
   ]);
 
   const scheduleJson = (await scheduleRes.json().catch(() => ({ items: [] }))) as {

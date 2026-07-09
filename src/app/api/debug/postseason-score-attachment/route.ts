@@ -152,7 +152,7 @@ export async function GET(req: Request) {
   const origin = `${url.protocol}//${url.host}`;
 
   const [context, scoresRes] = await Promise.all([
-    loadDebugSeasonContext({ year, origin }),
+    loadDebugSeasonContext({ year, origin, req }),
     // Authenticated diagnostic: refresh upstream (forwarding the admin's own
     // credentials) so a cold/stale cache does not report misleading zero rows.
     fetch(`${origin}/api/scores?year=${year}&seasonType=postseason&refresh=1`, {

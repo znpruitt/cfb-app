@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   // them the canonical schedule build resets its conference index and classifies
   // subdivision by present-day policy only, changing which games are eligible/
   // tracked and thus which scores appear attached (PLATFORM-076).
-  const context = await loadDebugSeasonContext({ year, origin });
+  const context = await loadDebugSeasonContext({ year, origin, req });
 
   const built = buildScheduleFromApi({
     scheduleItems: context.scheduleItems,
