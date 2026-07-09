@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const year = parseDebugYear(url);
   const origin = `${url.protocol}//${url.host}`;
-  const context = await loadDebugSeasonContext({ year, origin });
+  const context = await loadDebugSeasonContext({ year, origin, req });
 
   const built = buildScheduleFromApi({
     scheduleItems: context.scheduleItems,

@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const source = url.searchParams.get('source') ?? 'cfbd_scores';
   const week = weekParam && /^\d+$/.test(weekParam) ? Number.parseInt(weekParam, 10) : null;
   const origin = `${url.protocol}//${url.host}`;
-  const context = await loadDebugSeasonContext({ year, origin });
+  const context = await loadDebugSeasonContext({ year, origin, req });
 
   const built = buildScheduleFromApi({
     scheduleItems: context.scheduleItems,

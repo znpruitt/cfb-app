@@ -99,6 +99,48 @@ test('postseason score attachment debug route emits canonical attachment fields'
   assert.equal(Array.isArray(json.games), true);
   assert.equal(json.games[0].matchedNormalizedScore, true);
   assert.equal('homeCanonicalId' in json.games[0], true);
+  // PLATFORM-076: the postseason debug index/output exposes providerWeek so a
+  // score under the provider week reconciles with the canonical-week game.
+  assert.equal(json.games[0].providerWeek, 17, 'provider week is surfaced in the output');
+});
+
+test('PLATFORM-076: resolves aliases through the effective (global>year>SEED) scope', async () => {
+  const aliasUrls: string[] = [];
+  setMockFetch(async (input: URL | string) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    const req = new URL(url);
+    if (req.pathname === '/api/aliases') {
+      aliasUrls.push(url);
+      return new Response(JSON.stringify({ scope: 'effective', map: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    // Minimal context for the rest of the pipeline.
+    if (
+      req.pathname === '/api/schedule' ||
+      req.pathname === '/api/teams' ||
+      req.pathname === '/api/conferences' ||
+      req.pathname === '/api/scores'
+    ) {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`Unhandled fetch: ${req.pathname}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/debug/postseason-score-attachment?year=2025')
+  );
+  assert.equal(res.status, 200);
+  assert.equal(aliasUrls.length, 1, 'the alias map is fetched once via the shared loader');
+  assert.match(
+    aliasUrls[0]!,
+    /[?&]scope=effective(&|$)/,
+    'debug diagnostics must resolve against the effective alias precedence'
+  );
 });
 
 test('PLATFORM-075: forwards refresh=1 and the admin credential to the scores sub-request', async () => {

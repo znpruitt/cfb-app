@@ -12,7 +12,11 @@ import {
   type NormalizedScoreRow,
   type ScheduleIndexEntry,
 } from '@/lib/scoreAttachment';
-import { createTeamIdentityResolver } from '@/lib/teamIdentity';
+import {
+  createTeamIdentityResolver,
+  resolveTeamIdentityKey,
+  type TeamIdentityResolver,
+} from '@/lib/teamIdentity';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +34,10 @@ type ScoreWire = {
   awayScore?: number | null;
 };
 
-function extractRows(payload: unknown): NormalizedScoreRow[] {
+function extractRows(
+  payload: unknown,
+  defaultSeasonType: 'regular' | 'postseason'
+): NormalizedScoreRow[] {
   const items = Array.isArray(payload)
     ? payload
     : payload &&
@@ -53,8 +60,13 @@ function extractRows(payload: unknown): NormalizedScoreRow[] {
       return {
         providerEventId:
           row.id != null && String(row.id).trim().length > 0 ? String(row.id).trim() : null,
+        // Match production fetchScoreRows: a null provider seasonType defaults to
+        // the fetched season type (here postseason) rather than staying null,
+        // which would send matchScoreRowToSchedule down its cross-phase path.
         seasonType:
-          row.seasonType === 'regular' || row.seasonType === 'postseason' ? row.seasonType : null,
+          row.seasonType === 'regular' || row.seasonType === 'postseason'
+            ? row.seasonType
+            : defaultSeasonType,
         date: row.startDate ?? null,
         week: typeof row.week === 'number' ? row.week : null,
         status: row.status ?? 'scheduled',
@@ -74,11 +86,18 @@ function closestCandidate(params: {
   candidates: ScheduleIndexEntry[];
   row: NormalizedScoreRow;
   seasonType: 'regular' | 'postseason';
+  resolver: TeamIdentityResolver;
 }): { gameKey: string; mismatchReasons: string[] } | null {
-  const { candidates, row, seasonType } = params;
+  const { candidates, row, seasonType, resolver } = params;
   if (candidates.length === 0) return null;
 
   const kickoffMs = row.date ? Date.parse(row.date) : NaN;
+  // Compare team names by canonical identity, not raw provider labels — a
+  // provider label rarely equals the schedule's canonical name, so a raw `!==`
+  // fired on nearly every candidate and made the diagnostic meaningless
+  // (PLATFORM-076). Route identity through the same resolver production uses.
+  const rowHomeKey = resolveTeamIdentityKey(resolver, row.home.team);
+  const rowAwayKey = resolveTeamIdentityKey(resolver, row.away.team);
   let best: { entry: ScheduleIndexEntry; score: number; reasons: string[] } | null = null;
 
   for (const candidate of candidates) {
@@ -90,9 +109,11 @@ function closestCandidate(params: {
       reasons.push(`seasonType_mismatch:${candidate.seasonType}!=${seasonType}`);
     }
 
-    if (row.week != null && candidate.week !== row.week) {
+    // A postseason provider row may carry either the canonical or the provider
+    // week; only flag a mismatch when the row week matches neither.
+    if (row.week != null && candidate.week !== row.week && candidate.providerWeek !== row.week) {
       score += 25;
-      reasons.push(`week_mismatch:${candidate.week}!=${row.week}`);
+      reasons.push(`week_mismatch:${candidate.week}/${candidate.providerWeek}!=${row.week}`);
     }
 
     const candidateKickoffMs = candidate.date ? Date.parse(candidate.date) : NaN;
@@ -104,8 +125,11 @@ function closestCandidate(params: {
       }
     }
 
-    if (candidate.game.canHome !== row.home.team || candidate.game.canAway !== row.away.team) {
-      reasons.push('home_away_name_not_exact');
+    const candHomeKey = resolveTeamIdentityKey(resolver, candidate.game.canHome);
+    const candAwayKey = resolveTeamIdentityKey(resolver, candidate.game.canAway);
+    if (candHomeKey !== rowHomeKey || candAwayKey !== rowAwayKey) {
+      score += 30;
+      reasons.push('home_away_identity_mismatch');
     }
 
     if (!best || score < best.score) best = { entry: candidate, score, reasons };
@@ -128,7 +152,7 @@ export async function GET(req: Request) {
   const origin = `${url.protocol}//${url.host}`;
 
   const [context, scoresRes] = await Promise.all([
-    loadDebugSeasonContext({ year, origin }),
+    loadDebugSeasonContext({ year, origin, req }),
     // Authenticated diagnostic: refresh upstream (forwarding the admin's own
     // credentials) so a cold/stale cache does not report misleading zero rows.
     fetch(`${origin}/api/scores?year=${year}&seasonType=postseason&refresh=1`, {
@@ -157,6 +181,11 @@ export async function GET(req: Request) {
     postseasonGames.map((game) => ({
       key: game.key,
       week: game.week,
+      // Carry the provider week so the index matches score rows by BOTH the
+      // canonical and provider week (postseason games are remapped to a
+      // canonical week but scores arrive under the provider week) — parity with
+      // production buildScheduleIndex (PLATFORM-076).
+      providerWeek: game.providerWeek,
       date: game.date,
       stage: game.stage,
       providerGameId: game.providerGameId,
@@ -170,7 +199,7 @@ export async function GET(req: Request) {
     resolver
   );
 
-  const scoreRows = scoresRes.ok ? extractRows(await scoresRes.json()) : [];
+  const scoreRows = scoresRes.ok ? extractRows(await scoresRes.json(), 'postseason') : [];
   const matchedByGameKey = new Map<string, { providerEventId: string | null; strategy: string }>();
   for (const row of scoreRows) {
     const match = matchScoreRowToSchedule(row, scheduleIndex, resolver, { debugTrace: true });
@@ -204,6 +233,7 @@ export async function GET(req: Request) {
           candidates: indexCandidates,
           row: rowCandidate,
           seasonType: toSeasonType(game),
+          resolver,
         });
       }
     }
@@ -212,6 +242,7 @@ export async function GET(req: Request) {
       canonicalGameId: game.key,
       seasonYear: year,
       week: game.week,
+      providerWeek: game.providerWeek ?? game.week,
       seasonType: toSeasonType(game),
       subtype: game.stage,
       kickoff: game.date,
