@@ -95,3 +95,59 @@ test('unknown league returns an empty offseason response without throwing', asyn
   assert.equal(res.lifecycleState, 'offseason');
   assert.match(res.error ?? '', /not found/);
 });
+
+test('PLATFORM-077: loadInsightsForLeague sources schedule/games in-process and never self-fetches', async () => {
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Turf War',
+    year: 2026,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: 2026 },
+  });
+  await setAppState('owners:tsc:2026', 'csv', 'team,owner\nGeorgia,Alice\nClemson,Bob');
+  // Seed the canonical schedule cache that the in-process path reads (the same
+  // durable key `/api/schedule` and the standings selector use).
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items: [
+      {
+        id: 'g1',
+        week: 1,
+        startDate: '2026-09-05T00:00:00Z',
+        homeTeam: 'Georgia',
+        awayTeam: 'Clemson',
+        homeConference: 'SEC',
+        awayConference: 'ACC',
+        status: 'final',
+        seasonType: 'regular',
+        gamePhase: 'regular',
+      },
+    ],
+  });
+
+  // Any HTTP self-fetch is a regression: schedule/teams/etc. must be read
+  // in-process. Fail loudly if the code reaches for fetch at all.
+  const originalFetch = global.fetch;
+  const fetchCalls: string[] = [];
+  global.fetch = (async (input: URL | string) => {
+    fetchCalls.push(typeof input === 'string' ? input : input.toString());
+    return new Response('{}', { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    const res = await loadInsightsForLeague(SLUG, 2026);
+    assert.equal(res.error, undefined);
+    assert.ok(Array.isArray(res.insights));
+    // A non-offseason lifecycle here can only come from the in-process schedule/
+    // standings the seeded caches drive — the self-fetch stub returns 500.
+    assert.notEqual(res.lifecycleState, 'offseason');
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  assert.deepEqual(
+    fetchCalls,
+    [],
+    `insights must not self-fetch app routes; saw: ${fetchCalls.join(', ')}`
+  );
+});
