@@ -105,12 +105,36 @@ test('dry run deletes nothing; --apply removes pure seed-copy but skips un-promo
   );
 });
 
-test('manual-repair league key becomes safe to delete once migration is done', async () => {
+test('manual-repair league key becomes safe to delete once its identity is promoted to global', async () => {
   await setAppState('aliases:manual:2025', 'map', MANUAL_REPAIR);
-  await setAppState('aliases:global', 'migration-done', true);
+  // Promote the repair into the stored global map (what the migration does). The
+  // league-scoped copy is now redundant with a live runtime layer.
+  await setAppState('aliases:global', 'map', MANUAL_REPAIR);
 
   const applied = await cleanupLegacyLeagueScopedAliases({ apply: true });
 
   assert.deepEqual(applied.deleted, ['aliases:manual:2025']);
   assert.equal((await getAppState('aliases:manual:2025', 'map'))?.value, undefined);
+});
+
+test('un-promoted manual repair is skipped even when the migration-done sentinel is set', async () => {
+  // Codex P2-1 scenario: the migration only scans registered slugs in a bounded
+  // year window before setting the sentinel, so an unregistered/out-of-window
+  // scope can hold a manual repair that was never promoted. The sentinel must NOT
+  // be trusted — safety is decided per-entry against the real global map.
+  await setAppState('aliases:unregistered:2025', 'map', MANUAL_REPAIR);
+  await setAppState('aliases:global', 'migration-done', true);
+  // Deliberately do NOT promote MANUAL_REPAIR into aliases:global/map.
+
+  const applied = await cleanupLegacyLeagueScopedAliases({ apply: true });
+
+  assert.deepEqual(applied.deleted, [], 'un-promoted repair not deleted despite sentinel');
+  assert.ok(
+    applied.skipped.some((s) => s.scope === 'aliases:unregistered:2025'),
+    'un-promoted repair skipped'
+  );
+  assert.ok(
+    (await getAppState('aliases:unregistered:2025', 'map'))?.value,
+    'un-promoted repair preserved'
+  );
 });

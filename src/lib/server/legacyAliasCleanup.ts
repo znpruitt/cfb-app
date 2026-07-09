@@ -4,7 +4,7 @@ import {
   listAppStateKeys,
   listAppStateScopes,
 } from './appStateStore.ts';
-import { isCopiedSeedDefault } from './globalAliasStore.ts';
+import { getStoredGlobalAliases, isCopiedSeedDefault } from './globalAliasStore.ts';
 import { normalizeAliasLookup } from '../teamNormalization.ts';
 import type { AliasMap } from '../teamNames.ts';
 
@@ -22,14 +22,18 @@ import type { AliasMap } from '../teamNames.ts';
 //   - `aliases:${year}`     (year-scoped map — the second resolution layer)
 // nor any non-alias app-state scope.
 //
-// Safety model for deleting a league-scoped key:
-//   - a key whose entries are ALL copies of a known seed default is redundant
-//     regardless of migration state (the migration never promotes seed copies),
-//   - any key is redundant once `migrateYearScopedAliasesToGlobal` has completed
-//     (its `migration-done` sentinel is set) because every genuine manual repair
-//     has by then been promoted into the stored global map.
-// A key that still holds un-promoted manual repairs (migration not yet done) is
-// skipped, never deleted, so no repair is lost before promotion.
+// Safety model for deleting a league-scoped key — a key is safe to delete only
+// when every entry is already accounted for and would lose nothing runtime uses:
+//   - a seed copy (same normalized key AND target as a known seed default) is
+//     redundant — the code seed supplies that identity,
+//   - a manual repair is redundant ONLY once its identity is present in the
+//     stored global map (`aliases:global`) — i.e. verifiably PROMOTED.
+// The `migration-done` sentinel is NOT trusted for this: the promotion migration
+// only scans registered league slugs within a bounded year window before setting
+// it, so an unregistered/out-of-window scope can carry manual repairs that were
+// never promoted even though the sentinel is set. We verify promotion per entry
+// against the actual global map instead. A key holding any un-promoted manual
+// repair is skipped, never deleted, so no repair is lost.
 // ---------------------------------------------------------------------------
 
 const ALIAS_SCOPE_PREFIX = 'aliases:';
@@ -65,25 +69,42 @@ export function parseAliasScope(scope: string): {
 }
 
 /**
- * Splits a stored league-scoped alias map into seed-copy vs manual-repair
- * entries. A seed copy has the same normalized key AND target as a known seed
- * default (current or retired); everything else is treated as a manual repair.
+ * Classifies a stored league-scoped alias map against the current stored global
+ * map. Each entry is one of:
+ *   - a seed copy (same normalized key AND target as a known seed default),
+ *   - a PROMOTED manual repair (its normalized key is present in stored global),
+ *   - an UN-PROMOTED manual repair (neither) — the only thing that blocks
+ *     deletion, since deleting it could drop a repair that was never promoted.
+ * `unpromotedRepairCount === 0` ⇒ the key is redundant and safe to delete.
  */
-export function classifyLeagueScopedAliasMap(map: AliasMap): {
+export function classifyLeagueScopedAliasMap(
+  map: AliasMap,
+  storedGlobal: AliasMap
+): {
   entryCount: number;
   seedCopyCount: number;
-  manualRepairCount: number;
+  promotedRepairCount: number;
+  unpromotedRepairCount: number;
 } {
   let entryCount = 0;
   let seedCopyCount = 0;
-  let manualRepairCount = 0;
+  let promotedRepairCount = 0;
+  let unpromotedRepairCount = 0;
   for (const [key, target] of Object.entries(map)) {
     if (typeof target !== 'string' || !target.trim()) continue;
     entryCount++;
-    if (isCopiedSeedDefault(normalizeAliasLookup(key), target)) seedCopyCount++;
-    else manualRepairCount++;
+    const normalizedKey = normalizeAliasLookup(key);
+    if (isCopiedSeedDefault(normalizedKey, target)) {
+      seedCopyCount++;
+    } else if (storedGlobal[normalizedKey] !== undefined) {
+      // The migration promotes a legacy key under normalizeAliasLookup(key), so
+      // its presence in stored global means this identity is already live there.
+      promotedRepairCount++;
+    } else {
+      unpromotedRepairCount++;
+    }
   }
-  return { entryCount, seedCopyCount, manualRepairCount };
+  return { entryCount, seedCopyCount, promotedRepairCount, unpromotedRepairCount };
 }
 
 export type LegacyLeagueAliasScopeReport = {
@@ -92,22 +113,28 @@ export type LegacyLeagueAliasScopeReport = {
   year: number;
   entryCount: number;
   seedCopyCount: number;
-  manualRepairCount: number;
+  promotedRepairCount: number;
+  unpromotedRepairCount: number;
   /** True when this key can be deleted without losing an un-promoted repair. */
   safeToDelete: boolean;
 };
 
 export type LegacyLeagueAliasReport = {
+  /** Informational only — NOT used to decide deletion safety (see module docs). */
   migrationDone: boolean;
   scopes: LegacyLeagueAliasScopeReport[];
 };
 
 /**
  * Read-only scan (dry run): discovers every `aliases:${slug}:${year}` key that
- * holds a map and classifies it. Never mutates storage.
+ * holds a map and classifies it against the current stored global map. Never
+ * mutates storage.
  */
 export async function reportLegacyLeagueScopedAliases(): Promise<LegacyLeagueAliasReport> {
-  const migrationRecord = await getAppState<boolean>(GLOBAL_SCOPE, MIGRATION_DONE_KEY);
+  const [migrationRecord, storedGlobal] = await Promise.all([
+    getAppState<boolean>(GLOBAL_SCOPE, MIGRATION_DONE_KEY),
+    getStoredGlobalAliases(),
+  ]);
   const migrationDone = migrationRecord?.value === true;
 
   const scopes: LegacyLeagueAliasScopeReport[] = [];
@@ -119,15 +146,17 @@ export async function reportLegacyLeagueScopedAliases(): Promise<LegacyLeagueAli
     const record = await getAppState<AliasMap>(scope, MAP_KEY);
     const map = record?.value;
     if (!map || typeof map !== 'object' || Array.isArray(map)) continue;
-    const { entryCount, seedCopyCount, manualRepairCount } = classifyLeagueScopedAliasMap(map);
+    const { entryCount, seedCopyCount, promotedRepairCount, unpromotedRepairCount } =
+      classifyLeagueScopedAliasMap(map, storedGlobal);
     scopes.push({
       scope,
       slug: parsed.slug ?? '',
       year: parsed.year ?? 0,
       entryCount,
       seedCopyCount,
-      manualRepairCount,
-      safeToDelete: manualRepairCount === 0 || migrationDone,
+      promotedRepairCount,
+      unpromotedRepairCount,
+      safeToDelete: unpromotedRepairCount === 0,
     });
   }
   return { migrationDone, scopes };
@@ -166,7 +195,7 @@ export async function cleanupLegacyLeagueScopedAliases(
     if (!entry.safeToDelete) {
       skipped.push({
         scope: entry.scope,
-        reason: `has ${entry.manualRepairCount} un-promoted manual repair(s); run the alias migration first`,
+        reason: `has ${entry.unpromotedRepairCount} un-promoted manual repair(s); run the alias migration first`,
       });
       continue;
     }
