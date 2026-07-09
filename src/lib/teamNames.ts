@@ -1,5 +1,3 @@
-import { normalizeAliasLookup, normalizeTeamName, stripDiacritics } from './teamNormalization.ts';
-
 export type AliasMap = Record<string, string>;
 
 export const SEED_ALIASES: AliasMap = {
@@ -24,20 +22,3 @@ export const SEED_ALIASES: AliasMap = {
   albany: 'ualbany',
   unlv: 'nevada-las vegas',
 };
-
-export { normalizeTeamName, stripDiacritics };
-
-export function applyAliases(baseLower: string, aliases: AliasMap): string {
-  return aliases[baseLower] ?? baseLower;
-}
-
-export function normWithAliases(s: string, aliases: AliasMap): string {
-  const lookup = normalizeAliasLookup(s);
-  return normalizeTeamName(applyAliases(lookup, aliases));
-}
-
-export function variants(raw: string, aliases: AliasMap): string[] {
-  const base = normWithAliases(raw, aliases);
-  if (!base) return [];
-  return Array.from(new Set([base]));
-}
