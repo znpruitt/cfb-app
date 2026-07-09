@@ -57,7 +57,7 @@ Every Codex prompt Claude produces must:
    PURPOSE: <1–2 sentences>
    SCOPE: <files/modules + constraints>
    ```
-   Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`.
+   Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS` (documentation/governance). Split/multi-part tasks may use a lettered sub-sequence (e.g. `PLATFORM-079a`/`079b`, `DOCS-002A`/`002B`/`002C`).
    Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
    Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
 2. Include a **Final Response Requirement** section (Section 3.11) that restates the expected `PROMPT_ID` first-line and required response structure.

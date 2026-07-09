@@ -152,8 +152,9 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
      - `PURPOSE`
      - `SCOPE`
    - Use this standard ID format: `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
-   - Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`.
-   - Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
+   - Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS` (documentation/governance work).
+   - A split or multi-part task may use a lettered sub-sequence (e.g. `PLATFORM-079a`/`079b`, `DOCS-002A`/`002B`/`002C`).
+   - Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`, `DOCS-002A-...-v1`.
    - Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
    - IDs should be human-readable and stable for later reference.
    - Bump the version when behavior or scope changes materially.
