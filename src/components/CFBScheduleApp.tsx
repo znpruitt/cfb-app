@@ -942,6 +942,15 @@ export default function CFBScheduleApp({
     [scoresByKey, selectedSeason, visibleGames]
   );
 
+  // PLATFORM-080: recompute server canonicalStandings after an in-session game
+  // finalization. router.refresh() re-runs the RSC tree; the /api/scores write
+  // path already invalidated the standings cache tag, so canonical recomputes
+  // from the (cache-only) score/schedule caches — no client standings
+  // derivation and no upstream provider fetch (PLATFORM-075 preserved).
+  const handleGamesFinalized = useCallback(() => {
+    router.refresh();
+  }, [router]);
+
   useLiveRefresh({
     selectedSeason,
     selectedTab,
@@ -966,6 +975,11 @@ export default function CFBScheduleApp({
     loadingLive,
     setLoadingLive,
     isDebug: IS_DEBUG,
+    // PLATFORM-080: when a live poll observes a game finalize in-session, refresh
+    // the RSC tree so server canonicalStandings recomputes (records/ranks pick
+    // up the new final). liveDelta excludes final games, so without this the
+    // standings would stay tied to the render-time snapshot until navigation.
+    onGamesFinalized: handleGamesFinalized,
   });
 
   // Odds-usage is admin-only diagnostics (API quota state). Only admins fetch it;
