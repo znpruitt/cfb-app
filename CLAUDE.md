@@ -2,7 +2,7 @@
 
 Claude Code-specific companion to `AGENTS.md`. Read `AGENTS.md` first — this file adds Claude-specific context only and does not restate shared project operating content.
 
-> **Doc authority (source of truth):** `AGENTS.md` = code architecture + agent operating rules (canonical). `DESIGN.md` = UI/UX + design system (canonical). `CLAUDE.md` (this file) = Claude-specific working guidance, which **points to** those two rather than restating them. If anything here duplicates and drifts from `AGENTS.md`/`DESIGN.md`, those win — fix the pointer here.
+> **Doc authority (source of truth):** `AGENTS.md` = code architecture + agent operating rules (canonical). `DESIGN.md` = UI/UX + design system (canonical). `CLAUDE.md` (this file) = Claude-specific working guidance, which **points to** those two rather than restating them. If anything here duplicates and drifts from `AGENTS.md`/`DESIGN.md`, those win — fix the pointer here. [`docs/README.md`](docs/README.md) is the full documentation map and per-doc ownership index.
 
 ---
 
@@ -20,10 +20,13 @@ Whatever the assigned role, Claude is expected to:
 
 ## Canonical doc pointers
 
+Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/README.md). The Claude-relevant subset:
+
 | Doc | Purpose |
 |-----|---------|
+| `docs/README.md` | Documentation map — which doc owns what (start here when unsure) |
 | `AGENTS.md` | Project operating instructions (shared across all AI coders) |
-| `docs/cfb-engineering-operating-instructions.md` | Prompt governance, response structure, commit format |
+| `docs/cfb-engineering-operating-instructions.md` | _Historical / superseded_ — original prompt-governance model; retained for context, does not override `AGENTS.md`/`CLAUDE.md` |
 | `docs/next-tasks.md` | Active task queue and current phase focus |
 | `docs/prompt-registry.md` | Prompt ID registry — check before assigning new IDs |
 | `docs/completed-work.md` | Append-only milestone log |
@@ -35,7 +38,7 @@ Whatever the assigned role, Claude is expected to:
 
 ## Interaction preferences
 
-From Section 1 of Engineering Operating Instructions:
+(Originally from the now-historical `docs/cfb-engineering-operating-instructions.md`; these preferences remain current.)
 
 - Concise, technically precise, professional but direct.
 - No engagement bait, artificial hooks, or teasing.
@@ -48,17 +51,17 @@ From Section 1 of Engineering Operating Instructions:
 
 Every Codex prompt Claude produces must:
 
-1. Begin with the standard header (Section 3.1 of Engineering Operating Instructions):
+1. Begin with the standard header (the binding rule lives in `AGENTS.md` → prompt governance):
    ```
    PROMPT_ID: <CAMPAIGN>-<###>-<SHORT_NAME>-v<version>
    PURPOSE: <1–2 sentences>
    SCOPE: <files/modules + constraints>
    ```
-   Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`.
+   Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS` (documentation/governance). Split/multi-part tasks may use a lettered sub-sequence (e.g. `PLATFORM-079a`/`079b`, `DOCS-002A`/`002B`/`002C`).
    Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
    Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
 2. Include a **Final Response Requirement** section (Section 3.11) that restates the expected `PROMPT_ID` first-line and required response structure.
-3. Be registered in `docs/prompt-registry.md` after execution.
+3. Be registered in `docs/prompt-registry.md` as part of the **pre-merge documentation closeout** — finalized after implementation and independent review/remediation are complete, immediately before merge, so the entry describes actual final behavior (see `AGENTS.md` → "Documentation closeout timing", the binding rule). Do not mark work complete in the registry while review findings remain open.
 
 Check `docs/prompt-registry.md` for related existing prompts before assigning a new ID.
 

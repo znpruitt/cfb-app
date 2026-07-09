@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> **Doc authority (source of truth):** `AGENTS.md` is canonical for **code architecture and agent operating rules**. `DESIGN.md` is canonical for **UI/UX and the design system** — defer to it on any visual/layout question and do not restate its content here. `CLAUDE.md` holds **Claude-specific working guidance only** and points back here rather than duplicating architecture. When these disagree, this hierarchy wins for architecture/rules and `DESIGN.md` wins for UI.
+> **Doc authority (source of truth):** `AGENTS.md` is canonical for **code architecture and agent operating rules**. `DESIGN.md` is canonical for **UI/UX and the design system** — defer to it on any visual/layout question and do not restate its content here. `CLAUDE.md` holds **Claude-specific working guidance only** and points back here rather than duplicating architecture. When these disagree, this hierarchy wins for architecture/rules and `DESIGN.md` wins for UI. See [`docs/README.md`](docs/README.md) for the full documentation map and per-doc ownership.
 
 ## Project purpose
 
@@ -24,7 +24,7 @@ All foundational phases are complete (architecture, production hardening, league
 
 Active campaigns: INSIGHTS (Game Stats Pipeline → Insights Engine), DRAFT (Slow Draft Mode), POLISH (Copy/UX Writing Audit), PLATFORM (Auth Hardening).
 
-**Unresolved correctness work** is tracked in one place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (the app-wide audit findings, their order, and what remains open). That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
+**Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (from the app-wide PLATFORM-068 audit); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
 
 ---
 
@@ -152,8 +152,9 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
      - `PURPOSE`
      - `SCOPE`
    - Use this standard ID format: `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
-   - Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`.
-   - Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
+   - Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS` (documentation/governance work).
+   - A split or multi-part task may use a lettered sub-sequence (e.g. `PLATFORM-079a`/`079b`, `DOCS-002A`/`002B`/`002C`).
+   - Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`, `DOCS-002A-...-v1`.
    - Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
    - IDs should be human-readable and stable for later reference.
    - Bump the version when behavior or scope changes materially.
