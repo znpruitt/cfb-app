@@ -263,6 +263,37 @@ export async function listAppStateKeys(scope: string): Promise<string[]> {
     .map((k) => k.slice(prefix.length));
 }
 
+/**
+ * Lists the distinct scopes present in durable storage, optionally restricted to
+ * those starting with `scopePrefix`. Used by maintenance/cleanup tooling that
+ * must discover scopes it does not already know the exact names of (e.g. legacy
+ * `aliases:${slug}:${year}` keys for leagues that may no longer be registered).
+ */
+export async function listAppStateScopes(scopePrefix?: string): Promise<string[]> {
+  assertDurableStorageAvailable();
+
+  if (hasDatabaseConfig()) {
+    await ensureDatabase();
+    const result = scopePrefix
+      ? await getPool().query<{ scope: string }>(
+          'select distinct scope from app_state where scope like $1',
+          [`${scopePrefix}%`]
+        )
+      : await getPool().query<{ scope: string }>('select distinct scope from app_state');
+    return result.rows.map((r) => r.scope);
+  }
+
+  const entries = await readFileStore();
+  const scopes = new Set<string>();
+  for (const composite of Object.keys(entries)) {
+    const sepIndex = composite.indexOf('::');
+    if (sepIndex < 0) continue;
+    const scope = composite.slice(0, sepIndex);
+    if (!scopePrefix || scope.startsWith(scopePrefix)) scopes.add(scope);
+  }
+  return [...scopes];
+}
+
 export async function deleteAppState(scope: string, key: string): Promise<void> {
   assertDurableStorageAvailable();
 
