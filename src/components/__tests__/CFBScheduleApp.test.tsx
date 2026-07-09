@@ -201,14 +201,6 @@ test('active-season league surface uses the league status year, not the global d
   assert.match(html, /2099 Season/);
 });
 
-test('admin surface still renders dedicated admin and debug tooling', () => {
-  const html = renderWithAppContext(<CFBScheduleApp surface="admin" />);
-
-  assert.match(html, /Commissioner tools and diagnostics/);
-  assert.match(html, />API Usage</);
-  assert.match(html, /Back to league view/);
-});
-
 test('league surface admin attention count ignores informational provider rows', () => {
   const html = renderWithAppContext(<CFBScheduleApp initialGames={[game()]} initialIssues={[]} />);
 

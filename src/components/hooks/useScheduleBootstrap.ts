@@ -16,13 +16,11 @@ type UseScheduleBootstrapParams = {
   leagueSlug?: string;
   setEffectiveAliasMap: (next: AliasMap) => void;
   setIssues: Dispatch<SetStateAction<string[]>>;
-  setHasCachedOwners: (next: boolean) => void;
   setManualPostseasonOverrides: (next: Record<string, Partial<AppGame>>) => void;
   loadScheduleFromApi: (
     overrideAliasMap?: AliasMap,
     overrideManualOverrides?: Record<string, Partial<AppGame>>
   ) => Promise<boolean>;
-  setOwnersLoadedFromCache: (next: boolean) => void;
   tryParseOwnersCSV: (text: string) => void;
 };
 
@@ -33,10 +31,8 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     leagueSlug,
     setEffectiveAliasMap,
     setIssues,
-    setHasCachedOwners,
     setManualPostseasonOverrides,
     loadScheduleFromApi,
-    setOwnersLoadedFromCache,
     tryParseOwnersCSV,
   } = params;
 
@@ -71,7 +67,6 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
       if (ownersLoadIssue) setIssues((p) => [...p, ownersLoadIssue]);
       if (postseasonOverridesLoadIssue) setIssues((p) => [...p, postseasonOverridesLoadIssue]);
 
-      setHasCachedOwners(Boolean(ownersCsvText));
       setManualPostseasonOverrides(loadedOverrides);
 
       // Build the client schedule with the EFFECTIVE map so client game identity
@@ -79,7 +74,6 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
       await loadScheduleFromApi(bootEffectiveAliasMap, loadedOverrides);
 
       if (ownersCsvText) {
-        setOwnersLoadedFromCache(true);
         tryParseOwnersCSV(ownersCsvText);
       }
     })();
@@ -89,10 +83,8 @@ export function useScheduleBootstrap(params: UseScheduleBootstrapParams): void {
     loadScheduleFromApi,
     selectedSeason,
     setEffectiveAliasMap,
-    setHasCachedOwners,
     setIssues,
     setManualPostseasonOverrides,
-    setOwnersLoadedFromCache,
     tryParseOwnersCSV,
   ]);
 }

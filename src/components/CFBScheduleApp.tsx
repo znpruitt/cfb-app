@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-import AdminDebugSurface from './AdminDebugSurface';
 import FeedbackForm from './FeedbackForm';
 import GameWeekPanel from './GameWeekPanel';
 import AppHeaderActions from './menu/AppHeaderActions';
@@ -18,7 +17,6 @@ import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
 import WeekControls from './WeekControls';
 import type { StandingsSubview } from './StandingsPanel';
-import type { DiagEntry } from '../lib/diagnostics';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
@@ -37,19 +35,13 @@ import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
-import {
-  buildScheduleFromApi,
-  fetchSeasonSchedule,
-  type AppGame,
-  type ScheduleFetchMeta,
-} from '../lib/schedule';
+import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
-import { LEGACY_STORAGE_KEYS, seasonStorageKeys } from '../lib/storageKeys';
+import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
 import { useAdminOddsUsage } from './hooks/useAdminOddsUsage';
-import { saveServerOwnersCsv } from '../lib/ownersApi';
 import { saveServerPostseasonOverrides } from '../lib/postseasonOverridesApi';
 import { filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
@@ -96,7 +88,6 @@ const DEFAULT_SEASON = getDefaultRankingsSeason(
 );
 
 type CFBScheduleAppProps = {
-  surface?: 'league' | 'admin';
   leagueSlug?: string;
   leagueDisplayName?: string;
   leagueYear?: number;
@@ -235,7 +226,6 @@ export function resolveHighlightDrilldownNavigation(params: {
 }
 
 export default function CFBScheduleApp({
-  surface = 'league',
   leagueSlug,
   leagueDisplayName,
   leagueYear,
@@ -286,10 +276,6 @@ export default function CFBScheduleApp({
   const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
   const [issues, setIssues] = useState<string[]>(initialIssues);
   const [lastScoresRefreshAt, setLastScoresRefreshAt] = useState<string>('');
-  const [lastOddsRefreshAt, setLastOddsRefreshAt] = useState<string>('');
-  const [lastScheduleRefreshAt, setLastScheduleRefreshAt] = useState<string>('');
-  const [scheduleMeta, setScheduleMeta] = useState<ScheduleFetchMeta>({});
-  const [oddsCacheState, setOddsCacheState] = useState<'hit' | 'miss' | 'unknown'>('unknown');
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
@@ -297,13 +283,10 @@ export default function CFBScheduleApp({
   // the client schedule/games so identity matches server canonical.
   const [effectiveAliasMap, setEffectiveAliasMap] = useState<AliasMap>({});
 
-  const [diag, setDiag] = useState<DiagEntry[]>([]);
   const [manualPostseasonOverrides, setManualPostseasonOverrides] = useState<
     Record<string, Partial<AppGame>>
   >({});
 
-  const [ownersLoadedFromCache, setOwnersLoadedFromCache] = useState<boolean>(false);
-  const [hasCachedOwners, setHasCachedOwners] = useState<boolean>(false);
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
@@ -342,20 +325,11 @@ export default function CFBScheduleApp({
     setOddsByKey({});
     setScoresByKey({});
     setIssues([]);
-    setDiag([]);
     setLastScoresRefreshAt('');
-    setLastOddsRefreshAt('');
-    setLastScheduleRefreshAt('');
-    setScheduleMeta({});
-    setOddsCacheState('unknown');
     setOddsUsage(null);
     setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
-  }, []);
-
-  const clearOwnersDerivedState = useCallback(() => {
-    setRoster([]);
   }, []);
 
   const loadRankings = useCallback(
@@ -393,7 +367,6 @@ export default function CFBScheduleApp({
       setLoadingSchedule(true);
 
       try {
-        setDiag([]);
         const [schedulePayload, teams, conferenceRecords] = await Promise.all([
           fetchSeasonSchedule(selectedSeason, { bypassCache: options?.bypassCache }),
           fetchTeamsCatalog(),
@@ -401,8 +374,6 @@ export default function CFBScheduleApp({
         ]);
         const scheduleItems = schedulePayload.items;
         setTeamCatalog(teams);
-        setScheduleMeta(schedulePayload.meta ?? {});
-        setLastScheduleRefreshAt(new Date().toLocaleString());
         if (IS_DEBUG) {
           const seasonWeeks = Array.from(
             new Set(scheduleItems.map((item) => item.week).filter((w) => Number.isFinite(w)))
@@ -493,44 +464,16 @@ export default function CFBScheduleApp({
     ]
   );
 
-  const clearCachedOwners = useCallback(() => {
-    window.localStorage.removeItem(storageKeys.ownersCsv);
-    window.localStorage.removeItem(LEGACY_STORAGE_KEYS.ownersCsv);
-    setHasCachedOwners(false);
-    setOwnersLoadedFromCache(false);
-    clearOwnersDerivedState();
-  }, [clearOwnersDerivedState, storageKeys.ownersCsv]);
-
   useScheduleBootstrap({
     hasBootstrappedRef,
     selectedSeason,
     leagueSlug,
     setEffectiveAliasMap,
     setIssues,
-    setHasCachedOwners,
     setManualPostseasonOverrides,
     loadScheduleFromApi,
-    setOwnersLoadedFromCache,
     tryParseOwnersCSV,
   });
-
-  const onOwnersFile = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      try {
-        await saveServerOwnersCsv(selectedSeason, text, leagueSlug);
-        window.localStorage.setItem(storageKeys.ownersCsv, text);
-        setHasCachedOwners(true);
-        setOwnersLoadedFromCache(false);
-        tryParseOwnersCSV(text);
-      } catch (err) {
-        setIssues((prev) => [...prev, `Owners save failed: ${(err as Error).message}`]);
-      }
-    },
-    [selectedSeason, storageKeys.ownersCsv, tryParseOwnersCSV]
-  );
 
   useEffect(() => {
     if (selectedTab == null && selectedWeek != null) {
@@ -999,7 +942,7 @@ export default function CFBScheduleApp({
     [scoresByKey, selectedSeason, visibleGames]
   );
 
-  const { refreshLiveData } = useLiveRefresh({
+  useLiveRefresh({
     selectedSeason,
     selectedTab,
     selectedWeek,
@@ -1016,12 +959,9 @@ export default function CFBScheduleApp({
     scoreHydrationState,
     setScoreHydrationState,
     setIssues,
-    setDiag,
     setOddsByKey,
     setScoresByKey,
-    setOddsCacheState,
     setOddsUsage,
-    setLastOddsRefreshAt,
     setLastScoresRefreshAt,
     loadingLive,
     setLoadingLive,
@@ -1146,14 +1086,12 @@ export default function CFBScheduleApp({
     [leagueSlug, loadScheduleFromApi, router, selectedSeason, storageKeys.postseasonOverrides]
   );
 
-  const isAdminSurface = surface === 'admin';
   const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
   const canRenderPrimarySurface =
     canRenderLeagueSurface || weekViewMode === 'owner' || weekViewMode === 'rankings';
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
-    !isAdminSurface && !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
-  const leagueHref = leagueSlug ? `/league/${leagueSlug}` : '/';
+    !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
   const visibleScoresCount = useMemo(
     () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
     [scoresByKey, visibleGames]
@@ -1195,13 +1133,6 @@ export default function CFBScheduleApp({
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
       <header className="flex flex-col gap-2">
-        {isAdminSurface ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-gray-300 bg-gray-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-widest text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-              Admin / Debug
-            </span>
-          </div>
-        ) : null}
         {/* Row 1: league name + header action cluster */}
         <div className="flex items-start justify-between gap-x-4">
           <div className="min-w-0 flex-1">
@@ -1225,14 +1156,6 @@ export default function CFBScheduleApp({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            {isAdminSurface ? (
-              <Link
-                href={leagueHref}
-                className="inline-flex items-center rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-              >
-                Back to league view
-              </Link>
-            ) : null}
             <AppHeaderActions
               isAdmin={isAdmin}
               leagueSlug={leagueSlug}
@@ -1241,16 +1164,13 @@ export default function CFBScheduleApp({
           </div>
         </div>
         {/* Row 2: tab nav — w-full constrains scroll container; inner flex right-aligns */}
-        {!isAdminSurface ? (
-          <div className="flex w-full justify-end">
-            <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
-          </div>
-        ) : null}
+        <div className="flex w-full justify-end">
+          <WeekViewTabs value={weekViewMode} onChange={setWeekViewMode} leagueSlug={leagueSlug} />
+        </div>
       </header>
 
       {/* State-driven league banner — one banner at a time, directly below header */}
-      {!isAdminSurface &&
-        leagueSlug &&
+      {leagueSlug &&
         (() => {
           const bannerYear =
             leagueStatus?.state === 'preseason' || leagueStatus?.state === 'season'
@@ -1530,7 +1450,7 @@ export default function CFBScheduleApp({
       ) : null}
 
       {/* Pre-season overview — shown when in preseason state with no schedule data */}
-      {isPreseason && !canRenderLeagueSurface && !isAdminSurface ? (
+      {isPreseason && !canRenderLeagueSurface ? (
         <section className="space-y-6">
           {/* Owner roster */}
           {roster.length > 0
@@ -1584,47 +1504,13 @@ export default function CFBScheduleApp({
         </section>
       ) : null}
 
-      {isAdminSurface ? (
-        <AdminDebugSurface
-          conferences={conferences}
-          diag={diag}
-          games={games}
-          hasCachedOwners={hasCachedOwners}
-          issues={issues}
-          lastOddsRefreshAt={lastOddsRefreshAt}
-          lastScheduleRefreshAt={lastScheduleRefreshAt}
-          lastScoresRefreshAt={lastScoresRefreshAt}
-          loadingLive={loadingLive}
-          loadingSchedule={loadingSchedule}
-          oddsCacheState={oddsCacheState}
-          ownersLoadedFromCache={ownersLoadedFromCache}
-          roster={roster}
-          scheduleLoaded={scheduleLoaded}
-          scheduleMeta={scheduleMeta}
-          season={selectedSeason}
-          weeks={weeks}
-          onClearCachedOwners={clearCachedOwners}
-          onOwnersFile={onOwnersFile}
-          onRefreshData={() =>
-            void refreshLiveData({
-              manual: true,
-              scoreScopeGamesOverride: games,
-            })
-          }
-          onRebuildSchedule={() =>
-            void loadScheduleFromApi(undefined, undefined, { bypassCache: true })
-          }
-        />
-      ) : null}
-
       {canRenderPrimarySurface && (
         <>
-          {!isAdminSurface &&
-          ((loadingSchedule && !scheduleLoaded) ||
-            loadingLive ||
-            (!loadingLive && visibleGames.length > 0 && visibleScoresCount < visibleGames.length) ||
-            (!loadingLive && oddsAvailabilitySummary != null) ||
-            userFacingLiveIssues.length > 0) ? (
+          {(loadingSchedule && !scheduleLoaded) ||
+          loadingLive ||
+          (!loadingLive && visibleGames.length > 0 && visibleScoresCount < visibleGames.length) ||
+          (!loadingLive && oddsAvailabilitySummary != null) ||
+          userFacingLiveIssues.length > 0 ? (
             <section className="space-y-1">
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {loadingSchedule && !scheduleLoaded ? (
@@ -1895,7 +1781,7 @@ export default function CFBScheduleApp({
           )}
         </>
       )}
-      {!isAdminSurface ? <FeedbackForm /> : null}
+      <FeedbackForm />
     </div>
   );
 }
