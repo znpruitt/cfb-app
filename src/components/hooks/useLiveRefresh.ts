@@ -18,6 +18,7 @@ import { fetchTeamsCatalog } from '../../lib/teamsCatalog';
 import { requireAdminAuthHeaders } from '../../lib/adminAuth';
 import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../../lib/odds';
 import { fetchScoresByGame, type ScorePack } from '../../lib/scores';
+import { classifyScorePackStatus } from '../../lib/gameStatus';
 import { isLiveIssue } from '../../lib/cfbScheduleAppHelpers';
 import type { AliasMap } from '../../lib/teamNames';
 import type { AppGame } from '../../lib/schedule';
@@ -45,7 +46,51 @@ type UseLiveRefreshParams = {
   loadingLive: boolean;
   setLoadingLive: Dispatch<SetStateAction<boolean>>;
   isDebug: boolean;
+  /**
+   * Called once when a live poll observes a real non-final → final game
+   * transition (PLATFORM-080). Consumers wire this to `router.refresh()` so the
+   * server `canonicalStandings` snapshot recomputes and records/ranks update.
+   */
+  onGamesFinalized?: () => void;
 };
+
+/**
+ * Transition-aware finalization detector (PLATFORM-080). Given a poll's fetched
+ * scores plus the caller-held memory of previously-observed and
+ * already-final game keys, returns true iff at least one game made a REAL
+ * non-final → final transition this poll — i.e. a game we saw in an earlier poll
+ * (as non-final) is now final. It deliberately does NOT fire for:
+ *   - a game observed for the first time that is already final (initial payload,
+ *     or a game entering the score scope already final) — that is not a
+ *     transition and canonical already reflects it,
+ *   - a game that was already counted as final on a previous poll (no repeat).
+ * The `observedKeys` / `finalKeys` sets are mutated in place to carry the memory
+ * forward to the next poll. Callers use the result to trigger exactly one RSC
+ * refresh so server `canonicalStandings` recomputes; no client standings
+ * derivation is involved.
+ */
+export function detectScoreFinalizations(params: {
+  nextScores: Record<string, ScorePack>;
+  observedKeys: Set<string>;
+  finalKeys: Set<string>;
+}): boolean {
+  const { nextScores, observedKeys, finalKeys } = params;
+  let transitioned = false;
+
+  for (const [key, score] of Object.entries(nextScores)) {
+    if (classifyScorePackStatus(score) !== 'final') continue;
+    if (finalKeys.has(key)) continue; // already counted final — no repeat refresh
+    // First time this key is final. A refresh is warranted only if we had
+    // already observed the game (necessarily as non-final) on an earlier poll.
+    if (observedKeys.has(key)) transitioned = true;
+    finalKeys.add(key);
+  }
+
+  // Record every key seen this poll so a later finalization counts as observed.
+  for (const key of Object.keys(nextScores)) observedKeys.add(key);
+
+  return transitioned;
+}
 
 export function nextBootstrapGuardState(params: {
   current: boolean;
@@ -89,6 +134,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     loadingLive,
     setLoadingLive,
     isDebug,
+    onGamesFinalized,
   } = params;
 
   const liveRefreshInFlightRef = useRef<boolean>(false);
@@ -96,6 +142,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   const lastAutoScoresRefreshMsRef = useRef<number>(0);
   const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
   const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
+  // PLATFORM-080: memory of game keys observed across polls and those already
+  // counted final, so we fire an RSC refresh only on a real non-final → final
+  // transition (see detectScoreFinalizations).
+  const observedScoreKeysRef = useRef<Set<string>>(new Set());
+  const finalizedScoreKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     // Keep the bootstrap gate tied to scheduleLoaded transitions only.
@@ -265,6 +316,20 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
             }
             return retained;
           });
+
+          // PLATFORM-080: if this poll observed a game transition non-final →
+          // final, refresh the RSC tree so server canonicalStandings recomputes
+          // (the /api/scores write path already invalidated the standings tag).
+          // liveDelta excludes final games, so without this the new final would
+          // not reach standings until navigation. Transition-gated: never fires
+          // on the initial payload's already-final games or repeat finals.
+          const observedFinalization = detectScoreFinalizations({
+            nextScores,
+            observedKeys: observedScoreKeysRef.current,
+            finalKeys: finalizedScoreKeysRef.current,
+          });
+          if (observedFinalization) onGamesFinalized?.();
+
           setLastScoresRefreshAt(new Date().toLocaleString());
           const loadedSeasonTypes = getHydrationSeasonTypes(scoreScopeForRequest);
           if (loadedSeasonTypes.length > 0) {
@@ -286,6 +351,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       games,
       isDebug,
       oddsUsage,
+      onGamesFinalized,
       refreshPlan.odds.fetchOnStartup,
       scoreScopeGames,
       selectedSeason,
