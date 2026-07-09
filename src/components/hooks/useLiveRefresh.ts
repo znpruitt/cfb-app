@@ -56,38 +56,47 @@ type UseLiveRefreshParams = {
 
 /**
  * Transition-aware finalization detector (PLATFORM-080). Given a poll's fetched
- * scores plus the caller-held memory of previously-observed and
- * already-final game keys, returns true iff at least one game made a REAL
- * non-final → final transition this poll — i.e. a game we saw in an earlier poll
- * (as non-final) is now final. It deliberately does NOT fire for:
+ * scores, the keys of the games actually watched this poll (the score request
+ * scope), and the caller-held memory of previously-observed and already-final
+ * game keys, returns true iff at least one game made a REAL non-final → final
+ * transition this poll — i.e. a game watched in an earlier poll is now final. It
+ * deliberately does NOT fire for:
  *   - a game observed for the first time that is already final (initial payload,
  *     or a game entering the score scope already final) — that is not a
- *     transition and canonical already reflects it,
+ *     transition and canonical already reflects it (or navigation will),
  *   - a game that was already counted as final on a previous poll (no repeat).
- * The `observedKeys` / `finalKeys` sets are mutated in place to carry the memory
- * forward to the next poll. Callers use the result to trigger exactly one RSC
- * refresh so server `canonicalStandings` recomputes; no client standings
- * derivation is involved.
+ *
+ * `observedKeys` is seeded from the watched SCOPE, not the score payload, so a
+ * scheduled game that carried no attached score row on earlier polls (cold/stale
+ * public cache, or a failed attach) still counts as observed — otherwise its
+ * later finalization would be misread as a first-seen final and suppress the
+ * refresh, leaving standings stale (the very bug this fixes). The
+ * `observedKeys` / `finalKeys` sets are mutated in place to carry memory forward.
+ * Callers use the result to trigger exactly one RSC refresh so server
+ * `canonicalStandings` recomputes; no client standings derivation is involved.
  */
 export function detectScoreFinalizations(params: {
   nextScores: Record<string, ScorePack>;
+  scopeGameKeys: Iterable<string>;
   observedKeys: Set<string>;
   finalKeys: Set<string>;
 }): boolean {
-  const { nextScores, observedKeys, finalKeys } = params;
+  const { nextScores, scopeGameKeys, observedKeys, finalKeys } = params;
   let transitioned = false;
 
   for (const [key, score] of Object.entries(nextScores)) {
     if (classifyScorePackStatus(score) !== 'final') continue;
     if (finalKeys.has(key)) continue; // already counted final — no repeat refresh
     // First time this key is final. A refresh is warranted only if we had
-    // already observed the game (necessarily as non-final) on an earlier poll.
+    // already watched the game on an earlier poll (necessarily as non-final).
     if (observedKeys.has(key)) transitioned = true;
     finalKeys.add(key);
   }
 
-  // Record every key seen this poll so a later finalization counts as observed.
-  for (const key of Object.keys(nextScores)) observedKeys.add(key);
+  // Record every game watched this poll (whether or not it had a score row) so a
+  // later finalization counts as an observed transition. Seeded AFTER the check
+  // so a game first seen already-final on this poll does not self-trigger.
+  for (const key of scopeGameKeys) observedKeys.add(key);
 
   return transitioned;
 }
@@ -325,6 +334,10 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           // on the initial payload's already-final games or repeat finals.
           const observedFinalization = detectScoreFinalizations({
             nextScores,
+            // Seed observed from the watched scope (not the score payload) so a
+            // scheduled game with no attached score row is still tracked and its
+            // later finalization triggers the refresh.
+            scopeGameKeys: scoreScopeForRequest.map((g) => g.key),
             observedKeys: observedScoreKeysRef.current,
             finalKeys: finalizedScoreKeysRef.current,
           });
