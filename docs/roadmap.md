@@ -288,7 +288,7 @@ History page polish plus a dedicated career stats surface. Unblocks Tier 2 insig
 #### Standings Page — Preseason State (✅ shipped)
 Preseason content for the standings page. Three-state progression:
 - **Offseason:** prior season's final standings (✓ built via STANDINGS-SUBHEADER-FIX)
-- **Preseason:** owner list with "Season starts {date}" banner
+- **Preseason:** owner rows when owner data is seeded (draft CSV or preseason owners); a "Season starts {date}" placeholder only when no owner data exists yet (the empty `preseason-awaiting-kickoff` path)
 - **Active season:** live data (existing behavior)
 
 Shipped in the Season Launch Hardening campaign (Phase 2, commits `88af434` + `43516b0`; see `docs/campaigns/season-launch-hardening.md`). The cold-cache safety net is in place: the standings selector emits a `preseason-awaiting-kickoff` source carrying an `inferredSeasonStart` (from the schedule probe), and consumers render an explicit placeholder instead of a silently-blank page. No `seasonStartDate` league-config field was required — season start is inferred from the schedule probe. Verified docs-stale and reconciled in DOCS-003.
