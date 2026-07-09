@@ -285,15 +285,13 @@ History page polish plus a dedicated career stats surface. Unblocks Tier 2 insig
 
 - **Prompt ID to assign:** `HISTORY-REWORK-v1`
 
-#### Standings Page — Preseason State (planned)
+#### Standings Page — Preseason State (✅ shipped)
 Preseason content for the standings page. Three-state progression:
 - **Offseason:** prior season's final standings (✓ built via STANDINGS-SUBHEADER-FIX)
-- **Preseason:** alphabetical owner list with "Season starts {date}" banner
+- **Preseason:** owner list with "Season starts {date}" banner
 - **Active season:** live data (existing behavior)
 
-Includes a cold-cache safety net — currently in preseason with a cold cache the standings page renders silently blank. Requires a `seasonStartDate` field on league config (no such field today; season start is inferred from schedule).
-
-- **Prompt ID to assign:** `STANDINGS-PRESEASON-STATE-v1`
+Shipped in the Season Launch Hardening campaign (Phase 2, commits `88af434` + `43516b0`; see `docs/campaigns/season-launch-hardening.md`). The cold-cache safety net is in place: the standings selector emits a `preseason-awaiting-kickoff` source carrying an `inferredSeasonStart` (from the schedule probe), and consumers render an explicit placeholder instead of a silently-blank page. No `seasonStartDate` league-config field was required — season start is inferred from the schedule probe. Verified docs-stale and reconciled in DOCS-003.
 
 #### Standings Page — Lifecycle Labeling Sweep (planned)
 Broader "Offseason" vs "{year} Season" label inconsistency audit across surfaces beyond the standings page itself. STANDINGS-SUBHEADER-FIX addressed the standings page; other surfaces may still show stale or contradictory year/lifecycle labels during offseason.
