@@ -155,6 +155,20 @@ export function canonicalStandingsCacheKeyParts(
  */
 export const ALL_STANDINGS_TAG = 'standings:all';
 
+/**
+ * Per-league / per-league-year standings cache tags. Exported so other caches
+ * whose output is a strict function of canonical standings (notably the Insights
+ * output cache, PLATFORM-082B) can carry the SAME tags and thus refresh whenever
+ * standings do — without duplicating every `invalidateStandings` call site. This
+ * is the single source of truth for the tag string format.
+ */
+export function standingsSlugTag(slug: string): string {
+  return `standings:${slug}`;
+}
+export function standingsYearTag(slug: string, year: number): string {
+  return `standings:${slug}:${year}`;
+}
+
 const dataCachedCanonicalStandings = (
   slug: string,
   yearOverride: number | null,
@@ -167,8 +181,8 @@ const dataCachedCanonicalStandings = (
     {
       tags: [
         ALL_STANDINGS_TAG,
-        `standings:${slug}`,
-        ...(resolvedYear != null ? [`standings:${slug}:${resolvedYear}`] : []),
+        standingsSlugTag(slug),
+        ...(resolvedYear != null ? [standingsYearTag(slug, resolvedYear)] : []),
       ],
       // Tag-only invalidation; no time-based expiry. Year/league-scoped
       // mutations call `invalidateStandings(slug, year)`; global mutations
@@ -328,9 +342,9 @@ export async function getCanonicalStandings(
  * invalidation fires from another path.
  */
 export function invalidateStandings(slug: string, year?: number): void {
-  revalidateTag(`standings:${slug}`);
+  revalidateTag(standingsSlugTag(slug));
   if (year != null) {
-    revalidateTag(`standings:${slug}:${year}`);
+    revalidateTag(standingsYearTag(slug, year));
   }
 }
 

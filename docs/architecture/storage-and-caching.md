@@ -3,7 +3,7 @@
 Status: Current
 Last verified: 2026-07-10
 Owner: Project documentation
-Canonical for: app-state store, alias/app-state storage layout, provider caches, standings cache keys/tags, season archive read cache keys/tags, legacy-alias cleanup status
+Canonical for: app-state store, alias/app-state storage layout, provider caches, standings cache keys/tags, season archive read cache keys/tags, Insights output cache keys/tags/freshness, legacy-alias cleanup status
 Supersedes: (none — complements [standings.md](standings.md) for the standings cache and [game-data-flow.md](game-data-flow.md) for provider caches)
 
 Durable shared state is deliberately small and lives in one place; layered on top are request- and tag-scoped caches that keep public reads cheap and quota-safe.
@@ -45,7 +45,20 @@ Cache keys: `['season-archive', slug, year]` for a single archive, `['season-arc
 
 **Failures are never cached.** The `unstable_cache` callbacks return `null` / `[]` only for a genuine miss (`getAppState`/`listAppStateKeys` distinguish "row/scope absent" from "read failed"); a transient store/database error is allowed to reject out of the callback, so `unstable_cache` never persists a bogus `null`/`[]` under `revalidate: false`. This matters twice: history would otherwise stay missing until the next write/deploy after a blip, and a backfill inspecting `getSeasonArchive` before writing must never read a cached `null` as "no existing archive" and overwrite one without confirmation.
 
-> Insights **output** caching (`loadInsightsForLeague`) remains deferred to PLATFORM-082B; only archive reads are cached here.
+## Insights output cache
+
+`loadInsightsForLeague` (`src/lib/insights/loadInsights.ts`) caches the **expensive half** of Insights — loading every input, building the `InsightContext`, and running the 26 generators to a raw (pre-suppression) insight set — via `React.cache` over `unstable_cache`. The engine is split (`src/lib/insights/engine.ts`) into `generateRawInsights` (pure, deterministic in `context` → cacheable) and `applySuppression` (stateful: reads + writes the suppression store, output depends on how many times it has run). **Suppression runs per request against the cached raw set, never inside the cache** — so the "fire once, then fade" behavior is byte-for-byte unchanged while the per-page-visit recompute is eliminated. `bypassSuppression` (admin/diagnostic) runs a different generator set and writes no records, so it is computed directly and not cached.
+
+Cache key: `['insights', slug, resolvedYear, seeds:<SEED_ALIASES_HASH>]` (distinct leagues/years/seed-sets never share an entry; the seed hash mirrors the standings cache because identity resolution feeds context). Freshness is **tag-first with a TTL backstop**:
+
+- **Tags** — the entry deliberately carries the canonical standings tags (`standings:all`, `standings:${slug}`, `standings:${slug}:${year}`, via the shared `standingsSlugTag`/`standingsYearTag` helpers). Insights output is a strict function of canonical standings plus the same upstream inputs, so every existing `invalidateStandings` / `invalidateAllLeaguesStandings` call — roster, alias, postseason, draft, schedule, scores/finalized-games, backfill, rollover, preseason, team-database — refreshes Insights immediately, with zero duplicate call-site wiring.
+- **TTL** (`revalidate: 300`) — a backstop for the inputs that do NOT flow through standings invalidation: season rankings (`loadSeasonRankings`, lazily cached during read, so it cannot safely `revalidateTag`) and weekly game stats, plus pure wall-clock drift in lifecycle/recency classification (the pinned `currentDate` of the warming request). Both are cross-league and infrequent, so a 5-minute bound is safe.
+
+**Failures are never cached** (PLATFORM-082A rule): the critical store reads inside the compute (owners CSV, canonical standings, season archives) are not wrapped in swallow-catches, so a transient failure rejects out of the cached callback and is never persisted as a bogus empty result; `loadInsightsForLeague` then returns a graceful `emptyResponse` **without** caching it. Only genuinely-optional inputs (schedule, team catalog, aliases, postseason overrides, rankings) degrade to defaults. Outside Next's RSC runtime (`node:test`) `unstable_cache` throws `incrementalCache missing`; the loader falls back to a direct compute.
+
+**Entry points stay `force-dynamic`** (`/api/insights/[slug]`, `/league/[slug]/insights`): both perform per-request authorization (league password gate / admin session) and per-request suppression, so the route/page must render dynamically. `force-dynamic` governs full-route/static caching only — it does not disable `unstable_cache`, so the server-side compute is still cached. Neither entry point self-fetches (in-process reads, PLATFORM-077), so public reads spend no provider quota (PLATFORM-075).
+
+Together with PLATFORM-082A (archive reads), this completes the **APPSTATESTORE-CACHING** campaign.
 
 ## Provider caches (scores / odds / schedule)
 

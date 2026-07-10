@@ -50,23 +50,21 @@ export type RunInsightsEngineOptions = {
   bypassSuppression?: boolean;
 };
 
-export async function runInsightsEngine(
+/**
+ * Pure, deterministic generation half of the engine: run every lifecycle-
+ * matching generator (with the cross-cutting `shouldSuppressGenerator` gate,
+ * itself skipped under `bypassSuppression`) and keep the positively-scored
+ * insights. NO suppression, NO sort/slice, NO I/O — the result is a function of
+ * `context` alone, which is what makes it safe to cache upstream
+ * (`loadInsightsForLeague` caches this output; suppression is applied per
+ * request against the cached set).
+ */
+export function generateRawInsights(
   context: InsightContext,
   options: RunInsightsEngineOptions = {}
-): Promise<Insight[]> {
+): Insight[] {
   const { bypassSuppression = false } = options;
-
-  // 1. Load suppression records (non-blocking — empty map on failure).
-  const records = bypassSuppression
-    ? new Map()
-    : await loadSuppressionRecords(context.leagueSlug, context.currentYear).catch(() => new Map());
-
-  // 2. Run all lifecycle-matching generators with try/catch isolation.
-  // The cross-cutting suppression filter is gated on bypassSuppression so
-  // admin/diagnostic runs (e.g. ?bypassSuppression=1) actually receive every
-  // generator's output — without this gate, the new engine-level rule would
-  // silently keep filtering even when the caller asked for everything.
-  const raw = generators
+  return generators
     .filter((g) => g.supportedLifecycles.includes(context.lifecycleState))
     .filter((g) => bypassSuppression || !shouldSuppressGenerator(g, context))
     .flatMap((g) => {
@@ -77,28 +75,52 @@ export async function runInsightsEngine(
       }
     })
     .filter((i) => i.priorityScore > 0);
+}
 
-  // 3. Filter out suppressed insights.
-  const surviving = bypassSuppression
-    ? raw
-    : raw.filter((insight) => !isSuppressed(insight, records));
+/**
+ * Stateful suppression half of the engine: load prior fire records, drop
+ * suppressed insights, sort, take top N, and record the survivors. This reads
+ * AND writes the suppression store, and its output depends on how many times it
+ * has run — so it MUST run per request and must never be cached. Keeping it out
+ * of the cache preserves the "fire once, then fade" behavior even when the
+ * expensive `generateRawInsights` output is served from cache.
+ *
+ * `season` matches the engine's historical use of `context.currentYear`
+ * (== `league.year`), so suppression scoping is unchanged.
+ */
+export async function applySuppression(
+  rawInsights: Insight[],
+  leagueSlug: string,
+  season: number
+): Promise<Insight[]> {
+  const records = await loadSuppressionRecords(leagueSlug, season).catch(
+    () => new Map<string, ReturnType<typeof toSuppressionRecord>>()
+  );
 
-  // 4. Sort by priorityScore, slice top N.
+  const surviving = rawInsights.filter((insight) => !isSuppressed(insight, records));
   const top = surviving.sort((a, b) => b.priorityScore - a.priorityScore).slice(0, MAX_INSIGHTS);
 
-  // 5. Save suppression records for insights that made the cut (non-blocking).
-  if (!bypassSuppression) {
-    await Promise.all(
-      top.map((insight) =>
-        saveSuppressionRecord(
-          toSuppressionRecord(insight),
-          context.leagueSlug,
-          context.currentYear
-        ).catch(() => undefined)
-      )
-    );
+  await Promise.all(
+    top.map((insight) =>
+      saveSuppressionRecord(toSuppressionRecord(insight), leagueSlug, season).catch(() => undefined)
+    )
+  );
+
+  return top;
+}
+
+export async function runInsightsEngine(
+  context: InsightContext,
+  options: RunInsightsEngineOptions = {}
+): Promise<Insight[]> {
+  const { bypassSuppression = false } = options;
+  const raw = generateRawInsights(context, options);
+
+  // bypassSuppression (admin/diagnostic): return the raw set sorted/sliced, with
+  // no suppression filter and no records written.
+  if (bypassSuppression) {
+    return raw.sort((a, b) => b.priorityScore - a.priorityScore).slice(0, MAX_INSIGHTS);
   }
 
-  // 6. Return insights.
-  return top;
+  return applySuppression(raw, context.leagueSlug, context.currentYear);
 }
