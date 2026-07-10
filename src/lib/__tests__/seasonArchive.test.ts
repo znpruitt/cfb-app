@@ -14,17 +14,43 @@ import {
 import { __deleteAppStateFileForTests, __resetAppStateForTests } from '../server/appStateStore.ts';
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL;
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 
+// Assigning `undefined` to a `process.env` key stores the string "undefined"
+// (which reads as configured); delete instead when the original was unset.
+function restoreDatabaseUrl(): void {
+  if (ORIGINAL_DATABASE_URL === undefined) {
+    delete MUTABLE_ENV.DATABASE_URL;
+  } else {
+    MUTABLE_ENV.DATABASE_URL = ORIGINAL_DATABASE_URL;
+  }
+}
+
 test.beforeEach(async () => {
+  MUTABLE_ENV.NODE_ENV = 'development';
+  restoreDatabaseUrl();
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
-  MUTABLE_ENV.NODE_ENV = 'development';
 });
 
 test.after(() => {
   MUTABLE_ENV.NODE_ENV = ORIGINAL_NODE_ENV;
+  restoreDatabaseUrl();
 });
+
+/**
+ * Force the app-state store to throw on read the way a transient database
+ * failure would: `NODE_ENV=production` without `DATABASE_URL` makes every
+ * `getAppState`/`listAppStateKeys` call throw `APP_STATE_PRODUCTION_CONFIG_ERROR`
+ * before it touches any backend. Used to prove read failures propagate rather
+ * than being swallowed to `null`/`[]` and cached.
+ */
+function forceStoreReadFailure(): void {
+  MUTABLE_ENV.NODE_ENV = 'production';
+  delete MUTABLE_ENV.DATABASE_URL;
+  __resetAppStateForTests();
+}
 
 function makeArchive(
   overrides: Partial<SeasonArchive> & { leagueSlug: string; year: number }
@@ -124,4 +150,51 @@ test('listSeasonArchives returns sorted years for the slug only', async () => {
 
   assert.deepEqual(await listSeasonArchives('tsc'), [2023, 2024, 2025]);
   assert.deepEqual(await listSeasonArchives('other'), [2022]);
+});
+
+test('listSeasonArchives returns [] for a league with no archives', async () => {
+  assert.deepEqual(await listSeasonArchives('tsc'), []);
+});
+
+// ---------------------------------------------------------------------------
+// Read-failure handling (Codex P1) — a transient store/database failure must
+// reject and must NOT be swallowed to null/[] and cached. Only genuine
+// emptiness (not-found archive, empty year list) is cacheable.
+// ---------------------------------------------------------------------------
+
+test('a store read failure propagates and is not swallowed to null', async () => {
+  forceStoreReadFailure();
+  await assert.rejects(() => getSeasonArchive('tsc', 2025));
+});
+
+test('after a failed archive read, a subsequent successful read returns the archive', async () => {
+  forceStoreReadFailure();
+  await assert.rejects(() => getSeasonArchive('tsc', 2025));
+
+  // Store recovers: nothing bogus was cached, so the real archive is returned.
+  MUTABLE_ENV.NODE_ENV = 'development';
+  restoreDatabaseUrl();
+  __resetAppStateForTests();
+  const archive = makeArchive({ leagueSlug: 'tsc', year: 2025 });
+  await saveSeasonArchive(archive);
+
+  assert.deepEqual(await getSeasonArchive('tsc', 2025), archive);
+});
+
+test('a year-list read failure propagates and is not swallowed to []', async () => {
+  forceStoreReadFailure();
+  await assert.rejects(() => listSeasonArchives('tsc'));
+});
+
+test('after a failed year-list read, a subsequent successful read returns the year list', async () => {
+  forceStoreReadFailure();
+  await assert.rejects(() => listSeasonArchives('tsc'));
+
+  MUTABLE_ENV.NODE_ENV = 'development';
+  restoreDatabaseUrl();
+  __resetAppStateForTests();
+  await saveSeasonArchive(makeArchive({ leagueSlug: 'tsc', year: 2024 }));
+  await saveSeasonArchive(makeArchive({ leagueSlug: 'tsc', year: 2025 }));
+
+  assert.deepEqual(await listSeasonArchives('tsc'), [2024, 2025]);
 });

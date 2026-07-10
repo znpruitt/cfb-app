@@ -81,28 +81,28 @@ function isIncrementalCacheMissing(err: unknown): boolean {
   return err instanceof Error && err.message.includes('incrementalCache missing');
 }
 
+// These run as the `unstable_cache` callbacks, so they must distinguish
+// "genuinely absent" from "read failed": `getAppState`/`listAppStateKeys`
+// return `null`/`[]` ONLY when the row/scope is truly empty and THROW on a
+// real store/database failure. We deliberately do NOT catch here — a transient
+// failure must reject so `unstable_cache` never persists a bogus `null`/`[]`
+// under `revalidate: false` (which would make history vanish until the next
+// write, and let a backfill treat a cached `null` as "no existing archive" and
+// overwrite without confirmation). Only genuine emptiness is cacheable.
 async function readSeasonArchiveFromStore(
   leagueSlug: string,
   year: number
 ): Promise<SeasonArchive | null> {
-  try {
-    const record = await getAppState<SeasonArchive>(archiveScope(leagueSlug), String(year));
-    return record?.value ?? null;
-  } catch {
-    return null;
-  }
+  const record = await getAppState<SeasonArchive>(archiveScope(leagueSlug), String(year));
+  return record?.value ?? null;
 }
 
 async function readArchiveYearsFromStore(leagueSlug: string): Promise<number[]> {
-  try {
-    const keys = await listAppStateKeys(archiveScope(leagueSlug));
-    return keys
-      .map((k) => Number(k))
-      .filter((n) => Number.isFinite(n) && n >= 2000)
-      .sort((a, b) => a - b);
-  } catch {
-    return [];
-  }
+  const keys = await listAppStateKeys(archiveScope(leagueSlug));
+  return keys
+    .map((k) => Number(k))
+    .filter((n) => Number.isFinite(n) && n >= 2000)
+    .sort((a, b) => a - b);
 }
 
 const dataCachedSeasonArchive = (leagueSlug: string, year: number) =>
@@ -129,8 +129,10 @@ const dataCachedArchiveYears = (leagueSlug: string) =>
  *
  * Outside Next's RSC runtime (`node:test`) `unstable_cache` throws
  * `Invariant: incrementalCache missing`; fall back to a direct store read so the
- * function stays testable. Any other failure already resolves to `null` inside
- * `readSeasonArchiveFromStore`.
+ * function stays testable — that fallback read also throws on a real store
+ * failure. A genuine store/database error propagates (it is never cached and
+ * never masquerades as "no archive"); `null` is returned ONLY when the archive
+ * does not exist.
  */
 export const getSeasonArchive = cache(
   async (leagueSlug: string, year: number): Promise<SeasonArchive | null> => {

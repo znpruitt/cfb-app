@@ -43,6 +43,8 @@ The stored global map lives at `aliases:global`/`map`; the year layer at `aliase
 
 Cache keys: `['season-archive', slug, year]` for a single archive, `['season-archive-years', slug]` for the year list. Tags: a per-year read carries `archive:${slug}` and `archive:${slug}:${year}`; the year list carries `archive:${slug}`. Invalidation is centralized in `saveSeasonArchive` — it calls `invalidateSeasonArchive(slug, year)` (busts both tags, so the slug tag alone refreshes the year list plus every per-year entry) after the write. Because every writer (admin backfill, admin rollover, cron season-rollover) goes through `saveSeasonArchive`, no per-call-site wiring is needed and a stale archive can never poison a recomputed standings snapshot. Outside Next's RSC runtime (`node:test`) `unstable_cache` throws `incrementalCache missing`; both readers fall back to a direct store read, and `saveSeasonArchive` swallows the out-of-context `revalidateTag` throw so scripts/tests still write.
 
+**Failures are never cached.** The `unstable_cache` callbacks return `null` / `[]` only for a genuine miss (`getAppState`/`listAppStateKeys` distinguish "row/scope absent" from "read failed"); a transient store/database error is allowed to reject out of the callback, so `unstable_cache` never persists a bogus `null`/`[]` under `revalidate: false`. This matters twice: history would otherwise stay missing until the next write/deploy after a blip, and a backfill inspecting `getSeasonArchive` before writing must never read a cached `null` as "no existing archive" and overwrite one without confirmation.
+
 > Insights **output** caching (`loadInsightsForLeague`) remains deferred to PLATFORM-082B; only archive reads are cached here.
 
 ## Provider caches (scores / odds / schedule)
