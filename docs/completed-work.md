@@ -1,5 +1,11 @@
 # Completed Work Log
 
+Status: Historical (append-only ledger)
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
+Supersedes: (none)
+
 ## Purpose / How to use this document
 
 - This file is an **append-only log** of completed phases and major milestones.

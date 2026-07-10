@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+Status: Current
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: Claude-specific workflow guidance and prompt-handoff expectations; points back to AGENTS.md/DESIGN.md and does not supersede or override them
+Supersedes: docs/cfb-engineering-operating-instructions.md (Claude-workflow portion; jointly with AGENTS.md, which is canonical for the binding rules)
+
 Claude Code-specific companion to `AGENTS.md`. Read `AGENTS.md` first — this file adds Claude-specific context only and does not restate shared project operating content.
 
 > **Doc authority (source of truth):** `AGENTS.md` = code architecture + agent operating rules (canonical). `DESIGN.md` = UI/UX + design system (canonical). `CLAUDE.md` (this file) = Claude-specific working guidance, which **points to** those two rather than restating them. If anything here duplicates and drifts from `AGENTS.md`/`DESIGN.md`, those win — fix the pointer here. [`docs/README.md`](docs/README.md) is the full documentation map and per-doc ownership index.

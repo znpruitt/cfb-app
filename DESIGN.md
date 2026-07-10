@@ -1,5 +1,11 @@
 # CFB App Design Principles
 
+Status: Current
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: durable UI/UX and design-system principles — layout, tables, cards, color, typography, component presentation
+Supersedes: (none)
+
 > **Doc authority (source of truth):** this file is canonical for **UI/UX and the design system** — layout, tables, cards, color, typography, and component presentation. Code architecture and agent operating rules live in `AGENTS.md`; Claude-specific working guidance lives in `CLAUDE.md`. This file should not carry code-architecture claims. See [`docs/README.md`](docs/README.md) for the full documentation map and per-doc ownership.
 
 ## Core philosophy
