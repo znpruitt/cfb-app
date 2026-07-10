@@ -1,3 +1,5 @@
+> **Status: Archived — historical reference only** (as of 2026-07-09). Not current implementation authority. See [`docs/archive/README.md`](../README.md); current authority lives in `AGENTS.md`, `CLAUDE.md`, `DESIGN.md`, `docs/architecture/**`, and `docs/operations/**`.
+
 # Phase 4 — Historical Analytics Design
 
 **Status:** Design finalized — planning session complete. Implementation sequence defined. Ready for first implementation prompt.

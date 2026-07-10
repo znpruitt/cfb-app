@@ -1,8 +1,10 @@
+> **Status: Archived — historical reference only** (as of 2026-07-09). Not current implementation authority. See [`docs/archive/README.md`](../README.md); current authority lives in `AGENTS.md`, `CLAUDE.md`, `DESIGN.md`, `docs/architecture/**`, and `docs/operations/**`.
+
 # PROMPT_ID: P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-v1
 
 ## PURPOSE
 
-Replace the V2 Overview composition on the History tab with the redesign specified in `docs/HISTORY_REDESIGN_SPEC.md` and visually rendered in `mockups/history-redesign-minimal.html`. The current V2 Overview composition (EraSummary + TitleTimeline + Storylines + 18-card Record Book grid) is a regression against production and is being replaced.
+Replace the V2 Overview composition on the History tab with the redesign specified in `docs/archive/designs/history-redesign-spec.md` and visually rendered in `mockups/history-redesign-minimal.html`. The current V2 Overview composition (EraSummary + TitleTimeline + Storylines + 18-card Record Book grid) is a regression against production and is being replaced.
 
 This is a **revision of unmerged work** on the `claude/history-records-phase-2` branch. The branch's structural deliverables (subtab routing, HistorySubNav, RecordBadge, records selector consumption, foundedYear, resolveHistoryHref fix) are being kept. Only the Overview page composition is being replaced.
 
@@ -31,7 +33,7 @@ Audit the codebase for orphan imports of these components. Remove unused imports
 
 ### Implement on the History Overview tab
 
-Build the Overview composition described in `docs/HISTORY_REDESIGN_SPEC.md` with the visual reference of `mockups/history-redesign-minimal.html`. The composition is, in render order:
+Build the Overview composition described in `docs/archive/designs/history-redesign-spec.md` with the visual reference of `mockups/history-redesign-minimal.html`. The composition is, in render order:
 
 1. Championships section (full-width)
 2. Dashboard row — three columns: All-time standings · Recent podiums · Records

@@ -549,7 +549,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6A-CLERK-REQUIREMENTS-AUDIT-v1, P6A-CLERK-ROUTE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v2, P6A-CLERK-MIDDLEWARE-FIX-v3, P6A-CLERK-MIDDLEWARE-FIX-v4, P6A-CLERK-MIDDLEWARE-DEBUG-v1, P6B-ROSTER-UPLOAD-FIX-v1, P6B-ROSTER-UPLOAD-FIX-v2, P6B-ROSTER-UPLOAD-FIX-REVIEW-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-OWNER-COUNT-FIX-v1, P6C-OWNER-COUNT-FIX-v2, P6C-OWNER-COUNT-FIX-v3, P6C-OWNER-COUNT-DEBUG-v1, P6C-OWNER-COUNT-DEBUG-v2, P6C-OWNER-SCOPE-AUDIT-v1, P6C-DEBUG-CLEANUP-v1, P6-CLERK-FIXES-CLOSEOUT-v1
 
 **Key fixes and decisions:**
-- **Clerk session token requires explicit publicMetadata claim** — add via Configure → Sessions → Customize session token: `{ "publicMetadata": "{{user.public_metadata}}" }`. Must be done for both Dev and Prod instances. See `docs/phase-6-admin-auth-design.md` section 9.
+- **Clerk session token requires explicit publicMetadata claim** — add via Configure → Sessions → Customize session token: `{ "publicMetadata": "{{user.public_metadata}}" }`. Must be done for both Dev and Prod instances. See `docs/archive/designs/phase-6-admin-auth-design.md` section 9.
 - **JWT templates are for third-party integrations only** — they do NOT affect middleware auth. Using a JWT template to expose `public_metadata` does not fix the session token. Delete any templates created for this purpose.
 - **`currentUser()` cannot be called in middleware** — use `auth()` and `sessionClaims.publicMetadata.role` only.
 - **Login page requires catch-all route at `[[...sign-in]]`** — multi-step Clerk auth flows (MFA, SSO) require a catch-all slug. A static `/login/page.tsx` will break after step 1.

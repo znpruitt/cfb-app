@@ -1,3 +1,5 @@
+> **Status: Archived — historical reference only** (as of 2026-07-09). Not current implementation authority. See [`docs/archive/README.md`](../README.md); current authority lives in `AGENTS.md`, `CLAUDE.md`, `DESIGN.md`, `docs/architecture/**`, and `docs/operations/**`.
+
 # History page redesign — design spec
 
 **Status:** Draft for HISTORY-RECORDS Phase 2 revision
