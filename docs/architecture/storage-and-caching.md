@@ -1,9 +1,9 @@
 # Storage & Caching
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-10
 Owner: Project documentation
-Canonical for: app-state store, alias/app-state storage layout, provider caches, standings cache keys/tags, legacy-alias cleanup status
+Canonical for: app-state store, alias/app-state storage layout, provider caches, standings cache keys/tags, season archive read cache keys/tags, legacy-alias cleanup status
 Supersedes: (none — complements [standings.md](standings.md) for the standings cache and [game-data-flow.md](game-data-flow.md) for provider caches)
 
 Durable shared state is deliberately small and lives in one place; layered on top are request- and tag-scoped caches that keep public reads cheap and quota-safe.
@@ -36,6 +36,16 @@ The stored global map lives at `aliases:global`/`map`; the year layer at `aliase
 ## Standings cache
 
 `getCanonicalStandings` layers `React.cache` (per-request dedup) over `unstable_cache` (cross-request, tag-only — no time expiry). Snapshots are tagged `standings:all`, `standings:${slug}`, and `standings:${slug}:${year}`; the cache key bakes in `slug + resolved year` and a seed-alias hash. Invalidation is tag-based (`invalidateStandings`, `invalidateAllLeaguesStandings`, `invalidateStandingsForYear`) — see [standings.md](standings.md) for which mutation paths call which.
+
+## Season archive read cache
+
+`getSeasonArchive(slug, year)` and `listSeasonArchives(slug)` (`src/lib/seasonArchive.ts`) layer `React.cache` (per-request dedup) over `unstable_cache` (cross-request, tag-only — no time expiry), mirroring the standings cache. Season archives are persisted, effectively-immutable snapshots (written at rollover/backfill, only overwritten by a deliberate re-backfill of the same year), so the read output depends solely on `(slug, year)` — the alias/roster/owner-label state is baked into the snapshot at write time and is **not** part of the cache key. This removes repeated Postgres reads on the hot history/insights paths (Insights career context reads every archived year; the standings selector reads the offseason/final archive) without a self-fetch or provider call.
+
+Cache keys: `['season-archive', slug, year]` for a single archive, `['season-archive-years', slug]` for the year list. Tags: a per-year read carries `archive:${slug}` and `archive:${slug}:${year}`; the year list carries `archive:${slug}`. Invalidation is centralized in `saveSeasonArchive` — it calls `invalidateSeasonArchive(slug, year)` (busts both tags, so the slug tag alone refreshes the year list plus every per-year entry) after the write. Because every writer (admin backfill, admin rollover, cron season-rollover) goes through `saveSeasonArchive`, no per-call-site wiring is needed and a stale archive can never poison a recomputed standings snapshot. Outside Next's RSC runtime (`node:test`) `unstable_cache` throws `incrementalCache missing`; both readers fall back to a direct store read. `saveSeasonArchive` ignores ONLY the out-of-request-context `revalidateTag` Invariant (`static generation store missing`, NEXT code `E263` — scripts/tests, no cache to bust); any other invalidation failure propagates, because the TTL-less cache would otherwise serve the previous archive indefinitely while the write reported success — surfacing it lets the admin/cron writer be retried.
+
+**Failures are never cached.** The `unstable_cache` callbacks return `null` / `[]` only for a genuine miss (`getAppState`/`listAppStateKeys` distinguish "row/scope absent" from "read failed"); a transient store/database error is allowed to reject out of the callback, so `unstable_cache` never persists a bogus `null`/`[]` under `revalidate: false`. This matters twice: history would otherwise stay missing until the next write/deploy after a blip, and a backfill inspecting `getSeasonArchive` before writing must never read a cached `null` as "no existing archive" and overwrite one without confirmation.
+
+> Insights **output** caching (`loadInsightsForLeague`) remains deferred to PLATFORM-082B; only archive reads are cached here.
 
 ## Provider caches (scores / odds / schedule)
 

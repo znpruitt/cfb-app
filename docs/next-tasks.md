@@ -115,9 +115,11 @@ Surface recently changed records as insights. Wires up the dormant `RecordEntry.
 
 ### 3. APPSTATESTORE-CACHING — Egress optimization before August draft
 
-Server-side caching for insights panel output (1-hour TTL) and archive reads (longer TTL). Single biggest egress-reduction lever available. Neon Launch tier provides 50 GB/month but active-season + draft-day traffic could push limits without caching. **Season-launch-blocking priority.**
+Server-side caching for insights panel output and archive reads. Single biggest egress-reduction lever available. Neon Launch tier provides 50 GB/month but active-season + draft-day traffic could push limits without caching. **Season-launch-blocking priority.**
 
 - **Backlog slug (provisional):** `APPSTATESTORE-CACHING-v1`
+- **Split 082A — archive read cache — ✅ shipped (PLATFORM-082A-ARCHIVE-READ-CACHE-v1).** `getSeasonArchive` / `listSeasonArchives` now layer `React.cache` over `unstable_cache` with tag-only invalidation centralized in `saveSeasonArchive` (see `docs/architecture/storage-and-caching.md`).
+- **Split 082B — insights output cache — still deferred.** Cache `loadInsightsForLeague` output and review Insights entry-point `no-store`/`force-dynamic`. This is the remaining egress lever; the campaign is NOT complete until it ships.
 
 ### 4. DRAFT — Slow Draft Mode
 
