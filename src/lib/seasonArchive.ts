@@ -81,6 +81,24 @@ function isIncrementalCacheMissing(err: unknown): boolean {
   return err instanceof Error && err.message.includes('incrementalCache missing');
 }
 
+/**
+ * True for the single benign `revalidateTag` failure: it was called outside a
+ * request/action context (a script or `node:test`), where there is no cache to
+ * invalidate. Next throws this as `Invariant: static generation store missing`
+ * (NEXT error code `E263`). Every OTHER `revalidateTag` throw only occurs INSIDE
+ * a request — misuse during render / inside `use cache` / inside `unstable_cache`,
+ * or a genuine cache failure — and must NOT be swallowed, because the archive
+ * cache has no TTL: a silently-dropped invalidation would serve stale history
+ * indefinitely while the write reports success.
+ */
+export function isMissingRequestStore(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    (err as { __NEXT_ERROR_CODE?: unknown }).__NEXT_ERROR_CODE === 'E263' ||
+    err.message.includes('static generation store missing')
+  );
+}
+
 // These run as the `unstable_cache` callbacks, so they must distinguish
 // "genuinely absent" from "read failed": `getAppState`/`listAppStateKeys`
 // return `null`/`[]` ONLY when the row/scope is truly empty and THROW on a
@@ -176,10 +194,14 @@ export async function saveSeasonArchive(archive: SeasonArchive): Promise<void> {
   await setAppState<SeasonArchive>(archiveScope(archive.leagueSlug), String(archive.year), archive);
   try {
     invalidateSeasonArchive(archive.leagueSlug, archive.year);
-  } catch {
-    // `revalidateTag` requires a request/action context. All production writers
-    // (admin/cron route handlers) provide one; direct calls from scripts or
-    // tests do not — the write already succeeded, so this is non-fatal.
+  } catch (err) {
+    // Only the out-of-request-context Invariant is safe to ignore: scripts and
+    // tests have no cache to bust, and the write already succeeded. A genuine
+    // invalidation failure inside a request MUST propagate — the archive cache
+    // has no TTL, so swallowing it would serve the previous archive/year list
+    // indefinitely while reporting success. Propagating lets the admin/cron
+    // rollover/backfill surface the failure and be retried.
+    if (!isMissingRequestStore(err)) throw err;
   }
 }
 

@@ -9,6 +9,7 @@ import {
   seasonArchiveYearsCacheKeyParts,
   seasonArchiveSlugTag,
   seasonArchiveYearTag,
+  isMissingRequestStore,
   type SeasonArchive,
 } from '../seasonArchive.ts';
 import { __deleteAppStateFileForTests, __resetAppStateForTests } from '../server/appStateStore.ts';
@@ -197,4 +198,45 @@ test('after a failed year-list read, a subsequent successful read returns the ye
   await saveSeasonArchive(makeArchive({ leagueSlug: 'tsc', year: 2025 }));
 
   assert.deepEqual(await listSeasonArchives('tsc'), [2024, 2025]);
+});
+
+// ---------------------------------------------------------------------------
+// Invalidation-failure discrimination (Codex P1) — saveSeasonArchive may only
+// swallow the out-of-request-context `revalidateTag` Invariant; a genuine
+// invalidation failure must propagate so the write is not falsely reported
+// successful while stale (TTL-less) archive data lingers.
+// ---------------------------------------------------------------------------
+
+test('isMissingRequestStore recognizes the out-of-context revalidateTag Invariant', () => {
+  const e263 = Object.assign(
+    new Error('Invariant: static generation store missing in revalidateTag'),
+    {
+      __NEXT_ERROR_CODE: 'E263',
+    }
+  );
+  assert.equal(isMissingRequestStore(e263), true);
+  // Matched by message alone even if the error code shape changes.
+  assert.equal(
+    isMissingRequestStore(new Error('static generation store missing in revalidateTag')),
+    true
+  );
+});
+
+test('isMissingRequestStore rejects genuine invalidation failures and non-errors', () => {
+  assert.equal(isMissingRequestStore(new Error('ECONNRESET talking to cache handler')), false);
+  const unstableCacheMisuse = Object.assign(
+    new Error('Route /x used "revalidateTag" inside a function cached with "unstable_cache(...)"'),
+    { __NEXT_ERROR_CODE: 'E306' }
+  );
+  assert.equal(isMissingRequestStore(unstableCacheMisuse), false);
+  assert.equal(isMissingRequestStore(undefined), false);
+  assert.equal(isMissingRequestStore('static generation store missing'), false);
+});
+
+test('saveSeasonArchive tolerates the out-of-context invalidation Invariant (node:test path)', async () => {
+  // node:test has no request context, so invalidateSeasonArchive throws E263;
+  // the write must still succeed and be readable.
+  const archive = makeArchive({ leagueSlug: 'tsc', year: 2025 });
+  await assert.doesNotReject(() => saveSeasonArchive(archive));
+  assert.deepEqual(await getSeasonArchive('tsc', 2025), archive);
 });
