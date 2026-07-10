@@ -75,7 +75,7 @@
 - On mobile, interaction lives in a dedicated legend — not the data table
 
 ## Cards and game results
-- Game cards use a dark surface tint — no border, defined by background only
+- Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization), carrying team-color accent bars on the top and bottom edges
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
@@ -127,7 +127,7 @@
 
 ## Color encoding
 - Owner names are color-coded ONLY when the table is serving as a legend for an adjacent chart
-- Rank numbers in all standings tables are plain muted text — never colored
+- Rank numbers are plain muted text in the Overview condensed snapshot and the History standings tables; the full Standings page is the deliberate exception — its rank numbers carry the owner's chart line color (see Tables). Podium rank labels use the Podium tier accent (amber #1, muted #2/#3), never owner color
 - Chart line colors and their companion table legend colors must always match via getOwnerColor()
 
 ## Overview standings row hierarchy
