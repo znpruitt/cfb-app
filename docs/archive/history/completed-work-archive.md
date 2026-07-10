@@ -1,6 +1,8 @@
 # Completed Work Archive — Phases 1–3
 
-This file contains archived completed work entries for phases that are fully shipped and unlikely to require active reference. See docs/completed-work.md for recent work.
+> **Status: Archived — historical reference only** (as of 2026-07-09). Older shipped work (Phases 1–3); not current implementation authority. See [`docs/archive/README.md`](../README.md); recent work lives in [`docs/completed-work.md`](../../completed-work.md).
+
+This file contains archived completed work entries for phases that are fully shipped and unlikely to require active reference. See `docs/completed-work.md` for recent work.
 
 ---
 

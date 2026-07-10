@@ -4,7 +4,7 @@ Status: Current
 Last verified: 2026-07-09
 Owner: Project documentation
 Canonical for: binding engineering, architecture, implementation, review, and documentation-timing rules; agent operating rules
-Supersedes: docs/cfb-engineering-operating-instructions.md (original prompt-governance model; jointly with CLAUDE.md)
+Supersedes: docs/archive/governance/cfb-engineering-operating-instructions.md (original prompt-governance model; jointly with CLAUDE.md)
 
 > **Doc authority (source of truth):** `AGENTS.md` is canonical for **code architecture and agent operating rules**. `DESIGN.md` is canonical for **UI/UX and the design system** — defer to it on any visual/layout question and do not restate its content here. `CLAUDE.md` holds **Claude-specific working guidance only** and points back here rather than duplicating architecture. When these disagree, this hierarchy wins for architecture/rules and `DESIGN.md` wins for UI. See [`docs/README.md`](docs/README.md) for the full documentation map and per-doc ownership.
 

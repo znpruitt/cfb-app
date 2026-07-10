@@ -1,6 +1,6 @@
 # CFB App Engineering Operating Instructions
 
-> **Status: Historical / superseded.** This document is retained for context and section references, but it is **not** the current authority and **must not override** `AGENTS.md` or `CLAUDE.md`. It still contains older phase-style prompt-ID guidance. Current authority: `AGENTS.md` for binding engineering, architecture, prompt-governance, and documentation-timing rules; `CLAUDE.md` for Claude-specific workflow guidance; `docs/prompt-registry.md` as a historical ledger only. See [`docs/README.md`](README.md) for the documentation map.
+> **Status: Historical / superseded.** This document is retained for context and section references, but it is **not** the current authority and **must not override** `AGENTS.md` or `CLAUDE.md`. It still contains older phase-style prompt-ID guidance. Current authority: `AGENTS.md` for binding engineering, architecture, prompt-governance, and documentation-timing rules; `CLAUDE.md` for Claude-specific workflow guidance; `docs/prompt-registry.md` as a historical ledger only. Archived under `docs/archive/governance/` (see [`docs/archive/README.md`](../README.md)); see [`docs/README.md`](../../README.md) for the documentation map.
 
 This document defines the working model for development of the **CFB App** project.
 

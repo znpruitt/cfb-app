@@ -4,7 +4,7 @@ Status: Current
 Last verified: 2026-07-09
 Owner: Project documentation
 Canonical for: Claude-specific workflow guidance and prompt-handoff expectations; points back to AGENTS.md/DESIGN.md and does not supersede or override them
-Supersedes: docs/cfb-engineering-operating-instructions.md (Claude-workflow portion; jointly with AGENTS.md, which is canonical for the binding rules)
+Supersedes: docs/archive/governance/cfb-engineering-operating-instructions.md (Claude-workflow portion; jointly with AGENTS.md, which is canonical for the binding rules)
 
 Claude Code-specific companion to `AGENTS.md`. Read `AGENTS.md` first — this file adds Claude-specific context only and does not restate shared project operating content.
 
@@ -32,7 +32,7 @@ Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/READM
 |-----|---------|
 | `docs/README.md` | Documentation map — which doc owns what (start here when unsure) |
 | `AGENTS.md` | Project operating instructions (shared across all AI coders) |
-| `docs/cfb-engineering-operating-instructions.md` | _Historical / superseded_ — original prompt-governance model; retained for context, does not override `AGENTS.md`/`CLAUDE.md` |
+| `docs/archive/governance/cfb-engineering-operating-instructions.md` | _Historical / superseded_ — original prompt-governance model; archived, retained for context, does not override `AGENTS.md`/`CLAUDE.md` |
 | `docs/next-tasks.md` | Active task queue and current phase focus |
 | `docs/prompt-registry.md` | Prompt ID registry — check before assigning new IDs |
 | `docs/completed-work.md` | Append-only milestone log |
@@ -44,7 +44,7 @@ Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/READM
 
 ## Interaction preferences
 
-(Originally from the now-historical `docs/cfb-engineering-operating-instructions.md`; these preferences remain current.)
+(Originally from the now-historical `docs/archive/governance/cfb-engineering-operating-instructions.md`; these preferences remain current.)
 
 - Concise, technically precise, professional but direct.
 - No engagement bait, artificial hooks, or teasing.
