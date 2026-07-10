@@ -1,5 +1,11 @@
 # Production Deployment Runbook
 
+Status: Current
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: detailed hosted-deployment / operator checklist — the step-by-step operational companion to docs/operations/deployment.md
+Supersedes: (none)
+
 Use this runbook for deploying **turfwar.games** to Vercel with Clerk authentication.
 
 ## 1) Create the hosted project

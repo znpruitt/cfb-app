@@ -1,8 +1,14 @@
 # Documentation Index
 
+Status: Current
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: documentation source-of-truth map and doc lifecycle/status definitions
+Supersedes: (none)
+
 This is the **source-of-truth map** for the project's documentation. Start here to find which document owns a given concern, rather than searching across files. Each doc owns one thing; when two docs disagree, the authority hierarchy below decides.
 
-> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup; **DOCS-002C** added the dedicated architecture/operations doc layer; **DOCS-004** reconciled the known `DESIGN.md` contradictions. The doc-lifecycle-metadata rollout and the `archive/` path decision follow-ups remain deferred — see [Planned documentation work](#planned-documentation-work) at the bottom.
+> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup; **DOCS-002C** added the dedicated architecture/operations doc layer; **DOCS-004** reconciled the known `DESIGN.md` contradictions; **DOCS-005** rolled lifecycle metadata onto the active/canonical docs. The `archive/` path decision is the one remaining deferred follow-up — see [Planned documentation work](#planned-documentation-work) at the bottom.
 
 ## Source-of-truth map
 
@@ -62,7 +68,7 @@ These are **documentation-system maintenance** follow-ups (meta-work on the docs
 - **DOCS-002B — planning/history cleanup. ✅ Done.** Collapsed the completed PLATFORM-068 audit sequence in `docs/next-tasks.md` to a one-line ledger + an explicit "Unresolved decisions & known deferrals" subsection; removed shipped items (STANDINGS-PRESEASON-STATE, INSIGHTS-LIFECYCLE-AWARENESS) from the planned backlogs; reconciled the `roadmap.md` completed-work table ("Standings Page — Preseason State" → ✅ Complete). `docs/prompt-registry.md` already reads as a ledger (DOCS-002A); `docs/completed-work.md` left as the historical record. Unresolved product decisions and historical campaign detail preserved.
 - **DOCS-002C — architecture/operations docs. ✅ Done.** Added a dedicated current-architecture doc layer under `docs/architecture/` (`overview`, `game-data-flow`, `identity-and-ownership`, `standings`, `auth-and-privacy`, `storage-and-caching`) and an operations layer under `docs/operations/` (`deployment`, `diagnostics`), each carrying the lifecycle metadata header and linked from the source-of-truth map above. `AGENTS.md` remains canonical for binding invariants; these docs describe present runtime architecture and point back to it. The `deployment-runbook.md` stays the detailed operator checklist (now companioned by `operations/deployment.md`). Deciding whether `docs/campaigns/**` and the phase/spec records move under an explicit `archive/` path was **not** taken up here — still open.
 - **Design-contradiction cleanup (DOCS-004). ✅ Done.** Reconciled the two known `DESIGN.md` self-contradictions against verified current implementation: (1) standings rank numbers — the full Standings page owner-colors them (`StandingsPanel`), while the Overview condensed snapshot and History tables use muted text and podiums use the tier accent; the doc now states this single rule instead of the false "all standings tables … never colored" absolute; (2) game cards — individual cards **are** bordered discrete objects (`GameWeekPanel`), so the stale "no border, defined by background only" bullet was corrected to agree with the Containerization rule. Docs-only; no runtime UI change.
-- **Doc lifecycle metadata block (deferred).** Rolling a per-doc metadata header onto active/canonical docs is deferred (not done in DOCS-002A). When adopted, each active doc should carry:
+- **Doc lifecycle metadata rollout (DOCS-005). ✅ Done.** Rolled the per-doc metadata header onto the active/canonical governance and reference docs — `AGENTS.md`, `CLAUDE.md`, `DESIGN.md`, `docs/README.md`, `docs/next-tasks.md`, `docs/roadmap.md`, `docs/prompt-registry.md` (as `Status: Current ledger`), `docs/deployment-runbook.md`, `docs/vision.md`, and `docs/completed-work.md` (as `Status: Historical (append-only ledger)`) — matching the block first adopted by the DOCS-002C architecture/operations docs. Historical campaign/phase/spec/audit records were intentionally left unlabeled (they remain historical; labeling them is not required and no `archive/` move was performed). Each active doc now carries:
 
   ```md
   Status:
@@ -71,3 +77,4 @@ These are **documentation-system maintenance** follow-ups (meta-work on the docs
   Canonical for:
   Supersedes:
   ```
+- **`archive/` path decision (deferred).** The one remaining follow-up: decide whether `docs/campaigns/**` and the phase/spec/audit records should move under an explicit `archive/` path (vs. staying in place and marked Historical). No file moves have been performed. Promote to `docs/next-tasks.md` when taken up.

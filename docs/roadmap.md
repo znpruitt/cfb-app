@@ -1,5 +1,11 @@
 # CFB App Roadmap
 
+Status: Current
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: high-level product/platform roadmap and development philosophy only
+Supersedes: (none)
+
 ## Development philosophy
 
 The CFB app is a single-developer, AI-assisted, league-first web app that should stay predictable, maintainable, and economical to run.

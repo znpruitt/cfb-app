@@ -1,5 +1,11 @@
 # Next Tasks (Active Queue)
 
+Status: Current
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: active execution queue, unresolved decisions, and known deferrals
+Supersedes: (none)
+
 ## Purpose / How to use this document
 
 - This file is the **active execution queue** for current campaigns.
@@ -62,7 +68,7 @@ The P1/P2 correctness + docs sequence from the PLATFORM-068 app-wide audit has f
 - **PLATFORM-078 / 079a / 079b / 080** — dead-code sweep; `CFBScheduleApp` canonical standings; `AdminDebugSurface` removal; in-session finalized-game RSC refresh.
 - **PLATFORM-081 / 081b** — legacy league-scoped alias cleanup tooling + read-only dry-run hotfix. Operator `--apply` run **complete**: deleted `aliases:test:2025`, `aliases:test:2026`, `aliases:tsc:2025`; confirmation dry-run found zero remaining.
 - **DOCS-003** — `STANDINGS-PRESEASON-STATE` table-vs-prose contradiction verified **docs-stale** (behavior shipped in Season Launch Hardening Phase 2); docs reconciled.
-- **DOCS-002A** (PR #375) — documentation index + governance tightening. **DOCS-002B** — this planning/history cleanup. **DOCS-002C** (PR #377) — dedicated architecture (`docs/architecture/`) + operations (`docs/operations/`) doc layer. **DOCS-004** (PR #378) — reconciled the `DESIGN.md` rank-number + game-card-border contradictions. Remaining doc follow-ups (lifecycle-metadata rollout, `archive/` path decision) tracked in `docs/README.md`.
+- **DOCS-002A** (PR #375) — documentation index + governance tightening. **DOCS-002B** — this planning/history cleanup. **DOCS-002C** (PR #377) — dedicated architecture (`docs/architecture/`) + operations (`docs/operations/`) doc layer. **DOCS-004** (PR #378) — reconciled the `DESIGN.md` rank-number + game-card-border contradictions. **DOCS-005** — rolled lifecycle metadata onto the active/canonical docs. The `archive/` path decision is the sole remaining doc follow-up (tracked in `docs/README.md`).
 
 #### Unresolved decisions & known deferrals
 

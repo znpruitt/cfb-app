@@ -1,5 +1,11 @@
 # CFB App Vision
 
+Status: Current
+Last verified: 2026-07-09
+Owner: Project documentation
+Canonical for: product vision / intent and the canonical production data policy
+Supersedes: (none)
+
 ## Product intent
 
 The CFB app is a **hosted, league-first dashboard** for a college-football office pool. It should give league members a stable, low-friction place to check the current league picture, weekly matchups, standings, and relevant live context without needing commissioner intervention for ordinary use.
