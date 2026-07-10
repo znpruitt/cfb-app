@@ -1,3 +1,5 @@
+> **Status: Archived — historical reference only** (as of 2026-07-09). Not current implementation authority. See [`docs/archive/README.md`](../README.md); current authority lives in `AGENTS.md`, `CLAUDE.md`, `DESIGN.md`, `docs/architecture/**`, and `docs/operations/**`.
+
 # PROMPT_ID: P2B-OVERVIEW-FEATURE-AUDIT-v1
 # PURPOSE: Audit the current Overview page to identify overlapping versus uniquely valuable modules before UI redesign work. Provide planning guidance that improves coherence without changing runtime behavior.
 # SCOPE: OverviewPanel and directly related helper usage only; no API, ingestion/model, or implementation changes. Analysis and planning output only.

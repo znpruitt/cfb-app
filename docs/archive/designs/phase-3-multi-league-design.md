@@ -1,3 +1,5 @@
+> **Status: Archived — historical reference only** (as of 2026-07-09). Not current implementation authority. See [`docs/archive/README.md`](../README.md); current authority lives in `AGENTS.md`, `CLAUDE.md`, `DESIGN.md`, `docs/architecture/**`, and `docs/operations/**`.
+
 # Phase 3 — Multi-League Support Design
 
 **Status:** Complete. All Phase 3 work merged (PRs #192–#196). Phase 4 prerequisite satisfied.

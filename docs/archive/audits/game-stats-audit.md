@@ -1,3 +1,5 @@
+> **Status: Archived — historical reference only** (as of 2026-07-09). Not current implementation authority. See [`docs/archive/README.md`](../README.md); current authority lives in `AGENTS.md`, `CLAUDE.md`, `DESIGN.md`, `docs/architecture/**`, and `docs/operations/**`.
+
 # P7B-GAME-STATS-AUDIT — CFBD Game Team Stats Endpoint Audit
 
 PROMPT_ID: P7B-GAME-STATS-AUDIT-v1
