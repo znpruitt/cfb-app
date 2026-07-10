@@ -2,7 +2,7 @@
 
 This is the **source-of-truth map** for the project's documentation. Start here to find which document owns a given concern, rather than searching across files. Each doc owns one thing; when two docs disagree, the authority hierarchy below decides.
 
-> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup. The remaining architecture/operations extraction (**DOCS-002C**) and the design/metadata follow-ups are still deferred — see [Planned documentation work](#planned-documentation-work) at the bottom.
+> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup; **DOCS-002C** added the dedicated architecture/operations doc layer. The design-contradiction cleanup and the doc-lifecycle-metadata rollout follow-ups are still deferred — see [Planned documentation work](#planned-documentation-work) at the bottom.
 
 ## Source-of-truth map
 
@@ -18,7 +18,15 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/completed-work.md`](completed-work.md) | Append-only record of shipped milestones | Historical (append-only) |
 | [`docs/completed-work-archive.md`](completed-work-archive.md) | Older shipped work (Phases 1–3) | Archived |
 | [`docs/cfb-engineering-operating-instructions.md`](cfb-engineering-operating-instructions.md) | Original engineering/prompt-governance model — **superseded** by `AGENTS.md` (binding rules) + `CLAUDE.md` (Claude workflow); retained for context/section references, does not override them | Historical / superseded |
-| [`docs/deployment-runbook.md`](deployment-runbook.md) | Hosted deployment / operator checklist | Current |
+| [`docs/architecture/overview.md`](architecture/overview.md) | High-level runtime architecture, canonical data-flow overview, source-of-truth hierarchy, architecture-doc index | Current |
+| [`docs/architecture/game-data-flow.md`](architecture/game-data-flow.md) | Schedule → canonical games, score/odds attachment, public cache-reader + authorized-refresh policy, provider quota | Current |
+| [`docs/architecture/identity-and-ownership.md`](architecture/identity-and-ownership.md) | Team-name canonicalization boundary, alias precedence, current-season ownership attribution, CSV's role | Current |
+| [`docs/architecture/standings.md`](architecture/standings.md) | Canonical standings authority, selector/LiveDelta boundaries, NoClaim, standings cache invalidation, lifecycle states | Current |
+| [`docs/architecture/auth-and-privacy.md`](architecture/auth-and-privacy.md) | Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth | Current |
+| [`docs/architecture/storage-and-caching.md`](architecture/storage-and-caching.md) | App-state store, alias/app-state storage, provider caches, standings cache keys/tags, legacy-alias cleanup status | Current |
+| [`docs/operations/deployment.md`](operations/deployment.md) | High-level deploy/env/auth-secret/cron overview and operational checks (points at the runbook for step-by-step) | Current |
+| [`docs/operations/diagnostics.md`](operations/diagnostics.md) | Diagnostic endpoints, debug-surface auth, upstream-first debugging order | Current |
+| [`docs/deployment-runbook.md`](deployment-runbook.md) | Hosted deployment / operator checklist (detailed step-by-step; companion to `operations/deployment.md`) | Current |
 | [`docs/vision.md`](vision.md) | Product vision + canonical production data policy | Current |
 | [`docs/CFB_APP_ARCHITECTURE.md`](CFB_APP_ARCHITECTURE.md) | Quick upstream→downstream pipeline sketch (reference; `AGENTS.md` is canonical for architecture) | Current (reference) |
 | [`docs/campaigns/`](campaigns/) | Per-campaign historical detail and shipped-behavior notes | Historical |
@@ -52,7 +60,7 @@ When documents disagree, this ownership hierarchy decides:
 These are **documentation-system maintenance** follow-ups (meta-work on the docs themselves), deferred out of DOCS-002A so each pass stays small and reviewable. They live here in the doc index by design — not in `docs/next-tasks.md`, which owns the product/engineering queue. When one of these becomes active implementation work, promote it to `docs/next-tasks.md`.
 
 - **DOCS-002B — planning/history cleanup. ✅ Done.** Collapsed the completed PLATFORM-068 audit sequence in `docs/next-tasks.md` to a one-line ledger + an explicit "Unresolved decisions & known deferrals" subsection; removed shipped items (STANDINGS-PRESEASON-STATE, INSIGHTS-LIFECYCLE-AWARENESS) from the planned backlogs; reconciled the `roadmap.md` completed-work table ("Standings Page — Preseason State" → ✅ Complete). `docs/prompt-registry.md` already reads as a ledger (DOCS-002A); `docs/completed-work.md` left as the historical record. Unresolved product decisions and historical campaign detail preserved.
-- **DOCS-002C — architecture/operations docs.** Extract the durable architecture map and operations references into dedicated docs (today architecture lives in `AGENTS.md` + the `CFB_APP_ARCHITECTURE.md` sketch, and operations in `deployment-runbook.md`). Decide whether `docs/campaigns/**` and the phase/spec records should move under an explicit `archive/` path. No file moves are performed yet.
+- **DOCS-002C — architecture/operations docs. ✅ Done.** Added a dedicated current-architecture doc layer under `docs/architecture/` (`overview`, `game-data-flow`, `identity-and-ownership`, `standings`, `auth-and-privacy`, `storage-and-caching`) and an operations layer under `docs/operations/` (`deployment`, `diagnostics`), each carrying the lifecycle metadata header and linked from the source-of-truth map above. `AGENTS.md` remains canonical for binding invariants; these docs describe present runtime architecture and point back to it. The `deployment-runbook.md` stays the detailed operator checklist (now companioned by `operations/deployment.md`). Deciding whether `docs/campaigns/**` and the phase/spec records move under an explicit `archive/` path was **not** taken up here — still open.
 - **Design-contradiction cleanup (deferred).** `DESIGN.md` is canonical but not fully reconciled — resolve these known open contradictions against the current intended UI (dedicated design-cleanup prompt): (1) standings rank numbers owner-colored vs muted/plain; (2) game cards no border vs retain borders. Tracked here because the correct choice isn't unambiguously established by the current docs.
 - **Doc lifecycle metadata block (deferred).** Rolling a per-doc metadata header onto active/canonical docs is deferred (not done in DOCS-002A). When adopted, each active doc should carry:
 
