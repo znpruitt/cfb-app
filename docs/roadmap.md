@@ -358,4 +358,4 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 
 ## Architecture rules
 
-See `docs/cfb-engineering-operating-instructions.md` Section 5 for canonical architecture principles.
+See `AGENTS.md` (canonical) for current architecture principles; the original formulation is preserved historically in `docs/archive/governance/cfb-engineering-operating-instructions.md` Section 5.

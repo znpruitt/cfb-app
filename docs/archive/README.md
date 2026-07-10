@@ -29,8 +29,10 @@ The prompt ledger ([`docs/prompt-registry.md`](../prompt-registry.md)) and the c
 - **`audits/`** — point-in-time audit prompts and their findings (e.g. game-stats endpoint audit, Overview feature audit, the P2C foundation/standings-history audits). Superseded by whatever shipped afterward; retained to explain *why* a change was made.
 - **`designs/`** — historical design specs and phase design docs (History redesign spec; the Phase 3–6 design docs). The behavior they describe has either shipped (see `docs/completed-work.md` and the current architecture docs) or been superseded.
 - **`prompts/`** — standalone historical implementation-prompt artifacts (e.g. the Phase 2 Overview-revision prompt).
+- **`governance/`** — the original prompt-governance model (`cfb-engineering-operating-instructions.md`), superseded by `AGENTS.md` (binding rules) + `CLAUDE.md` (Claude workflow); retained for context/section references.
+- **`history/`** — older shipped-work logs (`completed-work-archive.md`, Phases 1–3); recent shipped work stays in the current [`docs/completed-work.md`](../completed-work.md) ledger.
 
-Each archived file carries an "Archived — historical reference only" banner at the top.
+Each archived file carries an "Archived — historical reference only" (or "Historical / superseded") banner at the top.
 
 ## How to interpret archived records
 
@@ -41,5 +43,3 @@ Each archived file carries an "Archived — historical reference only" banner at
 ## Related historical material kept elsewhere
 
 - **Campaign retrospectives** live in [`docs/campaigns/**`](../campaigns/) — an intentionally-retained historical campaign-record area (not moved here), each documenting a shipped campaign's arc.
-- **Older shipped work (Phases 1–3)** lives in [`docs/completed-work-archive.md`](../completed-work-archive.md).
-- **The original prompt-governance model** lives in [`docs/cfb-engineering-operating-instructions.md`](../cfb-engineering-operating-instructions.md), retained in place and marked Historical/superseded (its binding successors are `AGENTS.md` + `CLAUDE.md`).
