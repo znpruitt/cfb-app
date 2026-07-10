@@ -2,7 +2,7 @@
 
 This is the **source-of-truth map** for the project's documentation. Start here to find which document owns a given concern, rather than searching across files. Each doc owns one thing; when two docs disagree, the authority hierarchy below decides.
 
-> Scope note: this index was established by **DOCS-002A** (governance + documentation index). The deeper cleanup of the planning/history and architecture docs is deliberately deferred — see [Planned documentation work](#planned-documentation-work) at the bottom.
+> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup. The remaining architecture/operations extraction (**DOCS-002C**) and the design/metadata follow-ups are still deferred — see [Planned documentation work](#planned-documentation-work) at the bottom.
 
 ## Source-of-truth map
 
@@ -43,17 +43,17 @@ When documents disagree, this ownership hierarchy decides:
 - **`DESIGN.md`** — durable UI principles and the design system. Canonical for anything visual/layout. Wins on UI.
 - **`CLAUDE.md`** — Claude-specific workflow guidance only. Points at `AGENTS.md`/`DESIGN.md`; never restates or overrides them.
 - **`docs/README.md`** (this file) — the documentation map and source-of-truth ownership. It does not carry architecture, design, or **product/engineering** planning content — it points at the doc that owns each. The one exception is the **documentation-system's own maintenance roadmap** (the DOCS-002x consolidation follow-ups below), which this index owns because they are meta-work on the docs themselves; each graduates to `docs/next-tasks.md` when it becomes active implementation work.
-- **`docs/next-tasks.md`** — the active product/engineering queue and the single home for unresolved **product** decisions/deferrals. *(Scoped for a deliberate split under DOCS-002B; treat as current for now.)*
-- **`docs/prompt-registry.md`** — the historical prompt ledger. *(Scoped for a cleanup pass under DOCS-002B; treat as current for now.)*
-- **`docs/roadmap.md`** — the product/platform roadmap. *(Scoped for reduction under DOCS-002B; treat as current for now.)*
+- **`docs/next-tasks.md`** — the active product/engineering queue and the single home for unresolved **product** decisions/deferrals.
+- **`docs/prompt-registry.md`** — the historical prompt ledger.
+- **`docs/roadmap.md`** — the product/platform roadmap.
 
 ## Planned documentation work
 
 These are **documentation-system maintenance** follow-ups (meta-work on the docs themselves), deferred out of DOCS-002A so each pass stays small and reviewable. They live here in the doc index by design — not in `docs/next-tasks.md`, which owns the product/engineering queue. When one of these becomes active implementation work, promote it to `docs/next-tasks.md`.
 
-- **DOCS-002B — planning/history cleanup.** Reduce `docs/next-tasks.md` to a concise active queue + unresolved-decisions section (the completed PLATFORM-068 audit sequence collapses to a ledger pointer); reconcile stale "planned" status where behavior has shipped (e.g. the `roadmap.md` completed-work table); trim `docs/prompt-registry.md` so it reads strictly as a ledger; consolidate `docs/roadmap.md` so it does not duplicate `next-tasks` item status. Preserve all unresolved product decisions and historical campaign detail.
+- **DOCS-002B — planning/history cleanup. ✅ Done.** Collapsed the completed PLATFORM-068 audit sequence in `docs/next-tasks.md` to a one-line ledger + an explicit "Unresolved decisions & known deferrals" subsection; removed shipped items (STANDINGS-PRESEASON-STATE, INSIGHTS-LIFECYCLE-AWARENESS) from the planned backlogs; reconciled the `roadmap.md` completed-work table ("Standings Page — Preseason State" → ✅ Complete). `docs/prompt-registry.md` already reads as a ledger (DOCS-002A); `docs/completed-work.md` left as the historical record. Unresolved product decisions and historical campaign detail preserved.
 - **DOCS-002C — architecture/operations docs.** Extract the durable architecture map and operations references into dedicated docs (today architecture lives in `AGENTS.md` + the `CFB_APP_ARCHITECTURE.md` sketch, and operations in `deployment-runbook.md`). Decide whether `docs/campaigns/**` and the phase/spec records should move under an explicit `archive/` path. No file moves are performed yet.
-- **Design-contradiction cleanup (deferred).** `DESIGN.md` is canonical but not fully reconciled — resolve these known open contradictions against the current intended UI (fold into DOCS-002B or a dedicated design-cleanup prompt): (1) standings rank numbers owner-colored vs muted/plain; (2) game cards no border vs retain borders. Tracked here rather than resolved in DOCS-002A because the correct choice isn't unambiguously established by the current docs.
+- **Design-contradiction cleanup (deferred).** `DESIGN.md` is canonical but not fully reconciled — resolve these known open contradictions against the current intended UI (dedicated design-cleanup prompt): (1) standings rank numbers owner-colored vs muted/plain; (2) game cards no border vs retain borders. Tracked here because the correct choice isn't unambiguously established by the current docs.
 - **Doc lifecycle metadata block (deferred).** Rolling a per-doc metadata header onto active/canonical docs is deferred (not done in DOCS-002A). When adopted, each active doc should carry:
 
   ```md

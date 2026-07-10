@@ -343,7 +343,7 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Insights Panel — Microlabel Palette | 🔄 Planned |
 | Insights Ranker — Priority Tuning | 🔄 Planned |
 | History Rework — Career Stats Surface | 🔄 Planned |
-| Standings Page — Preseason State | 🔄 Planned |
+| Standings Page — Preseason State | ✅ Complete |
 | Standings Page — Lifecycle Labeling Sweep | 🔄 Planned |
 | Link Styling Audit | 🔄 Planned |
 | AppStateStore Caching — Egress Optimization | 🔄 Planned |
