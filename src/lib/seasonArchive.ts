@@ -1,3 +1,4 @@
+import { revalidateTag, unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { getAppState, setAppState, listAppStateKeys } from './server/appStateStore.ts';
@@ -43,7 +44,44 @@ function archiveScope(leagueSlug: string): string {
   return `standings-archive:${leagueSlug}`;
 }
 
-export async function getSeasonArchive(
+// ---------------------------------------------------------------------------
+// Archive read cache (PLATFORM-082A)
+//
+// Season archives are persisted, effectively-immutable snapshots — written
+// once at rollover/backfill and only ever overwritten by another deliberate
+// backfill of the same year. That makes them a safe cross-request caching
+// target: the read output depends only on (slug, year), never on the current
+// alias/roster/owner-label state (those are baked into the snapshot at write
+// time). We mirror the canonical-standings cache pattern: `React.cache` for
+// per-request dedup layered over `unstable_cache` for cross-request caching,
+// with tag-only invalidation (no time expiry) fired from `saveSeasonArchive`.
+// ---------------------------------------------------------------------------
+
+/** Tag carried by every cached read for a league — busts the year list and all per-year entries. */
+export function seasonArchiveSlugTag(leagueSlug: string): string {
+  return `archive:${leagueSlug}`;
+}
+
+/** Tag carried by a single league+year archive read. */
+export function seasonArchiveYearTag(leagueSlug: string, year: number): string {
+  return `archive:${leagueSlug}:${year}`;
+}
+
+/** Cache-key parts for a single league+year archive read. */
+export function seasonArchiveCacheKeyParts(leagueSlug: string, year: number): string[] {
+  return ['season-archive', leagueSlug, String(year)];
+}
+
+/** Cache-key parts for the archived-years list of a league. */
+export function seasonArchiveYearsCacheKeyParts(leagueSlug: string): string[] {
+  return ['season-archive-years', leagueSlug];
+}
+
+function isIncrementalCacheMissing(err: unknown): boolean {
+  return err instanceof Error && err.message.includes('incrementalCache missing');
+}
+
+async function readSeasonArchiveFromStore(
   leagueSlug: string,
   year: number
 ): Promise<SeasonArchive | null> {
@@ -55,7 +93,7 @@ export async function getSeasonArchive(
   }
 }
 
-export const listSeasonArchives = cache(async (leagueSlug: string): Promise<number[]> => {
+async function readArchiveYearsFromStore(leagueSlug: string): Promise<number[]> {
   try {
     const keys = await listAppStateKeys(archiveScope(leagueSlug));
     return keys
@@ -65,10 +103,82 @@ export const listSeasonArchives = cache(async (leagueSlug: string): Promise<numb
   } catch {
     return [];
   }
+}
+
+const dataCachedSeasonArchive = (leagueSlug: string, year: number) =>
+  unstable_cache(
+    () => readSeasonArchiveFromStore(leagueSlug, year),
+    seasonArchiveCacheKeyParts(leagueSlug, year),
+    {
+      tags: [seasonArchiveSlugTag(leagueSlug), seasonArchiveYearTag(leagueSlug, year)],
+      revalidate: false,
+    }
+  )();
+
+const dataCachedArchiveYears = (leagueSlug: string) =>
+  unstable_cache(
+    () => readArchiveYearsFromStore(leagueSlug),
+    seasonArchiveYearsCacheKeyParts(leagueSlug),
+    { tags: [seasonArchiveSlugTag(leagueSlug)], revalidate: false }
+  )();
+
+/**
+ * Read a persisted season archive. `React.cache` dedupes within a request (many
+ * history/insights surfaces read the same archive per render); `unstable_cache`
+ * caches across requests until a `saveSeasonArchive` write busts the tag.
+ *
+ * Outside Next's RSC runtime (`node:test`) `unstable_cache` throws
+ * `Invariant: incrementalCache missing`; fall back to a direct store read so the
+ * function stays testable. Any other failure already resolves to `null` inside
+ * `readSeasonArchiveFromStore`.
+ */
+export const getSeasonArchive = cache(
+  async (leagueSlug: string, year: number): Promise<SeasonArchive | null> => {
+    try {
+      return await dataCachedSeasonArchive(leagueSlug, year);
+    } catch (err) {
+      if (isIncrementalCacheMissing(err)) {
+        return readSeasonArchiveFromStore(leagueSlug, year);
+      }
+      throw err;
+    }
+  }
+);
+
+export const listSeasonArchives = cache(async (leagueSlug: string): Promise<number[]> => {
+  try {
+    return await dataCachedArchiveYears(leagueSlug);
+  } catch (err) {
+    if (isIncrementalCacheMissing(err)) {
+      return readArchiveYearsFromStore(leagueSlug);
+    }
+    throw err;
+  }
 });
+
+/**
+ * Bust the cross-request archive cache for a league+year. Called from
+ * `saveSeasonArchive` so every write path (admin backfill, admin rollover, cron
+ * season-rollover, and any future writer) invalidates without per-call-site
+ * wiring. The slug tag alone covers the year list and every per-year read; the
+ * year tag is added for explicitness. Must run in a request context —
+ * `saveSeasonArchive` swallows the out-of-context throw so scripts/tests still
+ * write successfully.
+ */
+export function invalidateSeasonArchive(leagueSlug: string, year: number): void {
+  revalidateTag(seasonArchiveSlugTag(leagueSlug));
+  revalidateTag(seasonArchiveYearTag(leagueSlug, year));
+}
 
 export async function saveSeasonArchive(archive: SeasonArchive): Promise<void> {
   await setAppState<SeasonArchive>(archiveScope(archive.leagueSlug), String(archive.year), archive);
+  try {
+    invalidateSeasonArchive(archive.leagueSlug, archive.year);
+  } catch {
+    // `revalidateTag` requires a request/action context. All production writers
+    // (admin/cron route handlers) provide one; direct calls from scripts or
+    // tests do not — the write already succeeded, so this is non-fatal.
+  }
 }
 
 function weeklyStats(
