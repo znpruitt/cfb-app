@@ -13,6 +13,7 @@ Supersedes: (none)
 - Move completed work summaries to `docs/completed-work.md`.
 - Keep broader context and later-phase ideas in `docs/roadmap.md`.
 - Reference implementation prompts by explicit `PROMPT_ID` and follow the header convention documented in `docs/prompt-registry.md`.
+- **Backlog slugs are provisional planning labels, not formal prompt IDs.** A `Backlog slug (provisional)` is just a working name for a not-yet-activated task. The formal `PROMPT_ID` — `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>` per `AGENTS.md` (prompt governance) — is assigned only when the task is activated, and its `<###>` sequence is checked against `docs/prompt-registry.md` at that point. Do not treat a backlog slug as an assigned prompt ID.
 
 ## Campaign status
 
@@ -68,7 +69,7 @@ The P1/P2 correctness + docs sequence from the PLATFORM-068 app-wide audit has f
 - **PLATFORM-078 / 079a / 079b / 080** — dead-code sweep; `CFBScheduleApp` canonical standings; `AdminDebugSurface` removal; in-session finalized-game RSC refresh.
 - **PLATFORM-081 / 081b** — legacy league-scoped alias cleanup tooling + read-only dry-run hotfix. Operator `--apply` run **complete**: deleted `aliases:test:2025`, `aliases:test:2026`, `aliases:tsc:2025`; confirmation dry-run found zero remaining.
 - **DOCS-003** — `STANDINGS-PRESEASON-STATE` table-vs-prose contradiction verified **docs-stale** (behavior shipped in Season Launch Hardening Phase 2); docs reconciled.
-- **DOCS-002A** (PR #375) — documentation index + governance tightening. **DOCS-002B** — this planning/history cleanup. **DOCS-002C** (PR #377) — dedicated architecture (`docs/architecture/`) + operations (`docs/operations/`) doc layer. **DOCS-004** (PR #378) — reconciled the `DESIGN.md` rank-number + game-card-border contradictions. **DOCS-005** (PR #379) — rolled lifecycle metadata onto the active/canonical docs. **DOCS-006** (PR #380) — implemented the `archive/` path decision (`docs/archive/**`). **DOCS-007** (PR #381) — root-doc archive hygiene (moved remaining historical/superseded root docs under `docs/archive/{governance,history}/`). The documentation-consolidation sequence is complete; no deferred doc-maintenance follow-ups remain.
+- **DOCS-002A** (PR #375) — documentation index + governance tightening. **DOCS-002B** — this planning/history cleanup. **DOCS-002C** (PR #377) — dedicated architecture (`docs/architecture/`) + operations (`docs/operations/`) doc layer. **DOCS-004** (PR #378) — reconciled the `DESIGN.md` rank-number + game-card-border contradictions. **DOCS-005** (PR #379) — rolled lifecycle metadata onto the active/canonical docs. **DOCS-006** (PR #380) — implemented the `archive/` path decision (`docs/archive/**`). **DOCS-007** (PR #381) — root-doc archive hygiene (moved remaining historical/superseded root docs under `docs/archive/{governance,history}/`). **DOCS-008** (PR #382) — final docs-consistency cleanup (backlog-slug relabeling, runbook access checklist + platform-admin wording, DOCS-007 traceability, architecture-sketch ordering). The documentation-consolidation sequence is complete; no deferred doc-maintenance follow-ups remain.
 
 #### Unresolved decisions & known deferrals
 
@@ -87,13 +88,13 @@ _Resolved during the sequence (no longer open): `AdminDebugSurface` → deleted 
 
 Per-league global (not per-user) NEW-tag system for the insights panel. 48-hour active-season window, 7-day offseason window. Signature-based detection so that hook/owner/statValue changes register as a fresh insight while semantically identical re-renders do not.
 
-- **Prompt ID to assign:** `INSIGHTS-018-NEW-TAG-v1`
+- **Backlog slug (provisional):** `INSIGHTS-018-NEW-TAG-v1`
 
 ### 2. INSIGHTS-019 — Diagnostic endpoint
 
 Admin-gated `GET /api/debug/insights/[leagueSlug]` that returns: generator pool size, rendered set, suppressed set, per-insight signatures, and last-change timestamps. Enables at-a-glance verification of NEW tag behavior and suppression correctness without reading logs.
 
-- **Prompt ID to assign:** `INSIGHTS-019-DIAGNOSTIC-v1`
+- **Backlog slug (provisional):** `INSIGHTS-019-DIAGNOSTIC-v1`
 
 ### INSIGHTS-020-RECORD-CHANGE-v1
 
@@ -116,7 +117,7 @@ Surface recently changed records as insights. Wires up the dormant `RecordEntry.
 
 Server-side caching for insights panel output (1-hour TTL) and archive reads (longer TTL). Single biggest egress-reduction lever available. Neon Launch tier provides 50 GB/month but active-season + draft-day traffic could push limits without caching. **Season-launch-blocking priority.**
 
-- **Prompt ID to assign:** `APPSTATESTORE-CACHING-v1`
+- **Backlog slug (provisional):** `APPSTATESTORE-CACHING-v1`
 
 ### 4. DRAFT — Slow Draft Mode
 
@@ -162,16 +163,16 @@ Items surfaced when the `npm test` script was added in PRE-LAUNCH-TIDYUP (PR #30
 Items surfaced during the HISTORY-RECORDS Phase 2 Overview revision and queued for Phase 3:
 
 - **RECORDS-SCORING** — Auto-score the records surfaced in the History Overview Records column. Today, `selectMarqueeRecords` (in `src/lib/selectors/historyOverview.ts`) picks 5 records via an implicit rule (one from each of `career` / `season` / `rivalry` / `event`, then one extra by category-priority order). The rule is editorial-by-default and undiscoverable; as new records get added to `selectAllRecords()` the marquee will drift away from "the most narratively interesting records the league has." Replace the implicit rule with an auto-computed score on each `RecordEntry`, mirroring the Insights ranker pattern. Score weights to consider: recency of when the record was set or last changed hands, magnitude of the leader's gap-to-second, volatility (how often the record changes hands across archived seasons), whether the holder changed in the most recent season. Implementation hint: extend `RecordEntry` with a computed `score` (or equivalent) field populated inside `selectAllRecords`; reduce `selectMarqueeRecords` to a sort-by-score-desc + slice. The Records column then renders the top N with no manual curation. Trigger to prioritize: HISTORY-RECORDS Phase 3, alongside the Stats / Rivalries / Archive subtab content wiring.
-  - **Prompt ID to assign:** `RECORDS-SCORING-v1`
+  - **Backlog slug (provisional):** `RECORDS-SCORING-v1`
 
 - **SPARSE-DATA-LAYOUT** — The History Overview dashboard restructure (P7-HISTORY-RECORDS-PHASE-2-VISUAL-REFINEMENT-v1) achieves visual balance under the assumption that each section fills its column. In current TSC data (6 seasons), some sections render with fewer rows than their peers — Title droughts shows 4 rows vs Top rivalries' 5; Recent podiums shows only the 3 most recent seasons regardless of league age. The page accommodates this via whitespace, but at very sparse data states (a brand-new league with 1–2 seasons, for example) the imbalance becomes more visible. Goal: evaluate whether sections should respond to their own data density — narrowing column width when sparse, or stacking with peer sections in a different layout — vs accepting the imbalance as the cost of designing for the eventual fully-populated state. Implementation hint: this is primarily a layout discipline decision rather than a selector change; the data shape already reflects density via row counts. Possible directions: per-section `lg:col-span-*` adjustments based on row count, a row-count-aware grid utility, or an explicit "compact" rendering mode for sections at certain thresholds. Trigger to prioritize: when a new league is created and onboarded with very few seasons of data, or when the existing layout proves uncomfortable at any point in the league's growth arc.
-  - **Prompt ID to assign:** `SPARSE-DATA-LAYOUT-v1`
+  - **Backlog slug (provisional):** `SPARSE-DATA-LAYOUT-v1`
 
 - **INSIGHT-ROUTING-PHASE-3-RETARGET** — Re-point insight deep links from Overview anchors to the Stats and Rivalries subtabs once Phase 3 ships their content. `resolveHistoryHref` (in `src/components/OverviewPanel.tsx`) currently routes drought → `/history#dynasty-drought`, dynasty → `/history#championships`, and rivalry types (`perfect_against`, `lopsided_rivalry`, `even_rivalry`, `dominance_streak`) → `/history#rivalries`. These were reverted from the Phase 2 subtab routes (`/history/stats`, `/history/rivalries`) because those subtabs render "Coming in Phase 3" placeholders today and create dead-end navigation. Trigger to prioritize: alongside Phase 3's Stats/Rivalries subtab content wiring; update both the routing and the matching `insightHref-history-routing.test.tsx` assertions.
-  - **Prompt ID to assign:** `INSIGHT-ROUTING-PHASE-3-RETARGET-v1`
+  - **Backlog slug (provisional):** `INSIGHT-ROUTING-PHASE-3-RETARGET-v1`
 
 - **HISTORY-DYNAMIC-TILING** — The History Overview currently uses a stacked dashboard layout with vertical scroll. During Phase 2, repeated visual iteration surfaced that History's content is structurally sparser than main Overview's, leading to whitespace problems that were ultimately addressed with an `mx-auto max-w-7xl` cap (commit `3e1a977`). An alternative design direction was explored conversationally but deferred: dynamic tiling, where sections rearrange into a packed grid that fills available 2D space rather than stacking vertically. Goal: explore whether History (and possibly other sparse-content pages) should use a dashboard tiling layout instead of vertical stacking. Sections become tiles that pack into available width, eliminating vertical whitespace by using horizontal space efficiently. Reference Pinterest / Trello / Notion as precedent patterns. Implementation hint: evaluate CSS Grid `auto-flow: dense` vs JS-based packing libraries (e.g. Muuri, react-grid-layout) vs hand-tuned per-breakpoint grid placements. Each has tradeoffs around predictability, complexity, and dependency cost. Why it was deferred: committing to tiling would mean re-thinking the page's section composition, visual hierarchy, and breakpoint behavior from scratch. Phase 2 was already a long iteration cycle and shipping a polished stacked-with-cap layout was the higher-priority action; revisit when the campaign has space for fresh design exploration. Trigger to prioritize: if living with the stacked-and-capped History page reveals that its layout still feels structurally wrong, OR when other sparse-content pages (e.g., a future Stats subtab) face the same whitespace problems and a unified solution becomes valuable.
-  - **Prompt ID to assign:** `HISTORY-DYNAMIC-TILING-v1`
+  - **Backlog slug (provisional):** `HISTORY-DYNAMIC-TILING-v1`
 
 ## Completed campaigns (summary)
 

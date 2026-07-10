@@ -23,6 +23,8 @@ Core principles:
 
 Prompt format and registry guidance live in `docs/prompt-registry.md`.
 
+> **Backlog slugs are provisional planning labels, not formal prompt IDs.** Items below tagged `Backlog slug (provisional)` are working names for not-yet-activated tasks. A formal `PROMPT_ID` — `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>` per `AGENTS.md` — is assigned only when a task is activated (and its `<###>` verified against `docs/prompt-registry.md` then). Do not treat a backlog slug as an assigned prompt ID.
+
 ## Current status
 
 All foundational work is complete: architecture stabilization, production hardening, league UX, visual redesign, multi-league support, historical analytics, draft tool, admin auth, product design audit (7A–7F), commissioner self-service, season lifecycle, and launch prep.
@@ -116,7 +118,7 @@ Historical and rivalry generators wired through `GET /api/insights/[slug]` into 
 #### Insights Panel — Microlabel Palette (planned)
 Rationalize category microlabel colors to resolve HISTORICAL/STANDINGS/SEASON shared-purple and STATS/LEAGUE/fallback shared-slate token collisions. Includes a micro-discovery on why SEASON-labeled rows render in the panel when no generator appears to set `category === 'season_wrap'` at render time. Constrained by `DESIGN.md`'s strict ban on amber/green/red/blue hues for category use.
 
-- **Prompt ID to assign:** `INSIGHTS-017-PALETTE-v1`
+- **Backlog slug (provisional):** `INSIGHTS-017-PALETTE-v1`
 
 #### Insights — All Insights Page ✓ Complete
 `/league/[slug]/insights` renders the full insight pool for a league. Originally logged as scaffolded-but-unpopulated during DOCS-CLOSEOUT-006; investigation during INSIGHTS-017 PR review identified two bugs preventing the page from rendering:
@@ -131,7 +133,7 @@ Future polish work (grouping by category, lifecycle filtering, pagination for lo
 #### Insights Ranker — Priority Tuning (planned)
 Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for restoring row-1 visual prominence once the ranker earns it. Revisit when priority decay ships.
 
-- **Prompt ID to assign:** `INSIGHTS-RANKER-TUNING-v1`
+- **Backlog slug (provisional):** `INSIGHTS-RANKER-TUNING-v1`
 
 #### Pairing Cards (planned)
 Post-processing pass after generator run; pairing priority = `max(A, B) + 10`; AI copy (cache-time, curated subset). Natural pairings: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader.
@@ -232,12 +234,12 @@ Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKE
 #### AppStateStore Caching — Egress Optimization (planned)
 Server-side caching for insights panel output (1-hour TTL) and archive reads (longer TTL — archives do not change between games). Single biggest egress-reduction lever available before August draft. Neon Launch tier provides 50 GB/month but active-season + draft-day traffic could push limits without caching. **Season-launch-blocking priority.**
 
-- **Prompt ID to assign:** `APPSTATESTORE-CACHING-v1`
+- **Backlog slug (provisional):** `APPSTATESTORE-CACHING-v1`
 
 #### Server Fetch Architecture Audit (planned)
 Audit server-side routes that fetch their own API endpoints (e.g. `/league/[slug]/insights` fetching `/api/insights/...`) and evaluate whether they should instead call the underlying selector or data function directly. The current pattern requires URL construction via headers (`x-forwarded-host`, `x-forwarded-proto`), which surfaced a silent-failure bug during INSIGHTS-017 code review (`ALL-INSIGHTS-SCHEME-FIX`). Direct selector calls would eliminate the URL-construction class of bugs entirely and reduce latency by removing the self-fetch hop. Priority: low — "when you have time" cleanup, not urgent. Scope: codebase audit first, then scoped fixes per route.
 
-- **Prompt ID to assign:** `SERVER-FETCH-ARCHITECTURE-v1`
+- **Backlog slug (provisional):** `SERVER-FETCH-ARCHITECTURE-v1`
 
 #### Season Rollover UI and Cron ✓ Complete
 - `SeasonRolloverPanel` in `/admin/data/cache` — two-phase preview/execute flow with per-league champion + top 3 display and destructive confirm guard
@@ -289,7 +291,7 @@ Systematic review and rewrite of all user-facing strings for consistent voice an
 #### History Rework — Career Stats Surface (planned)
 History page polish plus a dedicated career stats surface. Unblocks Tier 2 insight routing currently returning `null` from the panel-layer resolver (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points` render without arrows today). Also improves the destination quality for insights already routing to the history page.
 
-- **Prompt ID to assign:** `HISTORY-REWORK-v1`
+- **Backlog slug (provisional):** `HISTORY-REWORK-v1`
 
 #### Standings Page — Preseason State (✅ shipped)
 Preseason content for the standings page. Three-state progression:
@@ -302,12 +304,12 @@ Shipped in the Season Launch Hardening campaign (Phase 2, commits `88af434` + `4
 #### Standings Page — Lifecycle Labeling Sweep (planned)
 Broader "Offseason" vs "{year} Season" label inconsistency audit across surfaces beyond the standings page itself. STANDINGS-SUBHEADER-FIX addressed the standings page; other surfaces may still show stale or contradictory year/lifecycle labels during offseason.
 
-- **Prompt ID to assign:** `STANDINGS-PAGE-LIFECYCLE-LABELING-v1`
+- **Backlog slug (provisional):** `STANDINGS-PAGE-LIFECYCLE-LABELING-v1`
 
 #### Link Styling Audit (planned)
 App-wide standardization of "view more" / "full view" / "see all" cross-links. Current state is split: blue `↗` arrow icons on history page panels and Overview column headers (Standings, AP Poll) vs. muted `→` on the Insights "See all" link. Chosen convention: muted text + horizontal arrow. Removes redundant blue accent on already-interactive links, aligns with `DESIGN.md`'s single-purpose use of blue for interactivity.
 
-- **Prompt ID to assign:** `LINK-STYLING-AUDIT-v1`
+- **Backlog slug (provisional):** `LINK-STYLING-AUDIT-v1`
 
 ---
 

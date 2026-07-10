@@ -74,9 +74,9 @@ Add the following claim:
 }
 ```
 
-This makes the user's `publicMetadata` (including `role`) available in the session JWT, which the middleware and `requireAdminAuth` use to authorize commissioner access.
+This makes the user's `publicMetadata` (including `role`) available in the session JWT, which the middleware and `requireAdminAuth` use to authorize platform-admin access.
 
-### B. Create a commissioner account
+### B. Create a platform admin/operator account
 
 1. In the Clerk Dashboard → Users → Create user.
 2. Set the email and password.
@@ -112,7 +112,7 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
 ### A. Auth verification
 
 1. Navigate to `turfwar.games/login`.
-2. Sign in with the commissioner Clerk account.
+2. Sign in with the platform admin Clerk account.
 3. Confirm you are redirected to `/admin`.
 4. Confirm the admin dashboard loads without redirect loops.
 5. In a separate browser or incognito window (not signed in), navigate to `/admin`.
@@ -120,14 +120,14 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
 
 ### B. Storage/admin status
 
-1. Open `/admin` (signed in as commissioner).
+1. Open `/admin` (signed in as platform admin).
 2. Find **Shared storage status**.
 3. Confirm:
    - mode = `postgres`
    - environment = `production`
    - database configured = `Yes`
 
-### C. Commissioner flows
+### C. Admin/operator flows
 
 1. Upload the current owners CSV.
 2. Refresh the page.
@@ -147,10 +147,10 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
 ### D. Non-admin member validation
 
 1. Open the site in a browser that is **not signed in to Clerk**.
-2. Confirm the main league page loads.
+2. **Public (no-password) league:** confirm the main league page loads anonymously — no Clerk sign-in and no league password required.
 3. Confirm owners/aliases/overrides appear as expected.
-4. Confirm normal viewing does **not** require authentication.
-5. Navigate to `/admin` — confirm redirect to `/login`.
+4. **Passworded league:** confirm the league password gate appears, that unlocking with the correct password loads the page, and that the unlock grants **no** admin or provider-refresh authority — it only unlocks that one league's pages.
+5. Navigate to `/admin` — confirm redirect to `/login` (Clerk-gated; the league password does not grant `/admin` access).
 
 ### E. Shared-state cross-browser validation
 
@@ -167,16 +167,16 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
    - Android Chrome
    - one desktop browser
 2. Confirm the main league view loads.
-3. Confirm `/admin` is still usable enough for commissioner tasks on a smaller screen.
+3. Confirm `/admin` is still usable enough for admin/operator tasks on a smaller screen.
 
 ## 8) Should complete before member launch
 
-1. Repeat the commissioner flow check with the near-final owners CSV and any real alias/override corrections.
+1. Repeat the admin/operator flow check with the near-final owners CSV and any real alias/override corrections.
 2. Confirm the production deploy is stable after at least one redeploy.
 3. Confirm the database survives redeploys and the shared state remains intact.
 4. Confirm odds behavior looks acceptable with the real `ODDS_API_KEY` and current quota policy.
 5. Confirm scores refresh behavior looks acceptable during a live or recently completed game window.
-6. Confirm the `/admin` link is only shared with the commissioner/operator group.
+6. Confirm the `/admin` link is only shared with the platform-admin/operator group.
 
 ## 9) Common failure diagnosis
 
@@ -188,7 +188,7 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
   3. The CNAME record for `clerk.turfwar.games` is set at Porkbun and verified in Clerk.
   4. The session token customization includes `publicMetadata`.
 
-### Commissioner can sign in but gets redirected away from `/admin`
+### A platform-admin user can sign in but gets redirected away from `/admin`
 
 - Check:
   1. The user's public metadata in Clerk Dashboard contains `{ "role": "platform_admin" }`.
@@ -237,7 +237,7 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
 ### Shared state does not appear across browsers
 
 - Check:
-  1. The commissioner save action actually succeeded.
+  1. The admin save action actually succeeded.
   2. The storage panel reports `postgres`.
   3. The second browser is loading the same URL/environment.
   4. You are not relying on stale local data in only one browser.

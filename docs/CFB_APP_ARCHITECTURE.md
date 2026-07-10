@@ -11,11 +11,9 @@ Supersedes: (none)
 ```text
 CFBD API
    ↓
-schedule normalization
+schedule normalization + identity resolution
    ↓
-canonical game model
-   ↓
-identity resolution
+canonical AppGame model
    ↓
 scores attachment
    ↓
