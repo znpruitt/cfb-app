@@ -104,9 +104,11 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  // Holds the pending CSV when the server requires an explicit active-season
-  // overwrite override (PLATFORM-083). Non-null → show the confirmation prompt.
-  const [overwriteConfirm, setOverwriteConfirm] = useState<string | null>(null);
+  // True when the server requires an explicit active-season overwrite override
+  // (PLATFORM-083) → show the confirmation prompt. We store only a flag (not a
+  // captured CSV) so confirming rebuilds from the CURRENT edited roster, never a
+  // stale snapshot from the moment the guard fired.
+  const [needsOverrideConfirm, setNeedsOverrideConfirm] = useState(false);
 
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('school');
@@ -178,7 +180,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
         // Active-season overwrite guard: surface an explicit confirmation
         // rather than a generic error, then resend with the override.
         if (res.status === 409 && data?.error === OWNER_ROSTER_OVERWRITE_ERROR) {
-          setOverwriteConfirm(csvText);
+          setNeedsOverrideConfirm(true);
           return;
         }
         setSaveError(data?.detail ?? data?.message ?? data?.error ?? `Save failed (${res.status})`);
@@ -189,7 +191,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
       setSavedOwners(parsed);
       setDraftOwners(new Map(parsed));
       setSaveSuccess(true);
-      setOverwriteConfirm(null);
+      setNeedsOverrideConfirm(false);
       // Refresh the current RSC tree so canonical standings reflect the
       // updated roster (the owners API route already invalidates the
       // standings cache tag on PUT).
@@ -283,7 +285,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
           )}
           {saveError && <span className="text-sm text-red-600 dark:text-red-400">{saveError}</span>}
         </div>
-        <div className="flex gap-2" hidden={overwriteConfirm !== null}>
+        <div className="flex gap-2" hidden={needsOverrideConfirm}>
           <button
             onClick={handleDiscard}
             disabled={!hasChanges || saving}
@@ -302,30 +304,26 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
       </div>
 
       {/* ---- Active-season overwrite confirmation (PLATFORM-083) ---- */}
-      {overwriteConfirm !== null && (
+      {needsOverrideConfirm && (
         <div className="rounded border border-amber-300/60 bg-amber-50 p-3 dark:border-amber-700/50 dark:bg-amber-950/30">
           <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
             Overwrite the active-season owner roster?
           </p>
           <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
-            This league already has a roster for the current season. Current-season ownership is
-            normally managed through the draft / manual assignment flow — override is for
-            platform-admin repair.
+            This league already has a roster for the current season. Confirming writes the roster as
+            currently shown below. Current-season ownership is normally managed through the draft /
+            manual assignment flow — override is for platform-admin repair.
           </p>
           <div className="mt-3 flex gap-2">
             <button
-              onClick={() => {
-                const pending = overwriteConfirm;
-                setOverwriteConfirm(null);
-                void doSave(pending, true);
-              }}
+              onClick={() => void doSave(buildCsv(teams, draftOwners), true)}
               disabled={saving}
               className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? 'Saving…' : 'Confirm overwrite'}
             </button>
             <button
-              onClick={() => setOverwriteConfirm(null)}
+              onClick={() => setNeedsOverrideConfirm(false)}
               disabled={saving}
               className="rounded border border-gray-300 dark:border-zinc-600 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 text-sm text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-700 disabled:opacity-40"
             >

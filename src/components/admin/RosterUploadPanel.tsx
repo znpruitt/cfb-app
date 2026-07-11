@@ -125,12 +125,12 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<{ teams: number; aliases: number } | null>(null);
-  // Pending upload awaiting an explicit active-season overwrite override
-  // (PLATFORM-083). Non-null → show the confirmation prompt.
-  const [overwritePending, setOverwritePending] = useState<{
-    val: ValidationResponse;
-    resolvedMap: Map<string, string>;
-  } | null>(null);
+  // The validation awaiting an explicit active-season overwrite override
+  // (PLATFORM-083). Non-null → show the confirmation prompt. We keep only the
+  // (stable) validation, NOT the resolutions captured when the guard fired, so
+  // confirming re-reads the CURRENT `resolutions` and never imports stale
+  // fuzzy-match choices the admin changed while the prompt was open.
+  const [overwritePending, setOverwritePending] = useState<ValidationResponse | null>(null);
 
   function handleLeagueChange(newSlug: string) {
     setSlug(newSlug);
@@ -219,7 +219,7 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
         // Active-season overwrite guard: prompt for explicit confirmation, then
         // resend with the override, instead of surfacing a raw error.
         if (ownersRes.status === 409 && parsed?.error === OWNER_ROSTER_OVERWRITE_ERROR) {
-          setOverwritePending({ val, resolvedMap });
+          setOverwritePending(val);
           return;
         }
         setUploadError(parsed?.message ?? raw ?? `Upload failed (${ownersRes.status})`);
@@ -312,19 +312,15 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
             Overwrite the active-season owner roster?
           </p>
           <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
-            This league already has a roster for the current season. Current-season ownership is
-            normally managed through the draft / manual assignment flow — override is for
-            platform-admin repair/backfill.
+            This league already has a roster for the current season. Confirming imports the resolved
+            roster as currently shown. Current-season ownership is normally managed through the
+            draft / manual assignment flow — override is for platform-admin repair/backfill.
           </p>
           <div className="mt-3 flex gap-2">
             <button
               type="button"
               disabled={uploading}
-              onClick={() => {
-                const pending = overwritePending;
-                setOverwritePending(null);
-                void completeUpload(pending.val, pending.resolvedMap, true);
-              }}
+              onClick={() => void completeUpload(overwritePending, resolutions, true)}
               className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {uploading ? 'Importing…' : 'Confirm repair override'}
