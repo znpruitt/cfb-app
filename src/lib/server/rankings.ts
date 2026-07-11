@@ -264,8 +264,12 @@ export async function loadSeasonRankings(
   };
 
   const cacheEntry = { at: now, response };
-  CACHE.set(season, cacheEntry);
+  // Durable-first commit order (PLATFORM-085A): persist the rankings snapshot
+  // BEFORE publishing it to the process cache, so a failed durable write can't
+  // leave this instance serving "fresh" rankings that no other instance can
+  // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
   await setAppState('rankings', String(season), cacheEntry);
+  CACHE.set(season, cacheEntry);
   return response;
 }
 
