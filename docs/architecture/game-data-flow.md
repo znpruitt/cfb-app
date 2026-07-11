@@ -42,6 +42,8 @@ Only an **authorized refresh** spends quota. Both routes gate on `refresh=1` beh
 - **Authorized refresh / cron keeps caches warm** — platform admin, server cron, or `ADMIN_API_TOKEN` may refresh; `GlobalRefreshPanel` and `/api/debug/*` score diagnostics forward `refresh=1` + admin auth.
 - **The league password grants no fetch authority** — unlocking a passworded league never authorizes quota spend; that gate is solely `requireAdminAuth`.
 
+**Public scores and canonical consumers share ONE cache-only season score reconciliation (PLATFORM-084B).** Scores cache under a season-wide key (`${year}-all-${seasonType}`) and per-week keys (`${year}-<week>-${seasonType}`). The shared reader `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`) merges the season-wide and per-week entries — deduped by canonical game identity (through `teamIdentity.ts`), newest cache entry winning — and is used by the public `/api/scores` season read, canonical standings, and the season-rollover archive build alike. So a week-specific refresh visible on `/api/scores` is now equally visible to standings, Insights, and archives. The reader is cache-only (no provider call); see [storage-and-caching.md](storage-and-caching.md) for the reconciliation mechanics.
+
 ## Provider quota constraints
 
 CFBD is the source of truth for schedule/scores (~1000 calls/month free tier); The Odds API for odds (~500/month). The cache-reader policy exists to keep public/member traffic from exhausting these quotas; season-persistent data updates through admin/cron flows, not opportunistically from public reads.

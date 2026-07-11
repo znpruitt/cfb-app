@@ -139,6 +139,7 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
 1. **API-first schedule + scores**
    - CFBD-backed routes define schedule and score truth.
    - Do not silently reintroduce CSV-first schedule architecture.
+   - **One cache-only season score reader (PLATFORM-084B).** Every season-level score consumer — public `/api/scores`, canonical standings, and the season-rollover archive build — reads cached scores through the shared `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`), which reconciles the season-wide (`${year}-all-*`) and per-week (`${year}-<week>-*`) cache entries by canonical game identity (newest wins). Do not add a canonical consumer that reads only the `-all-*` keys — that reintroduces the mismatch where a week-specific refresh is visible on `/api/scores` but not in standings/archives. The reader is cache-only (no provider call; provider fetch stays on the authorized `refresh=1` path per PLATFORM-075) and propagates store-read failures per PLATFORM-084A.
 
 2. **Odds provider boundary**
    - Odds data should flow through internal odds route adapters, not raw provider shapes in UI state.

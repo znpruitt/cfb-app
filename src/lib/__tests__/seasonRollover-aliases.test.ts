@@ -197,6 +197,51 @@ test('buildSeasonArchive: archived standings agree with live canonical for a glo
   );
 });
 
+test('buildSeasonArchive: includes a score present only in a per-week cache key (PLATFORM-084B)', async () => {
+  await seedTeamDb(['Texas', 'Rival Tech']);
+  await seedOwners(['team,owner', 'Texas,Alice', 'Rival Tech,Bob'].join('\n'));
+  // Schedule game exists; the final score lives ONLY in `2025-2-regular`, never
+  // in `2025-all-regular`. Before PLATFORM-084B the archive read only the
+  // `-all-*` keys and would archive Alice 0-0.
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      {
+        id: 'wk-game',
+        week: 2,
+        startDate: `${YEAR}-09-08T18:00:00.000Z`,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Rival Tech',
+        homeConference: 'Mountain West',
+        awayConference: 'Mountain West',
+        status: 'final',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('scores', `${YEAR}-2-regular`, {
+    at: 1000,
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [
+      {
+        id: 'wk-game',
+        seasonType: 'regular',
+        startDate: `${YEAR}-09-08T18:00:00.000Z`,
+        week: 2,
+        status: 'final',
+        home: { team: 'Texas', score: 28 },
+        away: { team: 'Rival Tech', score: 7 },
+        time: null,
+      },
+    ],
+  });
+
+  const archive = await buildSeasonArchive(SLUG, YEAR);
+  assert.equal(winsFor(archive.finalStandings, 'Alice'), 1, 'week-only score archived');
+});
+
 async function seedAlias(scope: string, map: Record<string, string>): Promise<void> {
   await setAppState(scope, 'map', map);
 }

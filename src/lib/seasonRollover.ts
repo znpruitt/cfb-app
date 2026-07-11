@@ -1,4 +1,5 @@
 import { getAppState } from './server/appStateStore.ts';
+import { loadReconciledSeasonScoresByType } from './server/scoreCacheReader.ts';
 import { getScopedAliasMap } from './server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
 import { buildScheduleFromApi, type ScheduleWireItem, type AppGame } from './schedule.ts';
@@ -198,19 +199,19 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   );
   const resolver = createTeamIdentityResolver({ teams, aliasMap, observedNames: providerNames });
 
-  // Load scores from cache (regular + postseason)
-  const [regularCache, postseasonCache] = await Promise.all([
-    getAppState<{ items: ScoresCacheItem[] }>('scores', `${year}-all-regular`),
-    getAppState<{ items: ScoresCacheItem[] }>('scores', `${year}-all-postseason`),
-  ]);
+  // Load scores from cache (regular + postseason), reconciling the season-wide
+  // and per-week entries via the shared cache-only reader (PLATFORM-084B) so the
+  // archive captures the SAME reconciled scores public /api/scores and canonical
+  // standings see — not just the ${year}-all-* keys. Both season types come from
+  // ONE `${year}-` prefix read. Cache-only; no provider call. A store-read
+  // failure propagates (PLATFORM-084A) so a blip does not silently archive an
+  // incomplete final standings snapshot.
+  const { regular: regularScores, postseason: postseasonScores } =
+    await loadReconciledSeasonScoresByType({ year, teams, aliasMap });
 
   const normalizedRows: NormalizedScoreRow[] = [
-    ...(regularCache?.value?.items ?? []).map((item) =>
-      scoresCacheItemToNormalizedRow(item, 'regular')
-    ),
-    ...(postseasonCache?.value?.items ?? []).map((item) =>
-      scoresCacheItemToNormalizedRow(item, 'postseason')
-    ),
+    ...regularScores.items.map((item) => scoresCacheItemToNormalizedRow(item, 'regular')),
+    ...postseasonScores.items.map((item) => scoresCacheItemToNormalizedRow(item, 'postseason')),
   ];
 
   // Attach scores to schedule

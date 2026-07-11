@@ -5,12 +5,7 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
-import {
-  createTeamIdentityResolver,
-  resolveTeamIdentityKey,
-  type TeamCatalogItem,
-  type TeamIdentityResolver,
-} from '@/lib/teamIdentity';
+import { type TeamCatalogItem } from '@/lib/teamIdentity';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import {
@@ -18,7 +13,8 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
-import { getAppState, getAppStateEntries, setAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { loadReconciledSeasonScores } from '@/lib/server/scoreCacheReader';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
@@ -95,19 +91,6 @@ function pickFreshestScoresEntry(
   return b.at > a.at ? b : a;
 }
 
-/**
- * Whether an app-state `scores` key is a season-wide or week-scoped entry for
- * this (year, seasonType) — `${year}-all-${seasonType}` or
- * `${year}-<week>-${seasonType}`.
- */
-function isScoresKeyForSeason(key: string, year: number, seasonType: SeasonType): boolean {
-  const prefix = `${year}-`;
-  const suffix = `-${seasonType}`;
-  if (!key.startsWith(prefix) || !key.endsWith(suffix)) return false;
-  const middle = key.slice(prefix.length, key.length - suffix.length);
-  return middle === 'all' || /^\d+$/.test(middle);
-}
-
 async function readTeamsCatalog(): Promise<TeamCatalogItem[]> {
   const raw = await fs.readFile(path.join(process.cwd(), 'src/data/teams.json'), 'utf8');
   const parsed = JSON.parse(raw) as { items?: TeamCatalogItem[] };
@@ -115,45 +98,23 @@ async function readTeamsCatalog(): Promise<TeamCatalogItem[]> {
 }
 
 /**
- * Canonical game-identity key for a cached score row: the resolved (via
- * teamIdentity) home/away pair plus the UTC calendar date. This routes identity
- * through `teamIdentity.ts` per the canonical-identity guardrail rather than raw
- * provider labels, and it keys on the DATE rather than the week so a postseason
- * game contributed under its provider week (e.g. 1) reconciles with the same
- * game contributed under its canonical week (e.g. 16). Rows lacking a resolvable
- * pair or date fall back to a stable per-row key so they are never merged away.
- */
-function scoreIdentityKey(resolver: TeamIdentityResolver, item: ScorePack): string {
-  const homeKey = resolveTeamIdentityKey(resolver, item.home.team);
-  const awayKey = resolveTeamIdentityKey(resolver, item.away.team);
-  const date = item.startDate ? item.startDate.slice(0, 10) : '';
-  if (homeKey && awayKey && date) {
-    return `pair:${[homeKey, awayKey].sort().join('|')}|${date}`;
-  }
-  // Not confidently identifiable across entries — keep it distinct so a
-  // partially-populated row cannot swallow a different game.
-  const id = item.id?.trim();
-  if (id) return `id:${id}`;
-  return `raw:${item.home.team}|${item.away.team}|${item.startDate ?? ''}|${item.week ?? ''}`;
-}
-
-/**
- * Season-wide (week=null) public read. Reconciles the season-wide cache entry
- * with the per-week cache entries for this (year, seasonType) in ONE
- * year-prefixed storage read. Reconciliation is at the ROW level, deduped by
+ * Season-wide (week=null) public read. Delegates to the shared cache-only
+ * reconciler (`loadReconciledSeasonScores`, PLATFORM-084B) so the season-wide
+ * and per-week `scores` cache entries are merged at the ROW level, deduped by
  * canonical game identity with the newest contributing cache entry winning per
- * game. This means:
+ * game — the SAME reconciled view the canonical standings selector and
+ * season-rollover archive build now consume. This means:
  *   - a week cache refreshed after the season snapshot is never masked (runs on
  *     every read, even when the season entry is within TTL);
  *   - the internal loader needs no per-week client fan-out (one bounded read);
- *   - the same game contributed by two entries — e.g. a CFBD season snapshot
- *     under a provider week and an ESPN week fallback under the canonical week,
- *     or entries with differing provider labels — reconciles to a single row
+ *   - the same game contributed by two entries reconciles to a single row
  *     instead of duplicating (identity goes through teamIdentity.ts);
  *   - an empty week fallback contributes no rows, so it cannot erase a populated
  *     season row.
  * No upstream call is made. Cache meta reports 'hit' when the freshest
- * contributor is within TTL, else 'stale'.
+ * contributor is within TTL, else 'stale'. The public route keeps its own
+ * bundled-catalog + league-agnostic alias source for identity resolution so
+ * this read's behavior is unchanged.
  */
 async function aggregateSeasonScoresResponse(params: {
   year: number;
@@ -162,14 +123,22 @@ async function aggregateSeasonScoresResponse(params: {
 }) {
   const { year, seasonType, now } = params;
 
-  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
-  const contributors: CacheEntry[] = [];
-  for (const record of records) {
-    if (!record.value) continue;
-    if (isScoresKeyForSeason(record.key, year, seasonType)) contributors.push(record.value);
-  }
+  const [teams, aliasMap] = await Promise.all([
+    readTeamsCatalog(),
+    // League-agnostic (the public /api/scores request carries no league):
+    // empty slug -> global > year > seed, matching schedule/standings identity.
+    getScopedAliasMap('', year),
+  ]);
 
-  if (contributors.length === 0) {
+  const { items, newest } = await loadReconciledSeasonScores({
+    year,
+    seasonType,
+    teams,
+    aliasMap,
+  });
+
+  // `newest` is null iff nothing was cached (contributorCount === 0).
+  if (!newest) {
     // Nothing cached at all — controlled empty (200 so the loader treats it as a
     // resolved response and does not fan out to per-week requests).
     recordRouteCacheMiss('scores');
@@ -182,51 +151,13 @@ async function aggregateSeasonScoresResponse(params: {
     });
   }
 
-  // Build a canonical team-identity resolver over every label observed across
-  // the contributing entries so cross-entry duplicates reconcile by identity.
-  const observedNames = new Set<string>();
-  for (const entry of contributors) {
-    for (const item of entry.items) {
-      observedNames.add(item.home.team);
-      observedNames.add(item.away.team);
-    }
-  }
-  const [teams, aliasMap] = await Promise.all([
-    readTeamsCatalog(),
-    // League-agnostic (the public /api/scores request carries no league):
-    // empty slug -> global > year > seed, matching schedule/standings identity.
-    getScopedAliasMap('', year),
-  ]);
-  const resolver = createTeamIdentityResolver({
-    teams,
-    aliasMap,
-    observedNames: [...observedNames],
-  });
-
-  // Dedupe rows by canonical game identity, newest cache entry winning. Process
-  // oldest-first so a fresher entry's row overwrites an older one for the same
-  // game (empty entries contribute nothing and thus cannot mask populated rows).
-  const oldestFirst = [...contributors].sort((a, b) => a.at - b.at);
-  const byIdentity = new Map<string, ScorePack>();
-  for (const entry of oldestFirst) {
-    for (const item of entry.items) {
-      byIdentity.set(scoreIdentityKey(resolver, item), item);
-    }
-  }
-
-  // Freshness/source come from the newest entry that actually contributed rows,
-  // so an empty-but-newer fallback does not report a misleading source/time.
-  const withRows = contributors.filter((entry) => entry.items.length > 0);
-  const newest = (withRows.length > 0 ? withRows : contributors).reduce((a, b) =>
-    b.at >= a.at ? b : a
-  );
   const isFresh = now - newest.at < CACHE_TTL_MS;
   if (isFresh) {
     recordRouteCacheHit('scores');
   } else {
     recordRouteCacheMiss('scores');
   }
-  return responseFrom([...byIdentity.values()], {
+  return responseFrom(items, {
     source: newest.source,
     cache: isFresh ? 'hit' : 'stale',
     fallbackUsed: newest.source === 'espn',
