@@ -78,14 +78,19 @@ If the durable write throws, the process cache is **not** updated and standings 
 
 Covered write paths: the scores route (`SCORES_CACHE`, both the CFBD and ESPN branches), the schedule route (`SCHEDULE_ROUTE_CACHE`), the raw odds cache (`oddsCache.entries`), the conferences route (`ConferencesRouteCache`), the rankings cache (`src/lib/server/rankings.ts` `CACHE`), the durable canonical-odds store (`setDurableOddsStore` / `updateDurableOddsStore` → `memoryStore`), and the odds usage memo (`setLatestKnownOddsUsage`). Read paths that hydrate the process cache **from** a durable read (cache-warming on a hit) are unaffected — that data is already durable. Populating `unstable_cache` and stale-fallback reads are unchanged. This does not add or remove provider calls, and does not change PLATFORM-084A failure-vs-absence or PLATFORM-084B score-reconciliation behavior.
 
-### Transition schedule completeness (PLATFORM-085B)
+### Schedule refresh completeness (PLATFORM-085B / 085C)
 
-A season-transition schedule refresh (`/api/cron/season-transition`) requests **both** the regular and postseason partitions and writes the combined result under `${year}-all-all` — the same durable key canonical standings, Insights, and rollover/archive read. **Partial or uncertain provider results must not replace prior-good durable schedule state.** All requested partitions must resolve without a fetch/schema failure before the refresh is published; otherwise the durable schedule cache and the schedule probe are left untouched and the run reports `partialFailure` (the next run retries). Uncertainty is distinguished from valid absence:
+Both schedule refresh paths — the season-transition cron (`/api/cron/season-transition`) and the authorized `/api/schedule` route — apply the same completeness rule so **partial or uncertain provider results never replace prior-good durable schedule state.** A refresh writes the combined result under `${year}-all-*` (e.g. `${year}-all-all`), the same durable keys canonical standings, Insights, and rollover/archive read. Every requested partition must resolve without a fetch/schema failure before the refresh is published. Uncertainty is distinguished from valid absence per partition:
 
-- a partition fetch that **throws**, returns a **non-array** payload, or normalizes a **nonempty** payload to **zero** rows (schema drift) → uncertainty → do not commit;
-- a partition that fetches successfully and legitimately returns **zero** rows (e.g. postseason before bowl season) → valid absence → allowed (but if the combined result is empty, nothing is written, so a good prior schedule is never overwritten with an empty snapshot).
+- a partition fetch that **throws**, returns a **non-array** payload, or normalizes a **nonempty** payload to **zero** rows (schema drift) → **uncertainty** → do not commit;
+- a partition that fetches successfully and legitimately returns a **zero-length** array (e.g. postseason before bowl season, a future week with no games) → **valid absence** → allowed.
 
-This composes with the durable-first rule above: on a **complete** refresh the schedule and probe are persisted durably first, and the league status flip (which drives standings invalidation) is a separate lifecycle write that runs off the validated probe. A partial fetch never advances the probe, so the lifecycle transition only ever acts on complete/prior-good schedule data.
+On uncertainty the two routes surface it in their own style but with the same effect — no durable write, no process-cache update, no standings invalidation, prior-good state retained:
+
+- the **cron** (PLATFORM-085B) requests regular + postseason, retains prior-good durable schedule/probe, and reports `partialFailure` on that year's result (the next run retries). Its lifecycle status flip is a separate write that runs off the validated probe, so a partial fetch never advances the probe and the transition only ever acts on complete/prior-good schedule data.
+- the **`/api/schedule` route** (PLATFORM-085C) makes `fetchSeasonType` throw on a non-array or nonempty→zero-rows partition, so it lands in `failedSeasonTypes`; the existing completeness gate (`hasRequiredSeasonTypeFailure`) then returns `502` (with `failedSeasonTypes` for an `all` request) before the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits normally.
+
+This composes with the durable-first rule above: on a **complete** refresh the schedule is persisted durably first, then the process cache, then invalidation.
 
 ### Season score cache reconciliation (all + week keys, PLATFORM-084B)
 

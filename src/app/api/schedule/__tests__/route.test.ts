@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+// Install the global AsyncLocalStorage before the Next storage module loads so
+// the route's `revalidateTag` (via invalidateStandings) runs / is capturable
+// under node:test.
+import '../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
+import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
+
 import { GET } from '../route';
 import { resetScheduleRouteCacheForTests } from '../cache';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 
@@ -13,6 +20,25 @@ type MockFetch = typeof fetch;
 
 function setMockFetch(impl: Parameters<MockFetch>[1] extends never ? never : any) {
   global.fetch = impl as MockFetch;
+}
+
+async function runCapturingTags<T>(fn: () => Promise<T>): Promise<{ result: T; tags: string[] }> {
+  const store = {
+    route: '/test',
+    incrementalCache: {},
+    pendingRevalidatedTags: [] as string[],
+    pathWasRevalidated: false,
+  };
+  return workAsyncStorage.run(store as never, async () => {
+    const result = await fn();
+    return { result, tags: store.pendingRevalidatedTags };
+  });
+}
+
+// A CFBD schedule game whose rows all lack a home team, so `mapCfbdScheduleGame`
+// drops every one — a nonempty payload that normalizes to zero rows (drift).
+function unmappableGames(count: number): Array<Record<string, unknown>> {
+  return Array.from({ length: count }, (_, i) => ({ week: 1, away_team: `Away ${i}` }));
 }
 
 test.beforeEach(async () => {
@@ -122,6 +148,145 @@ test('schedule route returns 502 for seasonType=all when one request fails', asy
   assert.equal(res.status, 502);
   assert.equal(json.error, 'partial upstream error');
   assert.deepEqual(json.detail.failedSeasonTypes, ['postseason']);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-085C — a NONEMPTY provider payload that normalizes to zero schedule
+// rows is schema drift (uncertainty), NOT valid absence. It must not commit as
+// a successful-empty refresh nor overwrite prior-good durable schedule state.
+// ---------------------------------------------------------------------------
+
+test('schema drift (nonempty → zero rows) is rejected and does not overwrite prior-good durable schedule', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  // Prior-good durable schedule for this exact refresh key.
+  await setAppState('schedule', '2027-all-regular', {
+    at: 1,
+    items: [
+      {
+        id: 'prior',
+        week: 1,
+        startDate: '2027-09-01T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        homeConference: 'Big 12',
+        awayConference: 'American',
+        status: 'scheduled',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  // A league is registered so that IF the route invalidated standings it would
+  // emit a tag — the drift path must emit none.
+  await setAppState('leagues', 'registry', [
+    { slug: 'alpha', displayName: 'Alpha', year: 2027, createdAt: '2027-01-01T00:00:00.000Z' },
+  ]);
+
+  // bypassCache=1 forces a refetch; upstream returns nonempty rows that all drop.
+  setMockFetch(async () => {
+    return new Response(JSON.stringify(unmappableGames(5)), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    GET(
+      new Request('http://localhost/api/schedule?year=2027&seasonType=regular&bypassCache=1', {
+        headers: { 'x-admin-token': 'admin-token' },
+      })
+    )
+  );
+  const json = await res.json();
+
+  assert.equal(res.status, 502, JSON.stringify(json));
+  assert.match(String(json.error ?? ''), /schema drift/i);
+
+  // Prior-good durable schedule is intact — NOT overwritten with an empty snapshot.
+  const stored = await getAppState<{ items: Array<{ id: string }> }>(
+    'schedule',
+    '2027-all-regular'
+  );
+  assert.equal(stored?.value?.items?.length, 1);
+  assert.equal(stored?.value?.items?.[0]?.id, 'prior', 'prior-good schedule retained');
+
+  // No standings invalidation from a schema-drifted (uncommitted) refresh.
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    []
+  );
+});
+
+test('schema drift within an all-season refresh reports it as a failed partition and does not commit', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  // Regular drifts (nonempty → zero); postseason returns a valid game.
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.searchParams.get('seasonType') === 'regular') {
+      return new Response(JSON.stringify(unmappableGames(3)), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(
+      JSON.stringify([{ week: 16, home_team: 'Georgia', away_team: 'Ohio State', id: 2 }]),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+
+  const res = await GET(new Request('http://localhost/api/schedule?year=2027&seasonType=all'));
+  const json = await res.json();
+
+  assert.equal(res.status, 502);
+  assert.equal(json.error, 'partial upstream error');
+  assert.deepEqual(json.detail.failedSeasonTypes, ['regular']);
+
+  // Nothing committed under the all-season key.
+  assert.equal(await getAppState('schedule', '2027-all-all'), null);
+});
+
+test('an all-season refresh with a legitimately empty postseason partition still commits (valid absence)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  // Regular returns a real game; postseason returns an EMPTY array (before bowls).
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.searchParams.get('seasonType') === 'postseason') {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(
+      JSON.stringify([
+        {
+          week: 1,
+          home_team: 'Texas',
+          away_team: 'Rice',
+          id: 1,
+          start_date: '2027-09-01T00:00:00Z',
+        },
+      ]),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+
+  const res = await GET(new Request('http://localhost/api/schedule?year=2027&seasonType=all'));
+  const json = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(json.items.length, 1);
+  assert.equal(json.items[0].homeTeam, 'Texas');
+  assert.equal(json.meta.partialFailure, false, 'empty postseason is valid absence, not a failure');
+
+  // Committed durably under the all-season key.
+  const stored = await getAppState<{ items: unknown[] }>('schedule', '2027-all-all');
+  assert.equal(stored?.value?.items?.length, 1);
 });
 
 test('schedule route bypassCache=1 forces an upstream refetch', async () => {
