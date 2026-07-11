@@ -75,7 +75,7 @@ The P1/P2 correctness + docs sequence from the PLATFORM-068 app-wide audit has f
 
 Explicitly deferred, not scheduled — this is their single home (per `AGENTS.md`). Do not mark any complete unless verified in merged work.
 
-- **CSV current-season guard** vs sanctioned admin override.
+- ~~**CSV current-season guard** vs sanctioned admin override.~~ **Resolved — PLATFORM-083** (audited in PLAN-002). `PUT /api/owners` now guards active-season overwrites: replacing an already-populated active-season roster requires an explicit `?override=1` repair confirmation (surfaced in both the CSV import panel and inline roster editor); historical/backfill and initial-creation writes are unguarded. Route stays platform-admin-only; no new league-admin role. See `docs/architecture/identity-and-ownership.md`.
 - **Owner-identity mapping across seasons** (renamed/returning owners; owner display names are raw strings today).
 - Whether to schedule **PLATFORM-040** (ownership-key normalization).
 - **`conferenceRecords` canonical build** — whether the canonical standings build should pass `conferenceRecords` (PLATFORM-070-adjacent).

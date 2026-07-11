@@ -43,10 +43,12 @@ export default async function AdminLeagueRosterPage({
       <section className="space-y-3">
         <div className="border-b border-gray-200 pb-2 dark:border-zinc-700">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-500">
-            Upload Roster CSV
+            Historical / repair roster CSV import
           </h2>
           <p className="mt-1 text-xs text-gray-400 dark:text-zinc-600">
-            Validate and bulk-upload a team-owner CSV with fuzzy team name matching.
+            Platform-admin historical/backfill import and roster repair with fuzzy team name
+            matching. Current-season ownership is normally managed through the draft / manual
+            assignment flow.
           </p>
         </div>
         <RosterUploadPanel leagues={[sanitizeLeague(definedLeague)]} />

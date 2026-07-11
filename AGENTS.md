@@ -199,8 +199,8 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
 
 12. **CSV is roster-import support, never a game-identity source (transitional)**
     - CSV is never a schedule or game-identity source, and must not reintroduce CSV-first schedule/identity architecture.
-    - The in-app **draft / team-assignment flow is the intended current-season ownership mechanism.** A current-season owner CSV import is an explicit **admin repair** path, not the default user flow.
-    - Honest current state: some current-season roster persistence still serializes via CSV (`owners:{slug}:{year}`), and `PUT /api/owners` can still write the current season, so CSV cannot yet be declared strictly history-only. Do not overstate this as resolved. Historical archives legitimately preserve roster CSV snapshots.
+    - The in-app **draft / team-assignment flow is the intended current-season ownership mechanism.** A current-season owner CSV import is an explicit **admin repair** path, not the default user flow. `PUT /api/owners` (CSV import + inline roster editor) is platform-admin-only and, since **PLATFORM-083**, guards active-season overwrites: a league-scoped write to the league's active season (`year >= league.year`) that would replace an already-populated roster requires an explicit `?override=1` repair confirmation, so a CSV import or editor save can no longer silently clobber a confirmed-draft/manual roster. Historical/backfill (past-year) writes and initial roster creation are unguarded.
+    - Honest current state: some current-season roster persistence still serializes via CSV (`owners:{slug}:{year}`), so CSV cannot yet be declared strictly history-only — do not overstate this as resolved. But current-season overwrites are now guarded (above), not silent. Historical archives legitimately preserve roster CSV snapshots.
 
 ---
 
