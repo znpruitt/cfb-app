@@ -109,26 +109,34 @@ export async function PUT(req: Request): Promise<Response> {
   }
 
   const scope = ownersScope(year, league);
+  const override = url.searchParams.get('override') === '1';
 
   // Active-season overwrite guard (league-scoped writes only). A past-season
   // write (`year < league.year`) is historical/backfill and always allowed;
   // otherwise, replacing an already-populated roster requires `?override=1`.
-  if (league && registeredLeague) {
-    const isHistoricalSeason = year < registeredLeague.year;
-    if (!isHistoricalSeason) {
-      const existing = await getAppState<string>(scope, 'csv');
-      const override = url.searchParams.get('override') === '1';
-      if (existingRosterIsPopulated(existing?.value) && !override) {
-        return Response.json(
-          {
-            error: OWNER_ROSTER_OVERWRITE_ERROR,
-            message:
-              'This would overwrite an existing active-season owner roster. Current-season ownership is normally managed through the draft / manual assignment flow. Confirm repair override to continue.',
-          },
-          { status: 409 }
-        );
-      }
-    }
+  //
+  // The check is re-run immediately before each write (not once up front) so
+  // the roster read that decides "populated?" is adjacent to the write, closing
+  // the window where the CSV path's async team-name validation would otherwise
+  // let a concurrent draft-confirm / manual-assignment populate the scope
+  // between an early check and the write. This narrows — but, like every other
+  // owner-scope writer (draft confirm, pick edit), does not distributed-lock —
+  // the last-write-wins app-state store; it is best-effort accidental-overwrite
+  // protection for a single-operator admin surface, not a mutual-exclusion lock.
+  async function overwriteGuardResponse(): Promise<Response | null> {
+    if (!league || !registeredLeague) return null;
+    if (year < registeredLeague.year) return null; // historical / backfill
+    if (override) return null;
+    const existing = await getAppState<string>(scope, 'csv');
+    if (!existingRosterIsPopulated(existing?.value)) return null;
+    return Response.json(
+      {
+        error: OWNER_ROSTER_OVERWRITE_ERROR,
+        message:
+          'This would overwrite an existing active-season owner roster. Current-season ownership is normally managed through the draft / manual assignment flow. Confirm repair override to continue.',
+      },
+      { status: 409 }
+    );
   }
 
   if (typeof csvText === 'string' && csvText.trim()) {
@@ -155,10 +163,17 @@ export async function PUT(req: Request): Promise<Response> {
       );
     }
 
+    // Re-check the guard AFTER validation, immediately before the write.
+    const guard = await overwriteGuardResponse();
+    if (guard) return guard;
+
     await setAppState(scope, 'csv', csvText);
     if (league) invalidateStandingsSafely(league, year);
     return Response.json({ year, league: league ?? null, csvText, hasStoredValue: true });
   }
+
+  const clearGuard = await overwriteGuardResponse();
+  if (clearGuard) return clearGuard;
 
   await setAppState(scope, 'csv', null);
   if (league) invalidateStandingsSafely(league, year);
