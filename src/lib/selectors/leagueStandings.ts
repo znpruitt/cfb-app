@@ -763,10 +763,18 @@ type ScoresCacheItem = {
 };
 
 /**
- * Soft-failing live derivation. Never throws; returns null when no roster can
- * be resolved. When the CSV exists but schedule/scores caches are cold,
- * returns 0-0 rows derived from the roster alone — the caller (selector)
+ * Live derivation. Returns null when no roster can be resolved (genuine
+ * absence — no owners CSV). When the CSV exists but schedule/scores caches are
+ * cold, returns 0-0 rows derived from the roster alone — the caller (selector)
  * decides whether to tag that as `source: 'live'` or fall through.
+ *
+ * Cache valid absence, never cache uncertainty (PLATFORM-084A): this does NOT
+ * swallow store/build failures. A store-read failure (owners CSV, team catalog,
+ * aliases, overrides, scores) or a `buildScheduleFromApi` failure over a
+ * non-empty cached schedule PROPAGATES so the failure surfaces and nothing
+ * bogus is cached — only genuine absence degrades to null / a roster-only
+ * snapshot. Callers on the canonical standings path intentionally let the
+ * rejection bubble (see Standings Ownership Invariant #8).
  */
 async function liveDeriveStandings(slug: string, year: number): Promise<LiveDerivation | null> {
   const ownersRecord = await getAppState<string>(`owners:${slug}:${year}`, 'csv');
@@ -788,34 +796,35 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
     };
   }
 
+  // Cache valid absence, never cache uncertainty (PLATFORM-084A). The team
+  // catalog is a CRITICAL identity input: an empty catalog degrades team
+  // identity resolution and ownership attribution, producing wrong standings.
+  // `getTeamDatabaseItems` already handles genuine absence internally (it falls
+  // back to the bundled teams.json catalog when the store has no record), so a
+  // throw here means a real store-read FAILURE — let it propagate rather than
+  // swallow it to an empty catalog whose degraded standings would then be
+  // cached under the tag-only (`revalidate: false`) data cache.
   const [teams, aliasMap, manualOverrides] = await Promise.all([
-    getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
+    getTeamDatabaseItems(),
     getScopedAliasMap(slug, year),
     loadManualOverrides(slug, year),
   ]);
 
-  let games: AppGame[];
-  try {
-    const built = buildScheduleFromApi({
-      scheduleItems,
-      teams,
-      aliasMap,
-      season: year,
-      manualOverrides,
-    });
-    games = built.games;
-  } catch {
-    // If schedule-building itself throws we still produce a roster-only snapshot.
-    const { rows, noClaimRow } = deriveStandings([], roster, {});
-    return {
-      rows,
-      noClaimRow,
-      standingsHistory: EMPTY_STANDINGS_HISTORY,
-      coverage: deriveStandingsCoverage([], roster, {}),
-      roster,
-      games: [],
-    };
-  }
+  // Cache valid absence, never cache uncertainty (PLATFORM-084A). We reached
+  // this point with a non-empty cached schedule, so a `buildScheduleFromApi`
+  // throw is a genuine BUILD FAILURE over malformed cached inputs, not the
+  // legitimate "schedule not cached yet" absence handled above (which returns a
+  // roster-only snapshot). Do NOT catch it into a roster-only 0-0 snapshot: that
+  // fabricated snapshot would be indistinguishable from the valid no-schedule
+  // state and would be persisted by the tag-only data cache, hiding the failure.
+  // Let it propagate so the failure surfaces and nothing bogus is cached.
+  const { games } = buildScheduleFromApi({
+    scheduleItems,
+    teams,
+    aliasMap,
+    season: year,
+    manualOverrides,
+  });
 
   const providerNames = Array.from(
     new Set(

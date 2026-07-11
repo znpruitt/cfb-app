@@ -57,6 +57,13 @@ Invalidation helpers:
 - Also: owners CSV `PUT`, postseason overrides, draft confirm + pick edit, schedule admin refresh, backfill, rollover, year-scoped alias writes.
 - Intentionally un-wired (documented): `completeSetup` (no standings-content change) and `slug='test'` dev tooling.
 
+**Cache valid absence, never cache uncertainty (PLATFORM-084A).** The tag-only (`revalidate: false`) cache never expires on its own, so a snapshot built from a *failed* read would persist until a mutation happens to bust its tag. Compute therefore separates genuine absence (a legitimate, cacheable snapshot) from a store-read failure (must reject, so nothing bogus is cached):
+
+- **Absence → valid default snapshot** (cacheable): no owners CSV → no roster (`live` returns `null`); empty cached schedule → roster-only 0-0; missing archive/probe/scores/aliases → the corresponding empty default; missing `preseason-owners` record → `null` → awaiting-kickoff.
+- **Failure → reject** (never cached): every app-state read (`getLeague`, owners CSV, `listSeasonArchives`/`getSeasonArchive`, `getScopedAliasMap`, `loadManualOverrides`, `loadNormalizedScoreRows`, `getScheduleProbeState`, `getTeamDatabaseItems`, `getPreseasonOwners`) lets a real store error propagate; `unstable_cache` never persists a rejected promise, so the failure surfaces and the next request recomputes.
+
+Two swallow-catches were removed to enforce this: `getPreseasonOwners` no longer converts a store failure to `null`, and `liveDeriveStandings` no longer catches a `getTeamDatabaseItems` failure into an empty catalog or a `buildScheduleFromApi` failure (over a **non-empty** schedule) into a roster-only 0-0 snapshot. The `getCanonicalStandings` cache wrapper itself only catches the `incrementalCache missing` invariant (non-RSC runtime → direct compute); every other error propagates.
+
 ## In-session finalized-game refresh (PLATFORM-080)
 
 Because `LiveDelta` excludes final games and the RSC `canonicalStandings` prop is fixed for the render, a game finalizing during a live poll wouldn't update standings until navigation. `detectScoreFinalizations` (in `useLiveRefresh`) fires an `onGamesFinalized` callback — wired to `router.refresh()` — only on a **real non-final→final transition** (observed keys seeded from the watched score scope; never fires on first-seen-already-final or repeat finals). `router.refresh()` suffices because the `/api/scores` write path already invalidated the standings tag, so the recompute is **cache-only** — no client standings derivation and no upstream provider fetch (PLATFORM-075 intact).
