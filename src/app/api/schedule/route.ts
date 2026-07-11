@@ -176,6 +176,13 @@ async function fetchSeasonType(params: {
     pacing: CFBD_PACING_POLICY,
   });
 
+  // A non-array provider payload is uncertainty (schema drift), not valid
+  // absence — throw so this partition lands in `failedSeasonTypes` rather than
+  // being read as a successful empty result (PLATFORM-085C).
+  if (!Array.isArray(upstream)) {
+    throw new Error(`schedule ${seasonType} ${year}: provider returned a non-array payload`);
+  }
+
   const mapped: ScheduleItem[] = [];
   const dropped: Record<ScheduleDropReason, number> = {
     invalid_payload: 0,
@@ -211,6 +218,19 @@ async function fetchSeasonType(params: {
       sampleRaw: upstream.slice(0, 3),
       sampleMapped: items.slice(0, 3),
     });
+  }
+
+  // PLATFORM-085C: a NONEMPTY provider payload that normalizes to ZERO schedule
+  // rows is schema drift (field renames, shape change), NOT valid absence. Throw
+  // so the caller treats this partition as uncertainty — it lands in
+  // `failedSeasonTypes`, the completeness gate rejects the refresh, and the
+  // prior-good durable schedule is never overwritten with a schema-drifted empty
+  // result. An EMPTY upstream (`upstream.length === 0`) is legitimate absence
+  // (e.g. postseason before bowls, a future week with no games) and returns [].
+  if (upstream.length > 0 && items.length === 0) {
+    throw new Error(
+      `schedule ${seasonType} ${year}: provider returned ${upstream.length} rows but none normalized to a valid schedule item (schema drift)`
+    );
   }
 
   if (items.length === 0) {
