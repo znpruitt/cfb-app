@@ -125,12 +125,17 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<{ teams: number; aliases: number } | null>(null);
-  // The validation awaiting an explicit active-season overwrite override
-  // (PLATFORM-083). Non-null → show the confirmation prompt. We keep only the
-  // (stable) validation, NOT the resolutions captured when the guard fired, so
-  // confirming re-reads the CURRENT `resolutions` and never imports stale
-  // fuzzy-match choices the admin changed while the prompt was open.
-  const [overwritePending, setOverwritePending] = useState<ValidationResponse | null>(null);
+  // Pending state when the server requires an explicit active-season overwrite
+  // override (PLATFORM-083). Non-null → show the confirmation prompt. We pin the
+  // league+year that PRODUCED the 409 so the override retry can only ever write
+  // that exact scope — even if the admin changes the league/year selectors while
+  // the prompt is open. We intentionally do NOT pin the resolutions, so
+  // confirming re-reads the CURRENT `resolutions` (latest fuzzy-match choices).
+  const [overwritePending, setOverwritePending] = useState<{
+    val: ValidationResponse;
+    slug: string;
+    year: number;
+  } | null>(null);
 
   function handleLeagueChange(newSlug: string) {
     setSlug(newSlug);
@@ -166,7 +171,7 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
       const data = (await res.json()) as ValidationResponse;
       setValidation(data);
       if (data.isComplete) {
-        await completeUpload(data, new Map(), false);
+        await completeUpload(data, new Map(), false, slug, year);
       } else {
         setPhase('review');
       }
@@ -188,26 +193,31 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
 
   async function handleCompleteUpload() {
     if (!validation) return;
-    await completeUpload(validation, resolutions, false);
+    await completeUpload(validation, resolutions, false, slug, year);
   }
 
   async function completeUpload(
     val: ValidationResponse,
     resolvedMap: Map<string, string>,
-    override: boolean
+    override: boolean,
+    targetSlug: string,
+    targetYear: number
   ) {
     setUploadError(null);
     setUploading(true);
     try {
-      const leagueParam = slug ? `&league=${encodeURIComponent(slug)}` : '';
+      const leagueParam = targetSlug ? `&league=${encodeURIComponent(targetSlug)}` : '';
       const overrideParam = override ? '&override=1' : '';
       const resolvedCsv = buildResolvedCsv(val.resolved, val.needsConfirmation, resolvedMap);
 
-      const ownersRes = await fetch(`/api/owners?year=${year}${leagueParam}${overrideParam}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
-        body: JSON.stringify({ csvText: resolvedCsv }),
-      });
+      const ownersRes = await fetch(
+        `/api/owners?year=${targetYear}${leagueParam}${overrideParam}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
+          body: JSON.stringify({ csvText: resolvedCsv }),
+        }
+      );
       if (!ownersRes.ok) {
         const raw = await ownersRes.text();
         let parsed: { error?: string; message?: string } | null = null;
@@ -217,9 +227,10 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
           parsed = null;
         }
         // Active-season overwrite guard: prompt for explicit confirmation, then
-        // resend with the override, instead of surfacing a raw error.
+        // resend with the override, instead of surfacing a raw error. Pin the
+        // exact scope that produced the 409 so the override can't be redirected.
         if (ownersRes.status === 409 && parsed?.error === OWNER_ROSTER_OVERWRITE_ERROR) {
-          setOverwritePending(val);
+          setOverwritePending({ val, slug: targetSlug, year: targetYear });
           return;
         }
         setUploadError(parsed?.message ?? raw ?? `Upload failed (${ownersRes.status})`);
@@ -312,15 +323,24 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
             Overwrite the active-season owner roster?
           </p>
           <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
-            This league already has a roster for the current season. Confirming imports the resolved
-            roster as currently shown. Current-season ownership is normally managed through the
-            draft / manual assignment flow — override is for platform-admin repair/backfill.
+            This league already has a roster for {overwritePending.year}. Confirming imports the
+            resolved roster as currently shown into that season. Current-season ownership is
+            normally managed through the draft / manual assignment flow — override is for
+            platform-admin repair/backfill.
           </p>
           <div className="mt-3 flex gap-2">
             <button
               type="button"
               disabled={uploading}
-              onClick={() => void completeUpload(overwritePending, resolutions, true)}
+              onClick={() =>
+                void completeUpload(
+                  overwritePending.val,
+                  resolutions,
+                  true,
+                  overwritePending.slug,
+                  overwritePending.year
+                )
+              }
               className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {uploading ? 'Importing…' : 'Confirm repair override'}
