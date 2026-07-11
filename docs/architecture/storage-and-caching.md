@@ -66,6 +66,18 @@ Together with PLATFORM-082A (archive reads), this completes the **APPSTATESTORE-
 
 Scores, odds, and schedule each have durable app-state snapshots plus (for odds) an in-memory layer. Public reads serve these caches only and never trigger upstream fetches; authorized `refresh=1` / `bypassCache=1` (admin/cron) refreshes them (see [game-data-flow.md](game-data-flow.md)). The team catalog is read per-request (`React.cache`) rather than a process-lifetime singleton, so an admin sync on one instance is observed cross-instance.
 
+### Durable-first commit order (PLATFORM-085A)
+
+Every provider refresh path that maintains a process-local cache alongside durable app-state **persists durably first, then publishes to process memory, then invalidates dependent caches** — never the reverse. Ordering:
+
+```
+provider fetch/normalize → await setAppState(...) (durable) → process-cache update → downstream invalidation → response
+```
+
+If the durable write throws, the process cache is **not** updated and standings invalidation does **not** run, so a failed persist can never leave one instance serving "fresh" provider data that other instances (and durable readers) cannot reproduce. The awaited durable write sequenced before the memory assignment is what enforces this: a throw short-circuits before the process cache is touched. Standings invalidation is likewise sequenced after the awaited write, so it only fires on a committed change.
+
+Covered write paths: the scores route (`SCORES_CACHE`, both the CFBD and ESPN branches), the schedule route (`SCHEDULE_ROUTE_CACHE`), the raw odds cache (`oddsCache.entries`), the conferences route (`ConferencesRouteCache`), the rankings cache (`src/lib/server/rankings.ts` `CACHE`), the durable canonical-odds store (`setDurableOddsStore` / `updateDurableOddsStore` → `memoryStore`), and the odds usage memo (`setLatestKnownOddsUsage`). Read paths that hydrate the process cache **from** a durable read (cache-warming on a hit) are unaffected — that data is already durable. Populating `unstable_cache` and stale-fallback reads are unchanged. This does not add or remove provider calls, and does not change PLATFORM-084A failure-vs-absence or PLATFORM-084B score-reconciliation behavior.
+
 ### Season score cache reconciliation (all + week keys, PLATFORM-084B)
 
 Scores are cached under both a season-wide key (`${year}-all-${seasonType}`) and per-week keys (`${year}-<week>-${seasonType}`); an authorized refresh of a single week writes only that week's key. A **shared cache-only reconciliation** in `src/lib/server/scoreCacheReader.ts` reconciles the season-wide entry with every per-week entry for a `(year, seasonType)` in one bounded prefix read, deduping at the ROW level by canonical game identity (home/away pair resolved through `teamIdentity.ts` + UTC date) with the **newest contributing cache entry winning** per game (an empty newer entry contributes no rows, so it can never erase a populated one).

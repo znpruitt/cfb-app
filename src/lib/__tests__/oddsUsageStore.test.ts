@@ -8,8 +8,10 @@ import {
   getLatestKnownOddsUsage,
   setLatestKnownOddsUsage,
 } from '../server/oddsUsageStore.ts';
+import { __setAppStateWriteFailureForTests } from '../server/appStateStore.ts';
 
 test.beforeEach(async () => {
+  __setAppStateWriteFailureForTests(null);
   await __deleteOddsUsageStoreFileForTests();
 });
 
@@ -90,4 +92,50 @@ test('later valid header snapshot overwrites fallback snapshot', async () => {
 
   assert.equal(replaced?.source, 'odds-response-headers');
   assert.equal(replaced?.remaining, 378);
+});
+
+test('setLatestKnownOddsUsage: a durable write failure does not advance the process memo (PLATFORM-085A)', async () => {
+  await setLatestKnownOddsUsage({
+    used: 100,
+    remaining: 400,
+    lastCost: 1,
+    limit: 500,
+    capturedAt: '2026-09-01T00:00:00.000Z',
+    source: 'odds-response-headers',
+    sportKey: 'americanfootball_ncaaf',
+    markets: ['h2h'],
+    regions: ['us'],
+    endpointType: 'odds',
+    cacheStatus: 'miss',
+  });
+
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'));
+  try {
+    await assert.rejects(() =>
+      setLatestKnownOddsUsage({
+        used: 200,
+        remaining: 300,
+        lastCost: 1,
+        limit: 500,
+        capturedAt: '2026-09-02T00:00:00.000Z',
+        source: 'odds-response-headers',
+        sportKey: 'americanfootball_ncaaf',
+        markets: ['h2h'],
+        regions: ['us'],
+        endpointType: 'odds',
+        cacheStatus: 'miss',
+      })
+    );
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  // Process memo still reflects the last durable value, not the unpersisted one.
+  const memo = await getLatestKnownOddsUsage();
+  assert.equal(memo?.remaining, 400);
+
+  // Durable store also unchanged.
+  __resetOddsUsageStoreForTests();
+  const durable = await getLatestKnownOddsUsage({ forceRefresh: true });
+  assert.equal(durable?.remaining, 400);
 });

@@ -62,8 +62,11 @@ export async function setDurableOddsStore(
   store: Record<string, DurableOddsRecord>
 ): Promise<void> {
   await runSeasonScopedMutation(season, async () => {
-    memoryStore.set(season, store);
+    // Durable-first (PLATFORM-085A): persist before updating the process-local
+    // memoryStore so a failed durable write leaves memory reflecting the last
+    // durable state, never a process-only version other instances can't read.
     await writeStoreFile(season, store);
+    memoryStore.set(season, store);
   });
 }
 
@@ -83,11 +86,15 @@ export async function updateDurableOddsStore(
 ): Promise<Record<string, DurableOddsRecord>> {
   return await runSeasonScopedMutation(season, async () => {
     const current = await readStoreFile(season);
+    // Cache the freshly-read durable value; safe because it equals durable.
     memoryStore.set(season, current);
 
     const next = await updater({ ...current });
-    memoryStore.set(season, next);
+    // Durable-first (PLATFORM-085A): commit `next` durably BEFORE publishing it
+    // to the process memoryStore. If the write throws, memory still holds
+    // `current` (the last durable state) rather than an unpersisted `next`.
     await writeStoreFile(season, next);
+    memoryStore.set(season, next);
     return next;
   });
 }

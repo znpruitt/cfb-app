@@ -10,13 +10,39 @@ import {
   setDurableOddsStore,
   updateDurableOddsStore,
 } from '../server/durableOddsStore.ts';
+import { __setAppStateWriteFailureForTests } from '../server/appStateStore.ts';
 
 const SEASON = 2026;
 
 test.beforeEach(async () => {
   __resetDurableOddsStoreForTests();
+  __setAppStateWriteFailureForTests(null);
   await __deleteDurableOddsStoreFileForTests(SEASON);
 });
+
+function makeRecord(id: string, spread: number): DurableOddsRecord {
+  return {
+    canonicalGameId: id,
+    latestSnapshot: {
+      capturedAt: '2026-09-01T12:00:00.000Z',
+      bookmakerKey: 'draftkings',
+      favorite: 'Georgia',
+      source: 'DraftKings',
+      spread,
+      homeSpread: spread,
+      awaySpread: -spread,
+      spreadPriceHome: -110,
+      spreadPriceAway: -110,
+      moneylineHome: -165,
+      moneylineAway: 145,
+      total: 51.5,
+      overPrice: -108,
+      underPrice: -112,
+    },
+    closingSnapshot: null,
+    closingFrozenAt: null,
+  };
+}
 
 test('persists and reloads durable odds records by canonical game id', async () => {
   const record: DurableOddsRecord = {
@@ -124,6 +150,55 @@ test('season-scoped updates serialize and merge against refreshed state', async 
   assert.equal(store['1-georgia-clemson-H']?.closingFrozenAt, '2026-09-01T19:30:00.000Z');
   assert.equal(store['1-georgia-clemson-H']?.closingSnapshot?.spread, -3.5);
   assert.equal(store['2-texas-ou-H']?.latestSnapshot?.spread, -2.5);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-085A — durable-first commit order. A failed durable write must not
+// advance the process-local memoryStore to an unpersisted value that other
+// instances (and durable readers) cannot reproduce.
+// ---------------------------------------------------------------------------
+
+test('updateDurableOddsStore: a durable write failure does not advance the process cache', async () => {
+  await setDurableOddsStore(SEASON, { A: makeRecord('A', -3.5) });
+  const before = await getDurableOddsStore(SEASON); // populate process memory
+  assert.deepEqual(Object.keys(before), ['A']);
+
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'));
+  try {
+    await assert.rejects(() =>
+      updateDurableOddsStore(SEASON, (current) => ({ ...current, B: makeRecord('B', -7) }))
+    );
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  // Process cache still reflects the last durable state — not the unpersisted B.
+  const afterMemory = await getDurableOddsStore(SEASON);
+  assert.deepEqual(Object.keys(afterMemory).sort(), ['A']);
+
+  // Durable store never received B either.
+  __resetDurableOddsStoreForTests();
+  const afterReload = await getDurableOddsStore(SEASON);
+  assert.deepEqual(Object.keys(afterReload).sort(), ['A']);
+});
+
+test('setDurableOddsStore: a durable write failure leaves the process cache at the last durable state', async () => {
+  await setDurableOddsStore(SEASON, { A: makeRecord('A', -3.5) });
+  await getDurableOddsStore(SEASON); // populate process memory
+
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'));
+  try {
+    await assert.rejects(() => setDurableOddsStore(SEASON, { B: makeRecord('B', -7) }));
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  const afterMemory = await getDurableOddsStore(SEASON);
+  assert.deepEqual(Object.keys(afterMemory), ['A'], 'memory not advanced to unpersisted B');
+
+  __resetDurableOddsStoreForTests();
+  const afterReload = await getDurableOddsStore(SEASON);
+  assert.deepEqual(Object.keys(afterReload), ['A']);
 });
 
 test('reload preserves null numeric fields instead of coercing them to zero', async () => {
