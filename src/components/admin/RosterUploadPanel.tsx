@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
+import { OWNER_ROSTER_OVERWRITE_ERROR } from '@/lib/ownerRosterGuard';
 import type { PublicLeague } from '@/lib/league';
 import type {
   RosterValidationResult,
@@ -124,6 +125,12 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<{ teams: number; aliases: number } | null>(null);
+  // Pending upload awaiting an explicit active-season overwrite override
+  // (PLATFORM-083). Non-null → show the confirmation prompt.
+  const [overwritePending, setOverwritePending] = useState<{
+    val: ValidationResponse;
+    resolvedMap: Map<string, string>;
+  } | null>(null);
 
   function handleLeagueChange(newSlug: string) {
     setSlug(newSlug);
@@ -159,7 +166,7 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
       const data = (await res.json()) as ValidationResponse;
       setValidation(data);
       if (data.isComplete) {
-        await completeUpload(data, new Map());
+        await completeUpload(data, new Map(), false);
       } else {
         setPhase('review');
       }
@@ -181,26 +188,44 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
 
   async function handleCompleteUpload() {
     if (!validation) return;
-    await completeUpload(validation, resolutions);
+    await completeUpload(validation, resolutions, false);
   }
 
-  async function completeUpload(val: ValidationResponse, resolvedMap: Map<string, string>) {
+  async function completeUpload(
+    val: ValidationResponse,
+    resolvedMap: Map<string, string>,
+    override: boolean
+  ) {
     setUploadError(null);
     setUploading(true);
     try {
       const leagueParam = slug ? `&league=${encodeURIComponent(slug)}` : '';
+      const overrideParam = override ? '&override=1' : '';
       const resolvedCsv = buildResolvedCsv(val.resolved, val.needsConfirmation, resolvedMap);
 
-      const ownersRes = await fetch(`/api/owners?year=${year}${leagueParam}`, {
+      const ownersRes = await fetch(`/api/owners?year=${year}${leagueParam}${overrideParam}`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
         body: JSON.stringify({ csvText: resolvedCsv }),
       });
       if (!ownersRes.ok) {
-        const text = await ownersRes.text();
-        setUploadError(text || `Upload failed (${ownersRes.status})`);
+        const raw = await ownersRes.text();
+        let parsed: { error?: string; message?: string } | null = null;
+        try {
+          parsed = JSON.parse(raw) as { error?: string; message?: string };
+        } catch {
+          parsed = null;
+        }
+        // Active-season overwrite guard: prompt for explicit confirmation, then
+        // resend with the override, instead of surfacing a raw error.
+        if (ownersRes.status === 409 && parsed?.error === OWNER_ROSTER_OVERWRITE_ERROR) {
+          setOverwritePending({ val, resolvedMap });
+          return;
+        }
+        setUploadError(parsed?.message ?? raw ?? `Upload failed (${ownersRes.status})`);
         return;
       }
+      setOverwritePending(null);
 
       // Save confirmed fuzzy matches as global aliases
       const aliasesToSave: Record<string, string> = {};
@@ -243,6 +268,7 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
     setValidateError(null);
     setUploadError(null);
     setUploadResult(null);
+    setOverwritePending(null);
   }
 
   const confirmedCount = validation ? validation.resolved.length + resolutions.size : 0;
@@ -256,11 +282,13 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
     <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4 dark:border-zinc-700 dark:bg-zinc-900">
       <div>
         <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
-          Owner Roster CSV Upload
+          Historical / repair roster CSV import
         </h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
-          Upload team-owner assignments. Format: Team, Owner (one row per team). This is the
-          authoritative roster for the selected league and season.
+          Platform-admin tooling for historical/backfill imports and roster repair. Format: Team,
+          Owner (one row per team). Current-season ownership is normally managed through the draft /
+          manual assignment flow — overwriting an existing active-season roster requires an explicit
+          repair confirmation.
         </p>
       </div>
 
@@ -274,6 +302,42 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
           >
             Try again
           </button>
+        </div>
+      )}
+
+      {/* Active-season overwrite confirmation (PLATFORM-083) */}
+      {overwritePending && (
+        <div className="rounded border border-amber-300/60 bg-amber-50 p-3 dark:border-amber-700/50 dark:bg-amber-950/30">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            Overwrite the active-season owner roster?
+          </p>
+          <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
+            This league already has a roster for the current season. Current-season ownership is
+            normally managed through the draft / manual assignment flow — override is for
+            platform-admin repair/backfill.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => {
+                const pending = overwritePending;
+                setOverwritePending(null);
+                void completeUpload(pending.val, pending.resolvedMap, true);
+              }}
+              className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {uploading ? 'Importing…' : 'Confirm repair override'}
+            </button>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => setOverwritePending(null)}
+              className="rounded border border-gray-300 bg-gray-50 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

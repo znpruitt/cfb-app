@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
+import { OWNER_ROSTER_OVERWRITE_ERROR } from '@/lib/ownerRosterGuard';
 
 type TeamEntry = { school: string; conference: string };
 
@@ -103,6 +104,9 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  // Holds the pending CSV when the server requires an explicit active-season
+  // overwrite override (PLATFORM-083). Non-null → show the confirmation prompt.
+  const [overwriteConfirm, setOverwriteConfirm] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('school');
@@ -151,23 +155,33 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
     setSaveSuccess(false);
   }
 
-  async function handleSave() {
+  async function doSave(csvText: string, override: boolean) {
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      const csvText = buildCsv(teams, draftOwners);
-      const res = await fetch(`/api/owners?league=${encodeURIComponent(slug)}&year=${year}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
-        body: JSON.stringify({ csvText }),
-      });
+      const overrideParam = override ? '&override=1' : '';
+      const res = await fetch(
+        `/api/owners?league=${encodeURIComponent(slug)}&year=${year}${overrideParam}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', ...getAdminAuthHeaders() },
+          body: JSON.stringify({ csvText }),
+        }
+      );
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as {
           detail?: string;
           error?: string;
+          message?: string;
         } | null;
-        setSaveError(data?.detail ?? data?.error ?? `Save failed (${res.status})`);
+        // Active-season overwrite guard: surface an explicit confirmation
+        // rather than a generic error, then resend with the override.
+        if (res.status === 409 && data?.error === OWNER_ROSTER_OVERWRITE_ERROR) {
+          setOverwriteConfirm(csvText);
+          return;
+        }
+        setSaveError(data?.detail ?? data?.message ?? data?.error ?? `Save failed (${res.status})`);
         return;
       }
       const updated = (await res.json()) as { csvText: string | null };
@@ -175,6 +189,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
       setSavedOwners(parsed);
       setDraftOwners(new Map(parsed));
       setSaveSuccess(true);
+      setOverwriteConfirm(null);
       // Refresh the current RSC tree so canonical standings reflect the
       // updated roster (the owners API route already invalidates the
       // standings cache tag on PUT).
@@ -184,6 +199,10 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSave() {
+    void doSave(buildCsv(teams, draftOwners), false);
   }
 
   function handleBulkReassign() {
@@ -264,7 +283,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
           )}
           {saveError && <span className="text-sm text-red-600 dark:text-red-400">{saveError}</span>}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2" hidden={overwriteConfirm !== null}>
           <button
             onClick={handleDiscard}
             disabled={!hasChanges || saving}
@@ -273,7 +292,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
             Discard Changes
           </button>
           <button
-            onClick={() => void handleSave()}
+            onClick={handleSave}
             disabled={!hasChanges || saving}
             className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-gray-900 dark:text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -281,6 +300,40 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
           </button>
         </div>
       </div>
+
+      {/* ---- Active-season overwrite confirmation (PLATFORM-083) ---- */}
+      {overwriteConfirm !== null && (
+        <div className="rounded border border-amber-300/60 bg-amber-50 p-3 dark:border-amber-700/50 dark:bg-amber-950/30">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            Overwrite the active-season owner roster?
+          </p>
+          <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
+            This league already has a roster for the current season. Current-season ownership is
+            normally managed through the draft / manual assignment flow — override is for
+            platform-admin repair.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => {
+                const pending = overwriteConfirm;
+                setOverwriteConfirm(null);
+                void doSave(pending, true);
+              }}
+              disabled={saving}
+              className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Saving…' : 'Confirm overwrite'}
+            </button>
+            <button
+              onClick={() => setOverwriteConfirm(null)}
+              disabled={saving}
+              className="rounded border border-gray-300 dark:border-zinc-600 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 text-sm text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-700 disabled:opacity-40"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ---- Search ---- */}
       <input
