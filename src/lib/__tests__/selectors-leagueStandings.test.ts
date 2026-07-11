@@ -17,17 +17,43 @@ import {
 } from '../server/appStateStore.ts';
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL;
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
+
+// Assigning `undefined` to a `process.env` key stores the string "undefined"
+// (which reads as configured); delete instead when the original was unset.
+function restoreDatabaseUrl(): void {
+  if (ORIGINAL_DATABASE_URL === undefined) {
+    delete MUTABLE_ENV.DATABASE_URL;
+  } else {
+    MUTABLE_ENV.DATABASE_URL = ORIGINAL_DATABASE_URL;
+  }
+}
 
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   MUTABLE_ENV.NODE_ENV = 'development';
+  restoreDatabaseUrl();
 });
 
 test.after(() => {
   MUTABLE_ENV.NODE_ENV = ORIGINAL_NODE_ENV;
+  restoreDatabaseUrl();
 });
+
+/**
+ * Force the app-state store to throw on read the way a transient database
+ * failure would: `NODE_ENV=production` without `DATABASE_URL` makes every
+ * `getAppState` call throw before it touches any backend. Used to prove a store
+ * failure during canonical standings computation propagates rather than being
+ * converted into a cacheable empty/default snapshot (PLATFORM-084A).
+ */
+function forceStoreReadFailure(): void {
+  MUTABLE_ENV.NODE_ENV = 'production';
+  delete MUTABLE_ENV.DATABASE_URL;
+  __resetAppStateForTests();
+}
 
 // ---------------------------------------------------------------------------
 // Fixture builders (kept inline per project convention)
@@ -379,6 +405,49 @@ test('preseason empty (nothing seeded beyond league): preseason-awaiting-kickoff
   assert.equal(snapshot.year, year);
   // No probe state seeded → no inferred date
   assert.equal(snapshot.inferredSeasonStart, null);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-084A — cache valid absence, never cache uncertainty. A store-read
+// FAILURE while computing canonical standings must surface as a rejection, not
+// be converted into a cacheable empty/default snapshot. (Under node:test the
+// data cache is bypassed, so this asserts the compute path rejects; in
+// production a rejected promise is never persisted by `unstable_cache`.)
+// ---------------------------------------------------------------------------
+
+test('getCanonicalStandings rejects on a store read failure instead of returning an empty snapshot', async () => {
+  const slug = 't-store-failure';
+  await seedLeague(makeLeague({ slug, year: 2025, status: { state: 'season', year: 2025 } }));
+
+  forceStoreReadFailure();
+
+  await assert.rejects(() =>
+    getCanonicalStandings({ slug, leagueStatusOverride: { state: 'season', year: 2025 } })
+  );
+});
+
+test('after a failed standings read, a recovered store computes real standings', async () => {
+  const slug = 't-store-recovery';
+  const year = 2025;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
+
+  forceStoreReadFailure();
+  await assert.rejects(() =>
+    getCanonicalStandings({ slug, leagueStatusOverride: { state: 'season', year } })
+  );
+
+  // Store recovers: nothing bogus was cached, so a real snapshot is produced.
+  MUTABLE_ENV.NODE_ENV = 'development';
+  restoreDatabaseUrl();
+  __resetAppStateForTests();
+  await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
+  await seedOwnersCsv(slug, year, 'team,owner\nAlabama,Alice\n');
+
+  const snapshot = await getCanonicalStandings({
+    slug,
+    leagueStatusOverride: { state: 'season', year },
+  });
+  assert.equal(snapshot.source, 'live');
 });
 
 test('NoClaim in archive: stripped from rows, preserved on noClaimRow', async () => {

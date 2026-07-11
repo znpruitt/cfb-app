@@ -120,6 +120,11 @@ Server-side caching for insights panel output and archive reads. Single biggest 
 - **Split 082A — archive read cache — ✅ shipped (PLATFORM-082A-ARCHIVE-READ-CACHE-v1).** `getSeasonArchive` / `listSeasonArchives` now layer `React.cache` over `unstable_cache` with tag-only invalidation centralized in `saveSeasonArchive` (see `docs/architecture/storage-and-caching.md`).
 - **Split 082B — insights output cache — ✅ shipped (PLATFORM-082B-INSIGHTS-CACHE-ENTRYPOINTS-v1).** `loadInsightsForLeague` caches the expensive context-build + raw generation via `React.cache`/`unstable_cache` (tags piggyback canonical standings + `revalidate: 300` backstop); suppression runs per-request so fire-once behavior is preserved. Entry points intentionally remain `force-dynamic` (per-request auth + suppression); `unstable_cache` still applies. See `docs/architecture/storage-and-caching.md`.
 
+**Cache-correctness follow-up (not part of the egress campaign):**
+
+- **PLATFORM-084A — canonical cache failure semantics — ✅ shipped (PLATFORM-084A-CANONICAL-CACHE-FAILURE-SEMANTICS-v1).** Extended the 082A "failures are never cached" rule from archive/insights reads to the standings selector itself: removed the `getPreseasonOwners` `catch → null` and the `liveDeriveStandings` `getTeamDatabaseItems().catch(() => [])` / `buildScheduleFromApi` catch, so a store/build **failure** rejects (never persisted by the tag-only cache) instead of degrading into a cacheable empty/default snapshot. Genuine absence still degrades to a valid default. Codified as AGENTS.md Standings Ownership Invariant #8. See `docs/architecture/standings.md`.
+- **PLATFORM-084B — score-cache reconciliation — deferred.** The companion to 084A (reconcile stale/partial cached score reads against canonical games) is intentionally out of 084A's scope and remains a follow-up.
+
 ### 4. DRAFT — Slow Draft Mode
 
 Enable async drafts with configurable per-pick windows. Requires email notification infrastructure (new). See `docs/roadmap.md` for full scope.
