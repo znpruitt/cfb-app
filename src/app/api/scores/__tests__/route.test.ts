@@ -5,6 +5,7 @@ import { GET } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 
@@ -134,6 +135,54 @@ test('scores route reports metadata and caches by explicit seasonType', async ()
   assert.equal(firstJson.meta.fallbackUsed, false);
   assert.equal(firstJson.meta.cache, 'miss');
   assert.equal(secondJson.meta.cache, 'hit');
+});
+
+test('scores refresh: a durable write failure does not publish process-local fresh scores (PLATFORM-085A)', async () => {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response(
+        JSON.stringify([
+          {
+            id: 555,
+            home_team: 'Texas',
+            away_team: 'Rice',
+            home_points: 31,
+            away_points: 7,
+            start_date: '2026-10-01T00:00:00Z',
+            completed: true,
+          },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+    // ESPN fallback unavailable, so the refresh cannot succeed by any path.
+    if (url.origin === 'https://site.web.api.espn.com') {
+      return new Response('unavailable', { status: 503 });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  // Durable persistence is down: the refresh must NOT return fresh scores nor
+  // seed the process cache with data no other instance could reproduce.
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'));
+  let refresh: Response;
+  try {
+    refresh = await GET(
+      new Request('http://localhost/api/scores?year=2026&week=9&seasonType=regular&refresh=1')
+    );
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.notEqual(refresh.status, 200);
+
+  // A subsequent public (no-refresh) read must NOT serve the un-persisted
+  // scores from process memory — the cache was never poisoned.
+  const anon = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=9&seasonType=regular')
+  );
+  const anonJson = await anon.json();
+  assert.deepEqual(anonJson.items, []);
 });
 
 // ---------------------------------------------------------------------------

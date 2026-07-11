@@ -33,8 +33,12 @@ export async function getLatestKnownOddsUsage(options?: {
 }
 
 export async function setLatestKnownOddsUsage(snapshot: OddsUsageSnapshot): Promise<void> {
-  memorySnapshot = snapshot;
+  // Durable-first (PLATFORM-085A): persist the provider-derived usage snapshot
+  // before updating the process-local memo, so a failed durable write does not
+  // leave this instance's quota memo ahead of durable state (which other
+  // instances and forceRefresh reads rely on).
   await writeSnapshotFile(snapshot);
+  memorySnapshot = snapshot;
 }
 
 export async function captureOddsUsageSnapshot(

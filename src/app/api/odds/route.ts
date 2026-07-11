@@ -588,8 +588,13 @@ export async function GET(req: Request): Promise<Response> {
         lastFetch: Date.now(),
         usage,
       };
-      oddsCache.entries[seasonScopedKey] = responseEntry;
+      // Durable-first commit order (PLATFORM-085A): persist the raw odds cache
+      // entry BEFORE publishing it to the process cache, so a failed durable
+      // write can never leave this instance serving "fresh" odds that no other
+      // instance can durably reproduce. A setAppState throw propagates to the
+      // route's catch (500), leaving the process cache untouched.
       await setAppState('odds-cache', seasonScopedKey, responseEntry);
+      oddsCache.entries[seasonScopedKey] = responseEntry;
       fetchedFromUpstream = true;
     }
     const requestTime = new Date().toISOString();

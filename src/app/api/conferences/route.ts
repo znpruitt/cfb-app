@@ -123,8 +123,12 @@ export async function GET(req: Request) {
     );
 
     const nextCache = { at: Date.now(), items: Array.isArray(items) ? items : [] };
-    setConferencesRouteCache(nextCache);
+    // Durable-first commit order (PLATFORM-085A): persist the provider-derived
+    // conferences snapshot before publishing it to the process cache, so a
+    // failed durable write can't leave this instance serving a "fresh" snapshot
+    // no other instance can durably reproduce.
     await setAppState('conferences', 'snapshot', nextCache);
+    setConferencesRouteCache(nextCache);
 
     return NextResponse.json<ConferencesResponse>({
       items: nextCache.items,

@@ -449,9 +449,14 @@ export async function GET(req: Request) {
     partialFailure: failedSeasonTypes.length > 0,
     failedSeasonTypes,
   };
+  // Durable-first commit order (PLATFORM-085A): persist to app-state BEFORE
+  // publishing to the process cache and invalidating standings, so a failed
+  // durable write can never leave this instance serving a "fresh" schedule that
+  // no other instance can durably reproduce. A setAppState throw propagates,
+  // skipping the memory update and the standings invalidation below.
+  await setAppState('schedule', cacheKey, nextCacheEntry);
   SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
   pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
-  await setAppState('schedule', cacheKey, nextCacheEntry);
 
   // Invalidate canonical standings for every league at this year. Schedule
   // is season-scoped, not league-scoped, so we walk the registry. The set is

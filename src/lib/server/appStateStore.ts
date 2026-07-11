@@ -33,6 +33,9 @@ export const APP_STATE_PRODUCTION_CONFIG_ERROR =
 let pool: Pool | null = null;
 let initPromise: Promise<void> | null = null;
 let hasLoggedProductionConfigError = false;
+// Test-only: when set, `setAppState` throws this (reads unaffected). See
+// `__setAppStateWriteFailureForTests`. Always null outside tests.
+let __writeFailureForTests: Error | null = null;
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -238,6 +241,11 @@ export async function setAppState<T>(
   value: T
 ): Promise<AppStateRecord<T>> {
   assertDurableStorageAvailable();
+  // Test-only seam: simulate a durable WRITE failure while reads still succeed,
+  // so durable-first commit-order tests (PLATFORM-085A) can assert that a failed
+  // persist does not publish process-local "fresh" provider data. Never set in
+  // production paths.
+  if (__writeFailureForTests) throw __writeFailureForTests;
   const updatedAt = new Date().toISOString();
 
   if (hasDatabaseConfig()) {
@@ -373,8 +381,19 @@ export async function __deleteAppStateFileForTests(): Promise<void> {
 export function __resetAppStateForTests(): void {
   initPromise = null;
   hasLoggedProductionConfigError = false;
+  __writeFailureForTests = null;
   if (pool) {
     void pool.end().catch(() => undefined);
   }
   pool = null;
+}
+
+/**
+ * Test-only: make subsequent `setAppState` calls reject with `error` (reads are
+ * unaffected). Pass `null` to clear. Used to exercise durable-write-failure
+ * commit ordering (PLATFORM-085A). Cleared automatically by
+ * `__resetAppStateForTests`.
+ */
+export function __setAppStateWriteFailureForTests(error: Error | null): void {
+  __writeFailureForTests = error;
 }

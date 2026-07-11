@@ -389,8 +389,13 @@ export async function GET(req: Request) {
           source: 'cfbd',
           cfbdFallbackReason: 'none',
         };
-        SCORES_CACHE[cacheKey] = nextEntry;
+        // Durable-first commit order (PLATFORM-085A): persist to app-state
+        // BEFORE publishing to the process cache and invalidating standings, so
+        // a failed durable write can never leave this instance serving "fresh"
+        // scores that no other instance can durably reproduce. A setAppState
+        // throw propagates, skipping the memory update and the invalidation.
         await setAppState('scores', cacheKey, nextEntry);
+        SCORES_CACHE[cacheKey] = nextEntry;
         await invalidateStandingsForYear(year);
         pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
           if (IS_DEBUG) {
@@ -484,8 +489,10 @@ export async function GET(req: Request) {
       source: 'espn',
       cfbdFallbackReason,
     };
-    SCORES_CACHE[cacheKey] = nextEntry;
+    // Durable-first commit order (PLATFORM-085A): persist before publishing to
+    // the process cache and invalidating standings (see the CFBD path above).
     await setAppState('scores', cacheKey, nextEntry);
+    SCORES_CACHE[cacheKey] = nextEntry;
     await invalidateStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
