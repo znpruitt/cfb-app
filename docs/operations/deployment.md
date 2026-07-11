@@ -36,6 +36,8 @@ The three auth secrets are **independent** (see [../architecture/auth-and-privac
 
 Scheduled routes under `/api/cron/*` authenticate with `Bearer ${CRON_SECRET}` (independent of admin auth) and drive season transition, season rollover, and weekly game-stats ingestion. They also keep provider caches warm via authorized refresh, so public reads stay quota-free (see [../architecture/game-data-flow.md](../architecture/game-data-flow.md)). A missing/rotated-away `CRON_SECRET` silently disables all of them — verify it after any secret rotation.
 
+**Season-transition cron guarantees (PLATFORM-085B).** `/api/cron/season-transition` probes/caches the season schedule and flips leagues preseason → season at kickoff. It **guarantees** it will not publish a partial or schema-drifted schedule as complete: if either the regular or postseason CFBD partition fails (fetch error, non-array, or a nonempty payload that maps to zero rows), it retains the prior-good durable schedule/probe and reports `partialFailure` in that year's result — the next run retries. It does **not** guarantee an immediate transition on a partial-provider day; a league flips only off a validated (current or prior-good) schedule probe. It is **not** a real-time updater — freshness is bounded by the cron cadence, and it never spends provider quota on public reads. A genuinely empty postseason before bowl season is treated as valid absence, not a failure. (Provider refresh cadence / cron ownership is PLATFORM-086, still open.)
+
 ## Deploy-time checks
 
 - **Storage mode:** confirm `getAppStateStorageStatus()` reports `postgres` (not `production-misconfigured`) — i.e. `DATABASE_URL` is set and reachable.

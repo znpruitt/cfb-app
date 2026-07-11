@@ -78,6 +78,15 @@ If the durable write throws, the process cache is **not** updated and standings 
 
 Covered write paths: the scores route (`SCORES_CACHE`, both the CFBD and ESPN branches), the schedule route (`SCHEDULE_ROUTE_CACHE`), the raw odds cache (`oddsCache.entries`), the conferences route (`ConferencesRouteCache`), the rankings cache (`src/lib/server/rankings.ts` `CACHE`), the durable canonical-odds store (`setDurableOddsStore` / `updateDurableOddsStore` → `memoryStore`), and the odds usage memo (`setLatestKnownOddsUsage`). Read paths that hydrate the process cache **from** a durable read (cache-warming on a hit) are unaffected — that data is already durable. Populating `unstable_cache` and stale-fallback reads are unchanged. This does not add or remove provider calls, and does not change PLATFORM-084A failure-vs-absence or PLATFORM-084B score-reconciliation behavior.
 
+### Transition schedule completeness (PLATFORM-085B)
+
+A season-transition schedule refresh (`/api/cron/season-transition`) requests **both** the regular and postseason partitions and writes the combined result under `${year}-all-all` — the same durable key canonical standings, Insights, and rollover/archive read. **Partial or uncertain provider results must not replace prior-good durable schedule state.** All requested partitions must resolve without a fetch/schema failure before the refresh is published; otherwise the durable schedule cache and the schedule probe are left untouched and the run reports `partialFailure` (the next run retries). Uncertainty is distinguished from valid absence:
+
+- a partition fetch that **throws**, returns a **non-array** payload, or normalizes a **nonempty** payload to **zero** rows (schema drift) → uncertainty → do not commit;
+- a partition that fetches successfully and legitimately returns **zero** rows (e.g. postseason before bowl season) → valid absence → allowed (but if the combined result is empty, nothing is written, so a good prior schedule is never overwritten with an empty snapshot).
+
+This composes with the durable-first rule above: on a **complete** refresh the schedule and probe are persisted durably first, and the league status flip (which drives standings invalidation) is a separate lifecycle write that runs off the validated probe. A partial fetch never advances the probe, so the lifecycle transition only ever acts on complete/prior-good schedule data.
+
 ### Season score cache reconciliation (all + week keys, PLATFORM-084B)
 
 Scores are cached under both a season-wide key (`${year}-all-${seasonType}`) and per-week keys (`${year}-<week>-${seasonType}`); an authorized refresh of a single week writes only that week's key. A **shared cache-only reconciliation** in `src/lib/server/scoreCacheReader.ts` reconciles the season-wide entry with every per-week entry for a `(year, seasonType)` in one bounded prefix read, deduping at the ROW level by canonical game identity (home/away pair resolved through `teamIdentity.ts` + UTC date) with the **newest contributing cache entry winning** per game (an empty newer entry contributes no rows, so it can never erase a populated one).
