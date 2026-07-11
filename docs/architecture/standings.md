@@ -14,6 +14,8 @@ Standings are the app's highest-stakes derived data: getting them wrong (the his
 
 **UI must not independently recompute league standings.** Presentation-layer filtering/sorting of already-derived arrays is fine; recomputing standings inline is an architecture violation.
 
+**Score inputs come from the shared cache-only reconciler (PLATFORM-084B).** Canonical standings load season scores via `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`) — the SAME reader public `/api/scores` and the season-rollover archive build use — which reconciles the season-wide (`${year}-all-*`) and per-week (`${year}-<week>-*`) score cache entries, deduped by canonical game identity, newest entry winning. Previously the selector read only the `-all-*` keys, so a week-specific refresh visible on `/api/scores` was invisible to standings. The read is cache-only (no provider call) and propagates store-read failures per the PLATFORM-084A rule (see below), so it never caches an incomplete score view as valid standings.
+
 ## LiveDelta is a separate client overlay — never merged at render time
 
 In-progress annotations (per-owner pending W–L badges) live in the client-only `LiveDelta`, computed by the pure `selectLiveDelta` / `useLiveDelta`. Consumers receive **canonical and `liveDelta` as separate props**: canonical defines what a row *says*; `liveDelta` defines what a badge *annotates next to it*.

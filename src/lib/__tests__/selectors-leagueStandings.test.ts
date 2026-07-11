@@ -907,6 +907,62 @@ test('alias: without any alias the global-only game is NOT credited (control for
   assert.equal(alice?.wins ?? 0, 0);
 });
 
+test('canonical standings credit a score present only in a per-week cache key (PLATFORM-084B)', async () => {
+  const slug = 'week-only-score';
+  const status = { state: 'season', year: 2025 } as const;
+  await seedLeague(makeLeague({ slug, year: 2025, status }));
+  await seedOwnersCsv(slug, 2025, ['team,owner', 'Alabama,Alice', 'Georgia,Bob'].join('\n'));
+
+  // The schedule game exists...
+  await setAppState('schedule', '2025-all-all', {
+    items: [
+      {
+        id: 'wk-game',
+        week: 3,
+        startDate: '2025-09-13T18:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'final',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  // ...but the FINAL score lives ONLY in a per-week cache key, never in
+  // `2025-all-regular`. Before PLATFORM-084B, canonical standings read only the
+  // `-all-*` keys and missed this, showing Alice 0-0 while public /api/scores
+  // (which reconciles week keys) showed the win.
+  await setAppState('scores', '2025-3-regular', {
+    at: 1000,
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [
+      {
+        id: 'wk-game',
+        seasonType: 'regular',
+        startDate: '2025-09-13T18:00:00.000Z',
+        week: 3,
+        status: 'final',
+        home: { team: 'Alabama', score: 31 },
+        away: { team: 'Georgia', score: 10 },
+        time: null,
+      },
+    ],
+  });
+
+  const snapshot = await getCanonicalStandings({ slug, leagueStatusOverride: status });
+  assert.equal(snapshot.source, 'live');
+  const alice = snapshot.rows.find((r) => r.owner === 'Alice');
+  assert.ok(alice, 'Alice present in standings');
+  assert.equal(alice!.wins, 1, 'week-only score credited the win');
+  assert.equal(alice!.losses, 0);
+  const bob = snapshot.rows.find((r) => r.owner === 'Bob');
+  assert.equal(bob?.losses ?? 0, 1);
+});
+
 test('alias: global wins and a league+year scope is ignored (PLATFORM-067)', async () => {
   const slug = 'alias-global-over-league';
   // Global maps the provider label to Texas (Alice); a league+year alias maps it
