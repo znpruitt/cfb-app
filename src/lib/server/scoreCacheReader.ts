@@ -84,30 +84,22 @@ export function scoreIdentityKey(resolver: TeamIdentityResolver, item: ScorePack
 }
 
 /**
- * Read and reconcile every cached `scores` entry for (year, seasonType) —
- * season-wide + per-week — into a single deduped row set. Cache-only; no
- * provider call. The `teams`/`aliasMap` supply the identity resolver used for
- * dedup: callers pass whatever catalog/alias source they already resolve
- * identity with (public route: bundled catalog + global aliases; canonical
- * consumers: their synced team catalog + scoped aliases — which, since aliases
- * are league-agnostic, resolve identically). The reconciliation ALGORITHM is
- * shared so all consumers see the same reconciled rows.
+ * Reconcile an already-filtered set of contributing cache entries (one
+ * `seasonType`) into a deduped row set. Pure — no I/O — so a single durable read
+ * can feed multiple season types (see `loadReconciledSeasonScoresByType`). The
+ * `teams`/`aliasMap` supply the identity resolver used for dedup; callers pass
+ * whatever catalog/alias source they already resolve identity with. Aliases are
+ * league-agnostic, so they resolve identically across surfaces; the team catalog
+ * may differ (public route: bundled `teams.json`; canonical consumers: the
+ * synced team-DB catalog), which affects only how duplicate rows GROUP — the
+ * downstream schedule attachment re-keys by canonical game, so a difference in
+ * grouping cannot double-count.
  */
-export async function loadReconciledSeasonScores(params: {
-  year: number;
-  seasonType: SeasonType;
-  teams: TeamCatalogItem[];
-  aliasMap: AliasMap;
-}): Promise<ReconciledSeasonScores> {
-  const { year, seasonType, teams, aliasMap } = params;
-
-  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
-  const contributors: CacheEntry[] = [];
-  for (const record of records) {
-    if (!record.value) continue;
-    if (isScoresKeyForSeason(record.key, year, seasonType)) contributors.push(record.value);
-  }
-
+function reconcileContributors(
+  contributors: CacheEntry[],
+  teams: TeamCatalogItem[],
+  aliasMap: AliasMap
+): ReconciledSeasonScores {
   if (contributors.length === 0) {
     return { items: [], newest: null, contributorCount: 0 };
   }
@@ -146,4 +138,59 @@ export async function loadReconciledSeasonScores(params: {
   );
 
   return { items: [...byIdentity.values()], newest, contributorCount: contributors.length };
+}
+
+/**
+ * Read and reconcile every cached `scores` entry for (year, seasonType) —
+ * season-wide + per-week — into a single deduped row set. Cache-only; no
+ * provider call. Used by the public `/api/scores` season read (which is scoped
+ * to one `seasonType` per request). Canonical consumers that need BOTH season
+ * types should use `loadReconciledSeasonScoresByType` to avoid a second scan.
+ */
+export async function loadReconciledSeasonScores(params: {
+  year: number;
+  seasonType: SeasonType;
+  teams: TeamCatalogItem[];
+  aliasMap: AliasMap;
+}): Promise<ReconciledSeasonScores> {
+  const { year, seasonType, teams, aliasMap } = params;
+
+  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  const contributors: CacheEntry[] = [];
+  for (const record of records) {
+    if (!record.value) continue;
+    if (isScoresKeyForSeason(record.key, year, seasonType)) contributors.push(record.value);
+  }
+
+  return reconcileContributors(contributors, teams, aliasMap);
+}
+
+/**
+ * Reconcile BOTH the regular and postseason season score views from a SINGLE
+ * `${year}-` prefix read, partitioning the entries in memory. Canonical
+ * standings and the season-rollover archive build need both season types, so
+ * this avoids the redundant second full-year scan two `loadReconciledSeasonScores`
+ * calls would incur. Cache-only; a store-read failure propagates unchanged
+ * (PLATFORM-084A) — genuine absence yields empty results per season type.
+ */
+export async function loadReconciledSeasonScoresByType(params: {
+  year: number;
+  teams: TeamCatalogItem[];
+  aliasMap: AliasMap;
+}): Promise<{ regular: ReconciledSeasonScores; postseason: ReconciledSeasonScores }> {
+  const { year, teams, aliasMap } = params;
+
+  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  const regular: CacheEntry[] = [];
+  const postseason: CacheEntry[] = [];
+  for (const record of records) {
+    if (!record.value) continue;
+    if (isScoresKeyForSeason(record.key, year, 'regular')) regular.push(record.value);
+    else if (isScoresKeyForSeason(record.key, year, 'postseason')) postseason.push(record.value);
+  }
+
+  return {
+    regular: reconcileContributors(regular, teams, aliasMap),
+    postseason: reconcileContributors(postseason, teams, aliasMap),
+  };
 }

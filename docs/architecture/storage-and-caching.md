@@ -68,15 +68,16 @@ Scores, odds, and schedule each have durable app-state snapshots plus (for odds)
 
 ### Season score cache reconciliation (all + week keys, PLATFORM-084B)
 
-Scores are cached under both a season-wide key (`${year}-all-${seasonType}`) and per-week keys (`${year}-<week>-${seasonType}`); an authorized refresh of a single week writes only that week's key. A **shared cache-only reader**, `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`), reconciles the season-wide entry with every per-week entry for a `(year, seasonType)` in one bounded prefix read, deduping at the ROW level by canonical game identity (home/away pair resolved through `teamIdentity.ts` + UTC date) with the **newest contributing cache entry winning** per game (an empty newer entry contributes no rows, so it can never erase a populated one).
+Scores are cached under both a season-wide key (`${year}-all-${seasonType}`) and per-week keys (`${year}-<week>-${seasonType}`); an authorized refresh of a single week writes only that week's key. A **shared cache-only reconciliation** in `src/lib/server/scoreCacheReader.ts` reconciles the season-wide entry with every per-week entry for a `(year, seasonType)` in one bounded prefix read, deduping at the ROW level by canonical game identity (home/away pair resolved through `teamIdentity.ts` + UTC date) with the **newest contributing cache entry winning** per game (an empty newer entry contributes no rows, so it can never erase a populated one).
 
-This one reader is used by **all** season-level score consumers so they see the same reconciled view:
+This one reconciliation is used by **all** season-level score consumers so they read the same cache keys and merge them the same way:
 
-- public `/api/scores` season-wide read (`aggregateSeasonScoresResponse`);
-- canonical standings (`loadNormalizedScoreRows` in the standings selector);
-- season-rollover archive build (`buildSeasonArchive`).
+- public `/api/scores` season-wide read (`aggregateSeasonScoresResponse`) via `loadReconciledSeasonScores` (one `seasonType` per request);
+- canonical standings (`loadNormalizedScoreRows`) and the season-rollover archive build (`buildSeasonArchive`) via `loadReconciledSeasonScoresByType`, which returns both season types from a **single** `${year}-` prefix read (partitioned in memory) rather than scanning twice.
 
-Before this, canonical standings and the archive read only the `${year}-all-*` keys, so a week-specific refresh visible on `/api/scores` was invisible to standings/Insights/archives. The reader is **cache-only** — it never contacts CFBD/ESPN and never writes; provider fetches remain solely on the authorized `refresh=1` path in `/api/scores` (PLATFORM-075). It also honors the PLATFORM-084A rule: `getAppStateEntries` returns an empty list only for a genuine miss and throws on a real store error, and the reader does not catch it — a failed read propagates (so a canonical consumer rejects rather than caching empty standings) while genuine absence (no scores before kickoff) returns no rows.
+The identity resolver used for dedup is caller-supplied (public route: bundled `teams.json`; canonical consumers: the synced team-DB catalog). Aliases are league-agnostic so they resolve identically; a difference in team **catalog** can only change how duplicate rows GROUP, and the downstream schedule attachment re-keys by canonical game, so it can never double-count — i.e. the read set and merge rule are identical across surfaces, catalog parity is not required.
+
+Before this, canonical standings and the archive read only the `${year}-all-*` keys, so a week-specific refresh visible on `/api/scores` was invisible to standings/Insights/archives. The reconciliation is **cache-only** — it never contacts CFBD/ESPN and never writes; provider fetches remain solely on the authorized `refresh=1` path in `/api/scores` (PLATFORM-075). It also honors the PLATFORM-084A rule: `getAppStateEntries` returns an empty list only for a genuine miss and throws on a real store error, and the reader does not catch it — a failed read propagates (so a canonical consumer rejects rather than caching empty standings) while genuine absence (no scores before kickoff) returns no rows.
 
 Known remaining consumer (follow-up, not a live-season risk): the draft page's prior-year score read still reads only `${priorYear}-all-*` keys; prior years are effectively-complete/archived, so the week-key mismatch does not arise in practice.
 

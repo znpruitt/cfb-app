@@ -1,5 +1,5 @@
 import { getAppState } from './server/appStateStore.ts';
-import { loadReconciledSeasonScores } from './server/scoreCacheReader.ts';
+import { loadReconciledSeasonScoresByType } from './server/scoreCacheReader.ts';
 import { getScopedAliasMap } from './server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
 import { buildScheduleFromApi, type ScheduleWireItem, type AppGame } from './schedule.ts';
@@ -202,13 +202,12 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   // Load scores from cache (regular + postseason), reconciling the season-wide
   // and per-week entries via the shared cache-only reader (PLATFORM-084B) so the
   // archive captures the SAME reconciled scores public /api/scores and canonical
-  // standings see — not just the ${year}-all-* keys. Cache-only; no provider
-  // call. A store-read failure propagates (PLATFORM-084A) so a blip does not
-  // silently archive an incomplete final standings snapshot.
-  const [regularScores, postseasonScores] = await Promise.all([
-    loadReconciledSeasonScores({ year, seasonType: 'regular', teams, aliasMap }),
-    loadReconciledSeasonScores({ year, seasonType: 'postseason', teams, aliasMap }),
-  ]);
+  // standings see — not just the ${year}-all-* keys. Both season types come from
+  // ONE `${year}-` prefix read. Cache-only; no provider call. A store-read
+  // failure propagates (PLATFORM-084A) so a blip does not silently archive an
+  // incomplete final standings snapshot.
+  const { regular: regularScores, postseason: postseasonScores } =
+    await loadReconciledSeasonScoresByType({ year, teams, aliasMap });
 
   const normalizedRows: NormalizedScoreRow[] = [
     ...regularScores.items.map((item) => scoresCacheItemToNormalizedRow(item, 'regular')),

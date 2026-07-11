@@ -130,14 +130,15 @@ async function aggregateSeasonScoresResponse(params: {
     getScopedAliasMap('', year),
   ]);
 
-  const { items, newest, contributorCount } = await loadReconciledSeasonScores({
+  const { items, newest } = await loadReconciledSeasonScores({
     year,
     seasonType,
     teams,
     aliasMap,
   });
 
-  if (contributorCount === 0 || !newest) {
+  // `newest` is null iff nothing was cached (contributorCount === 0).
+  if (!newest) {
     // Nothing cached at all — controlled empty (200 so the loader treats it as a
     // resolved response and does not fan out to per-week requests).
     recordRouteCacheMiss('scores');

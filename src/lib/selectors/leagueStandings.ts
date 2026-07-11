@@ -36,7 +36,7 @@ import {
 import { deriveStandingsHistory, type StandingsHistory } from '../standingsHistory.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity.ts';
 import type { AliasMap } from '../teamNames.ts';
-import { loadReconciledSeasonScores } from '../server/scoreCacheReader.ts';
+import { loadReconciledSeasonScoresByType } from '../server/scoreCacheReader.ts';
 import { isLikelyInvalidTeamLabel } from '../teamNormalization.ts';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection.ts';
 
@@ -866,25 +866,24 @@ const loadScheduleItems = loadCachedScheduleItems;
 
 /**
  * Load normalized score rows for the season from cache. Uses the shared
- * cache-only reconciler (`loadReconciledSeasonScores`, PLATFORM-084B) so
+ * cache-only reconciler (`loadReconciledSeasonScoresByType`, PLATFORM-084B) so
  * canonical standings see the SAME reconciled view public `/api/scores`
  * exposes — season-wide AND per-week cache entries, deduped by canonical game
  * identity with the newest entry winning. Previously this read only the
  * `${year}-all-*` keys, so a week-specific refresh (visible on `/api/scores`)
  * was invisible to standings/Insights.
  *
- * Cache-only: no provider call. A store-read failure propagates (PLATFORM-084A)
- * — the reconciler does not swallow it, so nothing bogus is cached.
+ * Both season types are reconciled from ONE `${year}-` prefix read (partitioned
+ * in memory) rather than two full-year scans. Cache-only: no provider call. A
+ * store-read failure propagates (PLATFORM-084A) — the reconciler does not
+ * swallow it, so nothing bogus is cached.
  */
 async function loadNormalizedScoreRows(
   year: number,
   teams: TeamCatalogItem[],
   aliasMap: AliasMap
 ): Promise<NormalizedScoreRow[]> {
-  const [regular, postseason] = await Promise.all([
-    loadReconciledSeasonScores({ year, seasonType: 'regular', teams, aliasMap }),
-    loadReconciledSeasonScores({ year, seasonType: 'postseason', teams, aliasMap }),
-  ]);
+  const { regular, postseason } = await loadReconciledSeasonScoresByType({ year, teams, aliasMap });
   const rows: NormalizedScoreRow[] = [];
   for (const item of regular.items) {
     rows.push(toNormalizedScoreRow(item, 'regular'));

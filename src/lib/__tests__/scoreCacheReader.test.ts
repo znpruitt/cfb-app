@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { loadReconciledSeasonScores } from '../server/scoreCacheReader.ts';
+import {
+  loadReconciledSeasonScores,
+  loadReconciledSeasonScoresByType,
+} from '../server/scoreCacheReader.ts';
 import type { CacheEntry } from '../scores/cache.ts';
 import type { ScorePack } from '../scores/types.ts';
 import {
@@ -169,4 +172,62 @@ test('a store read failure propagates and is not swallowed to empty (PLATFORM-08
   await assert.rejects(() =>
     loadReconciledSeasonScores({ year: 2027, seasonType: 'regular', ...NO_TEAMS })
   );
+});
+
+// ---------------------------------------------------------------------------
+// loadReconciledSeasonScoresByType — one prefix read, partitioned in memory,
+// so canonical standings / archive get both season types without a second scan.
+// ---------------------------------------------------------------------------
+
+test('byType partitions regular and postseason from a single read', async () => {
+  await seedEntry('2027-all-regular', 1000, [pack('reg-a', 'Alabama', 'Georgia', 21, 7)]);
+  await seedEntry('2027-3-regular', 2000, [pack('reg-b', 'Texas', 'Baylor', 35, 10)]);
+  await seedEntry('2027-1-postseason', 3000, [pack('post-a', 'Ohio State', 'Michigan', 30, 27)]);
+
+  const { regular, postseason } = await loadReconciledSeasonScoresByType({
+    year: 2027,
+    ...NO_TEAMS,
+  });
+
+  assert.deepEqual(regular.items.map((i) => i.id).sort(), ['reg-a', 'reg-b']);
+  assert.deepEqual(
+    postseason.items.map((i) => i.id),
+    ['post-a']
+  );
+});
+
+test('byType includes per-week entries for both season types (the core 084B fix)', async () => {
+  // Both finals live ONLY in per-week keys, never in a `-all-*` key.
+  await seedEntry('2027-7-regular', 5000, [pack('rw', 'Ohio State', 'Michigan', 30, 27)]);
+  await seedEntry('2027-2-postseason', 6000, [pack('pw', 'Texas', 'Baylor', 42, 3)]);
+
+  const { regular, postseason } = await loadReconciledSeasonScoresByType({
+    year: 2027,
+    ...NO_TEAMS,
+  });
+
+  assert.deepEqual(
+    regular.items.map((i) => i.id),
+    ['rw']
+  );
+  assert.deepEqual(
+    postseason.items.map((i) => i.id),
+    ['pw']
+  );
+});
+
+test('byType returns empty per season type on genuine absence', async () => {
+  const { regular, postseason } = await loadReconciledSeasonScoresByType({
+    year: 2027,
+    ...NO_TEAMS,
+  });
+  assert.equal(regular.contributorCount, 0);
+  assert.deepEqual(regular.items, []);
+  assert.equal(postseason.contributorCount, 0);
+  assert.deepEqual(postseason.items, []);
+});
+
+test('byType propagates a store read failure (PLATFORM-084A)', async () => {
+  forceStoreReadFailure();
+  await assert.rejects(() => loadReconciledSeasonScoresByType({ year: 2027, ...NO_TEAMS }));
 });
