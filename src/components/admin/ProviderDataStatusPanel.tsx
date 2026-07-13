@@ -7,12 +7,7 @@ import { fetchCfbdUsageSnapshot, type CfbdUsageSnapshot } from '@/lib/apiUsage';
 import { formatQuotaSummary } from '@/lib/api/providerQuota';
 import { formatRelativeTimestamp } from '@/lib/freshness';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
-import {
-  PROVIDER_DATASETS,
-  getProviderDatasetDescriptor,
-  type ProviderDataset,
-  type ProviderDatasetDescriptor,
-} from '@/lib/providerDatasets';
+import type { ProviderDataset, ProviderDatasetDescriptor } from '@/lib/providerDatasets';
 import type { ProviderCacheAvailability } from '@/lib/server/providerCacheState';
 import type { ProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 import type { ProviderDiagnostic } from '@/lib/server/providerDataDiagnostics';
@@ -25,6 +20,7 @@ import {
   isSelectedYear,
   manualActionKey,
   manualRefreshUrls,
+  panelFeedRenderState,
   shouldApplyStatusResponse,
 } from './manualRefresh';
 import { summarizeProviderState, type SummaryTone } from './providerStatusSummary';
@@ -258,8 +254,21 @@ export default function ProviderDataStatusPanel({
 
   // Authoritative, reconciled CFBD quota shared with the legacy API Usage panel
   // (both render `normalized`, so they can never disagree or show an impossible
-  // "remaining of limit" combination).
+  // "remaining of limit" combination). This is an independent per-mount CFBD read
+  // (not year-scoped), so it stays visible regardless of the status-feed state.
   const cfbdQuota = cfbdUsage ? formatQuotaSummary(cfbdUsage.normalized) : null;
+
+  // Feed-derived UI (dataset cards, global pause, odds quota, diagnostics) renders
+  // ONLY from a successful feed for the CURRENTLY selected year (finding #1). A
+  // stale prior-year feed or a null feed after a failed load must never be shown
+  // as current-year state — the panel shows an explicit loading/unavailable state
+  // instead of placeholder rows or another year's data.
+  const renderState = panelFeedRenderState({
+    feedYear: feed?.year ?? null,
+    selectedYear: year,
+    loading,
+  });
+  const hasValidFeed = renderState === 'ready';
 
   return (
     <section className={sectionClass}>
@@ -289,42 +298,62 @@ export default function ProviderDataStatusPanel({
         </div>
       </div>
 
-      {loadError && (
-        <p className="text-xs text-red-700 dark:text-red-400">Status error: {loadError}</p>
+      {/* Selected-year feed state: loading / unavailable / (ready + latest-refresh
+          error). Dataset cards and feed-derived controls below render only when a
+          valid feed exists for the selected year. */}
+      {renderState === 'loading' && (
+        <p className="text-xs text-gray-500 dark:text-zinc-400">
+          Loading provider status for {year}…
+        </p>
+      )}
+      {renderState === 'unavailable' && (
+        <p className="text-xs text-red-700 dark:text-red-400">
+          Provider status unavailable for {year}
+          {loadError ? `: ${loadError}` : '.'}
+        </p>
+      )}
+      {renderState === 'ready' && loadError && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Latest status refresh failed: {loadError}. Showing the last successful {year} status.
+        </p>
       )}
 
-      {/* Global pause + provider quota summary */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-950">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-800 dark:text-zinc-200">
-              Global provider pause:
-            </span>
-            {feed?.globalPause ? (
-              <span className="text-xs font-medium text-amber-700 dark:text-amber-300">On</span>
-            ) : (
-              <span className="text-xs font-medium text-green-700 dark:text-green-400">Off</span>
-            )}
+      {/* Global pause control. Its displayed state (On/Off) is only known from the
+          status feed, so it renders only alongside a valid selected-year feed —
+          never from stale metadata. */}
+      {hasValidFeed && feed && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-950">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-800 dark:text-zinc-200">
+                Global provider pause:
+              </span>
+              {feed.globalPause ? (
+                <span className="text-xs font-medium text-amber-700 dark:text-amber-300">On</span>
+              ) : (
+                <span className="text-xs font-medium text-green-700 dark:text-green-400">Off</span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+              When On, noncritical automatic provider polling is paused. Manual admin refresh and
+              the lifecycle-critical season transition always keep running, and most provider jobs
+              (scores, Odds, schedule, rankings) are still planned rather than active.
+            </p>
           </div>
-          <p className="text-[11px] text-gray-500 dark:text-zinc-400">
-            When On, noncritical automatic provider polling is paused. Manual admin refresh and the
-            lifecycle-critical season transition always keep running, and most provider jobs
-            (scores, Odds, schedule, rankings) are still planned rather than active.
-          </p>
+          <button
+            className={buttonClass}
+            disabled={actions['global-pause']?.status === 'loading'}
+            onClick={() =>
+              void mutateSettings(
+                { action: 'set-global-pause', paused: !feed.globalPause },
+                'global-pause'
+              )
+            }
+          >
+            {feed.globalPause ? 'Resume automation' : 'Pause automation'}
+          </button>
         </div>
-        <button
-          className={buttonClass}
-          disabled={!feed || actions['global-pause']?.status === 'loading'}
-          onClick={() =>
-            void mutateSettings(
-              { action: 'set-global-pause', paused: !(feed?.globalPause ?? false) },
-              'global-pause'
-            )
-          }
-        >
-          {feed?.globalPause ? 'Resume automation' : 'Pause automation'}
-        </button>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 text-xs text-gray-600 dark:text-zinc-400 sm:grid-cols-2">
         <div className="rounded border border-gray-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-800">
@@ -348,7 +377,11 @@ export default function ProviderDataStatusPanel({
         </div>
         <div className="rounded border border-gray-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-800">
           <span className="font-medium text-gray-800 dark:text-zinc-200">Odds quota</span>{' '}
-          {feed?.oddsUsage ? (
+          {/* Odds usage is delivered via the year-scoped feed, so it renders only
+              with a valid selected-year feed — never a stale year's snapshot. */}
+          {!hasValidFeed ? (
+            'unavailable'
+          ) : feed?.oddsUsage ? (
             <>
               {feed.oddsUsage.remaining} remaining of {feed.oddsUsage.limit} (snapshot{' '}
               {formatRelativeTimestamp(feed.oddsUsage.capturedAt, now) ?? 'n/a'})
@@ -359,172 +392,180 @@ export default function ProviderDataStatusPanel({
         </div>
       </div>
 
-      {/* Per-dataset cards */}
+      {/* Per-dataset cards — ONLY from a valid feed for the selected year. Never
+          synthesize placeholder "no history" rows or render another year's feed
+          (finding #1); the loading/unavailable banner above covers those states. */}
       <div className="space-y-3">
-        {(feed?.datasets ?? PROVIDER_DATASETS.map(placeholderRow)).map((row) => {
-          const state = summarizeProviderState(row.status, row.descriptor, {
-            globalPause: feed?.globalPause ?? false,
-            enabled: row.setting.enabled,
-            now,
-            cacheState: feed?.cacheStates?.[row.dataset] ?? 'unknown',
-          });
-          const successRel = formatRelativeTimestamp(row.status.lastSuccessAt, now);
-          const attemptRel = formatRelativeTimestamp(row.status.lastAttemptAt, now);
-          // Manual-refresh state is keyed by (year, dataset) so a result never
-          // leaks across years (requirement 10). Toggles stay globally keyed.
-          const refreshKey = manualActionKey(year, row.dataset);
-          const toggleKey = `toggle:${row.dataset}`;
-          const controlMode = datasetControlMode(row.descriptor);
-          return (
-            <div key={row.dataset} className={cardClass}>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <span className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                    {row.descriptor.label}
-                  </span>
-                  <span className="ml-2 text-[11px] text-gray-400 dark:text-zinc-500">
-                    {row.descriptor.provider}
-                  </span>
-                  <div className={`text-xs font-medium ${STATE_TONE_CLASS[state.tone]}`}>
-                    {state.label}
+        {hasValidFeed &&
+          feed &&
+          feed.datasets.map((row) => {
+            const state = summarizeProviderState(row.status, row.descriptor, {
+              globalPause: feed.globalPause,
+              enabled: row.setting.enabled,
+              now,
+              cacheState: feed.cacheStates?.[row.dataset] ?? 'unknown',
+            });
+            const successRel = formatRelativeTimestamp(row.status.lastSuccessAt, now);
+            const attemptRel = formatRelativeTimestamp(row.status.lastAttemptAt, now);
+            // Manual-refresh state is keyed by (year, dataset) so a result never
+            // leaks across years (requirement 10). Toggles stay globally keyed.
+            const refreshKey = manualActionKey(year, row.dataset);
+            const toggleKey = `toggle:${row.dataset}`;
+            const controlMode = datasetControlMode(row.descriptor);
+            return (
+              <div key={row.dataset} className={cardClass}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <span className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                      {row.descriptor.label}
+                    </span>
+                    <span className="ml-2 text-[11px] text-gray-400 dark:text-zinc-500">
+                      {row.descriptor.provider}
+                    </span>
+                    <div className={`text-xs font-medium ${STATE_TONE_CLASS[state.tone]}`}>
+                      {state.label}
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className={buttonClass}
-                    disabled={actions[refreshKey]?.status === 'loading'}
-                    onClick={() => void runManualRefresh(row.dataset)}
-                    title={MANUAL_REFRESH_COST[row.dataset]}
-                  >
-                    {actions[refreshKey]?.status === 'loading' ? 'Refreshing…' : 'Manual refresh'}
-                  </button>
-                  {/* Honest controls (finding #7): only an interactive toggle when
+                  <div className="flex items-center gap-2">
+                    <button
+                      className={buttonClass}
+                      disabled={actions[refreshKey]?.status === 'loading'}
+                      onClick={() => void runManualRefresh(row.dataset)}
+                      title={MANUAL_REFRESH_COST[row.dataset]}
+                    >
+                      {actions[refreshKey]?.status === 'loading' ? 'Refreshing…' : 'Manual refresh'}
+                    </button>
+                    {/* Honest controls (finding #7): only an interactive toggle when
                       a live job actually consumes the setting; otherwise read-only
                       future-intent / lifecycle-exempt language. */}
-                  {controlMode === 'interactive' ? (
-                    <label className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-zinc-400">
-                      <input
-                        type="checkbox"
-                        checked={row.setting.enabled}
-                        disabled={actions[toggleKey]?.status === 'loading'}
-                        onChange={(e) =>
-                          void mutateSettings(
-                            {
-                              action: 'set-dataset-enabled',
-                              dataset: row.dataset,
-                              enabled: e.target.checked,
-                            },
-                            toggleKey
-                          )
-                        }
-                      />
-                      auto
-                    </label>
-                  ) : (
-                    <span
-                      className="max-w-[10rem] text-[10px] italic text-gray-400 dark:text-zinc-500"
-                      title={controlModeLabel(controlMode)}
-                    >
-                      {controlMode === 'lifecycle-exempt' ? 'auto: exempt' : 'auto: planned'}
-                    </span>
-                  )}
+                    {controlMode === 'interactive' ? (
+                      <label className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-zinc-400">
+                        <input
+                          type="checkbox"
+                          checked={row.setting.enabled}
+                          disabled={actions[toggleKey]?.status === 'loading'}
+                          onChange={(e) =>
+                            void mutateSettings(
+                              {
+                                action: 'set-dataset-enabled',
+                                dataset: row.dataset,
+                                enabled: e.target.checked,
+                              },
+                              toggleKey
+                            )
+                          }
+                        />
+                        auto
+                      </label>
+                    ) : (
+                      <span
+                        className="max-w-[10rem] text-[10px] italic text-gray-400 dark:text-zinc-500"
+                        title={controlModeLabel(controlMode)}
+                      >
+                        {controlMode === 'lifecycle-exempt' ? 'auto: exempt' : 'auto: planned'}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {row.dataset === 'game-stats' && (
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
-                  <label>Week</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={gameStatsWeek}
-                    onChange={(e) => setGameStatsWeek(Number(e.target.value))}
-                    className="w-16 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                  />
-                  {/* Season type (finding #2): postseason repair must reach the
+                {row.dataset === 'game-stats' && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
+                    <label>Week</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={gameStatsWeek}
+                      onChange={(e) => setGameStatsWeek(Number(e.target.value))}
+                      className="w-16 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                    />
+                    {/* Season type (finding #2): postseason repair must reach the
                       postseason cache key, not default to regular. */}
-                  <label>Season</label>
-                  <select
-                    value={gameStatsSeasonType}
-                    onChange={(e) =>
-                      setGameStatsSeasonType(
-                        e.target.value === 'postseason' ? 'postseason' : 'regular'
-                      )
+                    <label>Season</label>
+                    <select
+                      value={gameStatsSeasonType}
+                      onChange={(e) =>
+                        setGameStatsSeasonType(
+                          e.target.value === 'postseason' ? 'postseason' : 'regular'
+                        )
+                      }
+                      className="rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                    >
+                      <option value="regular">regular</option>
+                      <option value="postseason">postseason</option>
+                    </select>
+                    <span>for manual refresh</span>
+                  </div>
+                )}
+
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-gray-600 dark:text-zinc-400 sm:grid-cols-3">
+                  <Field label="Last success" value={successRel ?? '—'} />
+                  <Field label="Last attempt" value={attemptRel ?? '—'} />
+                  <Field
+                    label="Rows"
+                    value={
+                      row.status.rowsCommitted != null ? String(row.status.rowsCommitted) : '—'
                     }
-                    className="rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                  >
-                    <option value="regular">regular</option>
-                    <option value="postseason">postseason</option>
-                  </select>
-                  <span>for manual refresh</span>
-                </div>
-              )}
+                  />
+                  <Field label="Source" value={row.status.source ?? '—'} />
+                  <Field
+                    label="Partial"
+                    value={
+                      row.status.partialFailure
+                        ? row.status.failedPartitions?.join(', ') || 'yes'
+                        : 'no'
+                    }
+                  />
+                  <Field
+                    label="Duration"
+                    value={row.status.durationMs != null ? `${row.status.durationMs}ms` : '—'}
+                  />
+                </dl>
 
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-gray-600 dark:text-zinc-400 sm:grid-cols-3">
-                <Field label="Last success" value={successRel ?? '—'} />
-                <Field label="Last attempt" value={attemptRel ?? '—'} />
-                <Field
-                  label="Rows"
-                  value={row.status.rowsCommitted != null ? String(row.status.rowsCommitted) : '—'}
-                />
-                <Field label="Source" value={row.status.source ?? '—'} />
-                <Field
-                  label="Partial"
-                  value={
-                    row.status.partialFailure
-                      ? row.status.failedPartitions?.join(', ') || 'yes'
-                      : 'no'
-                  }
-                />
-                <Field
-                  label="Duration"
-                  value={row.status.durationMs != null ? `${row.status.durationMs}ms` : '—'}
-                />
-              </dl>
+                {row.status.lastError && (
+                  <p className="text-[11px] text-red-700 dark:text-red-400">
+                    Last error: {row.status.lastError.message}
+                    {row.status.lastError.status ? ` (${row.status.lastError.status})` : ''}
+                  </p>
+                )}
 
-              {row.status.lastError && (
-                <p className="text-[11px] text-red-700 dark:text-red-400">
-                  Last error: {row.status.lastError.message}
-                  {row.status.lastError.status ? ` (${row.status.lastError.status})` : ''}
-                </p>
-              )}
+                {actions[refreshKey]?.status === 'error' && (
+                  <p className="text-[11px] text-red-700 dark:text-red-400">
+                    Refresh failed: {actions[refreshKey]?.message}
+                  </p>
+                )}
+                {actions[refreshKey]?.status === 'success' && (
+                  <p className="text-[11px] text-green-700 dark:text-green-400">
+                    Refresh complete.
+                  </p>
+                )}
 
-              {actions[refreshKey]?.status === 'error' && (
-                <p className="text-[11px] text-red-700 dark:text-red-400">
-                  Refresh failed: {actions[refreshKey]?.message}
-                </p>
-              )}
-              {actions[refreshKey]?.status === 'success' && (
-                <p className="text-[11px] text-green-700 dark:text-green-400">Refresh complete.</p>
-              )}
+                {row.diagnostics.length > 0 && (
+                  <ul className="space-y-0.5">
+                    {row.diagnostics.map((d, i) => (
+                      <li key={i} className={`text-[11px] ${toneClass(d.severity)}`}>
+                        • {d.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
-              {row.diagnostics.length > 0 && (
-                <ul className="space-y-0.5">
-                  {row.diagnostics.map((d, i) => (
-                    <li key={i} className={`text-[11px] ${toneClass(d.severity)}`}>
-                      • {d.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <div className="border-t border-gray-200 pt-2 text-[11px] text-gray-400 dark:border-zinc-700 dark:text-zinc-500">
-                <div>
-                  <span className="font-medium">Current:</span> {row.descriptor.currentAutomation}
-                </div>
-                <div>
-                  <span className="font-medium">Policy:</span> {row.descriptor.plannedPolicy}
+                <div className="border-t border-gray-200 pt-2 text-[11px] text-gray-400 dark:border-zinc-700 dark:text-zinc-500">
+                  <div>
+                    <span className="font-medium">Current:</span> {row.descriptor.currentAutomation}
+                  </div>
+                  <div>
+                    <span className="font-medium">Policy:</span> {row.descriptor.plannedPolicy}
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
 
       <p className="text-[11px] text-gray-400 dark:text-zinc-500">
         Cadence is fixed in code / vercel.json and is not editable here. &ldquo;Policy&rdquo; lines
         describe PLANNED PLATFORM-086 cadence — not automation that is running today.
-        {feed
+        {hasValidFeed && feed
           ? ` Status generated ${formatRelativeTimestamp(feed.generatedAt, now) ?? 'just now'}.`
           : ''}
       </p>
@@ -539,25 +580,4 @@ function Field({ label, value }: { label: string; value: string }): React.ReactE
       <dd className="text-gray-700 dark:text-zinc-300">{value}</dd>
     </div>
   );
-}
-
-function placeholderRow(dataset: ProviderDataset): DatasetRow {
-  return {
-    dataset,
-    descriptor: getProviderDatasetDescriptor(dataset),
-    status: {
-      dataset,
-      lastAttemptAt: null,
-      lastAttemptId: null,
-      latestAttemptOutcome: null,
-      latestAttemptResolvedAt: null,
-      lastSuccessAt: null,
-      lastError: null,
-      source: null,
-      rowsCommitted: null,
-      partialFailure: false,
-    },
-    setting: { enabled: true },
-    diagnostics: [],
-  };
 }

@@ -43,6 +43,10 @@ let __writeFailureScopeForTests: string | null = null;
 // Test-only: when set, `getAppState` throws this (writes unaffected). See
 // `__setAppStateReadFailureForTests`. Always null outside tests.
 let __readFailureForTests: Error | null = null;
+// Test-only: when non-null, the read failure applies ONLY to this scope (so a
+// test can fail a `'schedule'` read while `'provider-refresh-status'` reads still
+// succeed). Null means the failure applies to every scope. Always null outside tests.
+let __readFailureScopeForTests: string | null = null;
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -220,9 +224,15 @@ export async function getAppState<T>(
   assertDurableStorageAvailable();
   // Test-only seam: simulate a durable READ failure while writes still succeed,
   // so callers that distinguish "record absent" from "read failed" (e.g.
-  // providerRefreshStatus, PLATFORM-086A) can be exercised. Never set in
-  // production paths.
-  if (__readFailureForTests) throw __readFailureForTests;
+  // providerRefreshStatus, PLATFORM-086A) can be exercised. Optionally scoped so a
+  // test can fail one scope's reads (e.g. `'schedule'`) while status-scope reads
+  // still succeed. Never set in production paths.
+  if (
+    __readFailureForTests &&
+    (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
+  ) {
+    throw __readFailureForTests;
+  }
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
@@ -401,6 +411,7 @@ export function __resetAppStateForTests(): void {
   __writeFailureForTests = null;
   __writeFailureScopeForTests = null;
   __readFailureForTests = null;
+  __readFailureScopeForTests = null;
   if (pool) {
     void pool.end().catch(() => undefined);
   }
@@ -431,7 +442,15 @@ export function __setAppStateWriteFailureForTests(
  * unaffected). Pass `null` to clear. Used to exercise callers that must
  * distinguish an absent record from a failed read (PLATFORM-086A provider
  * refresh status). Cleared automatically by `__resetAppStateForTests`.
+ *
+ * Optionally scope the failure to a single app-state `scope` so a test can fail
+ * one scope's reads (e.g. `'schedule'`) while other scopes — notably the
+ * `'provider-refresh-status'` reads — still succeed. Omit `scope` to fail every read.
  */
-export function __setAppStateReadFailureForTests(error: Error | null): void {
+export function __setAppStateReadFailureForTests(
+  error: Error | null,
+  scope: string | null = null
+): void {
   __readFailureForTests = error;
+  __readFailureScopeForTests = error ? scope : null;
 }

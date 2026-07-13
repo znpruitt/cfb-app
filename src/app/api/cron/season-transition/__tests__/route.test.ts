@@ -11,6 +11,7 @@ import type { League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
@@ -224,6 +225,60 @@ test('an empty cron probe OVER a populated prior-good schedule is rejected, not 
   assert.equal(status.lastError?.code, 'schedule-empty-replacement-rejected');
 
   // No standings invalidation from the rejected empty probe.
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    []
+  );
+});
+
+test('a prior-cache read failure while classifying an empty probe resolves the attempt as failed, without transitioning (final-truthfulness finding #2)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // Prior-good POPULATED schedule to prove retention.
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: 1,
+    items: [
+      {
+        id: 'prior',
+        week: 1,
+        startDate: '2023-08-26T00:00:00.000Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  await seedPastProbe();
+  stubFetchEmptySchedule();
+
+  // The prior durable SCHEDULE read used to classify the empty probe fails. Scoped
+  // to 'schedule' so 'provider-refresh-status' / 'leagues' / 'schedule-probe'
+  // reads still succeed (the attempt CAN be recorded; the probe still loads).
+  __setAppStateReadFailureForTests(new Error('durable read boom'), 'schedule');
+
+  const { result: res, tags } = await runCapturingTags(() => GET(cronRequest()));
+  __setAppStateReadFailureForTests(null);
+
+  const body = (await res.json()) as { error?: string };
+  assert.equal(res.status, 500, JSON.stringify(body));
+  assert.ok(body.error, 'the cron returns its established safe failure response');
+
+  // The open schedule attempt resolves as failed — never left in-progress.
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'schedule-prior-cache-read-failed');
+
+  // Prior-good durable schedule retained (nothing written on the read-failure path).
+  const stored = await getAppState<{ items: Array<{ id: string }> }>('schedule', `${YEAR}-all-all`);
+  assert.equal(stored?.value?.items?.[0]?.id, 'prior', 'prior-good schedule retained');
+
+  // The league does NOT transition off an unverifiable probe.
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(leagues?.value?.[0]?.status?.state, 'preseason');
   assert.deepEqual(
     tags.filter((t) => t.startsWith('standings:')),
     []

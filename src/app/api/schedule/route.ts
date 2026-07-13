@@ -511,8 +511,35 @@ export async function GET(req: Request) {
   // schedule OVER a populated one, so case (C) "authoritative zero-row commit"
   // collapses into (A): reject rather than overwrite.
   if (items.length === 0) {
-    const priorDurable = await getAppState<CacheEntry>('schedule', cacheKey);
-    const priorDurableRows = priorDurable?.value?.items?.length ?? 0;
+    let priorDurableRows: number;
+    try {
+      const priorDurable = await getAppState<CacheEntry>('schedule', cacheKey);
+      priorDurableRows = priorDurable?.value?.items?.length ?? 0;
+    } catch (readError) {
+      // The prior durable schedule read failed while classifying an empty provider
+      // response (transient app-state outage). A read failure is NOT a
+      // classification result — without knowing whether a populated schedule
+      // already exists we cannot safely decide valid-no-op vs unexpected-empty-
+      // replacement. Resolve the OPEN attempt as failed (best-effort) rather than
+      // leaving it permanently `in-progress`, write nothing (prior-good retained),
+      // and return the established 502 error. Recording + returning here means no
+      // outer catch double-resolves the attempt.
+      await recordProviderRefreshFailure('schedule', {
+        attempt: providerAttempt,
+        error: `schedule ${requestedSeasonType} ${year}: prior durable schedule could not be read while classifying an empty provider response — cannot safely determine prior schedule state (${readError instanceof Error ? readError.message : 'unknown read error'})`,
+        code: 'schedule-prior-cache-read-failed',
+        status: 502,
+        durationMs: Date.now() - now,
+      });
+      return NextResponse.json(
+        {
+          error:
+            'schedule refresh could not classify an empty provider response — prior schedule cache was unreadable',
+          detail: { code: 'schedule-prior-cache-read-failed' },
+        },
+        { status: 502 }
+      );
+    }
     // Shared empty-response policy (6th-review finding #2) — the SAME classifier
     // the season-transition cron uses, so the two paths cannot drift.
     const classification = classifyEmptyScheduleRefresh({ mappedRows: 0, priorDurableRows });

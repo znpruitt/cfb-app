@@ -12,6 +12,7 @@ import { SCHEDULE_ROUTE_CACHE, resetScheduleRouteCacheForTests } from '../cache'
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
@@ -386,6 +387,83 @@ test('an all-empty schedule refresh records a no-op, not a success advancing las
   // No durable schedule was written for this key (valid absence, not a commit).
   const durable = await getAppState('schedule', '2027-all-all');
   assert.equal(durable, null, 'a valid-empty no-op does not write a durable schedule');
+});
+
+// ---------------------------------------------------------------------------
+// Final-truthfulness finding #2 — a prior-cache read failure during empty-response
+// classification must resolve the open attempt as failed (never in-progress), retain
+// prior-good, and record no no-op/success.
+// ---------------------------------------------------------------------------
+
+test('a prior-cache read failure while classifying an empty response resolves the attempt as failed (finding #2)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  // Prior-good POPULATED durable schedule + success metadata, to prove retention.
+  await setAppState('schedule', '2027-all-all', {
+    at: 1,
+    items: [
+      {
+        id: 'prior',
+        week: 1,
+        startDate: '2027-09-01T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        homeConference: 'Big 12',
+        awayConference: 'American',
+        status: 'scheduled',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  const seed = await beginProviderRefreshAttempt('schedule', { attemptId: 'seed' });
+  await recordProviderRefreshSuccess('schedule', {
+    attempt: seed,
+    source: 'cfbd',
+    rowsCommitted: 1,
+  });
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule')).lastSuccessAt;
+  assert.ok(priorSuccessAt);
+
+  // Provider validly returns empty, but the prior durable SCHEDULE read used to
+  // classify empty-vs-replacement fails. Scope the read failure to 'schedule' so
+  // the 'provider-refresh-status' writes still persist (the attempt CAN be recorded).
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  __setAppStateReadFailureForTests(new Error('durable read boom'), 'schedule');
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1')
+  );
+  __setAppStateReadFailureForTests(null);
+
+  assert.equal(res.status, 502);
+  const json = await res.json();
+  assert.equal(json.detail?.code, 'schedule-prior-cache-read-failed');
+
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(
+    status.latestAttemptOutcome,
+    'failed',
+    'the open attempt resolves as failed, never left in-progress'
+  );
+  assert.equal(status.lastError?.code, 'schedule-prior-cache-read-failed');
+  assert.equal(
+    status.lastSuccessAt,
+    priorSuccessAt,
+    'prior-good last-success is preserved (no no-op/success recorded)'
+  );
+
+  // Prior-good durable schedule intact — nothing written on the read-failure path.
+  const durable = await getAppState<{ items: unknown[] }>('schedule', '2027-all-all');
+  assert.equal(durable?.value?.items?.length, 1, 'prior-good schedule retained');
 });
 
 // ---------------------------------------------------------------------------

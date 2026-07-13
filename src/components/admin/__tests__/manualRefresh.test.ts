@@ -10,6 +10,7 @@ import {
   isSelectedYear,
   manualActionKey,
   manualRefreshUrls,
+  panelFeedRenderState,
   scoresAggregateRefreshUrl,
   shouldApplyStatusResponse,
 } from '../manualRefresh.ts';
@@ -176,6 +177,47 @@ test('stale A callback cannot abort/replace B: isSelectedYear gates on the live 
   assert.equal(isSelectedYear(2025, 2026), false);
   // The settings mutation reloads whatever year is current at completion.
   assert.equal(isSelectedYear(2026, 2026), true);
+});
+
+// ---- Final-truthfulness finding #1: render only a valid selected-year feed ----
+
+test('panelFeedRenderState: null feed + loading → loading (no dataset cards)', () => {
+  assert.equal(
+    panelFeedRenderState({ feedYear: null, selectedYear: 2026, loading: true }),
+    'loading'
+  );
+});
+
+test('panelFeedRenderState: null feed + failed request → unavailable (no fabricated no-history rows)', () => {
+  assert.equal(
+    panelFeedRenderState({ feedYear: null, selectedYear: 2026, loading: false }),
+    'unavailable'
+  );
+});
+
+test('panelFeedRenderState: feed.year 2025 while 2026 selected → not ready', () => {
+  // Loading in flight for 2026 → loading; the 2025 feed must not render as 2026.
+  assert.equal(
+    panelFeedRenderState({ feedYear: 2025, selectedYear: 2026, loading: true }),
+    'loading'
+  );
+  // 2026 request failed and no valid 2026 feed → unavailable; 2025 never reappears.
+  assert.equal(
+    panelFeedRenderState({ feedYear: 2025, selectedYear: 2026, loading: false }),
+    'unavailable'
+  );
+});
+
+test('panelFeedRenderState: feed.year matches selected year → ready', () => {
+  assert.equal(
+    panelFeedRenderState({ feedYear: 2026, selectedYear: 2026, loading: false }),
+    'ready'
+  );
+  // A ready feed stays ready even while a background refresh is in flight.
+  assert.equal(
+    panelFeedRenderState({ feedYear: 2026, selectedYear: 2026, loading: true }),
+    'ready'
+  );
 });
 
 // ---- Finding #6: fallback responses are NOT treated as success ----

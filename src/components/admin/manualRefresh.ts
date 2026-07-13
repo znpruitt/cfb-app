@@ -187,6 +187,29 @@ export function isCurrentStatusResponse(params: {
   return params.requestSeq === params.latestSeq && params.requestedYear === params.responseYear;
 }
 
+export type PanelFeedRenderState = 'ready' | 'loading' | 'unavailable';
+
+/**
+ * What the Provider Data Status panel should render for the currently selected
+ * year (final-truthfulness remediation finding #1). Dataset cards + feed-derived
+ * controls render ONLY from a successful feed whose year matches the selection;
+ * otherwise the panel shows an explicit loading or unavailable state rather than
+ * placeholder rows or a previous year's feed.
+ *
+ *   ready       → a valid feed exists for the selected year
+ *   loading     → no valid feed yet, a request is in flight
+ *   unavailable → no valid feed and no request in flight (initial/refresh failure)
+ */
+export function panelFeedRenderState(params: {
+  feedYear: number | null;
+  selectedYear: number;
+  loading: boolean;
+}): PanelFeedRenderState {
+  const hasValidFeed = params.feedYear !== null && params.feedYear === params.selectedYear;
+  if (hasValidFeed) return 'ready';
+  return params.loading ? 'loading' : 'unavailable';
+}
+
 export type DatasetControlMode = 'interactive' | 'lifecycle-exempt' | 'planned';
 
 /**

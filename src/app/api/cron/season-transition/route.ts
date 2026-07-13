@@ -228,8 +228,28 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           // populated prior-good schedule is an unexpected empty replacement
           // (reject + retain prior-good + block the transition this run), while a
           // genuinely unpublished/inapplicable empty probe is a valid no-op.
-          const priorDurable = await getAppState<CacheEntry>('schedule', `${targetYear}-all-all`);
-          const priorDurableRows = priorDurable?.value?.items?.length ?? 0;
+          let priorDurableRows: number;
+          try {
+            const priorDurable = await getAppState<CacheEntry>('schedule', `${targetYear}-all-all`);
+            priorDurableRows = priorDurable?.value?.items?.length ?? 0;
+          } catch (readError) {
+            // The prior durable schedule read failed while classifying an empty
+            // probe (transient app-state outage). A read failure is NOT a
+            // classification result — we cannot confirm whether a populated
+            // schedule already exists, so we must not transition off this
+            // unverifiable probe. Resolve the OPEN attempt as failed (mirroring the
+            // durable-commit-failure path above) rather than leaving it
+            // `in-progress`, retain prior-good schedule/probe (nothing written), and
+            // rethrow to the outer handler's established safe 500 response. The
+            // lifecycle transition for this year is skipped.
+            await recordProviderRefreshFailure('schedule', {
+              attempt: scheduleAttempt,
+              error: `season-transition probe for ${targetYear}: prior durable schedule could not be read while classifying an empty provider response — cannot safely determine prior schedule state (${readError instanceof Error ? readError.message : 'unknown read error'})`,
+              code: 'schedule-prior-cache-read-failed',
+              status: 500,
+            });
+            throw readError;
+          }
           const classification = classifyEmptyScheduleRefresh({
             mappedRows: 0,
             priorDurableRows,
