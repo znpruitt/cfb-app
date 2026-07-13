@@ -12,9 +12,15 @@ import { resetScheduleRouteCacheForTests } from '../cache';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
+import {
+  beginProviderRefreshAttempt,
+  getProviderRefreshStatus,
+  recordProviderRefreshSuccess,
+} from '../../../../lib/server/providerRefreshStatus.ts';
 
 type MockFetch = typeof fetch;
 
@@ -287,6 +293,56 @@ test('an all-season refresh with a legitimately empty postseason partition still
   // Committed durably under the all-season key.
   const stored = await getAppState<{ items: unknown[] }>('schedule', '2027-all-all');
   assert.equal(stored?.value?.items?.length, 1);
+});
+
+test('a durable commit failure resolves the schedule attempt as failed (rereview finding #6)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  // Seed a prior successful schedule refresh so we can prove it is preserved.
+  const seed = await beginProviderRefreshAttempt('schedule', { attemptId: 'seed' });
+  await recordProviderRefreshSuccess('schedule', {
+    attempt: seed,
+    source: 'cfbd',
+    rowsCommitted: 5,
+  });
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule')).lastSuccessAt;
+  assert.ok(priorSuccessAt);
+
+  setMockFetch(async () => {
+    return new Response(
+      JSON.stringify([
+        {
+          week: 1,
+          home_team: 'Texas',
+          away_team: 'Rice',
+          id: 1,
+          start_date: '2027-09-01T00:00:00Z',
+        },
+      ]),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+
+  // The provider fetch succeeds but the durable SCHEDULE commit fails. Scope the
+  // failure to 'schedule' so the best-effort status write (a different scope)
+  // still persists — otherwise the failure record itself would be swallowed.
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'), 'schedule');
+  let res: Response;
+  try {
+    res = await GET(
+      new Request('http://localhost/api/schedule?year=2027&seasonType=regular&bypassCache=1')
+    );
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  assert.equal(res.status, 500, 'a persistence failure is surfaced as an error, not a success');
+
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(status.latestAttemptOutcome, 'failed', 'the open attempt is resolved as failed');
+  assert.equal(status.lastError?.code, 'schedule-durable-commit-failed');
+  assert.equal(status.lastSuccessAt, priorSuccessAt, 'prior-good last-success is preserved');
+  assert.equal(status.rowsCommitted, 5, 'prior-good row count preserved');
 });
 
 test('schedule route bypassCache=1 forces an upstream refetch', async () => {

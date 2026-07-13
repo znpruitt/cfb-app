@@ -12,6 +12,7 @@ import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStatsWeeks } from '../gameStats/cache.ts';
 import { getLatestKnownOddsUsage } from './oddsUsageStore.ts';
+import type { OddsUsageSnapshot } from '../api/oddsUsage.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
@@ -28,6 +29,14 @@ export type ProviderDataDiagnosticsResult = {
   year: number;
   generatedAt: string;
   diagnostics: ProviderDiagnostic[];
+  /**
+   * Score season-types worth a manual refresh for this year, derived cache-only
+   * from the canonical schedule (rereview finding #1). Postseason is included
+   * only once the schedule actually carries postseason games, so a mid-regular-
+   * season manual score refresh does not fire a doomed postseason request before
+   * bowls are published.
+   */
+  scoreSeasonTypes: CfbdSeasonType[];
 };
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -83,6 +92,27 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
 }
 
+/**
+ * Score season-types worth requesting for a manual refresh, derived cache-only
+ * from the schedule (rereview finding #1). Regular is the baseline (also the safe
+ * default when nothing is cached, so a manual refresh still does something);
+ * postseason is added ONLY once the schedule carries postseason games — before
+ * then a postseason score request is a doomed no-op that should be skipped.
+ */
+function deriveApplicableScoreSeasonTypes(items: ScheduleCacheEntry['items']): CfbdSeasonType[] {
+  let hasRegular = false;
+  let hasPostseason = false;
+  for (const item of items) {
+    if (normalizeSeasonType(item.seasonType) === 'postseason') hasPostseason = true;
+    else hasRegular = true;
+    if (hasRegular && hasPostseason) break;
+  }
+  const types: CfbdSeasonType[] = [];
+  if (hasRegular || !hasPostseason) types.push('regular');
+  if (hasPostseason) types.push('postseason');
+  return types;
+}
+
 /** Whether the season is "active" around now (any game within ±45 days). */
 function isSeasonActive(items: ScheduleCacheEntry['items'], now: number): boolean {
   const windowMs = 45 * DAY_MS;
@@ -97,8 +127,18 @@ function isSeasonActive(items: ScheduleCacheEntry['items'], now: number): boolea
 
 export async function getProviderDataDiagnostics(
   year: number,
-  now: number = Date.now()
+  options: {
+    now?: number;
+    /**
+     * Pre-read durable odds usage snapshot, shared with the caller so the odds
+     * diagnostic does not re-read (and does not fall back to the stale
+     * process-local memo — rereview finding #4). Pass `null` to mean "durable
+     * read failed / no snapshot". Omit entirely to let this function read it.
+     */
+    oddsUsage?: OddsUsageSnapshot | null;
+  } = {}
 ): Promise<ProviderDataDiagnosticsResult> {
+  const now = options.now ?? Date.now();
   const diagnostics: ProviderDiagnostic[] = [];
   const push = (dataset: ProviderDataset, severity: DiagnosticSeverity, message: string) => {
     diagnostics.push({ dataset, severity, message });
@@ -233,7 +273,10 @@ export async function getProviderDataDiagnostics(
 
   // ---- Odds: snapshot recency only. A game without odds is NOT a failure. ----
   try {
-    const oddsUsage = await getLatestKnownOddsUsage();
+    // Prefer the caller's shared durable read (finding #4); only read here when it
+    // was not provided (standalone callers). `null` explicitly means "no snapshot".
+    const oddsUsage =
+      options.oddsUsage !== undefined ? options.oddsUsage : await getLatestKnownOddsUsage();
     if (!oddsUsage) {
       push('odds', 'info', 'No odds snapshot captured yet.');
     } else if (seasonActive) {
@@ -250,7 +293,12 @@ export async function getProviderDataDiagnostics(
     push('odds', 'warning', `Odds diagnostics unavailable: ${errText(error)}`);
   }
 
-  return { year, generatedAt: new Date(now).toISOString(), diagnostics };
+  return {
+    year,
+    generatedAt: new Date(now).toISOString(),
+    diagnostics,
+    scoreSeasonTypes: deriveApplicableScoreSeasonTypes(scheduleItems),
+  };
 }
 
 function describeSlates(slates: CompletedSlate[]): string {

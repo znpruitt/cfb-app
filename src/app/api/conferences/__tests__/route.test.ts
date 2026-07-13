@@ -9,6 +9,7 @@ import {
   __resetAppStateForTests,
   setAppState,
 } from '@/lib/server/appStateStore';
+import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 
 type MockFetch = typeof fetch;
 
@@ -39,6 +40,12 @@ test('conferences route uses local snapshot when CFBD key is missing', async () 
     assert.equal(res.status, 200);
     assert.equal(json.meta.source, 'local_snapshot');
     assert.equal(json.items.length, CONFERENCES_SNAPSHOT.length);
+
+    // Rereview finding #5: the missing-credential refresh is now recorded as a
+    // failed attempt rather than being invisible.
+    const status = await getProviderRefreshStatus('conferences');
+    assert.equal(status.latestAttemptOutcome, 'failed');
+    assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
   } finally {
     process.env.CFBD_API_KEY = originalKey;
     global.fetch = originalFetch;

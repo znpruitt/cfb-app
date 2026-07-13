@@ -107,8 +107,56 @@ function installFetchStub(oddsHandler: () => Response = okOddsResponse): FetchSt
 
 type OddsResponseBody = {
   items: Array<{ canonicalGameId: string }>;
-  meta: { cache: 'hit' | 'miss'; usage: OddsUsageSnapshot | null };
+  meta: {
+    cache: 'hit' | 'miss';
+    usage: OddsUsageSnapshot | null;
+    snapshotCapturedAt: string | null;
+    season: number;
+  };
 };
+
+// ---------------------------------------------------------------------------
+// Rereview finding #2 — the odds response carries the SERVED cache entry's
+// timestamp for THIS season (not the global quota snapshot), so the user-facing
+// freshness label is honest and cannot inherit another season's recency.
+// ---------------------------------------------------------------------------
+
+test('meta.snapshotCapturedAt reflects the served cache entry, and is null when nothing is cached', async () => {
+  const stub = installFetchStub();
+  try {
+    // Cold cache for this season: the freshness timestamp is honestly null.
+    const cold = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    assert.equal(cold.status, 200, await cold.clone().text());
+    const coldBody = (await cold.json()) as OddsResponseBody;
+    assert.equal(
+      coldBody.meta.snapshotCapturedAt,
+      null,
+      'a cold-cache season shows no snapshot time (never a spurious "just now")'
+    );
+
+    // Seed a served cache entry via a real refresh, then stamp its lastFetch to a
+    // known value; the served snapshot time must equal that entry's capture time.
+    const seed = await GET(
+      new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}&refresh=1`)
+    );
+    assert.equal(seed.status, 200, await seed.clone().text());
+    const lastFetch = Date.parse('2026-09-15T12:00:00.000Z');
+    const seededKey = Object.keys(oddsCache.entries)[0]!;
+    oddsCache.entries[seededKey] = { ...oddsCache.entries[seededKey]!, lastFetch };
+    await setAppState('odds-cache', seededKey, oddsCache.entries[seededKey]);
+
+    const served = await GET(new Request(`http://localhost/api/odds?year=${ODDS_TEST_SEASON}`));
+    const servedBody = (await served.json()) as OddsResponseBody;
+    assert.equal(
+      servedBody.meta.snapshotCapturedAt,
+      new Date(lastFetch).toISOString(),
+      'the served snapshot time is the served cache entry lastFetch for this season'
+    );
+    assert.equal(servedBody.meta.season, ODDS_TEST_SEASON);
+  } finally {
+    stub.restore();
+  }
+});
 
 test('does not call the upstream Odds API when saved quota is below the auto-disable threshold', async () => {
   await setLatestKnownOddsUsage(usageSnapshot(5)); // remaining <= 10 -> disableAutoRefresh

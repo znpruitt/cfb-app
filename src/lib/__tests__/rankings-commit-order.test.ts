@@ -8,6 +8,7 @@ import {
   __setAppStateWriteFailureForTests,
   getAppState,
 } from '../server/appStateStore.ts';
+import { getProviderRefreshStatus } from '../server/providerRefreshStatus.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-085A — durable-first commit order for the rankings provider cache.
@@ -69,4 +70,15 @@ test('rankings refresh: a successful durable write publishes to the process cach
   assert.ok(await getAppState('rankings', String(SEASON)));
   const second = await loadSeasonRankings(SEASON);
   assert.equal(second.meta.cache, 'hit');
+});
+
+test('rankings refresh: a missing CFBD key records a failed attempt (rereview finding #5)', async () => {
+  delete process.env.CFBD_API_KEY;
+  await assert.rejects(
+    () => loadSeasonRankings(SEASON, { allowRefresh: true }),
+    /CFBD_API_KEY missing/
+  );
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
 });

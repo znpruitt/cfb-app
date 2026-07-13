@@ -224,16 +224,24 @@ export async function loadSeasonRankings(
     );
   }
 
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    throw new Error('CFBD_API_KEY missing');
-  }
-
   // Provider-refresh observability (PLATFORM-086A): only the allowRefresh path
   // reaches here (cache-only reads returned above), so this is a real refresh.
+  // Begin BEFORE credential validation so a missing-key early exit still resolves
+  // a recorded failed attempt (rereview finding #5).
   const attempt = await beginProviderRefreshAttempt('rankings', {
     startedAt: new Date(now).toISOString(),
   });
+
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  if (!cfbdApiKey) {
+    await recordProviderRefreshFailure('rankings', {
+      attempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+      durationMs: Date.now() - now,
+    });
+    throw new Error('CFBD_API_KEY missing');
+  }
 
   try {
     const resolver = createTeamIdentityResolver({
@@ -281,10 +289,13 @@ export async function loadSeasonRankings(
     // leave this instance serving "fresh" rankings that no other instance can
     // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
     await setAppState('rankings', String(season), cacheEntry);
+    // Durable commit time for success ordering (rereview finding #3).
+    const committedAt = new Date().toISOString();
     CACHE.set(season, cacheEntry);
 
     await recordProviderRefreshSuccess('rankings', {
       attempt,
+      committedAt,
       source: 'cfbd',
       rowsCommitted: weeks.length,
       durationMs: Date.now() - now,

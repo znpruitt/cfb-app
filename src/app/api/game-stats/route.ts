@@ -124,17 +124,25 @@ export async function GET(req: Request) {
     }
   }
 
-  // Fetch from CFBD
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
-  }
-
   // Provider-refresh observability (PLATFORM-086A): record the manual refresh
-  // attempt before the fetch; success only after the durable cache write.
+  // attempt before credential validation and the fetch, so a missing-key early
+  // return still resolves a recorded failed attempt (rereview finding #5).
+  // Success is recorded only after the durable cache write.
   const attempt = await beginProviderRefreshAttempt('game-stats', {
     startedAt: new Date().toISOString(),
   });
+
+  // Fetch from CFBD
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  if (!cfbdApiKey) {
+    await recordProviderRefreshFailure('game-stats', {
+      attempt,
+      error: 'CFBD_API_KEY not configured',
+      code: 'cfbd-api-key-missing',
+      status: 500,
+    });
+    return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
+  }
 
   try {
     const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
@@ -157,9 +165,12 @@ export async function GET(req: Request) {
     };
 
     await setCachedGameStats(result);
+    // Durable commit time for success ordering (rereview finding #3).
+    const committedAt = new Date().toISOString();
 
     await recordProviderRefreshSuccess('game-stats', {
       attempt,
+      committedAt,
       source: 'cfbd',
       rowsCommitted: games.length,
     });

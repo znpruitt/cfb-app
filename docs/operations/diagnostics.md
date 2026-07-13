@@ -39,7 +39,7 @@ See [../architecture/auth-and-privacy.md](../architecture/auth-and-privacy.md) f
 
 ## Provider Data Status panel (PLATFORM-086A)
 
-`/admin/diagnostics` includes a **Provider Data Status** panel — the first stop when a dataset looks stale or missing. Per provider dataset (scores/schedule/odds/rankings/conferences/game-stats) it shows the durable refresh status (last attempt, last success + age, last error, rows committed, partial-failure/failed partitions, source) alongside cache-only **missing-data diagnostics**:
+`/admin/diagnostics` includes a **Provider Data Status** panel — the first stop when a dataset looks stale or missing. Per provider dataset (scores/schedule/odds/rankings/conferences/game-stats) it shows the durable refresh status — the newest attempt's **explicit state** (refresh in progress / attempt appears interrupted / last attempt succeeded / partial / failed / **completed — no applicable data** / never refreshed), last success + age, last error, rows committed, partial-failure/failed partitions, source — alongside cache-only **missing-data diagnostics**:
 
 - **Scores / game stats:** a completed slate (latest kickoff > 6h ago, derived from the canonical schedule) with no cached score rows / no cached game-stats week.
 - **Schedule:** no current-season schedule cached, a partial last refresh, or a schedule older than the weekly policy during an active season.
@@ -52,8 +52,12 @@ The same panel exposes the operator **global pause** and **per-dataset enable/di
 
 Panel behavior to know when reading it:
 
+- **The newest attempt's state is explicit.** The state line reads the durable `latestAttemptOutcome`, not an inference from the last success/error — so an in-flight, interrupted, or valid-no-op probe shows its true state instead of a leftover "succeeded"/"failed."
+- **"Completed — no applicable data" is not a failure.** When CFBD returns a valid empty partition (postseason scores before bowls are published, a week with no games), the refresh resolves as a **no-op**: nothing is written, prior-good data is preserved, and the card shows a muted "no applicable data" — not a red failure. ESPN is no longer an automatic fallback, so a genuine CFBD failure is surfaced (prior-good retained) rather than masked by a second provider.
+- **Manual score refresh skips inapplicable postseason.** The scores refresh fans out over the applicable partitions the feed derives cache-only from the schedule (regular, plus postseason once bowls are scheduled), so a mid-regular-season refresh does not fire a doomed postseason request — and the action does not report failure merely because an inapplicable partition was skipped or validly empty.
 - **Manual game-stats repair is season-type-aware.** The game-stats card has both a week and a season-type (regular/postseason) selector — a postseason repair targets the postseason cache key rather than defaulting to regular.
 - **Fallback is not success.** A manual refresh whose route degraded to bundled/prior-good fallback (e.g. the conferences route returns HTTP 200 with `meta.fallbackUsed`) is reported as "Provider refresh failed; fallback data is still serving," not as complete.
+- **Odds quota is a fresh durable read.** The panel reads durable odds usage on every load (not a process memo), so a refresh on another instance is reflected rather than showing an indefinitely stale remaining/quota.
 - **Controls are interactive only when they do something.** A per-dataset auto-refresh toggle is interactive only for datasets whose setting a live job consumes today (game-stats). Planned datasets show read-only "control not active yet"; the lifecycle-critical schedule shows "exempt from provider polling pause controls." The settings API likewise rejects toggling a planned or exempt dataset. This keeps the panel from implying a runtime effect that does not exist yet.
 
 ## Guardrails while debugging

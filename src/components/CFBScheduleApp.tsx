@@ -278,6 +278,12 @@ export default function CFBScheduleApp({
   const [issues, setIssues] = useState<string[]>(initialIssues);
   const [lastScoresRefreshAt, setLastScoresRefreshAt] = useState<string>('');
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
+  // Freshness of the odds cache entry actually SERVED for the selected season
+  // (rereview finding #2). Sourced from the odds response's own served-snapshot
+  // time — NOT the global quota snapshot (`oddsUsage.capturedAt`) or the admin
+  // usage poll, so a historical/cold-cache season never inherits another season's
+  // recency. Null when nothing is cached for the season → the label is omitted.
+  const [oddsSnapshotAt, setOddsSnapshotAt] = useState<string | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
   // Effective resolver map (stored global > year > SEED_ALIASES) — used to build
@@ -328,6 +334,7 @@ export default function CFBScheduleApp({
     setIssues([]);
     setLastScoresRefreshAt('');
     setOddsUsage(null);
+    setOddsSnapshotAt(null);
     setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
@@ -972,6 +979,7 @@ export default function CFBScheduleApp({
     setOddsByKey,
     setScoresByKey,
     setOddsUsage,
+    setOddsSnapshotAt,
     setLastScoresRefreshAt,
     loadingLive,
     setLoadingLive,
@@ -1550,14 +1558,12 @@ export default function CFBScheduleApp({
                     {oddsAvailabilitySummary}
                   </span>
                 ) : null}
-                {!loadingLive && oddsUsage?.capturedAt ? (
-                  // Subtle, dataset-specific freshness (PLATFORM-086A): the odds
-                  // snapshot's own capture time — never a global timestamp.
-                  <FreshnessLabel
-                    timestamp={oddsUsage.capturedAt}
-                    label="Odds"
-                    className="self-center"
-                  />
+                {!loadingLive && oddsSnapshotAt ? (
+                  // Subtle, dataset-specific freshness (PLATFORM-086A): the SERVED
+                  // odds cache entry's capture time for THIS season (rereview
+                  // finding #2) — never the global quota snapshot or admin usage
+                  // poll, which could inherit another season's recency.
+                  <FreshnessLabel timestamp={oddsSnapshotAt} label="Odds" className="self-center" />
                 ) : null}
               </div>
               {userFacingLiveIssues.length > 0 ? (

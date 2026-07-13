@@ -12,6 +12,7 @@ import {
   setDatasetAutoRefreshEnabled,
   setGlobalPause,
 } from '../../../../../lib/server/providerRefreshSettings.ts';
+import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const ORIGINAL_CRON_SECRET = process.env.CRON_SECRET;
@@ -57,6 +58,19 @@ test('when not paused, the cron proceeds past the pause gate', async () => {
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as { skipped?: string };
   assert.notEqual(body.skipped, PAUSE_SKIP);
+});
+
+test('missing CFBD key on an unpaused cron records a failed game-stats attempt (finding #5)', async () => {
+  // CFBD_API_KEY is unset in the test environment, so the unpaused cron takes the
+  // missing-credential path — which must now leave a durable failed attempt
+  // rather than returning silently invisible.
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as { error?: string };
+  assert.equal(res.status, 500);
+  assert.equal(body.error, 'CFBD_API_KEY not configured');
+  const status = await getProviderRefreshStatus('game-stats');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
 });
 
 test('manual game-stats refresh (cache read) remains available while automation is paused', async () => {

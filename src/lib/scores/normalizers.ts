@@ -1,4 +1,4 @@
-import type { CfbdGameLoose, EspnEvent, ScorePack, SeasonType } from './types.ts';
+import type { CfbdGameLoose, ScorePack } from './types.ts';
 
 export function seasonYearForToday(now = new Date()): number {
   const month = now.getUTCMonth();
@@ -67,57 +67,5 @@ export function toScorePackFromCfbd(game: CfbdGameLoose): ScorePack | null {
     time: game.start_date ?? null,
     home: { team: homeTeam, score: homeScore },
     away: { team: awayTeam, score: awayScore },
-  };
-}
-
-export function toScorePackFromEspn(
-  event: EspnEvent & { id?: string },
-  week: number | null,
-  seasonType: SeasonType
-): ScorePack | null {
-  const competition = event.competitions?.[0];
-  if (!competition) return null;
-
-  const statusType = competition.status?.type;
-  const name = (statusType?.name ?? '').toLowerCase();
-  const description = (statusType?.description ?? '').toLowerCase();
-
-  let status = 'scheduled';
-  if (name.includes('final') || description.includes('final')) status = 'final';
-  else if (
-    name.includes('progress') ||
-    description.includes('progress') ||
-    description.includes('half') ||
-    description.includes('q')
-  ) {
-    status = 'in progress';
-  }
-
-  const homeRef = competition.competitors.find((competitor) => competitor.homeAway === 'home');
-  const awayRef = competition.competitors.find((competitor) => competitor.homeAway === 'away');
-  if (!homeRef || !awayRef) return null;
-
-  const homeScore = Number.parseInt(homeRef.score ?? '', 10);
-  const awayScore = Number.parseInt(awayRef.score ?? '', 10);
-
-  return {
-    id: event.id ?? null,
-    seasonType,
-    // Carry ESPN's kickoff timestamp so downstream identity reconciliation can
-    // key on the UTC date: without it, an ESPN fallback row cannot be matched to
-    // the same game in a CFBD season snapshot (which does carry start_date), and
-    // the two provider/canonical week aliases would duplicate (PLATFORM-075).
-    startDate: event.date ?? competition.date ?? null,
-    week,
-    status,
-    time: statusType?.shortDetail ?? null,
-    home: {
-      team: homeRef.team.displayName,
-      score: Number.isFinite(homeScore) ? homeScore : null,
-    },
-    away: {
-      team: awayRef.team.displayName,
-      score: Number.isFinite(awayScore) ? awayScore : null,
-    },
   };
 }

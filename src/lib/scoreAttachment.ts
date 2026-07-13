@@ -82,7 +82,7 @@ export type MatchResult =
     };
 
 export function normalizeProviderTeamName(name: string): string {
-  // Provider-row canonicalization only (CFBD/ESPN payload cleanup for attachment keys).
+  // Provider-row canonicalization only (CFBD payload cleanup for attachment keys).
   // Team-vs-team equivalence comparisons should use teamIdentity resolver helpers.
   return normalizeTeamName(normalizeAliasLookup(name).replace(/\b&\b/g, ' and '));
 }

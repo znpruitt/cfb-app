@@ -36,6 +36,10 @@ let hasLoggedProductionConfigError = false;
 // Test-only: when set, `setAppState` throws this (reads unaffected). See
 // `__setAppStateWriteFailureForTests`. Always null outside tests.
 let __writeFailureForTests: Error | null = null;
+// Test-only: when non-null, the write failure applies ONLY to this scope (so a
+// test can fail a provider-data commit while status-scope writes still persist).
+// Null means the failure applies to every scope. Always null outside tests.
+let __writeFailureScopeForTests: string | null = null;
 // Test-only: when set, `getAppState` throws this (writes unaffected). See
 // `__setAppStateReadFailureForTests`. Always null outside tests.
 let __readFailureForTests: Error | null = null;
@@ -253,7 +257,12 @@ export async function setAppState<T>(
   // so durable-first commit-order tests (PLATFORM-085A) can assert that a failed
   // persist does not publish process-local "fresh" provider data. Never set in
   // production paths.
-  if (__writeFailureForTests) throw __writeFailureForTests;
+  if (
+    __writeFailureForTests &&
+    (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope)
+  ) {
+    throw __writeFailureForTests;
+  }
   const updatedAt = new Date().toISOString();
 
   if (hasDatabaseConfig()) {
@@ -390,6 +399,7 @@ export function __resetAppStateForTests(): void {
   initPromise = null;
   hasLoggedProductionConfigError = false;
   __writeFailureForTests = null;
+  __writeFailureScopeForTests = null;
   __readFailureForTests = null;
   if (pool) {
     void pool.end().catch(() => undefined);
@@ -402,9 +412,18 @@ export function __resetAppStateForTests(): void {
  * unaffected). Pass `null` to clear. Used to exercise durable-write-failure
  * commit ordering (PLATFORM-085A). Cleared automatically by
  * `__resetAppStateForTests`.
+ *
+ * Optionally scope the failure to a single app-state `scope` so a test can fail
+ * one provider-data commit (e.g. `'schedule'`) while other scopes — notably the
+ * `'provider-refresh-status'` best-effort writes — still persist. Omit `scope`
+ * to fail every write.
  */
-export function __setAppStateWriteFailureForTests(error: Error | null): void {
+export function __setAppStateWriteFailureForTests(
+  error: Error | null,
+  scope: string | null = null
+): void {
   __writeFailureForTests = error;
+  __writeFailureScopeForTests = error ? scope : null;
 }
 
 /**

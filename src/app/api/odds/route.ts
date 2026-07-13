@@ -69,6 +69,14 @@ type OddsMeta = {
   generatedAt: string;
   usage: OddsUsageSnapshot | null;
   season: number;
+  /**
+   * Capture time of the odds cache entry actually SERVED for this season (its
+   * `lastFetch`), or null when nothing is cached. This — not the global odds
+   * quota-usage snapshot — is the honest freshness timestamp for the served odds
+   * (rereview finding #2): it is tied to the served cache entry for THIS season,
+   * so a historical/cold-cache season cannot inherit another season's recency.
+   */
+  snapshotCapturedAt: string | null;
 };
 
 type OddsResponse = {
@@ -622,6 +630,10 @@ export async function GET(req: Request): Promise<Response> {
       // instance can durably reproduce. A setAppState throw propagates to the
       // route's catch (500), leaving the process cache untouched.
       await setAppState('odds-cache', seasonScopedKey, responseEntry);
+      // Capture the durable COMMIT time for success ordering (rereview finding
+      // #3): last-success is ordered by commit time, not by when this status call
+      // runs after the canonical item build below.
+      const committedAt = new Date().toISOString();
       oddsCache.entries[seasonScopedKey] = responseEntry;
       fetchedFromUpstream = true;
 
@@ -630,6 +642,7 @@ export async function GET(req: Request): Promise<Response> {
       // throw (e.g. in canonical item building) from overwriting it with a failure.
       await recordProviderRefreshSuccess('odds', {
         attempt: oddsAttempt ?? undefined,
+        committedAt,
         source: 'odds-api',
         rowsCommitted: responseEntry.data.length,
         usage: usage
@@ -645,6 +658,13 @@ export async function GET(req: Request): Promise<Response> {
     }
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
+    // Honest served-snapshot time for the user-facing freshness label (finding
+    // #2): null when NOTHING is cached for this season, so a cold-cache season
+    // shows no timestamp rather than a spurious "just now". Distinct from
+    // `snapshotCapturedAt` above, which keeps its now-fallback only for per-item
+    // odds age classification in buildCanonicalOddsItems.
+    const servedSnapshotAt =
+      responseEntry?.lastFetch != null ? new Date(responseEntry.lastFetch).toISOString() : null;
 
     // Only the canonical/default query reads the shared durable odds store; it
     // holds a full-market, preferred-book snapshot per game that cannot be
@@ -690,6 +710,7 @@ export async function GET(req: Request): Promise<Response> {
         ? suppressedUsage
         : (responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
       season: query.season,
+      snapshotCapturedAt: servedSnapshotAt,
     });
   } catch (e) {
     // Attribute the failure to the odds refresh only when a refresh was actually

@@ -5,7 +5,29 @@ import { GET, POST } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
+import {
+  __resetOddsUsageStoreForTests,
+  setLatestKnownOddsUsage,
+} from '../../../../../lib/server/oddsUsageStore.ts';
+import type { OddsUsageSnapshot } from '../../../../../lib/api/oddsUsage.ts';
+
+function oddsSnapshot(remaining: number, capturedAt: string): OddsUsageSnapshot {
+  return {
+    used: 500 - remaining,
+    remaining,
+    limit: 500,
+    lastCost: 3,
+    capturedAt,
+    source: 'odds-response-headers',
+    sportKey: 'americanfootball_ncaaf',
+    markets: ['h2h'],
+    regions: ['us'],
+    endpointType: 'odds',
+    cacheStatus: 'hit',
+  };
+}
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const ORIGINAL_ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;
@@ -31,6 +53,7 @@ function postRequest(body: unknown, token: string | null = ADMIN_TOKEN): Request
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  __resetOddsUsageStoreForTests();
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.ADMIN_API_TOKEN = ADMIN_TOKEN;
 });
@@ -129,4 +152,30 @@ test('POST rejects an unknown dataset', async () => {
 test('POST requires admin auth', async () => {
   const res = await POST(postRequest({ action: 'set-global-pause', paused: true }, null));
   assert.equal(res.status, 401);
+});
+
+// ---- Rereview finding #1: applicable score partitions are exposed ----
+
+test('GET exposes scoreSeasonTypes (regular-only when no schedule is cached)', async () => {
+  const res = await GET(getRequest());
+  const body = (await res.json()) as { scoreSeasonTypes: string[] };
+  assert.deepEqual(body.scoreSeasonTypes, ['regular']);
+});
+
+// ---- Rereview finding #4: odds usage is read from durable storage ----
+
+test('GET reads odds usage from DURABLE storage, not a stale process memo', async () => {
+  // This instance's memo holds an older snapshot (400 remaining).
+  await setLatestKnownOddsUsage(oddsSnapshot(400, '2026-07-01T00:00:00.000Z'));
+  // Another instance updates DURABLE storage directly (20 remaining); this
+  // instance's memo is now stale. The status feed must force a durable read.
+  await setAppState('odds-usage', 'latest', oddsSnapshot(20, '2026-07-10T00:00:00.000Z'));
+
+  const res = await GET(getRequest());
+  const body = (await res.json()) as { oddsUsage: OddsUsageSnapshot | null };
+  assert.equal(
+    body.oddsUsage?.remaining,
+    20,
+    'the durable (newer) value is used, not the stale in-process memo (400)'
+  );
 });

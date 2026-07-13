@@ -24,11 +24,47 @@ test('game-stats manual refresh includes the selected season type', () => {
   assert.doesNotMatch(post[0], /seasonType=regular/);
 });
 
-test('scores manual refresh fans out to regular + postseason', () => {
+test('scores manual refresh fans out to regular + postseason by default', () => {
   const urls = manualRefreshUrls('scores', { year: 2026 });
   assert.equal(urls.length, 2);
   assert.ok(urls.some((u) => u.includes('seasonType=regular')));
   assert.ok(urls.some((u) => u.includes('seasonType=postseason')));
+});
+
+// ---- Rereview finding #1: scores refresh skips inapplicable postseason ----
+
+test('scores manual refresh requests ONLY regular when postseason is not yet applicable', () => {
+  const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: ['regular'] });
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /seasonType=regular/);
+  assert.ok(!urls.some((u) => u.includes('seasonType=postseason')));
+});
+
+test('scores manual refresh requests both partitions once postseason is applicable', () => {
+  const urls = manualRefreshUrls('scores', {
+    year: 2026,
+    scoreSeasonTypes: ['regular', 'postseason'],
+  });
+  assert.equal(urls.length, 2);
+  assert.ok(urls.some((u) => u.includes('seasonType=postseason')));
+});
+
+test('scores manual refresh can explicitly target postseason only', () => {
+  const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: ['postseason'] });
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /seasonType=postseason/);
+});
+
+test('an empty applicable-partitions list falls back to both (never silently no-ops)', () => {
+  const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: [] });
+  assert.equal(urls.length, 2);
+});
+
+test('regular success plus skipped postseason combines to overall success', () => {
+  // With postseason skipped, the action issues one request; a single success is
+  // an overall success (no inapplicable partition drags it to failure).
+  const outcome = combineOutcomes([{ ok: true }]);
+  assert.equal(outcome.ok, true);
 });
 
 // ---- Finding #6: fallback responses are NOT treated as success ----

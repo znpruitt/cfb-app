@@ -499,9 +499,35 @@ export async function GET(req: Request) {
   // Durable-first commit order (PLATFORM-085A): persist to app-state BEFORE
   // publishing to the process cache and invalidating standings, so a failed
   // durable write can never leave this instance serving a "fresh" schedule that
-  // no other instance can durably reproduce. A setAppState throw propagates,
-  // skipping the memory update and the standings invalidation below.
-  await setAppState('schedule', cacheKey, nextCacheEntry);
+  // no other instance can durably reproduce.
+  let committedAt: string;
+  try {
+    await setAppState('schedule', cacheKey, nextCacheEntry);
+    // Capture the durable COMMIT time for success ordering (rereview finding #3).
+    committedAt = new Date().toISOString();
+  } catch (commitError) {
+    // The provider fetch succeeded but the durable commit failed. Resolve the open
+    // attempt as failed (rereview finding #6) — without this it would dangle as an
+    // in-progress attempt with no matching outcome, unlike the other instrumented
+    // routes. Prior-good durable schedule is preserved (nothing reached the
+    // process cache), and no success is recorded.
+    await recordProviderRefreshFailure('schedule', {
+      attempt: providerAttempt,
+      error: commitError instanceof Error ? commitError.message : 'schedule durable commit failed',
+      code: 'schedule-durable-commit-failed',
+      status: 500,
+      partialFailure: failedSeasonTypes.length > 0,
+      failedPartitions: failedSeasonTypes,
+      durationMs: Date.now() - now,
+    });
+    return NextResponse.json(
+      {
+        error: 'schedule persistence failed',
+        detail: commitError instanceof Error ? commitError.message : 'unknown error',
+      },
+      { status: 500 }
+    );
+  }
   SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
   pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
 
@@ -510,6 +536,7 @@ export async function GET(req: Request) {
   // complete refresh.
   await recordProviderRefreshSuccess('schedule', {
     attempt: providerAttempt,
+    committedAt,
     source: 'cfbd',
     rowsCommitted: items.length,
     partialFailure: failedSeasonTypes.length > 0,

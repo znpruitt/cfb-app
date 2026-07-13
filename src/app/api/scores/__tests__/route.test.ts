@@ -36,34 +36,23 @@ test('scores route validates seasonType query parameter', async () => {
   assert.equal(fetchCalls, 0);
 });
 
-test('scores route falls back to ESPN when CFBD fails for week-scoped requests', async () => {
+// ---------------------------------------------------------------------------
+// PLATFORM-086A rereview — ESPN removed as an automatic score fallback. CFBD is
+// the sole normal production score provider: a CFBD failure preserves prior-good
+// data and reports a failure (never a silent ESPN substitution); a valid empty
+// CFBD partition is a no-op, not a failure.
+// ---------------------------------------------------------------------------
+
+test('a CFBD failure reports a failure and never calls ESPN', async () => {
+  let espnCalls = 0;
   setMockFetch(async (input: URL | string) => {
     const url = new URL(typeof input === 'string' ? input : input.toString());
     if (url.origin === 'https://api.collegefootballdata.com') {
       return new Response('upstream unavailable', { status: 503 });
     }
     if (url.origin === 'https://site.web.api.espn.com') {
-      return new Response(
-        JSON.stringify({
-          events: [
-            {
-              competitions: [
-                {
-                  competitors: [
-                    { homeAway: 'home', team: { displayName: 'Texas' }, score: '31' },
-                    { homeAway: 'away', team: { displayName: 'Rice' }, score: '14' },
-                  ],
-                  status: {
-                    type: { description: 'Final' },
-                    displayClock: '0:00',
-                  },
-                },
-              ],
-            },
-          ],
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } }
-      );
+      espnCalls += 1;
+      return new Response('[]', { status: 200 });
     }
     throw new Error(`unexpected URL: ${url.toString()}`);
   });
@@ -71,15 +60,40 @@ test('scores route falls back to ESPN when CFBD fails for week-scoped requests',
   const res = await GET(
     new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
   );
-  const json = await res.json();
 
-  assert.equal(res.status, 200);
-  assert.equal(json.meta.source, 'espn');
-  assert.equal(json.meta.fallbackUsed, true);
-  assert.equal(Array.isArray(json.items), true);
+  assert.notEqual(res.status, 200, 'a CFBD failure is a failure, not a 200 ESPN substitution');
+  assert.equal(espnCalls, 0, 'ESPN must never be contacted');
 });
 
-test('scores route denies week-null ESPN fallback when CFBD key is missing', async () => {
+test('a valid empty postseason CFBD partition is a no-op (200), not a failure, and calls no ESPN', async () => {
+  let espnCalls = 0;
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      // Postseason not yet published → CFBD returns an authoritative empty array.
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.origin === 'https://site.web.api.espn.com') {
+      espnCalls += 1;
+      return new Response('[]', { status: 200 });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&seasonType=postseason&refresh=1')
+  );
+  const json = await res.json();
+
+  assert.equal(res.status, 200, 'a valid empty partition is a successful no-op, not a 502');
+  assert.equal(json.meta.source, 'cfbd');
+  assert.equal(json.meta.fallbackUsed, false);
+  assert.equal(json.meta.cfbdFallbackReason, 'cfbd-empty');
+  assert.deepEqual(json.items, []);
+  assert.equal(espnCalls, 0, 'a valid empty partition must not trigger ESPN');
+});
+
+test('a missing CFBD key reports a failure (no ESPN fallback)', async () => {
   process.env.CFBD_API_KEY = '';
   let fetchCalls = 0;
   setMockFetch(async () => {
@@ -93,8 +107,51 @@ test('scores route denies week-null ESPN fallback when CFBD key is missing', asy
   const json = await res.json();
 
   assert.equal(res.status, 502);
-  assert.match(String(json.error ?? ''), /season-wide fallback unavailable/i);
-  assert.equal(fetchCalls, 0);
+  assert.match(String(json.error ?? ''), /CFBD API key missing/i);
+  assert.equal(fetchCalls, 0, 'no provider call is made without a CFBD key');
+});
+
+test('a valid empty CFBD partition does not erase prior-good cached scores', async () => {
+  // Seed a prior-good week cache.
+  await setAppState('scores', '2026-4-regular', {
+    at: Date.now() - 60 * 1000,
+    items: [
+      {
+        id: 'prior-good',
+        week: 4,
+        status: 'STATUS_FINAL',
+        startDate: '2026-09-26T00:00:00Z',
+        home: { team: 'Georgia', score: 30 },
+        away: { team: 'Auburn', score: 10 },
+        time: 'Final',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+
+  // An authorized refresh of that same week now returns empty (valid absence).
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+  const refresh = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=4&seasonType=regular&refresh=1')
+  );
+  assert.equal(refresh.status, 200);
+  assert.deepEqual((await refresh.json()).items, [], 'the empty no-op response carries no rows');
+
+  // The prior-good durable entry is untouched — a subsequent public read serves it.
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+  const anon = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=4&seasonType=regular')
+  );
+  const anonJson = await anon.json();
+  assert.equal(anonJson.items.length, 1, 'prior-good scores survive a valid empty refresh');
+  assert.equal(anonJson.items[0].home.score, 30);
 });
 
 test('scores route reports metadata and caches by explicit seasonType', async () => {
@@ -156,10 +213,6 @@ test('scores refresh: a durable write failure does not publish process-local fre
         { status: 200, headers: { 'content-type': 'application/json' } }
       );
     }
-    // ESPN fallback unavailable, so the refresh cannot succeed by any path.
-    if (url.origin === 'https://site.web.api.espn.com') {
-      return new Response('unavailable', { status: 503 });
-    }
     throw new Error(`unexpected URL: ${url.toString()}`);
   });
 
@@ -187,12 +240,12 @@ test('scores refresh: a durable write failure does not publish process-local fre
 
 // ---------------------------------------------------------------------------
 // PLATFORM-075 — public scores traffic is a pure cache reader. Only an
-// authorized admin refresh (refresh=1) may spend CFBD/ESPN quota. Anonymous
+// authorized admin refresh (refresh=1) may spend CFBD quota. Anonymous
 // requests serve fresh/stale cache or a controlled empty response, never a
 // cold-cache upstream fetch.
 // ---------------------------------------------------------------------------
 
-test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD/ESPN', async () => {
+test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD', async () => {
   let fetchCalls = 0;
   setMockFetch(async () => {
     fetchCalls += 1;
@@ -207,7 +260,7 @@ test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD/ESPN'
 
   // Controlled empty (200) — a week request is a leaf, so no downstream fan-out.
   assert.equal(res.status, 200);
-  assert.equal(fetchCalls, 0, 'anonymous cold cache must not spend CFBD/ESPN quota');
+  assert.equal(fetchCalls, 0, 'anonymous cold cache must not spend CFBD quota');
   assert.equal(json.meta.cache, 'stale');
   assert.equal(json.meta.cfbdFallbackReason, 'upstream-suppressed');
   assert.deepEqual(json.items, []);

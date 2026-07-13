@@ -12,22 +12,33 @@ export type ManualRefreshParams = {
   week?: number;
   /** Required for game-stats — postseason must reach the postseason cache key. */
   seasonType?: 'regular' | 'postseason';
+  /**
+   * Applicable score partitions for this year, derived cache-only from the
+   * schedule by the status feed (rereview finding #1). When provided, the scores
+   * refresh fans out ONLY over these — so a mid-regular-season refresh does not
+   * fire a doomed postseason request before bowls are published. Defaults to both
+   * partitions when omitted (backward compatible).
+   */
+  scoreSeasonTypes?: Array<'regular' | 'postseason'>;
 };
 
 /**
- * The request URL(s) one manual refresh issues for a dataset. Scores fans out to
- * regular + postseason; game-stats includes BOTH the week AND the season type so
- * a postseason repair reaches the postseason cache partition (finding #2) rather
- * than defaulting to `seasonType=regular`.
+ * The request URL(s) one manual refresh issues for a dataset. Scores fans out
+ * over the APPLICABLE partitions (regular + postseason once bowls exist);
+ * game-stats includes BOTH the week AND the season type so a postseason repair
+ * reaches the postseason cache partition rather than defaulting to
+ * `seasonType=regular`.
  */
 export function manualRefreshUrls(dataset: ProviderDataset, params: ManualRefreshParams): string[] {
   const { year, week, seasonType } = params;
   switch (dataset) {
-    case 'scores':
-      return [
-        `/api/scores?seasonType=regular&year=${year}&refresh=1`,
-        `/api/scores?seasonType=postseason&year=${year}&refresh=1`,
-      ];
+    case 'scores': {
+      const partitions =
+        params.scoreSeasonTypes && params.scoreSeasonTypes.length > 0
+          ? params.scoreSeasonTypes
+          : (['regular', 'postseason'] as const);
+      return partitions.map((st) => `/api/scores?seasonType=${st}&year=${year}&refresh=1`);
+    }
     case 'schedule':
       return [`/api/schedule?bypassCache=1&year=${year}`];
     case 'odds':

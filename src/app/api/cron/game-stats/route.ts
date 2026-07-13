@@ -137,6 +137,18 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   }
 
   if (!CFBD_API_KEY) {
+    // Missing credential on an unpaused cron: record a failed attempt so the
+    // panel shows the automatic refresh is broken (rereview finding #5), then
+    // return the established safe response. Prior-good data is preserved.
+    const attempt = await beginProviderRefreshAttempt('game-stats', {
+      startedAt: new Date().toISOString(),
+    });
+    await recordProviderRefreshFailure('game-stats', {
+      attempt,
+      error: 'CFBD_API_KEY not configured',
+      code: 'cfbd-api-key-missing',
+      status: 500,
+    });
     return NextResponse.json(
       { ...emptyResult, error: 'CFBD_API_KEY not configured' },
       { status: 500 }
@@ -191,9 +203,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       };
 
       await setCachedGameStats(result);
+      // Durable commit time for success ordering (rereview finding #3).
+      const committedAt = new Date().toISOString();
 
       await recordProviderRefreshSuccess('game-stats', {
         attempt,
+        committedAt,
         source: 'cfbd',
         rowsCommitted: games.length,
       });

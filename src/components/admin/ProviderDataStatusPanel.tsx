@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { fetchCfbdUsageSnapshot, type CfbdUsageSnapshot } from '@/lib/apiUsage';
-import { describeFreshness, formatRelativeTimestamp } from '@/lib/freshness';
+import { formatRelativeTimestamp } from '@/lib/freshness';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
 import {
   PROVIDER_DATASETS,
@@ -22,6 +22,7 @@ import {
   interpretRefreshResponse,
   manualRefreshUrls,
 } from './manualRefresh';
+import { summarizeProviderState, type SummaryTone } from './providerStatusSummary';
 
 type DatasetRow = {
   dataset: ProviderDataset;
@@ -37,6 +38,8 @@ type StatusFeed = {
   globalPause: boolean;
   datasets: DatasetRow[];
   diagnostics: ProviderDiagnostic[];
+  /** Applicable score partitions for manual refresh (rereview finding #1). */
+  scoreSeasonTypes: Array<'regular' | 'postseason'>;
   oddsUsage: OddsUsageSnapshot | null;
 };
 
@@ -65,34 +68,7 @@ function toneClass(severity: ProviderDiagnostic['severity']): string {
   return 'text-gray-500 dark:text-zinc-400';
 }
 
-/** One-line "what state is this dataset in" summary. */
-function summarizeState(
-  row: DatasetRow,
-  globalPause: boolean,
-  now: number
-): { label: string; tone: 'ok' | 'warn' | 'bad' | 'muted' } {
-  const { status, setting, descriptor } = row;
-  // Pause/disabled only mean something for a dataset whose setting a live job
-  // actually consumes (game-stats today). Showing them for planned/exempt
-  // datasets would imply a runtime effect that does not exist (finding #7).
-  const consumed = descriptor.autoRefreshSettingConsumed;
-  if (consumed && globalPause) return { label: 'Automatic refresh paused (global)', tone: 'warn' };
-  if (consumed && !setting.enabled) return { label: 'Automatic refresh disabled', tone: 'warn' };
-  if (status.lastAttemptAt == null && status.lastSuccessAt == null)
-    return { label: 'Never refreshed', tone: 'muted' };
-  if (status.lastError != null)
-    return { label: 'Last attempt failed — prior-good data still serving', tone: 'bad' };
-  if (status.partialFailure) return { label: 'Partial coverage', tone: 'warn' };
-  if (status.lastSuccessAt) {
-    const fresh = describeFreshness(status.lastSuccessAt, { now, staleAfterMs: 2 * 86_400_000 });
-    if (fresh.tone === 'stale')
-      return { label: 'Successfully refreshed but now stale', tone: 'warn' };
-    return { label: 'Successfully refreshed', tone: 'ok' };
-  }
-  return { label: 'Refresh attempted', tone: 'muted' };
-}
-
-const STATE_TONE_CLASS: Record<'ok' | 'warn' | 'bad' | 'muted', string> = {
+const STATE_TONE_CLASS: Record<SummaryTone, string> = {
   ok: 'text-green-700 dark:text-green-400',
   warn: 'text-amber-700 dark:text-amber-300',
   bad: 'text-red-700 dark:text-red-400',
@@ -190,6 +166,9 @@ export default function ProviderDataStatusPanel({
           year,
           week: gameStatsWeek,
           seasonType: gameStatsSeasonType,
+          // Skip a doomed postseason score request before bowls are scheduled
+          // (rereview finding #1); the feed derives this cache-only.
+          scoreSeasonTypes: feed?.scoreSeasonTypes,
         });
         // Interpret each response: a non-2xx OR a 2xx that served a bundled/
         // prior-good fallback (conferences on provider failure) is a failure, so
@@ -216,7 +195,7 @@ export default function ProviderDataStatusPanel({
       }
       await load();
     },
-    [year, gameStatsWeek, gameStatsSeasonType, load]
+    [year, gameStatsWeek, gameStatsSeasonType, feed?.scoreSeasonTypes, load]
   );
 
   return (
@@ -311,7 +290,11 @@ export default function ProviderDataStatusPanel({
       {/* Per-dataset cards */}
       <div className="space-y-3">
         {(feed?.datasets ?? PROVIDER_DATASETS.map(placeholderRow)).map((row) => {
-          const state = summarizeState(row, feed?.globalPause ?? false, now);
+          const state = summarizeProviderState(row.status, row.descriptor, {
+            globalPause: feed?.globalPause ?? false,
+            enabled: row.setting.enabled,
+            now,
+          });
           const successRel = formatRelativeTimestamp(row.status.lastSuccessAt, now);
           const attemptRel = formatRelativeTimestamp(row.status.lastAttemptAt, now);
           const refreshKey = `refresh:${row.dataset}`;
@@ -491,6 +474,8 @@ function placeholderRow(dataset: ProviderDataset): DatasetRow {
       dataset,
       lastAttemptAt: null,
       lastAttemptId: null,
+      latestAttemptOutcome: null,
+      latestAttemptResolvedAt: null,
       lastSuccessAt: null,
       lastError: null,
       source: null,

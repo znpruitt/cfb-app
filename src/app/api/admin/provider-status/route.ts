@@ -51,15 +51,18 @@ export async function GET(req: Request): Promise<Response> {
   const year = parsedYear ?? seasonYearForToday();
 
   try {
-    const [settings, diagnosticsResult, oddsUsage] = await Promise.all([
-      getProviderRefreshSettings(),
-      getProviderDataDiagnostics(year),
-      getLatestKnownOddsUsage().catch(() => null),
-    ]);
+    // Read durable odds usage ONCE per status request, forcing through to durable
+    // storage (rereview finding #4): the process-local memo can be indefinitely
+    // stale in a multi-instance deployment where another instance refreshed odds.
+    // The single read is shared by the quota display AND the odds diagnostic so
+    // neither reintroduces the stale memo (and there is no duplicate durable read).
+    const oddsUsage = await getLatestKnownOddsUsage({ forceRefresh: true }).catch(() => null);
 
-    const statuses = await Promise.all(
-      PROVIDER_DATASETS.map((dataset) => getProviderRefreshStatus(dataset))
-    );
+    const [settings, diagnosticsResult, statuses] = await Promise.all([
+      getProviderRefreshSettings(),
+      getProviderDataDiagnostics(year, { oddsUsage }),
+      Promise.all(PROVIDER_DATASETS.map((dataset) => getProviderRefreshStatus(dataset))),
+    ]);
 
     const rows: DatasetRow[] = PROVIDER_DATASETS.map((dataset, index) => ({
       dataset,
@@ -75,6 +78,9 @@ export async function GET(req: Request): Promise<Response> {
       globalPause: settings.globalPause,
       datasets: rows,
       diagnostics: diagnosticsResult.diagnostics,
+      // Applicable score partitions for manual refresh (rereview finding #1): the
+      // panel skips a doomed postseason score request before bowls are scheduled.
+      scoreSeasonTypes: diagnosticsResult.scoreSeasonTypes,
       oddsUsage,
     });
   } catch (error) {

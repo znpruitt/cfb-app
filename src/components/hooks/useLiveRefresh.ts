@@ -42,6 +42,13 @@ type UseLiveRefreshParams = {
   setOddsByKey: Dispatch<SetStateAction<Record<string, CombinedOdds>>>;
   setScoresByKey: Dispatch<SetStateAction<Record<string, ScorePack>>>;
   setOddsUsage: Dispatch<SetStateAction<OddsUsageSnapshot | null>>;
+  /**
+   * Set the freshness timestamp of the odds cache entry served for the selected
+   * season (rereview finding #2). Sourced from the odds response's own served-
+   * snapshot time so the user-facing label never inherits another season's
+   * recency; null when nothing is cached for the season.
+   */
+  setOddsSnapshotAt: Dispatch<SetStateAction<string | null>>;
   setLastScoresRefreshAt: Dispatch<SetStateAction<string>>;
   loadingLive: boolean;
   setLoadingLive: Dispatch<SetStateAction<boolean>>;
@@ -139,6 +146,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     setOddsByKey,
     setScoresByKey,
     setOddsUsage,
+    setOddsSnapshotAt,
     setLastScoresRefreshAt,
     loadingLive,
     setLoadingLive,
@@ -230,12 +238,16 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
                 meta?: {
                   cache?: 'hit' | 'miss';
                   usage?: OddsUsageSnapshot | null;
+                  snapshotCapturedAt?: string | null;
                 };
               };
 
               const canonicalItems = oddsPayload.items ?? [];
 
               setOddsUsage(oddsPayload.meta?.usage ?? null);
+              // Served-snapshot freshness for THIS season (finding #2), tied to the
+              // odds cache entry actually returned — null when nothing is cached.
+              setOddsSnapshotAt(oddsPayload.meta?.snapshotCapturedAt ?? null);
               setOddsByKey(buildOddsLookup(canonicalItems));
             } else {
               const t = await oddsRes.text().catch(() => '');
@@ -374,6 +386,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       setLastScoresRefreshAt,
       setOddsByKey,
       setOddsUsage,
+      setOddsSnapshotAt,
       setScoreHydrationState,
       setScoresByKey,
       visibleGames,

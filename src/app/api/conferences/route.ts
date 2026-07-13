@@ -105,8 +105,25 @@ export async function GET(req: Request) {
 
   recordRouteCacheMiss('conferences');
 
+  // Provider-refresh observability (PLATFORM-086A): begin the attempt BEFORE
+  // credential validation, so a missing-key early return still resolves a
+  // recorded failed attempt instead of leaving the panel with no evidence the
+  // refresh was tried (rereview finding #5). Reaching here is always an
+  // authorized refresh (bypassCache requires admin; non-admin cache misses
+  // returned above).
+  const attempt = await beginProviderRefreshAttempt('conferences', {
+    startedAt: new Date().toISOString(),
+  });
+
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
+    // Missing credential: record the failed attempt (prior-good durable snapshot
+    // is preserved by the failure helper) and degrade to the bundled snapshot.
+    await recordProviderRefreshFailure('conferences', {
+      attempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+    });
     return NextResponse.json<ConferencesResponse>({
       items: CONFERENCES_SNAPSHOT,
       meta: {
@@ -116,12 +133,6 @@ export async function GET(req: Request) {
       },
     });
   }
-
-  // Provider-refresh observability (PLATFORM-086A): reaching here means we have
-  // an API key and are about to fetch upstream.
-  const attempt = await beginProviderRefreshAttempt('conferences', {
-    startedAt: new Date().toISOString(),
-  });
 
   try {
     const items = await fetchUpstreamJson<CfbdConferenceRecord[]>(
@@ -139,10 +150,13 @@ export async function GET(req: Request) {
     // failed durable write can't leave this instance serving a "fresh" snapshot
     // no other instance can durably reproduce.
     await setAppState('conferences', 'snapshot', nextCache);
+    // Durable commit time for success ordering (rereview finding #3).
+    const committedAt = new Date().toISOString();
     setConferencesRouteCache(nextCache);
 
     await recordProviderRefreshSuccess('conferences', {
       attempt,
+      committedAt,
       source: 'cfbd_live',
       rowsCommitted: nextCache.items.length,
     });

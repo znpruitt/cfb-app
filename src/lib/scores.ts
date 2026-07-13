@@ -148,7 +148,7 @@ async function fetchScoreRows(params: {
 }): Promise<{ rows: ScoreRow[]; requestUrls: string[] }> {
   const { season, weeks, seasonTypes, issues, apiBaseUrl, refresh = false, authHeaders } = params;
 
-  // Only an authorized (admin) refresh may spend CFBD/ESPN quota (PLATFORM-075).
+  // Only an authorized (admin) refresh may spend CFBD quota (PLATFORM-075).
   // The public path omits refresh and reads cache only; the admin manual refresh
   // propagates refresh=1 + admin credentials so scores still update upstream.
   const refreshSuffix = refresh ? '&refresh=1' : '';

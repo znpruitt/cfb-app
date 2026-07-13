@@ -17,21 +17,17 @@ import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import {
   beginProviderRefreshAttempt,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 import { loadReconciledSeasonScores } from '@/lib/server/scoreCacheReader';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
-import {
-  seasonYearForToday,
-  toScorePackFromCfbd,
-  toScorePackFromEspn,
-} from '@/lib/scores/normalizers';
+import { seasonYearForToday, toScorePackFromCfbd } from '@/lib/scores/normalizers';
 import type {
   CfbdFallbackReason,
   CfbdGameLoose,
-  EspnScoreboard,
   ScorePack,
   ScoresMeta,
   ScoresResponse,
@@ -55,17 +51,6 @@ const CFBD_RETRY_POLICY = {
 const CFBD_PACING_POLICY = {
   key: 'cfbd',
   minIntervalMs: 150,
-} as const;
-const ESPN_RETRY_POLICY = {
-  maxAttempts: 2,
-  baseDelayMs: 200,
-  maxDelayMs: 1_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
-} as const;
-const ESPN_PACING_POLICY = {
-  key: 'espn',
-  minIntervalMs: 100,
 } as const;
 
 const SCORES_CACHE: Record<CacheKey, CacheEntry> = {};
@@ -273,7 +258,7 @@ export async function GET(req: Request) {
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   const now = Date.now();
 
-  // Only an authorized admin refresh may spend upstream CFBD/ESPN quota
+  // Only an authorized admin refresh may spend upstream CFBD quota
   // (PLATFORM-075). Public/anonymous traffic is a pure cache reader below and
   // can never trigger a cold-cache provider fetch.
   const refreshRequested = url.searchParams.get('refresh') === '1';
@@ -283,7 +268,7 @@ export async function GET(req: Request) {
   }
 
   if (!refreshRequested) {
-    // ---- Public/anonymous path: never spends CFBD/ESPN quota ----
+    // ---- Public/anonymous path: never spends CFBD quota ----
     if (week === null) {
       // Season-wide read: always reconcile the season entry with every
       // week-scoped cache server-side (even when the season entry is fresh), so a
@@ -347,96 +332,135 @@ export async function GET(req: Request) {
     });
   }
 
-  // ---- Authorized refresh path: fetch upstream (CFBD -> ESPN fallback) ----
+  // ---- Authorized refresh path: fetch upstream (CFBD only) ----
+  //
+  // CFBD is the SOLE normal production score provider (PLATFORM-086A rereview):
+  // ESPN was removed as an automatic fallback and as a durable score source. The
+  // reliability mechanism is prior-good CFBD cache retention, not a parallel
+  // provider — a CFBD failure preserves the prior-good durable cache and reports
+  // a failure rather than silently substituting a second source.
   recordRouteCacheMiss('scores');
 
   // Provider-refresh observability (PLATFORM-086A): record the attempt before the
-  // fetch; success is recorded only after a durable commit, failure on any 502.
+  // credential check and fetch, so a missing-key early return still resolves a
+  // recorded failed attempt (rereview finding #5). Success is recorded only after
+  // a durable commit; a valid empty CFBD partition is a no-op, not a failure.
   const providerAttempt = await beginProviderRefreshAttempt('scores', {
     startedAt: new Date(now).toISOString(),
   });
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  const cfbdApiKeyMissing = cfbdApiKey.length === 0;
-  let cfbdFallbackReason: CfbdFallbackReason = cfbdApiKeyMissing ? 'api-key-missing' : 'none';
+  if (cfbdApiKey.length === 0) {
+    await recordProviderRefreshFailure('scores', {
+      attempt: providerAttempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+      status: 502,
+      durationMs: Date.now() - now,
+    });
+    return NextResponse.json(
+      {
+        error: 'score refresh unavailable: CFBD API key missing',
+        metadata: { cfbdFallbackReason: 'api-key-missing' as CfbdFallbackReason },
+      },
+      { status: 502 }
+    );
+  }
 
   try {
-    if (cfbdApiKey) {
-      const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
-      const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
+    const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
+    const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
 
-      const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
-        cache: 'no-store',
-        timeoutMs: 12_000,
-        headers: { Authorization: `Bearer ${cfbdApiKey}` },
-        retry: CFBD_RETRY_POLICY,
-        pacing: CFBD_PACING_POLICY,
-      });
+    const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+      headers: { Authorization: `Bearer ${cfbdApiKey}` },
+      retry: CFBD_RETRY_POLICY,
+      pacing: CFBD_PACING_POLICY,
+    });
 
-      const items: ScorePack[] = [];
-      for (const game of rawGames) {
-        const pack = toScorePackFromCfbd(game);
-        if (pack) items.push(pack);
-      }
-
-      if (items.length === 0) {
-        cfbdFallbackReason = 'cfbd-empty';
-        logDebug({
-          requestId,
-          event: 'upstream_empty',
-          endpoint,
-          year,
-          week,
-          seasonType,
-          cacheKey,
-          itemCount: items.length,
-        });
-      }
-
-      if (items.length > 0) {
-        const nextEntry: CacheEntry = {
-          at: now,
-          items,
-          source: 'cfbd',
-          cfbdFallbackReason: 'none',
-        };
-        // Durable-first commit order (PLATFORM-085A): persist to app-state
-        // BEFORE publishing to the process cache and invalidating standings, so
-        // a failed durable write can never leave this instance serving "fresh"
-        // scores that no other instance can durably reproduce. A setAppState
-        // throw propagates, skipping the memory update and the invalidation.
-        await setAppState('scores', cacheKey, nextEntry);
-        SCORES_CACHE[cacheKey] = nextEntry;
-        await invalidateStandingsForYear(year);
-        pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
-          if (IS_DEBUG) {
-            console.log('cfbd cache evicted', {
-              route: 'scores',
-              cacheSize,
-              maxEntries: MAX_CACHE_ENTRIES,
-              evicted,
-            });
-          }
-        });
-
-        await recordProviderRefreshSuccess('scores', {
-          attempt: providerAttempt,
-          source: 'cfbd',
-          rowsCommitted: items.length,
-          durationMs: Date.now() - now,
-        });
-
-        return responseFrom(items, {
-          source: 'cfbd',
-          cache: 'miss',
-          fallbackUsed: false,
-          generatedAt: new Date(now).toISOString(),
-          cfbdFallbackReason: 'none',
-        });
-      }
+    const items: ScorePack[] = [];
+    for (const game of rawGames) {
+      const pack = toScorePackFromCfbd(game);
+      if (pack) items.push(pack);
     }
+
+    if (items.length === 0) {
+      // Valid empty CFBD partition (the request succeeded and validated but had no
+      // rows — e.g. a postseason request before bowls are published, or a future
+      // week). This is VALID ABSENCE, not a failure: do NOT write (so any
+      // prior-good rows are preserved), record a no-op (so the manual UI does not
+      // report failure), and return a successful empty response. No ESPN fallback.
+      logDebug({
+        requestId,
+        event: 'upstream_empty',
+        endpoint,
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        itemCount: 0,
+      });
+      await recordProviderRefreshNoop('scores', {
+        attempt: providerAttempt,
+        source: 'cfbd',
+        durationMs: Date.now() - now,
+      });
+      return responseFrom([], {
+        source: 'cfbd',
+        cache: 'miss',
+        fallbackUsed: false,
+        generatedAt: new Date(now).toISOString(),
+        cfbdFallbackReason: 'cfbd-empty',
+      });
+    }
+
+    const nextEntry: CacheEntry = {
+      at: now,
+      items,
+      source: 'cfbd',
+      cfbdFallbackReason: 'none',
+    };
+    // Durable-first commit order (PLATFORM-085A): persist to app-state BEFORE
+    // publishing to the process cache and invalidating standings, so a failed
+    // durable write can never leave this instance serving "fresh" scores that no
+    // other instance can durably reproduce. A setAppState throw propagates to the
+    // catch below, which records the failed attempt and preserves prior-good data.
+    await setAppState('scores', cacheKey, nextEntry);
+    // Capture the durable COMMIT time for success ordering (rereview finding #3):
+    // last-success is ordered by when data was committed, not when this status
+    // call runs after the standings-invalidation await below.
+    const committedAt = new Date().toISOString();
+    SCORES_CACHE[cacheKey] = nextEntry;
+    await invalidateStandingsForYear(year);
+    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
+      if (IS_DEBUG) {
+        console.log('cfbd cache evicted', {
+          route: 'scores',
+          cacheSize,
+          maxEntries: MAX_CACHE_ENTRIES,
+          evicted,
+        });
+      }
+    });
+
+    await recordProviderRefreshSuccess('scores', {
+      attempt: providerAttempt,
+      committedAt,
+      source: 'cfbd',
+      rowsCommitted: items.length,
+      durationMs: Date.now() - now,
+    });
+
+    return responseFrom(items, {
+      source: 'cfbd',
+      cache: 'miss',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'none',
+    });
   } catch (error) {
-    cfbdFallbackReason = mapCfbdErrorToReason(error);
+    const cfbdFallbackReason = mapCfbdErrorToReason(error);
 
     if (error instanceof UpstreamFetchError) {
       logDebug({
@@ -464,127 +488,34 @@ export async function GET(req: Request) {
         detail: error instanceof Error ? error.message : 'unknown error',
       });
     }
-    // swallow CFBD failure and try ESPN fallback
-  }
 
-  try {
-    if (week == null) {
-      await recordProviderRefreshFailure('scores', {
-        attempt: providerAttempt,
-        error: 'season-wide fallback unavailable',
-        code: cfbdFallbackReason,
-        status: 502,
-        durationMs: Date.now() - now,
-      });
-      return NextResponse.json(
-        {
-          error: 'season-wide fallback unavailable without CFBD API key',
-          metadata: {
-            cfbdFallbackReason,
-          },
-        },
-        { status: 502 }
-      );
-    }
-
-    const espnSeason = seasonType === 'regular' ? '2' : '3';
-    const espnUrl = new URL(
-      'https://site.web.api.espn.com/apis/v2/sports/football/college-football/scoreboard'
-    );
-    espnUrl.searchParams.set('week', String(week));
-    espnUrl.searchParams.set('year', String(year));
-    espnUrl.searchParams.set('seasontype', espnSeason);
-
-    const scoreboard = await fetchUpstreamJson<EspnScoreboard>(espnUrl.toString(), {
-      cache: 'no-store',
-      timeoutMs: 12_000,
-      retry: ESPN_RETRY_POLICY,
-      pacing: ESPN_PACING_POLICY,
-    });
-
-    const items: ScorePack[] = [];
-    for (const event of scoreboard.events ?? []) {
-      const pack = toScorePackFromEspn(event, week, seasonType);
-      if (pack) items.push(pack);
-    }
-
-    const nextEntry: CacheEntry = {
-      at: now,
-      items,
-      source: 'espn',
-      cfbdFallbackReason,
-    };
-    // Durable-first commit order (PLATFORM-085A): persist before publishing to
-    // the process cache and invalidating standings (see the CFBD path above).
-    await setAppState('scores', cacheKey, nextEntry);
-    SCORES_CACHE[cacheKey] = nextEntry;
-    await invalidateStandingsForYear(year);
-    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
-      if (IS_DEBUG) {
-        console.log('cfbd cache evicted', {
-          route: 'scores',
-          cacheSize,
-          maxEntries: MAX_CACHE_ENTRIES,
-          evicted,
-        });
-      }
-    });
-
-    await recordProviderRefreshSuccess('scores', {
-      attempt: providerAttempt,
-      source: 'espn',
-      rowsCommitted: items.length,
-      durationMs: Date.now() - now,
-    });
-
-    return responseFrom(items, {
-      source: 'espn',
-      cache: 'miss',
-      fallbackUsed: true,
-      generatedAt: new Date(now).toISOString(),
-      cfbdFallbackReason,
-    });
-  } catch (error) {
+    // CFBD failed (fetch, validation, or durable persistence): preserve the
+    // prior-good durable cache (nothing was written to the process cache), record
+    // the failed attempt, and return a failure. No ESPN substitution.
     await recordProviderRefreshFailure('scores', {
       attempt: providerAttempt,
-      error: error instanceof Error ? error.message : 'all sources failed',
+      error: error instanceof Error ? error.message : 'CFBD score refresh failed',
       code: cfbdFallbackReason,
       status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
       durationMs: Date.now() - now,
     });
+
     if (error instanceof UpstreamFetchError) {
       return NextResponse.json(
         {
-          error: 'all sources failed',
+          error: 'score refresh failed',
           detail: error.details,
-          metadata: {
-            ...(cfbdApiKeyMissing
-              ? {
-                  cfbdApiKeyMissing: true,
-                  seasonWideEspnFallbackPossible: false,
-                }
-              : {}),
-            cfbdFallbackReason,
-          },
+          metadata: { cfbdFallbackReason },
         },
         { status: error.details.status ?? 502 }
       );
     }
 
-    const detail = error instanceof Error ? error.message : 'unknown error';
     return NextResponse.json(
       {
-        error: 'all sources failed',
-        detail,
-        metadata: {
-          ...(cfbdApiKeyMissing
-            ? {
-                cfbdApiKeyMissing: true,
-                seasonWideEspnFallbackPossible: false,
-              }
-            : {}),
-          cfbdFallbackReason,
-        },
+        error: 'score refresh failed',
+        detail: error instanceof Error ? error.message : 'unknown error',
+        metadata: { cfbdFallbackReason },
       },
       { status: 502 }
     );
