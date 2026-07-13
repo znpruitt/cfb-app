@@ -50,6 +50,12 @@ These diagnostics are **cache-only** — they read the canonical schedule and du
 
 The same panel exposes the operator **global pause** and **per-dataset enable/disable** controls and manual refresh for each dataset (see [deployment.md](../deployment.md) → "Provider-refresh observability & controls"). A failed refresh never advances the dataset's last-success timestamp, so a red "last attempt failed" with an older green "last success" means prior-good data is still being served.
 
+Panel behavior to know when reading it:
+
+- **Manual game-stats repair is season-type-aware.** The game-stats card has both a week and a season-type (regular/postseason) selector — a postseason repair targets the postseason cache key rather than defaulting to regular.
+- **Fallback is not success.** A manual refresh whose route degraded to bundled/prior-good fallback (e.g. the conferences route returns HTTP 200 with `meta.fallbackUsed`) is reported as "Provider refresh failed; fallback data is still serving," not as complete.
+- **Controls are interactive only when they do something.** A per-dataset auto-refresh toggle is interactive only for datasets whose setting a live job consumes today (game-stats). Planned datasets show read-only "control not active yet"; the lifecycle-critical schedule shows "exempt from provider polling pause controls." The settings API likewise rejects toggling a planned or exempt dataset. This keeps the panel from implying a runtime effect that does not exist yet.
+
 ## Guardrails while debugging
 
 - **Do not spend provider quota from public paths** to "test" — use the admin-gated `refresh=1`. The public surfaces intentionally cannot cold-fetch.

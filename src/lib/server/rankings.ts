@@ -231,8 +231,9 @@ export async function loadSeasonRankings(
 
   // Provider-refresh observability (PLATFORM-086A): only the allowRefresh path
   // reaches here (cache-only reads returned above), so this is a real refresh.
-  const attemptStartedAt = new Date(now).toISOString();
-  await beginProviderRefreshAttempt('rankings', attemptStartedAt);
+  const attempt = await beginProviderRefreshAttempt('rankings', {
+    startedAt: new Date(now).toISOString(),
+  });
 
   try {
     const resolver = createTeamIdentityResolver({
@@ -283,7 +284,7 @@ export async function loadSeasonRankings(
     CACHE.set(season, cacheEntry);
 
     await recordProviderRefreshSuccess('rankings', {
-      attemptStartedAt,
+      attempt,
       source: 'cfbd',
       rowsCommitted: weeks.length,
       durationMs: Date.now() - now,
@@ -291,7 +292,7 @@ export async function loadSeasonRankings(
     return response;
   } catch (error) {
     await recordProviderRefreshFailure('rankings', {
-      attemptStartedAt,
+      attempt,
       error: error instanceof Error ? error.message : 'rankings refresh failed',
       durationMs: Date.now() - now,
     });

@@ -119,8 +119,9 @@ export async function GET(req: Request) {
 
   // Provider-refresh observability (PLATFORM-086A): reaching here means we have
   // an API key and are about to fetch upstream.
-  const attemptStartedAt = new Date().toISOString();
-  await beginProviderRefreshAttempt('conferences', attemptStartedAt);
+  const attempt = await beginProviderRefreshAttempt('conferences', {
+    startedAt: new Date().toISOString(),
+  });
 
   try {
     const items = await fetchUpstreamJson<CfbdConferenceRecord[]>(
@@ -141,7 +142,7 @@ export async function GET(req: Request) {
     setConferencesRouteCache(nextCache);
 
     await recordProviderRefreshSuccess('conferences', {
-      attemptStartedAt,
+      attempt,
       source: 'cfbd_live',
       rowsCommitted: nextCache.items.length,
     });
@@ -159,7 +160,7 @@ export async function GET(req: Request) {
     // refresh did fail — record it so operators can see conferences is not
     // refreshing from the provider (prior-good durable snapshot is retained).
     await recordProviderRefreshFailure('conferences', {
-      attemptStartedAt,
+      attempt,
       error: error instanceof Error ? error.message : 'conferences refresh failed',
     });
     return NextResponse.json<ConferencesResponse>({

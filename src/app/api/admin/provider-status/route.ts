@@ -127,6 +127,26 @@ export async function POST(req: Request): Promise<Response> {
       if (typeof body.enabled !== 'boolean') {
         return NextResponse.json({ error: 'enabled must be a boolean' }, { status: 400 });
       }
+      // Honest controls (PLATFORM-086A remediation): only a dataset whose
+      // auto-refresh setting is actually CONSUMED by a live job today can be
+      // toggled. Datasets with no active automation (planned 086B–086E) or the
+      // lifecycle-critical/exempt season-transition schedule cannot be flipped
+      // into a misleading "disabled" state that has no runtime effect. When those
+      // jobs ship, their descriptor flips `autoRefreshSettingConsumed` and the
+      // control activates.
+      const descriptor = getProviderDatasetDescriptor(body.dataset);
+      if (!descriptor.autoRefreshSettingConsumed) {
+        return NextResponse.json(
+          {
+            error: 'dataset-auto-refresh-not-active',
+            detail: descriptor.lifecycleCritical
+              ? `${descriptor.label} automation is lifecycle-critical and exempt from provider polling controls.`
+              : `${descriptor.label} has no active automatic refresh yet — its cadence is planned, so this control is not active.`,
+            dataset: body.dataset,
+          },
+          { status: 400 }
+        );
+      }
       const settings = await setDatasetAutoRefreshEnabled(body.dataset, body.enabled);
       return NextResponse.json({ settings });
     }

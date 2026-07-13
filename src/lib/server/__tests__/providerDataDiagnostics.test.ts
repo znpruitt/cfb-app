@@ -116,3 +116,112 @@ test('coverage present → no scores/game-stats gaps reported', async () => {
     'no game-stats warning when the completed week is cached'
   );
 });
+
+// ---------------------------------------------------------------------------
+// Finding #1 — a split slate (early Thursday + later Saturday games) must not be
+// judged "complete" off the Thursday game while Saturday games remain.
+// ---------------------------------------------------------------------------
+
+const THURSDAY_KICKOFF = '2026-10-09T00:00:00.000Z'; // 6+ days before NOW (old)
+const SATURDAY_STILL_LIVE = '2026-10-15T09:30:00.000Z'; // ~2.5h before NOW (< 6h → not complete)
+
+test('split Thursday/Saturday slate is NOT complete while Saturday games are recent (no false warnings)', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: 'thu',
+        week: 7,
+        seasonType: 'regular',
+        startDate: THURSDAY_KICKOFF,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+      },
+      {
+        id: 'sat',
+        week: 7,
+        seasonType: 'regular',
+        startDate: SATURDAY_STILL_LIVE,
+        status: 'STATUS_IN_PROGRESS',
+        homeTeam: 'Gamma',
+        awayTeam: 'Delta',
+      },
+    ],
+  });
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, NOW);
+  // No cached scores/game-stats for week 7, but the slate is still underway, so
+  // there must be no missing-data warnings for it yet.
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'scores'),
+    undefined,
+    'no false scores warning while the Saturday game is still recent'
+  );
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats' && d.severity === 'warning'),
+    undefined,
+    'no false game-stats warning while the slate is underway'
+  );
+});
+
+test('split slate once the whole slate is old DOES warn on missing data', async () => {
+  // Both games now well in the past → slate complete → missing data flagged.
+  const longAgoNow = Date.parse('2026-10-20T12:00:00.000Z');
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: longAgoNow - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: 'thu',
+        week: 7,
+        seasonType: 'regular',
+        startDate: THURSDAY_KICKOFF,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+      },
+      {
+        id: 'sat',
+        week: 7,
+        seasonType: 'regular',
+        startDate: SATURDAY_STILL_LIVE,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Gamma',
+        awayTeam: 'Delta',
+      },
+    ],
+  });
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, longAgoNow);
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    'a fully completed slate with no game stats is flagged'
+  );
+});
+
+test('postseason completed slate with no game stats is flagged', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: 'bowl',
+        week: 1,
+        seasonType: 'postseason',
+        startDate: COMPLETED_KICKOFF,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+      },
+    ],
+  });
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, NOW);
+  const gs = diagnostics.find((d) => d.dataset === 'game-stats');
+  assert.ok(gs, 'postseason completed slate missing game stats is flagged');
+});

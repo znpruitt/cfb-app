@@ -352,8 +352,9 @@ export async function GET(req: Request) {
 
   // Provider-refresh observability (PLATFORM-086A): record the attempt before the
   // fetch; success is recorded only after a durable commit, failure on any 502.
-  const providerAttemptStartedAt = new Date(now).toISOString();
-  await beginProviderRefreshAttempt('scores', providerAttemptStartedAt);
+  const providerAttempt = await beginProviderRefreshAttempt('scores', {
+    startedAt: new Date(now).toISOString(),
+  });
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   const cfbdApiKeyMissing = cfbdApiKey.length === 0;
@@ -419,7 +420,7 @@ export async function GET(req: Request) {
         });
 
         await recordProviderRefreshSuccess('scores', {
-          attemptStartedAt: providerAttemptStartedAt,
+          attempt: providerAttempt,
           source: 'cfbd',
           rowsCommitted: items.length,
           durationMs: Date.now() - now,
@@ -469,7 +470,7 @@ export async function GET(req: Request) {
   try {
     if (week == null) {
       await recordProviderRefreshFailure('scores', {
-        attemptStartedAt: providerAttemptStartedAt,
+        attempt: providerAttempt,
         error: 'season-wide fallback unavailable',
         code: cfbdFallbackReason,
         status: 502,
@@ -530,7 +531,7 @@ export async function GET(req: Request) {
     });
 
     await recordProviderRefreshSuccess('scores', {
-      attemptStartedAt: providerAttemptStartedAt,
+      attempt: providerAttempt,
       source: 'espn',
       rowsCommitted: items.length,
       durationMs: Date.now() - now,
@@ -545,7 +546,7 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     await recordProviderRefreshFailure('scores', {
-      attemptStartedAt: providerAttemptStartedAt,
+      attempt: providerAttempt,
       error: error instanceof Error ? error.message : 'all sources failed',
       code: cfbdFallbackReason,
       status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,

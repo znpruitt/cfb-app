@@ -52,14 +52,24 @@ function normalizeSeasonType(value: unknown): CfbdSeasonType {
 
 type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff: number };
 
-/** Completed slates (latest kickoff > 6h ago), newest first. */
+/**
+ * Completed slates (whole-slate latest kickoff > 6h ago), newest first.
+ *
+ * A slate is grouped by (year — implicit in the caller, week, seasonType) and its
+ * `latestKickoff` is the MAX kickoff across ALL its games. The completion
+ * threshold is applied to that per-slate maximum, AFTER grouping — never
+ * per-game. This is the PLATFORM-086A remediation for split slates: a week with
+ * an early Thursday game and later Saturday games is not "complete" until the
+ * Saturday games are old, so it no longer raises false missing-score /
+ * missing-game-stats warnings while the slate is still underway.
+ */
 function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number): CompletedSlate[] {
+  // 1) Group EVERY game by slate; track each slate's max kickoff across all games.
   const latestByKey = new Map<SlateKey, CompletedSlate>();
   for (const item of items) {
     if (!item.startDate) continue;
     const kickoff = new Date(item.startDate).getTime();
     if (!Number.isFinite(kickoff)) continue;
-    if (kickoff > now - SLATE_COMPLETE_AFTER_MS) continue;
     const seasonType = normalizeSeasonType(item.seasonType);
     const key = slateKey(item.week, seasonType);
     const prev = latestByKey.get(key);
@@ -67,7 +77,10 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
       latestByKey.set(key, { week: item.week, seasonType, latestKickoff: kickoff });
     }
   }
-  return [...latestByKey.values()].sort((a, b) => b.latestKickoff - a.latestKickoff);
+  // 2) A slate is complete only once its WHOLE-slate latest kickoff is old enough.
+  return [...latestByKey.values()]
+    .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
+    .sort((a, b) => b.latestKickoff - a.latestKickoff);
 }
 
 /** Whether the season is "active" around now (any game within ±45 days). */

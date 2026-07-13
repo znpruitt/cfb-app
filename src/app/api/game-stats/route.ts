@@ -132,8 +132,9 @@ export async function GET(req: Request) {
 
   // Provider-refresh observability (PLATFORM-086A): record the manual refresh
   // attempt before the fetch; success only after the durable cache write.
-  const attemptStartedAt = new Date().toISOString();
-  await beginProviderRefreshAttempt('game-stats', attemptStartedAt);
+  const attempt = await beginProviderRefreshAttempt('game-stats', {
+    startedAt: new Date().toISOString(),
+  });
 
   try {
     const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
@@ -158,7 +159,7 @@ export async function GET(req: Request) {
     await setCachedGameStats(result);
 
     await recordProviderRefreshSuccess('game-stats', {
-      attemptStartedAt,
+      attempt,
       source: 'cfbd',
       rowsCommitted: games.length,
     });
@@ -169,7 +170,7 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     await recordProviderRefreshFailure('game-stats', {
-      attemptStartedAt,
+      attempt,
       error: error instanceof Error ? error.message : 'unknown error',
       status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
     });

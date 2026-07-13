@@ -166,8 +166,9 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     }
 
     // Fetch from CFBD
-    const attemptStartedAt = new Date().toISOString();
-    await beginProviderRefreshAttempt('game-stats', attemptStartedAt);
+    const attempt = await beginProviderRefreshAttempt('game-stats', {
+      startedAt: new Date().toISOString(),
+    });
 
     try {
       const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
@@ -192,7 +193,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       await setCachedGameStats(result);
 
       await recordProviderRefreshSuccess('game-stats', {
-        attemptStartedAt,
+        attempt,
         source: 'cfbd',
         rowsCommitted: games.length,
       });
@@ -206,7 +207,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       });
     } catch (err) {
       await recordProviderRefreshFailure('game-stats', {
-        attemptStartedAt,
+        attempt,
         error: err instanceof Error ? err.message : 'unknown error',
       });
       throw err;

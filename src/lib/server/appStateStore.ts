@@ -36,6 +36,9 @@ let hasLoggedProductionConfigError = false;
 // Test-only: when set, `setAppState` throws this (reads unaffected). See
 // `__setAppStateWriteFailureForTests`. Always null outside tests.
 let __writeFailureForTests: Error | null = null;
+// Test-only: when set, `getAppState` throws this (writes unaffected). See
+// `__setAppStateReadFailureForTests`. Always null outside tests.
+let __readFailureForTests: Error | null = null;
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -211,6 +214,11 @@ export async function getAppState<T>(
   key: string
 ): Promise<AppStateRecord<T> | null> {
   assertDurableStorageAvailable();
+  // Test-only seam: simulate a durable READ failure while writes still succeed,
+  // so callers that distinguish "record absent" from "read failed" (e.g.
+  // providerRefreshStatus, PLATFORM-086A) can be exercised. Never set in
+  // production paths.
+  if (__readFailureForTests) throw __readFailureForTests;
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
@@ -382,6 +390,7 @@ export function __resetAppStateForTests(): void {
   initPromise = null;
   hasLoggedProductionConfigError = false;
   __writeFailureForTests = null;
+  __readFailureForTests = null;
   if (pool) {
     void pool.end().catch(() => undefined);
   }
@@ -396,4 +405,14 @@ export function __resetAppStateForTests(): void {
  */
 export function __setAppStateWriteFailureForTests(error: Error | null): void {
   __writeFailureForTests = error;
+}
+
+/**
+ * Test-only: make subsequent `getAppState` calls reject with `error` (writes are
+ * unaffected). Pass `null` to clear. Used to exercise callers that must
+ * distinguish an absent record from a failed read (PLATFORM-086A provider
+ * refresh status). Cleared automatically by `__resetAppStateForTests`.
+ */
+export function __setAppStateReadFailureForTests(error: Error | null): void {
+  __readFailureForTests = error;
 }

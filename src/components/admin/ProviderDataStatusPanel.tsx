@@ -15,6 +15,13 @@ import {
 import type { ProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 import type { ProviderDiagnostic } from '@/lib/server/providerDataDiagnostics';
 import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
+import {
+  combineOutcomes,
+  controlModeLabel,
+  datasetControlMode,
+  interpretRefreshResponse,
+  manualRefreshUrls,
+} from './manualRefresh';
 
 type DatasetRow = {
   dataset: ProviderDataset;
@@ -65,9 +72,12 @@ function summarizeState(
   now: number
 ): { label: string; tone: 'ok' | 'warn' | 'bad' | 'muted' } {
   const { status, setting, descriptor } = row;
-  const pausedByGlobal = globalPause && !descriptor.lifecycleCritical;
-  if (pausedByGlobal) return { label: 'Automatic refresh paused (global)', tone: 'warn' };
-  if (!setting.enabled) return { label: 'Automatic refresh disabled', tone: 'warn' };
+  // Pause/disabled only mean something for a dataset whose setting a live job
+  // actually consumes (game-stats today). Showing them for planned/exempt
+  // datasets would imply a runtime effect that does not exist (finding #7).
+  const consumed = descriptor.autoRefreshSettingConsumed;
+  if (consumed && globalPause) return { label: 'Automatic refresh paused (global)', tone: 'warn' };
+  if (consumed && !setting.enabled) return { label: 'Automatic refresh disabled', tone: 'warn' };
   if (status.lastAttemptAt == null && status.lastSuccessAt == null)
     return { label: 'Never refreshed', tone: 'muted' };
   if (status.lastError != null)
@@ -99,6 +109,9 @@ export default function ProviderDataStatusPanel({
   const [cfbdUsage, setCfbdUsage] = useState<CfbdUsageSnapshot | null>(null);
   const [actions, setActions] = useState<Record<string, ActionState>>({});
   const [gameStatsWeek, setGameStatsWeek] = useState<number>(1);
+  const [gameStatsSeasonType, setGameStatsSeasonType] = useState<'regular' | 'postseason'>(
+    'regular'
+  );
   const [now, setNow] = useState<number>(() => Date.now());
 
   const load = useCallback(async () => {
@@ -173,41 +186,27 @@ export default function ProviderDataStatusPanel({
       const headers = requireAdminAuthHeaders() as Record<string, string>;
       const opts = { cache: 'no-store' as const, headers };
       try {
-        let requests: Promise<Response>[] = [];
-        switch (dataset) {
-          case 'scores':
-            requests = [
-              fetch(`/api/scores?seasonType=regular&year=${year}&refresh=1`, opts),
-              fetch(`/api/scores?seasonType=postseason&year=${year}&refresh=1`, opts),
-            ];
-            break;
-          case 'schedule':
-            requests = [fetch(`/api/schedule?bypassCache=1&year=${year}`, opts)];
-            break;
-          case 'odds':
-            requests = [fetch(`/api/odds?year=${year}&refresh=1`, opts)];
-            break;
-          case 'rankings':
-            requests = [fetch(`/api/rankings?year=${year}&bypassCache=1`, opts)];
-            break;
-          case 'conferences':
-            requests = [fetch(`/api/conferences?bypassCache=1`, opts)];
-            break;
-          case 'game-stats':
-            requests = [
-              fetch(`/api/game-stats?year=${year}&week=${gameStatsWeek}&bypassCache=1`, opts),
-            ];
-            break;
-        }
-        const responses = await Promise.all(requests);
-        const failed = responses.filter((r) => !r.ok);
-        if (failed.length > 0) {
+        const urls = manualRefreshUrls(dataset, {
+          year,
+          week: gameStatsWeek,
+          seasonType: gameStatsSeasonType,
+        });
+        // Interpret each response: a non-2xx OR a 2xx that served a bundled/
+        // prior-good fallback (conferences on provider failure) is a failure, so
+        // the panel never reports success over a provider failure (finding #6).
+        const outcomes = await Promise.all(
+          urls.map((url) => fetch(url, opts).then(interpretRefreshResponse))
+        );
+        const combined = combineOutcomes(outcomes);
+        if (combined.ok) {
+          setAction(key, { status: 'success' });
+        } else if (combined.kind === 'fallback') {
           setAction(key, {
             status: 'error',
-            message: `${failed.map((r) => r.status).join(', ')}`,
+            message: 'Provider refresh failed; fallback data is still serving.',
           });
         } else {
-          setAction(key, { status: 'success' });
+          setAction(key, { status: 'error', message: `HTTP ${combined.status}` });
         }
       } catch (err) {
         setAction(key, {
@@ -217,7 +216,7 @@ export default function ProviderDataStatusPanel({
       }
       await load();
     },
-    [year, gameStatsWeek, load]
+    [year, gameStatsWeek, gameStatsSeasonType, load]
   );
 
   return (
@@ -317,6 +316,7 @@ export default function ProviderDataStatusPanel({
           const attemptRel = formatRelativeTimestamp(row.status.lastAttemptAt, now);
           const refreshKey = `refresh:${row.dataset}`;
           const toggleKey = `toggle:${row.dataset}`;
+          const controlMode = datasetControlMode(row.descriptor);
           return (
             <div key={row.dataset} className={cardClass}>
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -340,29 +340,41 @@ export default function ProviderDataStatusPanel({
                   >
                     {actions[refreshKey]?.status === 'loading' ? 'Refreshing…' : 'Manual refresh'}
                   </button>
-                  <label className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-zinc-400">
-                    <input
-                      type="checkbox"
-                      checked={row.setting.enabled}
-                      disabled={actions[toggleKey]?.status === 'loading'}
-                      onChange={(e) =>
-                        void mutateSettings(
-                          {
-                            action: 'set-dataset-enabled',
-                            dataset: row.dataset,
-                            enabled: e.target.checked,
-                          },
-                          toggleKey
-                        )
-                      }
-                    />
-                    auto
-                  </label>
+                  {/* Honest controls (finding #7): only an interactive toggle when
+                      a live job actually consumes the setting; otherwise read-only
+                      future-intent / lifecycle-exempt language. */}
+                  {controlMode === 'interactive' ? (
+                    <label className="flex items-center gap-1 text-[11px] text-gray-500 dark:text-zinc-400">
+                      <input
+                        type="checkbox"
+                        checked={row.setting.enabled}
+                        disabled={actions[toggleKey]?.status === 'loading'}
+                        onChange={(e) =>
+                          void mutateSettings(
+                            {
+                              action: 'set-dataset-enabled',
+                              dataset: row.dataset,
+                              enabled: e.target.checked,
+                            },
+                            toggleKey
+                          )
+                        }
+                      />
+                      auto
+                    </label>
+                  ) : (
+                    <span
+                      className="max-w-[10rem] text-[10px] italic text-gray-400 dark:text-zinc-500"
+                      title={controlModeLabel(controlMode)}
+                    >
+                      {controlMode === 'lifecycle-exempt' ? 'auto: exempt' : 'auto: planned'}
+                    </span>
+                  )}
                 </div>
               </div>
 
               {row.dataset === 'game-stats' && (
-                <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
                   <label>Week</label>
                   <input
                     type="number"
@@ -371,6 +383,21 @@ export default function ProviderDataStatusPanel({
                     onChange={(e) => setGameStatsWeek(Number(e.target.value))}
                     className="w-16 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
                   />
+                  {/* Season type (finding #2): postseason repair must reach the
+                      postseason cache key, not default to regular. */}
+                  <label>Season</label>
+                  <select
+                    value={gameStatsSeasonType}
+                    onChange={(e) =>
+                      setGameStatsSeasonType(
+                        e.target.value === 'postseason' ? 'postseason' : 'regular'
+                      )
+                    }
+                    className="rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+                  >
+                    <option value="regular">regular</option>
+                    <option value="postseason">postseason</option>
+                  </select>
                   <span>for manual refresh</span>
                 </div>
               )}
@@ -463,6 +490,7 @@ function placeholderRow(dataset: ProviderDataset): DatasetRow {
     status: {
       dataset,
       lastAttemptAt: null,
+      lastAttemptId: null,
       lastSuccessAt: null,
       lastError: null,
       source: null,

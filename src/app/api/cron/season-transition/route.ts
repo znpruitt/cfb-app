@@ -121,8 +121,9 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // its probe outcome is still recorded so operators can see when the
         // schedule was last (successfully) refreshed. Multiple probed years in
         // one run are last-write-wins on the shared schedule status key.
-        const scheduleAttemptStartedAt = new Date(nowMs).toISOString();
-        await beginProviderRefreshAttempt('schedule', scheduleAttemptStartedAt);
+        const scheduleAttempt = await beginProviderRefreshAttempt('schedule', {
+          startedAt: new Date(nowMs).toISOString(),
+        });
 
         // Fetch schedule from CFBD for both regular and postseason.
         const { items, failedSeasonTypes } = await fetchCfbdSchedule(targetYear);
@@ -144,7 +145,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           yearResult.partialFailure = true;
           yearResult.failedSeasonTypes = failedSeasonTypes;
           await recordProviderRefreshFailure('schedule', {
-            attemptStartedAt: scheduleAttemptStartedAt,
+            attempt: scheduleAttempt,
             error: `season-transition probe incomplete (missing: ${failedSeasonTypes.join(', ') || 'unknown'})`,
             partialFailure: true,
             failedPartitions: failedSeasonTypes,
@@ -177,7 +178,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           probeState = newProbeState;
 
           await recordProviderRefreshSuccess('schedule', {
-            attemptStartedAt: scheduleAttemptStartedAt,
+            attempt: scheduleAttempt,
             source: 'cfbd',
             rowsCommitted: items.length,
           });

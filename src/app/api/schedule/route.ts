@@ -379,8 +379,9 @@ export async function GET(req: Request) {
   // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
   // (or bypassCache) refresh will fetch upstream. Record the attempt before the
   // fetch; success is recorded only after a durable commit, failure on any 502.
-  const providerAttemptStartedAt = new Date(now).toISOString();
-  await beginProviderRefreshAttempt('schedule', providerAttemptStartedAt);
+  const providerAttempt = await beginProviderRefreshAttempt('schedule', {
+    startedAt: new Date(now).toISOString(),
+  });
 
   const seasonTypes: SeasonType[] =
     requestedSeasonType === 'all' ? ['regular', 'postseason'] : [requestedSeasonType];
@@ -449,7 +450,7 @@ export async function GET(req: Request) {
     // prior-good durable schedule retained. Record failure so last-success is not
     // advanced and the partial is visible to operators.
     await recordProviderRefreshFailure('schedule', {
-      attemptStartedAt: providerAttemptStartedAt,
+      attempt: providerAttempt,
       error:
         firstError instanceof Error
           ? firstError.message
@@ -508,7 +509,7 @@ export async function GET(req: Request) {
   // means all requested partitions resolved (085B gate above), so this is a
   // complete refresh.
   await recordProviderRefreshSuccess('schedule', {
-    attemptStartedAt: providerAttemptStartedAt,
+    attempt: providerAttempt,
     source: 'cfbd',
     rowsCommitted: items.length,
     partialFailure: failedSeasonTypes.length > 0,

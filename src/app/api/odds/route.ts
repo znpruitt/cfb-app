@@ -37,6 +37,7 @@ import {
   beginProviderRefreshAttempt,
   recordProviderRefreshFailure,
   recordProviderRefreshSuccess,
+  type ProviderRefreshAttempt,
 } from '../../../lib/server/providerRefreshStatus.ts';
 import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
@@ -443,7 +444,7 @@ export async function GET(req: Request): Promise<Response> {
   // was actually attempted (never for a public cache-only read that happens to
   // throw). `oddsSuccessRecorded` prevents a post-commit throw from double-writing
   // a failure over an already-recorded success.
-  let oddsRefreshStartedAt: string | null = null;
+  let oddsAttempt: ProviderRefreshAttempt | null = null;
   let oddsSuccessRecorded = false;
   try {
     const parsedQuery = parseOddsQuery(new URL(req.url));
@@ -519,11 +520,23 @@ export async function GET(req: Request): Promise<Response> {
       // ---- Authorized admin refresh: the only path allowed to spend quota ----
       recordRouteCacheMiss('odds');
 
-      oddsRefreshStartedAt = new Date().toISOString();
-      await beginProviderRefreshAttempt('odds', oddsRefreshStartedAt);
+      oddsAttempt = await beginProviderRefreshAttempt('odds', {
+        startedAt: new Date().toISOString(),
+      });
 
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
       if (!oddsApiKey) {
+        // The attempt was already recorded; this early return bypasses the catch,
+        // so record the matching failure here (PLATFORM-086A) — prior-good odds +
+        // last-success are preserved by the failure helper.
+        await recordProviderRefreshFailure('odds', {
+          attempt: oddsAttempt,
+          error: 'ODDS_API_KEY missing',
+          code: 'odds-api-key-missing',
+          status: 503,
+        });
+        // `return` (not throw) exits without reaching the catch, so this failure
+        // is recorded exactly once.
         return new Response(JSON.stringify({ error: 'ODDS_API_KEY missing' }), {
           status: 503,
           headers: { 'Content-Type': 'application/json' },
@@ -616,7 +629,7 @@ export async function GET(req: Request): Promise<Response> {
       // durable commit per the truthfulness invariant; the guard prevents a later
       // throw (e.g. in canonical item building) from overwriting it with a failure.
       await recordProviderRefreshSuccess('odds', {
-        attemptStartedAt: oddsRefreshStartedAt ?? undefined,
+        attempt: oddsAttempt ?? undefined,
         source: 'odds-api',
         rowsCommitted: responseEntry.data.length,
         usage: usage
@@ -682,10 +695,10 @@ export async function GET(req: Request): Promise<Response> {
     // Attribute the failure to the odds refresh only when a refresh was actually
     // attempted and no success was recorded (PLATFORM-086A). Public cache-only
     // reads that throw are not refresh attempts.
-    if (oddsRefreshStartedAt && !oddsSuccessRecorded) {
+    if (oddsAttempt && !oddsSuccessRecorded) {
       const latestUsage = await getLatestKnownOddsUsage().catch(() => null);
       await recordProviderRefreshFailure('odds', {
-        attemptStartedAt: oddsRefreshStartedAt,
+        attempt: oddsAttempt,
         error: e instanceof Error ? e.message : 'internal error',
         status: e instanceof UpstreamFetchError ? (e.details.status ?? 502) : 500,
         usage: latestUsage

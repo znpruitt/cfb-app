@@ -86,7 +86,7 @@ test('POST set-global-pause persists and is reflected on the next GET', async ()
   assert.equal(body.globalPause, true);
 });
 
-test('POST set-dataset-enabled persists per-dataset', async () => {
+test('POST set-dataset-enabled persists for a CONSUMED dataset (game-stats)', async () => {
   const postRes = await POST(
     postRequest({ action: 'set-dataset-enabled', dataset: 'game-stats', enabled: false })
   );
@@ -98,6 +98,25 @@ test('POST set-dataset-enabled persists per-dataset', async () => {
   };
   const gameStats = body.datasets.find((d) => d.dataset === 'game-stats');
   assert.equal(gameStats?.setting.enabled, false);
+});
+
+test('POST set-dataset-enabled is REJECTED for a planned/unconsumed dataset (finding #7)', async () => {
+  for (const dataset of ['scores', 'odds', 'rankings', 'conferences']) {
+    const res = await POST(postRequest({ action: 'set-dataset-enabled', dataset, enabled: false }));
+    assert.equal(res.status, 400, `${dataset} toggle must be rejected as not-yet-active`);
+    const body = (await res.json()) as { error: string };
+    assert.equal(body.error, 'dataset-auto-refresh-not-active');
+  }
+});
+
+test('POST set-dataset-enabled is REJECTED for lifecycle-critical schedule (finding #7)', async () => {
+  const res = await POST(
+    postRequest({ action: 'set-dataset-enabled', dataset: 'schedule', enabled: false })
+  );
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: string; detail: string };
+  assert.equal(body.error, 'dataset-auto-refresh-not-active');
+  assert.match(body.detail, /exempt/i);
 });
 
 test('POST rejects an unknown dataset', async () => {
