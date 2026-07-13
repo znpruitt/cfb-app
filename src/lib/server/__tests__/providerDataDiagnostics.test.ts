@@ -8,6 +8,7 @@ import {
 } from '../appStateStore.ts';
 import { __resetOddsUsageStoreForTests, setLatestKnownOddsUsage } from '../oddsUsageStore.ts';
 import { getProviderDataDiagnostics } from '../providerDataDiagnostics.ts';
+import { createOddsCacheKey, defaultOddsCacheKey } from '../../../app/api/odds/routeInternals.ts';
 
 const YEAR = 2026;
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
@@ -418,6 +419,46 @@ test('a disrupted (canceled) game is not counted as an expected missing game-sta
   );
 });
 
+test('a completed slate whose every game is disrupted produces NO missing-stats warning (finding #3)', async () => {
+  await seedScheduleItems([
+    {
+      id: '106',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'Canceled',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '107',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'Postponed',
+      homeTeam: 'Echo',
+      awayTeam: 'Foxtrot',
+    },
+    {
+      id: '102',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+  // No game-stats cached for the week, but every completed game is disrupted → no
+  // stat-producing games are expected, so the slate is not applicable.
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    undefined,
+    'a disrupted-only slate must never produce a permanent missing-stats warning'
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Split slate (early Thursday + later Saturday games) — must not be judged
 // "complete" off the Thursday game while Saturday games remain.
@@ -555,52 +596,77 @@ test('scoreSeasonTypes falls back to regular when no schedule is cached', async 
 });
 
 // ---------------------------------------------------------------------------
-// 4th-review finding #4 — odds freshness derives from the SELECTED SEASON's
-// odds cache, never the global quota-observation timestamp.
+// 5th-review finding #2 — odds freshness derives from the CANONICAL/DEFAULT
+// season-scoped odds cache entry only — never the newest across filtered query
+// variants, and never the global quota-observation timestamp.
 // ---------------------------------------------------------------------------
 
 const STALE_ODDS_FETCH = NOW - 5 * 24 * 60 * 60 * 1000; // > 2 days → stale
 const FRESH_ODDS_FETCH = NOW - 60 * 1000; // 1 min → fresh
 
-function seedOddsCache(season: number, key: string, lastFetch: number) {
-  return setAppState('odds-cache', `${season}:${key}`, {
+// The exact key the served UI's default (unfiltered) odds request writes.
+function seedCanonicalOddsCache(season: number, lastFetch: number) {
+  return setAppState('odds-cache', defaultOddsCacheKey(season), {
     data: [],
     lastFetch,
     usage: null,
   });
 }
 
-test('a stale selected-season odds cache raises a recency warning', async () => {
+// A DIFFERENT key from a filtered markets/bookmakers request.
+function seedFilteredOddsCache(season: number, lastFetch: number) {
+  const key = `${season}:${createOddsCacheKey({
+    bookmakers: ['draftkings'],
+    markets: ['h2h'],
+    regions: ['us'],
+  })}`;
+  return setAppState('odds-cache', key, { data: [], lastFetch, usage: null });
+}
+
+test('a stale canonical odds cache raises a recency warning', async () => {
   await seedSchedule();
-  await seedOddsCache(YEAR, 'default', STALE_ODDS_FETCH);
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   const oddsWarn = diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning');
-  assert.ok(oddsWarn, 'the season-scoped cache entry drives the odds recency warning');
+  assert.ok(oddsWarn, 'the canonical cache entry drives the odds recency warning');
 });
 
-test('a recent selected-season odds cache raises no warning', async () => {
+test('a recent canonical odds cache raises no warning', async () => {
   await seedSchedule();
-  await seedOddsCache(YEAR, 'default', FRESH_ODDS_FETCH);
+  await seedCanonicalOddsCache(YEAR, FRESH_ODDS_FETCH);
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.equal(
     diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
     undefined,
-    'a fresh season cache is not stale'
+    'a fresh canonical cache is not stale'
   );
 });
 
-test('no odds cache for the selected season → info "unknown", never a suppressed warning', async () => {
+test('no canonical odds cache → info "unknown", even when filtered entries exist (finding #2)', async () => {
   await seedSchedule();
+  // Only a filtered entry exists — it must NOT be borrowed as canonical freshness.
+  await seedFilteredOddsCache(YEAR, FRESH_ODDS_FETCH);
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   const oddsInfo = diagnostics.find((d) => d.dataset === 'odds');
-  assert.ok(oddsInfo, 'absence is reported');
+  assert.ok(oddsInfo, 'absence of the canonical entry is reported');
   assert.equal(oddsInfo!.severity, 'info');
 });
 
-test("another season's fresh odds cache does not suppress this season's stale warning", async () => {
+test('a recent FILTERED refresh does not make the stale canonical cache look fresh (finding #2)', async () => {
   await seedSchedule();
-  await seedOddsCache(YEAR, 'default', STALE_ODDS_FETCH); // selected season: stale
-  await seedOddsCache(YEAR - 1, 'default', FRESH_ODDS_FETCH); // other season: fresh
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH); // served/default: stale
+  await seedFilteredOddsCache(YEAR, FRESH_ODDS_FETCH); // filtered variant: fresh
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    'a filtered refresh must not suppress the canonical staleness warning'
+  );
+});
+
+test("another season's fresh canonical cache does not suppress this season's stale warning", async () => {
+  await seedSchedule();
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH); // selected season: stale
+  await seedCanonicalOddsCache(YEAR - 1, FRESH_ODDS_FETCH); // other season: fresh
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.ok(
     diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
@@ -608,9 +674,9 @@ test("another season's fresh odds cache does not suppress this season's stale wa
   );
 });
 
-test('a fresh global quota timestamp does NOT make a stale season odds cache look fresh', async () => {
+test('a fresh global quota timestamp does NOT make a stale canonical odds cache look fresh', async () => {
   await seedSchedule();
-  await seedOddsCache(YEAR, 'default', STALE_ODDS_FETCH);
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
   // A recent quota observation (e.g. from a failed 402/429 or another season's
   // request). It must not affect this season's data-freshness verdict.
   await setLatestKnownOddsUsage({
@@ -630,5 +696,45 @@ test('a fresh global quota timestamp does NOT make a stale season odds cache loo
   assert.ok(
     diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
     'quota freshness is decoupled from odds-data freshness'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 5th-review finding #6 — rankings coverage requires usable CONTENT, not just a
+// cached record.
+// ---------------------------------------------------------------------------
+
+function seedRankings(at: number, weeks: unknown[]) {
+  return setAppState('rankings', String(YEAR), { at, response: { weeks } });
+}
+
+test('a rankings record with weeks:[] does NOT count as coverage (finding #6)', async () => {
+  await seedSchedule();
+  await seedRankings(NOW, []); // record present but empty
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const rankingsInfo = diagnostics.find((d) => d.dataset === 'rankings');
+  assert.ok(rankingsInfo, 'an empty rankings record is reported as unavailable');
+  assert.equal(rankingsInfo!.severity, 'info');
+  assert.match(rankingsInfo!.message, /no rankings/i);
+});
+
+test('a recent rankings record with usable weeks is healthy (no warning)', async () => {
+  await seedSchedule();
+  await seedRankings(NOW - 60_000, [{ week: 1, teams: [{ teamId: 'x' }] }]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'rankings'),
+    undefined,
+    'fresh usable rankings produce no diagnostic'
+  );
+});
+
+test('an old rankings record with usable weeks warns as stale during an active season', async () => {
+  await seedSchedule();
+  await seedRankings(NOW - 9 * 24 * 60 * 60 * 1000, [{ week: 1, teams: [{ teamId: 'x' }] }]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'rankings' && d.severity === 'warning'),
+    'usable-but-old rankings warn as stale'
   );
 });

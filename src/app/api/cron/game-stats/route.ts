@@ -3,8 +3,11 @@ import { NextResponse } from 'next/server';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
-import { hasUsableGameStats } from '@/lib/gameStats/coverage';
-import { normalizeGameTeamStats } from '@/lib/gameStats/normalizers';
+import {
+  classifyGameStatsPayload,
+  expectsGameStats,
+  hasUsableGameStats,
+} from '@/lib/gameStats/coverage';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
@@ -12,6 +15,7 @@ import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 import type { CacheEntry } from '@/app/api/schedule/cache';
@@ -72,12 +76,17 @@ async function findLatestCompletedWeek(
   const now = Date.now();
   const items = stored.value.items;
 
-  // Build a map of (week, seasonType) → latest game startDate
+  // Build a map of (week, seasonType) → latest game startDate. Only STAT-PRODUCING
+  // games count (5th-review finding #1): a disrupted game (canceled/postponed/…)
+  // never yields team stats, so a slate composed solely of them contributes
+  // nothing and is never selected — otherwise every cron run would re-spend CFBD
+  // quota on a permanently unresolvable week (its cache can never be "usable").
   const slateMaxDate = new Map<string, number>();
   const completedThreshold = now - 6 * 60 * 60 * 1000;
 
   for (const item of items) {
     if (!item.startDate) continue;
+    if (!expectsGameStats(item.status)) continue;
     const gameTime = new Date(item.startDate).getTime();
     if (gameTime > completedThreshold) continue;
 
@@ -199,7 +208,39 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         pacing: PACING_POLICY,
       });
 
-      const games = normalizeGameTeamStats(rawGames, week, seasonType);
+      // Classify the provider response before committing (5th-review finding #5).
+      const classification = classifyGameStatsPayload(rawGames, week, seasonType);
+      if (classification.kind === 'noop') {
+        // Genuine empty provider array (stats not published yet): a no-op, NOT a
+        // durable commit. Writing `games: []` would advance last-success while
+        // `hasUsableGameStats` still treats the week as uncovered — a contradiction.
+        await recordProviderRefreshNoop('game-stats', { attempt, source: 'cfbd' });
+        return NextResponse.json({
+          year,
+          week,
+          seasonType,
+          gamesProcessed: 0,
+          fetchedAt: null,
+          skipped: `week ${week} ${seasonType}: provider returned no game stats yet (no-op)`,
+        });
+      }
+      if (classification.kind === 'no-usable-rows') {
+        // A NONEMPTY payload that normalized to zero usable rows is schema
+        // drift/validation failure — preserve prior-good, record failed, do not
+        // advance last-success.
+        await recordProviderRefreshFailure('game-stats', {
+          attempt,
+          error: `week ${week} ${seasonType}: provider returned rows but none normalized to a usable game stat`,
+          code: 'game-stats-no-usable-rows',
+          status: 502,
+        });
+        return NextResponse.json(
+          { ...emptyResult, week, seasonType, error: 'game-stats-no-usable-rows' },
+          { status: 502 }
+        );
+      }
+
+      const { games } = classification;
       const fetchedAt = new Date().toISOString();
 
       const result: WeeklyGameStats = {

@@ -13,6 +13,7 @@ import {
 } from '../../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats, setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
 import type { GameStats } from '../../../../../lib/gameStats/types.ts';
+import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const CRON_SECRET = 'test-cron-secret';
@@ -68,6 +69,37 @@ async function seedCompletedSchedule() {
   });
 }
 
+type ScheduleSeed = {
+  id: string;
+  week: number;
+  startDate: string;
+  status: string;
+  seasonType?: 'regular' | 'postseason';
+};
+
+async function seedScheduleItems(items: ScheduleSeed[]) {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: Date.now(),
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: items.map((it) => ({
+      id: it.id,
+      week: it.week,
+      seasonType: it.seasonType ?? 'regular',
+      startDate: it.startDate,
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: `Home ${it.id}`,
+      awayTeam: `Away ${it.id}`,
+      homeConference: 'X',
+      awayConference: 'Y',
+      status: it.status,
+    })),
+  });
+}
+
+const DAYS_AGO = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+
 function stubTeamStats() {
   globalThis.fetch = (async () =>
     new Response(
@@ -82,6 +114,20 @@ function stubTeamStats() {
       ]),
       { status: 200, headers: { 'content-type': 'application/json' } }
     )) as typeof fetch;
+}
+
+function stubJson(body: unknown) {
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+}
+
+function stubThrow(message: string) {
+  globalThis.fetch = (async () => {
+    throw new Error(message);
+  }) as typeof fetch;
 }
 
 test.beforeEach(async () => {
@@ -135,4 +181,66 @@ test('the cron skips a week that already has usable cached stats (finding #3)', 
   const body = (await res.json()) as { skipped?: string };
   assert.equal(res.status, 200);
   assert.match(String(body.skipped ?? ''), /already cached/i);
+});
+
+// 5th-review finding #1 — disrupted-only slates are never selected for retrieval.
+test('the cron does not select a disrupted-only latest slate; it picks the older eligible one', async () => {
+  await seedScheduleItems([
+    // Latest completed slate (week 5) is entirely disrupted → not stat-producing.
+    { id: '9001', week: 5, startDate: DAYS_AGO(2), status: 'Canceled' },
+    { id: '9002', week: 5, startDate: DAYS_AGO(2), status: 'Postponed' },
+    // Older completed slate (week 3) has a real final game → eligible.
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  stubTeamStats();
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as { week?: number; gamesProcessed?: number; skipped?: string };
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.week, 3, 'the disrupted week 5 is skipped; the eligible week 3 is selected');
+  assert.equal(body.gamesProcessed, 1);
+});
+
+test('a disrupted-only schedule yields no eligible slate and spends no provider call', async () => {
+  await seedScheduleItems([
+    { id: '9001', week: 5, startDate: DAYS_AGO(2), status: 'Canceled' },
+    { id: '9002', week: 5, startDate: DAYS_AGO(2), status: 'Suspended' },
+  ]);
+  stubThrow('cron must not fetch when no stat-producing slate exists');
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as { skipped?: string };
+  assert.equal(res.status, 200);
+  assert.match(String(body.skipped ?? ''), /no completed weeks/i);
+});
+
+// 5th-review finding #5 — empty/nonempty-zero provider responses.
+test('a genuinely empty provider response resolves as a no-op without a durable write', async () => {
+  await seedCompletedSchedule();
+  stubJson([]); // CFBD returns [] — stats not published yet
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as { skipped?: string; gamesProcessed?: number };
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.gamesProcessed, 0);
+
+  assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no empty record written');
+  const status = await getProviderRefreshStatus('game-stats');
+  assert.equal(status.latestAttemptOutcome, 'no-op');
+  assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
+});
+
+test('a nonempty payload that normalizes to zero usable rows resolves as failure (no write)', async () => {
+  await seedCompletedSchedule();
+  // A row missing its away team is dropped by normalization → zero usable rows.
+  stubJson([{ id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] }]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as { error?: string };
+  assert.equal(res.status, 502, JSON.stringify(body));
+  assert.equal(body.error, 'game-stats-no-usable-rows');
+
+  assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no unusable record written');
+  const status = await getProviderRefreshStatus('game-stats');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'game-stats-no-usable-rows');
 });

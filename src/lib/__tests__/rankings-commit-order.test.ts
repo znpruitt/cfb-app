@@ -7,8 +7,10 @@ import {
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
   getAppState,
+  setAppState,
 } from '../server/appStateStore.ts';
 import { getProviderRefreshStatus } from '../server/providerRefreshStatus.ts';
+import type { RankingsResponse } from '../rankings.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-085A — durable-first commit order for the rankings provider cache.
@@ -21,19 +23,43 @@ const SEASON = 2026;
 const ORIGINAL_FETCH = global.fetch;
 const ORIGINAL_CFBD_KEY = process.env.CFBD_API_KEY;
 
+// A CFBD regular-season rankings payload that normalizes to a usable week (real
+// team names so the identity resolver resolves them). An EMPTY payload is now a
+// no-op that never persists (5th-review finding #6), so the durable-first commit
+// path needs genuine content to exercise.
+const RANKINGS_PAYLOAD = [
+  {
+    season: SEASON,
+    seasonType: 'regular',
+    week: 1,
+    polls: [
+      {
+        poll: 'AP Top 25',
+        ranks: [
+          { rank: 1, school: 'Georgia', conference: 'SEC' },
+          { rank: 2, school: 'Michigan', conference: 'Big Ten' },
+        ],
+      },
+    ],
+  },
+];
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   __resetSeasonRankingsCacheForTests();
   __setAppStateWriteFailureForTests(null);
   process.env.CFBD_API_KEY = 'test-cfbd-token';
-  // CFBD rankings upstream returns an empty poll set — enough to build and
-  // attempt to persist a response without needing fixture payloads.
-  global.fetch = (async () =>
-    new Response(JSON.stringify([]), {
+  // CFBD rankings upstream returns a usable regular-season poll (empty postseason),
+  // so the refresh builds and persists a nonempty response.
+  global.fetch = (async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body = url.searchParams.get('seasonType') === 'postseason' ? [] : RANKINGS_PAYLOAD;
+    return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    });
+  }) as typeof fetch;
 });
 
 test.after(() => {
@@ -81,4 +107,77 @@ test('rankings refresh: a missing CFBD key records a failed attempt (rereview fi
   const status = await getProviderRefreshStatus('rankings');
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
+});
+
+// ---------------------------------------------------------------------------
+// 5th-review finding #6 — empty rankings responses are classified before
+// persistence: pre-poll empty → no-op (never persisted as healthy coverage),
+// unexpected empty over prior-good → failure (prior-good retained).
+// ---------------------------------------------------------------------------
+
+function stubEmptyRankings() {
+  global.fetch = (async () =>
+    new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+}
+
+function populatedRankings(): RankingsResponse {
+  return {
+    weeks: [
+      {
+        season: SEASON,
+        week: 1,
+        seasonType: 'regular',
+        primarySource: 'ap',
+        teams: [
+          {
+            teamId: 'georgia',
+            teamName: 'Georgia',
+            rank: 1,
+            rankSource: 'ap',
+            primaryRank: 1,
+            primaryRankSource: 'ap',
+          },
+        ],
+        polls: { cfp: [], ap: [], coaches: [] },
+      },
+    ],
+    latestWeek: null,
+    meta: { source: 'cfbd', cache: 'miss', generatedAt: '2026-01-01T00:00:00.000Z' },
+  };
+}
+
+test('rankings refresh: a valid pre-poll empty resolves as a no-op without persisting', async () => {
+  stubEmptyRankings();
+  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
+  assert.deepEqual(response.weeks, [], 'an empty pre-poll response returns no weeks');
+
+  // Nothing durable was written (no empty "healthy" snapshot).
+  assert.equal(await getAppState('rankings', String(SEASON)), null);
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'no-op');
+  assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
+});
+
+test('rankings refresh: an unexpected empty over prior-good preserves it and records failure', async () => {
+  // Prior-good durable rankings for this season.
+  await setAppState('rankings', String(SEASON), {
+    at: Date.parse('2026-01-01T00:00:00.000Z'),
+    response: populatedRankings(),
+  });
+  __resetSeasonRankingsCacheForTests(); // force the durable read
+  stubEmptyRankings();
+
+  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
+  // Prior-good rankings are served (stale), not replaced with an empty snapshot.
+  assert.equal(response.weeks.length, 1, 'prior-good weeks are retained and served');
+
+  const durable = await getAppState<{ response: RankingsResponse }>('rankings', String(SEASON));
+  assert.equal(durable?.value?.response?.weeks?.length, 1, 'durable rankings not overwritten');
+
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'rankings-empty-replacement-rejected');
 });

@@ -44,8 +44,12 @@ import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import type { AliasMap } from '../../../lib/teamNames.ts';
 import {
+  createOddsCacheKey,
   normalizeUpstreamOddsEvent,
   oddsCache,
+  ODDS_DEFAULT_BOOKMAKERS,
+  ODDS_DEFAULT_MARKETS,
+  ODDS_DEFAULT_REGIONS,
   pickFreshestOddsFallback,
   resolveDefaultSeason,
   type NormalizedOddsEvent,
@@ -86,9 +90,11 @@ type OddsResponse = {
 };
 
 const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/odds';
-const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
-const MARKETS = ['h2h', 'spreads', 'totals'];
-const REGIONS = ['us'];
+// The canonical/default filter sets and cache-key builder live in routeInternals so
+// diagnostics can derive the exact same DEFAULT cache key without duplicating them.
+const BOOKMAKERS = ODDS_DEFAULT_BOOKMAKERS;
+const MARKETS = ODDS_DEFAULT_MARKETS;
+const REGIONS = ODDS_DEFAULT_REGIONS;
 
 const ODDS_RETRY_POLICY = {
   maxAttempts: 3,
@@ -129,17 +135,6 @@ function responseFrom(items: CanonicalOddsItem[], meta: OddsMeta, status = 200):
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-function createCacheKey(query: {
-  bookmakers: string[];
-  markets: string[];
-  regions: string[];
-}): string {
-  const bookmakers = [...query.bookmakers].sort().join(',');
-  const markets = [...query.markets].sort().join(',');
-  const regions = [...query.regions].sort().join(',');
-  return `bookmakers=${bookmakers}|markets=${markets}|regions=${regions}`;
 }
 
 function parseCsvList(raw: string | null): string[] | null {
@@ -481,7 +476,7 @@ export async function GET(req: Request): Promise<Response> {
       if (authFailure) return authFailure;
     }
 
-    const cacheKey = createCacheKey(query);
+    const cacheKey = createOddsCacheKey(query);
     // In-memory and durable entries share the same season-scoped key so odds
     // for different seasons can never collide in the process cache. Previously
     // the in-memory key omitted the season (only the durable key carried it),

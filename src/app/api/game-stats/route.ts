@@ -3,13 +3,14 @@ import { NextResponse } from 'next/server';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
-import { normalizeGameTeamStats } from '@/lib/gameStats/normalizers';
+import { classifyGameStatsPayload } from '@/lib/gameStats/coverage';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 
@@ -155,8 +156,36 @@ export async function GET(req: Request) {
       pacing: CFBD_PACING_POLICY,
     });
 
-    const games = normalizeGameTeamStats(rawGames, week, seasonType);
+    // Classify the provider response identically to the cron (5th-review finding
+    // #5): a genuine empty array is a no-op (no empty durable write, no last-success
+    // advance), a nonempty payload with zero usable rows is a failure (prior-good
+    // preserved), and only a payload with ≥1 usable row commits.
+    const classification = classifyGameStatsPayload(rawGames, week, seasonType);
+    if (classification.kind === 'noop') {
+      await recordProviderRefreshNoop('game-stats', { attempt, source: 'cfbd' });
+      return NextResponse.json({
+        year,
+        week,
+        seasonType,
+        fetchedAt: null,
+        games: [],
+        meta: { cache: 'miss', source: 'cfbd', noApplicableData: true },
+      });
+    }
+    if (classification.kind === 'no-usable-rows') {
+      await recordProviderRefreshFailure('game-stats', {
+        attempt,
+        error: 'provider returned rows but none normalized to a usable game stat',
+        code: 'game-stats-no-usable-rows',
+        status: 502,
+      });
+      return NextResponse.json(
+        { error: 'game-stats refresh produced no usable rows', code: 'game-stats-no-usable-rows' },
+        { status: 502 }
+      );
+    }
 
+    const { games } = classification;
     const result: WeeklyGameStats = {
       year,
       week,

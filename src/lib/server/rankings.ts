@@ -18,6 +18,7 @@ import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from './providerRefreshStatus.ts';
 
@@ -273,6 +274,47 @@ export async function loadSeasonRankings(
       resolver
     );
     const weeks = remapPostseasonWeeks(rawWeeks);
+
+    if (weeks.length === 0) {
+      // Zero usable rankings weeks. NEVER persist an empty snapshot (which would
+      // read as healthy coverage) and never advance last-success (5th-review
+      // finding #6). Distinguish an unexpected empty over prior-good from a valid
+      // pre-poll empty, mirroring the schedule empty-classification model.
+      const priorPopulated =
+        (stored?.value?.response?.weeks?.length ?? 0) > 0 ||
+        (cached?.response?.weeks?.length ?? 0) > 0;
+      if (priorPopulated) {
+        // Unexpected empty replacement of populated rankings → failure; retain
+        // prior-good and serve it (stale) rather than overwrite with nothing.
+        await recordProviderRefreshFailure('rankings', {
+          attempt,
+          error: 'rankings refresh returned zero usable weeks while prior-good rankings are cached',
+          code: 'rankings-empty-replacement-rejected',
+          durationMs: Date.now() - now,
+        });
+        const prior = stored?.value ?? cached!;
+        return {
+          ...prior.response,
+          meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
+        };
+      }
+      // Genuinely empty pre-poll data (rankings not published yet) → no-op: no
+      // durable write, prior-good (absent here) preserved, last-success not advanced.
+      await recordProviderRefreshNoop('rankings', {
+        attempt,
+        source: 'cfbd',
+        durationMs: Date.now() - now,
+      });
+      return {
+        weeks: [],
+        latestWeek: null,
+        meta: {
+          source: 'cfbd',
+          cache: 'miss',
+          generatedAt: new Date(now).toISOString(),
+        },
+      };
+    }
 
     const response: RankingsResponse = {
       weeks,

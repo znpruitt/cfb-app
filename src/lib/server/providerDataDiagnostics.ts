@@ -8,15 +8,12 @@
  */
 
 import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache';
+import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
-import { usableGameStatsGameIds } from '../gameStats/coverage.ts';
-import {
-  classifyStatusLabel,
-  isCanceledStatusLabel,
-  isDisruptedStatusLabel,
-} from '../gameStatus.ts';
+import { expectsGameStats, usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
@@ -242,15 +239,17 @@ export async function getProviderDataDiagnostics(
           usableGameStatsGameIds(record)
         );
       }
-      // Expected (canonical) games per completed slate, from the schedule. Disrupted
-      // games (canceled/postponed/suspended/delayed) are excluded — CFBD produces no
-      // team stats for them, so they must not manufacture a permanent partial gap.
+      // Expected (canonical) STAT-PRODUCING games per completed slate, from the
+      // schedule. Disrupted games (canceled/postponed/suspended/delayed) are
+      // excluded via the shared `expectsGameStats` helper — the same definition the
+      // cron uses — so they neither manufacture a partial gap nor, when a whole
+      // slate is disrupted, a permanent missing warning (5th-review findings #1/#3).
       const completedKeys = new Set(completedSlates.map((s) => slateKey(s.week, s.seasonType)));
       const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
       for (const item of scheduleItems) {
         const key = slateKey(item.week, normalizeSeasonType(item.seasonType));
         if (!completedKeys.has(key)) continue;
-        if (isDisruptedStatusLabel(item.status)) continue;
+        if (!expectsGameStats(item.status)) continue;
         if (!item.id) continue;
         let expected = expectedIdsBySlate.get(key);
         if (!expected) {
@@ -264,13 +263,17 @@ export async function getProviderDataDiagnostics(
       const partial: CompletedSlate[] = [];
       for (const slate of completedSlates) {
         const key = slateKey(slate.week, slate.seasonType);
+        // Determine applicability BEFORE checking coverage: a slate with zero
+        // expected stat-producing games (e.g. entirely disrupted) is not applicable,
+        // so it must not be reported as missing (5th-review finding #3).
+        const expected = expectedIdsBySlate.get(key);
+        if (!expected || expected.size === 0) continue;
         const covered = coveredIdsBySlate.get(key);
         if (!covered || covered.size === 0) {
           missing.push(slate);
           continue;
         }
-        const expected = expectedIdsBySlate.get(key);
-        if (expected && [...expected].some((id) => !covered.has(id))) {
+        if ([...expected].some((id) => !covered.has(id))) {
           partial.push(slate);
         }
       }
@@ -310,18 +313,27 @@ export async function getProviderDataDiagnostics(
     push('game-stats', 'warning', `Game-stats diagnostics unavailable: ${errText(error)}`);
   }
 
-  // ---- Rankings: presence + staleness during an active season ----
+  // ---- Rankings: usable CONTENT + staleness during an active season ----
+  // Coverage requires at least one usable week (5th-review finding #6). A durable
+  // record whose `response.weeks` is empty (pre-poll or schema-drifted) is NOT
+  // coverage — checking record presence alone would suppress the "no rankings"
+  // diagnostic for an effectively-empty snapshot.
   try {
-    const rankingsRec = await getAppState<{ at: number }>('rankings', String(year));
-    if (!rankingsRec?.value) {
+    const rankingsRec = await getAppState<{ at: number; response?: { weeks?: unknown[] } }>(
+      'rankings',
+      String(year)
+    );
+    const weeks = rankingsRec?.value?.response?.weeks;
+    const hasUsableRankings = Array.isArray(weeks) && weeks.length > 0;
+    if (!hasUsableRankings) {
       push('rankings', 'info', `No rankings cached for ${year}.`);
     } else if (seasonActive) {
-      const ageMs = now - rankingsRec.value.at;
+      const ageMs = now - rankingsRec!.value.at;
       if (ageMs > STALE_RANKINGS_AFTER_MS) {
         push(
           'rankings',
           'warning',
-          `Rankings last refreshed ${formatRelativeTimestamp(rankingsRec.value.at, now)} — older than the weekly policy.`
+          `Rankings last refreshed ${formatRelativeTimestamp(rankingsRec!.value.at, now)} — older than the weekly policy.`
         );
       }
     }
@@ -329,25 +341,19 @@ export async function getProviderDataDiagnostics(
     push('rankings', 'warning', `Rankings diagnostics unavailable: ${errText(error)}`);
   }
 
-  // ---- Odds: freshness of the SELECTED SEASON's served odds cache. ----
+  // ---- Odds: freshness of the SELECTED SEASON's CANONICAL served odds cache. ----
   // A game without odds is NOT a failure; only staleness of THIS season's snapshot
-  // is actionable. Freshness derives from the season-scoped `odds-cache` entries'
-  // `lastFetch` — NOT the global quota-observation timestamp (4th-review finding
-  // #4). Quota `capturedAt` can advance from a failed 402/429, admin usage
-  // hydration, or a refresh for a DIFFERENT season while this season's odds remain
-  // stale, which would wrongly suppress the warning. Quota usage stays available
-  // separately (the panel reads it for the operational-budget display).
+  // is actionable. Freshness derives from the CANONICAL/DEFAULT season-scoped
+  // `odds-cache` entry — the exact key the ordinary served UI reads — NOT the newest
+  // `lastFetch` across all filtered query variants (5th-review finding #2: a filtered
+  // markets/bookmakers refresh writes a separate key and would otherwise make the
+  // canonical snapshot look fresh), and NOT the global quota-observation timestamp
+  // (4th-review finding #4). Quota usage stays a separate panel display. Absence of
+  // the canonical entry is reported as unknown, never treated as fresh.
   try {
-    const oddsEntries = await getAppStateEntries<OddsCacheFreshness>('odds-cache', `${year}:`);
-    let latestFetch: number | null = null;
-    for (const entry of oddsEntries) {
-      const fetchedAt = entry.value?.lastFetch;
-      if (typeof fetchedAt === 'number' && Number.isFinite(fetchedAt)) {
-        if (latestFetch == null || fetchedAt > latestFetch) latestFetch = fetchedAt;
-      }
-    }
-    if (latestFetch == null) {
-      // Absence is UNKNOWN, not fresh — report it rather than suppress the warning.
+    const oddsRec = await getAppState<OddsCacheFreshness>('odds-cache', defaultOddsCacheKey(year));
+    const latestFetch = oddsRec?.value?.lastFetch;
+    if (typeof latestFetch !== 'number' || !Number.isFinite(latestFetch)) {
       push('odds', 'info', `No odds snapshot cached for ${year} yet.`);
     } else if (seasonActive) {
       const ageMs = now - latestFetch;
