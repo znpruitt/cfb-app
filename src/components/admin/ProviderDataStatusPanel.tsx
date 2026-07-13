@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { fetchCfbdUsageSnapshot, type CfbdUsageSnapshot } from '@/lib/apiUsage';
@@ -20,6 +20,7 @@ import {
   controlModeLabel,
   datasetControlMode,
   interpretRefreshResponse,
+  isCurrentStatusResponse,
   manualRefreshUrls,
 } from './manualRefresh';
 import { summarizeProviderState, type SummaryTone } from './providerStatusSummary';
@@ -89,30 +90,61 @@ export default function ProviderDataStatusPanel({
     'regular'
   );
   const [now, setNow] = useState<number>(() => Date.now());
+  // Year-race guard (7th-review finding #2): a monotonic request seq + an
+  // AbortController so an older year's response can never overwrite a newer
+  // year's feed, and an in-flight load is cancelled on year change / unmount.
+  const requestSeqRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const seq = ++requestSeqRef.current;
+    const requestedYear = year;
     setLoading(true);
     setLoadError('');
     try {
-      const res = await fetch(`/api/admin/provider-status?year=${year}`, {
+      const res = await fetch(`/api/admin/provider-status?year=${requestedYear}`, {
         cache: 'no-store',
         headers: requireAdminAuthHeaders() as Record<string, string>,
+        signal: controller.signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`Status ${res.status}${text ? `: ${text.slice(0, 160)}` : ''}`);
       }
-      setFeed((await res.json()) as StatusFeed);
+      const data = (await res.json()) as StatusFeed;
+      // Drop a superseded (aborted / not-latest) or year-mismatched response so it
+      // cannot pair the visible year with another year's diagnostics/applicability.
+      if (
+        controller.signal.aborted ||
+        !isCurrentStatusResponse({
+          requestSeq: seq,
+          latestSeq: requestSeqRef.current,
+          requestedYear,
+          responseYear: data.year,
+        })
+      ) {
+        return;
+      }
+      setFeed(data);
       setNow(Date.now());
     } catch (err) {
+      // Aborted/superseded requests must not surface a stale error or spinner.
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        return;
+      }
+      if (seq !== requestSeqRef.current) return;
       setLoadError(err instanceof Error ? err.message : 'Failed to load provider status');
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
   }, [year]);
 
   useEffect(() => {
     void load();
+    return () => abortRef.current?.abort();
   }, [load]);
 
   // CFBD live usage is an authoritative provider read (kept separate from the
@@ -166,9 +198,6 @@ export default function ProviderDataStatusPanel({
           year,
           week: gameStatsWeek,
           seasonType: gameStatsSeasonType,
-          // Skip a doomed postseason score request before bowls are scheduled
-          // (rereview finding #1); the feed derives this cache-only.
-          scoreSeasonTypes: feed?.scoreSeasonTypes,
         });
         // Interpret each response: a non-2xx OR a 2xx that served a bundled/
         // prior-good fallback (conferences on provider failure) is a failure, so
@@ -195,7 +224,7 @@ export default function ProviderDataStatusPanel({
       }
       await load();
     },
-    [year, gameStatsWeek, gameStatsSeasonType, feed?.scoreSeasonTypes, load]
+    [year, gameStatsWeek, gameStatsSeasonType, load]
   );
 
   return (

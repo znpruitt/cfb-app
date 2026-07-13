@@ -22,6 +22,7 @@ import {
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 import { loadReconciledSeasonScores } from '@/lib/server/scoreCacheReader';
+import { getApplicableScoreSeasonTypes } from '@/lib/server/scoreApplicability';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
@@ -363,9 +364,15 @@ async function refreshScorePartition(params: {
   }
 }
 
-/** Parse the aggregate `seasonTypes` param; default to both applicable partitions. */
-function parseSeasonTypesParam(raw: string | null): SeasonType[] {
-  if (!raw) return ['regular', 'postseason'];
+/**
+ * Parse an EXPLICIT aggregate `seasonTypes` override into its valid, de-duped
+ * subset. Returns `[]` when the param is absent or carries no supported season
+ * type — the caller then falls back to server-derived applicability (7th-review
+ * finding #1), so a missing/invalid client list can never force an unnecessary
+ * partition refresh. A nonempty result is an explicit targeted repair.
+ */
+function parseExplicitSeasonTypes(raw: string | null): SeasonType[] {
+  if (!raw) return [];
   const seen = new Set<SeasonType>();
   const result: SeasonType[] = [];
   for (const token of raw.split(',')) {
@@ -375,7 +382,7 @@ function parseSeasonTypesParam(raw: string | null): SeasonType[] {
       result.push(st);
     }
   }
-  return result.length > 0 ? result : ['regular', 'postseason'];
+  return result;
 }
 
 /**
@@ -398,7 +405,16 @@ async function handleAggregateScoreRefresh(params: {
   requestId: string | null;
 }): Promise<NextResponse> {
   const { year, seasonTypesParam, cfbdApiKey, now, requestId } = params;
-  const seasonTypes = parseSeasonTypesParam(seasonTypesParam);
+  // Server-authoritative applicability (7th-review finding #1): an explicit,
+  // validated `seasonTypes` list is a targeted repair; otherwise derive the
+  // applicable partitions CACHE-ONLY from this year's schedule so an ordinary
+  // refresh never fires a doomed postseason request before bowls exist and never
+  // depends on the client sending a correct list.
+  const explicitSeasonTypes = parseExplicitSeasonTypes(seasonTypesParam);
+  const seasonTypes =
+    explicitSeasonTypes.length > 0
+      ? explicitSeasonTypes
+      : await getApplicableScoreSeasonTypes(year);
 
   const providerAttempt = await beginProviderRefreshAttempt('scores', {
     startedAt: new Date(now).toISOString(),

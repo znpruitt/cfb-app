@@ -6,7 +6,9 @@ import {
   controlModeLabel,
   datasetControlMode,
   interpretRefreshResponse,
+  isCurrentStatusResponse,
   manualRefreshUrls,
+  scoresAggregateRefreshUrl,
 } from '../manualRefresh.ts';
 import { getProviderDatasetDescriptor } from '../../../lib/providerDatasets.ts';
 
@@ -24,45 +26,32 @@ test('game-stats manual refresh includes the selected season type', () => {
   assert.doesNotMatch(post[0], /seasonType=regular/);
 });
 
-// ---- Finding #4: scores refresh is ONE aggregate request (one attempt) ----
+// ---- Finding #4 + 7th-review #1: ONE aggregate request, server-authoritative ----
 
-test('scores manual refresh issues ONE aggregate request over both partitions by default', () => {
+test('scores manual refresh issues ONE ordinary aggregate request with NO client seasonTypes', () => {
+  // Server-authoritative applicability (7th review): the ordinary refresh omits
+  // seasonTypes so the SERVER derives applicable partitions cache-only — the client
+  // can never force an unnecessary (doomed postseason) partition.
   const urls = manualRefreshUrls('scores', { year: 2026 });
   assert.equal(urls.length, 1);
   assert.match(urls[0], /aggregate=1/);
   assert.match(urls[0], /refresh=1/);
-  assert.match(urls[0], /seasonTypes=regular,postseason/);
+  assert.doesNotMatch(urls[0], /seasonTypes=/);
 });
 
-// ---- Rereview finding #1: scores refresh skips inapplicable postseason ----
-
-test('scores manual refresh requests ONLY regular when postseason is not yet applicable', () => {
-  const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: ['regular'] });
-  assert.equal(urls.length, 1);
-  assert.match(urls[0], /seasonTypes=regular(?!,)/);
-  assert.doesNotMatch(urls[0], /postseason/);
+test('scoresAggregateRefreshUrl: ordinary form omits seasonTypes (server derives)', () => {
+  const url = scoresAggregateRefreshUrl(2026);
+  assert.match(url, /aggregate=1/);
+  assert.doesNotMatch(url, /seasonTypes=/);
 });
 
-test('scores manual refresh requests both partitions once postseason is applicable', () => {
-  const urls = manualRefreshUrls('scores', {
-    year: 2026,
-    scoreSeasonTypes: ['regular', 'postseason'],
-  });
-  assert.equal(urls.length, 1);
-  assert.match(urls[0], /seasonTypes=regular,postseason/);
-});
+test('scoresAggregateRefreshUrl: explicit targeted repair carries only the requested partition', () => {
+  const post = scoresAggregateRefreshUrl(2026, ['postseason']);
+  assert.match(post, /seasonTypes=postseason/);
+  assert.doesNotMatch(post, /regular/);
 
-test('scores manual refresh can explicitly target postseason only', () => {
-  const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: ['postseason'] });
-  assert.equal(urls.length, 1);
-  assert.match(urls[0], /seasonTypes=postseason/);
-  assert.doesNotMatch(urls[0], /regular/);
-});
-
-test('an empty applicable-partitions list falls back to both (never silently no-ops)', () => {
-  const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: [] });
-  assert.equal(urls.length, 1);
-  assert.match(urls[0], /seasonTypes=regular,postseason/);
+  const both = scoresAggregateRefreshUrl(2026, ['regular', 'postseason']);
+  assert.match(both, /seasonTypes=regular,postseason/);
 });
 
 test('regular success plus skipped postseason combines to overall success', () => {
@@ -70,6 +59,60 @@ test('regular success plus skipped postseason combines to overall success', () =
   // an overall success (no inapplicable partition drags it to failure).
   const outcome = combineOutcomes([{ ok: true }]);
   assert.equal(outcome.ok, true);
+});
+
+// ---- 7th-review finding #2: year-race guard for the provider-status feed ----
+
+test('isCurrentStatusResponse: the latest matching-year response is applied', () => {
+  assert.equal(
+    isCurrentStatusResponse({
+      requestSeq: 3,
+      latestSeq: 3,
+      requestedYear: 2026,
+      responseYear: 2026,
+    }),
+    true
+  );
+});
+
+test('isCurrentStatusResponse: a superseded (older seq) response is dropped', () => {
+  // request A (seq 2, year 2025) resolves AFTER request B (seq 3, year 2026).
+  assert.equal(
+    isCurrentStatusResponse({
+      requestSeq: 2,
+      latestSeq: 3,
+      requestedYear: 2025,
+      responseYear: 2025,
+    }),
+    false,
+    'an older year request resolving last must not overwrite the newer feed'
+  );
+});
+
+test('isCurrentStatusResponse: a year-mismatched response is dropped even if it is the latest', () => {
+  // Defense in depth: the newest request, but the server echoed a different year.
+  assert.equal(
+    isCurrentStatusResponse({
+      requestSeq: 4,
+      latestSeq: 4,
+      requestedYear: 2026,
+      responseYear: 2025,
+    }),
+    false
+  );
+});
+
+test('isCurrentStatusResponse: an older failure cannot replace a newer success', () => {
+  // Modeled as the older request (seq 1) never being current once seq 2 is latest.
+  assert.equal(
+    isCurrentStatusResponse({
+      requestSeq: 1,
+      latestSeq: 2,
+      requestedYear: 2025,
+      responseYear: 2025,
+    }),
+    false
+  );
 });
 
 // ---- Finding #6: fallback responses are NOT treated as success ----

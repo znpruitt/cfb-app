@@ -13,6 +13,7 @@ import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
 import { expectsGameStats, usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
@@ -94,27 +95,6 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
   return [...latestByKey.values()]
     .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
-}
-
-/**
- * Score season-types worth requesting for a manual refresh, derived cache-only
- * from the schedule (rereview finding #1). Regular is the baseline (also the safe
- * default when nothing is cached, so a manual refresh still does something);
- * postseason is added ONLY once the schedule carries postseason games — before
- * then a postseason score request is a doomed no-op that should be skipped.
- */
-function deriveApplicableScoreSeasonTypes(items: ScheduleCacheEntry['items']): CfbdSeasonType[] {
-  let hasRegular = false;
-  let hasPostseason = false;
-  for (const item of items) {
-    if (normalizeSeasonType(item.seasonType) === 'postseason') hasPostseason = true;
-    else hasRegular = true;
-    if (hasRegular && hasPostseason) break;
-  }
-  const types: CfbdSeasonType[] = [];
-  if (hasRegular || !hasPostseason) types.push('regular');
-  if (hasPostseason) types.push('postseason');
-  return types;
 }
 
 /** Whether the season is "active" around now (any game within ±45 days). */

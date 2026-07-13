@@ -255,6 +255,10 @@ test('rankings refresh: a drifted postseason partition rejects even when regular
   const status = await getProviderRefreshStatus('rankings');
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.deepEqual(status.failedPartitions, ['postseason']);
+  // 7th-review finding #3: the outer catch must NOT overwrite the specific code
+  // with a generic one when the drift branch already resolved the attempt.
+  assert.equal(status.lastError?.code, 'rankings-partition-schema-drift');
+  assert.match(status.lastError?.message ?? '', /schema drift/);
 });
 
 test('rankings refresh: both partitions drifting with no prior cache is a failure, not a no-op', async () => {
@@ -267,6 +271,18 @@ test('rankings refresh: both partitions drifting with no prior cache is a failur
   const status = await getProviderRefreshStatus('rankings');
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.deepEqual(status.failedPartitions, ['regular', 'postseason']);
+  assert.equal(status.lastError?.code, 'rankings-partition-schema-drift');
+});
+
+test('rankings refresh: a generic provider failure still records a generic (non-drift) code', async () => {
+  // A network/HTTP failure is NOT drift — it must record through the generic outer
+  // catch, and must not masquerade with the drift code.
+  global.fetch = (async () =>
+    new Response('upstream unavailable', { status: 503 })) as typeof fetch;
+  await assert.rejects(() => loadSeasonRankings(SEASON, { allowRefresh: true }));
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.notEqual(status.lastError?.code, 'rankings-partition-schema-drift');
 });
 
 test('rankings refresh: usable regular + genuinely empty postseason commits successfully', async () => {

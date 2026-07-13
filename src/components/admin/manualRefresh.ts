@@ -12,36 +12,33 @@ export type ManualRefreshParams = {
   week?: number;
   /** Required for game-stats — postseason must reach the postseason cache key. */
   seasonType?: 'regular' | 'postseason';
-  /**
-   * Applicable score partitions for this year, derived cache-only from the
-   * schedule by the status feed (rereview finding #1). When provided, the scores
-   * refresh fans out ONLY over these — so a mid-regular-season refresh does not
-   * fire a doomed postseason request before bowls are published. Defaults to both
-   * partitions when omitted (backward compatible).
-   */
-  scoreSeasonTypes?: Array<'regular' | 'postseason'>;
 };
 
 /**
- * The single aggregate scores-refresh URL. It refreshes the APPLICABLE partitions
- * (regular + postseason once bowls exist) under ONE server-side provider-refresh
+ * The single aggregate scores-refresh URL under ONE server-side provider-refresh
  * attempt, so the whole operator action resolves as one truthful `scores` status
  * and no partition's no-op/success can erase another partition's failure
- * (6th-review finding #4). Callers issue exactly ONE request.
+ * (6th-review finding #4). An ORDINARY refresh omits `seasonTypes` so the SERVER
+ * derives the applicable partitions cache-only from the schedule (7th-review
+ * finding #1) — a mid-regular-season refresh never fires a doomed postseason
+ * request, and the client cannot force an unnecessary partition. Passing
+ * `seasonTypes` is an explicit targeted repair (e.g. postseason only). Callers
+ * issue exactly ONE request.
  */
 export function scoresAggregateRefreshUrl(
   year: number,
   seasonTypes?: Array<'regular' | 'postseason'>
 ): string {
-  const applicable =
-    seasonTypes && seasonTypes.length > 0 ? seasonTypes : (['regular', 'postseason'] as const);
-  return `/api/scores?year=${year}&refresh=1&aggregate=1&seasonTypes=${applicable.join(',')}`;
+  const base = `/api/scores?year=${year}&refresh=1&aggregate=1`;
+  return seasonTypes && seasonTypes.length > 0
+    ? `${base}&seasonTypes=${seasonTypes.join(',')}`
+    : base;
 }
 
 /**
  * The request URL(s) one manual refresh issues for a dataset. Scores issues a
- * SINGLE aggregate request over the applicable partitions (one attempt, finding
- * #4); game-stats includes BOTH the week AND the season type so a postseason
+ * SINGLE ordinary aggregate request (server derives applicable partitions, finding
+ * #1); game-stats includes BOTH the week AND the season type so a postseason
  * repair reaches the postseason cache partition rather than defaulting to
  * `seasonType=regular`.
  */
@@ -49,7 +46,7 @@ export function manualRefreshUrls(dataset: ProviderDataset, params: ManualRefres
   const { year, week, seasonType } = params;
   switch (dataset) {
     case 'scores':
-      return [scoresAggregateRefreshUrl(year, params.scoreSeasonTypes)];
+      return [scoresAggregateRefreshUrl(year)];
     case 'schedule':
       return [`/api/schedule?bypassCache=1&year=${year}`];
     case 'odds':
@@ -123,6 +120,24 @@ export async function interpretRefreshResponse(res: Response): Promise<RefreshOu
 export function combineOutcomes(outcomes: RefreshOutcome[]): RefreshOutcome {
   const firstFailure = outcomes.find((o) => !o.ok);
   return firstFailure ?? { ok: true };
+}
+
+/**
+ * Whether a resolved provider-status response should be committed to state, or
+ * dropped as superseded (7th-review finding #2). A response is applied ONLY when
+ * it is the newest issued request (`requestSeq === latestSeq`) AND the year the
+ * server echoed matches the year this request was issued for. This prevents an
+ * older year's response, resolving after a newer year selection, from overwriting
+ * the feed — which would otherwise pair the visible year with another year's
+ * diagnostics and score-partition applicability.
+ */
+export function isCurrentStatusResponse(params: {
+  requestSeq: number;
+  latestSeq: number;
+  requestedYear: number;
+  responseYear: number;
+}): boolean {
+  return params.requestSeq === params.latestSeq && params.requestedYear === params.responseYear;
 }
 
 export type DatasetControlMode = 'interactive' | 'lifecycle-exempt' | 'planned';

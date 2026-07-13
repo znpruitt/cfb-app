@@ -740,6 +740,103 @@ test('aggregate scores refresh: both partitions empty → aggregate no-op (no co
   assert.equal(status.lastSuccessAt, null);
 });
 
+// ---------------------------------------------------------------------------
+// 7th-review finding #1 — the aggregate endpoint is SERVER-AUTHORITATIVE for
+// applicable score partitions: an ordinary refresh (no seasonTypes) derives them
+// cache-only from the schedule, so a pre-postseason refresh never spends a doomed
+// postseason CFBD request even if the client omits (or mis-sends) the list.
+// ---------------------------------------------------------------------------
+
+const ORDINARY_AGG = 'http://localhost/api/scores?year=2026&refresh=1&aggregate=1';
+
+function scheduleItem(seasonType: 'regular' | 'postseason') {
+  return {
+    id: `g-${seasonType}`,
+    week: 1,
+    startDate: '2026-09-01T00:00:00.000Z',
+    homeTeam: 'Georgia',
+    awayTeam: 'Auburn',
+    status: 'scheduled',
+    seasonType,
+  };
+}
+
+async function seedSchedule(items: ReturnType<typeof scheduleItem>[]) {
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items,
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+}
+
+// Records which CFBD season-type partitions were actually fetched.
+function setTrackingMock(): { fetched: string[] } {
+  const fetched: string[] = [];
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin !== 'https://api.collegefootballdata.com') {
+      throw new Error(`unexpected URL: ${url.toString()}`);
+    }
+    const st = url.searchParams.get('seasonType') === 'postseason' ? 'postseason' : 'regular';
+    fetched.push(st);
+    return new Response(
+      JSON.stringify(
+        st === 'postseason' ? gamePayload('Georgia', 'Texas') : gamePayload('Texas', 'Rice')
+      ),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+  return { fetched };
+}
+
+test('ordinary aggregate refresh: server derives regular-only before postseason is scheduled', async () => {
+  await seedSchedule([scheduleItem('regular')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(ORDINARY_AGG));
+  assert.equal(res.status, 200);
+  assert.deepEqual([...new Set(tracker.fetched)], ['regular']);
+  assert.ok(!tracker.fetched.includes('postseason'), 'no doomed postseason CFBD request');
+});
+
+test('ordinary aggregate refresh: server derives both partitions once postseason is scheduled', async () => {
+  await seedSchedule([scheduleItem('regular'), scheduleItem('postseason')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(ORDINARY_AGG));
+  assert.equal(res.status, 200);
+  const fetched = new Set(tracker.fetched);
+  assert.ok(fetched.has('regular') && fetched.has('postseason'), 'both partitions fetched');
+});
+
+test('ordinary aggregate refresh: no cached schedule → regular only (safe default)', async () => {
+  // beforeEach resets app-state, so 2026 has no cached schedule here.
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(ORDINARY_AGG));
+  assert.equal(res.status, 200);
+  assert.deepEqual([...new Set(tracker.fetched)], ['regular']);
+});
+
+test('aggregate refresh: an explicit postseason override targets only postseason (repair)', async () => {
+  // A regular-only schedule, but the explicit override still refreshes postseason.
+  await seedSchedule([scheduleItem('regular')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(`${ORDINARY_AGG}&seasonTypes=postseason`));
+  assert.equal(res.status, 200);
+  assert.deepEqual([...new Set(tracker.fetched)], ['postseason']);
+});
+
+test('aggregate refresh: an INVALID explicit seasonTypes list falls back to server-derived applicability', async () => {
+  await seedSchedule([scheduleItem('regular')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(`${ORDINARY_AGG}&seasonTypes=bogus`));
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    [...new Set(tracker.fetched)],
+    ['regular'],
+    'an unusable client list cannot force a partition; the server derives applicability'
+  );
+});
+
 test('PLATFORM-075: scores refresh requires admin authorization when a token is configured', async () => {
   const prior = process.env.ADMIN_API_TOKEN;
   process.env.ADMIN_API_TOKEN = 'secret-token';

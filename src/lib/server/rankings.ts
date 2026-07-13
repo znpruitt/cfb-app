@@ -22,6 +22,23 @@ import {
   recordProviderRefreshSuccess,
 } from './providerRefreshStatus.ts';
 
+/**
+ * A rankings refresh failure that has ALREADY resolved the provider-refresh
+ * attempt with its own specific metadata (code + `failedPartitions` + a detailed
+ * message). The outer catch must rethrow it WITHOUT recording a second, generic
+ * failure — a second `recordProviderRefreshFailure` would replace `lastError`
+ * (and drop the actionable code / failed partitions) with a generic message
+ * (7th-review finding #3). Only genuinely unrecorded errors (fetch/network/durable
+ * commit) fall through to the generic outer-catch recording.
+ */
+class RecordedRankingsRefreshError extends Error {
+  readonly alreadyRecorded = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'RecordedRankingsRefreshError';
+  }
+}
+
 export type CfbdPollRank = {
   rank: number | null;
   school: string;
@@ -324,7 +341,9 @@ export async function loadSeasonRankings(
           meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
         };
       }
-      throw new Error(
+      // The attempt is already resolved with the specific drift metadata above;
+      // signal the outer catch to rethrow without a second generic recording.
+      throw new RecordedRankingsRefreshError(
         `rankings refresh failed: partition schema drift (${driftedPartitions.join(', ')})`
       );
     }
@@ -407,6 +426,13 @@ export async function loadSeasonRankings(
     });
     return response;
   } catch (error) {
+    if (error instanceof RecordedRankingsRefreshError) {
+      // Already terminally resolved with specific metadata (e.g. partition schema
+      // drift) — do NOT overwrite `lastError` with a generic failure.
+      throw error;
+    }
+    // A genuinely unrecorded failure (fetch/network/durable-commit) → record the
+    // generic failure so the attempt resolves and prior-good is preserved.
     await recordProviderRefreshFailure('rankings', {
       attempt,
       error: error instanceof Error ? error.message : 'rankings refresh failed',
