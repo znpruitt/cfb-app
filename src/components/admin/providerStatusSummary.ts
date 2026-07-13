@@ -12,6 +12,7 @@
 
 import { describeFreshness } from '@/lib/freshness';
 import type { ProviderDatasetDescriptor } from '@/lib/providerDatasets';
+import type { ProviderCacheAvailability } from '@/lib/server/providerCacheState';
 import type { ProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 
 export type SummaryTone = 'ok' | 'warn' | 'bad' | 'muted';
@@ -27,9 +28,20 @@ export const INTERRUPTED_ATTEMPT_AFTER_MS = 10 * 60 * 1000;
 export function summarizeProviderState(
   status: ProviderRefreshStatus,
   descriptor: ProviderDatasetDescriptor,
-  opts: { globalPause: boolean; enabled: boolean; now: number }
+  opts: {
+    globalPause: boolean;
+    enabled: boolean;
+    now: number;
+    /**
+     * Cache-only availability of this dataset's data for the selected year. Only
+     * consulted when NO refresh-status history exists, to distinguish "no
+     * PLATFORM-086A history yet" from "no data at all". Defaults to `unknown`
+     * (conservative: never asserts absence).
+     */
+    cacheState?: ProviderCacheAvailability;
+  }
 ): StateSummary {
-  const { globalPause, enabled, now } = opts;
+  const { globalPause, enabled, now, cacheState = 'unknown' } = opts;
 
   // Pause/disabled only mean something for a dataset whose setting a live job
   // actually consumes (game-stats today). Showing them for planned/exempt
@@ -38,8 +50,18 @@ export function summarizeProviderState(
   if (consumed && globalPause) return { label: 'Automatic refresh paused (global)', tone: 'warn' };
   if (consumed && !enabled) return { label: 'Automatic refresh disabled', tone: 'warn' };
 
+  // No PLATFORM-086A refresh-status record. "Never refreshed" would be a lie when
+  // cached data already exists (it predates the instrumentation), so distinguish
+  // the three cases by cache-only availability (requirement 6). Missing
+  // observability history is never equated with missing data.
   if (status.lastAttemptAt == null && status.lastSuccessAt == null) {
-    return { label: 'Never refreshed', tone: 'muted' };
+    if (cacheState === 'available') {
+      return { label: 'Serving cached data · no refresh history recorded', tone: 'muted' };
+    }
+    if (cacheState === 'absent') {
+      return { label: 'No cached data or refresh history', tone: 'muted' };
+    }
+    return { label: 'No refresh history recorded', tone: 'muted' };
   }
 
   const outcome = status.latestAttemptOutcome;

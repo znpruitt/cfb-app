@@ -21,6 +21,10 @@ import {
   getProviderDataDiagnostics,
   type ProviderDiagnostic,
 } from '@/lib/server/providerDataDiagnostics';
+import {
+  getProviderCacheStates,
+  unknownProviderCacheStates,
+} from '@/lib/server/providerCacheState';
 import { getLatestKnownOddsUsage } from '@/lib/server/oddsUsageStore';
 
 export const dynamic = 'force-dynamic';
@@ -59,10 +63,14 @@ export async function GET(req: Request): Promise<Response> {
     // timestamp (4th-review finding #4).
     const oddsUsage = await getLatestKnownOddsUsage({ forceRefresh: true }).catch(() => null);
 
-    const [settings, diagnosticsResult, statuses] = await Promise.all([
+    const [settings, diagnosticsResult, statuses, cacheStates] = await Promise.all([
       getProviderRefreshSettings(),
       getProviderDataDiagnostics(year),
       Promise.all(PROVIDER_DATASETS.map((dataset) => getProviderRefreshStatus(dataset))),
+      // Cache-only availability, so the panel can distinguish "no refresh history"
+      // from "no data". A failure of the whole pass degrades to all-unknown rather
+      // than sinking the status feed.
+      getProviderCacheStates(year).catch(() => unknownProviderCacheStates()),
     ]);
 
     const rows: DatasetRow[] = PROVIDER_DATASETS.map((dataset, index) => ({
@@ -82,6 +90,8 @@ export async function GET(req: Request): Promise<Response> {
       // Applicable score partitions for manual refresh (rereview finding #1): the
       // panel skips a doomed postseason score request before bowls are scheduled.
       scoreSeasonTypes: diagnosticsResult.scoreSeasonTypes,
+      // Cache-only per-dataset availability, keyed by dataset (hotfix requirement 6).
+      cacheStates,
       oddsUsage,
     });
   } catch (error) {

@@ -19,17 +19,45 @@ function status(overrides: Partial<ProviderRefreshStatus> = {}): ProviderRefresh
 
 function summarize(
   s: ProviderRefreshStatus,
-  opts: { globalPause?: boolean; enabled?: boolean; descriptor?: typeof scores } = {}
+  opts: {
+    globalPause?: boolean;
+    enabled?: boolean;
+    descriptor?: typeof scores;
+    cacheState?: 'available' | 'absent' | 'unknown';
+  } = {}
 ) {
   return summarizeProviderState(s, opts.descriptor ?? scores, {
     globalPause: opts.globalPause ?? false,
     enabled: opts.enabled ?? true,
     now: NOW,
+    cacheState: opts.cacheState,
   });
 }
 
-test('never refreshed → muted "Never refreshed"', () => {
-  assert.deepEqual(summarize(status()), { label: 'Never refreshed', tone: 'muted' });
+// ---- No PLATFORM-086A refresh history: distinguish from missing data (requirement 6) ----
+
+test('no history + cached data → "Serving cached data · no refresh history recorded"', () => {
+  assert.deepEqual(summarize(status(), { cacheState: 'available' }), {
+    label: 'Serving cached data · no refresh history recorded',
+    tone: 'muted',
+  });
+});
+
+test('no history + no cached data → "No cached data or refresh history"', () => {
+  assert.deepEqual(summarize(status(), { cacheState: 'absent' }), {
+    label: 'No cached data or refresh history',
+    tone: 'muted',
+  });
+});
+
+test('no history + unknown cache state → conservative "No refresh history recorded"', () => {
+  // Never asserts absence when availability could not be proven.
+  assert.deepEqual(summarize(status(), { cacheState: 'unknown' }), {
+    label: 'No refresh history recorded',
+    tone: 'muted',
+  });
+  // Defaulting (no cacheState provided) is the same conservative wording.
+  assert.deepEqual(summarize(status()), { label: 'No refresh history recorded', tone: 'muted' });
 });
 
 test('in-progress (recent) → "Refresh in progress", not a success/failure', () => {

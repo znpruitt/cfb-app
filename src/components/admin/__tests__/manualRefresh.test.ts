@@ -7,8 +7,11 @@ import {
   datasetControlMode,
   interpretRefreshResponse,
   isCurrentStatusResponse,
+  isSelectedYear,
+  manualActionKey,
   manualRefreshUrls,
   scoresAggregateRefreshUrl,
+  shouldApplyStatusResponse,
 } from '../manualRefresh.ts';
 import { getProviderDatasetDescriptor } from '../../../lib/providerDatasets.ts';
 
@@ -113,6 +116,66 @@ test('isCurrentStatusResponse: an older failure cannot replace a newer success',
     }),
     false
   );
+});
+
+// ---- Hotfix requirement 10: manual action state keyed by year + dataset ----
+
+test('manual action state keyed by year + dataset', () => {
+  assert.equal(manualActionKey(2025, 'scores'), '2025:scores');
+  assert.equal(manualActionKey(2026, 'scores'), '2026:scores');
+});
+
+test('A success not displayed under B: the 2025 key differs from the 2026 key', () => {
+  const actions: Record<string, string> = {};
+  actions[manualActionKey(2025, 'scores')] = 'success';
+  // Rendering the 2026 Scores card reads the 2026-keyed slot, which is empty.
+  assert.equal(actions[manualActionKey(2026, 'scores')], undefined);
+});
+
+test('switching back to A restores only A’s keyed result', () => {
+  const actions: Record<string, string> = {};
+  actions[manualActionKey(2025, 'scores')] = 'success';
+  actions[manualActionKey(2026, 'scores')] = 'error';
+  assert.equal(actions[manualActionKey(2025, 'scores')], 'success');
+  assert.equal(actions[manualActionKey(2026, 'scores')], 'error');
+});
+
+// ---- Hotfix requirements 7–9: current-year isolation ----
+
+test('request A resolves after year B becomes current → dropped', () => {
+  // Newest request, echoed year matches its request, but the user is now on B.
+  assert.equal(
+    shouldApplyStatusResponse({
+      requestSeq: 5,
+      latestSeq: 5,
+      requestedYear: 2025,
+      responseYear: 2025,
+      currentYear: 2026,
+    }),
+    false,
+    'a matching-echo response for an abandoned year must not replace B’s feed'
+  );
+});
+
+test('shouldApplyStatusResponse applies only when seq, echoed year, and current year all agree', () => {
+  assert.equal(
+    shouldApplyStatusResponse({
+      requestSeq: 5,
+      latestSeq: 5,
+      requestedYear: 2026,
+      responseYear: 2026,
+      currentYear: 2026,
+    }),
+    true
+  );
+});
+
+test('stale A callback cannot abort/replace B: isSelectedYear gates on the live selection', () => {
+  // A manual-refresh/settings callback captured under 2025, completing while 2026
+  // is selected, must not start an old-year load or reload the old year.
+  assert.equal(isSelectedYear(2025, 2026), false);
+  // The settings mutation reloads whatever year is current at completion.
+  assert.equal(isSelectedYear(2026, 2026), true);
 });
 
 // ---- Finding #6: fallback responses are NOT treated as success ----

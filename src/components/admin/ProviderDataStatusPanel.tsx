@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { fetchCfbdUsageSnapshot, type CfbdUsageSnapshot } from '@/lib/apiUsage';
+import { formatQuotaSummary } from '@/lib/api/providerQuota';
 import { formatRelativeTimestamp } from '@/lib/freshness';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
 import {
@@ -12,6 +13,7 @@ import {
   type ProviderDataset,
   type ProviderDatasetDescriptor,
 } from '@/lib/providerDatasets';
+import type { ProviderCacheAvailability } from '@/lib/server/providerCacheState';
 import type { ProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 import type { ProviderDiagnostic } from '@/lib/server/providerDataDiagnostics';
 import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
@@ -20,8 +22,10 @@ import {
   controlModeLabel,
   datasetControlMode,
   interpretRefreshResponse,
-  isCurrentStatusResponse,
+  isSelectedYear,
+  manualActionKey,
   manualRefreshUrls,
+  shouldApplyStatusResponse,
 } from './manualRefresh';
 import { summarizeProviderState, type SummaryTone } from './providerStatusSummary';
 
@@ -41,6 +45,8 @@ type StatusFeed = {
   diagnostics: ProviderDiagnostic[];
   /** Applicable score partitions for manual refresh (rereview finding #1). */
   scoreSeasonTypes: Array<'regular' | 'postseason'>;
+  /** Cache-only availability per dataset, to distinguish no-history from no-data. */
+  cacheStates: Record<ProviderDataset, ProviderCacheAvailability>;
   oddsUsage: OddsUsageSnapshot | null;
 };
 
@@ -90,18 +96,30 @@ export default function ProviderDataStatusPanel({
     'regular'
   );
   const [now, setNow] = useState<number>(() => Date.now());
-  // Year-race guard (7th-review finding #2): a monotonic request seq + an
+  // Year-race guards (hotfix requirements 7–11): a monotonic request seq + an
   // AbortController so an older year's response can never overwrite a newer
-  // year's feed, and an in-flight load is cancelled on year change / unmount.
+  // year's feed, PLUS an authoritative ref to the currently selected year so a
+  // captured callback for a since-abandoned year can neither start a stale load
+  // nor apply a response under a different current year. `yearRef` is kept in
+  // sync every render so async callbacks always read the LIVE selection, not the
+  // year captured when the callback closure was created.
   const requestSeqRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const yearRef = useRef(year);
+  yearRef.current = year;
 
+  // `load` is intentionally stable (no `year` dependency): it always loads the
+  // CURRENTLY selected year (`yearRef.current`) at call time. That makes it
+  // correct as the status-button handler, the year-change effect, and the
+  // post-action reload — the settings mutation reloads whatever year is selected
+  // at completion, and a stale manual-refresh callback cannot start an old-year
+  // load because there is no old-year load to start.
   const load = useCallback(async () => {
+    const requestedYear = yearRef.current;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const seq = ++requestSeqRef.current;
-    const requestedYear = year;
     setLoading(true);
     setLoadError('');
     try {
@@ -115,15 +133,17 @@ export default function ProviderDataStatusPanel({
         throw new Error(`Status ${res.status}${text ? `: ${text.slice(0, 160)}` : ''}`);
       }
       const data = (await res.json()) as StatusFeed;
-      // Drop a superseded (aborted / not-latest) or year-mismatched response so it
-      // cannot pair the visible year with another year's diagnostics/applicability.
+      // Drop a superseded (aborted / not-latest), year-mismatched, or
+      // no-longer-selected response so it cannot pair the visible year with
+      // another year's diagnostics/applicability/cache-state.
       if (
         controller.signal.aborted ||
-        !isCurrentStatusResponse({
+        !shouldApplyStatusResponse({
           requestSeq: seq,
           latestSeq: requestSeqRef.current,
           requestedYear,
           responseYear: data.year,
+          currentYear: yearRef.current,
         })
       ) {
         return;
@@ -135,17 +155,17 @@ export default function ProviderDataStatusPanel({
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
       }
-      if (seq !== requestSeqRef.current) return;
+      if (seq !== requestSeqRef.current || requestedYear !== yearRef.current) return;
       setLoadError(err instanceof Error ? err.message : 'Failed to load provider status');
     } finally {
       if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [year]);
+  }, []);
 
   useEffect(() => {
     void load();
     return () => abortRef.current?.abort();
-  }, [load]);
+  }, [year, load]);
 
   // CFBD live usage is an authoritative provider read (kept separate from the
   // cache-only status feed). Best-effort — its failure never blocks the panel.
@@ -189,13 +209,17 @@ export default function ProviderDataStatusPanel({
 
   const runManualRefresh = useCallback(
     async (dataset: ProviderDataset) => {
-      const key = `refresh:${dataset}`;
+      // Capture the year this action is for. All of its state is keyed by
+      // `${actionYear}:${dataset}` (requirement 10) so a completed 2025 result
+      // never appears on a 2026 card and no year-A spinner shows on year B.
+      const actionYear = yearRef.current;
+      const key = manualActionKey(actionYear, dataset);
       setAction(key, { status: 'loading' });
       const headers = requireAdminAuthHeaders() as Record<string, string>;
       const opts = { cache: 'no-store' as const, headers };
       try {
         const urls = manualRefreshUrls(dataset, {
-          year,
+          year: actionYear,
           week: gameStatsWeek,
           seasonType: gameStatsSeasonType,
         });
@@ -222,10 +246,20 @@ export default function ProviderDataStatusPanel({
           message: err instanceof Error ? err.message : 'Failed',
         });
       }
-      await load();
+      // Reload only if the action's year is still selected (requirement 9). If the
+      // operator moved to another year, do not reload the old year or disturb the
+      // current year's in-flight request. The keyed result stays under actionYear.
+      if (isSelectedYear(actionYear, yearRef.current)) {
+        await load();
+      }
     },
-    [year, gameStatsWeek, gameStatsSeasonType, load]
+    [gameStatsWeek, gameStatsSeasonType, load]
   );
+
+  // Authoritative, reconciled CFBD quota shared with the legacy API Usage panel
+  // (both render `normalized`, so they can never disagree or show an impossible
+  // "remaining of limit" combination).
+  const cfbdQuota = cfbdUsage ? formatQuotaSummary(cfbdUsage.normalized) : null;
 
   return (
     <section className={sectionClass}>
@@ -264,17 +298,18 @@ export default function ProviderDataStatusPanel({
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-800 dark:text-zinc-200">
-              Global automatic refresh
+              Global provider pause:
             </span>
             {feed?.globalPause ? (
-              <span className="text-xs font-medium text-amber-700 dark:text-amber-300">PAUSED</span>
+              <span className="text-xs font-medium text-amber-700 dark:text-amber-300">On</span>
             ) : (
-              <span className="text-xs font-medium text-green-700 dark:text-green-400">Active</span>
+              <span className="text-xs font-medium text-green-700 dark:text-green-400">Off</span>
             )}
           </div>
           <p className="text-[11px] text-gray-500 dark:text-zinc-400">
-            Pause halts noncritical automatic polling. Manual refresh and the lifecycle-critical
-            season transition keep running.
+            When On, noncritical automatic provider polling is paused. Manual admin refresh and the
+            lifecycle-critical season transition always keep running, and most provider jobs
+            (scores, Odds, schedule, rankings) are still planned rather than active.
           </p>
         </div>
         <button
@@ -294,10 +329,18 @@ export default function ProviderDataStatusPanel({
       <div className="grid grid-cols-1 gap-3 text-xs text-gray-600 dark:text-zinc-400 sm:grid-cols-2">
         <div className="rounded border border-gray-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-800">
           <span className="font-medium text-gray-800 dark:text-zinc-200">CFBD quota</span>{' '}
-          {cfbdUsage ? (
+          {cfbdQuota && cfbdUsage ? (
             <>
-              {cfbdUsage.remaining} remaining of {cfbdUsage.limit} (tier {cfbdUsage.patronLevel},
-              live provider read)
+              {cfbdQuota.text}{' '}
+              <span className="text-gray-400 dark:text-zinc-500">
+                (tier {cfbdUsage.patronLevel} · live provider observation)
+              </span>
+              {cfbdQuota.inconsistent && cfbdQuota.detail && (
+                <span className="mt-0.5 block text-amber-700 dark:text-amber-300">
+                  Raw provider values inconsistent ({cfbdQuota.detail}); showing the reconciled Tier
+                  value.
+                </span>
+              )}
             </>
           ) : (
             'unavailable'
@@ -323,10 +366,13 @@ export default function ProviderDataStatusPanel({
             globalPause: feed?.globalPause ?? false,
             enabled: row.setting.enabled,
             now,
+            cacheState: feed?.cacheStates?.[row.dataset] ?? 'unknown',
           });
           const successRel = formatRelativeTimestamp(row.status.lastSuccessAt, now);
           const attemptRel = formatRelativeTimestamp(row.status.lastAttemptAt, now);
-          const refreshKey = `refresh:${row.dataset}`;
+          // Manual-refresh state is keyed by (year, dataset) so a result never
+          // leaks across years (requirement 10). Toggles stay globally keyed.
+          const refreshKey = manualActionKey(year, row.dataset);
           const toggleKey = `toggle:${row.dataset}`;
           const controlMode = datasetControlMode(row.descriptor);
           return (

@@ -1,10 +1,17 @@
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+import type { NormalizedProviderQuota } from '@/lib/api/providerQuota';
 
 export type CfbdUsageSnapshot = {
   patronLevel: number;
+  /** Raw provider fields (retained for diagnostic detail only). */
   used: number;
   remaining: number;
   limit: number;
+  /**
+   * Authoritative reconciled quota shared by both quota surfaces. Panels must
+   * render this rather than the raw fields, which may be internally inconsistent.
+   */
+  normalized: NormalizedProviderQuota;
 };
 
 export type OddsUsageSnapshot = {

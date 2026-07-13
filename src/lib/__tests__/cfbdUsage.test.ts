@@ -11,11 +11,12 @@ test('CFBD usage tier 0 resolves to limit 1000', () => {
   assert.equal(usage.remaining, 842);
 });
 
-test('CFBD usage tier 1 resolves to limit 3000', () => {
+test('CFBD usage tier 1 resolves to limit 5000 (corrected from a stale 3000)', () => {
   const usage = resolveCfbdUsage({ patronLevel: 1, remainingCalls: 2800 });
 
-  assert.equal(usage.limit, 3000);
-  assert.equal(usage.used, 200);
+  assert.equal(usage.limit, 5000);
+  assert.equal(usage.used, 2200);
+  assert.notEqual(usage.limit, 3000);
 });
 
 test('CFBD usage tier 2 resolves to limit 30000', () => {

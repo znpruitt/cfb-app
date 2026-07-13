@@ -162,6 +162,35 @@ test('GET exposes scoreSeasonTypes (regular-only when no schedule is cached)', a
   assert.deepEqual(body.scoreSeasonTypes, ['regular']);
 });
 
+// ---- Hotfix requirement 6: cache-only availability per dataset ----
+
+test('GET exposes a cacheStates map (absent for every dataset when nothing is cached)', async () => {
+  const res = await GET(getRequest());
+  const body = (await res.json()) as {
+    cacheStates: Record<string, 'available' | 'absent' | 'unknown'>;
+  };
+  assert.deepEqual(Object.keys(body.cacheStates).sort(), [
+    'conferences',
+    'game-stats',
+    'odds',
+    'rankings',
+    'schedule',
+    'scores',
+  ]);
+  for (const dataset of Object.keys(body.cacheStates)) {
+    assert.equal(body.cacheStates[dataset], 'absent', `${dataset} has no cached data yet`);
+  }
+});
+
+test('GET reflects seeded cached data as available', async () => {
+  await setAppState('conferences', 'snapshot', { at: 1, items: [{ id: 1 }] });
+  const res = await GET(getRequest());
+  const body = (await res.json()) as {
+    cacheStates: Record<string, 'available' | 'absent' | 'unknown'>;
+  };
+  assert.equal(body.cacheStates.conferences, 'available');
+});
+
 // ---- Rereview finding #4: odds usage is read from durable storage ----
 
 test('GET reads odds usage from DURABLE storage, not a stale process memo', async () => {

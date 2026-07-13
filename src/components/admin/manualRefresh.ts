@@ -6,6 +6,53 @@
 
 import { type ProviderDataset, type ProviderDatasetDescriptor } from '@/lib/providerDatasets';
 
+/**
+ * Composite key for year-scoped manual-refresh action state (hotfix requirement
+ * 10). Keying manual pending/success/failure state by `${year}:${dataset}`
+ * (not by dataset alone) is what stops a 2025 "Refresh complete" from appearing
+ * on a 2026 card, or a year-A in-progress spinner from showing on year B.
+ */
+export function manualActionKey(year: number, dataset: ProviderDataset): string {
+  return `${year}:${dataset}`;
+}
+
+/**
+ * Whether a year-scoped async operation (a load, a post-action reload, or a
+ * result application) is still for the CURRENTLY selected year (hotfix
+ * requirements 7–9). A captured callback for year A must not start a load,
+ * abort an active request, or mutate feed/error/loading state when year B is
+ * now selected.
+ */
+export function isSelectedYear(requestedYear: number, currentYear: number): boolean {
+  return requestedYear === currentYear;
+}
+
+/**
+ * Whether a resolved provider-status response should be committed to the visible
+ * feed. Extends {@link isCurrentStatusResponse} (seq + echoed-year) with the
+ * required additional guard that the request year still equals the CURRENTLY
+ * selected year (requirement 7): validating only `requestedYear === responseYear`
+ * is insufficient, because an in-flight request for a since-abandoned year can
+ * echo its own (matching) year and still be stale relative to the user's current
+ * selection.
+ */
+export function shouldApplyStatusResponse(params: {
+  requestSeq: number;
+  latestSeq: number;
+  requestedYear: number;
+  responseYear: number;
+  currentYear: number;
+}): boolean {
+  return (
+    isCurrentStatusResponse({
+      requestSeq: params.requestSeq,
+      latestSeq: params.latestSeq,
+      requestedYear: params.requestedYear,
+      responseYear: params.responseYear,
+    }) && params.requestedYear === params.currentYear
+  );
+}
+
 export type ManualRefreshParams = {
   year: number;
   /** Required for game-stats (which is week-scoped). */
