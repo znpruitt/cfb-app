@@ -16,6 +16,7 @@ import { SEED_ALIASES } from '../teamNames.ts';
 import { getAppState, setAppState } from './appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshSuccess,
 } from './providerRefreshStatus.ts';
@@ -289,13 +290,15 @@ export async function loadSeasonRankings(
     // leave this instance serving "fresh" rankings that no other instance can
     // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
     await setAppState('rankings', String(season), cacheEntry);
-    // Durable commit time for success ordering (rereview finding #3).
+    // Durable commit time + sequence for success ordering (rereview findings #3/#6).
     const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
     CACHE.set(season, cacheEntry);
 
     await recordProviderRefreshSuccess('rankings', {
       attempt,
       committedAt,
+      commitSeq,
       source: 'cfbd',
       rowsCommitted: weeks.length,
       durationMs: Date.now() - now,

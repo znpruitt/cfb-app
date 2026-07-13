@@ -12,6 +12,7 @@ import {
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import {
   beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
@@ -150,13 +151,15 @@ export async function GET(req: Request) {
     // failed durable write can't leave this instance serving a "fresh" snapshot
     // no other instance can durably reproduce.
     await setAppState('conferences', 'snapshot', nextCache);
-    // Durable commit time for success ordering (rereview finding #3).
+    // Durable commit time + sequence for success ordering (rereview findings #3/#6).
     const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
     setConferencesRouteCache(nextCache);
 
     await recordProviderRefreshSuccess('conferences', {
       attempt,
       committedAt,
+      commitSeq,
       source: 'cfbd_live',
       rowsCommitted: nextCache.items.length,
     });

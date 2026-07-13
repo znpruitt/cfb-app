@@ -11,9 +11,11 @@ import type { League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
+import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-071 — cron season-transition must invalidate standings for each
@@ -154,6 +156,49 @@ test('a completed transition invalidates standings for each transitioned league'
   // The transition actually happened (status is now season).
   const leagues = await getAppState<League[]>('leagues', 'registry');
   assert.equal(leagues?.value?.[0]?.status?.state, 'season');
+});
+
+test('an all-empty schedule probe resolves the attempt as a no-op, not dangling in-progress (rereview finding #2)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // No probe seeded → shouldFetch is true; the stubbed fetch returns empty for
+  // both partitions (valid absence — a future season not yet published).
+  stubFetchEmptySchedule();
+
+  const res = await GET(cronRequest());
+  assert.equal(res.status, 200);
+
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(status.latestAttemptOutcome, 'no-op', 'all-empty probe resolves as a no-op');
+  assert.notEqual(status.latestAttemptOutcome, 'in-progress', 'the attempt does not dangle');
+  assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
+});
+
+test('a schedule persistence failure resolves the attempt as failed, not dangling (rereview finding #2)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // Regular returns a real game (postseason empty) so the commit path runs.
+  stubFetchBySeasonType(
+    JSON.stringify([game(1, 'Texas', 'Rice', '2023-08-26T00:00:00.000Z')]),
+    '[]'
+  );
+
+  // Fail only the durable 'schedule' write, so the best-effort status write (a
+  // different scope) still persists the resolved failure.
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'), 'schedule');
+  let res: Response;
+  try {
+    res = await GET(cronRequest());
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(res.status, 500, 'a persistence failure surfaces as a 500');
+
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(status.latestAttemptOutcome, 'failed', 'the open attempt is resolved as failed');
+  assert.equal(status.lastError?.code, 'schedule-durable-commit-failed');
 });
 
 test('an unauthorized request invalidates nothing', async () => {

@@ -8,6 +8,7 @@ import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import {
   beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
@@ -165,12 +166,14 @@ export async function GET(req: Request) {
     };
 
     await setCachedGameStats(result);
-    // Durable commit time for success ordering (rereview finding #3).
+    // Durable commit time + sequence for success ordering (rereview findings #3/#6).
     const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
 
     await recordProviderRefreshSuccess('game-stats', {
       attempt,
       committedAt,
+      commitSeq,
       source: 'cfbd',
       rowsCommitted: games.length,
     });

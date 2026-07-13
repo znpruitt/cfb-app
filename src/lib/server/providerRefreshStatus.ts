@@ -48,6 +48,8 @@
  * Storage: app-state scope `provider-refresh-status`, one key per dataset.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { getAppState, setAppState } from './appStateStore.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 
@@ -92,6 +94,13 @@ export type ProviderRefreshStatus = {
   latestAttemptResolvedAt: string | null;
   /** Durable COMMIT time of the last successful refresh (ordering key). */
   lastSuccessAt: string | null;
+  /**
+   * Per-process commit sequence of the last success — a tie-breaker for two
+   * commits sharing the same millisecond `lastSuccessAt` (rereview finding #6).
+   * Only meaningful WITHIN the process that wrote it; undefined for cross-process
+   * or pre-rereview records.
+   */
+  lastSuccessSeq?: number;
   lastError: ProviderRefreshError | null;
   source: string | null;
   rowsCommitted: number | null;
@@ -122,14 +131,25 @@ export function emptyProviderRefreshStatus(dataset: ProviderDataset): ProviderRe
   };
 }
 
-// Monotonic per-process counter keeps attempt tokens unique within a process
-// without Math.random. Cross-instance uniqueness relies on the timestamp prefix
-// (collisions are astronomically unlikely and, if they happened, only affect
-// the concurrent-attempt comparison for a single status record).
-let attemptCounter = 0;
+// A process-INDEPENDENT token: two serverless instances beginning a refresh in
+// the same millisecond must not collide (a timestamp+per-process-counter scheme
+// would, letting an older resolver masquerade as the newer attempt and clobber
+// its outcome — rereview finding #5). `randomUUID` is cryptographically unique
+// across processes.
 function generateAttemptId(): string {
-  attemptCounter += 1;
-  return `${Date.now()}-${attemptCounter}`;
+  return randomUUID();
+}
+
+// Monotonic per-process commit sequence: a tie-breaker for two successful commits
+// that share the same millisecond `committedAt`. Captured by the caller at commit
+// time (right after `setAppState`) via `nextProviderCommitSeq()`, so within a
+// process the TRUE commit order is preserved regardless of which attempt records
+// status first (rereview finding #6). Cross-process it is not comparable, which is
+// acceptable — cross-instance status ordering is already best-effort.
+let commitSeqCounter = 0;
+export function nextProviderCommitSeq(): number {
+  commitSeqCounter += 1;
+  return commitSeqCounter;
 }
 
 /**
@@ -252,6 +272,13 @@ export type ProviderRefreshSuccess = {
    * the status call directly follows the commit with no intervening await).
    */
   committedAt?: string;
+  /**
+   * Per-process monotonic commit sequence from `nextProviderCommitSeq()`, captured
+   * at commit time alongside `committedAt`. Breaks ties between two commits that
+   * share the same millisecond `committedAt` so the TRUE commit order wins over
+   * status-record order within a process (rereview finding #6).
+   */
+  commitSeq?: number;
   source?: string | null;
   rowsCommitted?: number | null;
   partialFailure?: boolean;
@@ -285,14 +312,27 @@ export async function recordProviderRefreshSuccess(
     }
     const status = prior.status;
     const priorSuccessMs = status.lastSuccessAt ? Date.parse(status.lastSuccessAt) : -Infinity;
+    const committedMs = Date.parse(committedAt);
     // Order by DURABLE COMMIT time, not status-call time: only the newest commit
-    // advances last-success metadata (finding #3). Ties resolve to the later
-    // recorder (`>=`), which is deterministic given in-process lock ordering.
-    const advancesSuccess = Date.parse(committedAt) >= priorSuccessMs;
+    // advances last-success metadata (finding #3). When two commits share the same
+    // millisecond `committedAt`, break the tie by the per-process commit sequence
+    // so the TRUE commit order wins regardless of which attempt records status
+    // first (finding #6) — a strict `>` on the timestamp alone would otherwise
+    // reopen the ordering bug for same-ms commits. Cross-process ties (no shared
+    // seq) fall back to first-writer-wins, which is best-effort by design.
+    const seq = result.commitSeq;
+    const priorSeq = status.lastSuccessSeq;
+    const advancesSuccess =
+      committedMs > priorSuccessMs ||
+      (committedMs === priorSuccessMs &&
+        seq !== undefined &&
+        priorSeq !== undefined &&
+        seq > priorSeq);
 
     const next: ProviderRefreshStatus = { ...status, dataset };
     if (advancesSuccess) {
       next.lastSuccessAt = committedAt;
+      next.lastSuccessSeq = seq;
       next.source = result.source ?? null;
       next.rowsCommitted = result.rowsCommitted ?? null;
       next.partialFailure = result.partialFailure ?? false;

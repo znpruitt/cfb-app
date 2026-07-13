@@ -93,6 +93,50 @@ test('a valid empty postseason CFBD partition is a no-op (200), not a failure, a
   assert.equal(espnCalls, 0, 'a valid empty partition must not trigger ESPN');
 });
 
+test('a nonempty CFBD payload that normalizes to zero rows is a schema-drift FAILURE, not a no-op', async () => {
+  let espnCalls = 0;
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      // Nonempty array whose rows all fail toScorePackFromCfbd (no team names) —
+      // a provider field rename would look like this.
+      return new Response(JSON.stringify([{ id: 1, week: 3, home_points: 10, away_points: 7 }]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.origin === 'https://site.web.api.espn.com') {
+      espnCalls += 1;
+      return new Response('[]', { status: 200 });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.notEqual(res.status, 200, 'schema drift is a failure, not a silent 200 no-op');
+  assert.equal(espnCalls, 0, 'no ESPN fallback on schema drift');
+});
+
+test('a non-array CFBD payload is a schema-drift FAILURE', async () => {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response(JSON.stringify({ error: 'unexpected shape' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.notEqual(res.status, 200, 'a non-array payload is uncertainty, not valid absence');
+});
+
 test('a missing CFBD key reports a failure (no ESPN fallback)', async () => {
   process.env.CFBD_API_KEY = '';
   let fetchCalls = 0;

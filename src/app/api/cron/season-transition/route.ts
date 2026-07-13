@@ -5,7 +5,9 @@ import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { setAppState } from '@/lib/server/appStateStore';
 import {
   beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
@@ -162,13 +164,48 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             partialFailure: false,
             failedSeasonTypes: [],
           };
-          await setAppState('schedule', cacheKey, cacheEntry);
+          let committedAt: string;
+          let commitSeq: number;
+          try {
+            await setAppState('schedule', cacheKey, cacheEntry);
+            // Capture the durable COMMIT time + sequence immediately, BEFORE the
+            // probe save below, so success ordering uses the commit time — not the
+            // later status-call time after probe work (rereview findings #3/#6).
+            committedAt = new Date().toISOString();
+            commitSeq = nextProviderCommitSeq();
+          } catch (persistError) {
+            // The schedule fetch succeeded but the durable commit failed: resolve
+            // the open attempt as failed rather than letting it dangle
+            // `in-progress` when the outer catch returns 500 (rereview finding #2).
+            // Prior-good durable schedule is preserved.
+            await recordProviderRefreshFailure('schedule', {
+              attempt: scheduleAttempt,
+              error:
+                persistError instanceof Error
+                  ? persistError.message
+                  : 'season-transition schedule commit failed',
+              code: 'schedule-durable-commit-failed',
+              status: 500,
+            });
+            throw persistError;
+          }
           yearResult.cached = true;
 
-          // Derive first game date
-          const firstGameDate = deriveFirstGameDate(items);
+          // The durable schedule is committed → record success now (before the
+          // probe bookkeeping). A probe-save failure below is a separate concern
+          // that does NOT falsify the schedule commit, so it must not turn this
+          // into a "failed" schedule refresh; it propagates to the outer 500
+          // handler while the attempt stays truthfully resolved as success.
+          await recordProviderRefreshSuccess('schedule', {
+            attempt: scheduleAttempt,
+            committedAt,
+            commitSeq,
+            source: 'cfbd',
+            rowsCommitted: items.length,
+          });
 
-          // Save probe state
+          // Derive first game date + save probe state.
+          const firstGameDate = deriveFirstGameDate(items);
           const newProbeState: ScheduleProbeState = {
             year: targetYear,
             baseCachedAt: probeState?.baseCachedAt ?? now.toISOString(),
@@ -176,17 +213,17 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           };
           await saveScheduleProbeState(newProbeState);
           probeState = newProbeState;
-
-          await recordProviderRefreshSuccess('schedule', {
+        } else {
+          // Complete but genuinely zero games yet (both partitions fetched OK and
+          // legitimately empty — e.g. a future season not yet published). Valid
+          // absence: leave prior-good durable state untouched, and resolve the
+          // attempt as a NO-OP so it neither dangles `in-progress` (rereview
+          // finding #2) nor advances last-success with zero rows.
+          await recordProviderRefreshNoop('schedule', {
             attempt: scheduleAttempt,
             source: 'cfbd',
-            rowsCommitted: items.length,
           });
         }
-        // else: complete but genuinely zero games yet (both partitions fetched
-        // OK and legitimately empty). Nothing to cache/probe — leave prior-good
-        // durable state untouched and retry on a later run rather than
-        // overwriting a good schedule with an empty snapshot.
       }
 
       yearResult.firstGameDate = probeState?.firstGameDate ?? null;

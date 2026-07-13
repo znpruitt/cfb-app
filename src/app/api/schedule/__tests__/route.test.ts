@@ -345,6 +345,45 @@ test('a durable commit failure resolves the schedule attempt as failed (rereview
   assert.equal(status.rowsCommitted, 5, 'prior-good row count preserved');
 });
 
+test('an all-empty schedule refresh records a no-op, not a success advancing last-success (rereview finding #4)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  // Seed a prior successful schedule refresh to prove it is preserved.
+  const seed = await beginProviderRefreshAttempt('schedule', { attemptId: 'seed' });
+  await recordProviderRefreshSuccess('schedule', {
+    attempt: seed,
+    source: 'cfbd',
+    rowsCommitted: 12,
+  });
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule')).lastSuccessAt;
+  assert.ok(priorSuccessAt);
+
+  // Every requested partition validly returns zero rows (a future season not yet
+  // published).
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1')
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).items, []);
+
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(status.latestAttemptOutcome, 'no-op', 'all-empty resolves as a no-op');
+  assert.equal(
+    status.lastSuccessAt,
+    priorSuccessAt,
+    'a no-op does not advance last-success with rowsCommitted:0'
+  );
+  assert.equal(status.rowsCommitted, 12, 'prior-good rows preserved');
+});
+
 test('schedule route bypassCache=1 forces an upstream refetch', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   process.env.ADMIN_API_TOKEN = 'admin-token';

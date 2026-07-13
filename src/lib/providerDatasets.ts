@@ -68,7 +68,16 @@ export type ProviderDatasetDescriptor = {
    * uses this to avoid implying a toggle has an effect it does not yet have.
    */
   autoRefreshSettingConsumed: boolean;
+  /**
+   * How old a successful refresh may be before the admin panel marks it "stale"
+   * (rereview finding #8). Derived per dataset from its expected cadence so a
+   * weekly dataset isn't flagged stale after two days, nor near-live scores held
+   * fresh for far too long. Aligns with the diagnostics staleness thresholds.
+   */
+  staleAfterMs: number;
 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatasetDescriptor> = {
   scores: {
@@ -81,6 +90,9 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
       'Planned (PLATFORM-086B): schedule-armed ~3-minute polling while expected games remain unresolved.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: false,
+    // Near-live during a slate; 2 days tolerates the offseason gap without holding
+    // an in-season stall fresh for long.
+    staleAfterMs: 2 * DAY_MS,
   },
   schedule: {
     dataset: 'schedule',
@@ -94,6 +106,8 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     // season-transition cron, which is exempt from the global pause.
     lifecycleCritical: true,
     autoRefreshSettingConsumed: false,
+    // Weekly cadence (matches the diagnostics stale-schedule threshold).
+    staleAfterMs: 8 * DAY_MS,
   },
   odds: {
     dataset: 'odds',
@@ -105,6 +119,8 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
       'Planned (PLATFORM-086B): fixed baseline cadence with modest pre-kickoff priority.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: false,
+    // Matches the diagnostics stale-odds threshold.
+    staleAfterMs: 2 * DAY_MS,
   },
   rankings: {
     dataset: 'rankings',
@@ -115,6 +131,8 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     plannedPolicy: 'Planned (PLATFORM-086C): Sunday and CFP-release refresh.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: false,
+    // Weekly cadence (matches the diagnostics stale-rankings threshold).
+    staleAfterMs: 8 * DAY_MS,
   },
   conferences: {
     dataset: 'conferences',
@@ -125,6 +143,8 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     plannedPolicy: 'Planned: remain manual (reference data, changes infrequently).',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: false,
+    // Reference data that changes rarely — a month-old snapshot is not stale.
+    staleAfterMs: 30 * DAY_MS,
   },
   'game-stats': {
     dataset: 'game-stats',
@@ -135,6 +155,8 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     plannedPolicy: 'Planned (PLATFORM-086C): weekly ingestion plus missing-week recovery.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
+    // Weekly ingestion cron.
+    staleAfterMs: 8 * DAY_MS,
   },
 };
 

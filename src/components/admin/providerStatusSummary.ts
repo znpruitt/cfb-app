@@ -24,8 +24,6 @@ export type StateSummary = { label: string; tone: SummaryTone };
  */
 export const INTERRUPTED_ATTEMPT_AFTER_MS = 10 * 60 * 1000;
 
-const STALE_SUCCESS_AFTER_MS = 2 * 86_400_000;
-
 export function summarizeProviderState(
   status: ProviderRefreshStatus,
   descriptor: ProviderDatasetDescriptor,
@@ -64,7 +62,7 @@ export function summarizeProviderState(
       case 'no-op':
         return { label: 'Last attempt completed — no applicable data', tone: 'muted' };
       case 'succeeded':
-        return describeSuccess(status, now);
+        return describeSuccess(status, now, descriptor.staleAfterMs);
     }
   }
 
@@ -73,16 +71,19 @@ export function summarizeProviderState(
     return { label: 'Last attempt failed — prior-good data still serving', tone: 'bad' };
   }
   if (status.partialFailure) return { label: 'Partial coverage', tone: 'warn' };
-  if (status.lastSuccessAt) return describeSuccess(status, now);
+  if (status.lastSuccessAt) return describeSuccess(status, now, descriptor.staleAfterMs);
   return { label: 'Refresh attempted', tone: 'muted' };
 }
 
-function describeSuccess(status: ProviderRefreshStatus, now: number): StateSummary {
+function describeSuccess(
+  status: ProviderRefreshStatus,
+  now: number,
+  staleAfterMs: number
+): StateSummary {
   if (!status.lastSuccessAt) return { label: 'Successfully refreshed', tone: 'ok' };
-  const fresh = describeFreshness(status.lastSuccessAt, {
-    now,
-    staleAfterMs: STALE_SUCCESS_AFTER_MS,
-  });
+  // The stale window is per-dataset (rereview finding #8): a weekly dataset is not
+  // flagged stale after two days, nor near-live scores held fresh for far too long.
+  const fresh = describeFreshness(status.lastSuccessAt, { now, staleAfterMs });
   if (fresh.tone === 'stale')
     return { label: 'Successfully refreshed but now stale', tone: 'warn' };
   return { label: 'Successfully refreshed', tone: 'ok' };

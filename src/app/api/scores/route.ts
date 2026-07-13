@@ -16,6 +16,7 @@ import {
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import {
   beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
@@ -379,18 +380,36 @@ export async function GET(req: Request) {
       pacing: CFBD_PACING_POLICY,
     });
 
+    // A non-array payload is schema drift (uncertainty), NOT valid absence — mirror
+    // the schedule route (085C) and fail rather than read it as an empty result.
+    if (!Array.isArray(rawGames)) {
+      throw new Error(`scores ${seasonType} ${year}: provider returned a non-array payload`);
+    }
+
     const items: ScorePack[] = [];
     for (const game of rawGames) {
       const pack = toScorePackFromCfbd(game);
       if (pack) items.push(pack);
     }
 
+    // A NONEMPTY provider payload that normalizes to ZERO rows is schema drift
+    // (field renames, shape change), NOT valid absence — treat it as a refresh
+    // FAILURE so stale scores are not silently frozen with no visible error
+    // (085C parity). Only a genuinely EMPTY provider array (`rawGames.length ===
+    // 0`) is valid absence and becomes a no-op below.
+    if (rawGames.length > 0 && items.length === 0) {
+      throw new Error(
+        `scores ${seasonType} ${year}: provider returned ${rawGames.length} rows but none normalized to a valid score (schema drift)`
+      );
+    }
+
     if (items.length === 0) {
-      // Valid empty CFBD partition (the request succeeded and validated but had no
-      // rows — e.g. a postseason request before bowls are published, or a future
-      // week). This is VALID ABSENCE, not a failure: do NOT write (so any
-      // prior-good rows are preserved), record a no-op (so the manual UI does not
-      // report failure), and return a successful empty response. No ESPN fallback.
+      // Genuinely empty CFBD partition (`rawGames.length === 0`: the request
+      // succeeded and validated but had no rows — e.g. a postseason request before
+      // bowls are published, or a future week). This is VALID ABSENCE, not a
+      // failure: do NOT write (so any prior-good rows are preserved), record a
+      // no-op (so the manual UI does not report failure), and return a successful
+      // empty response. No ESPN fallback.
       logDebug({
         requestId,
         event: 'upstream_empty',
@@ -427,10 +446,12 @@ export async function GET(req: Request) {
     // other instance can durably reproduce. A setAppState throw propagates to the
     // catch below, which records the failed attempt and preserves prior-good data.
     await setAppState('scores', cacheKey, nextEntry);
-    // Capture the durable COMMIT time for success ordering (rereview finding #3):
-    // last-success is ordered by when data was committed, not when this status
-    // call runs after the standings-invalidation await below.
+    // Capture the durable COMMIT time + sequence for success ordering (rereview
+    // findings #3/#6): last-success is ordered by when data was committed, not
+    // when this status call runs after the standings-invalidation await below; the
+    // sequence breaks a same-millisecond tie by true commit order.
     const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
     SCORES_CACHE[cacheKey] = nextEntry;
     await invalidateStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
@@ -447,6 +468,7 @@ export async function GET(req: Request) {
     await recordProviderRefreshSuccess('scores', {
       attempt: providerAttempt,
       committedAt,
+      commitSeq,
       source: 'cfbd',
       rowsCommitted: items.length,
       durationMs: Date.now() - now,

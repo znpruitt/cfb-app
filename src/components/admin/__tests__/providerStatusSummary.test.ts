@@ -11,6 +11,7 @@ import { getProviderDatasetDescriptor } from '../../../lib/providerDatasets.ts';
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 const scores = getProviderDatasetDescriptor('scores');
 const gameStats = getProviderDatasetDescriptor('game-stats');
+const conferences = getProviderDatasetDescriptor('conferences');
 
 function status(overrides: Partial<ProviderRefreshStatus> = {}): ProviderRefreshStatus {
   return { ...emptyProviderRefreshStatus('scores'), ...overrides };
@@ -118,6 +119,23 @@ test('pause/disabled are NOT shown for a non-consumed dataset (would imply a run
   });
   // scores is a planned/unconsumed dataset: a global pause must not relabel it.
   assert.equal(summarize(s, { globalPause: true }).label, 'Successfully refreshed');
+});
+
+test('the stale window is per-dataset: a 5-day-old success is stale for scores but fresh for conferences (finding #8)', () => {
+  const fiveDaysAgo = new Date(NOW - 5 * 86_400_000).toISOString();
+  const s = status({
+    lastAttemptAt: fiveDaysAgo,
+    latestAttemptOutcome: 'succeeded',
+    lastSuccessAt: fiveDaysAgo,
+  });
+  // scores window is 2 days → 5 days is stale.
+  assert.equal(summarize(s, { descriptor: scores }).tone, 'warn');
+  assert.match(summarize(s, { descriptor: scores }).label, /stale/i);
+  // conferences window is 30 days → 5 days is still fresh.
+  assert.deepEqual(summarize(s, { descriptor: conferences }), {
+    label: 'Successfully refreshed',
+    tone: 'ok',
+  });
 });
 
 test('legacy record (no outcome) falls back to historical-field inference', () => {

@@ -10,6 +10,7 @@ import {
 import {
   beginProviderRefreshAttempt,
   getProviderRefreshStatus,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
@@ -297,6 +298,72 @@ test('a stalled older commit recording success LATE does not overwrite the newer
     "B's newer commit remains last-success"
   );
   assert.equal(s.rowsCommitted, 200, "B's row metadata is not overwritten by the older commit");
+});
+
+// Second-rereview finding #6 — a per-process commit sequence breaks a tie when
+// two commits share the same millisecond `committedAt`, so TRUE commit order wins
+// regardless of which attempt records status first.
+
+test('same-millisecond commits: the higher commit sequence wins when it records first', async () => {
+  const ts = '2026-07-12T00:00:05.000Z';
+  const a = await beginProviderRefreshAttempt('scores', { attemptId: 'A' });
+  const b = await beginProviderRefreshAttempt('scores', { attemptId: 'B' });
+  const seqA = nextProviderCommitSeq();
+  const seqB = nextProviderCommitSeq(); // seqB > seqA → B is the newer commit
+  // Newer (B) records FIRST, then older (A) records late — A must not overwrite B.
+  await recordProviderRefreshSuccess('scores', {
+    attempt: b,
+    committedAt: ts,
+    commitSeq: seqB,
+    source: 'cfbd',
+    rowsCommitted: 200,
+  });
+  await recordProviderRefreshSuccess('scores', {
+    attempt: a,
+    committedAt: ts,
+    commitSeq: seqA,
+    source: 'cfbd',
+    rowsCommitted: 100,
+  });
+  const s = await getProviderRefreshStatus('scores');
+  assert.equal(s.rowsCommitted, 200, 'higher-seq commit wins the same-ms tie');
+});
+
+test('same-millisecond commits: the higher commit sequence wins even when it records last', async () => {
+  const ts = '2026-07-12T00:00:06.000Z';
+  const a = await beginProviderRefreshAttempt('odds', { attemptId: 'A' });
+  const b = await beginProviderRefreshAttempt('odds', { attemptId: 'B' });
+  const seqA = nextProviderCommitSeq();
+  const seqB = nextProviderCommitSeq();
+  // Older (A) records FIRST, then newer (B) records — B must still win the tie.
+  await recordProviderRefreshSuccess('odds', {
+    attempt: a,
+    committedAt: ts,
+    commitSeq: seqA,
+    source: 'odds-api',
+    rowsCommitted: 10,
+  });
+  await recordProviderRefreshSuccess('odds', {
+    attempt: b,
+    committedAt: ts,
+    commitSeq: seqB,
+    source: 'odds-api',
+    rowsCommitted: 20,
+  });
+  const s = await getProviderRefreshStatus('odds');
+  assert.equal(s.rowsCommitted, 20, 'higher-seq commit wins even when it records last');
+});
+
+// Second-rereview finding #5 — attempt IDs are process-independent (UUIDs), so two
+// instances beginning in the same millisecond cannot collide.
+test('attempt IDs are unique across rapid begins and are not a timestamp-counter token', async () => {
+  const ids = new Set<string>();
+  for (let i = 0; i < 50; i += 1) {
+    const attempt = await beginProviderRefreshAttempt('scores', {});
+    ids.add(attempt.attemptId);
+  }
+  assert.equal(ids.size, 50, 'no attempt-ID collisions across rapid begins');
+  assert.match([...ids][0], /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i, 'IDs are UUIDs');
 });
 
 test('inverse ordering: a later commit recording success still advances last-success', async () => {

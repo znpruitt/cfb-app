@@ -73,24 +73,46 @@ export async function getProviderRefreshSettings(): Promise<ProviderRefreshSetti
   return normalizeSettings(record?.value);
 }
 
+// In-process serialization of the settings read-modify-write (rereview finding
+// #7). Both setters read the whole record, mutate one field, and write it back;
+// without serialization two concurrent operator mutations (e.g. a global pause
+// and a dataset toggle submitted together) can each read the same prior value and
+// the later write silently discards the other's change. Both setters share ONE
+// chain because they mutate the same durable key. Cross-instance last-writer-win
+// remains (the store has no compare-and-set) — acceptable for rarely-changed
+// operator settings that are re-read on the next panel load.
+let settingsMutationChain: Promise<unknown> = Promise.resolve();
+function withSettingsLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = settingsMutationChain.then(fn, fn);
+  settingsMutationChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 export async function setGlobalPause(paused: boolean): Promise<ProviderRefreshSettings> {
-  const current = await getProviderRefreshSettings();
-  const next: ProviderRefreshSettings = { ...current, globalPause: paused };
-  await setAppState(PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY, next);
-  return next;
+  return withSettingsLock(async () => {
+    const current = await getProviderRefreshSettings();
+    const next: ProviderRefreshSettings = { ...current, globalPause: paused };
+    await setAppState(PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY, next);
+    return next;
+  });
 }
 
 export async function setDatasetAutoRefreshEnabled(
   dataset: ProviderDataset,
   enabled: boolean
 ): Promise<ProviderRefreshSettings> {
-  const current = await getProviderRefreshSettings();
-  const next: ProviderRefreshSettings = {
-    ...current,
-    datasets: { ...current.datasets, [dataset]: { enabled } },
-  };
-  await setAppState(PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY, next);
-  return next;
+  return withSettingsLock(async () => {
+    const current = await getProviderRefreshSettings();
+    const next: ProviderRefreshSettings = {
+      ...current,
+      datasets: { ...current.datasets, [dataset]: { enabled } },
+    };
+    await setAppState(PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY, next);
+    return next;
+  });
 }
 
 /**

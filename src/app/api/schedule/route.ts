@@ -20,7 +20,9 @@ import {
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import {
   beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
@@ -501,10 +503,13 @@ export async function GET(req: Request) {
   // durable write can never leave this instance serving a "fresh" schedule that
   // no other instance can durably reproduce.
   let committedAt: string;
+  let commitSeq: number;
   try {
     await setAppState('schedule', cacheKey, nextCacheEntry);
-    // Capture the durable COMMIT time for success ordering (rereview finding #3).
+    // Capture the durable COMMIT time + sequence for success ordering (rereview
+    // findings #3/#6).
     committedAt = new Date().toISOString();
+    commitSeq = nextProviderCommitSeq();
   } catch (commitError) {
     // The provider fetch succeeded but the durable commit failed. Resolve the open
     // attempt as failed (rereview finding #6) — without this it would dangle as an
@@ -531,18 +536,32 @@ export async function GET(req: Request) {
   SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
   pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
 
-  // Durable schedule committed — record success (PLATFORM-086A). Reaching here
-  // means all requested partitions resolved (085B gate above), so this is a
-  // complete refresh.
-  await recordProviderRefreshSuccess('schedule', {
-    attempt: providerAttempt,
-    committedAt,
-    source: 'cfbd',
-    rowsCommitted: items.length,
-    partialFailure: failedSeasonTypes.length > 0,
-    failedPartitions: failedSeasonTypes,
-    durationMs: Date.now() - now,
-  });
+  // Durable schedule committed — record the outcome (PLATFORM-086A). Reaching
+  // here means all requested partitions resolved (085B gate above).
+  if (items.length === 0 && failedSeasonTypes.length === 0) {
+    // Every requested partition validly returned ZERO rows (e.g. a future season
+    // not yet published). This is valid absence, not a new successful data
+    // refresh: record a no-op so prior-good success metadata is preserved and
+    // `lastSuccessAt` is not advanced with `rowsCommitted: 0` (rereview finding
+    // #4). (An empty partition alongside a populated one has items.length > 0 and
+    // still records success.)
+    await recordProviderRefreshNoop('schedule', {
+      attempt: providerAttempt,
+      source: 'cfbd',
+      durationMs: Date.now() - now,
+    });
+  } else {
+    await recordProviderRefreshSuccess('schedule', {
+      attempt: providerAttempt,
+      committedAt,
+      commitSeq,
+      source: 'cfbd',
+      rowsCommitted: items.length,
+      partialFailure: failedSeasonTypes.length > 0,
+      failedPartitions: failedSeasonTypes,
+      durationMs: Date.now() - now,
+    });
+  }
 
   // Invalidate canonical standings for every league at this year. Schedule
   // is season-scoped, not league-scoped, so we walk the registry. The set is

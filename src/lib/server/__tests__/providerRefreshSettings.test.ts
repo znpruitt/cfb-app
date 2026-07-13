@@ -55,3 +55,18 @@ test('settings persist across reads', async () => {
   assert.equal(settings.datasets.odds.enabled, false);
   assert.equal(settings.datasets.scores.enabled, true);
 });
+
+test('concurrent global-pause and dataset-toggle both persist — no lost update (rereview finding #7)', async () => {
+  // Fire both mutations concurrently. Each is a read-modify-write of the whole
+  // settings record; without the in-process lock they would both read the same
+  // prior value and the later write would silently discard the other's change.
+  await Promise.all([setGlobalPause(true), setDatasetAutoRefreshEnabled('game-stats', false)]);
+
+  const settings = await getProviderRefreshSettings();
+  assert.equal(settings.globalPause, true, 'the global-pause change survived');
+  assert.equal(
+    settings.datasets['game-stats'].enabled,
+    false,
+    'the dataset-toggle change survived'
+  );
+});

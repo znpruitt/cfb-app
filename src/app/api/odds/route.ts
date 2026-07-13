@@ -35,6 +35,7 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/t
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshSuccess,
   type ProviderRefreshAttempt,
@@ -630,10 +631,12 @@ export async function GET(req: Request): Promise<Response> {
       // instance can durably reproduce. A setAppState throw propagates to the
       // route's catch (500), leaving the process cache untouched.
       await setAppState('odds-cache', seasonScopedKey, responseEntry);
-      // Capture the durable COMMIT time for success ordering (rereview finding
-      // #3): last-success is ordered by commit time, not by when this status call
-      // runs after the canonical item build below.
+      // Capture the durable COMMIT time + sequence for success ordering (rereview
+      // findings #3/#6): last-success is ordered by commit time, not by when this
+      // status call runs after the canonical item build below; the sequence breaks
+      // a same-millisecond tie by true commit order.
       const committedAt = new Date().toISOString();
+      const commitSeq = nextProviderCommitSeq();
       oddsCache.entries[seasonScopedKey] = responseEntry;
       fetchedFromUpstream = true;
 
@@ -643,6 +646,7 @@ export async function GET(req: Request): Promise<Response> {
       await recordProviderRefreshSuccess('odds', {
         attempt: oddsAttempt ?? undefined,
         committedAt,
+        commitSeq,
         source: 'odds-api',
         rowsCommitted: responseEntry.data.length,
         usage: usage
