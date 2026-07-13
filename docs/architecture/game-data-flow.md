@@ -48,9 +48,11 @@ Only an **authorized refresh** spends quota. Both routes gate on `refresh=1` beh
 
 **Public scores and canonical consumers share ONE cache-only season score reconciliation (PLATFORM-084B).** Scores cache under a season-wide key (`${year}-all-${seasonType}`) and per-week keys (`${year}-<week>-${seasonType}`). The shared reader `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`) merges the season-wide and per-week entries — deduped by canonical game identity (through `teamIdentity.ts`), newest cache entry winning — and is used by the public `/api/scores` season read, canonical standings, and the season-rollover archive build alike. So a week-specific refresh visible on `/api/scores` is now equally visible to standings, Insights, and archives. The reader is cache-only (no provider call); see [storage-and-caching.md](storage-and-caching.md) for the reconciliation mechanics.
 
+**Refresh freshness metadata is observability-only (PLATFORM-086A).** Each authorized refresh records a per-dataset status (last attempt/success/error/rows) under the `provider-refresh-status` scope, and provider responses carry `generatedAt`/`capturedAt`/`source` meta. These describe *how fresh the cache is* and are surfaced to operators (the `/admin/diagnostics` Provider Data Status panel) and to users (the subtle `FreshnessLabel` chips). They are **not** a source of canonical game data — identity, scores, odds, and standings still derive only from the schedule-attached canonical model, never from a freshness timestamp. See [storage-and-caching.md](storage-and-caching.md) → "Provider-refresh status & settings".
+
 ## Provider quota constraints
 
-CFBD is the source of truth for schedule/scores (~1000 calls/month free tier); The Odds API for odds (~500/month). The cache-reader policy exists to keep public/member traffic from exhausting these quotas; season-persistent data updates through admin/cron flows, not opportunistically from public reads.
+CFBD is the source of truth for schedule/scores; The Odds API for odds (~500/month). CFBD's monthly limit is **tier-derived from the provider-reported patron level** (free tier ~1000/month; higher tiers report a larger allowance) — it is never assumed to be a fixed 1,000. The cache-reader policy exists to keep public/member traffic from exhausting these quotas; season-persistent data updates through admin/cron flows, not opportunistically from public reads.
 
 ## Non-negotiable
 

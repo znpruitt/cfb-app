@@ -27,6 +27,8 @@ A single key/value table, `app_state (scope text, key text, value jsonb, updated
 | `owners:${slug}:${year}` (key `csv`) | current-season owner roster CSV |
 | `preseason-owners:${slug}` | preseason owner names |
 | `schedule` | cached canonical schedule items (per year) |
+| `provider-refresh-status` | per-dataset last attempt/success/error/rows/partial state (one key per dataset), PLATFORM-086A |
+| `provider-refresh-settings` | operator auto-refresh settings — `global` key holds global pause + per-dataset enable flags, PLATFORM-086A |
 | (others) | league registry, durable odds snapshots, team-database snapshot, odds-usage, feedback |
 
 ## Alias storage
@@ -91,6 +93,15 @@ On uncertainty the two routes surface it in their own style but with the same ef
 - the **`/api/schedule` route** (PLATFORM-085C) makes `fetchSeasonType` throw on a non-array or nonempty→zero-rows partition, so it lands in `failedSeasonTypes`; the existing completeness gate (`hasRequiredSeasonTypeFailure`) then returns `502` (with `failedSeasonTypes` for an `all` request) before the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits normally.
 
 This composes with the durable-first rule above: on a **complete** refresh the schedule is persisted durably first, then the process cache, then invalidation.
+
+### Provider-refresh status & settings (PLATFORM-086A)
+
+Two durable scopes give operators observability and control over provider refresh without changing any cadence:
+
+- **`provider-refresh-status`** (one key per dataset: scores/schedule/odds/rankings/conferences/game-stats) records the last **attempt**, last **success**, last **error**, `source`, `rowsCommitted`, and `partialFailure`/`failedPartitions`. It is written truthfully by helpers in `src/lib/server/providerRefreshStatus.ts` at every refresh entry point (the six routes plus the season-transition and game-stats crons). Invariants: a **failed** attempt never advances `lastSuccessAt` (it preserves the prior-good `source`/`rowsCommitted` still being served); **success** is recorded only *after* the durable provider-data commit (so status can't claim success before data is durable, composing with the durable-first rule); and every record helper is **best-effort** — it swallows its own store errors and never throws into the provider path, so a status-write failure can never corrupt or roll back the provider-data commit. This is observability metadata only — it is **never** a source of canonical game data.
+- **`provider-refresh-settings`** (key `global`) holds the operator `globalPause` flag plus a per-dataset `enabled` map. Defaults preserve current behavior (nothing paused, all enabled). `isAutoRefreshAllowed(dataset)` combines both and is consulted by **noncritical** automatic jobs (the game-stats cron today; future PLATFORM-086B–086E jobs reuse it). The lifecycle-critical season-transition cron is **exempt** and never consults it. Manual admin refresh is never gated by these settings. Only the pause and enable flags are settable — there are no editable cron expressions or numeric cadence fields.
+
+The admin surface (`GET/POST /api/admin/provider-status` → the `/admin/diagnostics` Provider Data Status panel) reads both scopes plus cache-only missing-data diagnostics (`src/lib/server/providerDataDiagnostics.ts`); the GET is cache-only and spends no provider quota.
 
 ### Season score cache reconciliation (all + week keys, PLATFORM-084B)
 

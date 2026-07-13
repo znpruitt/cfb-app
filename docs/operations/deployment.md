@@ -41,7 +41,16 @@ Scheduled routes under `/api/cron/*` authenticate with `Bearer ${CRON_SECRET}` (
 - `/api/cron/season-transition` probes/caches the season schedule and flips leagues preseason → season at kickoff. On any partition failure it retains the prior-good durable schedule/probe and reports `partialFailure` in that year's result — the next run retries. It does **not** guarantee an immediate transition on a partial-provider day; a league flips only off a validated (current or prior-good) schedule probe.
 - authorized `/api/schedule` (admin `bypassCache=1`) returns `502` on a failed/drifted partition and does not overwrite the prior-good durable schedule cache, so a subsequent public read still serves the last good schedule.
 
-Neither is a real-time updater — freshness is bounded by the cron/refresh cadence, and neither spends provider quota on public reads. A genuinely empty provider array (postseason before bowl season, a future week) is valid absence, not a failure. (Provider refresh cadence / cron ownership is PLATFORM-086, still open.)
+Neither is a real-time updater — freshness is bounded by the cron/refresh cadence, and neither spends provider quota on public reads. A genuinely empty provider array (postseason before bowl season, a future week) is valid absence, not a failure. (Provider refresh cadence / cron ownership is PLATFORM-086, still open — its automation cadences are **planned, not yet active**.)
+
+## Provider-refresh observability & controls (PLATFORM-086A)
+
+The `/admin/diagnostics` **Provider Data Status** panel gives operators one place to see, per provider dataset (scores/schedule/odds/rankings/conferences/game-stats): last attempt, last successful refresh + age, last error, rows committed, partial-failure state, cache-only missing-data warnings, CFBD/Odds quota, and a manual refresh button. It also exposes two operator settings, persisted durably (`provider-refresh-settings`):
+
+- **Global pause** — halts **noncritical** automatic provider polling. It does **not** block manual admin refresh, and it does **not** block the lifecycle-critical season-transition cron (which is exempt so preseason→season transitions never stall).
+- **Per-dataset enable/disable** — turns automatic refresh off for one dataset without deleting prior-good data or blocking manual repair.
+
+**Current automation coverage vs. planned.** Today only the **game-stats** cron consumes these settings (it skips when paused/disabled). The season-transition cron is exempt. The other datasets have **no automatic job yet** — their settings persist as intent that the planned PLATFORM-086B–086E jobs will consume. The panel's per-dataset "Policy" lines describe that *planned* cadence and must not be read as automation that is already running. Cadence is fixed in code / `vercel.json` and is not editable from the panel.
 
 ## Deploy-time checks
 

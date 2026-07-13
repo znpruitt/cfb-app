@@ -6,6 +6,11 @@ import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
 import { normalizeGameTeamStats } from '@/lib/gameStats/normalizers';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -125,6 +130,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
   }
 
+  // Provider-refresh observability (PLATFORM-086A): record the manual refresh
+  // attempt before the fetch; success only after the durable cache write.
+  const attemptStartedAt = new Date().toISOString();
+  await beginProviderRefreshAttempt('game-stats', attemptStartedAt);
+
   try {
     const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
     const rawGames = await fetchUpstreamJson<RawGameTeamStats[]>(cfbdUrl.toString(), {
@@ -147,11 +157,22 @@ export async function GET(req: Request) {
 
     await setCachedGameStats(result);
 
+    await recordProviderRefreshSuccess('game-stats', {
+      attemptStartedAt,
+      source: 'cfbd',
+      rowsCommitted: games.length,
+    });
+
     return NextResponse.json({
       ...result,
       meta: { cache: 'miss', source: 'cfbd' },
     });
   } catch (error) {
+    await recordProviderRefreshFailure('game-stats', {
+      attemptStartedAt,
+      error: error instanceof Error ? error.message : 'unknown error',
+      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
+    });
     if (error instanceof UpstreamFetchError) {
       return NextResponse.json(
         { error: 'upstream error', detail: error.details },

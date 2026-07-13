@@ -3,6 +3,7 @@ import AdminUsagePanel from '@/components/AdminUsagePanel';
 import AdminTeamDatabasePanel from '@/components/AdminTeamDatabasePanel';
 import AdminStorageStatusPanel from '@/components/AdminStorageStatusPanel';
 import DiagnosticsScorePanel from '@/components/admin/DiagnosticsScorePanel';
+import ProviderDataStatusPanel from '@/components/admin/ProviderDataStatusPanel';
 import { getLeagues } from '@/lib/leagueRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,8 @@ export default async function AdminDiagnosticsPage() {
           />
           <h1 className="text-2xl font-semibold">Diagnostics</h1>
         </div>
+
+        <ProviderDataStatusPanel defaultYear={season} />
 
         <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
           <AdminUsagePanel />

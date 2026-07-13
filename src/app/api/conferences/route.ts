@@ -10,6 +10,11 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getConferencesRouteCache, setConferencesRouteCache } from './cache';
 
@@ -112,6 +117,11 @@ export async function GET(req: Request) {
     });
   }
 
+  // Provider-refresh observability (PLATFORM-086A): reaching here means we have
+  // an API key and are about to fetch upstream.
+  const attemptStartedAt = new Date().toISOString();
+  await beginProviderRefreshAttempt('conferences', attemptStartedAt);
+
   try {
     const items = await fetchUpstreamJson<CfbdConferenceRecord[]>(
       buildCfbdConferencesUrl().toString(),
@@ -130,6 +140,12 @@ export async function GET(req: Request) {
     await setAppState('conferences', 'snapshot', nextCache);
     setConferencesRouteCache(nextCache);
 
+    await recordProviderRefreshSuccess('conferences', {
+      attemptStartedAt,
+      source: 'cfbd_live',
+      rowsCommitted: nextCache.items.length,
+    });
+
     return NextResponse.json<ConferencesResponse>({
       items: nextCache.items,
       meta: {
@@ -138,7 +154,14 @@ export async function GET(req: Request) {
         fallbackUsed: false,
       },
     });
-  } catch {
+  } catch (error) {
+    // The response gracefully degrades to the bundled snapshot, but the LIVE
+    // refresh did fail — record it so operators can see conferences is not
+    // refreshing from the provider (prior-good durable snapshot is retained).
+    await recordProviderRefreshFailure('conferences', {
+      attemptStartedAt,
+      error: error instanceof Error ? error.message : 'conferences refresh failed',
+    });
     return NextResponse.json<ConferencesResponse>({
       items: CONFERENCES_SNAPSHOT,
       meta: {

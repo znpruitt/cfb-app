@@ -14,6 +14,11 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 import { loadReconciledSeasonScores } from '@/lib/server/scoreCacheReader';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
@@ -345,6 +350,11 @@ export async function GET(req: Request) {
   // ---- Authorized refresh path: fetch upstream (CFBD -> ESPN fallback) ----
   recordRouteCacheMiss('scores');
 
+  // Provider-refresh observability (PLATFORM-086A): record the attempt before the
+  // fetch; success is recorded only after a durable commit, failure on any 502.
+  const providerAttemptStartedAt = new Date(now).toISOString();
+  await beginProviderRefreshAttempt('scores', providerAttemptStartedAt);
+
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   const cfbdApiKeyMissing = cfbdApiKey.length === 0;
   let cfbdFallbackReason: CfbdFallbackReason = cfbdApiKeyMissing ? 'api-key-missing' : 'none';
@@ -408,6 +418,13 @@ export async function GET(req: Request) {
           }
         });
 
+        await recordProviderRefreshSuccess('scores', {
+          attemptStartedAt: providerAttemptStartedAt,
+          source: 'cfbd',
+          rowsCommitted: items.length,
+          durationMs: Date.now() - now,
+        });
+
         return responseFrom(items, {
           source: 'cfbd',
           cache: 'miss',
@@ -451,6 +468,13 @@ export async function GET(req: Request) {
 
   try {
     if (week == null) {
+      await recordProviderRefreshFailure('scores', {
+        attemptStartedAt: providerAttemptStartedAt,
+        error: 'season-wide fallback unavailable',
+        code: cfbdFallbackReason,
+        status: 502,
+        durationMs: Date.now() - now,
+      });
       return NextResponse.json(
         {
           error: 'season-wide fallback unavailable without CFBD API key',
@@ -505,6 +529,13 @@ export async function GET(req: Request) {
       }
     });
 
+    await recordProviderRefreshSuccess('scores', {
+      attemptStartedAt: providerAttemptStartedAt,
+      source: 'espn',
+      rowsCommitted: items.length,
+      durationMs: Date.now() - now,
+    });
+
     return responseFrom(items, {
       source: 'espn',
       cache: 'miss',
@@ -513,6 +544,13 @@ export async function GET(req: Request) {
       cfbdFallbackReason,
     });
   } catch (error) {
+    await recordProviderRefreshFailure('scores', {
+      attemptStartedAt: providerAttemptStartedAt,
+      error: error instanceof Error ? error.message : 'all sources failed',
+      code: cfbdFallbackReason,
+      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
+      durationMs: Date.now() - now,
+    });
     if (error instanceof UpstreamFetchError) {
       return NextResponse.json(
         {

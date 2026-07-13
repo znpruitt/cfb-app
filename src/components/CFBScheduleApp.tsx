@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import FeedbackForm from './FeedbackForm';
+import FreshnessLabel from './FreshnessLabel';
 import GameWeekPanel from './GameWeekPanel';
 import AppHeaderActions from './menu/AppHeaderActions';
 import MatchupMatrixView from './MatchupMatrixView';
@@ -1548,6 +1549,15 @@ export default function CFBScheduleApp({
                   <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                     {oddsAvailabilitySummary}
                   </span>
+                ) : null}
+                {!loadingLive && oddsUsage?.capturedAt ? (
+                  // Subtle, dataset-specific freshness (PLATFORM-086A): the odds
+                  // snapshot's own capture time — never a global timestamp.
+                  <FreshnessLabel
+                    timestamp={oddsUsage.capturedAt}
+                    label="Odds"
+                    className="self-center"
+                  />
                 ) : null}
               </div>
               {userFacingLiveIssues.length > 0 ? (

@@ -3,6 +3,11 @@ import { NextResponse } from 'next/server';
 import { getLeagues, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { setAppState } from '@/lib/server/appStateStore';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { mapCfbdScheduleGame, type ScheduleItem } from '@/lib/schedule/cfbdSchedule';
 import { hasRequiredSeasonTypeFailure, type ScheduleSeasonType } from '@/lib/scheduleSeasonFetch';
@@ -110,6 +115,15 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       if (shouldFetch) {
         yearResult.probed = true;
 
+        // Provider-refresh observability (PLATFORM-086A): the season-transition
+        // cron is the schedule dataset's only automatic refresh. It is
+        // lifecycle-critical and EXEMPT from the global auto-refresh pause, but
+        // its probe outcome is still recorded so operators can see when the
+        // schedule was last (successfully) refreshed. Multiple probed years in
+        // one run are last-write-wins on the shared schedule status key.
+        const scheduleAttemptStartedAt = new Date(nowMs).toISOString();
+        await beginProviderRefreshAttempt('schedule', scheduleAttemptStartedAt);
+
         // Fetch schedule from CFBD for both regular and postseason.
         const { items, failedSeasonTypes } = await fetchCfbdSchedule(targetYear);
 
@@ -129,6 +143,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           // from this fetch. `cached` stays false; the next cron run retries.
           yearResult.partialFailure = true;
           yearResult.failedSeasonTypes = failedSeasonTypes;
+          await recordProviderRefreshFailure('schedule', {
+            attemptStartedAt: scheduleAttemptStartedAt,
+            error: `season-transition probe incomplete (missing: ${failedSeasonTypes.join(', ') || 'unknown'})`,
+            partialFailure: true,
+            failedPartitions: failedSeasonTypes,
+          });
         } else if (items.length > 0) {
           // Complete refresh with data. Durable-first (PLATFORM-085A): persist
           // the schedule, then the probe. (The cron keeps no process-memory
@@ -155,6 +175,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           };
           await saveScheduleProbeState(newProbeState);
           probeState = newProbeState;
+
+          await recordProviderRefreshSuccess('schedule', {
+            attemptStartedAt: scheduleAttemptStartedAt,
+            source: 'cfbd',
+            rowsCommitted: items.length,
+          });
         }
         // else: complete but genuinely zero games yet (both partitions fetched
         // OK and legitimately empty). Nothing to cache/probe — leave prior-good

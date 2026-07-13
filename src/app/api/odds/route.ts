@@ -33,6 +33,11 @@ import {
 } from '../../../lib/server/apiUsageBudget.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '../../../lib/server/providerRefreshStatus.ts';
 import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import type { AliasMap } from '../../../lib/teamNames.ts';
@@ -433,6 +438,13 @@ async function buildCanonicalOddsItems(params: {
 
 export async function GET(req: Request): Promise<Response> {
   recordRouteRequest('odds');
+  // Provider-refresh observability (PLATFORM-086A). Hoisted above the try so the
+  // shared catch can attribute a failure to the odds refresh ONLY when a refresh
+  // was actually attempted (never for a public cache-only read that happens to
+  // throw). `oddsSuccessRecorded` prevents a post-commit throw from double-writing
+  // a failure over an already-recorded success.
+  let oddsRefreshStartedAt: string | null = null;
+  let oddsSuccessRecorded = false;
   try {
     const parsedQuery = parseOddsQuery(new URL(req.url));
     if (!parsedQuery.ok) {
@@ -506,6 +518,9 @@ export async function GET(req: Request): Promise<Response> {
     } else {
       // ---- Authorized admin refresh: the only path allowed to spend quota ----
       recordRouteCacheMiss('odds');
+
+      oddsRefreshStartedAt = new Date().toISOString();
+      await beginProviderRefreshAttempt('odds', oddsRefreshStartedAt);
 
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
       if (!oddsApiKey) {
@@ -596,6 +611,24 @@ export async function GET(req: Request): Promise<Response> {
       await setAppState('odds-cache', seasonScopedKey, responseEntry);
       oddsCache.entries[seasonScopedKey] = responseEntry;
       fetchedFromUpstream = true;
+
+      // Durable odds committed — record success (PLATFORM-086A). Tied to the
+      // durable commit per the truthfulness invariant; the guard prevents a later
+      // throw (e.g. in canonical item building) from overwriting it with a failure.
+      await recordProviderRefreshSuccess('odds', {
+        attemptStartedAt: oddsRefreshStartedAt ?? undefined,
+        source: 'odds-api',
+        rowsCommitted: responseEntry.data.length,
+        usage: usage
+          ? {
+              used: usage.used,
+              remaining: usage.remaining,
+              limit: usage.limit,
+              lastCost: usage.lastCost,
+            }
+          : undefined,
+      });
+      oddsSuccessRecorded = true;
     }
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
@@ -646,6 +679,25 @@ export async function GET(req: Request): Promise<Response> {
       season: query.season,
     });
   } catch (e) {
+    // Attribute the failure to the odds refresh only when a refresh was actually
+    // attempted and no success was recorded (PLATFORM-086A). Public cache-only
+    // reads that throw are not refresh attempts.
+    if (oddsRefreshStartedAt && !oddsSuccessRecorded) {
+      const latestUsage = await getLatestKnownOddsUsage().catch(() => null);
+      await recordProviderRefreshFailure('odds', {
+        attemptStartedAt: oddsRefreshStartedAt,
+        error: e instanceof Error ? e.message : 'internal error',
+        status: e instanceof UpstreamFetchError ? (e.details.status ?? 502) : 500,
+        usage: latestUsage
+          ? {
+              used: latestUsage.used,
+              remaining: latestUsage.remaining,
+              limit: latestUsage.limit,
+              lastCost: latestUsage.lastCost,
+            }
+          : undefined,
+      });
+    }
     if (e instanceof UpstreamFetchError) {
       return new Response(JSON.stringify({ error: 'upstream error', detail: e.details }), {
         status: e.details.status ?? 502,

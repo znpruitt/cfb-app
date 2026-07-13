@@ -6,6 +6,12 @@ import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
 import { normalizeGameTeamStats } from '@/lib/gameStats/normalizers';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { getAppState } from '@/lib/server/appStateStore';
+import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 import type { CacheEntry } from '@/app/api/schedule/cache';
 
 export const dynamic = 'force-dynamic';
@@ -118,6 +124,18 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     fetchedAt: null,
   };
 
+  // Operational auto-refresh control (PLATFORM-086A): game-stats is a
+  // NONCRITICAL ingestion job, so it honors the global pause and its per-dataset
+  // enable flag. Manual admin refresh (/api/game-stats?bypassCache=1) stays
+  // available even when paused. (The lifecycle-critical season-transition cron is
+  // exempt and does not call this.)
+  if (!(await isAutoRefreshAllowed('game-stats'))) {
+    return NextResponse.json({
+      ...emptyResult,
+      skipped: 'automatic game-stats refresh is paused or disabled',
+    });
+  }
+
   if (!CFBD_API_KEY) {
     return NextResponse.json(
       { ...emptyResult, error: 'CFBD_API_KEY not configured' },
@@ -148,34 +166,51 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     }
 
     // Fetch from CFBD
-    const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
-    const rawGames = await fetchUpstreamJson<RawGameTeamStats[]>(cfbdUrl.toString(), {
-      headers: { Authorization: `Bearer ${CFBD_API_KEY}` },
-      timeoutMs: 15_000,
-      retry: RETRY_POLICY,
-      pacing: PACING_POLICY,
-    });
+    const attemptStartedAt = new Date().toISOString();
+    await beginProviderRefreshAttempt('game-stats', attemptStartedAt);
 
-    const games = normalizeGameTeamStats(rawGames, week, seasonType);
-    const fetchedAt = new Date().toISOString();
+    try {
+      const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
+      const rawGames = await fetchUpstreamJson<RawGameTeamStats[]>(cfbdUrl.toString(), {
+        headers: { Authorization: `Bearer ${CFBD_API_KEY}` },
+        timeoutMs: 15_000,
+        retry: RETRY_POLICY,
+        pacing: PACING_POLICY,
+      });
 
-    const result: WeeklyGameStats = {
-      year,
-      week,
-      seasonType,
-      fetchedAt,
-      games,
-    };
+      const games = normalizeGameTeamStats(rawGames, week, seasonType);
+      const fetchedAt = new Date().toISOString();
 
-    await setCachedGameStats(result);
+      const result: WeeklyGameStats = {
+        year,
+        week,
+        seasonType,
+        fetchedAt,
+        games,
+      };
 
-    return NextResponse.json({
-      year,
-      week,
-      seasonType,
-      gamesProcessed: games.length,
-      fetchedAt,
-    });
+      await setCachedGameStats(result);
+
+      await recordProviderRefreshSuccess('game-stats', {
+        attemptStartedAt,
+        source: 'cfbd',
+        rowsCommitted: games.length,
+      });
+
+      return NextResponse.json({
+        year,
+        week,
+        seasonType,
+        gamesProcessed: games.length,
+        fetchedAt,
+      });
+    } catch (err) {
+      await recordProviderRefreshFailure('game-stats', {
+        attemptStartedAt,
+        error: err instanceof Error ? err.message : 'unknown error',
+      });
+      throw err;
+    }
   } catch (err) {
     return NextResponse.json(
       { ...emptyResult, error: err instanceof Error ? err.message : 'unknown error' },

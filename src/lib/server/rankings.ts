@@ -14,6 +14,11 @@ import {
 } from '../rankings.ts';
 import { SEED_ALIASES } from '../teamNames.ts';
 import { getAppState, setAppState } from './appStateStore.ts';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from './providerRefreshStatus.ts';
 
 export type CfbdPollRank = {
   rank: number | null;
@@ -224,53 +229,74 @@ export async function loadSeasonRankings(
     throw new Error('CFBD_API_KEY missing');
   }
 
-  const resolver = createTeamIdentityResolver({
-    aliasMap: SEED_ALIASES,
-    teams: (teamsCatalog.items ?? []) as TeamCatalogItem[],
-  });
-  const fetchOpts = {
-    cache: 'no-store' as const,
-    timeoutMs: 12_000,
-    headers: { Authorization: `Bearer ${cfbdApiKey}` },
-    retry: CFBD_RETRY_POLICY,
-    pacing: CFBD_PACING_POLICY,
-  };
+  // Provider-refresh observability (PLATFORM-086A): only the allowRefresh path
+  // reaches here (cache-only reads returned above), so this is a real refresh.
+  const attemptStartedAt = new Date(now).toISOString();
+  await beginProviderRefreshAttempt('rankings', attemptStartedAt);
 
-  const [regularData, postseasonData] = await Promise.all([
-    fetchUpstreamJson<CfbdPollWeek[]>(
-      buildCfbdRankingsUrl({ year: season, seasonType: 'regular' }).toString(),
-      fetchOpts
-    ),
-    fetchUpstreamJson<CfbdPollWeek[]>(
-      buildCfbdRankingsUrl({ year: season, seasonType: 'postseason' }).toString(),
-      fetchOpts
-    ),
-  ]);
+  try {
+    const resolver = createTeamIdentityResolver({
+      aliasMap: SEED_ALIASES,
+      teams: (teamsCatalog.items ?? []) as TeamCatalogItem[],
+    });
+    const fetchOpts = {
+      cache: 'no-store' as const,
+      timeoutMs: 12_000,
+      headers: { Authorization: `Bearer ${cfbdApiKey}` },
+      retry: CFBD_RETRY_POLICY,
+      pacing: CFBD_PACING_POLICY,
+    };
 
-  const rawWeeks = normalizeCfbdRankingsWeeks(
-    [...(regularData ?? []), ...(postseasonData ?? [])],
-    resolver
-  );
-  const weeks = remapPostseasonWeeks(rawWeeks);
+    const [regularData, postseasonData] = await Promise.all([
+      fetchUpstreamJson<CfbdPollWeek[]>(
+        buildCfbdRankingsUrl({ year: season, seasonType: 'regular' }).toString(),
+        fetchOpts
+      ),
+      fetchUpstreamJson<CfbdPollWeek[]>(
+        buildCfbdRankingsUrl({ year: season, seasonType: 'postseason' }).toString(),
+        fetchOpts
+      ),
+    ]);
 
-  const response: RankingsResponse = {
-    weeks,
-    latestWeek: weeks.at(-1) ?? null,
-    meta: {
+    const rawWeeks = normalizeCfbdRankingsWeeks(
+      [...(regularData ?? []), ...(postseasonData ?? [])],
+      resolver
+    );
+    const weeks = remapPostseasonWeeks(rawWeeks);
+
+    const response: RankingsResponse = {
+      weeks,
+      latestWeek: weeks.at(-1) ?? null,
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        generatedAt: new Date(now).toISOString(),
+      },
+    };
+
+    const cacheEntry = { at: now, response };
+    // Durable-first commit order (PLATFORM-085A): persist the rankings snapshot
+    // BEFORE publishing it to the process cache, so a failed durable write can't
+    // leave this instance serving "fresh" rankings that no other instance can
+    // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
+    await setAppState('rankings', String(season), cacheEntry);
+    CACHE.set(season, cacheEntry);
+
+    await recordProviderRefreshSuccess('rankings', {
+      attemptStartedAt,
       source: 'cfbd',
-      cache: 'miss',
-      generatedAt: new Date(now).toISOString(),
-    },
-  };
-
-  const cacheEntry = { at: now, response };
-  // Durable-first commit order (PLATFORM-085A): persist the rankings snapshot
-  // BEFORE publishing it to the process cache, so a failed durable write can't
-  // leave this instance serving "fresh" rankings that no other instance can
-  // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
-  await setAppState('rankings', String(season), cacheEntry);
-  CACHE.set(season, cacheEntry);
-  return response;
+      rowsCommitted: weeks.length,
+      durationMs: Date.now() - now,
+    });
+    return response;
+  } catch (error) {
+    await recordProviderRefreshFailure('rankings', {
+      attemptStartedAt,
+      error: error instanceof Error ? error.message : 'rankings refresh failed',
+      durationMs: Date.now() - now,
+    });
+    throw error;
+  }
 }
 
 export function __resetSeasonRankingsCacheForTests(): void {

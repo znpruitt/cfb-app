@@ -18,6 +18,11 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
@@ -371,6 +376,12 @@ export async function GET(req: Request) {
 
   recordRouteCacheMiss('schedule');
 
+  // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
+  // (or bypassCache) refresh will fetch upstream. Record the attempt before the
+  // fetch; success is recorded only after a durable commit, failure on any 502.
+  const providerAttemptStartedAt = new Date(now).toISOString();
+  await beginProviderRefreshAttempt('schedule', providerAttemptStartedAt);
+
   const seasonTypes: SeasonType[] =
     requestedSeasonType === 'all' ? ['regular', 'postseason'] : [requestedSeasonType];
 
@@ -434,6 +445,21 @@ export async function GET(req: Request) {
   );
 
   if (successes.length === 0 || requiredSeasonTypeFailure) {
+    // A required-partition failure is a REJECTED refresh (085B/085C): no commit,
+    // prior-good durable schedule retained. Record failure so last-success is not
+    // advanced and the partial is visible to operators.
+    await recordProviderRefreshFailure('schedule', {
+      attemptStartedAt: providerAttemptStartedAt,
+      error:
+        firstError instanceof Error
+          ? firstError.message
+          : 'schedule refresh failed (partial or upstream error)',
+      status: firstError instanceof UpstreamFetchError ? (firstError.details.status ?? 502) : 502,
+      partialFailure: true,
+      failedPartitions: failedSeasonTypes,
+      durationMs: Date.now() - now,
+    });
+
     if (successes.length > 0) {
       return NextResponse.json(
         {
@@ -477,6 +503,18 @@ export async function GET(req: Request) {
   await setAppState('schedule', cacheKey, nextCacheEntry);
   SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
   pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
+
+  // Durable schedule committed — record success (PLATFORM-086A). Reaching here
+  // means all requested partitions resolved (085B gate above), so this is a
+  // complete refresh.
+  await recordProviderRefreshSuccess('schedule', {
+    attemptStartedAt: providerAttemptStartedAt,
+    source: 'cfbd',
+    rowsCommitted: items.length,
+    partialFailure: failedSeasonTypes.length > 0,
+    failedPartitions: failedSeasonTypes,
+    durationMs: Date.now() - now,
+  });
 
   // Invalidate canonical standings for every league at this year. Schedule
   // is season-scoped, not league-scoped, so we walk the registry. The set is

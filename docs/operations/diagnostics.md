@@ -37,6 +37,19 @@ See [../architecture/auth-and-privacy.md](../architecture/auth-and-privacy.md) f
 - **Classification / lifecycle:** time-dependent state (preseason/awaiting-kickoff/live) is decided in consumers from a cached time-invariant fact plus request `currentDate` — reproduce with the same `currentDate`, not an implicit "now" (see [../architecture/standings.md](../architecture/standings.md)).
 - **Provider quota:** public reads are pure cache readers and spend nothing; if data is stale, the fix is an **authorized** refresh (admin `refresh=1` / cron), not a public re-fetch. Check odds-usage/quota state before assuming a provider outage.
 
+## Provider Data Status panel (PLATFORM-086A)
+
+`/admin/diagnostics` includes a **Provider Data Status** panel — the first stop when a dataset looks stale or missing. Per provider dataset (scores/schedule/odds/rankings/conferences/game-stats) it shows the durable refresh status (last attempt, last success + age, last error, rows committed, partial-failure/failed partitions, source) alongside cache-only **missing-data diagnostics**:
+
+- **Scores / game stats:** a completed slate (latest kickoff > 6h ago, derived from the canonical schedule) with no cached score rows / no cached game-stats week.
+- **Schedule:** no current-season schedule cached, a partial last refresh, or a schedule older than the weekly policy during an active season.
+- **Rankings:** missing, or older than the weekly policy during an active season.
+- **Odds:** snapshot recency only. A game without an offered line is **not** a failure — odds are classified as available/stale/not-offered, never errored for missing lines.
+
+These diagnostics are **cache-only** — they read the canonical schedule and durable caches and never spend provider quota to determine status (the panel's status `GET /api/admin/provider-status` makes no provider call; live CFBD usage is fetched separately as an authoritative read). Reading the panel answers "when did this last succeed / is it stale / did the last attempt fail / is expected data missing / how much quota remains" without touching logs or storage.
+
+The same panel exposes the operator **global pause** and **per-dataset enable/disable** controls and manual refresh for each dataset (see [deployment.md](../deployment.md) → "Provider-refresh observability & controls"). A failed refresh never advances the dataset's last-success timestamp, so a red "last attempt failed" with an older green "last success" means prior-good data is still being served.
+
 ## Guardrails while debugging
 
 - **Do not spend provider quota from public paths** to "test" — use the admin-gated `refresh=1`. The public surfaces intentionally cannot cold-fetch.
