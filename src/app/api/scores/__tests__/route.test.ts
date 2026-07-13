@@ -8,6 +8,7 @@ import {
   __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
+import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 
 type MockFetch = typeof fetch;
 
@@ -615,6 +616,128 @@ test('PLATFORM-075: anonymous request serves a STALE durable entry without calli
   assert.equal(fetchCalls, 0, 'stale-serve must not call upstream');
   assert.equal(json.meta.cache, 'stale');
   assert.equal(json.items.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// 6th-review finding #4 — the manual/authorized score fan-out resolves as ONE
+// aggregate 'scores' attempt, so no partition's success or no-op can erase
+// another partition's failure. The admin panels issue exactly this request.
+// ---------------------------------------------------------------------------
+
+const AGGREGATE_URL =
+  'http://localhost/api/scores?year=2026&refresh=1&aggregate=1&seasonTypes=regular,postseason';
+
+function gamePayload(home: string, away: string) {
+  return [
+    {
+      id: `${home}-${away}`,
+      home_team: home,
+      away_team: away,
+      home_points: 21,
+      away_points: 14,
+      start_date: '2026-11-01T00:00:00Z',
+      completed: true,
+    },
+  ];
+}
+
+// Per-partition mock: 'ok' → a usable game, 'empty' → valid absence (no-op),
+// 'fail' → a non-array payload (immediate schema-drift failure, no retry delay).
+function setAggregateMock(spec: {
+  regular: 'ok' | 'empty' | 'fail';
+  postseason: 'ok' | 'empty' | 'fail';
+}) {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin !== 'https://api.collegefootballdata.com') {
+      throw new Error(`unexpected URL: ${url.toString()}`);
+    }
+    const st = url.searchParams.get('seasonType') === 'postseason' ? 'postseason' : 'regular';
+    const mode = spec[st];
+    if (mode === 'fail') {
+      return new Response(JSON.stringify({ error: 'drift' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (mode === 'empty') {
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(
+      JSON.stringify(
+        st === 'postseason' ? gamePayload('Georgia', 'Texas') : gamePayload('Texas', 'Rice')
+      ),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+}
+
+test('aggregate scores refresh: both partitions succeed → success, rows summed, one attempt', async () => {
+  setAggregateMock({ regular: 'ok', postseason: 'ok' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.items.length, 2, 'both partitions contribute rows to one response');
+  const status = await getProviderRefreshStatus('scores');
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
+  assert.equal(status.rowsCommitted, 2);
+});
+
+test('aggregate scores refresh: regular success + postseason no-op → success', async () => {
+  setAggregateMock({ regular: 'ok', postseason: 'empty' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.equal(res.status, 200);
+  const status = await getProviderRefreshStatus('scores');
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
+  assert.equal(status.rowsCommitted, 1);
+});
+
+test('aggregate scores refresh: regular FAILURE + postseason no-op → FAILURE (no-op cannot erase it)', async () => {
+  setAggregateMock({ regular: 'fail', postseason: 'empty' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.notEqual(res.status, 200, 'a partition failure fails the aggregate action');
+  const status = await getProviderRefreshStatus('scores');
+  assert.equal(
+    status.latestAttemptOutcome,
+    'failed',
+    'the later postseason no-op must NOT overwrite the regular failure'
+  );
+  assert.deepEqual(status.failedPartitions, ['regular']);
+  assert.equal(status.lastSuccessAt, null, 'a failed aggregate does not advance last-success');
+});
+
+test('aggregate scores refresh: regular FAILURE + postseason success → partial FAILURE', async () => {
+  setAggregateMock({ regular: 'fail', postseason: 'ok' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.notEqual(res.status, 200);
+  const status = await getProviderRefreshStatus('scores');
+  assert.equal(
+    status.latestAttemptOutcome,
+    'failed',
+    'a committed postseason cannot mask the regular failure'
+  );
+  assert.deepEqual(status.failedPartitions, ['regular']);
+  assert.equal(status.partialFailure, true);
+});
+
+test('aggregate scores refresh: both partitions fail → failure listing both partitions', async () => {
+  setAggregateMock({ regular: 'fail', postseason: 'fail' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.notEqual(res.status, 200);
+  const status = await getProviderRefreshStatus('scores');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.deepEqual(status.failedPartitions, ['regular', 'postseason']);
+});
+
+test('aggregate scores refresh: both partitions empty → aggregate no-op (no commit)', async () => {
+  setAggregateMock({ regular: 'empty', postseason: 'empty' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.deepEqual(json.items, []);
+  const status = await getProviderRefreshStatus('scores');
+  assert.equal(status.latestAttemptOutcome, 'no-op', 'no partition committed → aggregate no-op');
+  assert.equal(status.lastSuccessAt, null);
 });
 
 test('PLATFORM-075: scores refresh requires admin authorization when a token is configured', async () => {

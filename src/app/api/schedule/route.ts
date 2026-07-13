@@ -9,7 +9,10 @@ import {
   type ScheduleItem,
   type SeasonType,
 } from '@/lib/schedule/cfbdSchedule';
-import { hasRequiredSeasonTypeFailure } from '@/lib/scheduleSeasonFetch';
+import {
+  classifyEmptyScheduleRefresh,
+  hasRequiredSeasonTypeFailure,
+} from '@/lib/scheduleSeasonFetch';
 
 import { type CacheEntry, SCHEDULE_ROUTE_CACHE } from './cache';
 import {
@@ -509,8 +512,11 @@ export async function GET(req: Request) {
   // collapses into (A): reject rather than overwrite.
   if (items.length === 0) {
     const priorDurable = await getAppState<CacheEntry>('schedule', cacheKey);
-    const priorHadGames = (priorDurable?.value?.items?.length ?? 0) > 0;
-    if (priorHadGames) {
+    const priorDurableRows = priorDurable?.value?.items?.length ?? 0;
+    // Shared empty-response policy (6th-review finding #2) — the SAME classifier
+    // the season-transition cron uses, so the two paths cannot drift.
+    const classification = classifyEmptyScheduleRefresh({ mappedRows: 0, priorDurableRows });
+    if (classification === 'unexpected-empty-replacement') {
       // (A) Do NOT overwrite prior-good durable schedule and do NOT touch the
       // process cache. Record a failure so `lastSuccessAt` is preserved and the
       // empty replacement is visible to operators.

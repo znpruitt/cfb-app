@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { getLeagues, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
-import { setAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -12,7 +12,11 @@ import {
 } from '@/lib/server/providerRefreshStatus';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { mapCfbdScheduleGame, type ScheduleItem } from '@/lib/schedule/cfbdSchedule';
-import { hasRequiredSeasonTypeFailure, type ScheduleSeasonType } from '@/lib/scheduleSeasonFetch';
+import {
+  classifyEmptyScheduleRefresh,
+  hasRequiredSeasonTypeFailure,
+  type ScheduleSeasonType,
+} from '@/lib/scheduleSeasonFetch';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import {
   getScheduleProbeState,
@@ -101,6 +105,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         leagues: [],
         firstGameDate: null,
       };
+      // Set when THIS run's probe cannot be trusted as a currently-valid schedule
+      // (an unexpected empty replacement) — the league must not flip off it; the
+      // next cron run retries once the provider recovers (finding #2).
+      let transitionBlocked = false;
 
       // Schedule probe logic
       let probeState = await getScheduleProbeState(targetYear);
@@ -214,22 +222,48 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           await saveScheduleProbeState(newProbeState);
           probeState = newProbeState;
         } else {
-          // Complete but genuinely zero games yet (both partitions fetched OK and
-          // legitimately empty — e.g. a future season not yet published). Valid
-          // absence: leave prior-good durable state untouched, and resolve the
-          // attempt as a NO-OP so it neither dangles `in-progress` (rereview
-          // finding #2) nor advances last-success with zero rows.
-          await recordProviderRefreshNoop('schedule', {
-            attempt: scheduleAttempt,
-            source: 'cfbd',
+          // Both partitions fetched OK and produced zero rows. Classify with the
+          // SAME shared policy as the authorized schedule route (6th-review
+          // finding #2) so the two paths cannot drift: an empty probe OVER a
+          // populated prior-good schedule is an unexpected empty replacement
+          // (reject + retain prior-good + block the transition this run), while a
+          // genuinely unpublished/inapplicable empty probe is a valid no-op.
+          const priorDurable = await getAppState<CacheEntry>('schedule', `${targetYear}-all-all`);
+          const priorDurableRows = priorDurable?.value?.items?.length ?? 0;
+          const classification = classifyEmptyScheduleRefresh({
+            mappedRows: 0,
+            priorDurableRows,
           });
+          if (classification === 'unexpected-empty-replacement') {
+            // Do NOT overwrite the durable schedule/probe — retain prior-good — and
+            // do NOT transition off an empty probe: we cannot confirm a currently
+            // valid schedule, so defer the flip to a run where the probe validates.
+            yearResult.partialFailure = true;
+            transitionBlocked = true;
+            await recordProviderRefreshFailure('schedule', {
+              attempt: scheduleAttempt,
+              error: `season-transition probe returned zero games for ${targetYear} while a populated schedule is cached — rejected as an unexpected empty replacement`,
+              code: 'schedule-empty-replacement-rejected',
+              status: 502,
+            });
+          } else {
+            // Valid absence (a future season not yet published): leave prior-good
+            // durable state untouched and resolve the attempt as a NO-OP so it
+            // neither dangles `in-progress` nor advances last-success with zero rows.
+            await recordProviderRefreshNoop('schedule', {
+              attempt: scheduleAttempt,
+              source: 'cfbd',
+            });
+          }
         }
       }
 
       yearResult.firstGameDate = probeState?.firstGameDate ?? null;
 
-      // Season transition check — only for THIS year's leagues
-      if (probeState?.firstGameDate) {
+      // Season transition check — only for THIS year's leagues. Skipped when this
+      // run's probe was a rejected empty replacement (finding #2): a league flips
+      // only off a probe we can currently trust, never off an empty-provider day.
+      if (probeState?.firstGameDate && !transitionBlocked) {
         const firstGameMs = new Date(probeState.firstGameDate).getTime();
         const oneDayBeforeMs = firstGameMs - 24 * 60 * 60 * 1000;
 

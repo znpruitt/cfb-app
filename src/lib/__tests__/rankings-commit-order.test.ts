@@ -44,6 +44,39 @@ const RANKINGS_PAYLOAD = [
   },
 ];
 
+// A NONEMPTY raw payload whose ranks carry no usable school, so it normalizes to
+// ZERO usable weeks — schema drift, NOT valid absence (6th-review finding #1).
+const DRIFT_PAYLOAD = [
+  {
+    season: SEASON,
+    seasonType: 'regular',
+    week: 1,
+    polls: [{ poll: 'AP Top 25', ranks: [{ rank: 1, school: '', conference: null }] }],
+  },
+];
+
+// A usable postseason payload (real team names → resolves to a usable week).
+const POSTSEASON_USABLE = [
+  {
+    season: SEASON,
+    seasonType: 'postseason',
+    week: 1,
+    polls: [{ poll: 'AP Top 25', ranks: [{ rank: 1, school: 'Georgia', conference: 'SEC' }] }],
+  },
+];
+
+function stubRankings(opts: { regular: unknown; postseason: unknown }) {
+  global.fetch = (async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.searchParams.get('seasonType') === 'postseason' ? opts.postseason : opts.regular;
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -180,4 +213,69 @@ test('rankings refresh: an unexpected empty over prior-good preserves it and rec
   const status = await getProviderRefreshStatus('rankings');
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'rankings-empty-replacement-rejected');
+});
+
+// ---------------------------------------------------------------------------
+// 6th-review finding #1 — partitions are validated INDEPENDENTLY before combining.
+// A nonempty raw payload normalizing to zero usable weeks is schema drift; one
+// healthy partition can never mask a drifted one, and drift is never a no-op.
+// ---------------------------------------------------------------------------
+
+test('rankings refresh: a drifted regular partition rejects even when postseason is usable', async () => {
+  // Prior-good so the reject serves stale rather than throwing.
+  await setAppState('rankings', String(SEASON), {
+    at: Date.parse('2026-01-01T00:00:00.000Z'),
+    response: populatedRankings(),
+  });
+  __resetSeasonRankingsCacheForTests();
+  stubRankings({ regular: DRIFT_PAYLOAD, postseason: POSTSEASON_USABLE });
+
+  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
+  // Usable postseason must NOT mask the regular drift — the aggregate is rejected
+  // and prior-good is served, never a silently-incomplete (postseason-only) commit.
+  assert.equal(response.weeks.length, 1, 'prior-good retained, not an incomplete commit');
+
+  const durable = await getAppState<{ response: RankingsResponse }>('rankings', String(SEASON));
+  assert.equal(durable?.value?.response?.weeks?.length, 1, 'durable rankings not overwritten');
+
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'rankings-partition-schema-drift');
+  assert.deepEqual(status.failedPartitions, ['regular']);
+});
+
+test('rankings refresh: a drifted postseason partition rejects even when regular is usable', async () => {
+  // No prior-good → the reject surfaces as a hard failure (throws).
+  stubRankings({ regular: RANKINGS_PAYLOAD, postseason: DRIFT_PAYLOAD });
+  await assert.rejects(
+    () => loadSeasonRankings(SEASON, { allowRefresh: true }),
+    /partition schema drift/
+  );
+  assert.equal(await getAppState('rankings', String(SEASON)), null, 'nothing committed');
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.deepEqual(status.failedPartitions, ['postseason']);
+});
+
+test('rankings refresh: both partitions drifting with no prior cache is a failure, not a no-op', async () => {
+  stubRankings({ regular: DRIFT_PAYLOAD, postseason: DRIFT_PAYLOAD });
+  await assert.rejects(
+    () => loadSeasonRankings(SEASON, { allowRefresh: true }),
+    /partition schema drift/
+  );
+  assert.equal(await getAppState('rankings', String(SEASON)), null, 'nothing committed');
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.deepEqual(status.failedPartitions, ['regular', 'postseason']);
+});
+
+test('rankings refresh: usable regular + genuinely empty postseason commits successfully', async () => {
+  // The normal mid-season case: regular usable, postseason raw-empty (pre-bowls).
+  // Empty postseason is valid absence, NOT drift — the refresh commits.
+  stubRankings({ regular: RANKINGS_PAYLOAD, postseason: [] });
+  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
+  assert.equal(response.meta.cache, 'miss');
+  assert.ok(response.weeks.length >= 1, 'usable regular weeks committed');
+  const status = await getProviderRefreshStatus('rankings');
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
 });

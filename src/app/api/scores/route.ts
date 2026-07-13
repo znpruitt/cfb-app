@@ -214,6 +214,297 @@ function logDebug(params: {
   });
 }
 
+type ScorePartitionResult =
+  | {
+      kind: 'success';
+      seasonType: SeasonType;
+      items: ScorePack[];
+      committedAt: string;
+      commitSeq: number;
+    }
+  | { kind: 'noop'; seasonType: SeasonType }
+  | {
+      kind: 'failure';
+      seasonType: SeasonType;
+      error: string;
+      code: CfbdFallbackReason;
+      status: number;
+      details?: unknown;
+    };
+
+/**
+ * Refresh ONE score partition (fetch → classify → durable-first commit) and return
+ * a structured result WITHOUT touching provider-refresh status. This is the shared
+ * unit for both a single-partition refresh (which records its own attempt) and the
+ * aggregate refresh (which records ONE attempt across all applicable partitions),
+ * so an aggregate operator action can never split into competing per-partition
+ * attempts where one partition's success/no-op erases another's failure
+ * (6th-review finding #4). Provider/commit errors are RETURNED (kind 'failure'),
+ * not thrown, so the aggregate can collect every partition's outcome. Classifier
+ * parity with 085C: a non-array payload and a nonempty→zero-rows payload are
+ * schema drift (failure); a genuinely empty CFBD array is valid absence (no-op).
+ */
+async function refreshScorePartition(params: {
+  year: number;
+  week: number | null;
+  seasonType: SeasonType;
+  cfbdApiKey: string;
+  now: number;
+  requestId: string | null;
+}): Promise<ScorePartitionResult> {
+  const { year, week, seasonType, cfbdApiKey, now, requestId } = params;
+  const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
+  try {
+    const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
+    const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
+
+    const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+      headers: { Authorization: `Bearer ${cfbdApiKey}` },
+      retry: CFBD_RETRY_POLICY,
+      pacing: CFBD_PACING_POLICY,
+    });
+
+    if (!Array.isArray(rawGames)) {
+      throw new Error(`scores ${seasonType} ${year}: provider returned a non-array payload`);
+    }
+
+    const items: ScorePack[] = [];
+    for (const game of rawGames) {
+      const pack = toScorePackFromCfbd(game);
+      if (pack) items.push(pack);
+    }
+
+    if (rawGames.length > 0 && items.length === 0) {
+      throw new Error(
+        `scores ${seasonType} ${year}: provider returned ${rawGames.length} rows but none normalized to a valid score (schema drift)`
+      );
+    }
+
+    if (items.length === 0) {
+      // Genuinely empty CFBD partition (valid absence, e.g. postseason before
+      // bowls): do NOT write (prior-good rows preserved) — the caller records a
+      // no-op, never a failure. No ESPN fallback.
+      logDebug({
+        requestId,
+        event: 'upstream_empty',
+        endpoint,
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        itemCount: 0,
+      });
+      return { kind: 'noop', seasonType };
+    }
+
+    const nextEntry: CacheEntry = {
+      at: now,
+      items,
+      source: 'cfbd',
+      cfbdFallbackReason: 'none',
+    };
+    // Durable-first commit order (PLATFORM-085A): persist BEFORE the process cache
+    // and standings invalidation; a failed durable write returns a failure below
+    // and preserves prior-good data.
+    await setAppState('scores', cacheKey, nextEntry);
+    const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
+    SCORES_CACHE[cacheKey] = nextEntry;
+    await invalidateStandingsForYear(year);
+    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
+      if (IS_DEBUG) {
+        console.log('cfbd cache evicted', {
+          route: 'scores',
+          cacheSize,
+          maxEntries: MAX_CACHE_ENTRIES,
+          evicted,
+        });
+      }
+    });
+    return { kind: 'success', seasonType, items, committedAt, commitSeq };
+  } catch (error) {
+    const cfbdFallbackReason = mapCfbdErrorToReason(error);
+    if (error instanceof UpstreamFetchError) {
+      logDebug({
+        requestId,
+        event: 'upstream_failed',
+        endpoint: error.details.url,
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        detail: {
+          kind: error.details.kind,
+          status: error.details.status ?? null,
+          message: error.details.message,
+        },
+      });
+    } else {
+      logDebug({
+        requestId,
+        event: 'upstream_failed',
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        detail: error instanceof Error ? error.message : 'unknown error',
+      });
+    }
+    return {
+      kind: 'failure',
+      seasonType,
+      error: error instanceof Error ? error.message : 'CFBD score refresh failed',
+      code: cfbdFallbackReason,
+      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
+      details: error instanceof UpstreamFetchError ? error.details : undefined,
+    };
+  }
+}
+
+/** Parse the aggregate `seasonTypes` param; default to both applicable partitions. */
+function parseSeasonTypesParam(raw: string | null): SeasonType[] {
+  if (!raw) return ['regular', 'postseason'];
+  const seen = new Set<SeasonType>();
+  const result: SeasonType[] = [];
+  for (const token of raw.split(',')) {
+    const st = token.trim();
+    if ((st === 'regular' || st === 'postseason') && !seen.has(st)) {
+      seen.add(st);
+      result.push(st);
+    }
+  }
+  return result.length > 0 ? result : ['regular', 'postseason'];
+}
+
+/**
+ * Aggregate authorized score refresh: fan out over the APPLICABLE partitions under
+ * ONE provider-refresh attempt so the operator action has a single truthful status
+ * owner. No applicable partition's success or no-op can erase another partition's
+ * failure, because the attempt resolves exactly once from the COMBINED partition
+ * outcomes (6th-review finding #4):
+ *   - any partition failed      → aggregate FAILURE (partial when some committed);
+ *                                 prior-good last-success preserved, 502.
+ *   - all applicable are no-ops → aggregate NO-OP (no commit, last-success kept).
+ *   - ≥1 committed, none failed → aggregate SUCCESS (rows summed, ordered by the
+ *                                 newest partition commit).
+ */
+async function handleAggregateScoreRefresh(params: {
+  year: number;
+  seasonTypesParam: string | null;
+  cfbdApiKey: string;
+  now: number;
+  requestId: string | null;
+}): Promise<NextResponse> {
+  const { year, seasonTypesParam, cfbdApiKey, now, requestId } = params;
+  const seasonTypes = parseSeasonTypesParam(seasonTypesParam);
+
+  const providerAttempt = await beginProviderRefreshAttempt('scores', {
+    startedAt: new Date(now).toISOString(),
+  });
+
+  if (cfbdApiKey.length === 0) {
+    await recordProviderRefreshFailure('scores', {
+      attempt: providerAttempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+      status: 502,
+      failedPartitions: seasonTypes,
+      durationMs: Date.now() - now,
+    });
+    return NextResponse.json(
+      {
+        error: 'score refresh unavailable: CFBD API key missing',
+        metadata: { cfbdFallbackReason: 'api-key-missing' as CfbdFallbackReason },
+      },
+      { status: 502 }
+    );
+  }
+
+  // Aggregate refresh is season-wide (week=null) per applicable partition.
+  const results = await Promise.all(
+    seasonTypes.map((seasonType) =>
+      refreshScorePartition({ year, week: null, seasonType, cfbdApiKey, now, requestId })
+    )
+  );
+
+  const successes = results.filter(
+    (r): r is Extract<ScorePartitionResult, { kind: 'success' }> => r.kind === 'success'
+  );
+  const failures = results.filter(
+    (r): r is Extract<ScorePartitionResult, { kind: 'failure' }> => r.kind === 'failure'
+  );
+  const rowsCommitted = successes.reduce((n, r) => n + r.items.length, 0);
+  const durationMs = Date.now() - now;
+
+  if (failures.length > 0) {
+    // ≥1 partition failed → the aggregate action FAILED (partial when some also
+    // committed). Record ONE failure listing every failed partition; prior-good
+    // last-success is preserved and CANNOT be advanced by the committed partition.
+    const firstFailure = failures[0]!;
+    await recordProviderRefreshFailure('scores', {
+      attempt: providerAttempt,
+      error: `score refresh failed for partition(s): ${failures.map((f) => f.seasonType).join(', ')}`,
+      code: firstFailure.code,
+      status: firstFailure.status,
+      partialFailure: successes.length > 0,
+      failedPartitions: failures.map((f) => f.seasonType),
+      durationMs,
+    });
+    return NextResponse.json(
+      {
+        error: 'score refresh failed',
+        detail: {
+          failedSeasonTypes: failures.map((f) => f.seasonType),
+          committedSeasonTypes: successes.map((s) => s.seasonType),
+        },
+        metadata: { cfbdFallbackReason: firstFailure.code },
+      },
+      { status: firstFailure.status }
+    );
+  }
+
+  if (successes.length === 0) {
+    // Every applicable partition was a valid empty no-op → aggregate no-op: no
+    // commit, prior-good preserved, last-success not advanced.
+    await recordProviderRefreshNoop('scores', {
+      attempt: providerAttempt,
+      source: 'cfbd',
+      durationMs,
+    });
+    return responseFrom([], {
+      source: 'cfbd',
+      cache: 'miss',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'cfbd-empty',
+    });
+  }
+
+  // ≥1 partition committed and none failed → aggregate SUCCESS. Order last-success
+  // by the newest partition commit (commitSeq is strictly increasing per commit).
+  const newest = successes.reduce((a, b) => (b.commitSeq > a.commitSeq ? b : a));
+  await recordProviderRefreshSuccess('scores', {
+    attempt: providerAttempt,
+    committedAt: newest.committedAt,
+    commitSeq: newest.commitSeq,
+    source: 'cfbd',
+    rowsCommitted,
+    durationMs,
+  });
+  return responseFrom(
+    successes.flatMap((r) => r.items),
+    {
+      source: 'cfbd',
+      cache: 'miss',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'none',
+    }
+  );
+}
+
 export async function GET(req: Request) {
   recordRouteRequest('scores');
   const url = new URL(req.url);
@@ -342,15 +633,30 @@ export async function GET(req: Request) {
   // a failure rather than silently substituting a second source.
   recordRouteCacheMiss('scores');
 
-  // Provider-refresh observability (PLATFORM-086A): record the attempt before the
-  // credential check and fetch, so a missing-key early return still resolves a
-  // recorded failed attempt (rereview finding #5). Success is recorded only after
-  // a durable commit; a valid empty CFBD partition is a no-op, not a failure.
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+
+  // Aggregate refresh (6th-review finding #4): fan out over the applicable
+  // partitions under ONE 'scores' attempt so no partition's no-op/success can
+  // erase another partition's failure. The admin panels issue exactly this
+  // request; a per-partition refresh (below) is still available for direct repair.
+  if (url.searchParams.get('aggregate') === '1') {
+    return await handleAggregateScoreRefresh({
+      year,
+      seasonTypesParam: url.searchParams.get('seasonTypes'),
+      cfbdApiKey,
+      now,
+      requestId,
+    });
+  }
+
+  // Single-partition refresh: records its OWN truthful 'scores' attempt so a
+  // direct one-partition repair (or test) stays observable. Begin BEFORE the
+  // credential check so a missing-key early return still resolves the attempt
+  // (rereview finding #5).
   const providerAttempt = await beginProviderRefreshAttempt('scores', {
     startedAt: new Date(now).toISOString(),
   });
 
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (cfbdApiKey.length === 0) {
     await recordProviderRefreshFailure('scores', {
       attempt: providerAttempt,
@@ -368,178 +674,64 @@ export async function GET(req: Request) {
     );
   }
 
-  try {
-    const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
-    const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
+  const result = await refreshScorePartition({
+    year,
+    week,
+    seasonType,
+    cfbdApiKey,
+    now,
+    requestId,
+  });
 
-    const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
-      cache: 'no-store',
-      timeoutMs: 12_000,
-      headers: { Authorization: `Bearer ${cfbdApiKey}` },
-      retry: CFBD_RETRY_POLICY,
-      pacing: CFBD_PACING_POLICY,
-    });
-
-    // A non-array payload is schema drift (uncertainty), NOT valid absence — mirror
-    // the schedule route (085C) and fail rather than read it as an empty result.
-    if (!Array.isArray(rawGames)) {
-      throw new Error(`scores ${seasonType} ${year}: provider returned a non-array payload`);
-    }
-
-    const items: ScorePack[] = [];
-    for (const game of rawGames) {
-      const pack = toScorePackFromCfbd(game);
-      if (pack) items.push(pack);
-    }
-
-    // A NONEMPTY provider payload that normalizes to ZERO rows is schema drift
-    // (field renames, shape change), NOT valid absence — treat it as a refresh
-    // FAILURE so stale scores are not silently frozen with no visible error
-    // (085C parity). Only a genuinely EMPTY provider array (`rawGames.length ===
-    // 0`) is valid absence and becomes a no-op below.
-    if (rawGames.length > 0 && items.length === 0) {
-      throw new Error(
-        `scores ${seasonType} ${year}: provider returned ${rawGames.length} rows but none normalized to a valid score (schema drift)`
-      );
-    }
-
-    if (items.length === 0) {
-      // Genuinely empty CFBD partition (`rawGames.length === 0`: the request
-      // succeeded and validated but had no rows — e.g. a postseason request before
-      // bowls are published, or a future week). This is VALID ABSENCE, not a
-      // failure: do NOT write (so any prior-good rows are preserved), record a
-      // no-op (so the manual UI does not report failure), and return a successful
-      // empty response. No ESPN fallback.
-      logDebug({
-        requestId,
-        event: 'upstream_empty',
-        endpoint,
-        year,
-        week,
-        seasonType,
-        cacheKey,
-        itemCount: 0,
-      });
-      await recordProviderRefreshNoop('scores', {
-        attempt: providerAttempt,
-        source: 'cfbd',
-        durationMs: Date.now() - now,
-      });
-      return responseFrom([], {
-        source: 'cfbd',
-        cache: 'miss',
-        fallbackUsed: false,
-        generatedAt: new Date(now).toISOString(),
-        cfbdFallbackReason: 'cfbd-empty',
-      });
-    }
-
-    const nextEntry: CacheEntry = {
-      at: now,
-      items,
-      source: 'cfbd',
-      cfbdFallbackReason: 'none',
-    };
-    // Durable-first commit order (PLATFORM-085A): persist to app-state BEFORE
-    // publishing to the process cache and invalidating standings, so a failed
-    // durable write can never leave this instance serving "fresh" scores that no
-    // other instance can durably reproduce. A setAppState throw propagates to the
-    // catch below, which records the failed attempt and preserves prior-good data.
-    await setAppState('scores', cacheKey, nextEntry);
-    // Capture the durable COMMIT time + sequence for success ordering (rereview
-    // findings #3/#6): last-success is ordered by when data was committed, not
-    // when this status call runs after the standings-invalidation await below; the
-    // sequence breaks a same-millisecond tie by true commit order.
-    const committedAt = new Date().toISOString();
-    const commitSeq = nextProviderCommitSeq();
-    SCORES_CACHE[cacheKey] = nextEntry;
-    await invalidateStandingsForYear(year);
-    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
-      if (IS_DEBUG) {
-        console.log('cfbd cache evicted', {
-          route: 'scores',
-          cacheSize,
-          maxEntries: MAX_CACHE_ENTRIES,
-          evicted,
-        });
-      }
-    });
-
-    await recordProviderRefreshSuccess('scores', {
+  if (result.kind === 'noop') {
+    // Valid empty CFBD partition → no-op (prior-good preserved), successful empty.
+    await recordProviderRefreshNoop('scores', {
       attempt: providerAttempt,
-      committedAt,
-      commitSeq,
       source: 'cfbd',
-      rowsCommitted: items.length,
       durationMs: Date.now() - now,
     });
-
-    return responseFrom(items, {
+    return responseFrom([], {
       source: 'cfbd',
       cache: 'miss',
       fallbackUsed: false,
       generatedAt: new Date(now).toISOString(),
-      cfbdFallbackReason: 'none',
+      cfbdFallbackReason: 'cfbd-empty',
     });
-  } catch (error) {
-    const cfbdFallbackReason = mapCfbdErrorToReason(error);
+  }
 
-    if (error instanceof UpstreamFetchError) {
-      logDebug({
-        requestId,
-        event: 'upstream_failed',
-        endpoint: error.details.url,
-        year,
-        week,
-        seasonType,
-        cacheKey,
-        detail: {
-          kind: error.details.kind,
-          status: error.details.status ?? null,
-          message: error.details.message,
-        },
-      });
-    } else {
-      logDebug({
-        requestId,
-        event: 'upstream_failed',
-        year,
-        week,
-        seasonType,
-        cacheKey,
-        detail: error instanceof Error ? error.message : 'unknown error',
-      });
-    }
-
-    // CFBD failed (fetch, validation, or durable persistence): preserve the
-    // prior-good durable cache (nothing was written to the process cache), record
-    // the failed attempt, and return a failure. No ESPN substitution.
+  if (result.kind === 'failure') {
+    // CFBD failed (fetch, validation, or durable persistence): prior-good durable
+    // cache preserved, failed attempt recorded, failure returned. No ESPN.
     await recordProviderRefreshFailure('scores', {
       attempt: providerAttempt,
-      error: error instanceof Error ? error.message : 'CFBD score refresh failed',
-      code: cfbdFallbackReason,
-      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
+      error: result.error,
+      code: result.code,
+      status: result.status,
       durationMs: Date.now() - now,
     });
-
-    if (error instanceof UpstreamFetchError) {
-      return NextResponse.json(
-        {
-          error: 'score refresh failed',
-          detail: error.details,
-          metadata: { cfbdFallbackReason },
-        },
-        { status: error.details.status ?? 502 }
-      );
-    }
-
     return NextResponse.json(
       {
         error: 'score refresh failed',
-        detail: error instanceof Error ? error.message : 'unknown error',
-        metadata: { cfbdFallbackReason },
+        detail: result.details ?? result.error,
+        metadata: { cfbdFallbackReason: result.code },
       },
-      { status: 502 }
+      { status: result.status }
     );
   }
+
+  await recordProviderRefreshSuccess('scores', {
+    attempt: providerAttempt,
+    committedAt: result.committedAt,
+    commitSeq: result.commitSeq,
+    source: 'cfbd',
+    rowsCommitted: result.items.length,
+    durationMs: Date.now() - now,
+  });
+  return responseFrom(result.items, {
+    source: 'cfbd',
+    cache: 'miss',
+    fallbackUsed: false,
+    generatedAt: new Date(now).toISOString(),
+    cfbdFallbackReason: 'none',
+  });
 }

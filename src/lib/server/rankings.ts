@@ -173,6 +173,26 @@ export function normalizeCfbdRankingsWeeks(
     .sort(compareWeek);
 }
 
+type RankingsPartition = 'regular' | 'postseason';
+type RankingsPartitionKind = 'usable' | 'schema-drift' | 'valid-empty';
+
+/**
+ * Classify a SINGLE rankings partition from its raw provider payload and its
+ * normalized weeks, WITHOUT reference to the other partition (6th-review finding
+ * #1). A nonempty raw payload that normalizes to zero usable weeks is schema
+ * drift — valid absence is inferred from an EMPTY raw payload, never solely from
+ * "normalization produced zero rows" — so one healthy partition can never mask a
+ * drifted one, and a drifted partition is never mistaken for a valid no-op.
+ */
+export function classifyRankingsPartition(
+  partition: RankingsPartition,
+  raw: CfbdPollWeek[],
+  normalized: RankingsWeek[]
+): { partition: RankingsPartition; kind: RankingsPartitionKind } {
+  if (normalized.length > 0) return { partition, kind: 'usable' };
+  return { partition, kind: raw.length > 0 ? 'schema-drift' : 'valid-empty' };
+}
+
 export async function loadSeasonRankings(
   season = getDefaultRankingsSeason(null),
   options?: { allowRefresh?: boolean }
@@ -269,23 +289,62 @@ export async function loadSeasonRankings(
       ),
     ]);
 
-    const rawWeeks = normalizeCfbdRankingsWeeks(
-      [...(regularData ?? []), ...(postseasonData ?? [])],
-      resolver
+    // Validate EACH partition independently BEFORE combining (6th-review finding
+    // #1). A nonempty raw payload that normalizes to zero usable weeks is schema
+    // drift; it must NOT be masked by usable content from the other partition, and
+    // must NOT be mistaken for a valid no-op just because normalization produced
+    // zero rows. Valid absence is inferred from an EMPTY raw payload only.
+    const regularNormalized = normalizeCfbdRankingsWeeks(regularData ?? [], resolver);
+    const postseasonNormalized = normalizeCfbdRankingsWeeks(postseasonData ?? [], resolver);
+    const partitionClasses = [
+      classifyRankingsPartition('regular', regularData ?? [], regularNormalized),
+      classifyRankingsPartition('postseason', postseasonData ?? [], postseasonNormalized),
+    ];
+    const driftedPartitions = partitionClasses
+      .filter((p) => p.kind === 'schema-drift')
+      .map((p) => p.partition);
+
+    if (driftedPartitions.length > 0) {
+      // ≥1 applicable partition drifted → reject the AGGREGATE refresh. Never commit
+      // a silently-incomplete snapshot as success, and never advance last-success.
+      // Retain prior-good (serve it stale) when available; otherwise surface the
+      // drift as a hard failure so the empty replacement cannot pass unnoticed.
+      await recordProviderRefreshFailure('rankings', {
+        attempt,
+        error: `rankings partition(s) ${driftedPartitions.join(', ')} returned a nonempty payload that normalized to zero usable weeks (schema drift)`,
+        code: 'rankings-partition-schema-drift',
+        partialFailure: partitionClasses.some((p) => p.kind === 'usable'),
+        failedPartitions: driftedPartitions,
+        durationMs: Date.now() - now,
+      });
+      const prior = stored?.value ?? cached ?? null;
+      if (prior) {
+        return {
+          ...prior.response,
+          meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
+        };
+      }
+      throw new Error(
+        `rankings refresh failed: partition schema drift (${driftedPartitions.join(', ')})`
+      );
+    }
+
+    // No drift. Combine the usable/valid-empty partitions and remap postseason.
+    const weeks = remapPostseasonWeeks(
+      [...regularNormalized, ...postseasonNormalized].sort(compareWeek)
     );
-    const weeks = remapPostseasonWeeks(rawWeeks);
 
     if (weeks.length === 0) {
-      // Zero usable rankings weeks. NEVER persist an empty snapshot (which would
-      // read as healthy coverage) and never advance last-success (5th-review
-      // finding #6). Distinguish an unexpected empty over prior-good from a valid
-      // pre-poll empty, mirroring the schedule empty-classification model.
+      // Both partitions were raw-EMPTY (no drift above). Valid absence must not be
+      // inferred solely from zero rows — a genuinely empty payload is a valid no-op
+      // ONLY when rankings are not expected yet. Prior-good populated rankings are
+      // the "expected" signal: an empty response OVER them is an unexpected empty
+      // replacement (failure, retain prior-good), while an empty response with no
+      // prior-good is a pre-poll no-op.
       const priorPopulated =
         (stored?.value?.response?.weeks?.length ?? 0) > 0 ||
         (cached?.response?.weeks?.length ?? 0) > 0;
       if (priorPopulated) {
-        // Unexpected empty replacement of populated rankings → failure; retain
-        // prior-good and serve it (stale) rather than overwrite with nothing.
         await recordProviderRefreshFailure('rankings', {
           attempt,
           error: 'rankings refresh returned zero usable weeks while prior-good rankings are cached',
@@ -298,8 +357,9 @@ export async function loadSeasonRankings(
           meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
         };
       }
-      // Genuinely empty pre-poll data (rankings not published yet) → no-op: no
-      // durable write, prior-good (absent here) preserved, last-success not advanced.
+      // Genuinely empty pre-poll data → no-op: no durable write, prior-good (absent
+      // here) preserved, last-success not advanced. A CLEAN empty response (no stale
+      // markers) so the manual panel reads it as a successful no-op, not a fallback.
       await recordProviderRefreshNoop('rankings', {
         attempt,
         source: 'cfbd',

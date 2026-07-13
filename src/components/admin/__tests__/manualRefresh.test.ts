@@ -24,11 +24,14 @@ test('game-stats manual refresh includes the selected season type', () => {
   assert.doesNotMatch(post[0], /seasonType=regular/);
 });
 
-test('scores manual refresh fans out to regular + postseason by default', () => {
+// ---- Finding #4: scores refresh is ONE aggregate request (one attempt) ----
+
+test('scores manual refresh issues ONE aggregate request over both partitions by default', () => {
   const urls = manualRefreshUrls('scores', { year: 2026 });
-  assert.equal(urls.length, 2);
-  assert.ok(urls.some((u) => u.includes('seasonType=regular')));
-  assert.ok(urls.some((u) => u.includes('seasonType=postseason')));
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /aggregate=1/);
+  assert.match(urls[0], /refresh=1/);
+  assert.match(urls[0], /seasonTypes=regular,postseason/);
 });
 
 // ---- Rereview finding #1: scores refresh skips inapplicable postseason ----
@@ -36,8 +39,8 @@ test('scores manual refresh fans out to regular + postseason by default', () => 
 test('scores manual refresh requests ONLY regular when postseason is not yet applicable', () => {
   const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: ['regular'] });
   assert.equal(urls.length, 1);
-  assert.match(urls[0], /seasonType=regular/);
-  assert.ok(!urls.some((u) => u.includes('seasonType=postseason')));
+  assert.match(urls[0], /seasonTypes=regular(?!,)/);
+  assert.doesNotMatch(urls[0], /postseason/);
 });
 
 test('scores manual refresh requests both partitions once postseason is applicable', () => {
@@ -45,19 +48,21 @@ test('scores manual refresh requests both partitions once postseason is applicab
     year: 2026,
     scoreSeasonTypes: ['regular', 'postseason'],
   });
-  assert.equal(urls.length, 2);
-  assert.ok(urls.some((u) => u.includes('seasonType=postseason')));
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /seasonTypes=regular,postseason/);
 });
 
 test('scores manual refresh can explicitly target postseason only', () => {
   const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: ['postseason'] });
   assert.equal(urls.length, 1);
-  assert.match(urls[0], /seasonType=postseason/);
+  assert.match(urls[0], /seasonTypes=postseason/);
+  assert.doesNotMatch(urls[0], /regular/);
 });
 
 test('an empty applicable-partitions list falls back to both (never silently no-ops)', () => {
   const urls = manualRefreshUrls('scores', { year: 2026, scoreSeasonTypes: [] });
-  assert.equal(urls.length, 2);
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /seasonTypes=regular,postseason/);
 });
 
 test('regular success plus skipped postseason combines to overall success', () => {
@@ -100,6 +105,33 @@ test('interpretRefreshResponse: 200 with local_snapshot source is a failure even
     jsonResponse({ meta: { source: 'local_snapshot' } })
   );
   assert.equal(outcome.ok, false);
+});
+
+// ---- Finding #5: stale prior-good rankings fallback is a failed refresh ----
+
+test('interpretRefreshResponse: 200 with meta.stale (rankings prior-good) is a failure', async () => {
+  // The rankings loader returns HTTP 200 + { stale, rebuildRequired } when it
+  // REJECTS an empty/drifted replacement and keeps serving prior-good rankings.
+  const outcome = await interpretRefreshResponse(
+    jsonResponse({ meta: { source: 'cfbd', cache: 'hit', stale: true, rebuildRequired: true } })
+  );
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.ok === false && outcome.kind, 'fallback');
+});
+
+test('interpretRefreshResponse: 200 with meta.rebuildRequired alone is a failure', async () => {
+  const outcome = await interpretRefreshResponse(
+    jsonResponse({ meta: { source: 'cfbd', rebuildRequired: true } })
+  );
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.ok === false && outcome.kind, 'fallback');
+});
+
+test('interpretRefreshResponse: a fresh rankings success (no stale markers) stays a success', async () => {
+  const outcome = await interpretRefreshResponse(
+    jsonResponse({ meta: { source: 'cfbd', cache: 'miss' } })
+  );
+  assert.equal(outcome.ok, true);
 });
 
 test('combineOutcomes: any failure makes the whole action a failure', () => {
