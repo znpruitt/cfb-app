@@ -492,6 +492,64 @@ export async function GET(req: Request) {
   const items = successes
     .flatMap((payload) => payload.items)
     .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
+
+  // Classify an ALL-EMPTY result BEFORE any durable or process-cache write
+  // (4th-review finding #1). Every requested partition validly returned zero rows
+  // (a required-partition failure already returned at the 085B gate above). Writing
+  // the empty snapshot and THEN recording a no-op is self-contradictory: the no-op
+  // preserves prior success metadata (claiming old rows are still served) while the
+  // authoritative cache has just been emptied. Distinguish two cases; neither
+  // writes the empty result:
+  //   (A) an unexpected empty REPLACEMENT of a populated schedule — treat as schema
+  //       drift / incomplete upstream, preserve prior-good, record a failure; vs
+  //   (B) a valid INAPPLICABLE / unpublished absence (postseason before bowls, a
+  //       future season not yet published) — record a no-op, serve empty.
+  // There is no legitimate production case for intentionally committing an empty
+  // schedule OVER a populated one, so case (C) "authoritative zero-row commit"
+  // collapses into (A): reject rather than overwrite.
+  if (items.length === 0) {
+    const priorDurable = await getAppState<CacheEntry>('schedule', cacheKey);
+    const priorHadGames = (priorDurable?.value?.items?.length ?? 0) > 0;
+    if (priorHadGames) {
+      // (A) Do NOT overwrite prior-good durable schedule and do NOT touch the
+      // process cache. Record a failure so `lastSuccessAt` is preserved and the
+      // empty replacement is visible to operators.
+      await recordProviderRefreshFailure('schedule', {
+        attempt: providerAttempt,
+        error: `schedule ${requestedSeasonType} ${year}: provider returned zero games while a populated schedule is cached — rejected as an unexpected empty replacement`,
+        code: 'schedule-empty-replacement-rejected',
+        status: 502,
+        durationMs: Date.now() - now,
+      });
+      return NextResponse.json(
+        {
+          error: 'schedule refresh returned no games while a populated schedule is cached',
+          detail: { rejected: 'unexpected-empty-replacement' },
+        },
+        { status: 502 }
+      );
+    }
+    // (B) No prior-good populated schedule for this key: a genuinely empty /
+    // inapplicable request. Nothing is written (durable prior-good, if any empty
+    // record, is untouched; the process cache is not mutated). Record a no-op so
+    // `lastSuccessAt` is not advanced with zero rows, and serve an empty success.
+    await recordProviderRefreshNoop('schedule', {
+      attempt: providerAttempt,
+      source: 'cfbd',
+      durationMs: Date.now() - now,
+    });
+    return NextResponse.json<ScheduleResponse>({
+      items: [],
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        fallbackUsed: false,
+        generatedAt: new Date(now).toISOString(),
+        partialFailure: false,
+      },
+    });
+  }
+
   const nextCacheEntry: CacheEntry = {
     at: now,
     items,
@@ -536,32 +594,19 @@ export async function GET(req: Request) {
   SCHEDULE_ROUTE_CACHE[cacheKey] = nextCacheEntry;
   pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
 
-  // Durable schedule committed — record the outcome (PLATFORM-086A). Reaching
-  // here means all requested partitions resolved (085B gate above).
-  if (items.length === 0 && failedSeasonTypes.length === 0) {
-    // Every requested partition validly returned ZERO rows (e.g. a future season
-    // not yet published). This is valid absence, not a new successful data
-    // refresh: record a no-op so prior-good success metadata is preserved and
-    // `lastSuccessAt` is not advanced with `rowsCommitted: 0` (rereview finding
-    // #4). (An empty partition alongside a populated one has items.length > 0 and
-    // still records success.)
-    await recordProviderRefreshNoop('schedule', {
-      attempt: providerAttempt,
-      source: 'cfbd',
-      durationMs: Date.now() - now,
-    });
-  } else {
-    await recordProviderRefreshSuccess('schedule', {
-      attempt: providerAttempt,
-      committedAt,
-      commitSeq,
-      source: 'cfbd',
-      rowsCommitted: items.length,
-      partialFailure: failedSeasonTypes.length > 0,
-      failedPartitions: failedSeasonTypes,
-      durationMs: Date.now() - now,
-    });
-  }
+  // Durable schedule committed with real rows (all-empty was classified and
+  // returned above, so `items.length > 0` here) — record the success. Reaching
+  // this point means all requested partitions resolved (085B gate above).
+  await recordProviderRefreshSuccess('schedule', {
+    attempt: providerAttempt,
+    committedAt,
+    commitSeq,
+    source: 'cfbd',
+    rowsCommitted: items.length,
+    partialFailure: failedSeasonTypes.length > 0,
+    failedPartitions: failedSeasonTypes,
+    durationMs: Date.now() - now,
+  });
 
   // Invalidate canonical standings for every league at this year. Schedule
   // is season-scoped, not league-scoped, so we walk the registry. The set is

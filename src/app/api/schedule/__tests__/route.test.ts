@@ -8,7 +8,7 @@ import '../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import { GET } from '../route';
-import { resetScheduleRouteCacheForTests } from '../cache';
+import { SCHEDULE_ROUTE_CACHE, resetScheduleRouteCacheForTests } from '../cache';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -382,6 +382,113 @@ test('an all-empty schedule refresh records a no-op, not a success advancing las
     'a no-op does not advance last-success with rowsCommitted:0'
   );
   assert.equal(status.rowsCommitted, 12, 'prior-good rows preserved');
+
+  // No durable schedule was written for this key (valid absence, not a commit).
+  const durable = await getAppState('schedule', '2027-all-all');
+  assert.equal(durable, null, 'a valid-empty no-op does not write a durable schedule');
+});
+
+// ---------------------------------------------------------------------------
+// 4th-review finding #1 — an all-empty result is classified BEFORE any durable or
+// process-cache write. A populated schedule is never replaced by an empty one.
+// ---------------------------------------------------------------------------
+
+test('an unexpected all-empty refresh does NOT overwrite a populated durable schedule (finding #1)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  // Prior-good POPULATED durable schedule under the exact refresh key.
+  await setAppState('schedule', '2027-all-all', {
+    at: 1,
+    items: [
+      {
+        id: 'prior',
+        week: 1,
+        startDate: '2027-09-01T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        homeConference: 'Big 12',
+        awayConference: 'American',
+        status: 'scheduled',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  // Seed prior success metadata to prove it is preserved.
+  const seed = await beginProviderRefreshAttempt('schedule', { attemptId: 'seed' });
+  await recordProviderRefreshSuccess('schedule', {
+    attempt: seed,
+    source: 'cfbd',
+    rowsCommitted: 1,
+  });
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule')).lastSuccessAt;
+  assert.ok(priorSuccessAt);
+
+  // Both partitions now return empty — a suspicious empty replacement.
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1')
+  );
+  const json = await res.json();
+
+  assert.equal(res.status, 502, JSON.stringify(json));
+  assert.match(String(json.error ?? ''), /no games/i);
+
+  // Prior-good durable schedule is intact — NOT overwritten with an empty snapshot.
+  const durable = await getAppState<{ items: Array<{ id: string }> }>('schedule', '2027-all-all');
+  assert.equal(durable?.value?.items?.length, 1, 'populated durable schedule preserved');
+  assert.equal(durable?.value?.items?.[0]?.id, 'prior');
+
+  // The process cache was NOT mutated with the empty result.
+  assert.equal(
+    SCHEDULE_ROUTE_CACHE['2027-all-all'],
+    undefined,
+    'rejected empty must not poison the process cache'
+  );
+
+  // Status resolves as failed; prior-good success metadata preserved.
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(status.latestAttemptOutcome, 'failed', 'unexpected empty resolves as failed');
+  assert.equal(status.lastError?.code, 'schedule-empty-replacement-rejected');
+  assert.equal(status.lastSuccessAt, priorSuccessAt, 'prior-good last-success preserved');
+  assert.equal(status.rowsCommitted, 1, 'prior-good rows preserved');
+});
+
+test('a valid inapplicable postseason-empty refresh resolves as a no-op without any write (finding #1)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  // No prior-good postseason schedule cached: postseason before any bowls exist.
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=postseason&bypassCache=1')
+  );
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).items, []);
+
+  // Nothing durable was written for the postseason key, and the process cache is clean.
+  assert.equal(await getAppState('schedule', '2027-all-postseason'), null);
+  assert.equal(SCHEDULE_ROUTE_CACHE['2027-all-postseason'], undefined);
+
+  const status = await getProviderRefreshStatus('schedule');
+  assert.equal(status.latestAttemptOutcome, 'no-op', 'inapplicable postseason empty is a no-op');
+  assert.equal(status.lastSuccessAt, null, 'a no-op never advances last-success');
 });
 
 test('schedule route bypassCache=1 forces an upstream refetch', async () => {

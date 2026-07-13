@@ -10,12 +10,19 @@
 import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
-import { listCachedGameStatsWeeks } from '../gameStats/cache.ts';
-import { getLatestKnownOddsUsage } from './oddsUsageStore.ts';
-import type { OddsUsageSnapshot } from '../api/oddsUsage.ts';
+import { listCachedGameStats } from '../gameStats/cache.ts';
+import { usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import {
+  classifyStatusLabel,
+  isCanceledStatusLabel,
+  isDisruptedStatusLabel,
+} from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
+
+/** Minimal shape of a durable `odds-cache` entry — only its capture time matters here. */
+type OddsCacheFreshness = { lastFetch?: number | null };
 
 export type DiagnosticSeverity = 'info' | 'warning' | 'error';
 
@@ -129,13 +136,6 @@ export async function getProviderDataDiagnostics(
   year: number,
   options: {
     now?: number;
-    /**
-     * Pre-read durable odds usage snapshot, shared with the caller so the odds
-     * diagnostic does not re-read (and does not fall back to the stale
-     * process-local memo — rereview finding #4). Pass `null` to mean "durable
-     * read failed / no snapshot". Omit entirely to let this function read it.
-     */
-    oddsUsage?: OddsUsageSnapshot | null;
   } = {}
 ): Promise<ProviderDataDiagnosticsResult> {
   const now = options.now ?? Date.now();
@@ -181,7 +181,7 @@ export async function getProviderDataDiagnostics(
 
   const completedSlates = deriveCompletedSlates(scheduleItems, now);
 
-  // ---- Scores: completed slates lacking any cached final score ----
+  // ---- Scores: completed slates lacking any cached TERMINAL score ----
   try {
     if (completedSlates.length > 0) {
       const scoredSlates = new Set<SlateKey>();
@@ -189,7 +189,20 @@ export async function getProviderDataDiagnostics(
       for (const entry of scoreEntries) {
         for (const pack of entry.value.items ?? []) {
           if (pack.week == null) continue;
-          if (pack.home.score == null || pack.away.score == null) continue;
+          // A completed slate is only "covered" by a TERMINAL cached row (4th-review
+          // finding #2). A mid-game refresh leaves numeric scores on an in-progress
+          // row; counting that as covered would suppress the missing-final warning
+          // forever if no later poll ever writes finals. Canonical status buckets
+          // (never raw-string matching) decide terminality:
+          //   - final  → covered (requires both numeric scores to be present)
+          //   - canceled → terminal; will never have a final score, so it resolves
+          //     the game without a numeric result (no impossible missing-final)
+          //   - in-progress / scheduled / postponed / suspended / delayed / unknown
+          //     → NOT terminal, does not satisfy coverage
+          const hasBothScores = pack.home.score != null && pack.away.score != null;
+          const isFinal = classifyStatusLabel(pack.status) === 'final' && hasBothScores;
+          const isCanceled = isCanceledStatusLabel(pack.status);
+          if (!isFinal && !isCanceled) continue;
           scoredSlates.add(slateKey(pack.week, normalizeSeasonType(pack.seasonType)));
         }
       }
@@ -215,15 +228,53 @@ export async function getProviderDataDiagnostics(
     push('scores', 'warning', `Score diagnostics unavailable: ${errText(error)}`);
   }
 
-  // ---- Game stats: completed slates with no cached game-stats record ----
+  // ---- Game stats: completed slates missing usable cached game-stats CONTENT ----
   try {
     if (completedSlates.length > 0) {
-      const cachedWeekKeys = new Set(await listCachedGameStatsWeeks(year));
-      const missing: CompletedSlate[] = [];
-      for (const slate of completedSlates) {
-        const key = `${year}:${slate.week}:${slate.seasonType}`;
-        if (!cachedWeekKeys.has(key)) missing.push(slate);
+      // Coverage is judged by CONTENT resolved through canonical game identity, not
+      // key existence: a record with `games: []` — or one whose every row was
+      // dropped during normalization — is NOT coverage (4th-review finding #3). A
+      // bare key must never suppress the warning.
+      const coveredIdsBySlate = new Map<SlateKey, Set<string>>();
+      for (const record of await listCachedGameStats(year)) {
+        coveredIdsBySlate.set(
+          slateKey(record.week, normalizeSeasonType(record.seasonType)),
+          usableGameStatsGameIds(record)
+        );
       }
+      // Expected (canonical) games per completed slate, from the schedule. Disrupted
+      // games (canceled/postponed/suspended/delayed) are excluded — CFBD produces no
+      // team stats for them, so they must not manufacture a permanent partial gap.
+      const completedKeys = new Set(completedSlates.map((s) => slateKey(s.week, s.seasonType)));
+      const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
+      for (const item of scheduleItems) {
+        const key = slateKey(item.week, normalizeSeasonType(item.seasonType));
+        if (!completedKeys.has(key)) continue;
+        if (isDisruptedStatusLabel(item.status)) continue;
+        if (!item.id) continue;
+        let expected = expectedIdsBySlate.get(key);
+        if (!expected) {
+          expected = new Set<string>();
+          expectedIdsBySlate.set(key, expected);
+        }
+        expected.add(String(item.id));
+      }
+
+      const missing: CompletedSlate[] = [];
+      const partial: CompletedSlate[] = [];
+      for (const slate of completedSlates) {
+        const key = slateKey(slate.week, slate.seasonType);
+        const covered = coveredIdsBySlate.get(key);
+        if (!covered || covered.size === 0) {
+          missing.push(slate);
+          continue;
+        }
+        const expected = expectedIdsBySlate.get(key);
+        if (expected && [...expected].some((id) => !covered.has(id))) {
+          partial.push(slate);
+        }
+      }
+
       if (missing.length > 0) {
         const latest = completedSlates[0];
         const latestMissing = missing.some(
@@ -246,6 +297,13 @@ export async function getProviderDataDiagnostics(
             `${describeSlates(older)} missing game stats (recoverable via backfill).`
           );
         }
+      }
+      if (partial.length > 0) {
+        push(
+          'game-stats',
+          'info',
+          `${describeSlates(partial)} partially cached game stats (some games still missing; recoverable via backfill).`
+        );
       }
     }
   } catch (error) {
@@ -271,21 +329,33 @@ export async function getProviderDataDiagnostics(
     push('rankings', 'warning', `Rankings diagnostics unavailable: ${errText(error)}`);
   }
 
-  // ---- Odds: snapshot recency only. A game without odds is NOT a failure. ----
+  // ---- Odds: freshness of the SELECTED SEASON's served odds cache. ----
+  // A game without odds is NOT a failure; only staleness of THIS season's snapshot
+  // is actionable. Freshness derives from the season-scoped `odds-cache` entries'
+  // `lastFetch` — NOT the global quota-observation timestamp (4th-review finding
+  // #4). Quota `capturedAt` can advance from a failed 402/429, admin usage
+  // hydration, or a refresh for a DIFFERENT season while this season's odds remain
+  // stale, which would wrongly suppress the warning. Quota usage stays available
+  // separately (the panel reads it for the operational-budget display).
   try {
-    // Prefer the caller's shared durable read (finding #4); only read here when it
-    // was not provided (standalone callers). `null` explicitly means "no snapshot".
-    const oddsUsage =
-      options.oddsUsage !== undefined ? options.oddsUsage : await getLatestKnownOddsUsage();
-    if (!oddsUsage) {
-      push('odds', 'info', 'No odds snapshot captured yet.');
+    const oddsEntries = await getAppStateEntries<OddsCacheFreshness>('odds-cache', `${year}:`);
+    let latestFetch: number | null = null;
+    for (const entry of oddsEntries) {
+      const fetchedAt = entry.value?.lastFetch;
+      if (typeof fetchedAt === 'number' && Number.isFinite(fetchedAt)) {
+        if (latestFetch == null || fetchedAt > latestFetch) latestFetch = fetchedAt;
+      }
+    }
+    if (latestFetch == null) {
+      // Absence is UNKNOWN, not fresh — report it rather than suppress the warning.
+      push('odds', 'info', `No odds snapshot cached for ${year} yet.`);
     } else if (seasonActive) {
-      const ageMs = now - new Date(oddsUsage.capturedAt).getTime();
+      const ageMs = now - latestFetch;
       if (Number.isFinite(ageMs) && ageMs > STALE_ODDS_AFTER_MS) {
         push(
           'odds',
           'warning',
-          `Odds snapshot last captured ${formatRelativeTimestamp(oddsUsage.capturedAt, now)}.`
+          `Odds snapshot last captured ${formatRelativeTimestamp(latestFetch, now)}.`
         );
       }
     }

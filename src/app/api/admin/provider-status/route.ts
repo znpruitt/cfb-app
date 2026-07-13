@@ -52,15 +52,16 @@ export async function GET(req: Request): Promise<Response> {
 
   try {
     // Read durable odds usage ONCE per status request, forcing through to durable
-    // storage (rereview finding #4): the process-local memo can be indefinitely
-    // stale in a multi-instance deployment where another instance refreshed odds.
-    // The single read is shared by the quota display AND the odds diagnostic so
-    // neither reintroduces the stale memo (and there is no duplicate durable read).
+    // storage: the process-local memo can be indefinitely stale in a multi-instance
+    // deployment. This is the operational QUOTA display only — it is deliberately
+    // NOT passed to the diagnostics odds-freshness check, which now derives
+    // freshness from the season-scoped odds cache instead of this global quota
+    // timestamp (4th-review finding #4).
     const oddsUsage = await getLatestKnownOddsUsage({ forceRefresh: true }).catch(() => null);
 
     const [settings, diagnosticsResult, statuses] = await Promise.all([
       getProviderRefreshSettings(),
-      getProviderDataDiagnostics(year, { oddsUsage }),
+      getProviderDataDiagnostics(year),
       Promise.all(PROVIDER_DATASETS.map((dataset) => getProviderRefreshStatus(dataset))),
     ]);
 

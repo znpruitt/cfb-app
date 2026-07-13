@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
+import { hasUsableGameStats } from '@/lib/gameStats/coverage';
 import { normalizeGameTeamStats } from '@/lib/gameStats/normalizers';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { getAppState } from '@/lib/server/appStateStore';
@@ -167,14 +168,20 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
 
     const { week, seasonType } = latest;
 
-    // Check if we already have fresh stats for this week
+    // Skip only when we already have USABLE stats for this week. A cached record
+    // with `games: []` (CFBD returned no rows, or every row was dropped during
+    // normalization) is NOT coverage — treating a bare key as cached would leave
+    // an empty week permanently skipped on every subsequent run (4th-review
+    // finding #3). Re-fetching an empty week is bounded by the cron cadence and
+    // its pause/enable gate, so this cannot spin: it self-resolves once CFBD
+    // publishes the week's stats.
     const existing = await getCachedGameStats(year, week, seasonType);
-    if (existing) {
+    if (hasUsableGameStats(existing)) {
       return NextResponse.json({
         ...emptyResult,
         week,
         seasonType,
-        skipped: `week ${week} ${seasonType} already cached at ${existing.fetchedAt}`,
+        skipped: `week ${week} ${seasonType} already cached at ${existing?.fetchedAt}`,
       });
     }
 

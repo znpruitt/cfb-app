@@ -3,6 +3,7 @@ import type { ScorePack } from './scores.ts';
 export type GameStatusBucket = 'scheduled' | 'inprogress' | 'final' | 'disrupted';
 
 const DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/i;
+const CANCELED_RE = /\b(canceled|cancelled)\b/i;
 const LIVE_OT_RE = /\b(?:\d+ot|ot)\b/i;
 
 // Status semantics invariant: this module is the single classifier for UI-facing
@@ -14,6 +15,18 @@ function normalizeStatus(status: string | null | undefined): string {
 
 export function isDisruptedStatusLabel(status: string | null | undefined): boolean {
   return DISRUPTED_RE.test(normalizeStatus(status));
+}
+
+/**
+ * A canceled/cancelled game is TERMINAL: it will never produce a final score, so
+ * for coverage purposes (provider-data diagnostics) it is "resolved" and must not
+ * raise an impossible missing-final warning. This is deliberately NARROWER than
+ * {@link isDisruptedStatusLabel}: postponed / suspended / delayed are also
+ * disrupted but are NOT terminal — they are unresolved and should still be
+ * treated as missing a final result.
+ */
+export function isCanceledStatusLabel(status: string | null | undefined): boolean {
+  return CANCELED_RE.test(normalizeStatus(status));
 }
 
 export function classifyStatusLabel(status: string | null | undefined): GameStatusBucket {

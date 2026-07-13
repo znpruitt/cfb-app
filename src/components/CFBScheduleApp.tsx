@@ -226,6 +226,39 @@ export function resolveHighlightDrilldownNavigation(params: {
   };
 }
 
+/**
+ * Whether the live-status section (loading chips, partial-scores note, odds
+ * availability, odds freshness label, and live-issue notice) should mount.
+ *
+ * Extracted as a pure predicate so it is unit-testable (the section itself only
+ * mounts under effect-populated client state, which static rendering never
+ * exercises). It intentionally includes `oddsSnapshotAt`: in the normal clean
+ * state — scores complete, every game has odds, no issues — the section would
+ * otherwise stay unmounted and the served-odds freshness label would never show
+ * despite a valid timestamp (4th-review finding #5).
+ */
+export function shouldRenderLiveStatusSection(input: {
+  loadingSchedule: boolean;
+  scheduleLoaded: boolean;
+  loadingLive: boolean;
+  visibleGames: number;
+  visibleScoresCount: number;
+  oddsAvailabilitySummary: string | null;
+  oddsSnapshotAt: string | null;
+  userFacingLiveIssuesCount: number;
+}): boolean {
+  return (
+    (input.loadingSchedule && !input.scheduleLoaded) ||
+    input.loadingLive ||
+    (!input.loadingLive &&
+      input.visibleGames > 0 &&
+      input.visibleScoresCount < input.visibleGames) ||
+    (!input.loadingLive && input.oddsAvailabilitySummary != null) ||
+    (!input.loadingLive && input.oddsSnapshotAt != null) ||
+    input.userFacingLiveIssuesCount > 0
+  );
+}
+
 export default function CFBScheduleApp({
   leagueSlug,
   leagueDisplayName,
@@ -1529,11 +1562,16 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
-          {(loadingSchedule && !scheduleLoaded) ||
-          loadingLive ||
-          (!loadingLive && visibleGames.length > 0 && visibleScoresCount < visibleGames.length) ||
-          (!loadingLive && oddsAvailabilitySummary != null) ||
-          userFacingLiveIssues.length > 0 ? (
+          {shouldRenderLiveStatusSection({
+            loadingSchedule,
+            scheduleLoaded,
+            loadingLive,
+            visibleGames: visibleGames.length,
+            visibleScoresCount,
+            oddsAvailabilitySummary,
+            oddsSnapshotAt,
+            userFacingLiveIssuesCount: userFacingLiveIssues.length,
+          }) ? (
             <section className="space-y-1">
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {loadingSchedule && !scheduleLoaded ? (
