@@ -83,3 +83,44 @@ export function resolveDefaultSeason(now = new Date()): number {
   const envSeason = Number(process.env.NEXT_PUBLIC_SEASON);
   return Number.isInteger(envSeason) && envSeason > 0 ? envSeason : seasonYearForToday(now);
 }
+
+// The DEFAULT odds query the ordinary served UI uses (no bookmakers/markets/regions
+// filters). A filtered request writes a DIFFERENT cache key, so freshness must be
+// judged only against this canonical key — never the newest across all filtered
+// variants (5th-review finding #2).
+export const ODDS_DEFAULT_BOOKMAKERS = [
+  'draftkings',
+  'betmgm',
+  'caesars',
+  'fanduel',
+  'espnbet',
+  'pointsbet',
+  'bet365',
+];
+export const ODDS_DEFAULT_MARKETS = ['h2h', 'spreads', 'totals'];
+export const ODDS_DEFAULT_REGIONS = ['us'];
+
+/** Cache-key fragment for a given filter set (season-independent). */
+export function createOddsCacheKey(query: {
+  bookmakers: string[];
+  markets: string[];
+  regions: string[];
+}): string {
+  const bookmakers = [...query.bookmakers].sort().join(',');
+  const markets = [...query.markets].sort().join(',');
+  const regions = [...query.regions].sort().join(',');
+  return `bookmakers=${bookmakers}|markets=${markets}|regions=${regions}`;
+}
+
+/**
+ * The season-scoped `odds-cache` key for the CANONICAL/DEFAULT odds request served
+ * to ordinary users. Diagnostics read exactly this entry for freshness so a filtered
+ * refresh cannot make the served snapshot look fresh.
+ */
+export function defaultOddsCacheKey(season: number): string {
+  return `${season}:${createOddsCacheKey({
+    bookmakers: ODDS_DEFAULT_BOOKMAKERS,
+    markets: ODDS_DEFAULT_MARKETS,
+    regions: ODDS_DEFAULT_REGIONS,
+  })}`;
+}

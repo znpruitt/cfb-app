@@ -9,6 +9,7 @@ import {
   type OddsUsageSnapshot,
 } from '../lib/apiUsage';
 import { getOddsQuotaGuardState } from '../lib/api/oddsUsage';
+import { formatQuotaSummary } from '../lib/api/providerQuota';
 
 type Props = {
   className?: string;
@@ -48,6 +49,10 @@ export default function AdminUsagePanel({
   }, [loadUsage]);
 
   const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
+  // Authoritative reconciled CFBD quota — the SAME normalized object the Provider
+  // Data Status panel renders, so the two surfaces cannot disagree. Raw provider
+  // fields are shown only as clearly-labeled diagnostic detail below.
+  const cfbdQuota = cfbdUsage ? formatQuotaSummary(cfbdUsage.normalized) : null;
 
   return (
     <details className={className}>
@@ -68,19 +73,30 @@ export default function AdminUsagePanel({
         >
           {loading ? 'Refreshing usage…' : 'Refresh usage'}
         </button>
+        <p className="text-[11px] text-gray-500 dark:text-zinc-500">
+          “Refresh usage” issues one CFBD <code>/info</code> request (cached ~10 min) plus a durable
+          odds-snapshot read; the odds snapshot itself spends no Odds API quota.
+        </p>
 
         {error && <p className="text-xs text-red-700 dark:text-red-400">Usage error: {error}</p>}
 
-        {cfbdUsage && (
+        {cfbdUsage && cfbdQuota && (
           <div className="rounded border border-gray-200 bg-white p-2 dark:border-zinc-700 dark:bg-zinc-800">
             <h3 className="font-medium">CFBD API Usage</h3>
-            <p className="text-xs text-gray-600 dark:text-zinc-400">Used: {cfbdUsage.used}</p>
+            <p className="text-xs text-gray-600 dark:text-zinc-400">Quota: {cfbdQuota.text}</p>
             <p className="text-xs text-gray-600 dark:text-zinc-400">
-              Remaining: {cfbdUsage.remaining}
+              Patron level: {cfbdUsage.patronLevel} (
+              {cfbdUsage.normalized.source ?? 'provider read'})
             </p>
-            <p className="text-xs text-gray-600 dark:text-zinc-400">Limit: {cfbdUsage.limit}</p>
-            <p className="text-xs text-gray-600 dark:text-zinc-400">
-              Patron level: {cfbdUsage.patronLevel}
+            {cfbdQuota.inconsistent && cfbdQuota.detail && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Raw provider values are internally inconsistent ({cfbdQuota.detail}); the reconciled
+                Tier value above is authoritative.
+              </p>
+            )}
+            <p className="text-[11px] text-gray-500 dark:text-zinc-500">
+              Raw provider response (diagnostic detail): used {cfbdUsage.used}, remaining{' '}
+              {cfbdUsage.remaining}, limit {cfbdUsage.limit}.
             </p>
             <p className="text-xs text-gray-600 dark:text-zinc-400">
               Classification: authoritative provider read (ephemeral per request).

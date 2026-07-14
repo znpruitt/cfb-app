@@ -20,7 +20,7 @@ import { getAppStateEntries } from './appStateStore.ts';
  * `scores` cache entries into one deduped row set, newest cache entry winning
  * per canonical game identity.
  *
- * **Cache-only.** This never contacts CFBD/ESPN and never writes — it is a pure
+ * **Cache-only.** This never contacts CFBD and never writes — it is a pure
  * durable-store read. Provider fetches remain exclusively on the authorized
  * `refresh=1` path in `/api/scores` (PLATFORM-075). Identity resolution routes
  * through `teamIdentity.ts`; it never constructs game identity from raw provider

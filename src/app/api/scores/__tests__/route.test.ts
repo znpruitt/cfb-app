@@ -8,6 +8,12 @@ import {
   __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
+import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
+import {
+  seasonPartitionScope,
+  weekPartitionScope,
+  yearScope,
+} from '../../../../lib/providerRefreshScope.ts';
 
 type MockFetch = typeof fetch;
 
@@ -36,34 +42,23 @@ test('scores route validates seasonType query parameter', async () => {
   assert.equal(fetchCalls, 0);
 });
 
-test('scores route falls back to ESPN when CFBD fails for week-scoped requests', async () => {
+// ---------------------------------------------------------------------------
+// PLATFORM-086A rereview — ESPN removed as an automatic score fallback. CFBD is
+// the sole normal production score provider: a CFBD failure preserves prior-good
+// data and reports a failure (never a silent ESPN substitution); a valid empty
+// CFBD partition is a no-op, not a failure.
+// ---------------------------------------------------------------------------
+
+test('a CFBD failure reports a failure and never calls ESPN', async () => {
+  let espnCalls = 0;
   setMockFetch(async (input: URL | string) => {
     const url = new URL(typeof input === 'string' ? input : input.toString());
     if (url.origin === 'https://api.collegefootballdata.com') {
       return new Response('upstream unavailable', { status: 503 });
     }
     if (url.origin === 'https://site.web.api.espn.com') {
-      return new Response(
-        JSON.stringify({
-          events: [
-            {
-              competitions: [
-                {
-                  competitors: [
-                    { homeAway: 'home', team: { displayName: 'Texas' }, score: '31' },
-                    { homeAway: 'away', team: { displayName: 'Rice' }, score: '14' },
-                  ],
-                  status: {
-                    type: { description: 'Final' },
-                    displayClock: '0:00',
-                  },
-                },
-              ],
-            },
-          ],
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } }
-      );
+      espnCalls += 1;
+      return new Response('[]', { status: 200 });
     }
     throw new Error(`unexpected URL: ${url.toString()}`);
   });
@@ -71,15 +66,84 @@ test('scores route falls back to ESPN when CFBD fails for week-scoped requests',
   const res = await GET(
     new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
   );
-  const json = await res.json();
 
-  assert.equal(res.status, 200);
-  assert.equal(json.meta.source, 'espn');
-  assert.equal(json.meta.fallbackUsed, true);
-  assert.equal(Array.isArray(json.items), true);
+  assert.notEqual(res.status, 200, 'a CFBD failure is a failure, not a 200 ESPN substitution');
+  assert.equal(espnCalls, 0, 'ESPN must never be contacted');
 });
 
-test('scores route denies week-null ESPN fallback when CFBD key is missing', async () => {
+test('a valid empty postseason CFBD partition is a no-op (200), not a failure, and calls no ESPN', async () => {
+  let espnCalls = 0;
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      // Postseason not yet published → CFBD returns an authoritative empty array.
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.origin === 'https://site.web.api.espn.com') {
+      espnCalls += 1;
+      return new Response('[]', { status: 200 });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&seasonType=postseason&refresh=1')
+  );
+  const json = await res.json();
+
+  assert.equal(res.status, 200, 'a valid empty partition is a successful no-op, not a 502');
+  assert.equal(json.meta.source, 'cfbd');
+  assert.equal(json.meta.fallbackUsed, false);
+  assert.equal(json.meta.cfbdFallbackReason, 'cfbd-empty');
+  assert.deepEqual(json.items, []);
+  assert.equal(espnCalls, 0, 'a valid empty partition must not trigger ESPN');
+});
+
+test('a nonempty CFBD payload that normalizes to zero rows is a schema-drift FAILURE, not a no-op', async () => {
+  let espnCalls = 0;
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      // Nonempty array whose rows all fail toScorePackFromCfbd (no team names) —
+      // a provider field rename would look like this.
+      return new Response(JSON.stringify([{ id: 1, week: 3, home_points: 10, away_points: 7 }]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (url.origin === 'https://site.web.api.espn.com') {
+      espnCalls += 1;
+      return new Response('[]', { status: 200 });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.notEqual(res.status, 200, 'schema drift is a failure, not a silent 200 no-op');
+  assert.equal(espnCalls, 0, 'no ESPN fallback on schema drift');
+});
+
+test('a non-array CFBD payload is a schema-drift FAILURE', async () => {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response(JSON.stringify({ error: 'unexpected shape' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.notEqual(res.status, 200, 'a non-array payload is uncertainty, not valid absence');
+});
+
+test('a missing CFBD key reports a failure (no ESPN fallback)', async () => {
   process.env.CFBD_API_KEY = '';
   let fetchCalls = 0;
   setMockFetch(async () => {
@@ -93,8 +157,51 @@ test('scores route denies week-null ESPN fallback when CFBD key is missing', asy
   const json = await res.json();
 
   assert.equal(res.status, 502);
-  assert.match(String(json.error ?? ''), /season-wide fallback unavailable/i);
-  assert.equal(fetchCalls, 0);
+  assert.match(String(json.error ?? ''), /CFBD API key missing/i);
+  assert.equal(fetchCalls, 0, 'no provider call is made without a CFBD key');
+});
+
+test('a valid empty CFBD partition does not erase prior-good cached scores', async () => {
+  // Seed a prior-good week cache.
+  await setAppState('scores', '2026-4-regular', {
+    at: Date.now() - 60 * 1000,
+    items: [
+      {
+        id: 'prior-good',
+        week: 4,
+        status: 'STATUS_FINAL',
+        startDate: '2026-09-26T00:00:00Z',
+        home: { team: 'Georgia', score: 30 },
+        away: { team: 'Auburn', score: 10 },
+        time: 'Final',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+
+  // An authorized refresh of that same week now returns empty (valid absence).
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+  const refresh = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=4&seasonType=regular&refresh=1')
+  );
+  assert.equal(refresh.status, 200);
+  assert.deepEqual((await refresh.json()).items, [], 'the empty no-op response carries no rows');
+
+  // The prior-good durable entry is untouched — a subsequent public read serves it.
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+  const anon = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=4&seasonType=regular')
+  );
+  const anonJson = await anon.json();
+  assert.equal(anonJson.items.length, 1, 'prior-good scores survive a valid empty refresh');
+  assert.equal(anonJson.items[0].home.score, 30);
 });
 
 test('scores route reports metadata and caches by explicit seasonType', async () => {
@@ -156,10 +263,6 @@ test('scores refresh: a durable write failure does not publish process-local fre
         { status: 200, headers: { 'content-type': 'application/json' } }
       );
     }
-    // ESPN fallback unavailable, so the refresh cannot succeed by any path.
-    if (url.origin === 'https://site.web.api.espn.com') {
-      return new Response('unavailable', { status: 503 });
-    }
     throw new Error(`unexpected URL: ${url.toString()}`);
   });
 
@@ -187,12 +290,12 @@ test('scores refresh: a durable write failure does not publish process-local fre
 
 // ---------------------------------------------------------------------------
 // PLATFORM-075 — public scores traffic is a pure cache reader. Only an
-// authorized admin refresh (refresh=1) may spend CFBD/ESPN quota. Anonymous
+// authorized admin refresh (refresh=1) may spend CFBD quota. Anonymous
 // requests serve fresh/stale cache or a controlled empty response, never a
 // cold-cache upstream fetch.
 // ---------------------------------------------------------------------------
 
-test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD/ESPN', async () => {
+test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD', async () => {
   let fetchCalls = 0;
   setMockFetch(async () => {
     fetchCalls += 1;
@@ -207,7 +310,7 @@ test('PLATFORM-075: anonymous cold-cache scores request does not call CFBD/ESPN'
 
   // Controlled empty (200) — a week request is a leaf, so no downstream fan-out.
   assert.equal(res.status, 200);
-  assert.equal(fetchCalls, 0, 'anonymous cold cache must not spend CFBD/ESPN quota');
+  assert.equal(fetchCalls, 0, 'anonymous cold cache must not spend CFBD quota');
   assert.equal(json.meta.cache, 'stale');
   assert.equal(json.meta.cfbdFallbackReason, 'upstream-suppressed');
   assert.deepEqual(json.items, []);
@@ -518,6 +621,307 @@ test('PLATFORM-075: anonymous request serves a STALE durable entry without calli
   assert.equal(fetchCalls, 0, 'stale-serve must not call upstream');
   assert.equal(json.meta.cache, 'stale');
   assert.equal(json.items.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// 6th-review finding #4 — the manual/authorized score fan-out resolves as ONE
+// aggregate 'scores' attempt, so no partition's success or no-op can erase
+// another partition's failure. The admin panels issue exactly this request.
+// ---------------------------------------------------------------------------
+
+const AGGREGATE_URL =
+  'http://localhost/api/scores?year=2026&refresh=1&aggregate=1&seasonTypes=regular,postseason';
+
+function gamePayload(home: string, away: string) {
+  return [
+    {
+      id: `${home}-${away}`,
+      home_team: home,
+      away_team: away,
+      home_points: 21,
+      away_points: 14,
+      start_date: '2026-11-01T00:00:00Z',
+      completed: true,
+    },
+  ];
+}
+
+// Per-partition mock: 'ok' → a usable game, 'empty' → valid absence (no-op),
+// 'fail' → a non-array payload (immediate schema-drift failure, no retry delay).
+function setAggregateMock(spec: {
+  regular: 'ok' | 'empty' | 'fail';
+  postseason: 'ok' | 'empty' | 'fail';
+}) {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin !== 'https://api.collegefootballdata.com') {
+      throw new Error(`unexpected URL: ${url.toString()}`);
+    }
+    const st = url.searchParams.get('seasonType') === 'postseason' ? 'postseason' : 'regular';
+    const mode = spec[st];
+    if (mode === 'fail') {
+      return new Response(JSON.stringify({ error: 'drift' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (mode === 'empty') {
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(
+      JSON.stringify(
+        st === 'postseason' ? gamePayload('Georgia', 'Texas') : gamePayload('Texas', 'Rice')
+      ),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+}
+
+test('aggregate scores refresh: both partitions succeed → success, rows summed, one attempt', async () => {
+  setAggregateMock({ regular: 'ok', postseason: 'ok' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.items.length, 2, 'both partitions contribute rows to one response');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
+  assert.equal(status.rowsCommitted, 2);
+});
+
+test('aggregate scores refresh: regular success + postseason no-op → success', async () => {
+  setAggregateMock({ regular: 'ok', postseason: 'empty' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.equal(res.status, 200);
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
+  assert.equal(status.rowsCommitted, 1);
+});
+
+test('aggregate scores refresh: regular FAILURE + postseason no-op → FAILURE (no-op cannot erase it)', async () => {
+  setAggregateMock({ regular: 'fail', postseason: 'empty' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.notEqual(res.status, 200, 'a partition failure fails the aggregate action');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(
+    status.latestAttemptOutcome,
+    'failed',
+    'the later postseason no-op must NOT overwrite the regular failure'
+  );
+  assert.deepEqual(status.failedPartitions, ['regular']);
+  assert.equal(status.lastSuccessAt, null, 'a failed aggregate does not advance last-success');
+});
+
+test('aggregate scores refresh: regular FAILURE + postseason success → partial FAILURE', async () => {
+  setAggregateMock({ regular: 'fail', postseason: 'ok' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.notEqual(res.status, 200);
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(
+    status.latestAttemptOutcome,
+    'failed',
+    'a committed postseason cannot mask the regular failure'
+  );
+  assert.deepEqual(status.failedPartitions, ['regular']);
+  assert.equal(status.partialFailure, true);
+});
+
+test('aggregate scores refresh: both partitions fail → failure listing both partitions', async () => {
+  setAggregateMock({ regular: 'fail', postseason: 'fail' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.notEqual(res.status, 200);
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.deepEqual(status.failedPartitions, ['regular', 'postseason']);
+});
+
+test('aggregate scores refresh: both partitions empty → aggregate no-op (no commit)', async () => {
+  setAggregateMock({ regular: 'empty', postseason: 'empty' });
+  const res = await GET(new Request(AGGREGATE_URL));
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.deepEqual(json.items, []);
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(status.latestAttemptOutcome, 'no-op', 'no partition committed → aggregate no-op');
+  assert.equal(status.lastSuccessAt, null);
+});
+
+// ---------------------------------------------------------------------------
+// 7th-review finding #1 — the aggregate endpoint is SERVER-AUTHORITATIVE for
+// applicable score partitions: an ordinary refresh (no seasonTypes) derives them
+// cache-only from the schedule, so a pre-postseason refresh never spends a doomed
+// postseason CFBD request even if the client omits (or mis-sends) the list.
+// ---------------------------------------------------------------------------
+
+const ORDINARY_AGG = 'http://localhost/api/scores?year=2026&refresh=1&aggregate=1';
+
+function scheduleItem(seasonType: 'regular' | 'postseason') {
+  return {
+    id: `g-${seasonType}`,
+    week: 1,
+    startDate: '2026-09-01T00:00:00.000Z',
+    homeTeam: 'Georgia',
+    awayTeam: 'Auburn',
+    status: 'scheduled',
+    seasonType,
+  };
+}
+
+async function seedSchedule(items: ReturnType<typeof scheduleItem>[]) {
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items,
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+}
+
+// Records which CFBD season-type partitions were actually fetched.
+function setTrackingMock(): { fetched: string[] } {
+  const fetched: string[] = [];
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin !== 'https://api.collegefootballdata.com') {
+      throw new Error(`unexpected URL: ${url.toString()}`);
+    }
+    const st = url.searchParams.get('seasonType') === 'postseason' ? 'postseason' : 'regular';
+    fetched.push(st);
+    return new Response(
+      JSON.stringify(
+        st === 'postseason' ? gamePayload('Georgia', 'Texas') : gamePayload('Texas', 'Rice')
+      ),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+  return { fetched };
+}
+
+test('ordinary aggregate refresh: server derives regular-only before postseason is scheduled', async () => {
+  await seedSchedule([scheduleItem('regular')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(ORDINARY_AGG));
+  assert.equal(res.status, 200);
+  assert.deepEqual([...new Set(tracker.fetched)], ['regular']);
+  assert.ok(!tracker.fetched.includes('postseason'), 'no doomed postseason CFBD request');
+});
+
+test('ordinary aggregate refresh: server derives both partitions once postseason is scheduled', async () => {
+  await seedSchedule([scheduleItem('regular'), scheduleItem('postseason')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(ORDINARY_AGG));
+  assert.equal(res.status, 200);
+  const fetched = new Set(tracker.fetched);
+  assert.ok(fetched.has('regular') && fetched.has('postseason'), 'both partitions fetched');
+});
+
+test('ordinary aggregate refresh: no cached schedule → regular only (safe default)', async () => {
+  // beforeEach resets app-state, so 2026 has no cached schedule here.
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(ORDINARY_AGG));
+  assert.equal(res.status, 200);
+  assert.deepEqual([...new Set(tracker.fetched)], ['regular']);
+});
+
+test('aggregate refresh: an explicit postseason override targets only postseason (repair)', async () => {
+  // A regular-only schedule, but the explicit override still refreshes postseason.
+  await seedSchedule([scheduleItem('regular')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(`${ORDINARY_AGG}&seasonTypes=postseason`));
+  assert.equal(res.status, 200);
+  assert.deepEqual([...new Set(tracker.fetched)], ['postseason']);
+});
+
+test('aggregate refresh: an INVALID explicit seasonTypes list falls back to server-derived applicability', async () => {
+  await seedSchedule([scheduleItem('regular')]);
+  const tracker = setTrackingMock();
+  const res = await GET(new Request(`${ORDINARY_AGG}&seasonTypes=bogus`));
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    [...new Set(tracker.fetched)],
+    ['regular'],
+    'an unusable client list cannot force a partition; the server derives applicability'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086A-SCOPED review remediation (findings 2–3) — a single-partition
+// score refresh records ONLY the exact partition it attempted: a week-specific
+// repair uses the week partition (never the whole season partition, never the
+// year rollup); a targeted aggregate subset that omits an applicable sibling
+// records against its own season partition (never the year rollup).
+// ---------------------------------------------------------------------------
+
+test('a week-specific score refresh records the week partition only (season + year untouched)', async () => {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response(JSON.stringify(gamePayload('Texas', 'Rice')), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.equal(res.status, 200);
+
+  const week = await getProviderRefreshStatus('scores', weekPartitionScope(2026, 3, 'regular'));
+  assert.equal(week.latestAttemptOutcome, 'succeeded', 'the week partition owns the outcome');
+  assert.ok(week.lastSuccessAt);
+
+  const season = await getProviderRefreshStatus('scores', seasonPartitionScope(2026, 'regular'));
+  assert.equal(
+    season.latestAttemptOutcome,
+    null,
+    'a Week 3 repair must not write the whole regular-season partition'
+  );
+  assert.equal(season.lastSuccessAt, null);
+
+  const yearRollup = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(
+    yearRollup.latestAttemptOutcome,
+    null,
+    'a week repair never advances the year rollup'
+  );
+  assert.equal(yearRollup.lastSuccessAt, null);
+});
+
+test('a targeted postseason aggregate (regular also applicable) records postseason only, not the year rollup', async () => {
+  // Both partitions are applicable, but the operator explicitly targets postseason.
+  await seedSchedule([scheduleItem('regular'), scheduleItem('postseason')]);
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin !== 'https://api.collegefootballdata.com') {
+      throw new Error(`unexpected URL: ${url.toString()}`);
+    }
+    return new Response(JSON.stringify(gamePayload('Georgia', 'Texas')), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const res = await GET(new Request(`${ORDINARY_AGG}&seasonTypes=postseason`));
+  assert.equal(res.status, 200);
+
+  const postseason = await getProviderRefreshStatus(
+    'scores',
+    seasonPartitionScope(2026, 'postseason')
+  );
+  assert.equal(
+    postseason.latestAttemptOutcome,
+    'succeeded',
+    'the targeted subset owns its own season partition'
+  );
+
+  const yearRollup = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(
+    yearRollup.latestAttemptOutcome,
+    null,
+    'a subset that omits the applicable regular sibling must not advance the year rollup'
+  );
+  assert.equal(yearRollup.lastSuccessAt, null);
 });
 
 test('PLATFORM-075: scores refresh requires admin authorization when a token is configured', async () => {

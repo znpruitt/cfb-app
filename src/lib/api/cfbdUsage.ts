@@ -1,12 +1,4 @@
-const CFBD_LIMIT_BY_TIER: Record<number, number> = {
-  0: 1000,
-  1: 3000,
-  2: 30000,
-  3: 75000,
-  4: 125000,
-  5: 200000,
-  6: 500000,
-};
+import { cfbdCanonicalLimitForTier } from './providerQuota.ts';
 
 type CfbdInfoResponse = {
   patronLevel?: unknown;
@@ -23,8 +15,9 @@ export type CfbdUsage = {
 export function resolveCfbdUsage(data: CfbdInfoResponse): CfbdUsage {
   const patronLevel = Number(data.patronLevel ?? 0);
   const remaining = Number(data.remainingCalls ?? 0);
-  // Unknown tiers intentionally fall back to Tier 0 and should be reviewed when CFBD adds new tiers.
-  const limit = CFBD_LIMIT_BY_TIER[patronLevel] ?? CFBD_LIMIT_BY_TIER[0];
+  // The canonical tier→limit map is the single source of truth (unknown tiers
+  // fall back to Tier 0). Tier 1 is 5,000 monthly calls.
+  const limit = cfbdCanonicalLimitForTier(patronLevel);
   const used = Math.max(0, limit - remaining);
 
   return {

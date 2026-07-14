@@ -14,19 +14,23 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { scoresAggregateScope, scoresPartitionScope } from '@/lib/providerRefreshScope';
+import {
+  beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
+  recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 import { loadReconciledSeasonScores } from '@/lib/server/scoreCacheReader';
+import { getApplicableScoreSeasonTypes } from '@/lib/server/scoreApplicability';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
-import {
-  seasonYearForToday,
-  toScorePackFromCfbd,
-  toScorePackFromEspn,
-} from '@/lib/scores/normalizers';
+import { seasonYearForToday, toScorePackFromCfbd } from '@/lib/scores/normalizers';
 import type {
   CfbdFallbackReason,
   CfbdGameLoose,
-  EspnScoreboard,
   ScorePack,
   ScoresMeta,
   ScoresResponse,
@@ -50,17 +54,6 @@ const CFBD_RETRY_POLICY = {
 const CFBD_PACING_POLICY = {
   key: 'cfbd',
   minIntervalMs: 150,
-} as const;
-const ESPN_RETRY_POLICY = {
-  maxAttempts: 2,
-  baseDelayMs: 200,
-  maxDelayMs: 1_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
-} as const;
-const ESPN_PACING_POLICY = {
-  key: 'espn',
-  minIntervalMs: 100,
 } as const;
 
 const SCORES_CACHE: Record<CacheKey, CacheEntry> = {};
@@ -223,6 +216,318 @@ function logDebug(params: {
   });
 }
 
+type ScorePartitionResult =
+  | {
+      kind: 'success';
+      seasonType: SeasonType;
+      items: ScorePack[];
+      committedAt: string;
+      commitSeq: number;
+    }
+  | { kind: 'noop'; seasonType: SeasonType }
+  | {
+      kind: 'failure';
+      seasonType: SeasonType;
+      error: string;
+      code: CfbdFallbackReason;
+      status: number;
+      details?: unknown;
+    };
+
+/**
+ * Refresh ONE score partition (fetch → classify → durable-first commit) and return
+ * a structured result WITHOUT touching provider-refresh status. This is the shared
+ * unit for both a single-partition refresh (which records its own attempt) and the
+ * aggregate refresh (which records ONE attempt across all applicable partitions),
+ * so an aggregate operator action can never split into competing per-partition
+ * attempts where one partition's success/no-op erases another's failure
+ * (6th-review finding #4). Provider/commit errors are RETURNED (kind 'failure'),
+ * not thrown, so the aggregate can collect every partition's outcome. Classifier
+ * parity with 085C: a non-array payload and a nonempty→zero-rows payload are
+ * schema drift (failure); a genuinely empty CFBD array is valid absence (no-op).
+ */
+async function refreshScorePartition(params: {
+  year: number;
+  week: number | null;
+  seasonType: SeasonType;
+  cfbdApiKey: string;
+  now: number;
+  requestId: string | null;
+}): Promise<ScorePartitionResult> {
+  const { year, week, seasonType, cfbdApiKey, now, requestId } = params;
+  const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
+  try {
+    const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
+    const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
+
+    const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+      headers: { Authorization: `Bearer ${cfbdApiKey}` },
+      retry: CFBD_RETRY_POLICY,
+      pacing: CFBD_PACING_POLICY,
+    });
+
+    if (!Array.isArray(rawGames)) {
+      throw new Error(`scores ${seasonType} ${year}: provider returned a non-array payload`);
+    }
+
+    const items: ScorePack[] = [];
+    for (const game of rawGames) {
+      const pack = toScorePackFromCfbd(game);
+      if (pack) items.push(pack);
+    }
+
+    if (rawGames.length > 0 && items.length === 0) {
+      throw new Error(
+        `scores ${seasonType} ${year}: provider returned ${rawGames.length} rows but none normalized to a valid score (schema drift)`
+      );
+    }
+
+    if (items.length === 0) {
+      // Genuinely empty CFBD partition (valid absence, e.g. postseason before
+      // bowls): do NOT write (prior-good rows preserved) — the caller records a
+      // no-op, never a failure. No ESPN fallback.
+      logDebug({
+        requestId,
+        event: 'upstream_empty',
+        endpoint,
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        itemCount: 0,
+      });
+      return { kind: 'noop', seasonType };
+    }
+
+    const nextEntry: CacheEntry = {
+      at: now,
+      items,
+      source: 'cfbd',
+      cfbdFallbackReason: 'none',
+    };
+    // Durable-first commit order (PLATFORM-085A): persist BEFORE the process cache
+    // and standings invalidation; a failed durable write returns a failure below
+    // and preserves prior-good data.
+    await setAppState('scores', cacheKey, nextEntry);
+    const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
+    SCORES_CACHE[cacheKey] = nextEntry;
+    await invalidateStandingsForYear(year);
+    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
+      if (IS_DEBUG) {
+        console.log('cfbd cache evicted', {
+          route: 'scores',
+          cacheSize,
+          maxEntries: MAX_CACHE_ENTRIES,
+          evicted,
+        });
+      }
+    });
+    return { kind: 'success', seasonType, items, committedAt, commitSeq };
+  } catch (error) {
+    const cfbdFallbackReason = mapCfbdErrorToReason(error);
+    if (error instanceof UpstreamFetchError) {
+      logDebug({
+        requestId,
+        event: 'upstream_failed',
+        endpoint: error.details.url,
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        detail: {
+          kind: error.details.kind,
+          status: error.details.status ?? null,
+          message: error.details.message,
+        },
+      });
+    } else {
+      logDebug({
+        requestId,
+        event: 'upstream_failed',
+        year,
+        week,
+        seasonType,
+        cacheKey,
+        detail: error instanceof Error ? error.message : 'unknown error',
+      });
+    }
+    return {
+      kind: 'failure',
+      seasonType,
+      error: error instanceof Error ? error.message : 'CFBD score refresh failed',
+      code: cfbdFallbackReason,
+      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
+      details: error instanceof UpstreamFetchError ? error.details : undefined,
+    };
+  }
+}
+
+/**
+ * Parse an EXPLICIT aggregate `seasonTypes` override into its valid, de-duped
+ * subset. Returns `[]` when the param is absent or carries no supported season
+ * type — the caller then falls back to server-derived applicability (7th-review
+ * finding #1), so a missing/invalid client list can never force an unnecessary
+ * partition refresh. A nonempty result is an explicit targeted repair.
+ */
+function parseExplicitSeasonTypes(raw: string | null): SeasonType[] {
+  if (!raw) return [];
+  const seen = new Set<SeasonType>();
+  const result: SeasonType[] = [];
+  for (const token of raw.split(',')) {
+    const st = token.trim();
+    if ((st === 'regular' || st === 'postseason') && !seen.has(st)) {
+      seen.add(st);
+      result.push(st);
+    }
+  }
+  return result;
+}
+
+/**
+ * Aggregate authorized score refresh: fan out over the APPLICABLE partitions under
+ * ONE provider-refresh attempt so the operator action has a single truthful status
+ * owner. No applicable partition's success or no-op can erase another partition's
+ * failure, because the attempt resolves exactly once from the COMBINED partition
+ * outcomes (6th-review finding #4):
+ *   - any partition failed      → aggregate FAILURE (partial when some committed);
+ *                                 prior-good last-success preserved, 502.
+ *   - all applicable are no-ops → aggregate NO-OP (no commit, last-success kept).
+ *   - ≥1 committed, none failed → aggregate SUCCESS (rows summed, ordered by the
+ *                                 newest partition commit).
+ */
+async function handleAggregateScoreRefresh(params: {
+  year: number;
+  seasonTypesParam: string | null;
+  cfbdApiKey: string;
+  now: number;
+  requestId: string | null;
+}): Promise<NextResponse> {
+  const { year, seasonTypesParam, cfbdApiKey, now, requestId } = params;
+  // Server-authoritative applicability (7th-review finding #1): an explicit,
+  // validated `seasonTypes` list is a targeted repair; otherwise derive the
+  // applicable partitions CACHE-ONLY from this year's schedule so an ordinary
+  // refresh never fires a doomed postseason request before bowls exist and never
+  // depends on the client sending a correct list.
+  const explicitSeasonTypes = parseExplicitSeasonTypes(seasonTypesParam);
+  // Server-authoritative applicability drives BOTH the partitions actually fetched
+  // and whether this operation is a complete year target (finding 2).
+  const applicableSeasonTypes = await getApplicableScoreSeasonTypes(year);
+  const seasonTypes = explicitSeasonTypes.length > 0 ? explicitSeasonTypes : applicableSeasonTypes;
+
+  // The year rollup is written ONLY when the attempted partitions cover every
+  // applicable partition (a complete year target). A caller-selected subset that
+  // omits an applicable sibling (e.g. `seasonTypes=postseason` while regular is
+  // also applicable) records against its own single partition instead, so a
+  // targeted repair can never advance the canonical year outcome/rows/source.
+  const aggregateScope = scoresAggregateScope(year, seasonTypes, applicableSeasonTypes);
+  const providerAttempt = await beginProviderRefreshAttempt('scores', aggregateScope, {
+    startedAt: new Date(now).toISOString(),
+  });
+
+  if (cfbdApiKey.length === 0) {
+    await recordProviderRefreshFailure('scores', aggregateScope, {
+      attempt: providerAttempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+      status: 502,
+      failedPartitions: seasonTypes,
+      durationMs: Date.now() - now,
+    });
+    return NextResponse.json(
+      {
+        error: 'score refresh unavailable: CFBD API key missing',
+        metadata: { cfbdFallbackReason: 'api-key-missing' as CfbdFallbackReason },
+      },
+      { status: 502 }
+    );
+  }
+
+  // Aggregate refresh is season-wide (week=null) per applicable partition.
+  const results = await Promise.all(
+    seasonTypes.map((seasonType) =>
+      refreshScorePartition({ year, week: null, seasonType, cfbdApiKey, now, requestId })
+    )
+  );
+
+  const successes = results.filter(
+    (r): r is Extract<ScorePartitionResult, { kind: 'success' }> => r.kind === 'success'
+  );
+  const failures = results.filter(
+    (r): r is Extract<ScorePartitionResult, { kind: 'failure' }> => r.kind === 'failure'
+  );
+  const rowsCommitted = successes.reduce((n, r) => n + r.items.length, 0);
+  const durationMs = Date.now() - now;
+
+  if (failures.length > 0) {
+    // ≥1 partition failed → the aggregate action FAILED (partial when some also
+    // committed). Record ONE failure listing every failed partition; prior-good
+    // last-success is preserved and CANNOT be advanced by the committed partition.
+    const firstFailure = failures[0]!;
+    await recordProviderRefreshFailure('scores', aggregateScope, {
+      attempt: providerAttempt,
+      error: `score refresh failed for partition(s): ${failures.map((f) => f.seasonType).join(', ')}`,
+      code: firstFailure.code,
+      status: firstFailure.status,
+      partialFailure: successes.length > 0,
+      failedPartitions: failures.map((f) => f.seasonType),
+      durationMs,
+    });
+    return NextResponse.json(
+      {
+        error: 'score refresh failed',
+        detail: {
+          failedSeasonTypes: failures.map((f) => f.seasonType),
+          committedSeasonTypes: successes.map((s) => s.seasonType),
+        },
+        metadata: { cfbdFallbackReason: firstFailure.code },
+      },
+      { status: firstFailure.status }
+    );
+  }
+
+  if (successes.length === 0) {
+    // Every applicable partition was a valid empty no-op → aggregate no-op: no
+    // commit, prior-good preserved, last-success not advanced.
+    await recordProviderRefreshNoop('scores', aggregateScope, {
+      attempt: providerAttempt,
+      source: 'cfbd',
+      durationMs,
+    });
+    return responseFrom([], {
+      source: 'cfbd',
+      cache: 'miss',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'cfbd-empty',
+    });
+  }
+
+  // ≥1 partition committed and none failed → aggregate SUCCESS. Order last-success
+  // by the newest partition commit (commitSeq is strictly increasing per commit).
+  const newest = successes.reduce((a, b) => (b.commitSeq > a.commitSeq ? b : a));
+  await recordProviderRefreshSuccess('scores', aggregateScope, {
+    attempt: providerAttempt,
+    committedAt: newest.committedAt,
+    commitSeq: newest.commitSeq,
+    source: 'cfbd',
+    rowsCommitted,
+    durationMs,
+  });
+  return responseFrom(
+    successes.flatMap((r) => r.items),
+    {
+      source: 'cfbd',
+      cache: 'miss',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'none',
+    }
+  );
+}
+
 export async function GET(req: Request) {
   recordRouteRequest('scores');
   const url = new URL(req.url);
@@ -268,7 +573,7 @@ export async function GET(req: Request) {
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   const now = Date.now();
 
-  // Only an authorized admin refresh may spend upstream CFBD/ESPN quota
+  // Only an authorized admin refresh may spend upstream CFBD quota
   // (PLATFORM-075). Public/anonymous traffic is a pure cache reader below and
   // can never trigger a cold-cache provider fetch.
   const refreshRequested = url.searchParams.get('refresh') === '1';
@@ -278,7 +583,7 @@ export async function GET(req: Request) {
   }
 
   if (!refreshRequested) {
-    // ---- Public/anonymous path: never spends CFBD/ESPN quota ----
+    // ---- Public/anonymous path: never spends CFBD quota ----
     if (week === null) {
       // Season-wide read: always reconcile the season entry with every
       // week-scoped cache server-side (even when the season entry is fresh), so a
@@ -342,212 +647,120 @@ export async function GET(req: Request) {
     });
   }
 
-  // ---- Authorized refresh path: fetch upstream (CFBD -> ESPN fallback) ----
+  // ---- Authorized refresh path: fetch upstream (CFBD only) ----
+  //
+  // CFBD is the SOLE normal production score provider (PLATFORM-086A rereview):
+  // ESPN was removed as an automatic fallback and as a durable score source. The
+  // reliability mechanism is prior-good CFBD cache retention, not a parallel
+  // provider — a CFBD failure preserves the prior-good durable cache and reports
+  // a failure rather than silently substituting a second source.
   recordRouteCacheMiss('scores');
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  const cfbdApiKeyMissing = cfbdApiKey.length === 0;
-  let cfbdFallbackReason: CfbdFallbackReason = cfbdApiKeyMissing ? 'api-key-missing' : 'none';
 
-  try {
-    if (cfbdApiKey) {
-      const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
-      const endpoint = `${cfbdUrl.origin}${cfbdUrl.pathname}${cfbdUrl.search}`;
-
-      const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
-        cache: 'no-store',
-        timeoutMs: 12_000,
-        headers: { Authorization: `Bearer ${cfbdApiKey}` },
-        retry: CFBD_RETRY_POLICY,
-        pacing: CFBD_PACING_POLICY,
-      });
-
-      const items: ScorePack[] = [];
-      for (const game of rawGames) {
-        const pack = toScorePackFromCfbd(game);
-        if (pack) items.push(pack);
-      }
-
-      if (items.length === 0) {
-        cfbdFallbackReason = 'cfbd-empty';
-        logDebug({
-          requestId,
-          event: 'upstream_empty',
-          endpoint,
-          year,
-          week,
-          seasonType,
-          cacheKey,
-          itemCount: items.length,
-        });
-      }
-
-      if (items.length > 0) {
-        const nextEntry: CacheEntry = {
-          at: now,
-          items,
-          source: 'cfbd',
-          cfbdFallbackReason: 'none',
-        };
-        // Durable-first commit order (PLATFORM-085A): persist to app-state
-        // BEFORE publishing to the process cache and invalidating standings, so
-        // a failed durable write can never leave this instance serving "fresh"
-        // scores that no other instance can durably reproduce. A setAppState
-        // throw propagates, skipping the memory update and the invalidation.
-        await setAppState('scores', cacheKey, nextEntry);
-        SCORES_CACHE[cacheKey] = nextEntry;
-        await invalidateStandingsForYear(year);
-        pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
-          if (IS_DEBUG) {
-            console.log('cfbd cache evicted', {
-              route: 'scores',
-              cacheSize,
-              maxEntries: MAX_CACHE_ENTRIES,
-              evicted,
-            });
-          }
-        });
-
-        return responseFrom(items, {
-          source: 'cfbd',
-          cache: 'miss',
-          fallbackUsed: false,
-          generatedAt: new Date(now).toISOString(),
-          cfbdFallbackReason: 'none',
-        });
-      }
-    }
-  } catch (error) {
-    cfbdFallbackReason = mapCfbdErrorToReason(error);
-
-    if (error instanceof UpstreamFetchError) {
-      logDebug({
-        requestId,
-        event: 'upstream_failed',
-        endpoint: error.details.url,
-        year,
-        week,
-        seasonType,
-        cacheKey,
-        detail: {
-          kind: error.details.kind,
-          status: error.details.status ?? null,
-          message: error.details.message,
-        },
-      });
-    } else {
-      logDebug({
-        requestId,
-        event: 'upstream_failed',
-        year,
-        week,
-        seasonType,
-        cacheKey,
-        detail: error instanceof Error ? error.message : 'unknown error',
-      });
-    }
-    // swallow CFBD failure and try ESPN fallback
+  // Aggregate refresh (6th-review finding #4): fan out over the applicable
+  // partitions under ONE 'scores' attempt so no partition's no-op/success can
+  // erase another partition's failure. The admin panels issue exactly this
+  // request; a per-partition refresh (below) is still available for direct repair.
+  if (url.searchParams.get('aggregate') === '1') {
+    return await handleAggregateScoreRefresh({
+      year,
+      seasonTypesParam: url.searchParams.get('seasonTypes'),
+      cfbdApiKey,
+      now,
+      requestId,
+    });
   }
 
-  try {
-    if (week == null) {
-      return NextResponse.json(
-        {
-          error: 'season-wide fallback unavailable without CFBD API key',
-          metadata: {
-            cfbdFallbackReason,
-          },
-        },
-        { status: 502 }
-      );
-    }
+  // Single-partition refresh: records its OWN truthful 'scores' attempt so a
+  // direct one-partition repair (or test) stays observable. Begin BEFORE the
+  // credential check so a missing-key early return still resolves the attempt
+  // (rereview finding #5).
+  // Single-partition repair records against only the exact partition it refreshes
+  // (finding 3): a whole-partition refresh (week === null) uses the season
+  // partition; a week-specific refresh uses the week partition, so a Week 3 repair
+  // never overwrites the whole regular/postseason partition — and neither ever
+  // advances the year rollup.
+  const partitionScope = scoresPartitionScope(year, week, seasonType);
+  const providerAttempt = await beginProviderRefreshAttempt('scores', partitionScope, {
+    startedAt: new Date(now).toISOString(),
+  });
 
-    const espnSeason = seasonType === 'regular' ? '2' : '3';
-    const espnUrl = new URL(
-      'https://site.web.api.espn.com/apis/v2/sports/football/college-football/scoreboard'
-    );
-    espnUrl.searchParams.set('week', String(week));
-    espnUrl.searchParams.set('year', String(year));
-    espnUrl.searchParams.set('seasontype', espnSeason);
-
-    const scoreboard = await fetchUpstreamJson<EspnScoreboard>(espnUrl.toString(), {
-      cache: 'no-store',
-      timeoutMs: 12_000,
-      retry: ESPN_RETRY_POLICY,
-      pacing: ESPN_PACING_POLICY,
+  if (cfbdApiKey.length === 0) {
+    await recordProviderRefreshFailure('scores', partitionScope, {
+      attempt: providerAttempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+      status: 502,
+      durationMs: Date.now() - now,
     });
-
-    const items: ScorePack[] = [];
-    for (const event of scoreboard.events ?? []) {
-      const pack = toScorePackFromEspn(event, week, seasonType);
-      if (pack) items.push(pack);
-    }
-
-    const nextEntry: CacheEntry = {
-      at: now,
-      items,
-      source: 'espn',
-      cfbdFallbackReason,
-    };
-    // Durable-first commit order (PLATFORM-085A): persist before publishing to
-    // the process cache and invalidating standings (see the CFBD path above).
-    await setAppState('scores', cacheKey, nextEntry);
-    SCORES_CACHE[cacheKey] = nextEntry;
-    await invalidateStandingsForYear(year);
-    pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
-      if (IS_DEBUG) {
-        console.log('cfbd cache evicted', {
-          route: 'scores',
-          cacheSize,
-          maxEntries: MAX_CACHE_ENTRIES,
-          evicted,
-        });
-      }
-    });
-
-    return responseFrom(items, {
-      source: 'espn',
-      cache: 'miss',
-      fallbackUsed: true,
-      generatedAt: new Date(now).toISOString(),
-      cfbdFallbackReason,
-    });
-  } catch (error) {
-    if (error instanceof UpstreamFetchError) {
-      return NextResponse.json(
-        {
-          error: 'all sources failed',
-          detail: error.details,
-          metadata: {
-            ...(cfbdApiKeyMissing
-              ? {
-                  cfbdApiKeyMissing: true,
-                  seasonWideEspnFallbackPossible: false,
-                }
-              : {}),
-            cfbdFallbackReason,
-          },
-        },
-        { status: error.details.status ?? 502 }
-      );
-    }
-
-    const detail = error instanceof Error ? error.message : 'unknown error';
     return NextResponse.json(
       {
-        error: 'all sources failed',
-        detail,
-        metadata: {
-          ...(cfbdApiKeyMissing
-            ? {
-                cfbdApiKeyMissing: true,
-                seasonWideEspnFallbackPossible: false,
-              }
-            : {}),
-          cfbdFallbackReason,
-        },
+        error: 'score refresh unavailable: CFBD API key missing',
+        metadata: { cfbdFallbackReason: 'api-key-missing' as CfbdFallbackReason },
       },
       { status: 502 }
     );
   }
+
+  const result = await refreshScorePartition({
+    year,
+    week,
+    seasonType,
+    cfbdApiKey,
+    now,
+    requestId,
+  });
+
+  if (result.kind === 'noop') {
+    // Valid empty CFBD partition → no-op (prior-good preserved), successful empty.
+    await recordProviderRefreshNoop('scores', partitionScope, {
+      attempt: providerAttempt,
+      source: 'cfbd',
+      durationMs: Date.now() - now,
+    });
+    return responseFrom([], {
+      source: 'cfbd',
+      cache: 'miss',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'cfbd-empty',
+    });
+  }
+
+  if (result.kind === 'failure') {
+    // CFBD failed (fetch, validation, or durable persistence): prior-good durable
+    // cache preserved, failed attempt recorded, failure returned. No ESPN.
+    await recordProviderRefreshFailure('scores', partitionScope, {
+      attempt: providerAttempt,
+      error: result.error,
+      code: result.code,
+      status: result.status,
+      durationMs: Date.now() - now,
+    });
+    return NextResponse.json(
+      {
+        error: 'score refresh failed',
+        detail: result.details ?? result.error,
+        metadata: { cfbdFallbackReason: result.code },
+      },
+      { status: result.status }
+    );
+  }
+
+  await recordProviderRefreshSuccess('scores', partitionScope, {
+    attempt: providerAttempt,
+    committedAt: result.committedAt,
+    commitSeq: result.commitSeq,
+    source: 'cfbd',
+    rowsCommitted: result.items.length,
+    durationMs: Date.now() - now,
+  });
+  return responseFrom(result.items, {
+    source: 'cfbd',
+    cache: 'miss',
+    fallbackUsed: false,
+    generatedAt: new Date(now).toISOString(),
+    cfbdFallbackReason: 'none',
+  });
 }

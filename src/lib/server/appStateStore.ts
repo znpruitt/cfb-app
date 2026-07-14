@@ -36,6 +36,17 @@ let hasLoggedProductionConfigError = false;
 // Test-only: when set, `setAppState` throws this (reads unaffected). See
 // `__setAppStateWriteFailureForTests`. Always null outside tests.
 let __writeFailureForTests: Error | null = null;
+// Test-only: when non-null, the write failure applies ONLY to this scope (so a
+// test can fail a provider-data commit while status-scope writes still persist).
+// Null means the failure applies to every scope. Always null outside tests.
+let __writeFailureScopeForTests: string | null = null;
+// Test-only: when set, `getAppState` throws this (writes unaffected). See
+// `__setAppStateReadFailureForTests`. Always null outside tests.
+let __readFailureForTests: Error | null = null;
+// Test-only: when non-null, the read failure applies ONLY to this scope (so a
+// test can fail a `'schedule'` read while `'provider-refresh-status'` reads still
+// succeed). Null means the failure applies to every scope. Always null outside tests.
+let __readFailureScopeForTests: string | null = null;
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -110,6 +121,42 @@ async function readFileStore(): Promise<Record<string, StoredEntry>> {
 
 async function writeFileStore(entries: Record<string, StoredEntry>): Promise<void> {
   await writeJsonFileAtomic(appStateFilePath(), { entries });
+}
+
+// ---------------------------------------------------------------------------
+// File-fallback write serialization (PLATFORM-086A-SCOPED-STATUS review v2 #3).
+//
+// The file fallback persists the ENTIRE app-state snapshot with a read → modify
+// → temp-write → atomic-rename sequence. Two concurrent writers touching
+// DIFFERENT keys can each read the same snapshot, each modify their own key, and
+// the last rename wins — silently dropping the other key's update. The
+// provider-refresh per-SCOPE lock cannot prevent this: distinct scopes (and
+// unrelated app-state writers) bypass each other. So the whole-file
+// read-modify-write critical section is serialized here at the shared
+// persistence boundary, across ALL keys, keyed by the normalized backing-file
+// path (a different backing file may proceed independently).
+//
+// This applies ONLY to the file fallback — the Postgres path relies on the
+// database for concurrency and is never serialized here (Requirement 13). Reads
+// never rename (a reader sees either the old or the new file atomically), so
+// they are not serialized. The lock is strictly BELOW the provider-status
+// per-scope lock and its critical section never calls back into provider-status
+// operations, so the two layers cannot invert or deadlock (Requirement 14). The
+// chain's stored tail always settles, so one failed write never strands the lock
+// (Requirement 15). Mirrors the `withScopeLock` mutex in providerRefreshStatus.ts.
+const fileWriteLocks = new Map<string, Promise<unknown>>();
+function withFileWriteLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  const lockKey = path.resolve(filePath);
+  const prev = fileWriteLocks.get(lockKey) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  fileWriteLocks.set(
+    lockKey,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return run;
 }
 
 function getPool(): Pool {
@@ -211,6 +258,17 @@ export async function getAppState<T>(
   key: string
 ): Promise<AppStateRecord<T> | null> {
   assertDurableStorageAvailable();
+  // Test-only seam: simulate a durable READ failure while writes still succeed,
+  // so callers that distinguish "record absent" from "read failed" (e.g.
+  // providerRefreshStatus, PLATFORM-086A) can be exercised. Optionally scoped so a
+  // test can fail one scope's reads (e.g. `'schedule'`) while status-scope reads
+  // still succeed. Never set in production paths.
+  if (
+    __readFailureForTests &&
+    (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
+  ) {
+    throw __readFailureForTests;
+  }
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
@@ -241,14 +299,20 @@ export async function setAppState<T>(
   value: T
 ): Promise<AppStateRecord<T>> {
   assertDurableStorageAvailable();
+  const updatedAt = new Date().toISOString();
   // Test-only seam: simulate a durable WRITE failure while reads still succeed,
   // so durable-first commit-order tests (PLATFORM-085A) can assert that a failed
   // persist does not publish process-local "fresh" provider data. Never set in
-  // production paths.
-  if (__writeFailureForTests) throw __writeFailureForTests;
-  const updatedAt = new Date().toISOString();
+  // production paths. Optionally scoped so a test can fail one provider-data commit
+  // while other scopes still persist.
+  const shouldFailWrite = (): boolean =>
+    Boolean(
+      __writeFailureForTests &&
+        (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope)
+    );
 
   if (hasDatabaseConfig()) {
+    if (shouldFailWrite()) throw __writeFailureForTests;
     await ensureDatabase();
     await getPool().query(
       `
@@ -262,10 +326,18 @@ export async function setAppState<T>(
     return { value, updatedAt };
   }
 
-  const entries = await readFileStore();
-  entries[buildCompositeKey(scope, key)] = { value, updatedAt };
-  await writeFileStore(entries);
-  return { value, updatedAt };
+  // Serialize the whole-file read-modify-write so a concurrent writer touching a
+  // different key cannot read the same snapshot and drop this update on rename.
+  return await withFileWriteLock(appStateFilePath(), async () => {
+    // The simulated write failure throws INSIDE the critical section (mirroring a
+    // real durable-write error), so the mutex's release-on-failure is exercised —
+    // one failed write must never strand the lock for the next writer.
+    if (shouldFailWrite()) throw __writeFailureForTests;
+    const entries = await readFileStore();
+    entries[buildCompositeKey(scope, key)] = { value, updatedAt };
+    await writeFileStore(entries);
+    return { value, updatedAt };
+  });
 }
 
 export async function getAppStateEntries<T>(
@@ -363,9 +435,13 @@ export async function deleteAppState(scope: string, key: string): Promise<void> 
     return;
   }
 
-  const entries = await readFileStore();
-  delete entries[buildCompositeKey(scope, key)];
-  await writeFileStore(entries);
+  // Same whole-file serialization as setAppState — a delete is a read-modify-write
+  // of the shared snapshot and must not race another key's write.
+  await withFileWriteLock(appStateFilePath(), async () => {
+    const entries = await readFileStore();
+    delete entries[buildCompositeKey(scope, key)];
+    await writeFileStore(entries);
+  });
 }
 
 export async function __deleteAppStateFileForTests(): Promise<void> {
@@ -382,6 +458,9 @@ export function __resetAppStateForTests(): void {
   initPromise = null;
   hasLoggedProductionConfigError = false;
   __writeFailureForTests = null;
+  __writeFailureScopeForTests = null;
+  __readFailureForTests = null;
+  __readFailureScopeForTests = null;
   if (pool) {
     void pool.end().catch(() => undefined);
   }
@@ -393,7 +472,34 @@ export function __resetAppStateForTests(): void {
  * unaffected). Pass `null` to clear. Used to exercise durable-write-failure
  * commit ordering (PLATFORM-085A). Cleared automatically by
  * `__resetAppStateForTests`.
+ *
+ * Optionally scope the failure to a single app-state `scope` so a test can fail
+ * one provider-data commit (e.g. `'schedule'`) while other scopes — notably the
+ * `'provider-refresh-status'` best-effort writes — still persist. Omit `scope`
+ * to fail every write.
  */
-export function __setAppStateWriteFailureForTests(error: Error | null): void {
+export function __setAppStateWriteFailureForTests(
+  error: Error | null,
+  scope: string | null = null
+): void {
   __writeFailureForTests = error;
+  __writeFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: make subsequent `getAppState` calls reject with `error` (writes are
+ * unaffected). Pass `null` to clear. Used to exercise callers that must
+ * distinguish an absent record from a failed read (PLATFORM-086A provider
+ * refresh status). Cleared automatically by `__resetAppStateForTests`.
+ *
+ * Optionally scope the failure to a single app-state `scope` so a test can fail
+ * one scope's reads (e.g. `'schedule'`) while other scopes — notably the
+ * `'provider-refresh-status'` reads — still succeed. Omit `scope` to fail every read.
+ */
+export function __setAppStateReadFailureForTests(
+  error: Error | null,
+  scope: string | null = null
+): void {
+  __readFailureForTests = error;
+  __readFailureScopeForTests = error ? scope : null;
 }

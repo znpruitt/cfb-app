@@ -33,12 +33,24 @@ import {
 } from '../../../lib/server/apiUsageBudget.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
+import {
+  beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+  type ProviderRefreshAttempt,
+} from '../../../lib/server/providerRefreshStatus.ts';
+import { oddsTargetScope, type ProviderRefreshScope } from '../../../lib/providerRefreshScope.ts';
 import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import type { AliasMap } from '../../../lib/teamNames.ts';
 import {
+  createOddsCacheKey,
   normalizeUpstreamOddsEvent,
   oddsCache,
+  ODDS_DEFAULT_BOOKMAKERS,
+  ODDS_DEFAULT_MARKETS,
+  ODDS_DEFAULT_REGIONS,
   pickFreshestOddsFallback,
   resolveDefaultSeason,
   type NormalizedOddsEvent,
@@ -63,6 +75,14 @@ type OddsMeta = {
   generatedAt: string;
   usage: OddsUsageSnapshot | null;
   season: number;
+  /**
+   * Capture time of the odds cache entry actually SERVED for this season (its
+   * `lastFetch`), or null when nothing is cached. This — not the global odds
+   * quota-usage snapshot — is the honest freshness timestamp for the served odds
+   * (rereview finding #2): it is tied to the served cache entry for THIS season,
+   * so a historical/cold-cache season cannot inherit another season's recency.
+   */
+  snapshotCapturedAt: string | null;
 };
 
 type OddsResponse = {
@@ -71,9 +91,11 @@ type OddsResponse = {
 };
 
 const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/odds';
-const BOOKMAKERS = ['draftkings', 'betmgm', 'caesars', 'fanduel', 'espnbet', 'pointsbet', 'bet365'];
-const MARKETS = ['h2h', 'spreads', 'totals'];
-const REGIONS = ['us'];
+// The canonical/default filter sets and cache-key builder live in routeInternals so
+// diagnostics can derive the exact same DEFAULT cache key without duplicating them.
+const BOOKMAKERS = ODDS_DEFAULT_BOOKMAKERS;
+const MARKETS = ODDS_DEFAULT_MARKETS;
+const REGIONS = ODDS_DEFAULT_REGIONS;
 
 const ODDS_RETRY_POLICY = {
   maxAttempts: 3,
@@ -114,17 +136,6 @@ function responseFrom(items: CanonicalOddsItem[], meta: OddsMeta, status = 200):
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-function createCacheKey(query: {
-  bookmakers: string[];
-  markets: string[];
-  regions: string[];
-}): string {
-  const bookmakers = [...query.bookmakers].sort().join(',');
-  const markets = [...query.markets].sort().join(',');
-  const regions = [...query.regions].sort().join(',');
-  return `bookmakers=${bookmakers}|markets=${markets}|regions=${regions}`;
 }
 
 function parseCsvList(raw: string | null): string[] | null {
@@ -433,6 +444,14 @@ async function buildCanonicalOddsItems(params: {
 
 export async function GET(req: Request): Promise<Response> {
   recordRouteRequest('odds');
+  // Provider-refresh observability (PLATFORM-086A). Hoisted above the try so the
+  // shared catch can attribute a failure to the odds refresh ONLY when a refresh
+  // was actually attempted (never for a public cache-only read that happens to
+  // throw). `oddsSuccessRecorded` prevents a post-commit throw from double-writing
+  // a failure over an already-recorded success.
+  let oddsAttempt: ProviderRefreshAttempt | null = null;
+  let oddsScope: ProviderRefreshScope | null = null;
+  let oddsSuccessRecorded = false;
   try {
     const parsedQuery = parseOddsQuery(new URL(req.url));
     if (!parsedQuery.ok) {
@@ -459,13 +478,22 @@ export async function GET(req: Request): Promise<Response> {
       if (authFailure) return authFailure;
     }
 
-    const cacheKey = createCacheKey(query);
+    const cacheKey = createOddsCacheKey(query);
     // In-memory and durable entries share the same season-scoped key so odds
     // for different seasons can never collide in the process cache. Previously
     // the in-memory key omitted the season (only the durable key carried it),
     // so a 2025 and 2026 request with identical bookmakers/markets/regions
     // aliased the same in-memory entry (PLATFORM-075 item 3).
     const seasonScopedKey = `${query.season}:${cacheKey}`;
+    // Odds status uses the SAME canonical target identity as the durable Odds
+    // cache (the season-scoped cache key), distinguishing the canonical/default
+    // query from any filtered variant. A filtered refresh records against its own
+    // target and can never advance canonical Odds freshness/success/metadata.
+    oddsScope = oddsTargetScope(
+      query.season,
+      isCanonicalDurableQuery(query) ? 'canonical' : 'filtered',
+      seasonScopedKey
+    );
     const now = Date.now();
     const cachedEntry = oddsCache.entries[seasonScopedKey];
     let responseEntry: SharedOddsCacheEntry | undefined = cachedEntry;
@@ -507,8 +535,23 @@ export async function GET(req: Request): Promise<Response> {
       // ---- Authorized admin refresh: the only path allowed to spend quota ----
       recordRouteCacheMiss('odds');
 
+      oddsAttempt = await beginProviderRefreshAttempt('odds', oddsScope, {
+        startedAt: new Date().toISOString(),
+      });
+
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
       if (!oddsApiKey) {
+        // The attempt was already recorded; this early return bypasses the catch,
+        // so record the matching failure here (PLATFORM-086A) — prior-good odds +
+        // last-success are preserved by the failure helper.
+        await recordProviderRefreshFailure('odds', oddsScope, {
+          attempt: oddsAttempt,
+          error: 'ODDS_API_KEY missing',
+          code: 'odds-api-key-missing',
+          status: 503,
+        });
+        // `return` (not throw) exits without reaching the catch, so this failure
+        // is recorded exactly once.
         return new Response(JSON.stringify({ error: 'ODDS_API_KEY missing' }), {
           status: 503,
           headers: { 'Content-Type': 'application/json' },
@@ -594,11 +637,44 @@ export async function GET(req: Request): Promise<Response> {
       // instance can durably reproduce. A setAppState throw propagates to the
       // route's catch (500), leaving the process cache untouched.
       await setAppState('odds-cache', seasonScopedKey, responseEntry);
+      // Capture the durable COMMIT time + sequence for success ordering (rereview
+      // findings #3/#6): last-success is ordered by commit time, not by when this
+      // status call runs after the canonical item build below; the sequence breaks
+      // a same-millisecond tie by true commit order.
+      const committedAt = new Date().toISOString();
+      const commitSeq = nextProviderCommitSeq();
       oddsCache.entries[seasonScopedKey] = responseEntry;
       fetchedFromUpstream = true;
+
+      // Durable odds committed — record success (PLATFORM-086A). Tied to the
+      // durable commit per the truthfulness invariant; the guard prevents a later
+      // throw (e.g. in canonical item building) from overwriting it with a failure.
+      await recordProviderRefreshSuccess('odds', oddsScope, {
+        attempt: oddsAttempt ?? undefined,
+        committedAt,
+        commitSeq,
+        source: 'odds-api',
+        rowsCommitted: responseEntry.data.length,
+        usage: usage
+          ? {
+              used: usage.used,
+              remaining: usage.remaining,
+              limit: usage.limit,
+              lastCost: usage.lastCost,
+            }
+          : undefined,
+      });
+      oddsSuccessRecorded = true;
     }
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
+    // Honest served-snapshot time for the user-facing freshness label (finding
+    // #2): null when NOTHING is cached for this season, so a cold-cache season
+    // shows no timestamp rather than a spurious "just now". Distinct from
+    // `snapshotCapturedAt` above, which keeps its now-fallback only for per-item
+    // odds age classification in buildCanonicalOddsItems.
+    const servedSnapshotAt =
+      responseEntry?.lastFetch != null ? new Date(responseEntry.lastFetch).toISOString() : null;
 
     // Only the canonical/default query reads the shared durable odds store; it
     // holds a full-market, preferred-book snapshot per game that cannot be
@@ -644,8 +720,28 @@ export async function GET(req: Request): Promise<Response> {
         ? suppressedUsage
         : (responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
       season: query.season,
+      snapshotCapturedAt: servedSnapshotAt,
     });
   } catch (e) {
+    // Attribute the failure to the odds refresh only when a refresh was actually
+    // attempted and no success was recorded (PLATFORM-086A). Public cache-only
+    // reads that throw are not refresh attempts.
+    if (oddsAttempt && oddsScope && !oddsSuccessRecorded) {
+      const latestUsage = await getLatestKnownOddsUsage().catch(() => null);
+      await recordProviderRefreshFailure('odds', oddsScope, {
+        attempt: oddsAttempt,
+        error: e instanceof Error ? e.message : 'internal error',
+        status: e instanceof UpstreamFetchError ? (e.details.status ?? 502) : 500,
+        usage: latestUsage
+          ? {
+              used: latestUsage.used,
+              remaining: latestUsage.remaining,
+              limit: latestUsage.limit,
+              lastCost: latestUsage.lastCost,
+            }
+          : undefined,
+      });
+    }
     if (e instanceof UpstreamFetchError) {
       return new Response(JSON.stringify({ error: 'upstream error', detail: e.details }), {
         status: e.details.status ?? 502,

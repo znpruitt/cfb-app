@@ -6,6 +6,10 @@ export type CacheKey = `${number}-${CacheWeek}-${SeasonType}`;
 export type CacheEntry = {
   at: number;
   items: ScorePack[];
+  // 'cfbd' is the sole normal production score source (PLATFORM-086A rereview
+  // removed ESPN as an automatic fallback). 'espn' is retained ONLY so a durable
+  // entry written before that removal can still be read/labeled; no code writes
+  // it now and such entries are replaced on the next successful CFBD refresh.
   source: 'cfbd' | 'espn';
   cfbdFallbackReason: CfbdFallbackReason;
 };

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import FeedbackForm from './FeedbackForm';
+import FreshnessLabel from './FreshnessLabel';
 import GameWeekPanel from './GameWeekPanel';
 import AppHeaderActions from './menu/AppHeaderActions';
 import MatchupMatrixView from './MatchupMatrixView';
@@ -225,6 +226,39 @@ export function resolveHighlightDrilldownNavigation(params: {
   };
 }
 
+/**
+ * Whether the live-status section (loading chips, partial-scores note, odds
+ * availability, odds freshness label, and live-issue notice) should mount.
+ *
+ * Extracted as a pure predicate so it is unit-testable (the section itself only
+ * mounts under effect-populated client state, which static rendering never
+ * exercises). It intentionally includes `oddsSnapshotAt`: in the normal clean
+ * state — scores complete, every game has odds, no issues — the section would
+ * otherwise stay unmounted and the served-odds freshness label would never show
+ * despite a valid timestamp (4th-review finding #5).
+ */
+export function shouldRenderLiveStatusSection(input: {
+  loadingSchedule: boolean;
+  scheduleLoaded: boolean;
+  loadingLive: boolean;
+  visibleGames: number;
+  visibleScoresCount: number;
+  oddsAvailabilitySummary: string | null;
+  oddsSnapshotAt: string | null;
+  userFacingLiveIssuesCount: number;
+}): boolean {
+  return (
+    (input.loadingSchedule && !input.scheduleLoaded) ||
+    input.loadingLive ||
+    (!input.loadingLive &&
+      input.visibleGames > 0 &&
+      input.visibleScoresCount < input.visibleGames) ||
+    (!input.loadingLive && input.oddsAvailabilitySummary != null) ||
+    (!input.loadingLive && input.oddsSnapshotAt != null) ||
+    input.userFacingLiveIssuesCount > 0
+  );
+}
+
 export default function CFBScheduleApp({
   leagueSlug,
   leagueDisplayName,
@@ -277,6 +311,12 @@ export default function CFBScheduleApp({
   const [issues, setIssues] = useState<string[]>(initialIssues);
   const [lastScoresRefreshAt, setLastScoresRefreshAt] = useState<string>('');
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
+  // Freshness of the odds cache entry actually SERVED for the selected season
+  // (rereview finding #2). Sourced from the odds response's own served-snapshot
+  // time — NOT the global quota snapshot (`oddsUsage.capturedAt`) or the admin
+  // usage poll, so a historical/cold-cache season never inherits another season's
+  // recency. Null when nothing is cached for the season → the label is omitted.
+  const [oddsSnapshotAt, setOddsSnapshotAt] = useState<string | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
   // Effective resolver map (stored global > year > SEED_ALIASES) — used to build
@@ -327,6 +367,7 @@ export default function CFBScheduleApp({
     setIssues([]);
     setLastScoresRefreshAt('');
     setOddsUsage(null);
+    setOddsSnapshotAt(null);
     setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
@@ -971,6 +1012,7 @@ export default function CFBScheduleApp({
     setOddsByKey,
     setScoresByKey,
     setOddsUsage,
+    setOddsSnapshotAt,
     setLastScoresRefreshAt,
     loadingLive,
     setLoadingLive,
@@ -1520,11 +1562,16 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
-          {(loadingSchedule && !scheduleLoaded) ||
-          loadingLive ||
-          (!loadingLive && visibleGames.length > 0 && visibleScoresCount < visibleGames.length) ||
-          (!loadingLive && oddsAvailabilitySummary != null) ||
-          userFacingLiveIssues.length > 0 ? (
+          {shouldRenderLiveStatusSection({
+            loadingSchedule,
+            scheduleLoaded,
+            loadingLive,
+            visibleGames: visibleGames.length,
+            visibleScoresCount,
+            oddsAvailabilitySummary,
+            oddsSnapshotAt,
+            userFacingLiveIssuesCount: userFacingLiveIssues.length,
+          }) ? (
             <section className="space-y-1">
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 {loadingSchedule && !scheduleLoaded ? (
@@ -1548,6 +1595,13 @@ export default function CFBScheduleApp({
                   <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                     {oddsAvailabilitySummary}
                   </span>
+                ) : null}
+                {!loadingLive && oddsSnapshotAt ? (
+                  // Subtle, dataset-specific freshness (PLATFORM-086A): the SERVED
+                  // odds cache entry's capture time for THIS season (rereview
+                  // finding #2) — never the global quota snapshot or admin usage
+                  // poll, which could inherit another season's recency.
+                  <FreshnessLabel timestamp={oddsSnapshotAt} label="Odds" className="self-center" />
                 ) : null}
               </div>
               {userFacingLiveIssues.length > 0 ? (

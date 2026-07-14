@@ -7,6 +7,7 @@ import CFBScheduleApp, {
   clearDrilldownFocusState,
   deriveWeeklyMatchupsDrilldownState,
   resolveHighlightDrilldownNavigation,
+  shouldRenderLiveStatusSection,
 } from '../CFBScheduleApp';
 import { scrollFocusedGameIntoView } from '../GameWeekPanel';
 import { scrollFocusedOwnerPairIntoView } from '../MatchupMatrixView';
@@ -525,4 +526,73 @@ test('standings drill-down focus helper scrolls focused owner row', () => {
 
   assert.equal(didScroll, true);
   assert.equal(called, true);
+});
+
+// ---------------------------------------------------------------------------
+// 4th-review finding #5 — the served-odds freshness label must mount in the
+// normal clean state, gated by `oddsSnapshotAt` in the section predicate.
+// ---------------------------------------------------------------------------
+
+const cleanLiveStatusInput = {
+  loadingSchedule: false,
+  scheduleLoaded: true,
+  loadingLive: false,
+  visibleGames: 5,
+  visibleScoresCount: 5, // scores complete
+  oddsAvailabilitySummary: null, // every game has odds
+  oddsSnapshotAt: null,
+  userFacingLiveIssuesCount: 0, // no issues
+};
+
+test('live-status section renders in the clean state when an odds snapshot exists (finding #5)', () => {
+  // The clean state: complete scores, full odds coverage, no issues. Before the
+  // fix nothing here mounts the section, so the freshness label never shows.
+  assert.equal(
+    shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, oddsSnapshotAt: null }),
+    false,
+    'nothing to show when there is no odds snapshot and the surface is otherwise clean'
+  );
+  assert.equal(
+    shouldRenderLiveStatusSection({
+      ...cleanLiveStatusInput,
+      oddsSnapshotAt: '2026-10-15T12:00:00.000Z',
+    }),
+    true,
+    'a valid odds snapshot alone mounts the section so the freshness label shows'
+  );
+});
+
+test('live-status section still renders for the other live signals (finding #5 regression)', () => {
+  // A warning alongside the label.
+  assert.equal(
+    shouldRenderLiveStatusSection({
+      ...cleanLiveStatusInput,
+      oddsSnapshotAt: '2026-10-15T12:00:00.000Z',
+      userFacingLiveIssuesCount: 1,
+    }),
+    true
+  );
+  // Partial scores.
+  assert.equal(
+    shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, visibleScoresCount: 3 }),
+    true
+  );
+  // Odds availability summary present.
+  assert.equal(
+    shouldRenderLiveStatusSection({
+      ...cleanLiveStatusInput,
+      oddsAvailabilitySummary: 'Odds available for 3/5 games.',
+    }),
+    true
+  );
+  // Loading states.
+  assert.equal(
+    shouldRenderLiveStatusSection({
+      ...cleanLiveStatusInput,
+      loadingSchedule: true,
+      scheduleLoaded: false,
+    }),
+    true
+  );
+  assert.equal(shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, loadingLive: true }), true);
 });

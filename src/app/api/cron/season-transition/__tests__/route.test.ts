@@ -11,9 +11,13 @@ import type { League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
+import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
+import { yearScope } from '../../../../../lib/providerRefreshScope.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-071 — cron season-transition must invalidate standings for each
@@ -154,6 +158,158 @@ test('a completed transition invalidates standings for each transitioned league'
   // The transition actually happened (status is now season).
   const leagues = await getAppState<League[]>('leagues', 'registry');
   assert.equal(leagues?.value?.[0]?.status?.state, 'season');
+});
+
+test('an all-empty schedule probe resolves the attempt as a no-op, not dangling in-progress (rereview finding #2)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // No probe seeded → shouldFetch is true; the stubbed fetch returns empty for
+  // both partitions (valid absence — a future season not yet published).
+  stubFetchEmptySchedule();
+
+  const res = await GET(cronRequest());
+  assert.equal(res.status, 200);
+
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
+  assert.equal(status.latestAttemptOutcome, 'no-op', 'all-empty probe resolves as a no-op');
+  assert.notEqual(status.latestAttemptOutcome, 'in-progress', 'the attempt does not dangle');
+  assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
+});
+
+test('an empty cron probe OVER a populated prior-good schedule is rejected, not a silent no-op (6th-review finding #2)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // Prior-good POPULATED schedule already cached for this year.
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: 1,
+    items: [
+      {
+        id: 'prior',
+        week: 1,
+        startDate: '2023-08-26T00:00:00.000Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  // Past firstGameDate → the transition gate WOULD fire if the probe were trusted.
+  await seedPastProbe();
+  // CFBD unexpectedly returns empty for BOTH partitions over the populated prior.
+  stubFetchEmptySchedule();
+
+  const { result: res, tags } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as {
+    years: Array<{ transitioned: boolean; partialFailure?: boolean }>;
+  };
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.years[0]?.partialFailure, true, 'empty-over-populated is a partial failure');
+  assert.equal(body.years[0]?.transitioned, false, 'the league must not flip off an empty probe');
+
+  // Prior-good durable schedule retained (never overwritten with the empty probe).
+  const stored = await getAppState<{ items: Array<{ id: string }> }>('schedule', `${YEAR}-all-all`);
+  assert.equal(stored?.value?.items?.[0]?.id, 'prior', 'prior-good schedule retained');
+
+  // The league stays preseason — no transition off the empty probe.
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(leagues?.value?.[0]?.status?.state, 'preseason');
+
+  // Status recorded as a FAILURE (same classification the schedule route uses),
+  // not a clean no-op that would hide the empty replacement.
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'schedule-empty-replacement-rejected');
+
+  // No standings invalidation from the rejected empty probe.
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    []
+  );
+});
+
+test('a prior-cache read failure while classifying an empty probe resolves the attempt as failed, without transitioning (final-truthfulness finding #2)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // Prior-good POPULATED schedule to prove retention.
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: 1,
+    items: [
+      {
+        id: 'prior',
+        week: 1,
+        startDate: '2023-08-26T00:00:00.000Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  await seedPastProbe();
+  stubFetchEmptySchedule();
+
+  // The prior durable SCHEDULE read used to classify the empty probe fails. Scoped
+  // to 'schedule' so 'provider-refresh-status' / 'leagues' / 'schedule-probe'
+  // reads still succeed (the attempt CAN be recorded; the probe still loads).
+  __setAppStateReadFailureForTests(new Error('durable read boom'), 'schedule');
+
+  const { result: res, tags } = await runCapturingTags(() => GET(cronRequest()));
+  __setAppStateReadFailureForTests(null);
+
+  const body = (await res.json()) as { error?: string };
+  assert.equal(res.status, 500, JSON.stringify(body));
+  assert.ok(body.error, 'the cron returns its established safe failure response');
+
+  // The open schedule attempt resolves as failed — never left in-progress.
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'schedule-prior-cache-read-failed');
+
+  // Prior-good durable schedule retained (nothing written on the read-failure path).
+  const stored = await getAppState<{ items: Array<{ id: string }> }>('schedule', `${YEAR}-all-all`);
+  assert.equal(stored?.value?.items?.[0]?.id, 'prior', 'prior-good schedule retained');
+
+  // The league does NOT transition off an unverifiable probe.
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(leagues?.value?.[0]?.status?.state, 'preseason');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    []
+  );
+});
+
+test('a schedule persistence failure resolves the attempt as failed, not dangling (rereview finding #2)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // Regular returns a real game (postseason empty) so the commit path runs.
+  stubFetchBySeasonType(
+    JSON.stringify([game(1, 'Texas', 'Rice', '2023-08-26T00:00:00.000Z')]),
+    '[]'
+  );
+
+  // Fail only the durable 'schedule' write, so the best-effort status write (a
+  // different scope) still persists the resolved failure.
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'), 'schedule');
+  let res: Response;
+  try {
+    res = await GET(cronRequest());
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(res.status, 500, 'a persistence failure surfaces as a 500');
+
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
+  assert.equal(status.latestAttemptOutcome, 'failed', 'the open attempt is resolved as failed');
+  assert.equal(status.lastError?.code, 'schedule-durable-commit-failed');
 });
 
 test('an unauthorized request invalidates nothing', async () => {

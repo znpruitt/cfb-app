@@ -3,9 +3,17 @@ import { NextResponse } from 'next/server';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
-import { normalizeGameTeamStats } from '@/lib/gameStats/normalizers';
+import { classifyGameStatsPayload } from '@/lib/gameStats/coverage';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import { weekPartitionScope } from '@/lib/providerRefreshScope';
+import {
+  beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
+  recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,9 +127,27 @@ export async function GET(req: Request) {
     }
   }
 
+  // Provider-refresh observability (PLATFORM-086A): record the manual refresh
+  // attempt before credential validation and the fetch, so a missing-key early
+  // return still resolves a recorded failed attempt (rereview finding #5).
+  // Success is recorded only after the durable cache write.
+  // Manual game-stats refresh targets one (year, week, seasonType) partition: it
+  // records against only that week partition and can never establish full-season
+  // game-stats success.
+  const gameStatsScope = weekPartitionScope(year, week, seasonType);
+  const attempt = await beginProviderRefreshAttempt('game-stats', gameStatsScope, {
+    startedAt: new Date().toISOString(),
+  });
+
   // Fetch from CFBD
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
+    await recordProviderRefreshFailure('game-stats', gameStatsScope, {
+      attempt,
+      error: 'CFBD_API_KEY not configured',
+      code: 'cfbd-api-key-missing',
+      status: 500,
+    });
     return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
   }
 
@@ -135,8 +161,36 @@ export async function GET(req: Request) {
       pacing: CFBD_PACING_POLICY,
     });
 
-    const games = normalizeGameTeamStats(rawGames, week, seasonType);
+    // Classify the provider response identically to the cron (5th-review finding
+    // #5): a genuine empty array is a no-op (no empty durable write, no last-success
+    // advance), a nonempty payload with zero usable rows is a failure (prior-good
+    // preserved), and only a payload with ≥1 usable row commits.
+    const classification = classifyGameStatsPayload(rawGames, week, seasonType);
+    if (classification.kind === 'noop') {
+      await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });
+      return NextResponse.json({
+        year,
+        week,
+        seasonType,
+        fetchedAt: null,
+        games: [],
+        meta: { cache: 'miss', source: 'cfbd', noApplicableData: true },
+      });
+    }
+    if (classification.kind === 'no-usable-rows') {
+      await recordProviderRefreshFailure('game-stats', gameStatsScope, {
+        attempt,
+        error: 'provider returned rows but none normalized to a usable game stat',
+        code: 'game-stats-no-usable-rows',
+        status: 502,
+      });
+      return NextResponse.json(
+        { error: 'game-stats refresh produced no usable rows', code: 'game-stats-no-usable-rows' },
+        { status: 502 }
+      );
+    }
 
+    const { games } = classification;
     const result: WeeklyGameStats = {
       year,
       week,
@@ -146,12 +200,28 @@ export async function GET(req: Request) {
     };
 
     await setCachedGameStats(result);
+    // Durable commit time + sequence for success ordering (rereview findings #3/#6).
+    const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
+
+    await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
+      attempt,
+      committedAt,
+      commitSeq,
+      source: 'cfbd',
+      rowsCommitted: games.length,
+    });
 
     return NextResponse.json({
       ...result,
       meta: { cache: 'miss', source: 'cfbd' },
     });
   } catch (error) {
+    await recordProviderRefreshFailure('game-stats', gameStatsScope, {
+      attempt,
+      error: error instanceof Error ? error.message : 'unknown error',
+      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
+    });
     if (error instanceof UpstreamFetchError) {
       return NextResponse.json(
         { error: 'upstream error', detail: error.details },

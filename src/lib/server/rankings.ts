@@ -14,6 +14,31 @@ import {
 } from '../rankings.ts';
 import { SEED_ALIASES } from '../teamNames.ts';
 import { getAppState, setAppState } from './appStateStore.ts';
+import { yearScope } from '../providerRefreshScope.ts';
+import {
+  beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
+  recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
+  recordProviderRefreshSuccess,
+} from './providerRefreshStatus.ts';
+
+/**
+ * A rankings refresh failure that has ALREADY resolved the provider-refresh
+ * attempt with its own specific metadata (code + `failedPartitions` + a detailed
+ * message). The outer catch must rethrow it WITHOUT recording a second, generic
+ * failure — a second `recordProviderRefreshFailure` would replace `lastError`
+ * (and drop the actionable code / failed partitions) with a generic message
+ * (7th-review finding #3). Only genuinely unrecorded errors (fetch/network/durable
+ * commit) fall through to the generic outer-catch recording.
+ */
+class RecordedRankingsRefreshError extends Error {
+  readonly alreadyRecorded = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'RecordedRankingsRefreshError';
+  }
+}
 
 export type CfbdPollRank = {
   rank: number | null;
@@ -166,6 +191,26 @@ export function normalizeCfbdRankingsWeeks(
     .sort(compareWeek);
 }
 
+type RankingsPartition = 'regular' | 'postseason';
+type RankingsPartitionKind = 'usable' | 'schema-drift' | 'valid-empty';
+
+/**
+ * Classify a SINGLE rankings partition from its raw provider payload and its
+ * normalized weeks, WITHOUT reference to the other partition (6th-review finding
+ * #1). A nonempty raw payload that normalizes to zero usable weeks is schema
+ * drift — valid absence is inferred from an EMPTY raw payload, never solely from
+ * "normalization produced zero rows" — so one healthy partition can never mask a
+ * drifted one, and a drifted partition is never mistaken for a valid no-op.
+ */
+export function classifyRankingsPartition(
+  partition: RankingsPartition,
+  raw: CfbdPollWeek[],
+  normalized: RankingsWeek[]
+): { partition: RankingsPartition; kind: RankingsPartitionKind } {
+  if (normalized.length > 0) return { partition, kind: 'usable' };
+  return { partition, kind: raw.length > 0 ? 'schema-drift' : 'valid-empty' };
+}
+
 export async function loadSeasonRankings(
   season = getDefaultRankingsSeason(null),
   options?: { allowRefresh?: boolean }
@@ -219,58 +264,188 @@ export async function loadSeasonRankings(
     );
   }
 
+  // Provider-refresh observability (PLATFORM-086A): only the allowRefresh path
+  // reaches here (cache-only reads returned above), so this is a real refresh.
+  // Begin BEFORE credential validation so a missing-key early exit still resolves
+  // a recorded failed attempt (rereview finding #5).
+  // One rankings refresh genuinely covers BOTH season-type partitions (regular +
+  // postseason are fetched, validated, and aggregated together below), so it
+  // records the explicit YEAR ROLLUP. There is no regular-only rankings path that
+  // could establish year-wide freshness from a single partition.
+  const rankingsScope = yearScope(season);
+  const attempt = await beginProviderRefreshAttempt('rankings', rankingsScope, {
+    startedAt: new Date(now).toISOString(),
+  });
+
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
+    await recordProviderRefreshFailure('rankings', rankingsScope, {
+      attempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+      durationMs: Date.now() - now,
+    });
     throw new Error('CFBD_API_KEY missing');
   }
 
-  const resolver = createTeamIdentityResolver({
-    aliasMap: SEED_ALIASES,
-    teams: (teamsCatalog.items ?? []) as TeamCatalogItem[],
-  });
-  const fetchOpts = {
-    cache: 'no-store' as const,
-    timeoutMs: 12_000,
-    headers: { Authorization: `Bearer ${cfbdApiKey}` },
-    retry: CFBD_RETRY_POLICY,
-    pacing: CFBD_PACING_POLICY,
-  };
+  try {
+    const resolver = createTeamIdentityResolver({
+      aliasMap: SEED_ALIASES,
+      teams: (teamsCatalog.items ?? []) as TeamCatalogItem[],
+    });
+    const fetchOpts = {
+      cache: 'no-store' as const,
+      timeoutMs: 12_000,
+      headers: { Authorization: `Bearer ${cfbdApiKey}` },
+      retry: CFBD_RETRY_POLICY,
+      pacing: CFBD_PACING_POLICY,
+    };
 
-  const [regularData, postseasonData] = await Promise.all([
-    fetchUpstreamJson<CfbdPollWeek[]>(
-      buildCfbdRankingsUrl({ year: season, seasonType: 'regular' }).toString(),
-      fetchOpts
-    ),
-    fetchUpstreamJson<CfbdPollWeek[]>(
-      buildCfbdRankingsUrl({ year: season, seasonType: 'postseason' }).toString(),
-      fetchOpts
-    ),
-  ]);
+    const [regularData, postseasonData] = await Promise.all([
+      fetchUpstreamJson<CfbdPollWeek[]>(
+        buildCfbdRankingsUrl({ year: season, seasonType: 'regular' }).toString(),
+        fetchOpts
+      ),
+      fetchUpstreamJson<CfbdPollWeek[]>(
+        buildCfbdRankingsUrl({ year: season, seasonType: 'postseason' }).toString(),
+        fetchOpts
+      ),
+    ]);
 
-  const rawWeeks = normalizeCfbdRankingsWeeks(
-    [...(regularData ?? []), ...(postseasonData ?? [])],
-    resolver
-  );
-  const weeks = remapPostseasonWeeks(rawWeeks);
+    // Validate EACH partition independently BEFORE combining (6th-review finding
+    // #1). A nonempty raw payload that normalizes to zero usable weeks is schema
+    // drift; it must NOT be masked by usable content from the other partition, and
+    // must NOT be mistaken for a valid no-op just because normalization produced
+    // zero rows. Valid absence is inferred from an EMPTY raw payload only.
+    const regularNormalized = normalizeCfbdRankingsWeeks(regularData ?? [], resolver);
+    const postseasonNormalized = normalizeCfbdRankingsWeeks(postseasonData ?? [], resolver);
+    const partitionClasses = [
+      classifyRankingsPartition('regular', regularData ?? [], regularNormalized),
+      classifyRankingsPartition('postseason', postseasonData ?? [], postseasonNormalized),
+    ];
+    const driftedPartitions = partitionClasses
+      .filter((p) => p.kind === 'schema-drift')
+      .map((p) => p.partition);
 
-  const response: RankingsResponse = {
-    weeks,
-    latestWeek: weeks.at(-1) ?? null,
-    meta: {
+    if (driftedPartitions.length > 0) {
+      // ≥1 applicable partition drifted → reject the AGGREGATE refresh. Never commit
+      // a silently-incomplete snapshot as success, and never advance last-success.
+      // Retain prior-good (serve it stale) when available; otherwise surface the
+      // drift as a hard failure so the empty replacement cannot pass unnoticed.
+      await recordProviderRefreshFailure('rankings', rankingsScope, {
+        attempt,
+        error: `rankings partition(s) ${driftedPartitions.join(', ')} returned a nonempty payload that normalized to zero usable weeks (schema drift)`,
+        code: 'rankings-partition-schema-drift',
+        partialFailure: partitionClasses.some((p) => p.kind === 'usable'),
+        failedPartitions: driftedPartitions,
+        durationMs: Date.now() - now,
+      });
+      const prior = stored?.value ?? cached ?? null;
+      if (prior) {
+        return {
+          ...prior.response,
+          meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
+        };
+      }
+      // The attempt is already resolved with the specific drift metadata above;
+      // signal the outer catch to rethrow without a second generic recording.
+      throw new RecordedRankingsRefreshError(
+        `rankings refresh failed: partition schema drift (${driftedPartitions.join(', ')})`
+      );
+    }
+
+    // No drift. Combine the usable/valid-empty partitions and remap postseason.
+    const weeks = remapPostseasonWeeks(
+      [...regularNormalized, ...postseasonNormalized].sort(compareWeek)
+    );
+
+    if (weeks.length === 0) {
+      // Both partitions were raw-EMPTY (no drift above). Valid absence must not be
+      // inferred solely from zero rows — a genuinely empty payload is a valid no-op
+      // ONLY when rankings are not expected yet. Prior-good populated rankings are
+      // the "expected" signal: an empty response OVER them is an unexpected empty
+      // replacement (failure, retain prior-good), while an empty response with no
+      // prior-good is a pre-poll no-op.
+      const priorPopulated =
+        (stored?.value?.response?.weeks?.length ?? 0) > 0 ||
+        (cached?.response?.weeks?.length ?? 0) > 0;
+      if (priorPopulated) {
+        await recordProviderRefreshFailure('rankings', rankingsScope, {
+          attempt,
+          error: 'rankings refresh returned zero usable weeks while prior-good rankings are cached',
+          code: 'rankings-empty-replacement-rejected',
+          durationMs: Date.now() - now,
+        });
+        const prior = stored?.value ?? cached!;
+        return {
+          ...prior.response,
+          meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
+        };
+      }
+      // Genuinely empty pre-poll data → no-op: no durable write, prior-good (absent
+      // here) preserved, last-success not advanced. A CLEAN empty response (no stale
+      // markers) so the manual panel reads it as a successful no-op, not a fallback.
+      await recordProviderRefreshNoop('rankings', rankingsScope, {
+        attempt,
+        source: 'cfbd',
+        durationMs: Date.now() - now,
+      });
+      return {
+        weeks: [],
+        latestWeek: null,
+        meta: {
+          source: 'cfbd',
+          cache: 'miss',
+          generatedAt: new Date(now).toISOString(),
+        },
+      };
+    }
+
+    const response: RankingsResponse = {
+      weeks,
+      latestWeek: weeks.at(-1) ?? null,
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        generatedAt: new Date(now).toISOString(),
+      },
+    };
+
+    const cacheEntry = { at: now, response };
+    // Durable-first commit order (PLATFORM-085A): persist the rankings snapshot
+    // BEFORE publishing it to the process cache, so a failed durable write can't
+    // leave this instance serving "fresh" rankings that no other instance can
+    // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
+    await setAppState('rankings', String(season), cacheEntry);
+    // Durable commit time + sequence for success ordering (rereview findings #3/#6).
+    const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
+    CACHE.set(season, cacheEntry);
+
+    await recordProviderRefreshSuccess('rankings', rankingsScope, {
+      attempt,
+      committedAt,
+      commitSeq,
       source: 'cfbd',
-      cache: 'miss',
-      generatedAt: new Date(now).toISOString(),
-    },
-  };
-
-  const cacheEntry = { at: now, response };
-  // Durable-first commit order (PLATFORM-085A): persist the rankings snapshot
-  // BEFORE publishing it to the process cache, so a failed durable write can't
-  // leave this instance serving "fresh" rankings that no other instance can
-  // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
-  await setAppState('rankings', String(season), cacheEntry);
-  CACHE.set(season, cacheEntry);
-  return response;
+      rowsCommitted: weeks.length,
+      durationMs: Date.now() - now,
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof RecordedRankingsRefreshError) {
+      // Already terminally resolved with specific metadata (e.g. partition schema
+      // drift) — do NOT overwrite `lastError` with a generic failure.
+      throw error;
+    }
+    // A genuinely unrecorded failure (fetch/network/durable-commit) → record the
+    // generic failure so the attempt resolves and prior-good is preserved.
+    await recordProviderRefreshFailure('rankings', rankingsScope, {
+      attempt,
+      error: error instanceof Error ? error.message : 'rankings refresh failed',
+      durationMs: Date.now() - now,
+    });
+    throw error;
+  }
 }
 
 export function __resetSeasonRankingsCacheForTests(): void {

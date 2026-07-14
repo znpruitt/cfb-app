@@ -7,6 +7,7 @@ import {
   formatCompactGameStatus,
   formatScheduleStatusLabel,
   formatScoreSummaryLabel,
+  isCanceledStatusLabel,
   isDisruptedStatusLabel,
 } from '../gameStatus';
 
@@ -86,6 +87,36 @@ test('classifies disrupted statuses and preserves display labels', () => {
     }),
     'Suspended'
   );
+});
+
+test('normalizes underscore/hyphen/spaced provider enum status labels (finding #3)', () => {
+  // `_` is a regex WORD character, so a bare \b matcher would MISS these enum
+  // forms (`\bcanceled\b` never fires inside `status_canceled`). All separator
+  // styles must classify identically.
+  for (const canceled of [
+    'STATUS_CANCELED',
+    'STATUS_CANCELLED',
+    'status-canceled',
+    'Status Canceled',
+    'status canceled',
+  ]) {
+    assert.equal(isCanceledStatusLabel(canceled), true, `${canceled} should be canceled`);
+    assert.equal(isDisruptedStatusLabel(canceled), true, `${canceled} should be disrupted`);
+    assert.equal(classifyStatusLabel(canceled), 'disrupted', `${canceled} bucket`);
+  }
+  // Postponed / suspended / delayed are disrupted but NOT canceled/terminal —
+  // score diagnostics must still treat them as missing a final result.
+  for (const disrupted of ['STATUS_POSTPONED', 'STATUS_SUSPENDED', 'STATUS_DELAYED']) {
+    assert.equal(isDisruptedStatusLabel(disrupted), true, `${disrupted} disrupted`);
+    assert.equal(isCanceledStatusLabel(disrupted), false, `${disrupted} not canceled`);
+    assert.equal(classifyStatusLabel(disrupted), 'disrupted', `${disrupted} bucket`);
+  }
+  assert.equal(classifyStatusLabel('STATUS_FINAL'), 'final');
+  assert.equal(classifyStatusLabel('STATUS_IN_PROGRESS'), 'inprogress');
+  // Unknown enum → scheduled (no false disruption / no false live).
+  assert.equal(classifyStatusLabel('STATUS_SCHEDULED'), 'scheduled');
+  assert.equal(isDisruptedStatusLabel('STATUS_SCHEDULED'), false);
+  assert.equal(isCanceledStatusLabel('STATUS_SCHEDULED'), false);
 });
 
 test('formats schedule labels consistently for placeholders and canonical statuses', () => {

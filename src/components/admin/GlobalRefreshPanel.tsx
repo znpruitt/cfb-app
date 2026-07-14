@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
+import { interpretRefreshResponse, scoresAggregateRefreshUrl } from './manualRefresh';
 
 type SectionStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -60,24 +61,18 @@ export default function GlobalRefreshPanel({
     try {
       // refresh=1 + admin headers: scores upstream fetches are gated to
       // authorized callers (PLATFORM-075). This admin panel is the dedicated
-      // scores-refresh surface; public/anonymous traffic only reads cache.
+      // scores-refresh surface; public/anonymous traffic only reads cache. ONE
+      // aggregate request refreshes both partitions under a single 'scores'
+      // attempt so a per-partition failure cannot be masked (finding #4).
       const adminHeaders = requireAdminAuthHeaders() as Record<string, string>;
-      const [regularRes, postseasonRes] = await Promise.all([
-        fetch(`/api/scores?seasonType=regular&year=${year}&refresh=1`, {
-          cache: 'no-store',
-          headers: adminHeaders,
-        }),
-        fetch(`/api/scores?seasonType=postseason&year=${year}&refresh=1`, {
-          cache: 'no-store',
-          headers: adminHeaders,
-        }),
-      ]);
-      const failed = [
-        !regularRes.ok ? `regular ${regularRes.status}` : null,
-        !postseasonRes.ok ? `postseason ${postseasonRes.status}` : null,
-      ].filter(Boolean);
-      if (failed.length > 0) {
-        setScoresError(`Error: ${failed.join(', ')}`);
+      const outcome = await fetch(scoresAggregateRefreshUrl(year), {
+        cache: 'no-store',
+        headers: adminHeaders,
+      }).then(interpretRefreshResponse);
+      if (!outcome.ok) {
+        setScoresError(
+          outcome.kind === 'http' ? `Error: ${outcome.status}` : 'Provider refresh failed'
+        );
         setScoresStatus('error');
         return;
       }
