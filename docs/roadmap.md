@@ -238,17 +238,18 @@ Enable async drafts where owners have a configurable window to make each pick ra
 
 #### Provider Refresh Observability & Automation (PLATFORM-086)
 
-The provider campaign: truthful refresh observability (complete), then narrow correctness follow-ups, then automation — one job family per PR under the campaign's small-PR rule (detailed plan, task boundaries, and execution order live in `docs/next-tasks.md` → Active priorities #3).
+The provider campaign: truthful refresh observability (complete), then narrow correctness follow-ups, then automation — one job family per PR under the campaign's small-PR rule (detailed plan, task boundaries, and execution order live in `docs/next-tasks.md` → Active priorities #1).
 
 Provider limits (canonical): CFBD Tier 1 = 5,000 calls/month; The Odds API = 500 credits/month (current request cost 3 credits; Odds automation targets ~450 credits with a ~50-credit safety buffer).
 
 - **PLATFORM-086A — provider-refresh observability foundation ✓ Complete (PR #391).** Durable per-dataset refresh status with typed canonical scopes and per-scope attempt ordering; cross-scope completion-token rejection; durable operator settings (global noncritical pause + per-dataset enable); `/admin/diagnostics` Provider Data Status panel with manual refresh; cache-aware missing-data diagnostics; CFBD quota normalization (Tier 1 = 5,000); user-facing freshness labels; CFBD as the sole normal score provider (automatic ESPN fallback removed); durable-first commits; empty-response/schema-drift classification; schedule `week + all` read-time cache composition.
-- **PLATFORM-086G — provider-boundary truthfulness (planned, next).** Odds malformed/unexpected-empty rejection, contextual Scores empty classification, odds-usage read-failure vs. absence, CFBD quota missing-field honesty.
+- **PLATFORM-086G1 — CFBD score & quota truthfulness (planned, next).** Contextual Scores empty classification; CFBD quota missing-field honesty.
+- **PLATFORM-086G2 — Odds boundary & usage truthfulness (planned).** Odds malformed/unexpected-empty rejection; odds-usage read-failure vs. absence. Separate PR from G1 (different provider family).
 - **PLATFORM-086H — game-stats recovery (planned).** Schedule-derived expected-game completeness, partial-week retry, non-destructive merge, panel no-op wording.
 - **PLATFORM-086I — settings feedback (planned).** Render stored pause/toggle mutation errors beside their controls.
 - **PLATFORM-086B — live-score polling (planned).** Schedule-armed ~3-minute polling only; never bundled with Odds.
 - **PLATFORM-086C — Odds polling (planned).** ~6-hour baseline with modest pre-kickoff priority; separate from live scores.
-- **PLATFORM-086E1 / 086E2 — slow jobs (planned, separate PRs).** Weekly active-season schedule refresh; rankings publication refresh (AP/Coaches Sundays 22:00 UTC, CFP Wednesdays 04:00 UTC — cadence fixed in code/`vercel.json`, never admin-editable).
+- **PLATFORM-086E1 / 086E2 — slow jobs (planned, separate PRs).** Weekly active-season schedule refresh (noncritical — requires an **operation-aware** settings gate so it honors the global pause and schedule toggle while the lifecycle-critical season-transition/rollover operations keep their exemption); rankings publication refresh (AP/Coaches Sundays 22:00 UTC, CFP Wednesdays 04:00 UTC — cadence fixed in code/`vercel.json`, never admin-editable).
 - **PLATFORM-086F — admin diagnostics information-architecture redesign (planned, last).** After the real automation jobs exist.
 - **PLATFORM-086D — absorbed into 086A (retired).** Operator controls shipped with 086A; only the 086I error-rendering remnant remains.
 - **Conferences remain manual** — no automation task.
