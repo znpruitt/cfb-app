@@ -83,11 +83,11 @@ This makes the user's `publicMetadata` (including `role`) available in the sessi
 3. After creating the user, open the user detail page.
 4. Under **Public metadata**, set:
 
-```json
-{
-  "role": "platform_admin"
-}
-```
+   ```json
+   {
+     "role": "platform_admin"
+   }
+   ```
 
 5. Save. The user can now sign in at `/login` and access `/admin`.
 

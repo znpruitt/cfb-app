@@ -6,7 +6,7 @@ Owner: Project documentation
 Canonical for: team-name canonicalization boundary, alias precedence, current-season ownership attribution, CSV's role
 Supersedes: (none — complements `AGENTS.md` Core rules #10–#12 and the Standings Ownership Invariants)
 
-Two separate boundaries keep identity and ownership from leaking across the app: `src/lib/teamIdentity.ts` (who a team *is*) and `src/lib/gameOwnership.ts` (which owner a game *belongs to*). Neither may be duplicated elsewhere.
+Two separate boundaries keep identity and ownership from leaking across the app: `src/lib/teamIdentity.ts` (who a team _is_) and `src/lib/gameOwnership.ts` (which owner a game _belongs to_). Neither may be duplicated elsewhere.
 
 ## Team identity — `src/lib/teamIdentity.ts`
 
@@ -28,7 +28,7 @@ A miss returns `unresolved` with a null identity key. The identity key is `norma
 
 Runtime alias resolution flows through `getScopedAliasMap(_leagueSlug, year)` in `src/lib/server/globalAliasStore.ts`. Since PLATFORM-067 the **league slug argument is ignored** (kept only for call-site compatibility) — team aliases are not league-specific. The effective precedence, first-wins:
 
-```
+```text
 stored global (aliases:global)  >  year (aliases:${year})  >  SEED_ALIASES (code defaults)
 ```
 

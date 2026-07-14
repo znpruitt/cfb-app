@@ -33,19 +33,21 @@ The key insight: merge-at-render-time was not a fixable implementation detail. I
 ## 3. Architectural Shift
 
 **Before:** Components computed standings by merging two sources at render time:
-```
+
+```typescript
 // shape-readiness predicate (simplified)
 const rows = canonical?.rows?.length ? canonical.rows : clientDerivedRows;
 ```
 
 **After:** Server canonical and client liveDelta are permanently separate seams:
-```
+
+```tsx
 // Server RSC → component props
-<StandingsPanel canonical={canonical} />
+<StandingsPanel canonical={canonical} />;
 
 // Client hook → separate prop
 const liveDelta = useLiveDelta(games, canonical);
-<StandingsPanel canonical={canonical} liveDelta={liveDelta} />
+<StandingsPanel canonical={canonical} liveDelta={liveDelta} />;
 ```
 
 Canonical defines what a row says. `liveDelta` defines what badges and chips annotate next to it. They never merge.
@@ -59,6 +61,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 **Problem:** Mutations (owner uploads, alias saves, score refreshes, admin operations) had no mechanism to invalidate stale standings cache.
 
 **Solution:**
+
 - Wrapped `getCanonicalStandings` with `unstable_cache` + `React.cache`
   - `React.cache`: per-request dedup (collapses N identical calls within one render pass)
   - `unstable_cache`: cross-request tag-based invalidation
@@ -69,6 +72,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 **Cache key design:** Closure pattern required — the function passed to `unstable_cache` must close over `slug` and `year` so they appear in the key array, not just as runtime arguments.
 
 **Tag granularity:**
+
 - `standings:{slug}` — invalidated on any mutation for the league (slug-level)
 - `standings:{slug}:{year}` — invalidated on year-specific mutations
 
@@ -77,6 +81,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 **Problem:** `CFBScheduleApp`'s Overview path merged client and server data at render time. All three Overview surfaces resolved independently, producing visually inconsistent displays.
 
 **Solution:**
+
 - Removed all merge-at-render-time logic from the Overview path
 - Introduced `liveDelta` interface: `LiveGameDelta`, `LivePendingOwnerDelta`, `LiveDelta` types
 - Added `selectLiveDelta` selector (pure function: `(games, canonical) => LiveDelta`)
@@ -89,6 +94,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 **Problem:** The dedicated `/league/[slug]/standings` page independently derived standings rather than consuming canonical.
 
 **Solution:**
+
 - Server RSC route calls `getCanonicalStandings` and passes result as props
 - `StandingsPanel` consumes `canonical.rows`, `canonical.history`, `canonical.colorOrder` directly
 - First liveDelta UI integration: W-L pending badges appear next to owner names during active games
@@ -99,6 +105,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 **Problem:** `OwnerPanel`, `MatchupsWeekPanel`, `MatchupMatrixView` each derived or re-fetched standings independently. Admin forms showed stale standings after mutations.
 
 **Solution:**
+
 - Members route and all owner-facing components consume canonical
 - Matchups route and all matchup views consume canonical
 - Second liveDelta UI integration: pulsing dot added to LIVE pill in `MatchupsWeekPanel` for in-progress games
@@ -109,6 +116,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 **Problem:** The History page called `buildSeasonArchive(slug, activeYear)` to rebuild a current-season archive on the fly, bypassing the canonical standings path entirely.
 
 **Solution:**
+
 - Replaced `buildSeasonArchive(slug, activeYear)` with `getCanonicalStandings({ slug, year: activeYear })`
 - History page now uses the same server canonical path as all other consumers
 - Eliminated a parallel derivation that could produce a different result than the standings page for the same season
@@ -118,6 +126,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 **Problem:** `deriveLifecycleState` captured `currentDate` via `new Date()` internally, making lifecycle derivation non-deterministic and untestable. Preseason insight generators produced nonsensical output ("Toilet bowl leader", "Crowded finish in 0 games") because they ran against current-roster data with no season data yet.
 
 **Solution:**
+
 - `currentDate` captured once at request-handler entry, passed through all derivation layers
 - No implicit `new Date()` inside `deriveLifecycleState` or any downstream derivation function
 - `usingArchivedRoster: boolean` added to `InsightContext` — signals when a `fresh_offseason` state is using the prior season's roster snapshot rather than a current upload. Future generators can gate on this flag to suppress preseason-unsafe insights.
@@ -130,6 +139,7 @@ Canonical defines what a row says. `liveDelta` defines what badges and chips ann
 ### Tag-based invalidation with React.cache + unstable_cache composition
 
 Considered three options:
+
 - A: Manual revalidation (call `revalidatePath` per mutation route) — rejected because it requires knowing all URLs that display standings data, and that set grows with every new route
 - B: Time-based TTL (`revalidate: 60`) — rejected because mutations would silently show stale data for up to 60 seconds
 - C: Tag-based invalidation (chosen) — `revalidateTag('standings:{slug}')` from any mutation route invalidates all pages that consumed the tag, regardless of URL
@@ -188,12 +198,12 @@ Several code review findings during Phase 1–3 PRs were items that the next pha
 
 ## 7. Deferred Items (Backlog)
 
-| Item | Finding | Why deferred |
-|------|---------|--------------|
-| **INSIGHTS-LIFECYCLE-AWARENESS** | Preseason insight generators produce nonsensical output ("Toilet bowl leader", "Crowded finish in 0 games") because they run against current-roster data with no resolved season stats yet. | Phase 5 added `usingArchivedRoster` flag to `InsightContext` as the future gating surface. Generators need to read this flag and suppress or reframe preseason-unsafe types. Separate prompt when generator tuning work begins. |
-| **POSTSEASON-START-WEEK-SCHEDULE-DERIVED** | `POSTSEASON_START_WEEK = 16` is a hardcoded constant. The correct value should be derived from the schedule: the week of the earliest `seasonType === 'postseason'` game. | Constant works for current seasons. Schedule-derived derivation requires a CFBD fetch at derivation time, which needs caching and error handling. Deferred as Option B with a rationale comment; revisit before any season with unusual bracket structure. |
-| **INVALIDATE-STANDINGS-PER-LEAGUE** | `invalidateStandings` enumerates all leagues for global-scope mutations (e.g., alias writes that can apply across leagues). This is unnecessarily broad for mutations that only affect one league. | Documented in `invalidateStandings` JSDoc as a known limitation. Requires per-league alias scoping to fix correctly. Dependent on the Aliases Platform Migration work. |
-| **HEADER-ARCHITECTURE-UNIFICATION** | `LeaguePageShell` and `CFBScheduleApp` render independent header regions. Flagged during LEAGUE-HEADER-USER-MENU work — they should share a single `LeagueHeader` component. | Out of scope for this campaign. Structural header change risks visual regression across all league pages. Separate Polish prompt when header structure is ready to unify. |
+| Item                                       | Finding                                                                                                                                                                                            | Why deferred                                                                                                                                                                                                                                               |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **INSIGHTS-LIFECYCLE-AWARENESS**           | Preseason insight generators produce nonsensical output ("Toilet bowl leader", "Crowded finish in 0 games") because they run against current-roster data with no resolved season stats yet.        | Phase 5 added `usingArchivedRoster` flag to `InsightContext` as the future gating surface. Generators need to read this flag and suppress or reframe preseason-unsafe types. Separate prompt when generator tuning work begins.                            |
+| **POSTSEASON-START-WEEK-SCHEDULE-DERIVED** | `POSTSEASON_START_WEEK = 16` is a hardcoded constant. The correct value should be derived from the schedule: the week of the earliest `seasonType === 'postseason'` game.                          | Constant works for current seasons. Schedule-derived derivation requires a CFBD fetch at derivation time, which needs caching and error handling. Deferred as Option B with a rationale comment; revisit before any season with unusual bracket structure. |
+| **INVALIDATE-STANDINGS-PER-LEAGUE**        | `invalidateStandings` enumerates all leagues for global-scope mutations (e.g., alias writes that can apply across leagues). This is unnecessarily broad for mutations that only affect one league. | Documented in `invalidateStandings` JSDoc as a known limitation. Requires per-league alias scoping to fix correctly. Dependent on the Aliases Platform Migration work.                                                                                     |
+| **HEADER-ARCHITECTURE-UNIFICATION**        | `LeaguePageShell` and `CFBScheduleApp` render independent header regions. Flagged during LEAGUE-HEADER-USER-MENU work — they should share a single `LeagueHeader` component.                       | Out of scope for this campaign. Structural header change risks visual regression across all league pages. Separate Polish prompt when header structure is ready to unify.                                                                                  |
 
 ---
 

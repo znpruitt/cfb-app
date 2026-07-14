@@ -54,6 +54,7 @@ next-env.d.ts
 # lint/test caches
 .eslintcache
 jest-test-results.json
+markdownlint-errors*.txt
 
 # -----------------------------
 # Project-specific data

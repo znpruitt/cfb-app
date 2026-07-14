@@ -17,6 +17,7 @@ Claude Code-specific companion to `AGENTS.md`. Read `AGENTS.md` first — this f
 Roles are assigned **per task by the prompt**, not fixed by tool. Claude may plan, implement, remediate, diagnose, or review depending on what the prompt asks. Codex commonly provides independent read-only review of Claude's work (and can also take scoped implementation), but either system can receive scoped work of any kind.
 
 Whatever the assigned role, Claude is expected to:
+
 - diagnose accurately and flag architectural inconsistencies
 - keep changes within the prompt's stated scope
 - follow the prompt/response and commit conventions in the docs below
@@ -28,17 +29,17 @@ Whatever the assigned role, Claude is expected to:
 
 Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/README.md). The Claude-relevant subset:
 
-| Doc | Purpose |
-|-----|---------|
-| `docs/README.md` | Documentation map — which doc owns what (start here when unsure) |
-| `AGENTS.md` | Project operating instructions (shared across all AI coders) |
+| Doc                                                                 | Purpose                                                                                                                                 |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/README.md`                                                    | Documentation map — which doc owns what (start here when unsure)                                                                        |
+| `AGENTS.md`                                                         | Project operating instructions (shared across all AI coders)                                                                            |
 | `docs/archive/governance/cfb-engineering-operating-instructions.md` | _Historical / superseded_ — original prompt-governance model; archived, retained for context, does not override `AGENTS.md`/`CLAUDE.md` |
-| `docs/next-tasks.md` | Active task queue and current phase focus |
-| `docs/prompt-registry.md` | Prompt ID registry — check before assigning new IDs |
-| `docs/completed-work.md` | Append-only milestone log |
-| `DESIGN.md` | UI/UX design principles — read before any UI work |
-| `docs/roadmap.md` | Campaign definitions and development philosophy |
-| `docs/deployment-runbook.md` | Hosted deployment checklist |
+| `docs/next-tasks.md`                                                | Active task queue and current phase focus                                                                                               |
+| `docs/prompt-registry.md`                                           | Prompt ID registry — check before assigning new IDs                                                                                     |
+| `docs/completed-work.md`                                            | Append-only milestone log                                                                                                               |
+| `DESIGN.md`                                                         | UI/UX design principles — read before any UI work                                                                                       |
+| `docs/roadmap.md`                                                   | Campaign definitions and development philosophy                                                                                         |
+| `docs/deployment-runbook.md`                                        | Hosted deployment checklist                                                                                                             |
 
 ---
 
@@ -58,14 +59,17 @@ Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/READM
 Every Codex prompt Claude produces must:
 
 1. Begin with the standard header (the binding rule lives in `AGENTS.md` → prompt governance):
-   ```
+
+   ```text
    PROMPT_ID: <CAMPAIGN>-<###>-<SHORT_NAME>-v<version>
    PURPOSE: <1–2 sentences>
    SCOPE: <files/modules + constraints>
    ```
+
    Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS` (documentation/governance). Split/multi-part tasks may use a lettered sub-sequence (e.g. `PLATFORM-079a`/`079b`, `DOCS-002A`/`002B`/`002C`).
    Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
    Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
+
 2. Include a **Final Response Requirement** section (Section 3.11) that restates the expected `PROMPT_ID` first-line and required response structure.
 3. Be registered in `docs/prompt-registry.md` as part of the **pre-merge documentation closeout** — finalized after implementation and independent review/remediation are complete, immediately before merge, so the entry describes actual final behavior (see `AGENTS.md` → "Documentation closeout timing", the binding rule). Do not mark work complete in the registry while review findings remain open.
 
@@ -87,7 +91,7 @@ The list below is a **deliberate minimal echo** of the few invariants worth keep
 
 - **Schedule/canonical games are the source of truth.** Scores, odds, ownership, standings, archive, insights, and UI attach to schedule-derived canonical `AppGame`s — no parallel game-identity construction.
 - **Team identity resolution goes through `src/lib/teamIdentity.ts`** — no duplicate/raw-label matching elsewhere. (Roster fuzzy matching stays in the CSV upload layer only.)
-- **Current-season ownership attribution flows through `src/lib/gameOwnership.ts`** — no duplicated ownership-resolution logic or raw provider-label owner equality on current-season paths. Two *separate* known deferrals exist (do not conflate): normalized ownership-**key** indexing (`PLATFORM-040`) and the historical/archive surfaces that still raw-label match. Both are known, not fresh violations — see `AGENTS.md` Core rule #11 for the authoritative deferral list and exact modules.
+- **Current-season ownership attribution flows through `src/lib/gameOwnership.ts`** — no duplicated ownership-resolution logic or raw provider-label owner equality on current-season paths. Two _separate_ known deferrals exist (do not conflate): normalized ownership-**key** indexing (`PLATFORM-040`) and the historical/archive surfaces that still raw-label match. Both are known, not fresh violations — see `AGENTS.md` Core rule #11 for the authoritative deferral list and exact modules.
 - **League password access is separate from Clerk/admin authorization.** Clerk provides identity + app roles; the league password gate (`LEAGUE_AUTH_SECRET`) only unlocks a passworded league's pages and grants no role. See `AGENTS.md` → Auth Architecture Invariants and `docs/deployment-runbook.md`.
 - **CSV is not the default current-season ownership path** — draft/team-assignment is; current-season CSV import is explicit admin repair. CSV is never a game-identity source. (See `AGENTS.md` Core rule on CSV — honest transitional state noted there.)
 
@@ -127,7 +131,7 @@ The canonical architecture map (runtime flow, module catalog, selectors, invaria
 
 Always diagnose upstream-first:
 
-```
+```text
 1. API response
 2. normalization layer
 3. canonical game model
@@ -152,7 +156,7 @@ Never start at the UI when an upstream layer may be wrong.
 
 After completing any implementation and pushing to the feature branch, always run the following command before ending the session:
 
-```
+```bash
 git push origin HEAD:preview --force
 ```
 
