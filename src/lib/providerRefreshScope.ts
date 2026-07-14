@@ -145,17 +145,21 @@ export function scopeMatchesKey(
 export type ScheduleSeasonTypeParam = CanonicalSeasonType | 'all';
 
 /**
- * Canonical status scope for a SCHEDULE refresh operation, selected from the
- * normalized request target (review remediation finding 1). The year rollup is
- * reserved for the ONE operation that genuinely covers the whole year
+ * Canonical status scope for a SINGLE-TARGET SCHEDULE refresh operation, selected
+ * from the normalized request target (review remediation finding 1). The year
+ * rollup is reserved for the ONE operation that genuinely covers the whole year
  * (`week === null && seasonType === 'all'`); a season- or week-targeted repair
  * records against its own partition and can never clear/advance the full-year
  * status.
  *
- * A specific week with `seasonType === 'all'` spans two week partitions; it is a
- * targeted (non-year) op and is resolved to the regular week partition by the
- * codebase's default-to-regular convention. The admin UI only ever issues the
- * full-year form, so this degenerate combination is API-only.
+ * A specific week with `seasonType === 'all'` spans TWO week partitions (regular
+ * AND postseason) and therefore has NO single canonical scope — coercing it to
+ * the regular week partition would misattribute a postseason-only failure to
+ * regular and collide combined rows with a later regular-only refresh
+ * (SCOPED-STATUS review v2 #2). It is a programming error to ask this helper for
+ * that combination's scope: the caller must resolve each applicable child
+ * independently via {@link weekPartitionScope}. This throws so the misuse is
+ * loud rather than silently coerced.
  */
 export function scheduleRefreshScope(
   year: number,
@@ -163,7 +167,12 @@ export function scheduleRefreshScope(
   seasonType: ScheduleSeasonTypeParam
 ): ProviderRefreshScope {
   if (seasonType === 'all') {
-    return week == null ? yearScope(year) : weekPartitionScope(year, week, 'regular');
+    if (week != null) {
+      throw new Error(
+        'scheduleRefreshScope: a specific week with seasonType "all" spans two week partitions and has no single scope — resolve each child via weekPartitionScope'
+      );
+    }
+    return yearScope(year);
   }
   return week == null
     ? seasonPartitionScope(year, seasonType)

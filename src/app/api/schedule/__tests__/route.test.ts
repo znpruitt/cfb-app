@@ -22,7 +22,11 @@ import {
   getProviderRefreshStatus,
   recordProviderRefreshSuccess,
 } from '../../../../lib/server/providerRefreshStatus.ts';
-import { seasonPartitionScope, yearScope } from '../../../../lib/providerRefreshScope.ts';
+import {
+  seasonPartitionScope,
+  weekPartitionScope,
+  yearScope,
+} from '../../../../lib/providerRefreshScope.ts';
 
 // Schedule status scope now reflects the ACTUAL refresh target (finding 1): a
 // full-year (seasonType=all) refresh records the year rollup, while a single
@@ -702,4 +706,205 @@ test('stale shared schedule cache entries are refetched instead of treated as pe
   assert.equal(fetchCount, 1);
   assert.equal(json.meta.cache, 'miss');
   assert.equal(json.items[0].homeTeam, 'Fresh Home');
+});
+
+// ---------------------------------------------------------------------------
+// SCOPED-STATUS review v2 #2 — a specific week with NO season type
+// (`seasonType` normalized to 'all') spans TWO week partitions. Each applicable
+// child resolves INDEPENDENTLY: its own week-partition status, never a combined
+// outcome coerced onto the regular week scope. The aggregate HTTP response
+// contract is preserved.
+// ---------------------------------------------------------------------------
+
+const WA_YEAR = 2027;
+const WA_WEEK = 1;
+const WA_REGULAR = weekPartitionScope(WA_YEAR, WA_WEEK, 'regular');
+const WA_POSTSEASON = weekPartitionScope(WA_YEAR, WA_WEEK, 'postseason');
+
+// Per-partition mock for a week+all refresh. 'ok' → one mappable game, 'empty' →
+// valid absence ([]), 'fail' → a non-array payload (immediate schema-drift
+// failure, no retry delay).
+function setWeekAllMock(spec: {
+  regular: 'ok' | 'empty' | 'fail';
+  postseason: 'ok' | 'empty' | 'fail';
+}) {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const st = url.searchParams.get('seasonType') === 'postseason' ? 'postseason' : 'regular';
+    const mode = spec[st];
+    if (mode === 'fail') {
+      return new Response(JSON.stringify({ error: 'drift' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    if (mode === 'empty') {
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    const game =
+      st === 'postseason'
+        ? {
+            week: WA_WEEK,
+            home_team: 'Georgia',
+            away_team: 'Texas',
+            id: 91,
+            start_date: '2027-12-31T00:00:00Z',
+          }
+        : {
+            week: WA_WEEK,
+            home_team: 'Alpha',
+            away_team: 'Beta',
+            id: 11,
+            start_date: '2027-09-01T00:00:00Z',
+          };
+    return new Response(JSON.stringify([game]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+}
+
+// A week with no seasonType → normalized to 'all'; bypassCache forces the refresh.
+function weekAllRequest() {
+  return new Request(`http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}&bypassCache=1`);
+}
+
+test('week+all: both partitions succeed → independent week-partition successes, no rollup', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
+  const res = await GET(weekAllRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.items.length, 2, 'the combined response carries both partitions');
+
+  const reg = await getProviderRefreshStatus('schedule', WA_REGULAR);
+  const post = await getProviderRefreshStatus('schedule', WA_POSTSEASON);
+  assert.equal(reg.latestAttemptOutcome, 'succeeded');
+  assert.equal(reg.rowsCommitted, 1, 'regular status carries ONLY its own row count');
+  assert.equal(post.latestAttemptOutcome, 'succeeded');
+  assert.equal(post.rowsCommitted, 1, 'postseason status carries ONLY its own row count');
+
+  const yr = await getProviderRefreshStatus('schedule', yearScope(WA_YEAR));
+  assert.equal(yr.latestAttemptOutcome, null, 'no year rollup is written by a week refresh');
+});
+
+test('week+all: regular succeeds while postseason fails → independent records, no cross-contamination', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  setWeekAllMock({ regular: 'ok', postseason: 'fail' });
+  const res = await GET(weekAllRequest());
+  assert.notEqual(res.status, 200, 'a partition failure fails the aggregate action');
+
+  const reg = await getProviderRefreshStatus('schedule', WA_REGULAR);
+  const post = await getProviderRefreshStatus('schedule', WA_POSTSEASON);
+  assert.equal(
+    reg.latestAttemptOutcome,
+    'succeeded',
+    'regular is NOT marked failed by the postseason failure'
+  );
+  assert.equal(reg.rowsCommitted, 1);
+  assert.equal(reg.lastError, null);
+  assert.equal(post.latestAttemptOutcome, 'failed', 'postseason owns its own failure');
+});
+
+test('week+all: a valid-empty postseason is a no-op, not a failure; regular still succeeds', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  setWeekAllMock({ regular: 'ok', postseason: 'empty' });
+  const res = await GET(weekAllRequest());
+  assert.equal(res.status, 200, 'a valid-empty sibling does not fail the aggregate');
+  const json = await res.json();
+  assert.equal(json.items.length, 1, 'only regular contributes rows');
+
+  const reg = await getProviderRefreshStatus('schedule', WA_REGULAR);
+  const post = await getProviderRefreshStatus('schedule', WA_POSTSEASON);
+  assert.equal(reg.latestAttemptOutcome, 'succeeded');
+  assert.equal(
+    post.latestAttemptOutcome,
+    'no-op',
+    'an inapplicable postseason week is a truthful no-op, not a failure'
+  );
+});
+
+test('week+all: a later regular-only week refresh updates its own scope, not the postseason week', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
+  await GET(weekAllRequest());
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', WA_POSTSEASON)).latestAttemptOutcome,
+    'succeeded'
+  );
+
+  // A later single-partition regular week-1 refresh records against the SAME
+  // regular week scope (updating it) and must not touch the postseason week.
+  setMockFetch(
+    async () =>
+      new Response(
+        JSON.stringify([
+          {
+            week: WA_WEEK,
+            home_team: 'Gamma',
+            away_team: 'Delta',
+            id: 12,
+            start_date: '2027-09-02T00:00:00Z',
+          },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+  );
+  const res = await GET(
+    new Request(
+      `http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}&seasonType=regular&bypassCache=1`
+    )
+  );
+  assert.equal(res.status, 200);
+
+  const reg = await getProviderRefreshStatus('schedule', WA_REGULAR);
+  assert.equal(reg.latestAttemptOutcome, 'succeeded', 'the regular week scope updated');
+  assert.equal(reg.rowsCommitted, 1);
+  const post = await getProviderRefreshStatus('schedule', WA_POSTSEASON);
+  assert.equal(
+    post.latestAttemptOutcome,
+    'succeeded',
+    'the postseason week status is not collided/overwritten by a regular-only refresh'
+  );
+});
+
+test('week+all: explicit seasonType=all with a week behaves the same as the omitted form', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
+  const res = await GET(
+    new Request(
+      `http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}&seasonType=all&bypassCache=1`
+    )
+  );
+  assert.equal(res.status, 200);
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', WA_REGULAR)).latestAttemptOutcome,
+    'succeeded'
+  );
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', WA_POSTSEASON)).latestAttemptOutcome,
+    'succeeded'
+  );
+});
+
+test('week+all: both partitions empty → aggregate no-op response, no rollup', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  setWeekAllMock({ regular: 'empty', postseason: 'empty' });
+  const res = await GET(weekAllRequest());
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).items, []);
+
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', WA_REGULAR)).latestAttemptOutcome,
+    'no-op'
+  );
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', WA_POSTSEASON)).latestAttemptOutcome,
+    'no-op'
+  );
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', yearScope(WA_YEAR))).latestAttemptOutcome,
+    null,
+    'no year rollup'
+  );
 });

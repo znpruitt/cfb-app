@@ -122,11 +122,10 @@ test('scheduleRefreshScope reserves the year rollup for the full-year refresh on
     week: 3,
     seasonType: 'regular',
   });
-  // A specific week with `all` is a targeted (non-year) op — never the year rollup.
-  assert.notEqual(
-    providerRefreshScopeKey('schedule', scheduleRefreshScope(2026, 3, 'all')),
-    'schedule:year:2026'
-  );
+  // A specific week with `all` spans two week partitions and has NO single scope:
+  // the helper throws so the caller resolves each child via weekPartitionScope
+  // instead of coercing the combined outcome to regular (SCOPED-STATUS review v2 #2).
+  assert.throws(() => scheduleRefreshScope(2026, 3, 'all'), /spans two week partitions/);
 });
 
 test('scoresPartitionScope uses a week scope only when a week is present', () => {

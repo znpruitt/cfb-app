@@ -21,7 +21,7 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
-import { scheduleRefreshScope } from '@/lib/providerRefreshScope';
+import { scheduleRefreshScope, weekPartitionScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -260,6 +260,127 @@ async function fetchSeasonType(params: {
   return { items, requestUrl };
 }
 
+type WeekPartitionOutcome =
+  | { kind: 'success'; seasonType: SeasonType; items: ScheduleItem[] }
+  | { kind: 'noop'; seasonType: SeasonType }
+  | { kind: 'failure'; seasonType: SeasonType; status: number };
+
+/**
+ * Refresh ONE (year, week, seasonType) schedule partition as a fully independent
+ * operation: fetch → classify → durable-commit to its OWN child cache key →
+ * record provider-refresh status against its OWN week-partition scope. Used only
+ * by the `week + all` request (a specific week with no season type), which spans
+ * two week partitions and must never collapse their combined outcome into the
+ * regular week scope (SCOPED-STATUS review v2 #2). Each child's status metadata
+ * (outcome, row count, source, errors, committed metadata) describes ONLY that
+ * child — a postseason failure never marks regular failed, and a regular success
+ * never stores combined rows or collides with a later regular-only refresh. The
+ * per-partition commit/classification rules mirror the single-target main flow.
+ */
+async function refreshScheduleWeekPartition(params: {
+  year: number;
+  week: number;
+  seasonType: SeasonType;
+  requestId: string | null;
+  now: number;
+}): Promise<WeekPartitionOutcome> {
+  const { year, week, seasonType, requestId, now } = params;
+  const childScope = weekPartitionScope(year, week, seasonType);
+  const childCacheKey = `${year}-${week}-${seasonType}`;
+  const attempt = await beginProviderRefreshAttempt('schedule', childScope, {
+    startedAt: new Date(now).toISOString(),
+  });
+
+  let fetched: { items: ScheduleItem[]; requestUrl: string };
+  try {
+    fetched = await fetchSeasonType({ year, week, seasonType, cacheKey: childCacheKey, requestId });
+  } catch (error) {
+    const status = error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502;
+    await recordProviderRefreshFailure('schedule', childScope, {
+      attempt,
+      error:
+        error instanceof Error
+          ? error.message
+          : `schedule ${seasonType} ${year} week ${week} refresh failed`,
+      status,
+      durationMs: Date.now() - now,
+    });
+    return { kind: 'failure', seasonType, status };
+  }
+
+  if (fetched.items.length === 0) {
+    // Classify the empty result against THIS child's prior durable rows (the same
+    // shared policy as the single-target flow): a valid absence is a no-op; an
+    // empty replacement over a populated prior-good child is rejected.
+    let priorDurableRows: number;
+    try {
+      const prior = await getAppState<CacheEntry>('schedule', childCacheKey);
+      priorDurableRows = prior?.value?.items?.length ?? 0;
+    } catch (readError) {
+      await recordProviderRefreshFailure('schedule', childScope, {
+        attempt,
+        error: `schedule ${seasonType} ${year} week ${week}: prior durable schedule could not be read while classifying an empty provider response (${readError instanceof Error ? readError.message : 'unknown read error'})`,
+        code: 'schedule-prior-cache-read-failed',
+        status: 502,
+        durationMs: Date.now() - now,
+      });
+      return { kind: 'failure', seasonType, status: 502 };
+    }
+    const classification = classifyEmptyScheduleRefresh({ mappedRows: 0, priorDurableRows });
+    if (classification === 'unexpected-empty-replacement') {
+      await recordProviderRefreshFailure('schedule', childScope, {
+        attempt,
+        error: `schedule ${seasonType} ${year} week ${week}: provider returned zero games while a populated schedule is cached — rejected as an unexpected empty replacement`,
+        code: 'schedule-empty-replacement-rejected',
+        status: 502,
+        durationMs: Date.now() - now,
+      });
+      return { kind: 'failure', seasonType, status: 502 };
+    }
+    await recordProviderRefreshNoop('schedule', childScope, {
+      attempt,
+      source: 'cfbd',
+      durationMs: Date.now() - now,
+    });
+    return { kind: 'noop', seasonType };
+  }
+
+  // Durable-first commit to the child key, then record success against the child
+  // scope with THIS partition's own row count.
+  const entry: CacheEntry = {
+    at: now,
+    items: fetched.items,
+    partialFailure: false,
+    failedSeasonTypes: [],
+  };
+  let committedAt: string;
+  let commitSeq: number;
+  try {
+    await setAppState('schedule', childCacheKey, entry);
+    committedAt = new Date().toISOString();
+    commitSeq = nextProviderCommitSeq();
+  } catch (commitError) {
+    await recordProviderRefreshFailure('schedule', childScope, {
+      attempt,
+      error: commitError instanceof Error ? commitError.message : 'schedule durable commit failed',
+      code: 'schedule-durable-commit-failed',
+      status: 500,
+      durationMs: Date.now() - now,
+    });
+    return { kind: 'failure', seasonType, status: 500 };
+  }
+  SCHEDULE_ROUTE_CACHE[childCacheKey] = entry;
+  await recordProviderRefreshSuccess('schedule', childScope, {
+    attempt,
+    committedAt,
+    commitSeq,
+    source: 'cfbd',
+    rowsCommitted: fetched.items.length,
+    durationMs: Date.now() - now,
+  });
+  return { kind: 'success', seasonType, items: fetched.items };
+}
+
 export async function GET(req: Request) {
   recordRouteRequest('schedule');
   const url = new URL(req.url);
@@ -381,6 +502,80 @@ export async function GET(req: Request) {
   }
 
   recordRouteCacheMiss('schedule');
+
+  // A specific week with NO season type (`requestedSeasonType` normalized to
+  // 'all') spans TWO week partitions. Resolve each applicable child
+  // INDEPENDENTLY — its own attempt, durable child-key commit, and week-partition
+  // status — instead of coercing the combined outcome into the regular week scope
+  // (SCOPED-STATUS review v2 #2). The aggregate HTTP response contract is
+  // preserved; only the durable refresh status is partition-specific. The
+  // full-year (week === null && all) and single-partition forms are unchanged and
+  // continue on the single-scope path below.
+  if (week != null && requestedSeasonType === 'all') {
+    const childSeasonTypes: SeasonType[] = ['regular', 'postseason'];
+    const outcomes = await Promise.all(
+      childSeasonTypes.map((seasonType) =>
+        refreshScheduleWeekPartition({ year, week, seasonType, requestId, now })
+      )
+    );
+    const committed = outcomes.filter(
+      (o): o is Extract<WeekPartitionOutcome, { kind: 'success' }> => o.kind === 'success'
+    );
+    const failures = outcomes.filter(
+      (o): o is Extract<WeekPartitionOutcome, { kind: 'failure' }> => o.kind === 'failure'
+    );
+    const failedSeasonTypes = failures.map((f) => f.seasonType);
+
+    if (committed.length > 0) {
+      pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
+      // Invalidate canonical standings once for the year (a committed child
+      // persisted new schedule rows). Non-fatal on failure.
+      try {
+        const leagues = await getLeagues();
+        for (const league of leagues) {
+          invalidateStandings(league.slug, year);
+        }
+      } catch {
+        // Non-fatal — a child already persisted; canonical refreshes on the next
+        // mutation or natural cache turnover.
+      }
+    }
+
+    if (failures.length > 0) {
+      // Any applicable child failed → the aggregate action failed. Each child has
+      // already recorded its OWN week-partition status (committed children as
+      // success, failed as failure); the response surfaces the partition failure
+      // without a committed sibling masking it, matching the aggregate-refresh
+      // convention (502, committed + failed partitions in detail, no items body).
+      return NextResponse.json(
+        {
+          error: 'schedule refresh failed',
+          detail: {
+            failedSeasonTypes,
+            committedSeasonTypes: committed.map((c) => c.seasonType),
+          },
+        },
+        { status: failures[0]!.status }
+      );
+    }
+
+    // Every applicable child committed or was a valid no-op — serve the combined
+    // rows (empty when both partitions were valid no-ops). No broader rollup is
+    // written; each child owns only its own week-partition status.
+    const items = committed
+      .flatMap((o) => o.items)
+      .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
+    return NextResponse.json<ScheduleResponse>({
+      items,
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        fallbackUsed: false,
+        generatedAt: new Date(now).toISOString(),
+        partialFailure: false,
+      },
+    });
+  }
 
   // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
   // (or bypassCache) refresh will fetch upstream. Record the attempt before the

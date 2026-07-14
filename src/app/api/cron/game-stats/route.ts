@@ -11,7 +11,7 @@ import {
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
-import { weekPartitionScope, yearScope } from '@/lib/providerRefreshScope';
+import { weekPartitionScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -148,39 +148,60 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     });
   }
 
+  // Resolve the canonical target week BEFORE credential validation (cache-only,
+  // no provider call) so a missing-key failure — and every other outcome —
+  // records against the EXACT week partition this run intends to refresh, never
+  // the year rollup (SCOPED-STATUS review v2 #1). A one-week cron never owns the
+  // year data-rollup status.
+  let latest: { week: number; seasonType: CfbdSeasonType } | null;
+  try {
+    latest = await findLatestCompletedWeek(year);
+  } catch (err) {
+    // Local target resolution itself failed (e.g. a durable schedule read error).
+    // Use the established cron failure path WITHOUT assigning the failure to any
+    // year/week data scope (Requirement 3) — no target has been verified.
+    return NextResponse.json(
+      { ...emptyResult, error: err instanceof Error ? err.message : 'unknown error' },
+      { status: 500 }
+    );
+  }
+
+  if (!latest) {
+    // No applicable completed week — no work, no scoped status, no provider call.
+    return NextResponse.json({
+      ...emptyResult,
+      skipped: 'no completed weeks found in cached schedule',
+    });
+  }
+
+  const { week, seasonType } = latest;
+  // One canonical target scope, captured ONCE and reused by every terminal
+  // resolver below (missing-key failure, provider failure, no-op, success,
+  // durable-commit failure) so begin and resolve always agree (Requirement 4).
+  const weekScope = weekPartitionScope(year, week, seasonType);
+
   if (!CFBD_API_KEY) {
-    // Missing credential on an unpaused cron: record a failed attempt so the
-    // panel shows the automatic refresh is broken (rereview finding #5), then
-    // return the established safe response. Prior-good data is preserved. No
-    // completed week has been selected yet, so this job-level failure records
-    // against the YEAR rollup rather than any single week partition.
-    const jobScope = yearScope(year);
-    const attempt = await beginProviderRefreshAttempt('game-stats', jobScope, {
+    // Missing credential on an unpaused cron WITH a resolved target: record a
+    // failed attempt against THIS week partition (not the year rollup) so the
+    // panel shows the automatic refresh is broken and a later successful run of
+    // the same week can replace it through normal attempt ordering. Prior-good
+    // data is preserved.
+    const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
       startedAt: new Date().toISOString(),
     });
-    await recordProviderRefreshFailure('game-stats', jobScope, {
+    await recordProviderRefreshFailure('game-stats', weekScope, {
       attempt,
       error: 'CFBD_API_KEY not configured',
       code: 'cfbd-api-key-missing',
       status: 500,
     });
     return NextResponse.json(
-      { ...emptyResult, error: 'CFBD_API_KEY not configured' },
+      { ...emptyResult, week, seasonType, error: 'CFBD_API_KEY not configured' },
       { status: 500 }
     );
   }
 
   try {
-    const latest = await findLatestCompletedWeek(year);
-    if (!latest) {
-      return NextResponse.json({
-        ...emptyResult,
-        skipped: 'no completed weeks found in cached schedule',
-      });
-    }
-
-    const { week, seasonType } = latest;
-
     // Skip only when we already have USABLE stats for this week. A cached record
     // with `games: []` (CFBD returned no rows, or every row was dropped during
     // normalization) is NOT coverage — treating a bare key as cached would leave
@@ -201,7 +222,6 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     // Fetch from CFBD. This per-week ingestion records against only its
     // (year, week, seasonType) partition — one week never establishes full-season
     // game-stats success.
-    const weekScope = weekPartitionScope(year, week, seasonType);
     const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
       startedAt: new Date().toISOString(),
     });
@@ -287,7 +307,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     }
   } catch (err) {
     return NextResponse.json(
-      { ...emptyResult, error: err instanceof Error ? err.message : 'unknown error' },
+      {
+        ...emptyResult,
+        week,
+        seasonType,
+        error: err instanceof Error ? err.message : 'unknown error',
+      },
       { status: 500 }
     );
   }

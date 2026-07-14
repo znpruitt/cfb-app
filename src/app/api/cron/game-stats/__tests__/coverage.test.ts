@@ -9,12 +9,17 @@ import { GET as cronGet } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats, setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
 import type { GameStats } from '../../../../../lib/gameStats/types.ts';
-import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
-import { weekPartitionScope } from '../../../../../lib/providerRefreshScope.ts';
+import {
+  beginProviderRefreshAttempt,
+  getProviderRefreshStatus,
+  recordProviderRefreshFailure,
+} from '../../../../../lib/server/providerRefreshStatus.ts';
+import { weekPartitionScope, yearScope } from '../../../../../lib/providerRefreshScope.ts';
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const CRON_SECRET = 'test-cron-secret';
@@ -231,6 +236,62 @@ test('a genuinely empty provider response resolves as a no-op without a durable 
   );
   assert.equal(status.latestAttemptOutcome, 'no-op');
   assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
+});
+
+// SCOPED-STATUS review v2 #1 — the resolved week partition owns the outcome, and
+// a later successful run of the same week replaces a prior failure through normal
+// attempt ordering.
+test('a later successful run replaces a prior failure on the same week partition', async () => {
+  await seedCompletedSchedule();
+  const scope = weekPartitionScope(YEAR, WEEK, 'regular');
+  // A prior failed attempt on this exact week scope (e.g. an earlier missing-key run).
+  const priorFail = await beginProviderRefreshAttempt('game-stats', scope, {
+    attemptId: 'prior-fail',
+  });
+  await recordProviderRefreshFailure('game-stats', scope, {
+    attempt: priorFail,
+    error: 'CFBD_API_KEY not configured',
+    code: 'cfbd-api-key-missing',
+    status: 500,
+  });
+  assert.equal(
+    (await getProviderRefreshStatus('game-stats', scope)).latestAttemptOutcome,
+    'failed',
+    'precondition: the week scope starts failed'
+  );
+
+  stubTeamStats();
+  const res = await cronGet(cronRequest());
+  assert.equal(res.status, 200, await res.text());
+
+  const status = await getProviderRefreshStatus('game-stats', scope);
+  assert.equal(status.latestAttemptOutcome, 'succeeded', 'the later success replaces the failure');
+  assert.equal(status.lastError, null);
+});
+
+// SCOPED-STATUS review v2 #3 — a local target-resolution failure uses the
+// established cron error path and never assigns the failure to an unrelated year
+// or week data scope.
+test('a target-resolution read failure returns 500 and mutates no game-stats scope', async () => {
+  await seedCompletedSchedule();
+  // Fail ONLY 'schedule' reads (findLatestCompletedWeek) while provider-refresh
+  // status reads still succeed for the assertions.
+  __setAppStateReadFailureForTests(new Error('schedule read down'), 'schedule');
+  let res: Response;
+  try {
+    res = await cronGet(cronRequest());
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+  assert.equal(res.status, 500);
+
+  const yearRollup = await getProviderRefreshStatus('game-stats', yearScope(YEAR));
+  assert.equal(yearRollup.latestAttemptOutcome, null, 'no year-scope failure fabricated');
+  const week = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(YEAR, WEEK, 'regular')
+  );
+  assert.equal(week.latestAttemptOutcome, null, 'no week-scope failure fabricated');
 });
 
 test('a nonempty payload that normalizes to zero usable rows resolves as failure (no write)', async () => {
