@@ -720,6 +720,36 @@ const WA_YEAR = 2027;
 const WA_WEEK = 1;
 const WA_REGULAR = weekPartitionScope(WA_YEAR, WA_WEEK, 'regular');
 const WA_POSTSEASON = weekPartitionScope(WA_YEAR, WA_WEEK, 'postseason');
+// The established aggregate cache key the cache-only read path loads for a
+// week+all request (WEEK-ALL-AGGREGATE-CACHE remediation).
+const WA_AGG_KEY = `${WA_YEAR}-${WA_WEEK}-all`;
+
+type SeededCacheEntry = {
+  at: number;
+  items: Array<{ id: string; [k: string]: unknown }>;
+  [k: string]: unknown;
+};
+function priorAggregate(id: string, at: number): SeededCacheEntry {
+  return {
+    at,
+    items: [
+      {
+        id,
+        week: WA_WEEK,
+        startDate: '2027-01-01T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Old',
+        awayTeam: 'Prior',
+        homeConference: 'X',
+        awayConference: 'Y',
+        status: 'scheduled',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  };
+}
 
 // Per-partition mock for a week+all refresh. 'ok' → one mappable game, 'empty' →
 // valid absence ([]), 'fail' → a non-array payload (immediate schema-drift
@@ -786,10 +816,30 @@ test('week+all: both partitions succeed → independent week-partition successes
 
   const yr = await getProviderRefreshStatus('schedule', yearScope(WA_YEAR));
   assert.equal(yr.latestAttemptOutcome, null, 'no year rollup is written by a week refresh');
+
+  // The combined AGGREGATE cache entry is persisted under the read-path key — it is
+  // a read-contract artifact only, with NO provider-refresh status of its own.
+  const agg = await getAppState<{ items: unknown[] }>('schedule', WA_AGG_KEY);
+  assert.equal(agg?.value.items.length, 2, 'the aggregate cache entry carries both partitions');
+
+  // A cache-only read (no bypassCache) now serves the refreshed aggregate WITHOUT
+  // any provider call — the read contract the split path had regressed is restored.
+  setMockFetch(async () => {
+    throw new Error('cache-only week+all read must not call upstream');
+  });
+  const cached = await GET(
+    new Request(`http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}`)
+  );
+  assert.equal(cached.status, 200);
+  const cachedJson = await cached.json();
+  assert.equal(cachedJson.items.length, 2, 'the refreshed aggregate is served from cache');
+  assert.equal(cachedJson.meta.cache, 'hit');
 });
 
-test('week+all: regular succeeds while postseason fails → independent records, no cross-contamination', async () => {
+test('week+all: regular succeeds while postseason fails → independent records, prior aggregate retained', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
+  // Prior-good aggregate cache exists; a partial failure must NOT replace it.
+  await setAppState('schedule', WA_AGG_KEY, priorAggregate('prior', Date.now() - 1000));
   setWeekAllMock({ regular: 'ok', postseason: 'fail' });
   const res = await GET(weekAllRequest());
   assert.notEqual(res.status, 200, 'a partition failure fails the aggregate action');
@@ -804,6 +854,14 @@ test('week+all: regular succeeds while postseason fails → independent records,
   assert.equal(reg.rowsCommitted, 1);
   assert.equal(reg.lastError, null);
   assert.equal(post.latestAttemptOutcome, 'failed', 'postseason owns its own failure');
+
+  // The prior-good aggregate cache is retained — no partial (regular-only) overwrite.
+  const agg = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_AGG_KEY);
+  assert.equal(
+    agg?.value.items[0]?.id,
+    'prior',
+    'a partial child failure does not replace the prior-good aggregate entry'
+  );
 });
 
 test('week+all: a valid-empty postseason is a no-op, not a failure; regular still succeeds', async () => {
@@ -821,6 +879,14 @@ test('week+all: a valid-empty postseason is a no-op, not a failure; regular stil
     post.latestAttemptOutcome,
     'no-op',
     'an inapplicable postseason week is a truthful no-op, not a failure'
+  );
+
+  // The aggregate cache is written from the only applicable (regular) child.
+  const agg = await getAppState<{ items: unknown[] }>('schedule', WA_AGG_KEY);
+  assert.equal(
+    agg?.value.items.length,
+    1,
+    'the aggregate is written from the applicable child rows'
   );
 });
 
@@ -906,5 +972,78 @@ test('week+all: both partitions empty → aggregate no-op response, no rollup', 
     (await getProviderRefreshStatus('schedule', yearScope(WA_YEAR))).latestAttemptOutcome,
     null,
     'no year rollup'
+  );
+
+  // Both partitions were valid no-ops with no rows — no misleading empty aggregate
+  // entry is written (prior-good, if any, is preserved).
+  assert.equal(
+    await getAppState('schedule', WA_AGG_KEY),
+    null,
+    'a both-empty no-op writes no aggregate cache entry'
+  );
+});
+
+test('week+all: a successful refresh replaces a STALE aggregate cache entry', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  await setAppState(
+    'schedule',
+    WA_AGG_KEY,
+    priorAggregate('stale', Date.now() - 10 * 60 * 60 * 1000)
+  );
+  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
+  const res = await GET(weekAllRequest());
+  assert.equal(res.status, 200);
+
+  const agg = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_AGG_KEY);
+  assert.equal(
+    agg?.value.items.length,
+    2,
+    'the stale aggregate is replaced with the refreshed rows'
+  );
+  assert.ok(
+    !agg?.value.items.some((i) => i.id === 'stale'),
+    'no stale row survives the successful refresh'
+  );
+});
+
+test('week+all: an aggregate cache-commit failure keeps child successes and retains prior aggregate', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  // Prior-good aggregate to prove a failed aggregate write does not replace it.
+  await setAppState('schedule', WA_AGG_KEY, priorAggregate('prior', Date.now() - 1000));
+  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
+  // Fail ONLY the aggregate key write; the child-key commits still succeed.
+  __setAppStateWriteFailureForTests(new Error('aggregate disk full'), 'schedule', WA_AGG_KEY);
+  let res: Response;
+  try {
+    res = await GET(weekAllRequest());
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(res.status, 500);
+  const body = (await res.json()) as { detail?: { code?: string } };
+  assert.equal(body.detail?.code, 'schedule-week-all-aggregate-cache-commit-failed');
+
+  // The provider work succeeded — children stay committed + successful, NOT rolled
+  // back and NOT rewritten as failed.
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', WA_REGULAR)).latestAttemptOutcome,
+    'succeeded'
+  );
+  assert.equal(
+    (await getProviderRefreshStatus('schedule', WA_POSTSEASON)).latestAttemptOutcome,
+    'succeeded'
+  );
+  const regChild = await getAppState<{ items: unknown[] }>(
+    'schedule',
+    `${WA_YEAR}-${WA_WEEK}-regular`
+  );
+  assert.equal(regChild?.value.items.length, 1, 'the regular child cache remains committed');
+
+  // The prior-good aggregate entry is retained (a failed write does not replace it).
+  const agg = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_AGG_KEY);
+  assert.equal(
+    agg?.value.items[0]?.id,
+    'prior',
+    'the prior aggregate entry is not falsely replaced by a failed aggregate write'
   );
 });

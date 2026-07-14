@@ -560,11 +560,53 @@ export async function GET(req: Request) {
     }
 
     // Every applicable child committed or was a valid no-op — serve the combined
-    // rows (empty when both partitions were valid no-ops). No broader rollup is
-    // written; each child owns only its own week-partition status.
+    // rows (empty when both partitions were valid no-ops). Each child owns only
+    // its own week-partition status; no broader status rollup is written.
     const items = committed
       .flatMap((o) => o.items)
       .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
+
+    if (committed.length > 0) {
+      // Persist the combined AGGREGATE cache entry under the established
+      // `${year}-${week}-all` key (`cacheKey`), so the cache-only read path — which
+      // loads exactly that key — reflects this refresh instead of returning a 503 /
+      // stale entry (WEEK-ALL-AGGREGATE-CACHE remediation). This entry is a READ
+      // CONTRACT artifact only; it carries NO provider-refresh status (status stays
+      // child-scoped). Written durable-first and ONLY after all applicable children
+      // resolved WITHOUT failure (the partial-failure branch above already returned),
+      // so a partial result can never replace prior-good aggregate data. Its rows are
+      // exactly the canonical rows the children committed — no second normalization.
+      const aggregateEntry: CacheEntry = {
+        at: now,
+        items,
+        partialFailure: false,
+        failedSeasonTypes: [],
+      };
+      try {
+        await setAppState('schedule', cacheKey, aggregateEntry);
+      } catch (aggregateError) {
+        // Provider fetch + both child commits succeeded, but persisting the DERIVED
+        // aggregate cache failed. Do NOT roll back the child caches or rewrite their
+        // (successful) statuses, and do NOT synthesize a child provider failure — the
+        // provider work succeeded. A failed durable write does not replace the
+        // prior-good aggregate entry. Surface a truthful aggregate cache-commit
+        // failure through the route's established error path.
+        return NextResponse.json(
+          {
+            error: 'schedule week+all aggregate cache commit failed',
+            detail: {
+              code: 'schedule-week-all-aggregate-cache-commit-failed',
+              committedSeasonTypes: committed.map((c) => c.seasonType),
+              message: aggregateError instanceof Error ? aggregateError.message : 'unknown error',
+            },
+          },
+          { status: 500 }
+        );
+      }
+      SCHEDULE_ROUTE_CACHE[cacheKey] = aggregateEntry;
+      pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
+    }
+
     return NextResponse.json<ScheduleResponse>({
       items,
       meta: {

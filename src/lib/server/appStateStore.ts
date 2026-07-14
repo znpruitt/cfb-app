@@ -40,6 +40,11 @@ let __writeFailureForTests: Error | null = null;
 // test can fail a provider-data commit while status-scope writes still persist).
 // Null means the failure applies to every scope. Always null outside tests.
 let __writeFailureScopeForTests: string | null = null;
+// Test-only: when non-null, the write failure applies ONLY to this key within the
+// scope (so a test can fail one specific commit — e.g. the `week+all` aggregate
+// cache key — while sibling child-key writes still persist). Null means every key.
+// Always null outside tests.
+let __writeFailureKeyForTests: string | null = null;
 // Test-only: when set, `getAppState` throws this (writes unaffected). See
 // `__setAppStateReadFailureForTests`. Always null outside tests.
 let __readFailureForTests: Error | null = null;
@@ -308,7 +313,8 @@ export async function setAppState<T>(
   const shouldFailWrite = (): boolean =>
     Boolean(
       __writeFailureForTests &&
-        (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope)
+        (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope) &&
+        (__writeFailureKeyForTests === null || __writeFailureKeyForTests === key)
     );
 
   if (hasDatabaseConfig()) {
@@ -459,6 +465,7 @@ export function __resetAppStateForTests(): void {
   hasLoggedProductionConfigError = false;
   __writeFailureForTests = null;
   __writeFailureScopeForTests = null;
+  __writeFailureKeyForTests = null;
   __readFailureForTests = null;
   __readFailureScopeForTests = null;
   if (pool) {
@@ -476,14 +483,18 @@ export function __resetAppStateForTests(): void {
  * Optionally scope the failure to a single app-state `scope` so a test can fail
  * one provider-data commit (e.g. `'schedule'`) while other scopes — notably the
  * `'provider-refresh-status'` best-effort writes — still persist. Omit `scope`
- * to fail every write.
+ * to fail every write. Optionally narrow further to a single `key` within that
+ * scope (e.g. the `week+all` aggregate cache key) so sibling child-key writes
+ * still persist; omit `key` to fail every key in the scope.
  */
 export function __setAppStateWriteFailureForTests(
   error: Error | null,
-  scope: string | null = null
+  scope: string | null = null,
+  key: string | null = null
 ): void {
   __writeFailureForTests = error;
   __writeFailureScopeForTests = error ? scope : null;
+  __writeFailureKeyForTests = error ? key : null;
 }
 
 /**
