@@ -79,16 +79,65 @@ test('in-progress older than the interrupted threshold → "Attempt appears inte
   assert.deepEqual(summarize(s), { label: 'Attempt appears interrupted', tone: 'warn' });
 });
 
-test('failed → bad, mentions prior-good still serving', () => {
+// ---- Failed-refresh messaging is cache-state-aware (v2 finding #1) ----
+
+test('failed + cache available → bad, "prior-good cached data is still serving"', () => {
   const s = status({
     lastAttemptAt: new Date(NOW - 60_000).toISOString(),
     latestAttemptOutcome: 'failed',
     lastError: { message: 'upstream 502', status: 502 },
     lastSuccessAt: new Date(NOW - 3_600_000).toISOString(),
   });
+  const summary = summarize(s, { cacheState: 'available' });
+  assert.equal(summary.tone, 'bad');
+  assert.match(summary.label, /prior-good cached data is still serving/i);
+});
+
+test('failed + cache absent → bad, "no cached data is available" (cold failure never claims prior-good)', () => {
+  const s = status({
+    lastAttemptAt: new Date(NOW - 60_000).toISOString(),
+    latestAttemptOutcome: 'failed',
+    lastError: { message: 'missing api key' },
+  });
+  const summary = summarize(s, { cacheState: 'absent' });
+  assert.equal(summary.tone, 'bad');
+  assert.match(summary.label, /no cached data is available/i);
+  assert.doesNotMatch(summary.label, /prior-good/i);
+});
+
+test('failed + cache absent + historical lastSuccessAt → still "no cached data" (history does not override current absence)', () => {
+  const s = status({
+    lastAttemptAt: new Date(NOW - 60_000).toISOString(),
+    latestAttemptOutcome: 'failed',
+    lastError: { message: 'upstream 502' },
+    // A previous success exists historically, but the cache is currently absent.
+    lastSuccessAt: new Date(NOW - 3_600_000).toISOString(),
+  });
+  const summary = summarize(s, { cacheState: 'absent' });
+  assert.match(summary.label, /no cached data is available/i);
+  assert.doesNotMatch(summary.label, /still serving/i);
+});
+
+test('failed + cache unknown → bad, "could not be determined"', () => {
+  const s = status({
+    lastAttemptAt: new Date(NOW - 60_000).toISOString(),
+    latestAttemptOutcome: 'failed',
+    lastError: { message: 'upstream 502' },
+  });
+  const summary = summarize(s, { cacheState: 'unknown' });
+  assert.equal(summary.tone, 'bad');
+  assert.match(summary.label, /could not be determined/i);
+});
+
+test('failed + no cacheState supplied → conservative "availability is unknown"', () => {
+  const s = status({
+    lastAttemptAt: new Date(NOW - 60_000).toISOString(),
+    latestAttemptOutcome: 'failed',
+    lastError: { message: 'upstream 502' },
+  });
   const summary = summarize(s);
   assert.equal(summary.tone, 'bad');
-  assert.match(summary.label, /failed/i);
+  assert.match(summary.label, /availability is unknown/i);
 });
 
 test('no-op → muted "no applicable data", never a failure', () => {

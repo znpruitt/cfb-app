@@ -33,15 +33,17 @@ export function summarizeProviderState(
     enabled: boolean;
     now: number;
     /**
-     * Cache-only availability of this dataset's data for the selected year. Only
-     * consulted when NO refresh-status history exists, to distinguish "no
-     * PLATFORM-086A history yet" from "no data at all". Defaults to `unknown`
-     * (conservative: never asserts absence).
+     * Cache-only availability of this dataset's data for the selected year.
+     * Consulted (a) when NO refresh-status history exists, to distinguish "no
+     * PLATFORM-086A history yet" from "no data at all", and (b) on a FAILED
+     * attempt, so a cold first failure with no cache never claims prior-good data
+     * is serving (finding #1). Undefined → conservative "unknown" wording; never
+     * asserts absence.
      */
     cacheState?: ProviderCacheAvailability;
   }
 ): StateSummary {
-  const { globalPause, enabled, now, cacheState = 'unknown' } = opts;
+  const { globalPause, enabled, now, cacheState } = opts;
 
   // Pause/disabled only mean something for a dataset whose setting a live job
   // actually consumes (game-stats today). Showing them for planned/exempt
@@ -78,7 +80,7 @@ export function summarizeProviderState(
           : { label: 'Refresh in progress', tone: 'muted' };
       }
       case 'failed':
-        return { label: 'Last attempt failed — prior-good data still serving', tone: 'bad' };
+        return describeFailedRefresh(cacheState);
       case 'partial':
         return { label: 'Partial refresh — some partitions missing', tone: 'warn' };
       case 'no-op':
@@ -90,11 +92,36 @@ export function summarizeProviderState(
 
   // Legacy fallback (pre-outcome records): infer from historical fields.
   if (status.lastError != null) {
-    return { label: 'Last attempt failed — prior-good data still serving', tone: 'bad' };
+    return describeFailedRefresh(cacheState);
   }
   if (status.partialFailure) return { label: 'Partial coverage', tone: 'warn' };
   if (status.lastSuccessAt) return describeSuccess(status, now, descriptor.staleAfterMs);
   return { label: 'Refresh attempted', tone: 'muted' };
+}
+
+/**
+ * A failed latest attempt, described by what data is ACTUALLY available now
+ * (finding #1). The failure never claims prior-good data is serving unless the
+ * cache-only availability signal confirms it — a cold first failure with no cache
+ * (`absent`) says so plainly, and current absence is not overridden by a
+ * historical `lastSuccessAt` (which the panel still shows separately as
+ * "Last success"). Unknown / unsupplied availability uses conservative wording
+ * that asserts neither presence nor absence.
+ */
+function describeFailedRefresh(cacheState: ProviderCacheAvailability | undefined): StateSummary {
+  switch (cacheState) {
+    case 'available':
+      return { label: 'Refresh failed; prior-good cached data is still serving', tone: 'bad' };
+    case 'absent':
+      return { label: 'Refresh failed; no cached data is available', tone: 'bad' };
+    case 'unknown':
+      return {
+        label: 'Refresh failed; cached-data availability could not be determined',
+        tone: 'bad',
+      };
+    default:
+      return { label: 'Refresh failed; cached-data availability is unknown', tone: 'bad' };
+  }
 }
 
 function describeSuccess(

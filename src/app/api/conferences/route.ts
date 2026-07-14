@@ -35,6 +35,32 @@ type ConferencesResponse = {
   };
 };
 
+/**
+ * A conference record is usable only if it carries a conference identity — a
+ * non-empty `name` (the field downstream classification/lookup keys on). A
+ * malformed row with no name is not a usable conference, so a payload of only
+ * such rows is schema drift, not authoritative absence.
+ */
+function isUsableConferenceRecord(record: CfbdConferenceRecord | null | undefined): boolean {
+  return !!record && typeof record.name === 'string' && record.name.trim().length > 0;
+}
+
+/**
+ * The bundled-snapshot fallback response. `fallbackUsed: true` / `source:
+ * 'local_snapshot'` makes the shared admin interpreter report the refresh as a
+ * failure (not "Refresh complete") while prior-good/bundled data still serves.
+ */
+function conferencesFallbackResponse(): Response {
+  return NextResponse.json<ConferencesResponse>({
+    items: CONFERENCES_SNAPSHOT,
+    meta: {
+      source: 'local_snapshot',
+      generatedAt: new Date().toISOString(),
+      fallbackUsed: true,
+    },
+  });
+}
+
 function parseBooleanQueryParam(raw: string | null): boolean {
   if (!raw) return false;
   const normalized = raw.trim().toLowerCase();
@@ -125,14 +151,7 @@ export async function GET(req: Request) {
       error: 'CFBD_API_KEY missing',
       code: 'cfbd-api-key-missing',
     });
-    return NextResponse.json<ConferencesResponse>({
-      items: CONFERENCES_SNAPSHOT,
-      meta: {
-        source: 'local_snapshot',
-        generatedAt: new Date().toISOString(),
-        fallbackUsed: true,
-      },
-    });
+    return conferencesFallbackResponse();
   }
 
   try {
@@ -145,7 +164,35 @@ export async function GET(req: Request) {
       }
     );
 
-    const nextCache = { at: Date.now(), items: Array.isArray(items) ? items : [] };
+    // Classify the raw provider payload BEFORE any durable write (final-truthfulness
+    // remediation finding #3). Conference reference data does not legitimately
+    // disappear, so an empty/malformed response is uncertainty (a failure), never an
+    // authoritative zero-row commit that would clear prior-good conferences and read
+    // as "Refresh complete." A read failure / rejection retains prior-good (the
+    // failure helper preserves last-success/source/rows) and degrades to the bundled
+    // snapshot, which `interpretRefreshResponse` reports as a failed refresh.
+    if (!Array.isArray(items)) {
+      await recordProviderRefreshFailure('conferences', {
+        attempt,
+        error: 'CFBD conferences response was not an array',
+        code: 'conferences-invalid-payload',
+      });
+      return conferencesFallbackResponse();
+    }
+    const usableItems = items.filter(isUsableConferenceRecord);
+    if (usableItems.length === 0) {
+      await recordProviderRefreshFailure('conferences', {
+        attempt,
+        error:
+          items.length === 0
+            ? 'CFBD conferences response was empty'
+            : `CFBD conferences response normalized to zero usable rows (${items.length} raw)`,
+        code: 'conferences-no-usable-rows',
+      });
+      return conferencesFallbackResponse();
+    }
+
+    const nextCache = { at: Date.now(), items };
     // Durable-first commit order (PLATFORM-085A): persist the provider-derived
     // conferences snapshot before publishing it to the process cache, so a
     // failed durable write can't leave this instance serving a "fresh" snapshot
@@ -180,13 +227,6 @@ export async function GET(req: Request) {
       attempt,
       error: error instanceof Error ? error.message : 'conferences refresh failed',
     });
-    return NextResponse.json<ConferencesResponse>({
-      items: CONFERENCES_SNAPSHOT,
-      meta: {
-        source: 'local_snapshot',
-        generatedAt: new Date().toISOString(),
-        fallbackUsed: true,
-      },
-    });
+    return conferencesFallbackResponse();
   }
 }

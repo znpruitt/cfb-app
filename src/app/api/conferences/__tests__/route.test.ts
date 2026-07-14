@@ -7,6 +7,7 @@ import { GET } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  getAppState,
   setAppState,
 } from '@/lib/server/appStateStore';
 import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
@@ -135,6 +136,158 @@ test('conferences route blocks non-admin rebuild when cache is missing', async (
     assert.equal(res.status, 503);
     assert.match(String(json.error ?? ''), /admin refresh required/i);
   } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Final-truthfulness v2 finding #3 — an empty / malformed conference response is
+// classified BEFORE any durable write. Conference reference data does not
+// legitimately disappear, so it is a failure (prior-good retained), never a
+// successful zero-row commit.
+// ---------------------------------------------------------------------------
+
+async function conferencesRefresh(): Promise<Response> {
+  return GET(
+    new Request('http://localhost/api/conferences?bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+}
+
+test('conferences refresh rejects a NON-ARRAY payload and retains prior-good (finding #3)', async () => {
+  const originalKey = process.env.CFBD_API_KEY;
+  process.env.CFBD_API_KEY = 'test-key';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  await setAppState('conferences', 'snapshot', {
+    at: 1,
+    items: [{ name: 'Big Ten', shortName: 'B1G', abbreviation: 'B1G', classification: 'fbs' }],
+  });
+  const originalFetch = global.fetch;
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify({ notAnArray: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  try {
+    const res = await conferencesRefresh();
+    const json = (await res.json()) as { meta: { source: string; fallbackUsed: boolean } };
+    // Fallback body → the shared interpreter reports a failed refresh, not success.
+    assert.equal(json.meta.source, 'local_snapshot');
+    assert.equal(json.meta.fallbackUsed, true);
+
+    const status = await getProviderRefreshStatus('conferences');
+    assert.equal(status.latestAttemptOutcome, 'failed');
+    assert.equal(status.lastError?.code, 'conferences-invalid-payload');
+
+    // Prior-good durable cache retained (no empty/invalid overwrite).
+    const durable = await getAppState<{ items: Array<{ name: string }> }>(
+      'conferences',
+      'snapshot'
+    );
+    assert.equal(durable?.value?.items?.[0]?.name, 'Big Ten');
+  } finally {
+    process.env.CFBD_API_KEY = originalKey;
+    global.fetch = originalFetch;
+  }
+});
+
+test('conferences refresh rejects an EMPTY array and retains prior-good (finding #3)', async () => {
+  const originalKey = process.env.CFBD_API_KEY;
+  process.env.CFBD_API_KEY = 'test-key';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  await setAppState('conferences', 'snapshot', {
+    at: 1,
+    items: [{ name: 'Big Ten', shortName: 'B1G', abbreviation: 'B1G', classification: 'fbs' }],
+  });
+  const originalFetch = global.fetch;
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  try {
+    const res = await conferencesRefresh();
+    const json = (await res.json()) as { meta: { fallbackUsed: boolean } };
+    assert.equal(json.meta.fallbackUsed, true);
+
+    const status = await getProviderRefreshStatus('conferences');
+    assert.equal(status.latestAttemptOutcome, 'failed');
+    assert.equal(status.lastError?.code, 'conferences-no-usable-rows');
+
+    const durable = await getAppState<{ items: Array<{ name: string }> }>(
+      'conferences',
+      'snapshot'
+    );
+    assert.equal(durable?.value?.items?.[0]?.name, 'Big Ten', 'prior-good retained');
+  } finally {
+    process.env.CFBD_API_KEY = originalKey;
+    global.fetch = originalFetch;
+  }
+});
+
+test('conferences refresh rejects a nonempty payload that normalizes to ZERO usable rows, without writing an empty cache (finding #3)', async () => {
+  const originalKey = process.env.CFBD_API_KEY;
+  process.env.CFBD_API_KEY = 'test-key';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  // No prior cache: the rejection must not fabricate an empty snapshot.
+  const originalFetch = global.fetch;
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify([{ abbreviation: 'X' }, { shortName: 'Y' }]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  try {
+    const res = await conferencesRefresh();
+    const json = (await res.json()) as { meta: { fallbackUsed: boolean } };
+    assert.equal(json.meta.fallbackUsed, true);
+
+    const status = await getProviderRefreshStatus('conferences');
+    assert.equal(status.latestAttemptOutcome, 'failed');
+    assert.equal(status.lastError?.code, 'conferences-no-usable-rows');
+
+    // No durable conferences snapshot was written (no fabricated empty cache).
+    const durable = await getAppState('conferences', 'snapshot');
+    assert.equal(durable, null, 'a rejected payload must not write an empty cache');
+  } finally {
+    process.env.CFBD_API_KEY = originalKey;
+    global.fetch = originalFetch;
+  }
+});
+
+test('conferences refresh with at least one usable row commits and records success (finding #3)', async () => {
+  const originalKey = process.env.CFBD_API_KEY;
+  process.env.CFBD_API_KEY = 'test-key';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  const originalFetch = global.fetch;
+  setMockFetch(
+    async () =>
+      new Response(
+        JSON.stringify([
+          { name: 'Atlantic Coast Conference', abbreviation: 'ACC', classification: 'fbs' },
+          { abbreviation: 'noname' },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+  );
+  try {
+    const res = await conferencesRefresh();
+    const json = (await res.json()) as { meta: { source: string } };
+    assert.equal(json.meta.source, 'cfbd_live');
+
+    const status = await getProviderRefreshStatus('conferences');
+    assert.equal(status.latestAttemptOutcome, 'succeeded');
+
+    const durable = await getAppState<{ items: unknown[] }>('conferences', 'snapshot');
+    assert.equal(durable?.value?.items?.length, 2, 'the usable payload commits durably');
+  } finally {
+    process.env.CFBD_API_KEY = originalKey;
     global.fetch = originalFetch;
   }
 });

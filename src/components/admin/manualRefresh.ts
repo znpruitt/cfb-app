@@ -7,12 +7,24 @@
 import { type ProviderDataset, type ProviderDatasetDescriptor } from '@/lib/providerDatasets';
 
 /**
- * Composite key for year-scoped manual-refresh action state (hotfix requirement
- * 10). Keying manual pending/success/failure state by `${year}:${dataset}`
- * (not by dataset alone) is what stops a 2025 "Refresh complete" from appearing
- * on a 2026 card, or a year-A in-progress spinner from showing on year B.
+ * Composite key for year-scoped manual-refresh action state. Keying manual
+ * pending/success/failure state by `${year}:${dataset}` (not by dataset alone) is
+ * what stops a 2025 "Refresh complete" from appearing on a 2026 card, or a year-A
+ * in-progress spinner from showing on year B.
+ *
+ * `game-stats` is week + season-type scoped, so its identity is extended to
+ * `${year}:game-stats:${week}:${seasonType}` (final-truthfulness v2 finding #2):
+ * a Week 1 regular result must not appear beside Week 2 or postseason (which were
+ * never fetched). All other datasets keep `${year}:${dataset}`.
  */
-export function manualActionKey(year: number, dataset: ProviderDataset): string {
+export function manualActionKey(
+  year: number,
+  dataset: ProviderDataset,
+  gameStats?: { week: number; seasonType: 'regular' | 'postseason' }
+): string {
+  if (dataset === 'game-stats' && gameStats) {
+    return `${year}:game-stats:${gameStats.week}:${gameStats.seasonType}`;
+  }
   return `${year}:${dataset}`;
 }
 

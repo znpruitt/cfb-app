@@ -205,19 +205,26 @@ export default function ProviderDataStatusPanel({
 
   const runManualRefresh = useCallback(
     async (dataset: ProviderDataset) => {
-      // Capture the year this action is for. All of its state is keyed by
-      // `${actionYear}:${dataset}` (requirement 10) so a completed 2025 result
-      // never appears on a 2026 card and no year-A spinner shows on year B.
+      // Capture the exact partition this action is for. State is keyed by
+      // `${actionYear}:${dataset}` — and for game-stats also by week + season type
+      // (v2 finding #2) — so a completed result never appears on another year, and
+      // a Week 1 regular result/spinner never shows beside Week 2 or postseason.
       const actionYear = yearRef.current;
-      const key = manualActionKey(actionYear, dataset);
+      const actionWeek = gameStatsWeek;
+      const actionSeasonType = gameStatsSeasonType;
+      const key = manualActionKey(
+        actionYear,
+        dataset,
+        dataset === 'game-stats' ? { week: actionWeek, seasonType: actionSeasonType } : undefined
+      );
       setAction(key, { status: 'loading' });
       const headers = requireAdminAuthHeaders() as Record<string, string>;
       const opts = { cache: 'no-store' as const, headers };
       try {
         const urls = manualRefreshUrls(dataset, {
           year: actionYear,
-          week: gameStatsWeek,
-          seasonType: gameStatsSeasonType,
+          week: actionWeek,
+          seasonType: actionSeasonType,
         });
         // Interpret each response: a non-2xx OR a 2xx that served a bundled/
         // prior-good fallback (conferences on provider failure) is a failure, so
@@ -407,9 +414,16 @@ export default function ProviderDataStatusPanel({
             });
             const successRel = formatRelativeTimestamp(row.status.lastSuccessAt, now);
             const attemptRel = formatRelativeTimestamp(row.status.lastAttemptAt, now);
-            // Manual-refresh state is keyed by (year, dataset) so a result never
-            // leaks across years (requirement 10). Toggles stay globally keyed.
-            const refreshKey = manualActionKey(year, row.dataset);
+            // Manual-refresh state is keyed by (year, dataset) — and for game-stats
+            // also by the CURRENT week + season type (v2 finding #2) — so a result
+            // never leaks across years or partitions. Toggles stay globally keyed.
+            const refreshKey = manualActionKey(
+              year,
+              row.dataset,
+              row.dataset === 'game-stats'
+                ? { week: gameStatsWeek, seasonType: gameStatsSeasonType }
+                : undefined
+            );
             const toggleKey = `toggle:${row.dataset}`;
             const controlMode = datasetControlMode(row.descriptor);
             return (

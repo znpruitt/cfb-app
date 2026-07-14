@@ -126,6 +126,32 @@ test('manual action state keyed by year + dataset', () => {
   assert.equal(manualActionKey(2026, 'scores'), '2026:scores');
 });
 
+// ---- v2 finding #2: game-stats action state is week + season-type scoped ----
+
+test('manualActionKey: game-stats includes week and season type', () => {
+  assert.equal(
+    manualActionKey(2026, 'game-stats', { week: 1, seasonType: 'regular' }),
+    '2026:game-stats:1:regular'
+  );
+});
+
+test('manualActionKey: game-stats week/season-type/year variants are all distinct', () => {
+  const base = manualActionKey(2026, 'game-stats', { week: 1, seasonType: 'regular' });
+  // Different week → different key (Week 1 result must not show beside Week 2).
+  assert.notEqual(base, manualActionKey(2026, 'game-stats', { week: 2, seasonType: 'regular' }));
+  // Different season type → different key (regular must not show beside postseason).
+  assert.notEqual(base, manualActionKey(2026, 'game-stats', { week: 1, seasonType: 'postseason' }));
+  // Same week/season type but different year → still isolated.
+  assert.notEqual(base, manualActionKey(2025, 'game-stats', { week: 1, seasonType: 'regular' }));
+});
+
+test('manualActionKey: non game-stats datasets ignore the partition argument', () => {
+  assert.equal(
+    manualActionKey(2026, 'scores', { week: 3, seasonType: 'postseason' }),
+    '2026:scores'
+  );
+});
+
 test('A success not displayed under B: the 2025 key differs from the 2026 key', () => {
   const actions: Record<string, string> = {};
   actions[manualActionKey(2025, 'scores')] = 'success';
