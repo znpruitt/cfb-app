@@ -771,6 +771,21 @@ function seedLegacyAggregate(
   });
 }
 
+// Seed ONLY the in-process cache (no durable write) for one partition — used to
+// exercise the process-vs-durable freshness contract of `resolveChildCache`.
+function seedProcessChild(
+  seasonType: 'regular' | 'postseason',
+  ids: string[],
+  at: number = Date.now()
+) {
+  SCHEDULE_ROUTE_CACHE[`${WA_YEAR}-${WA_WEEK}-${seasonType}`] = {
+    at,
+    items: ids.map((id) => scheduleRow(id, seasonType)),
+    partialFailure: false,
+    failedSeasonTypes: [],
+  };
+}
+
 // A cache-only (no bypassCache) week+all read — the composition read path.
 function weekAllCacheOnlyRequest() {
   return new Request(`http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}`);
@@ -1199,4 +1214,162 @@ test('week+all: a fresh partition paired with a stale partition composes to a st
     'the oldest contributing partition makes the whole composed view stale'
   );
   assert.equal(json.items.length, 2, 'both partitions are still served');
+});
+
+// ---------------------------------------------------------------------------
+// WEEK-ALL-COMPOSITION-FRESHNESS — (1) an EXPIRED process child must re-read
+// durable storage so a newer durable child (another instance / a targeted repair)
+// is never masked; (2) an EMPTY legacy partition extraction is absence and must
+// contribute neither rows NOR a stale timestamp.
+// ---------------------------------------------------------------------------
+
+test('week+all: an EXPIRED process child does not mask a newer durable child (finding 1)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  // Local process mirror holds OLD, now-expired regular rows while durable storage
+  // has NEWER regular rows (another instance committed, or a targeted repair).
+  seedProcessChild('regular', ['old-reg'], Date.now() - 10 * 60 * 60 * 1000);
+  seedProcessChild('postseason', ['post'], Date.now());
+  await seedChild('regular', ['new-reg'], Date.now());
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  const ids = json.items.map((i: { id: string }) => i.id);
+  assert.ok(ids.includes('new-reg'), 'the newer durable regular child is served');
+  assert.ok(!ids.includes('old-reg'), 'the expired process rows are not served');
+  assert.equal(json.meta.cache, 'hit');
+  assert.notEqual(json.meta.stale, true, 'the fresh durable child is not stale');
+  // The local process mirror is refreshed from durable data.
+  assert.equal(
+    SCHEDULE_ROUTE_CACHE[`${WA_YEAR}-${WA_WEEK}-regular`]?.items?.[0]?.id,
+    'new-reg',
+    'the process mirror is updated from durable storage after reload'
+  );
+});
+
+test('week+all: an EXPIRED process postseason child reloads from durable (finding 1 symmetric)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  seedProcessChild('regular', ['reg'], Date.now());
+  seedProcessChild('postseason', ['old-post'], Date.now() - 10 * 60 * 60 * 1000);
+  await seedChild('postseason', ['new-post'], Date.now());
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const ids = (await res.json()).items.map((i: { id: string }) => i.id);
+  assert.ok(ids.includes('new-post'), 'the newer durable postseason child is served');
+  assert.ok(!ids.includes('old-post'), 'the expired process postseason rows are not served');
+});
+
+test('week+all: a FRESH process child is served without any durable read (finding 1 fast path)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  seedProcessChild('regular', ['proc-reg'], Date.now());
+  seedProcessChild('postseason', ['proc-post'], Date.now());
+  // Any durable read would throw — two fresh process children must satisfy the read
+  // via the fast path with NO durable access.
+  __setAppStateReadFailureForTests(new Error('durable read must not run on the fast path'));
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  let res: Response;
+  try {
+    res = await GET(weekAllCacheOnlyRequest());
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+  assert.equal(res.status, 200, 'fresh process children satisfy the read with no durable access');
+  const json = await res.json();
+  assert.equal(json.meta.cache, 'hit');
+  assert.equal(json.items.length, 2);
+});
+
+test('week+all: an EXPIRED process child with no durable row is not served as a fresh hit (finding 1)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token'; // make the read non-admin
+  // Both partitions have ONLY an expired process entry and NO durable backing — an
+  // expired process entry is absence (not a fresh hit), so this is a full miss.
+  seedProcessChild('regular', ['stale-reg'], Date.now() - 10 * 60 * 60 * 1000);
+  seedProcessChild('postseason', ['stale-post'], Date.now() - 10 * 60 * 60 * 1000);
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 503, 'expired process-only children are a miss, not a stale hit');
+  assert.match(String((await res.json()).error ?? ''), /admin refresh required/i);
+});
+
+test('week+all: an empty legacy postseason partition does not make a fresh regular view stale (finding 2)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token'; // non-admin: a stale view would be flagged rebuildRequired
+  // A pre-split aggregate holding ONLY regular rows (normal before postseason), with
+  // an OLD timestamp; a FRESH regular child supersedes it and postseason has no rows.
+  await seedLegacyAggregate(
+    [{ id: 'leg-reg', seasonType: 'regular' }],
+    Date.now() - 10 * 60 * 60 * 1000
+  );
+  await seedChild('regular', ['fresh-reg'], Date.now());
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.meta.cache, 'hit');
+  assert.notEqual(
+    json.meta.stale,
+    true,
+    'the empty legacy postseason must not drag the fresh regular view stale'
+  );
+  assert.notEqual(json.meta.rebuildRequired, true);
+  assert.deepEqual(
+    json.items.map((i: { id: string }) => i.id),
+    ['fresh-reg'],
+    'the fresh regular child is served; the empty legacy postseason contributes nothing'
+  );
+});
+
+test('week+all: an empty legacy regular partition does not make a fresh postseason view stale (finding 2 symmetric)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  await seedLegacyAggregate(
+    [{ id: 'leg-post', seasonType: 'postseason' }],
+    Date.now() - 10 * 60 * 60 * 1000
+  );
+  await seedChild('postseason', ['fresh-post'], Date.now());
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.notEqual(json.meta.stale, true);
+  assert.deepEqual(
+    json.items.map((i: { id: string }) => i.id),
+    ['fresh-post'],
+    'the fresh postseason child is served; the empty legacy regular contributes nothing'
+  );
+});
+
+test('week+all: a legacy aggregate with only regular rows composes to a regular-only view (finding 2)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  const legacyAt = Date.now() - 30 * 60 * 1000; // 30 min ago — still within TTL
+  await seedLegacyAggregate([{ id: 'leg-reg', seasonType: 'regular' }], legacyAt);
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.meta.cache, 'hit');
+  assert.deepEqual(
+    json.items.map((i: { id: string }) => i.id),
+    ['leg-reg']
+  );
+  // The empty postseason extraction adds NO resolution, so freshness is the legacy
+  // regular partition's own (fresh) timestamp — not a stale placeholder.
+  assert.equal(new Date(json.meta.generatedAt).getTime(), legacyAt);
+  assert.notEqual(json.meta.stale, true);
 });

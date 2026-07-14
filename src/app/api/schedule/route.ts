@@ -172,72 +172,111 @@ function legacyPartitionRows(items: ScheduleItem[], seasonType: SeasonType): Sch
 }
 
 /**
+ * Resolve ONE exact child partition, mirroring the single-key cache-read freshness
+ * contract so composition never diverges from it:
+ *   - a FRESH process-cache entry is a fast-path hit (NO durable read);
+ *   - an EXPIRED or absent process entry falls through to a durable read, whose
+ *     result (when present) replaces the local process mirror — so a newer durable
+ *     child (another instance, or a targeted regular/postseason repair) can never be
+ *     masked indefinitely by a stale local process entry;
+ *   - an expired process entry with NO durable row is NOT served as a hit (returns
+ *     `null` — treated as absent), matching the single-key miss/stale contract.
+ * The returned entry always carries the AUTHORITATIVE timestamp of the source that
+ * won (fresh process `at`, or the durable `at` after a reload) — never a stale
+ * process `at` behind durable rows.
+ */
+async function resolveChildCache(
+  childKey: string,
+  now: number
+): Promise<{ source: 'process-child' | 'durable-child'; entry: CacheEntry } | null> {
+  const processEntry = SCHEDULE_ROUTE_CACHE[childKey];
+  if (processEntry && isFreshScheduleCacheEntry(processEntry, now)) {
+    return { source: 'process-child', entry: processEntry };
+  }
+  // Process entry missing or expired → consult durable storage (never masked by the
+  // stale local mirror). A durable hit refreshes the process mirror.
+  const stored = await getAppState<CacheEntry>('schedule', childKey);
+  if (stored?.value) {
+    SCHEDULE_ROUTE_CACHE[childKey] = stored.value;
+    return { source: 'durable-child', entry: stored.value };
+  }
+  return null;
+}
+
+/**
  * Read a `week + all` schedule view by COMPOSING it from the exact regular/
  * postseason child caches at read time — the authoritative source after the
  * PLATFORM-086A week+all split — rather than reading a materialized aggregate
  * entry. Precedence per partition:
- *   1. exact child cache `${year}-${week}-${seasonType}` (process cache, then durable)
+ *   1. exact child cache `${year}-${week}-${seasonType}` (fresh process, then durable
+ *      reload — see `resolveChildCache`)
  *   2. matching rows from the legacy `${year}-${week}-all` aggregate (durable only,
- *      read-only compatibility fallback for partitions with no child cache)
- *   3. absent — the partition contributes no rows
- * Returns `null` only when EVERY partition is absent (no child, no legacy), i.e. a
- * genuine full cache miss. The composed entry's `at` is the OLDEST contributing
- * partition's timestamp, so a stale partition makes the whole view stale (the
- * conservative, truthful choice). The legacy aggregate is NEVER promoted into the
- * process cache (there is no authoritative aggregate process-cache slot post-split),
- * so a stale aggregate can never be served in place of a fresh child.
+ *      read-only compatibility fallback for partitions with no child cache) — but
+ *      ONLY when that extracted partition has matching rows
+ *   3. absent — the partition contributes NEITHER rows NOR a timestamp
+ * Returns `null` only when EVERY partition is absent, i.e. a genuine full cache miss.
+ * The composed entry's `at` is the OLDEST CONTRIBUTING partition's timestamp; a
+ * partition that contributes no rows (an inapplicable partition, or an empty legacy
+ * extraction) contributes no timestamp, so it can never drag an otherwise-fresh view
+ * stale. The legacy aggregate is NEVER promoted into the process cache (there is no
+ * authoritative aggregate process-cache slot post-split).
  */
 async function readComposedWeekAllEntry(params: {
   year: number;
   week: number;
-}): Promise<{ entry: CacheEntry; sources: Array<'child' | 'legacy'> } | null> {
-  const { year, week } = params;
+  now: number;
+}): Promise<{
+  entry: CacheEntry;
+  sources: Array<'process-child' | 'durable-child' | 'legacy'>;
+} | null> {
+  const { year, week, now } = params;
   const seasonTypes: SeasonType[] = ['regular', 'postseason'];
 
-  // Precedence 1: exact child caches (process cache first, then durable). A child
-  // key IS authoritative, so promote a durable hit into the process cache.
-  const childEntries = new Map<SeasonType, CacheEntry>();
+  // Precedence 1: exact child cache per partition (fresh process → durable reload).
+  const childResolutions = new Map<
+    SeasonType,
+    { source: 'process-child' | 'durable-child'; entry: CacheEntry }
+  >();
   for (const seasonType of seasonTypes) {
-    const childKey = `${year}-${week}-${seasonType}`;
-    let child = SCHEDULE_ROUTE_CACHE[childKey];
-    if (!child) {
-      const stored = await getAppState<CacheEntry>('schedule', childKey);
-      if (stored?.value) {
-        child = stored.value;
-        SCHEDULE_ROUTE_CACHE[childKey] = child;
-      }
-    }
-    if (child) childEntries.set(seasonType, child);
+    const resolved = await resolveChildCache(`${year}-${week}-${seasonType}`, now);
+    if (resolved) childResolutions.set(seasonType, resolved);
   }
 
   // Precedence 2: legacy aggregate, consulted (durable-only) ONLY when a child is
   // missing. Never written to the process cache and never mutated here.
   let legacy: CacheEntry | undefined;
-  if (seasonTypes.some((seasonType) => !childEntries.has(seasonType))) {
+  if (seasonTypes.some((seasonType) => !childResolutions.has(seasonType))) {
     legacy = (await getAppState<CacheEntry>('schedule', `${year}-${week}-all`))?.value ?? undefined;
   }
 
-  const resolutions: Array<{ source: 'child' | 'legacy'; entry: CacheEntry }> = [];
+  const resolutions: Array<{
+    source: 'process-child' | 'durable-child' | 'legacy';
+    entry: CacheEntry;
+  }> = [];
   for (const seasonType of seasonTypes) {
-    const child = childEntries.get(seasonType);
+    const child = childResolutions.get(seasonType);
     if (child) {
-      resolutions.push({ source: 'child', entry: child });
+      resolutions.push(child);
       continue;
     }
-    if (legacy) {
-      resolutions.push({
-        source: 'legacy',
-        entry: {
-          at: legacy.at,
-          items: legacyPartitionRows(legacy.items, seasonType),
-          partialFailure: legacy.partialFailure,
-          // Only carry the legacy aggregate's failure metadata for the partition
-          // it is actually covering here.
-          failedSeasonTypes: legacy.failedSeasonTypes.filter((s) => s === seasonType),
-        },
-      });
-    }
-    // else: partition absent — contributes no rows.
+    if (!legacy) continue;
+    const rows = legacyPartitionRows(legacy.items, seasonType);
+    // An empty extracted legacy partition is ABSENCE, not a cache contribution: it
+    // adds no rows AND no (old) timestamp, so a pre-split aggregate holding only the
+    // OTHER partition's rows — normal before postseason — can never make an
+    // otherwise-fresh composed view stale (composition-freshness review finding 2).
+    if (rows.length === 0) continue;
+    resolutions.push({
+      source: 'legacy',
+      entry: {
+        at: legacy.at,
+        items: rows,
+        partialFailure: legacy.partialFailure,
+        // Only carry the legacy aggregate's failure metadata for the partition it is
+        // actually covering here.
+        failedSeasonTypes: legacy.failedSeasonTypes.filter((s) => s === seasonType),
+      },
+    });
   }
 
   if (resolutions.length === 0) return null;
@@ -560,7 +599,7 @@ export async function GET(req: Request) {
 
   if (isWeekAll) {
     if (!bypassCache) {
-      const composed = await readComposedWeekAllEntry({ year, week });
+      const composed = await readComposedWeekAllEntry({ year, week, now });
       if (composed) {
         pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
         const { entry } = composed;
