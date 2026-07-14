@@ -22,28 +22,28 @@ A Next.js (App Router) college-football office-pool app. It is **API-first**: CF
 
 The one rule that anchors everything:
 
-```
+```text
 schedule → canonical games → scores / odds / ownership attach
 ```
 
 The CFBD **schedule is the source of truth for the game universe.** `buildScheduleFromApi` constructs canonical `AppGame` identities from it, resolving team identity through `src/lib/teamIdentity.ts`. Scores, odds, and ownership then **attach onto** those schedule-derived games — they never construct game identity independently. Diagnose in this same upstream-first order (see [diagnostics](../operations/diagnostics.md)):
 
-```
+```text
 API response → normalization layer → canonical game model → attachment layers → UI
 ```
 
 ## Source-of-truth hierarchy
 
-| Concern | Source of truth |
-|---------|-----------------|
-| Game universe / identity | CFBD schedule → canonical `AppGame` (`buildScheduleFromApi`) |
-| Team-name canonicalization | `src/lib/teamIdentity.ts` (sole boundary) |
-| Current-season ownership attribution | `src/lib/gameOwnership.ts` (overlay on canonical games) |
-| Standings (rows, history, color order, owner identity, lifecycle) | `getCanonicalStandings` (server) |
-| Live in-progress annotations | client `LiveDelta` overlay (never merged into canonical at render time) |
-| Scores / odds | CFBD / The Odds API, attached to canonical games; public reads are cache-only |
-| User identity + app role | Clerk (`platform_admin` / `commissioner` / `member`) |
-| Per-league page access | league password gate (`LEAGUE_AUTH_SECRET`) — separate from Clerk, grants no role |
+| Concern                                                           | Source of truth                                                                   |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Game universe / identity                                          | CFBD schedule → canonical `AppGame` (`buildScheduleFromApi`)                      |
+| Team-name canonicalization                                        | `src/lib/teamIdentity.ts` (sole boundary)                                         |
+| Current-season ownership attribution                              | `src/lib/gameOwnership.ts` (overlay on canonical games)                           |
+| Standings (rows, history, color order, owner identity, lifecycle) | `getCanonicalStandings` (server)                                                  |
+| Live in-progress annotations                                      | client `LiveDelta` overlay (never merged into canonical at render time)           |
+| Scores / odds                                                     | CFBD / The Odds API, attached to canonical games; public reads are cache-only     |
+| User identity + app role                                          | Clerk (`platform_admin` / `commissioner` / `member`)                              |
+| Per-league page access                                            | league password gate (`LEAGUE_AUTH_SECRET`) — separate from Clerk, grants no role |
 
 ## Deeper architecture docs
 

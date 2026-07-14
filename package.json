@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "test": "APP_STATE_TEST_ISOLATION=1 TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test --test-timeout=30000 'src/**/__tests__/*.test.ts' 'src/**/__tests__/*.test.tsx'",
-    "lint": "npm run lint:eslint && npm run lint:format",
+    "lint": "npm run lint:eslint && npm run lint:format && npm run lint:markdown",
     "lint:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**'",
-    "lint:all": "npm run lint:all:eslint && npm run lint:all:format",
+    "lint:all": "npm run lint:all:eslint && npm run lint:all:format && npm run lint:markdown",
     "lint:fix": "npm run lint:fix:eslint && npm run lint:fix:format",
     "lint:format": "prettier --check --cache --cache-strategy content src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
     "lint:quick": "npm run lint:eslint",
@@ -23,7 +23,9 @@
     "lint:fix:format": "prettier --write src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
     "lint:fix:all": "npm run lint:fix:all:eslint && npm run lint:fix:all:format",
     "lint:fix:all:eslint": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --fix",
-    "lint:fix:all:format": "prettier --write src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts"
+    "lint:fix:all:format": "prettier --write src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
+    "lint:markdown": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#.next\" \"#docs/archive/**\"",
+    "lint:markdown:fix": "markdownlint-cli2 --fix \"**/*.md\" \"#node_modules\" \"#.next\" \"#docs/archive/**\""
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.8",
@@ -61,6 +63,7 @@
     "eslint-plugin-unused-imports": "^4.4.1",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
+    "markdownlint-cli2": "^0.23.0",
     "postcss": "^8.5.6",
     "prettier": "^3.3.3",
     "tailwindcss": "^4.1.13",

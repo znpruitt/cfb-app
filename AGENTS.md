@@ -48,6 +48,7 @@ Typical runtime flow:
 8. Surface diagnostics and allow alias repair workflows.
 
 Notes:
+
 - API-first schedule loading is the only supported schedule path.
 
 ---
@@ -94,15 +95,15 @@ Selectors are pure functions: same inputs always produce the same outputs. No si
 
 Key selectors:
 
-| File | Purpose |
-|------|---------|
-| `insights.ts` | League insights (movement, surge, collapse, race, etc.) — shared by Overview and Standings |
-| `overview.ts` | Full Overview page view model (hero, podium, standings context, live items) |
-| `trends.ts` | Games Back trend, week-over-week position deltas, week labels |
-| `matchups.ts` | Head-to-head context per matchup |
-| `storylines.ts` | Contextual narratives |
-| `standingsMovement.ts` | Rank delta per owner |
-| `momentum.ts` | Recent form derivation |
+| File                   | Purpose                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `insights.ts`          | League insights (movement, surge, collapse, race, etc.) — shared by Overview and Standings |
+| `overview.ts`          | Full Overview page view model (hero, podium, standings context, live items)                |
+| `trends.ts`            | Games Back trend, week-over-week position deltas, week labels                              |
+| `matchups.ts`          | Head-to-head context per matchup                                                           |
+| `storylines.ts`        | Contextual narratives                                                                      |
+| `standingsMovement.ts` | Rank delta per owner                                                                       |
+| `momentum.ts`          | Recent form derivation                                                                     |
 
 UI components may perform lightweight presentation-layer logic (filtering, sorting already-derived arrays for display). They must not recompute league state inline.
 
@@ -296,7 +297,7 @@ These rules apply from the Standings Ownership Redesign campaign onward and must
 
 7. **currentDate is passed through, never captured inside derivations.** `currentDate` is captured at request-handler level and passed through to `deriveLifecycleState` and all downstream derivation functions. No implicit `new Date()` inside selectors or derivation helpers. `usingArchivedRoster` on `InsightContext` indicates `fresh_offseason` states using the prior archive's roster.
 
-8. **Cache valid absence, never cache uncertainty (PLATFORM-084A).** The canonical standings cache is tag-only (`revalidate: false`), so a snapshot persists until a mutation busts its tag — a snapshot built from a *failed* read would stick indefinitely. Every app-state read in the compute path must distinguish genuine **absence** (a legitimate, cacheable state — e.g. no owners CSV, empty cached schedule, missing archive/probe/preseason-owners record) from a store-read **failure** (must reject). `getAppState` embodies this: it returns `null` only when the row is absent and throws on a real store error. Do **not** wrap a critical input read in a swallow-catch that converts a failure into an empty/default result (`null`, `[]`, `{}`, empty roster, 0-0 rows, awaiting-kickoff) — `unstable_cache` never persists a rejected promise, so a propagated failure surfaces and the next request recomputes, whereas a swallowed one caches a lie. The only sanctioned catch on this path is the `incrementalCache missing` invariant (non-RSC runtime → direct compute). This extends the PLATFORM-082A archive/insights rule to the standings selector itself.
+8. **Cache valid absence, never cache uncertainty (PLATFORM-084A).** The canonical standings cache is tag-only (`revalidate: false`), so a snapshot persists until a mutation busts its tag — a snapshot built from a _failed_ read would stick indefinitely. Every app-state read in the compute path must distinguish genuine **absence** (a legitimate, cacheable state — e.g. no owners CSV, empty cached schedule, missing archive/probe/preseason-owners record) from a store-read **failure** (must reject). `getAppState` embodies this: it returns `null` only when the row is absent and throws on a real store error. Do **not** wrap a critical input read in a swallow-catch that converts a failure into an empty/default result (`null`, `[]`, `{}`, empty roster, 0-0 rows, awaiting-kickoff) — `unstable_cache` never persists a rejected promise, so a propagated failure surfaces and the next request recomputes, whereas a swallowed one caches a lie. The only sanctioned catch on this path is the `incrementalCache missing` invariant (non-RSC runtime → direct compute). This extends the PLATFORM-082A archive/insights rule to the standings selector itself.
 
 ---
 
@@ -340,7 +341,7 @@ These rules apply from the Season Launch Hardening campaign onward and must not 
 
 After completing any implementation and pushing to the feature branch, always run the following command before ending the session:
 
-```
+```bash
 git push origin HEAD:preview --force
 ```
 

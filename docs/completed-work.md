@@ -23,11 +23,13 @@ Supersedes: (none)
 **Inciting issue:** An audit of the stale `claude/audit-season-transition-pwKfH` branch (draft "pick timer precision" work, ~232 commits / 2 months behind `main`, 3-way merge conflicts). The branch's headline change stamped `timerExpiresAt` *after* the `setAppState` write and returned it unpersisted — leaving stored state with `timerState:'running'` but `timerExpiresAt:null`, which blanked the live countdown for every poller/refresher within ~1s of each pick. The audit recommended abandoning the branch and re-deriving the two salvageable ideas against current `main`. Key correction surfaced during the audit: **`main` never had the persist/response divergence** — it was a stale-branch-only regression — so the "integrity fix" collapsed to regression coverage.
 
 **Phases shipped:**
+
 - **DRAFT-001 — timer persistence regression suite (tests only).** Established the first draft-route test harness (the routes had zero coverage). Locks in the invariant that the pick and PUT routes persist exactly the timer state they return (`persisted timerExpiresAt == response timerExpiresAt`). Covers normal pick reset, GET/response equality (no drift), round-boundary, final-pick completion, and PUT `timerAction:'start'`. No production code change — `main` was already correct.
 - **DRAFT-002 — server-authoritative round-boundary pause.** Moved round-boundary auto-pause out of the client (`maybeAutoPauseForRound` second round-trip + `autoPauseRef`, both deleted from `DraftBoardClient`) and into the pick route: when an advanced index lands on a round boundary it returns `phase:'paused'`, `timerState:'paused'`, null expiry, so the commissioner must explicitly start the next round. The PUT auto-pick path now honors the same boundary rule, fixing a pre-existing inconsistency where auto-picks did not pause but manual picks did.
 - **DRAFT-003 — optimistic display-only countdown.** The pick clock now counts down the instant a team is clicked instead of stalling for the server round-trip. `DraftBoardClient` records a `localTimerStartRef` timestamp before the pick POST (only for mid-round picks that arm a fresh timer; boundary/final picks are skipped), cleared on response/error. `DraftHeaderArea` treats the optimistic window as a running clock. Countdown math extracted to a pure `computeTimerSecondsLeft` helper (`src/components/draft/draftTimer.ts`) that clamps to `pickTimerSeconds` (clock-skew guard) and floors at 0.
 
 **Architectural notes:**
+
 - Server remains the sole authority for draft phase, pick validity, completion, and timer expiry. The optimistic countdown is strictly display-only — it never enters the POST body or governs expiration (the server `timerExpiresAt` + expire-dispatcher are untouched).
 - Round-boundary authority unified in the API layer; no duplicate client/server pause logic remains.
 - Timer values are still computed *before* the store write in both routes, preserving the persisted==response invariant guarded by DRAFT-001.
@@ -46,6 +48,7 @@ Supersedes: (none)
 **Inciting issue:** Phase 1 (PR #312) shipped `selectAllRecords` as the records-data backbone but did not surface it in the History UI. The pre-Phase-2 Overview rendered as a single-stat hero with no drill-down structure or sense of league history beyond "current season's champion." Phase 2 took on the full Overview redesign, the records column wiring, the subtab routing scaffold, and the design-system documentation that the new layout primitives required.
 
 **Phases shipped:**
+
 - **Subtab routing infrastructure** — `HistorySubNav` + `RecordBadge` components; `resolveHistoryHref` deep-link router for insights with History routing targets; Stats / Rivalries / Archive subtabs scaffolded as Phase 3 placeholder routes.
 - **Overview redesign** — Five-section composition: Championships (with editorial tags "all-time wins leader" / "league's first champion" / "REIGNING" marker), 2-row dashboard (All-time standings + Recent podiums on row 2; Top rivalries + Title droughts/streaks + Records on row 3), Season-over-season movement (climbs + drops with "won title" annotations on championship destinations), Season archive. Multi-line block treatment applied across rivalry, drought, and mover rows.
 - **All-time standings extension** — Grew from 5 to 9 columns (Pts, Diff, Seasons, Avg added on top of Rank/Owner/Record/Win%/Titles) plus a "Recent Finish" trend chip column showing the last 5 seasons of finishes with gold/silver/bronze podium-tier outlines and default/bottom tiers for mid/back finishes. Table is `table-auto` with content-driven cell widths; container queries drop oldest-year trend cells first as the @container narrows.
@@ -54,12 +57,14 @@ Supersedes: (none)
 - **Layout iterations** — Multiple visual-review cycles resolved page-width and within-row spacing imbalances. Final state: page wraps in `mx-auto max-w-7xl` (1280px cap, restored after a brief uncapped exploration); row 2 grid is `1fr / 280px` (flex Standings + fixed Podiums); row 3 grid is `1fr / 1fr / 280px` (Rivalries + Droughts flex; Records fixed); standings table uses `table-auto` with `pl-5` numeric padding so columns read distinct.
 
 **Selector layer:**
+
 - New helpers in `src/lib/selectors/historyOverview.ts`: `selectChampionshipsWithContext`, `selectDroughtsWithContext`, `selectMoversWithContext`, `selectStreaksOrDroughts`, `selectStandingsWithRecentFinishes`, `selectMarqueeRecords`, `selectTitleStreaks`, `selectTitleDroughts`, `selectRecentPodiums`, `selectSeasonArchiveStrip`, `groupChampionsByOwner`, `computeChampionshipSummary`.
 - `selectAllTimeHeadToHead` extended with `latestMeeting: { year, winner } | null`; flows through `selectTopRivalries` to power the "last met YEAR (winner)" line-2 annotation.
 - `archiveChampion` filters NoClaim before deriving the champion — same architectural pattern as Phase 1's `5fdcd59` rank-derivation fix; without this, a NoClaim row at index 0 would shift the championship credit and break Season archive rendering.
 - `AllTimeStandingRow` gained `totalPoints` (with selector accumulation) on top of the existing `totalPointDifferential`. `StandingsRow` gained `pointsFor` (propagated through `selectFinalStandings`) so the live-standings branch of `selectAllTimeStandings` can accumulate it.
 
 **User-visible improvements:**
+
 - History Overview tells the whole-league arc — every multi-line row pulls a second line of context (career win%, last meeting, top-3 count + best finish, span + ranks + championship annotation) so rows read as paragraphs rather than drifting names.
 - Records column displays 4 marquee records (down from 5) with category eyebrow inlined into the title — 2-line block treatment matching peer columns; row 3 column heights now read as peers.
 - Season archive renders champion names correctly across all archived seasons (NoClaim-at-index-0 bug fixed).
@@ -67,6 +72,7 @@ Supersedes: (none)
 - `activeOwners` falls back to archive union when the current-season CSV is empty (pre-upload, post-reset, storage-miss states); sections gating on roster don't render empty against a populated archive.
 
 **Architectural improvements:**
+
 - Multi-line row pattern codified in DESIGN.md as a reusable layout primitive (line 1: primary identifier + right-anchored value, body size + weight 500; line 2: secondary metadata, 12px / weight 400 / dim color; 2px inter-line margin; no internal borders or padding).
 - Container queries (Tailwind v4 `@container` + `@max-[Xpx]:hidden`) used for column degradation in dense tables — pattern available for future tables under sidebar-narrow allocations.
 - Visual-reference convention now codified in AGENTS.md: mockups belong in `mockups/`, design specs in `docs/`, and reference files must exist at the path a prompt names before dispatch. Reference mockups committed at `mockups/history-redesign-pathC.html` and `mockups/standings-trend.html`.
@@ -85,17 +91,20 @@ Supersedes: (none)
 **Inciting issue:** Pre-launch discovery audit identified four interlinked blockers: (1) draft board RSC serialized full admin state into server HTML before client redirect — auth leakage; (2) draft polling hardcoded at 1.5s regardless of phase, generating ~690 MB/day unnecessary Neon egress; (3) standings page silently blank during preseason cold-cache because the selector had no "waiting for kickoff" code path; (4) insight generators producing nonsensical output (e.g. "Toilet bowl leader in 0 games") because they were unaware of the archived-roster context.
 
 **Phases shipped:**
+
 - **Phase 1 — Draft Auth + Polling** (`5968604`, `d24a2f3`): Added `canAccessDraftBoard(slug)` server-side helper; gated `/league/[slug]/draft` and `/draft/setup` RSCs; removed three inline `clerkRole === 'platform_admin'` checks from `DraftBoardClient`, `DraftSetupShell`, `DraftSummaryClient`; passed `isAdmin` as server-derived prop (satisfies Auth Invariant #6). Phase-aware polling: 1.5s (live+running), 5s (default), 30s (complete). Codex remediations: spectator `/draft/summary` access preserved; complete-phase slow-polls at 30s rather than stopping to handle re-open events.
 - **Phase 2 — Standings Preseason State** (`88af434`, `43516b0`): Extended `CanonicalStandingsSource` with `preseason-awaiting-kickoff`; added `inferredSeasonStart: string | null` to `CanonicalStandings`. `resolveSeason` and `resolvePreseason` empty paths call `getScheduleProbeState(year)` — no `Date.now()` inside `unstable_cache`-wrapped selector. `StandingsPanel` renders three distinct empty states. `CFBScheduleApp.isPreseason` broadened to include awaiting-kickoff source. Codex remediation: selector returns time-invariant fact (kickoff date); consumers evaluate `Date.now()` at render time.
 - **Phase 3 — Insights Lifecycle Awareness** (`385a071`, `6358c2c`): Engine-level `shouldSuppressGenerator(g, context)` cross-cutting filter (`career:rookie_benchmark` suppressed when `usingArchivedRoster`); gated by `bypassSuppression`. New `src/lib/insights/framing.ts`: `applyLastSeasonFraming` and `applyReturningOwnerFraming` helpers. 7 generator surfaces use "Last season's" prefix; 4 use "Returning owner" narrative; `rookieBenchmarkGenerator` returns early. Zero-game guards on `deriveLeagueInsights`, `deriveTightRaceInsight`, `deriveTightClusterInsight`. 22 new tests. Codex remediation: `bypassSuppression || !shouldSuppressGenerator(g, context)` — bypass honored in new filter.
 
 **User-visible improvements:**
+
 - Non-admin users no longer receive serialized draft admin state in server HTML before redirect
 - Draft polling scales with phase — ~690 MB/day unnecessary egress eliminated when drafts are not active
 - Standings page shows "Season starts [date]" preseason placeholder instead of silently blank
 - Insights panel no longer displays nonsense like "Toilet bowl leader in 0 games" during preseason
 
 **Architectural improvements:**
+
 - `canAccessDraftBoard`: single server-side auth entry point for all draft admin access; eliminates inline `publicMetadata.role` comparisons in client components
 - `shouldSuppressGenerator`: cross-cutting engine filter for (id, lifecycle, flag)-based suppressions; `bypassSuppression` gate respected so admin diagnostic runs see unfiltered output
 - Cache/time separation: time-dependent classification (`Date.now()`) removed from `unstable_cache`-wrapped selectors; consumers evaluate at render time — pattern established for all future cached selectors
@@ -115,6 +124,7 @@ Supersedes: (none)
 **Architectural shift:** From "two data sources merged at render time based on shape-readiness predicates" to "server canonical owns the settled snapshot, client owns the live overlay separately, consumers receive both as distinct props."
 
 **Phases shipped:**
+
 - **Phase 0** — Invalidation infrastructure. Wrapped `getCanonicalStandings` with `unstable_cache` + `React.cache`, added `invalidateStandings` helper, wired into all mutation routes (owners, aliases, postseason-overrides, draft confirm, schedule, scores, admin backfill, admin rollover). `RosterUploadPanel` calls `router.refresh()`.
 - **Phase 1** — Overview takeover collapse. Removed merge-at-render-time logic from `CFBScheduleApp`'s Overview path. Introduced `liveDelta` interface (`LiveGameDelta`, `LivePendingOwnerDelta`, `LiveDelta` types) + `selectLiveDelta` selector + `useLiveDelta` hook. Server canonical owns Overview rows/history/colorOrder; client owns `liveDelta` overlay separately.
 - **Phase 2** — Standings route + StandingsPanel migration. Server route loads canonical. `StandingsPanel` consumes canonical for rows, history, color order. First liveDelta UI integration: W-L pending badges next to live-game owners. NoClaim filtering pushed to source (`deriveStandings` now returns `{ rows, noClaimRow, ... }` with rows excluding NoClaim).
@@ -123,6 +133,7 @@ Supersedes: (none)
 - **Phase 5** — Lifecycle hardening. Parameterized `currentDate` in `deriveLifecycleState` (request handlers capture once, pass through). Added `usingArchivedRoster` flag to `InsightContext` for `fresh_offseason` fallback path. Documented `POSTSEASON_START_WEEK` constant (Option B; schedule-derived deferred).
 
 **User-visible improvements:**
+
 - NoClaim no longer appears at #1 during preseason on the Overview
 - All Overview surfaces (top-3, condensed table, GB chart) now agree
 - Live game W-L pending badges next to owner names in StandingsPanel during active games
@@ -130,6 +141,7 @@ Supersedes: (none)
 - Admin forms refresh standings immediately after mutations (no stale data displayed)
 
 **Architectural improvements:**
+
 - Single source of truth: `getCanonicalStandings` is the only path for standings data; no competing derivations in components or routes
 - Proper mutation invalidation: all mutation routes call `invalidateStandings(slug, year)` with tag-based Next.js cache invalidation
 - Testable lifecycle: `currentDate` parameterized at request-handler level; no implicit `new Date()` inside derivation functions
@@ -137,6 +149,7 @@ Supersedes: (none)
 - `liveDelta` as a stable separate seam: live game annotations are computed client-side and passed as distinct props, never merged into canonical rows
 
 **Key architectural decisions:**
+
 - `React.cache` wraps `unstable_cache`: per-request dedup outside, cross-request tag invalidation inside
 - Tag granularity: `standings:{slug}` (slug-level) and `standings:{slug}:{year}` (year-level)
 - Closure pattern required to bake `slug+year` into the `unstable_cache` key array
@@ -151,6 +164,7 @@ Supersedes: (none)
 **PROMPT_IDs:** INSIGHTS-017-PANEL-UI, INSIGHTS-017-POLISH-DISCOVERY, INSIGHTS-017-POLISH-DISCOVERY-FOLLOWUP, INSIGHTS-017-PANEL-POLISH, INSIGHTS-017-POLISH-FOLLOWUP-DISCOVERY, INSIGHTS-017-PANEL-POLISH-FOLLOWUP, STANDINGS-SUBHEADER-DIAGNOSTIC, STANDINGS-SUBHEADER-FIX
 
 **Key outcomes:**
+
 - INSIGHTS-017-PANEL-UI (commit `1348605`): initial panel redesign — 5 insights (up from 3), 10px uppercase category microlabels above each title, first-row prominence via larger type, fully tappable rows with `→` affordance at 13px muted, "See all →" link to dedicated insights page, mobile full-width presentation. `AllInsightsRow` extracted as a client component to access `useIsDarkMode()` for category colors. `DESIGN.md` updated with Insights Panel + Insight Category Colors sections codifying the token pairs and the semantic-off-limits rule (amber/green/red/blue reserved for interactivity/win-loss/errors).
 - INSIGHTS-017-PANEL-POLISH (commit `a82ef02`): polish pass — row 1 flattened to a uniform 14px treatment (prominence removed pending ranker maturity, to be restored when INSIGHTS-RANKER-TUNING lands); HISTORICAL and RIVALRY insights now carry deep-link arrows via a panel-layer `resolveHistoryHref()` resolver (Tier 1 routable today: `drought` → `#dynasty-drought`, `dynasty` → `#championships`, career/owner generators → `/history/owner/{owner}`, `greatest_season` → `/history/{year}`, rivalry types → `#rivalries`, `milestone_watch-wins` → owner page; Tier 2 returns `null` for `career_points_leader`, `career_turnover_margin`, and `milestone_watch-points` pending HISTORY-REWORK career surface); three section anchors added to the history page (`#championships`, `#rivalries`, `#dynasty-drought`); light-mode banner fix — all five CFBScheduleApp banner variants (offseason, draft scheduled, draft complete, draft scheduled no-status, plus pulse) converted from hardcoded dark-mode-only hex values to a paired `{light, dark}` palette object keyed off `isDark`.
 - INSIGHTS-017-PANEL-POLISH-FOLLOWUP (commit `113b27d`): SEASON season_wrap insights `champion_margin` and `failed_chase` rerouted from `/standings` to `/league/{slug}/history/{year}` via a new optional `panelYear` fourth argument on `insightHref`, threaded through all three render sites (`OverviewPanel.InsightRow`, `StandingsPanel`, `AllInsightsRow`); `leagueStatus` plumbed to the standings page alongside a new `mostRecentArchivedYear?: number` prop, resolved via `listSeasonArchives(slug)` sorted descending; new offseason subheader branch on `CFBScheduleApp` renders "{year} Final Standings" only when `leagueStatus.state === 'offseason'` AND `weekViewMode === 'standings'` AND a resolved archive year is available; insight-row arrow contrast bumped from `text-gray-400` (#9ca3af, ~2.85:1 against white, below WCAG 3:1) to `text-gray-500` (#6b7280, ~4.6:1) at all three render sites; dark-mode class unchanged.
@@ -158,6 +172,7 @@ Supersedes: (none)
 - **`/league/{slug}/insights` page stabilization** (two commits beyond the originally-scoped work, surfaced during PR review): ALL-INSIGHTS-SCHEME-FIX (commit `2acdcf5`) replaced the `'https'` fallback on `x-forwarded-proto` with `NODE_ENV === 'development' ? 'http' : 'https'` so the server-side fetch works in local dev and self-hosted environments. ALL-INSIGHTS-OFFSEASON-FALLBACK (commit `e208104`) added a context-builder fallback to the most recent archive's `ownerRosterSnapshot` when the current-year owners CSV is empty, so the engine keeps producing insights during the offseason rollover window before preseason roster upload. Together these shipped the `/insights` page originally scoped as a separate ALL-INSIGHTS-PAGE backlog item.
 
 **Key architectural decisions:**
+
 - Panel-layer resolver approach (Option 1) chosen over payload mutation — `panelYear` threaded as an optional arg rather than added to the `Insight` type. Generators and derive helpers remain untouched; the reroute lives entirely at the presentation layer. Future season-year-scoped reroutes can extend the same resolver without touching selectors.
 - `mostRecentArchivedYear` resolved from `listSeasonArchives()` rather than inferred from `league.year` — the league's active year can be bumped at preseason entry, so it's not a reliable signal for "most recently completed season" during the offseason window.
 - Three sentinel Tier 2 types (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points`) explicitly return `null` from the resolver — users see no arrow on those rows until the HISTORY-REWORK campaign ships a career stats surface. Preferred over broken arrows that land on pages that don't display the cited stat.
@@ -173,6 +188,7 @@ Supersedes: (none)
 **PROMPT_IDs:** INSIGHTS-015, INSIGHTS-015-BUG-FIXES
 
 **Key outcomes:**
+
 - INSIGHTS-015: 16 new generators across 3 new files:
   - `career.ts`: career_points_leader, career_turnover_margin, volatility, never_last, title_chaser, rookie_benchmark, greatest_season, trending_up, trending_down
   - `stats.ts`: ball_security, takeaway_king, yards_per_win, clock_crusher, third_down, team_identity
@@ -182,6 +198,7 @@ Supersedes: (none)
 - INSIGHTS-015-BUG-FIXES: UTF-8 encoding fixed (charset header added to API response), trending direction logic fixed (strict monotonicity check replaces lenient comparison)
 
 **Key architectural decisions:**
+
 - `tone` property on generators enables copy-layer filtering without changing engine logic
 - `InsightWindow` is reserved/typed but not yet consumed — added to types.ts to lock the interface before copy variation work begins
 - Strict monotonicity for trending generators (must be strictly increasing/decreasing across all seasons, not just net direction)
@@ -194,11 +211,13 @@ Supersedes: (none)
 **PROMPT_IDs:** INSIGHTS-014, INSIGHTS-014-CONTEXT-EXTENSION
 
 **Key outcomes:**
+
 - INSIGHTS-014: `pointsAgainst` added to `OwnerSeasonStats`; `OwnerCareerStats` type defined with: `seasons`, `totalWins`, `totalLosses`, `totalPoints`, `totalPointsAgainst`, `totalYards`, `turnovers`, `turnoverMargin`, `titles`, `titleYears`, `finishHistory`, `firstSeason`, `isRookie`
 - `buildOwnerCareerStats()` assembles career records from archive data across all seasons
 - Diagnostic route `GET /api/debug/insights-career-diagnostic` added (admin-gated) for live inspection of career stat assembly
 
 **Key architectural decisions:**
+
 - Career stats assembled at query time from per-season archive data — no pre-aggregated career totals stored
 - `isRookie` derived from `firstSeason === currentSeason` so generators can branch on rookie status without duplicating the check
 - `pointsAgainst` on `OwnerSeasonStats` unlocks Luck Score generator (points scored vs points allowed differential)
@@ -211,6 +230,7 @@ Supersedes: (none)
 **PROMPT_IDs:** INSIGHTS-016, INSIGHTS-016-COPY-VARIATION, INSIGHTS-016-COPY-FIX, INSIGHTS-016-CR-FIXES
 
 **Key outcomes:**
+
 - INSIGHTS-016: `newsHook` (11 types: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `streak_started`, `new_leader`, `returning_leader`, `never_won`, `new_record`, `challenger_emerging`, `snapshot`) and `statValue: number` added as required fields on `Insight` type
 - `src/lib/insights/suppression.ts` created — per-league, per-season suppression scope (`insights-suppression:{leagueSlug}:{season}`), per-type threshold table (`abs`, `pct`, `unchanged`, `snapshot`), NEVER_SUPPRESS set (`milestone_watch`, `perfect_against`, `rookie_benchmark`); exports: `loadSuppressionRecords`, `saveSuppressionRecord`, `clearAllSuppressionRecords`, `isSuppressed`, `toSuppressionRecord`
 - Engine upgraded to async — loads suppression records pre-filter, applies `isSuppressed()` gate, sorts and slices top 10, writes records post-cut; all suppression I/O non-blocking
@@ -222,6 +242,7 @@ Supersedes: (none)
 - INSIGHTS-016-CR-FIXES: suppression storage scoped by `leagueSlug` + `season` (was global); rollover suppression clear moved inside per-league success path; response reports `suppressionClearedFor: string[]`
 
 **Key architectural decisions:**
+
 - Hook computation is pure — derived from `InsightContext` data (archives, standings, career stats) only, never from prior suppression records
 - Suppression key = `insightId + hook`; owner change (different owner holds the lead) treats the insight as new, never suppressed
 - `statValue` is a single `number` per insight — the primary numeric measure used for threshold comparison
@@ -234,6 +255,7 @@ Supersedes: (none)
 **Status:** Design decisions complete; implementation queued.
 
 **Key decisions:**
+
 - 5 insights displayed (not 3)
 - First insight 15px, rest 14px — typographic hierarchy without cards
 - 10px uppercase category microlabel above each title
@@ -251,6 +273,7 @@ Supersedes: (none)
 **Status:** Complete. Planning artifacts recorded; implementation in progress.
 
 **Key outcomes:**
+
 - Data dependency audit: 17 of 18 insights ready with current pipeline (Luck Score requires points-against, now available via INSIGHTS-014)
 - Lifecycle fit table: all 18 insights mapped to optimal lifecycle states for display gating
 - Natural insight pairings identified: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader (emergent from trending + standings data)
@@ -265,6 +288,7 @@ Supersedes: (none)
 **PROMPT_IDs:** INSIGHTS-010, INSIGHTS-010-CLEANUP, INSIGHTS-011, INSIGHTS-012, INSIGHTS-013, INSIGHTS-013B, INSIGHTS-CR-001
 
 **Key outcomes:**
+
 - INSIGHTS-010: `deriveLifecycleState()` and `buildInsightContext()` — 7-state lifecycle derived from `LeagueStatus` + `SeasonContext` + calendar; full `InsightContext` assembled from standings history, games, game stats, season archives, historical rosters, current roster, and AP rankings.
 - INSIGHTS-010-CLEANUP: `aggregateOwnerSeasonStats()` canonicalized in `src/lib/gameStats/ownerStats.ts`; local mirror in `context.ts` removed.
 - INSIGHTS-011: Historical generator (drought, dynasty, most-improved, consistency) and Rivalry generator (lopsided, even, dominance streak) — both self-registering via `registerGenerator()`, active-owner filtering via current roster, per-generator try/catch isolation in the engine.
@@ -274,6 +298,7 @@ Supersedes: (none)
 - INSIGHTS-CR-001: Insights API now merges league-scoped aliases (`aliases:{slug}:{year}`) with `getGlobalAliases()` directly server-side, consistent with `/api/owners` routes (previously called `/api/aliases?year={year}` which returned only the legacy year-scoped map, empty after migration). Even rivalry copy branches on `winDiff` — `winDiff === 0` uses "tied at" phrasing, `winDiff === 1` uses "X leads Y N-M across K meetings — the closest rivalry in the league".
 
 **Key architectural decisions:**
+
 - Generators resolve active owners from `context.currentRoster` (roster CSV), never from archive standings — former owners are filtered from every derived insight.
 - Tie suppression thresholds live in `historical.ts` (`TIE_SUPPRESSION_THRESHOLD = 4`) and are uniform across drought / consistency / improvement.
 - `buildInsightContext()` centralizes owner aggregation so generators never reach into CFBD or CSV parsing directly.
@@ -287,6 +312,7 @@ Supersedes: (none)
 **PROMPT_IDs:** PLATFORM-001, INSIGHTS-012-LEAGUE-STATE-DIAGNOSTIC
 
 **Key outcomes:**
+
 - `SeasonRolloverPanel` added to `/admin/data/cache` — two-phase preview/execute flow. Preview shows, per league, the prospective champion, top 3 standings, archive existence, and any diff against an existing archive. Execute requires explicit `window.confirm` and a destructive red button.
 - `buildSeasonArchive()` extracted for reuse across preview/execute/cron paths; `findNationalChampionshipGameDate()` prefers `playoffRound === 'national_championship'` with a fallback to the latest postseason game date.
 - Automatic cron at `GET /api/cron/season-rollover` — runs daily, filters non-test leagues in `state: 'season'`, triggers when `championshipDate + 7 days` has passed, archives each league and transitions it to `state: 'offseason'` with per-league error isolation.
@@ -294,6 +320,7 @@ Supersedes: (none)
 - `vercel.json` now lists three cron jobs: season-transition (daily 00:00 UTC; internal date math gates when the transition actually fires), game-stats (Monday 11:00 UTC weekly refresh), season-rollover (daily 00:00 UTC post-championship check).
 
 **Key architectural decisions:**
+
 - Two-phase UI (preview → confirm) chosen over single-click to protect against accidental rollovers; existing archives get a diff summary rather than silent overwrite.
 - Cron delay of 7 days after the national championship is a safety buffer for late corrections and any admin review before final archive.
 - Preview response includes `champion` and `top3` so the UI does not re-compute standings in the client — the server stays authoritative.
@@ -306,6 +333,7 @@ Supersedes: (none)
 **PROMPT_IDs:** POLISH-003
 
 **Key outcomes:**
+
 - All-time standings sort order corrected: Total Wins → Win% → Point Differential (previously championships-first, which buried owners who had dominated without winning a title). `totalPointDifferential` added to `AllTimeStandingRow`, accumulated from archived season rows.
 - Former owner visual distinction in All-Time Standings and Top Rivalries: active owners are derived server-side from the current roster CSV (`owners:{slug}:{year}`), former owners render with muted text and a "Former" badge. `activeOwners: string[]` passed as props (not `Set<string>`) to preserve server/client component serialization.
 
@@ -316,6 +344,7 @@ Supersedes: (none)
 **Status:** Planning complete; implementation deferred to next campaign.
 
 **Key outcomes:**
+
 - 18 new insight ideas ranked and categorized in the Opus 1M brainstorming session.
 - Tier 1 (12 immediately buildable): Ball Security, Takeaway King, Clock Crusher, Team Identity, Third Down Specialist, Career Points Leader, Volatility Award, Never Finished Last, Title Chaser / Bridesmaid, Career Turnover Margin, Yards-Per-Win Efficiency, Trending Up/Down.
 - Tier 2 (special handling needed): Luck Score (requires points-against pipeline), Career Milestone Watch, Perfect Against, Rookie Benchmark, Greatest Single Season.
@@ -329,6 +358,7 @@ Supersedes: (none)
 **PROMPT_IDs:** INSIGHTS-006-ARCHITECTURE-REVIEW, INSIGHTS-007-EXISTING-AUDIT, INSIGHTS-008-DEAD-CODE-CLEANUP, INSIGHTS-009-GENERATOR-RESTRUCTURE, POLISH-001-QUALITY-BASELINE, POLISH-002-RUNBOOK-UPDATE
 
 **Key outcomes:**
+
 - POLISH-001: Lint/typecheck baseline fully restored — 86 files reformatted, 1 test fixed, zero ESLint and TypeScript errors
 - POLISH-002: `docs/deployment-runbook.md` rewritten to reflect Clerk-based auth model (removed all `ADMIN_API_TOKEN` references)
 - INSIGHTS-007: Full audit of all existing insight logic — mapped every import site, consumer, and dead-code path before touching anything
@@ -342,6 +372,7 @@ Supersedes: (none)
   - Naming conflict resolved: legacy `deriveLeagueInsights` (gameTags.ts, `{id, text, priority}` shape) renamed to `deriveGameMovementInsights`; canonical `deriveLeagueInsights` (selectors/insights.ts, rich shape) retains its name
 
 **Key architectural decisions:**
+
 - Architecture audit (INSIGHTS-006, INSIGHTS-007) confirmed: extend `selectors/insights.ts`, do not replace it — the existing derive functions are sophisticated and well-tested
 - `deriveLeagueInsights` in `selectors/overview.ts` was incorrectly flagged as orphaned in the audit; discovered it feeds `shouldShowFeaturedMatchups` rendering gate via `deriveLeagueHighlights`
 - Three dead view model properties identified as future cleanup candidates: `viewModel.keyMovements`, `viewModel.leaguePulse`, `viewModel.shouldShowLeaguePulse` — computed but never read by any UI component
@@ -354,6 +385,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P7B-GAME-STATS-PIPELINE-A, P7B-GAME-STATS-AUDIT, P7B-GAME-STATS-CACHE-PANEL, P7B-GAME-STATS-BACKFILL, P7B-GAME-STATS-NORMALIZE, INSIGHTS-002-LATEST-WEEK-FIX, INSIGHTS-003-DATA-DIAGNOSTIC, INSIGHTS-004-SCHOOL-NAME-FIX
 
 **Key outcomes:**
+
 - CFBD `/games/teams` endpoint integrated — one call per week, returns all team stats for all games in that week
 - Normalized fields: `totalYards`, `rushingYards`, `passingYards`, `turnovers`, `turnoverMargin`, `thirdDownPct`, `possessionSeconds`, plus 6 return stat fields (`interceptionReturnYards/TDs`, `kickReturnYards/TDs`, `puntReturnYards/TDs`)
 - Cache: `appStateStore` scope `game-stats`, key `${year}:${week}:${seasonType}`
@@ -366,6 +398,7 @@ Supersedes: (none)
 - 2021–2025 fully backfilled (5 seasons × ~19 weeks = 95 weeks cached)
 
 **Key architectural decisions:**
+
 - Stats accumulated at query time from per-game data — no pre-aggregated owner totals stored in the cache
 - `TeamIdentityResolver` (existing) used for team→owner resolution — no duplicate matching logic
 - API cost: ~19 additional CFBD calls per season — well within the 1,000/month free tier
@@ -378,6 +411,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P7B-6, P7B-6-FIX, P7B-6-FIX-2, P7B-6-FIX-3, P7B-6-FIX-3-HOTFIX, P7B-6-FIX-4, P7B-6-FIX-5, P7B-6-FIX-5B, P7B-6-FIX-5C, P7B-6-FIX-5D
 
 **Key outcomes:**
+
 - Rosters column removed from commissioner and spectator draft boards (2-col grid: board + available teams)
 - On-the-clock cell uses consistent solid blue (`bg-blue-600`)
 - Active/on-deck cell colors: active=solid blue, on-deck=light blue tint
@@ -390,6 +424,7 @@ Supersedes: (none)
 - `md` breakpoint (instead of `lg`) used for two-column layout
 
 **Key architectural decisions:**
+
 - Left bar with no background chosen over tinted background for pick cells — team color is the only signal, no competing background tint
 - Conference colors used as fallback when team sync has not been run
 - `md` breakpoint instead of `lg` for two-column layout to accommodate smaller screens
@@ -402,6 +437,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P7B-5, P7B-5-FIX, P7B-5-FIX-2, P7B-5-FIX-3, P7B-5-FIX-4, P7B-5-FIX-5, P7B-5-FIX-6
 
 **Key outcomes:**
+
 - Owner confirmation page at `/admin/[slug]/preseason/owners` with three-step pre-population fallback: saved preseason-owners list → archive ownerRosterSnapshot → live owner CSV (fixes test league)
 - `preseasonOwnerStore.ts` — `getPreseasonOwners` / `savePreseasonOwners` with key `preseason-owners:{slug}` / `{year}`
 - `OwnerConfirmationShell.tsx` client component — add/remove owners, duplicate guard, min-2 gate on Save
@@ -413,6 +449,7 @@ Supersedes: (none)
 - Clerk session bridge in `DraftBoardClient` — auth reads both `sessionStorage` token and Clerk `publicMetadata.role` with async-safe loading guards to prevent premature redirect
 
 **Key architectural decisions:**
+
 - Third fallback (live owner CSV at `owners:{slug}:{year-1}/csv`) solves test league structurally — test league has no `standings-archive:test` entries, so archive-based pre-population is permanently broken for it; live CSV is always available
 - `teamsHref` for manual assignment points to `/admin/${slug}/preseason` (not `/assign`) since manual flow is coming soon on that page; this prevents a 404
 
@@ -424,6 +461,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P7B-4, P7B-4-FIX, P7B-4-FIX-2, P7B-4-FIX-3, P7B-4-FIX-4, P7B-4-FIX-5
 
 **Key outcomes:**
+
 - Pre-season setup page at `/admin/[slug]/preseason` with three-item checklist: Owners confirmed / Teams assigned / Season live
 - Assignment method selection card (Run a Draft / Assign Manually) persisted to `league.assignmentMethod`
 - Go Live button gated by checklist completion — transitions league to season and syncs `league.year`
@@ -434,6 +472,7 @@ Supersedes: (none)
 - `teamsHref` on preseason page is method-aware: draft → draft setup, manual → `/assign` (P7B-6), null → self
 
 **Key architectural decisions:**
+
 - "League created" dropped from checklist — not meaningful for recurring season resets
 - Pre-season checklist is the single model for both initial setup and recurring season transitions
 - `goLive` action syncs both `status` and `league.year` atomically so downstream year derivation always resolves correctly
@@ -446,6 +485,7 @@ Supersedes: (none)
 **PROMPT_IDs:** PHASE-7F-FEATURED-GAMES, PHASE-7F-FIX-01 through PHASE-7F-FIX-06
 
 **Key outcomes:**
+
 - Renamed "Recent Results" → "Featured Games" with 2-column card grid layout
 - CFP round badges with neutral slate/gray styling — full labels ("CFP Quarterfinal", "CFP First Round")
 - Conference championship badges with conference name ("SEC Champ")
@@ -458,6 +498,7 @@ Supersedes: (none)
 - 6-game display cap
 
 **Key architectural decisions:**
+
 - `deriveFeaturedGameBadge(game)` — badge logic driven by `playoffRound` (more specific) over `postseasonRole`
 - `overviewRankingsByTeamId` memo in `CFBScheduleApp.tsx` — selects last regular-season CFP week for rankings instead of Final Poll
 - `selectFeaturedGames()` in overview selectors — postseason tier sorting via `postseasonRolePriority()`
@@ -470,6 +511,7 @@ Supersedes: (none)
 **Status:** Complete. Multiple PRs across branches.
 
 **Key outcomes:**
+
 - **7A Standings:** NoClaim exclusion, Win% format, DIFF colors, MOVE column hidden at season end, ranked colors, table-as-legend pattern, bidirectional hover/select, mode switcher removed, legend tables removed, chart improvements (Y-axis domain, convergence scaling, Final label, right edge padding, tabbed charts)
 - **7B FBS Polls:** Built Rankings tab, postseason Final Poll week, debug pill removed, three-column layout with movement indicators
 - **7C Nav redesign:** Underline tabs throughout, sub-nav band removed, inline content tabs, renamed to League Table / FBS Polls / Matchups
@@ -477,6 +519,7 @@ Supersedes: (none)
 - **7E Speed Insights:** Added Vercel Speed Insights to layout.tsx
 
 **Design codification:**
+
 - Created `DESIGN.md` at project root capturing all design principles established during Phase 7
 - Added `DESIGN.md` reference to `CLAUDE.md` canonical doc pointers and architectural section
 
@@ -488,6 +531,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6E-ROSTER-EDITOR-v1, P6E-ROSTER-EDITOR-REVIEW-v1, P6E-ROSTER-EDITOR-FIX-v1, P6E-CLOSEOUT-v1
 
 **Key decisions and architectural notes:**
+
 - **`RosterEditorPanel` is a direct CRUD interface** — distinct from the draft tool (live event) and upload flow (bulk CSV with fuzzy matching). Handles post-draft fixes, leagues without a formal draft, mid-season transfers, and testing.
 - **`savedOwners` / `draftOwners` Map split** enables per-row dirty tracking. `mapsEqual()` gates save/discard buttons. Dirty rows highlighted amber.
 - **Save writes full CSV via `PUT /api/owners`** — same endpoint as the upload flow. `buildCsv()` filters teams with empty owner values; only assigned teams written to storage.
@@ -506,6 +550,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6-ADMIN-POLISH-v1, P6-ADMIN-POLISH-REVIEW-v1, P6-ADMIN-POLISH-FIX-v1, P6-ADMIN-POLISH-FIX-REVIEW-v1, P6-ADMIN-POLISH-CLOSEOUT-v1, P6-GEAR-ICON-FIX-v1, P6-ADMIN-FONT-FIX-v1, P6-ADMIN-SLUG-INDEX-v1, P6-LEAGUE-DATA-PAGE-v1, P6-LEAGUE-DATA-PAGE-FIX-v1, P6-ADMIN-COMMISSIONER-POLISH-v1, P6-ADMIN-COMMISSIONER-POLISH-REVIEW-v1, P6-ADMIN-COMMISSIONER-POLISH-FIX-v1, P6-ADMIN-NAV-FIX-v1, P6-FINAL-CLOSEOUT-v1
 
 **Key decisions and architectural notes:**
+
 - **Consistent back-nav pattern** — blue `← Label` top-left on all admin pages; label names the immediate parent (e.g. `← Admin`, `← {displayName}`).
 - **Plain English copy** — developer terminology replaced throughout all diagnostic and action panels.
 - **Gear icon in league view header** — right-justified, only visible to `platform_admin`, links to `/admin/[slug]`, tooltip "League settings". Rendered via `isAdmin` prop; no Clerk hooks in client component body.
@@ -531,6 +576,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6D-ADMIN-RESTRUCTURE-v1, P6D-ADMIN-RESTRUCTURE-REVIEW-v1, P6D-ADMIN-RESTRUCTURE-FIX-v1, P6D-ADMIN-RESTRUCTURE-FIX-REVIEW-v1, P6D-CLOSEOUT-v1
 
 **Key decisions and architectural notes:**
+
 - **`/admin` landing restructured into two sections**: Platform Admin (global tools) and Commissioner Tools (per-league). Four platform admin cards; one block per league in registry for commissioner tools.
 - **Commissioner tool buckets derived from league registry at runtime** — no hardcoded slugs anywhere.
 - **League-scoped routes**: `/admin/[slug]/roster`, `/admin/[slug]/win-totals`, `/admin/[slug]/data` — each validates slug and calls `notFound()` on miss.
@@ -549,6 +595,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6A-CLERK-REQUIREMENTS-AUDIT-v1, P6A-CLERK-ROUTE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v2, P6A-CLERK-MIDDLEWARE-FIX-v3, P6A-CLERK-MIDDLEWARE-FIX-v4, P6A-CLERK-MIDDLEWARE-DEBUG-v1, P6B-ROSTER-UPLOAD-FIX-v1, P6B-ROSTER-UPLOAD-FIX-v2, P6B-ROSTER-UPLOAD-FIX-REVIEW-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-OWNER-COUNT-FIX-v1, P6C-OWNER-COUNT-FIX-v2, P6C-OWNER-COUNT-FIX-v3, P6C-OWNER-COUNT-DEBUG-v1, P6C-OWNER-COUNT-DEBUG-v2, P6C-OWNER-SCOPE-AUDIT-v1, P6C-DEBUG-CLEANUP-v1, P6-CLERK-FIXES-CLOSEOUT-v1
 
 **Key fixes and decisions:**
+
 - **Clerk session token requires explicit publicMetadata claim** — add via Configure → Sessions → Customize session token: `{ "publicMetadata": "{{user.public_metadata}}" }`. Must be done for both Dev and Prod instances. See `docs/archive/designs/phase-6-admin-auth-design.md` section 9.
 - **JWT templates are for third-party integrations only** — they do NOT affect middleware auth. Using a JWT template to expose `public_metadata` does not fix the session token. Delete any templates created for this purpose.
 - **`currentUser()` cannot be called in middleware** — use `auth()` and `sessionClaims.publicMetadata.role` only.
@@ -567,6 +614,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1, P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1, P6C-OWNER-COUNT-FIX-v1
 
 **Key architectural decisions across Phase 6:**
+
 - **Clerk as auth provider** — three roles defined from day one in `publicMetadata`: `platform_admin`, `commissioner`, `member`. Only `platform_admin` enforced in Phase 6. Scales to Phase 7 without rework.
 - **`clerkMiddleware()` in `middleware.ts`** — never `authMiddleware()` (deprecated). `/admin/*` protected at middleware level: unauthenticated → `/login`; authenticated without `platform_admin` → `/`.
 - **`<Show when="signed-in/out">` throughout** — deprecated `<SignedIn>` / `<SignedOut>` never used.
@@ -589,6 +637,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1, P6C-OWNER-COUNT-FIX-v1
 
 **Goals completed:**
+
 - **Public landing page** — app name (`text-4xl`), tagline, URL example in `<code>` block with border/bg styling, discrete "Commissioner login" link fixed bottom right.
 - **Admin dashboard league cards** — `league.displayName` (large), slug/year/owner count metadata, "View League →" (blue) and "Draft Setup →" (muted) split links per card.
 - **Owner count** — fetched server-side from `getAppState('owners:${slug}:${year}', 'csv')` per league; CSV rows counted minus header. Returns `0` when CSV empty/missing; returns `null` (graceful skip) when fetch throws.
@@ -606,6 +655,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1
 
 **Goals completed:**
+
 - **`/admin` is now navigation-only** — no tools on the landing page; five section cards link to sub-pages.
 - **`/admin/draft`** — `DraftSequencingPanel` (server component) shows rollover guard and active roster guard per league with green/red/amber status indicators; `SpRatingsCachePanel` and `WinTotalsUploadPanel` also present.
 - **`/admin/data`** — `HistoricalCachePanel` (new, fills pre-existing API-only gap for `cache-historical-schedule` and `cache-historical-scores`); `CFBScheduleApp surface="admin"` retained for schedule rebuild, scores/odds refresh, alias editor, and owner CSV upload.
@@ -617,6 +667,7 @@ Supersedes: (none)
 - **`requireAdminAuthHeaders()` fixed** — now returns `{}` instead of throwing when no sessionStorage token; Clerk session cookie handles auth automatically for browser requests.
 
 **Key architectural decisions:**
+
 - Admin sub-pages are server components where possible (DraftSequencingPanel, ArchiveListPanel, DiagnosticsPage) — no client fetch needed when data is available at render time.
 - `BackfillPanel` and `DiagnosticsScorePanel` are client components using `getAdminAuthHeaders()` for fetch calls.
 - `DiagnosticsScorePanel` is a thin `'use client'` wrapper around `ScoreAttachmentDebugPanel` — `onStageAlias` stub directs users to `/admin/data` for alias operations (alias staging requires full CFBScheduleApp state machine).
@@ -631,6 +682,7 @@ Supersedes: (none)
 **PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1
 
 **Goals completed:**
+
 - **`@clerk/nextjs` v7.0.8** installed with `--legacy-peer-deps` (React 19.1.0 peer conflict); `.npmrc` added to project root with `legacy-peer-deps=true` for Vercel compatibility.
 - **`src/middleware.ts`**: `clerkMiddleware()` from `@clerk/nextjs/server` — never `authMiddleware()` (deprecated). `/admin/*` protected: unauthenticated → redirect `/login`; authenticated without `platform_admin` → redirect `/`. All other routes pass through.
 - **`src/app/layout.tsx`**: `<ClerkProvider>` wraps body content.
@@ -639,6 +691,7 @@ Supersedes: (none)
 - **`src/lib/server/adminAuth.ts`**: `requireAdminAuth(req)` — checks Clerk JWT first (`sessionClaims.publicMetadata.role === 'platform_admin'`), falls back to `ADMIN_API_TOKEN` with Phase 7 removal comment. `requireAdminRequest` exported as `@deprecated` alias. All 25 existing API route call sites updated to `await requireAdminRequest(req)`.
 
 **Key architectural decisions:**
+
 - Three roles defined in Clerk `publicMetadata` from day one: `platform_admin`, `commissioner`, `member` — only `platform_admin` enforced in Phase 6.
 - `<Show when="signed-in/out">` used throughout — deprecated `<SignedIn>`/`<SignedOut>` never used.
 - `requireAdminAuth` checks Clerk JWT first; ADMIN_API_TOKEN fallback is temporary — remove in Phase 7.
@@ -652,6 +705,7 @@ Supersedes: (none)
 **Status:** All subphases complete. PR #214 open. Branch `claude/improve-thread-speed-v1YFg`.
 
 Key architectural decisions across Phase 5:
+
 - **Draft state** persisted in `appStateStore`: scope `draft:${leagueSlug}`, key `${year}`
 - **Snake draft order** computed on-demand from `draftOrder` — never stored per-pick
 - **Timer is server-authoritative** — `timerExpiresAt` stored as ISO timestamp in `DraftState`; clients derive remaining time from it
@@ -722,7 +776,8 @@ Key architectural decisions across Phase 5:
 
 ---
 
-### P5B — Draft Setup and Settings
+### P5C — Live Draft Board — Initial Implementation Details
+
 - **Goals completed:**
   - **Redirect TODO resolved** (P5C-LIVE-DRAFT-BOARD-v1, Task 0): All four redirect targets in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` updated from `/draft/setup` to `/draft` now that the live board route exists.
   - **`POST /api/draft/[slug]/[year]/pick`** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): Admin-gated. Validates `phase === 'live'`. Resolves team name via `createTeamIdentityResolver` with SEED_ALIASES + stored alias map (F8 fix). Validates team not already picked. Derives pick owner from snake draft formula. Creates `DraftPick` with `autoSelected: false`. Advances `currentPickIndex`. Starts next pick timer if configured. Transitions to `phase: 'complete'` when all picks exhausted.
@@ -908,18 +963,21 @@ Key architectural decisions across Phase 5:
 ### Navigation, CTA Consistency & History Chrome (standalone)
 
 **Navigation & Selector Integrity**
+
 - Fixed matchup deep links in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/matchups`) instead of unsupported `?view=matchups` query params
 - Fixed trends CTAs in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/standings?view=trends#trends`) instead of hardcoded root-scoped paths
 - Retired `leagueHighlights` from `selectOverviewViewModel` — was producing an empty array with no consuming UI
 - Removed TEMP-DIAG console logs from OverviewPanel.tsx
 
 **CTA Consistency**
+
 - Removed redundant "See full trends" CTA from Standings page — user is already viewing full trends content
 - Replaced Trends section CTA with linked section header on Overview page
 - Standardized all Overview page CTAs to plain text ↗ pattern matching "All results ↗"
 - Removed `onViewStandings` prop from OverviewPanel after its consuming button was replaced with a Link
 
 **History Page Chrome**
+
 - Created `LeaguePageShell.tsx` — shared server-compatible league chrome component for standalone route pages
 - Replaced standalone History page chrome (back link, h1, subtitle) with consistent league header and nav bar
 - Added History as a separated muted tab in the main league nav with a vertical divider before it
@@ -929,6 +987,7 @@ Key architectural decisions across Phase 5:
 - `LeaguePageShell` noted as a known duplication point with CFBScheduleApp header — to be reconciled in Phase 7
 
 **Follow-up Fixes**
+
 - Created `/league/[slug]/members/page.tsx` — Members was a client-side-only view mode with no dedicated route, causing LeaguePageShell Members tab to land on Overview instead. New route mirrors the Matchups/Standings pattern and renders CFBScheduleApp with `initialWeekViewMode="owner"`. All five nav tabs now have proper dedicated routes.
 - Fixed Members tab href in `LeaguePageShell.tsx` to `/league/[slug]/members`
 
@@ -937,12 +996,14 @@ Key architectural decisions across Phase 5:
 ### Overview Page Polish (standalone)
 
 **De-containerization**
+
 - Removed outer card wrappers from Standings, Insights, Featured games, and GB Race sections
 - Individual game cards retain borders — they are discrete objects
 - Horizontal dividers replace card borders as section separators
 - Season podium retains card treatment — amber border is doing meaningful visual work
 
 **Podium redesign**
+
 - Replaced mixed layout (wide #1 card + two half-width cards below) with three equal horizontal cards
 - #1 card gets amber border and amber rank label — amber reserved exclusively for champion signals
 - #2 and #3 get neutral borders and plain muted rank labels
@@ -951,6 +1012,7 @@ Key architectural decisions across Phase 5:
 - Removed CHAMPION badge from Overview standings rows — podium handles champion signal
 
 **Standings section restructure**
+
 - Converted to trifold layout: Standings (25%) · AP Poll (25%) · Insights (50%)
 - Removed column headers from Overview standings table — self-evident at this density
 - Reordered standings row hierarchy: rank · name · record · GB on primary line, Win% · Diff on secondary line
@@ -959,11 +1021,13 @@ Key architectural decisions across Phase 5:
 - Removed CHAMPION badge from standings rows — redundant with podium above
 
 **Champion narrative copy fix**
+
 - Fixed champion margin narrative to use games back as primary descriptor
 - Win% is a tiebreaker — no longer used as the margin of victory descriptor
 - Correct: "Won the title by 7 games over Maleski"
 
 **Owner color system**
+
 - Created src/lib/ownerColors.ts as shared owner color utility
 - getOwnerColor(ownerName) is now the sole source of owner color across the entire app
 - Replaced position-based alphabetical color assignment with hardcoded name-to-color lookup
@@ -971,6 +1035,7 @@ Key architectural decisions across Phase 5:
 - Owner names are color-coded only when the table serves as a legend for an adjacent chart
 
 **GB Race section**
+
 - Renamed from "Trends" to "GB Race"
 - Removed inline chart line labels — companion table serves as legend
 - Reverted to top 5 lines on Overview — 14 lines too cluttered at this surface
@@ -978,6 +1043,7 @@ Key architectural decisions across Phase 5:
 - Owner names color-coded in companion table to match chart lines
 
 **AP Poll column**
+
 - Added AP Poll snapshot as middle column of trifold
 - Shows top 10 teams with week-over-week movement indicators
 - Switches to CFP Rankings during postseason, back to AP at season end
@@ -986,6 +1052,7 @@ Key architectural decisions across Phase 5:
 - Fixed week label alignment — converted to CSS grid so headers stay pinned to delta columns at all viewport widths
 
 **DESIGN.md updates**
+
 - Containerization rules
 - Owner color encoding rules
 - Podium design rules
@@ -999,6 +1066,7 @@ Key architectural decisions across Phase 5:
 ### Light Mode & Owner Color System (standalone)
 
 **Light/dark mode foundation**
+
 - Removed hardcoded className="dark" from layout.tsx
 - Switched Tailwind darkMode from class-based to media strategy (prefers-color-scheme)
 - Updated globals.css to use @media (prefers-color-scheme: dark) for CSS variables
@@ -1007,6 +1075,7 @@ Key architectural decisions across Phase 5:
 - Dark mode appearance unchanged throughout
 
 **Owner color architecture**
+
 - Deleted dead file src/app/trends/presentationColors.ts
 - Rewrote ownerColors.ts with dynamic index-based palette (20 colors) supporting variable owner counts
 - Centralized color map construction in CFBScheduleApp.tsx using canonical standings owner list
@@ -1016,6 +1085,7 @@ Key architectural decisions across Phase 5:
 - Removed all local buildOwnerColorMap() calls from consuming components
 
 **Owner color palette**
+
 - PALETTE_DARK: 20-color Tableau-derived palette optimized for dark backgrounds, vivid and distinct
 - PALETTE_LIGHT: 20-color independently designed palette of rich saturated mid-lightness colors optimized for white backgrounds
 - Both palettes designed for maximum perceptual separation across 20 slots
@@ -1024,6 +1094,7 @@ Key architectural decisions across Phase 5:
 - Fallback: hash-based assignment for owners not in the sorted list
 
 **Known limitations / future work**
+
 - Dimmed chart lines in light mode (non-selected owners) are faint on white — opacity values tuned for dark mode
 - Some color adjacency remains between a few owners at 14+ lines — inherent to the problem, mitigated by interactive hover/highlight
 - User preference override (light/dark toggle) deferred until user accounts are built
@@ -1034,16 +1105,19 @@ Key architectural decisions across Phase 5:
 ### P7A-1 — Founded Year (Phase 7A)
 
 **Data model**
+
 - Added foundedYear?: number to the League type in src/lib/league.ts
 - Auto-populated on league creation from current year — no commissioner input required
 - PATCH /api/admin/leagues/[slug] now accepts and validates foundedYear (must be >= 1900, <= current year)
 
 **Settings UI**
+
 - Added Founded Year field to LeagueSettingsForm — editable number input
 - Field pre-populates from saved value or current year if not yet set
 - Helper text removed — field is self-explanatory
 
 **History page**
+
 - LeaguePageShell renders "Est. {foundedYear}" as subtitle when activeTab is history
 - Subtitle only renders when foundedYear is explicitly set — no misleading fallback
 - Added force-dynamic to history/page.tsx to prevent Next.js caching stale league data
@@ -1051,6 +1125,7 @@ Key architectural decisions across Phase 5:
 - TSC League foundedYear set to 2021 in production
 
 **Debugging notes**
+
 - Root cause of rendering failure: one of two render paths in history/page.tsx was missing the prop due to a partial find-and-replace during implementation
 - Confirmed via Vercel function logs showing foundedYear: undefined in LeaguePageShell
 - Diagnostic API route and console.logs removed before merge
@@ -1062,6 +1137,7 @@ Key architectural decisions across Phase 5:
 **PROMPT_IDs:** P7A-1-FOUNDED-YEAR-v1, P7A-1-FOUNDED-YEAR-FIX-v1 through v3, P7A-1-FOUNDED-YEAR-CLEANUP-v1 through v3, P7A-2-LEAGUE-HUB-STATUS-v1, P7A-3-ADMIN-POLISH-v1, P7A-3-FIX, P7A-4, P7A-4-FIX, P7A-4-FIX-2
 
 **foundedYear field (P7A-1)**
+
 - Added optional `foundedYear?: number` to League type
 - Auto-populated on league creation from current year
 - Editable in league settings via PATCH API (validated 1900–current year)
@@ -1069,17 +1145,20 @@ Key architectural decisions across Phase 5:
 - Bug fix: second LeaguePageShell render path was missing the prop due to partial find-and-replace
 
 **League hub improvements (P7A-2)**
+
 - LeagueStatusPanel surfaced on league hub (`/admin/{slug}`) above tool cards
 - Setup progress checklist: league created, owners configured, draft confirmed, season live — incomplete steps link to relevant tools
 - Settings card restored to Platform Admin hub commissioner tools
 - Post-creation redirect sends commissioner to league hub instead of staying on leagues list
 
 **Admin light mode (P7A-3)**
+
 - All 10 admin shared components converted from hardcoded dark-only classes to theme-aware light/dark variants
 - All 8 admin page files similarly fixed
 - Pattern: bg-white/dark:bg-zinc-900 backgrounds, border-gray-200/dark:border-zinc-700 borders, text-gray-900/dark:text-zinc-100 text
 
 **Aliases promoted to platform scope (P7A-4)**
+
 - New `/admin/aliases` page loads and saves from `aliases:global` scope
 - Aliases card added to Platform Admin hub
 - Alias section removed from league Data page (replaced with redirect notice)
@@ -1087,10 +1166,12 @@ Key architectural decisions across Phase 5:
 - Existing `migrateYearScopedAliasesToGlobal()` handles legacy data migration automatically
 
 **Status panel fixes (P7A-4-FIX, P7A-4-FIX-2)**
+
 - Roster status simplified to "Roster set" (green) / "Not configured" (red) — no count, no timestamp
 - "Not configured" indicator changed from amber to red (amber reserved for champion signals)
 
 **Key decisions**
+
 - `aliases:global` chosen over `aliases:{year}` — team names are stable across seasons, year-scoping added unnecessary complexity
 - League Data page retained as redirect stub rather than deleted — preserves existing bookmarks and links
 
@@ -1101,6 +1182,7 @@ Key architectural decisions across Phase 5:
 **PROMPT_IDs:** P7B-7, P7B-7-FIX through FIX-35, P7B-7-FIX-25-AUDIT, P7B-7-FIX-25-AUDIT-2, P7B-7-AUDIT-ROUND-COUNT
 
 **Carousel redesign (FIX-3, FIX-17, FIX-18, FIX-19, FIX-28)**
+
 - Five-card landscape strip with CSS grid crossfade on center card only
 - Flex-ratio card sizing (far 0.65, near 0.85, center 2) replacing fixed-dimension absolute positioning
 - Round boundary sidebars with vertical "Rd X" labels
@@ -1108,6 +1190,7 @@ Key architectural decisions across Phase 5:
 - Mobile: three-card layout with reduced padding and fonts (FIX-28)
 
 **Draft board table polish (FIX-8 through FIX-14, FIX-26, FIX-30, FIX-31)**
+
 - Horizontal table: owners as columns, rounds as rows (FIX-12 reverted earlier transposition)
 - Snake draft column ordering: even rounds L→R, odd rounds R→L
 - Sticky Rd column, team color left-bar, abbreviated team names
@@ -1117,22 +1200,26 @@ Key architectural decisions across Phase 5:
 - 12px font on desktop, 11px on mobile (FIX-30)
 
 **Page layout (FIX-20 through FIX-26, FIX-29)**
+
 - Centered at 1400px max-width with inner wrapper div
 - Responsive padding: 8px mobile, 24px desktop (Tailwind `px-2 md:px-6`)
 - Duplicate settings gear icon removed (FIX-20)
 - Full-width table and container (FIX-26)
 
 **Timer and state fixes (FIX-15, FIX-16, FIX-27)**
+
 - Random auto-pick selection from available teams (FIX-15)
 - Timer expiry always pauses and prompts commissioner (FIX-16)
 - `timerExpiryBehavior` setting honored: `pause-and-prompt` vs `auto-pick` (FIX-27)
 - Setup auto-advance error recovery: prevents permanent loading state (FIX-27)
 
 **Round control (FIX-32, FIX-33)**
+
 - Team selection during round-boundary pause implicitly starts next round (FIX-32)
 - Total rounds hard-capped at `Math.floor(fbsTeamCount / ownerCount)` — enforced in UI input, on save, and in API POST/PUT handlers (FIX-33)
 
 **Draft summary page (FIX-34, FIX-35)**
+
 - Summary page at `/league/[slug]/draft/summary` made publicly accessible (no auth required)
 - Admin features (edit picks, confirm, reopen) remain gated behind `isAdmin`
 - Owner roster cards sorted alphabetically with Pick #, Team, Conference columns
@@ -1141,6 +1228,7 @@ Key architectural decisions across Phase 5:
 - Draft-complete banner on league overview page, auto-hides once Week 1 starts (date derived from schedule game data)
 
 **Key decisions**
+
 - Existing URL pattern `/league/[slug]/draft/summary` preserved (no `[year]` segment) — year derived from league status, consistent with all other draft routes
 - DraftHeaderArea shared by both commissioner and spectator views — one component, one `summaryHref` prop covers both
 - Week 1 date derived from `games.filter(g => g.week === 1)` minimum date — no hardcoded dates
@@ -1153,6 +1241,7 @@ Key architectural decisions across Phase 5:
 **PROMPT_IDs:** P7B-AUDIT-HISTORY-AND-SEASON-TRANSITION, P7B-AUDIT-SCHEDULE-YEAR, P7B-SEASON-TRANSITION-A, P7B-SEASON-TRANSITION-B, P7B-SEASON-TRANSITION-B-FIX, P7B-SEASON-TRANSITION-C
 
 **Goals completed:**
+
 - Automatic season transition from preseason to season state
 - Decoupled "Go Live" button from immediate state transition
 - Fixed schedule year derivation for preseason state
@@ -1161,11 +1250,13 @@ Key architectural decisions across Phase 5:
 **Key outcomes:**
 
 **Schedule year derivation fix (P7B-SEASON-TRANSITION-A)**
+
 - `seasonYearForToday()` threshold moved from August (`>= 7`) to July (`>= 6`) in all three copies (normalizers.ts, schedule/route.ts, HistoricalCachePanel.tsx)
 - `GlobalRefreshPanel` accepts `defaultYear` prop — admin Data Cache page passes preseason year when any league is in preseason
 - `CFBScheduleApp` overrides `selectedSeason` to `leagueStatus.year` when league is in preseason — all schedule fetches target the correct upcoming season
 
 **"Complete Setup" rename and decoupling (P7B-SEASON-TRANSITION-B)**
+
 - `goLive()` renamed to `completeSetup()` — no longer transitions to `state: 'season'`
 - Sets `setupComplete: true` on the preseason `LeagueStatus` variant
 - `LeagueStatus` preseason variant extended: `{ state: 'preseason'; year: number; setupComplete?: boolean }`
@@ -1173,6 +1264,7 @@ Key architectural decisions across Phase 5:
 - After setup complete: green "Setup Complete ✓" badge with "Season will go live automatically before the first game" note
 
 **Automatic season transition cron (P7B-SEASON-TRANSITION-B)**
+
 - `vercel.json` created with daily cron: `0 0 * * *` (00:00 UTC). The handler does internal date math to determine whether the transition actually fires — it probes for `firstGameDate` and only transitions preseason leagues the day before the first game.
 - `/api/cron/season-transition` route secured via `CRON_SECRET` Bearer token
 - `ScheduleProbeState` type in `src/lib/scheduleProbe.ts`: tracks `baseCachedAt`, `firstGameDate` per year
@@ -1182,6 +1274,7 @@ Key architectural decisions across Phase 5:
 - `CRON_SECRET` auth: distinguishes "not configured" from "invalid token" with actionable error messages
 
 **Pre-season overview (P7B-SEASON-TRANSITION-C)**
+
 - During preseason with no schedule data, shows owner roster cards (owner name + drafted teams) in a responsive grid
 - Schedule placeholder: "2026 season schedule not yet available — check back closer to kickoff"
 - Fatal bootstrap error suppressed in preseason (expected state — no schedule data is normal)
@@ -1189,6 +1282,7 @@ Key architectural decisions across Phase 5:
 - When 2026 schedule IS cached, normal views render with that data
 
 **Key architectural decisions:**
+
 - `setupComplete` stored on `LeagueStatus.preseason` variant (not separate appStateStore key) — disappears naturally when league transitions to `season`
 - Schedule probe state stored in `appStateStore` scope `schedule-probe` — survives across deployments
 - Cron uses `fetchUpstreamJson` + `mapCfbdScheduleGame` directly (not internal API call) for reliability
@@ -1202,11 +1296,13 @@ Key architectural decisions across Phase 5:
 **PROMPT_IDs:** P7B-AUDIT-SEASON-STATE, P7B-AUDIT-ROSTER-CHECK, P7B-AUDIT-COMPLETE-SETUP-GUARD, P7B-OVERVIEW-BANNER, P7B-OVERVIEW-BANNER-STYLE, P7B-OVERVIEW-BANNER-STYLE-FIX, P7B-OVERVIEW-BANNER-COUNTDOWN, P7B-DRAFT-START-FIX, P7B-AUDIT-COMMISH-URL, P7B-CONTINUE-SETUP-LINK, P7B-PRESEASON-CHECKLIST-FIX, P7B-PRESEASON-REGRESSION-FIX, P7B-PRESEASON-REGRESSION-FIX-2, P7B-ROSTER-CHECK-FIX, P7B-SANDBOX-RESET-FIX, P7B-SANDBOX-AUTO-COMPLETE-DRAFT, P7B-DRAFT-SETUP-OWNERS-REMOVE, P7B-COMPLETE-SETUP-REVALIDATE, P7B-COMPLETE-SETUP-REVALIDATE-2, P7B-COMPLETE-SETUP-REVALIDATE-3, P7B-COMPLETE-SETUP-HUB-FIX, P7B-RESET-RACE-FIX, MERGE-CONFLICT-AUDIT, MERGE-CONFLICT-FIX
 
 **Goals completed:**
+
 - Full end-to-end dry run readiness: preseason setup → draft → complete setup flow works without manual workarounds
 - All sandbox reset controls work correctly for repeated dry runs
 - Admin hub reflects league state accurately
 
 **Overview lifecycle banners (P7B-OVERVIEW-BANNER series)**
+
 - State-driven banner system in `CFBScheduleApp.tsx` driven by `leagueStatus` prop
 - States: offseason early/late, preseason (no draft / draft scheduled / draft in progress / draft complete), season (in progress / live)
 - Left-border accent styling (3px inline border, dark backgrounds, right-side-only border radius)
@@ -1216,31 +1312,37 @@ Key architectural decisions across Phase 5:
 - Banner year and draft lookup year derived from `leagueStatus.year` (not `league.year`) — fixes 2025→2026 bleed
 
 **Draft start fix (P7B-DRAFT-START-FIX)**
+
 - "Start Draft" button in `DraftSetupShell` now calls `PUT phase: 'live'` before navigating to board
 - Previous behavior did bare redirect — draft board redirected back to setup (redirect loop)
 
 **Commissioner setup links (P7B-CONTINUE-SETUP-LINK)**
+
 - "Continue Setup →" link added to draft complete banner in `DraftHeaderArea`
 - "Ready to complete setup? Continue Setup →" prompt added to `DraftSummaryClient`
 - `DraftSummaryClient` auth fixed to dual-auth pattern: `useUser()` from Clerk + `hasStoredAdminToken()`
 
 **Preseason checklist fixes**
+
 - "Season live" item removed from checklist (was circular — Complete Setup button couldn't satisfy it)
 - Button renamed from "Go Live" to "Complete Setup", bound to `completeSetup()` which sets `setupComplete: true` without transitioning to season state
 - `LeagueStatus` preseason variant extended with `setupComplete?: boolean`
 - Checklist uses `canCompleteSetup` guard; shows "Setup Complete ✓" badge post-completion
 
 **Roster check fix (P7B-ROSTER-CHECK-FIX)**
+
 - `hasRoster` check in `preseason/page.tsx` now falls back to owners CSV (`owners:${slug}:${year}/csv`)
 - A completed draft satisfies the roster requirement without a separate preseason owners confirmation step
 - Preseason owners list still checked first; either source sufficient
 
 **Admin hub setup complete state (P7B-COMPLETE-SETUP-HUB-FIX)**
+
 - Admin hub (`/admin/[slug]/page.tsx`) renders two distinct preseason states:
   - `setupComplete=false`: "Setup in Progress" + "Continue Setup" link
   - `setupComplete=true`: green "Setup Complete ✓" card with "Season will go live automatically" note
 
 **Sandbox improvements**
+
 - "Set: Pre-Season" now clears preseason-owners, owners CSV, and draft state for the target year (fresh start every time)
 - "Reset to 2025 Season" now also clears all 2026 preseason/draft/owners/schedule-probe state
 - "Reset Draft" unchanged — clears draft + owners CSV, leaves preseason owners intact
@@ -1249,11 +1351,13 @@ Key architectural decisions across Phase 5:
 - Race condition fixed in `resetTestLeague()` — `updateLeague` and `updateLeagueStatus` serialized (both write same registry array)
 
 **Draft settings cleanup (P7B-DRAFT-SETUP-OWNERS-REMOVE)**
+
 - Owners add/remove section removed from `DraftSettingsPanel` — redundant with preseason owners confirmation flow
 - Draft order section (drag-to-reorder, Random/Reverse Champ/Manual modes) unchanged
 - `owners` state initialized from draft state or `priorOwners`; used by draft order and save logic
 
 **Key architectural decisions:**
+
 - `setupComplete` stored on `LeagueStatus.preseason` variant — disappears naturally on season transition
 - `hasRoster` satisfied by either preseason owners list OR owners CSV — draft confirmation is sufficient
 - Sandbox "Set: Pre-Season" always clears state to ensure idempotent dry runs
@@ -1268,6 +1372,7 @@ Key architectural decisions across Phase 5:
 **PROMPT_IDs:** P7B-APP-WIDE-AUDIT, P7B-UI-UX-POLISH-AUDIT, P7B-FORCE-DYNAMIC-FIX, P7B-UI-POLISH-DEMO-FIXES, P7B-CLERK-MIGRATION-AUDIT, P7B-BRANDING-UPDATE, P7B-LAUNCH-DOCS-CLOSEOUT
 
 **Goals completed:**
+
 - Comprehensive app-wide audit covering 16 sections; one build blocker identified and resolved
 - Full UI/UX polish audit — page-by-page rating, top 10 improvements identified
 - Force-dynamic build blocker fixed across 11 pages
@@ -1280,6 +1385,7 @@ Key architectural decisions across Phase 5:
 - Landing page tagline updated to "Your league, upgraded."
 
 **Key outcomes:**
+
 - App is publicly live at `turfwar.games`
 - TSC league accessible at `turfwar.games/league/tsc` and via `tscturfwar.com` redirect
 - Production Clerk instance active; development instance retired
@@ -1294,6 +1400,7 @@ Key architectural decisions across Phase 5:
 **PROMPT_IDs:** PLATFORM-030-ATTACHMENT-REGRESSION-TESTS-v1 (PR #331), PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1 + PLATFORM-031-GAP-CLOSURE-v1 (PR #332)
 
 **Goals completed:**
+
 - Locked the pre-existing pair-only odds-attachment weakness with test-only regression coverage (PLATFORM-030) before changing production behavior
 - Rewrote `attachOddsEventsToSchedule` (`src/lib/oddsAttachment.ts`) to be event-centric and date-aware: resolve each upstream event's pair via centralized `teamIdentity`, narrow same-pair candidates by a ±24h commence-time tolerance, and attach only when exactly one candidate remains — no fan-out, no arbitrary first-win
 - Added `unmatched_pair` / `ambiguous_pair` / `date_mismatch` / `consumed_or_duplicate` diagnostics for every non-attaching event
@@ -1301,6 +1408,7 @@ Key architectural decisions across Phase 5:
 - Closed the WIP-audit gaps (PLATFORM-031-GAP-CLOSURE): date-aligned repeat-matchup fixture, full `/api/odds` propagation test, fresh-cache-without-`commenceTime` backward-compat test, and `buildOddsByGame` both-spellings regression
 
 **Key outcomes:**
+
 - Same-pair rematches (e.g. regular-season meeting vs conference championship) now attach to the correct canonical identity by date instead of arbitrary first-win
 - `commenceTime` is attachment metadata only — never added to `DurableOddsSnapshot`, `CombinedOdds`, or public `/api/odds` output
 - Older cached entries lacking `commenceTime` remain valid (treated as undated) and never force a migration refetch; PLATFORM-020 quota/cache guards untouched

@@ -40,12 +40,14 @@ The campaign was structured as three implementation phases plus a discovery and 
 ### What changed
 
 **Auth gate** (`canAccessDraftBoard`):
+
 - New `src/lib/server/canAccessDraftBoard.ts` wrapping `isPlatformAdminSession()`. Phase 7 will add slug-scoped commissioner enforcement; the helper is already the right entry point.
 - `/league/[slug]/draft/page.tsx` and `/draft/setup/page.tsx`: compute `isAdmin = await canAccessDraftBoard(slug)`, redirect non-admins to `/draft/board`, pass `isAdmin` as prop. Full `DraftState` is no longer serialized into server HTML for non-admins.
 - `/draft/summary/page.tsx`: computes `isAdmin` but does NOT redirect — spectator access to the summary view is intentional.
 - `DraftBoardClient`, `DraftSetupShell`, `DraftSummaryClient`: removed `useUser()` / `clerkRole` / `isTokenAdmin` entirely; accept `isAdmin: boolean` prop from server.
 
 **Phase-aware polling**:
+
 - `DraftBoardClient`: polling IIFE — 1.5s when `draft.phase === 'live' && draft.status === 'running'`, 30s when `draft.phase === 'complete'`, 5s otherwise.
 - `SpectatorBoardClient`: `const intervalMs = draft.phase === 'complete' ? 30000 : 5000`.
 
@@ -62,14 +64,17 @@ The campaign was structured as three implementation phases plus a discovery and 
 ### What changed
 
 **`CanonicalStandingsSource` extension**:
+
 - New source value: `'preseason-awaiting-kickoff'`.
 - New field: `inferredSeasonStart: string | null` on `CanonicalStandings` — populated from `getScheduleProbeState(year).firstGameDate` when available, null otherwise.
 
 **Selector logic**:
+
 - `resolveSeason` empty path: calls `getScheduleProbeState(year)`. If probe exists, returns `preseasonAwaitingKickoffSnapshot(slug, status, year, probe.firstGameDate)`. Otherwise returns `emptySnapshot`. No `Date.now()` anywhere in the selector.
 - `resolvePreseason` empty path: always returns `preseasonAwaitingKickoffSnapshot`.
 
 **Consumer changes**:
+
 - `StandingsPanel`: renders three distinct empty states — `preseason-awaiting-kickoff` with a kickoff-date formatted message (time checked at render via `Date.now()`), `empty` with a diagnostic message.
 - `CFBScheduleApp`: `isAwaitingKickoff` IIFE checks `canonical.source === 'preseason-awaiting-kickoff'` + render-time `Date.now() < kickoffMs`. `isPreseason` broadened: `leagueStatus.state === 'preseason' || isAwaitingKickoff`.
 
@@ -88,11 +93,13 @@ The campaign was structured as three implementation phases plus a discovery and 
 ### What changed
 
 **Engine filter (`shouldSuppressGenerator`)**:
+
 - New function in `src/lib/insights/engine.ts` for cross-cutting (id, lifecycle, flag)-based generator skips.
 - Initial rule: `career:rookie_benchmark` is suppressed when `context.usingArchivedRoster` — the first-archive-owner detection would mislabel all returning members as rookies during rollover window.
 - Gated by `bypassSuppression`: `generators.filter((g) => bypassSuppression || !shouldSuppressGenerator(g, context))`.
 
 **Framing helpers (`src/lib/insights/framing.ts`)**:
+
 - `applyLastSeasonFraming(insight)`: prepends "Last season's " to insight title (idempotent — checks if already present).
 - `applyReturningOwnerFraming(insight)`: prepends "Returning owner " to description when description starts with the owner name (idempotent — checks if already present; no-op for multi-owner insights).
 
@@ -110,6 +117,7 @@ The campaign was structured as three implementation phases plus a discovery and 
 | `championshipRaceGenerator` | Zero-game guard: `rows.every(r => r.wins + r.losses === 0)` → returns `[]` |
 
 **Legacy path zero-game guards**:
+
 - `deriveLeagueInsights`: bails early if no eligible owner has played any games.
 - `deriveTightRaceInsight`: bails if all rows have zero games.
 - `deriveTightClusterInsight`: same guard on eligible rows.
@@ -142,6 +150,7 @@ Both layers are bypassed by `bypassSuppression`. Any future rule added to either
 ### Framing vs. suppression
 
 The framing approach (rewriting insight text) was chosen over suppression for `usingArchivedRoster` cases because:
+
 - The underlying data is valid — last season's stats are real stats.
 - Suppressing them would leave the panel empty during a long preseason window.
 - Reframing with "Last season's" / "Returning owner" prefixes accurately communicates the temporal context.

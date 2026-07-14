@@ -89,7 +89,7 @@ This makes the user's `publicMetadata` (including `role`) available in the sessi
 }
 ```
 
-5. Save. The user can now sign in at `/login` and access `/admin`.
+1. Save. The user can now sign in at `/login` and access `/admin`.
 
 ### C. Auth flow summary
 

@@ -37,18 +37,23 @@ The production model optimizes for:
 ## Core production principles
 
 ### 1. Schedule-first remains non-negotiable
+
 The schedule is the authoritative list of games. Scores, odds, standings, matchup context, and diagnostics must continue to attach to schedule-derived identities rather than introducing parallel matching systems.
 
 ### 2. Hosted users should read shared state
+
 League members should not depend on per-browser local caches for core league configuration. Commissioner-managed data should live in shared durable storage and be read consistently by all users.
 
 ### 3. Durable footprint stays intentionally small
+
 Use one small managed database for the limited set of truly persistent shared data. Do not introduce a large operational stack unless there is a clear production need.
 
 ### 4. Admin refresh controls season-persistent data
+
 Season-long reference/configuration data should be stored durably and refreshed intentionally through commissioner/admin workflows. Ordinary member traffic should not trigger opportunistic rebuilds of season-persistent state.
 
 ### 5. Live data stays conservative and quota-aware
+
 Freshness matters most for scores and selectively for odds, but monthly quotas remain the governing constraint. Avoid wasteful interval polling and prefer shared cache-first reads with conservative refresh policy.
 
 ## Production data policy summary (canonical)
@@ -56,9 +61,11 @@ Freshness matters most for scores and selectively for odds, but monthly quotas r
 > This is the canonical production data policy. `docs/roadmap.md` references this section rather than maintaining a separate copy.
 
 ### Season-persistent / admin-refresh only
+
 Stored durably, read by all users, updated only via admin-triggered edit/refresh flows.
 
 Examples:
+
 - owner roster
 - alias map
 - manual postseason overrides
@@ -66,18 +73,22 @@ Examples:
 - season schedule snapshot, when persisted for hosted stability
 
 ### Cached / controlled refresh
+
 Cached to reduce upstream cost. Refreshed by admin action and/or conservative TTLs. Public traffic should prefer shared cached snapshots over repeated upstream fetches.
 
 Examples:
+
 - conference data
 - rankings
 - durable odds snapshots
 - diagnostics / usage snapshots
 
 ### Live / freshness-sensitive
+
 Still cached when practical, but allowed to refresh more often than season-persistent data. No aggressive polling.
 
 Examples:
+
 - scores
 - near-window odds if retained in live mode
 
