@@ -14,7 +14,7 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
-import { seasonPartitionScope, yearScope } from '@/lib/providerRefreshScope';
+import { scoresAggregateScope, scoresPartitionScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -412,22 +412,23 @@ async function handleAggregateScoreRefresh(params: {
   // refresh never fires a doomed postseason request before bowls exist and never
   // depends on the client sending a correct list.
   const explicitSeasonTypes = parseExplicitSeasonTypes(seasonTypesParam);
-  const seasonTypes =
-    explicitSeasonTypes.length > 0
-      ? explicitSeasonTypes
-      : await getApplicableScoreSeasonTypes(year);
+  // Server-authoritative applicability drives BOTH the partitions actually fetched
+  // and whether this operation is a complete year target (finding 2).
+  const applicableSeasonTypes = await getApplicableScoreSeasonTypes(year);
+  const seasonTypes = explicitSeasonTypes.length > 0 ? explicitSeasonTypes : applicableSeasonTypes;
 
-  // Aggregate refresh covers the COMPLETE intended year target (every applicable
-  // partition below), so it records the explicit YEAR ROLLUP after deriving a
-  // truthful aggregate outcome. A single partition never advances this rollup
-  // (the per-partition path uses a season-partition scope instead).
-  const scoresYearScope = yearScope(year);
-  const providerAttempt = await beginProviderRefreshAttempt('scores', scoresYearScope, {
+  // The year rollup is written ONLY when the attempted partitions cover every
+  // applicable partition (a complete year target). A caller-selected subset that
+  // omits an applicable sibling (e.g. `seasonTypes=postseason` while regular is
+  // also applicable) records against its own single partition instead, so a
+  // targeted repair can never advance the canonical year outcome/rows/source.
+  const aggregateScope = scoresAggregateScope(year, seasonTypes, applicableSeasonTypes);
+  const providerAttempt = await beginProviderRefreshAttempt('scores', aggregateScope, {
     startedAt: new Date(now).toISOString(),
   });
 
   if (cfbdApiKey.length === 0) {
-    await recordProviderRefreshFailure('scores', scoresYearScope, {
+    await recordProviderRefreshFailure('scores', aggregateScope, {
       attempt: providerAttempt,
       error: 'CFBD_API_KEY missing',
       code: 'cfbd-api-key-missing',
@@ -465,7 +466,7 @@ async function handleAggregateScoreRefresh(params: {
     // committed). Record ONE failure listing every failed partition; prior-good
     // last-success is preserved and CANNOT be advanced by the committed partition.
     const firstFailure = failures[0]!;
-    await recordProviderRefreshFailure('scores', scoresYearScope, {
+    await recordProviderRefreshFailure('scores', aggregateScope, {
       attempt: providerAttempt,
       error: `score refresh failed for partition(s): ${failures.map((f) => f.seasonType).join(', ')}`,
       code: firstFailure.code,
@@ -490,7 +491,7 @@ async function handleAggregateScoreRefresh(params: {
   if (successes.length === 0) {
     // Every applicable partition was a valid empty no-op → aggregate no-op: no
     // commit, prior-good preserved, last-success not advanced.
-    await recordProviderRefreshNoop('scores', scoresYearScope, {
+    await recordProviderRefreshNoop('scores', aggregateScope, {
       attempt: providerAttempt,
       source: 'cfbd',
       durationMs,
@@ -507,7 +508,7 @@ async function handleAggregateScoreRefresh(params: {
   // ≥1 partition committed and none failed → aggregate SUCCESS. Order last-success
   // by the newest partition commit (commitSeq is strictly increasing per commit).
   const newest = successes.reduce((a, b) => (b.commitSeq > a.commitSeq ? b : a));
-  await recordProviderRefreshSuccess('scores', scoresYearScope, {
+  await recordProviderRefreshSuccess('scores', aggregateScope, {
     attempt: providerAttempt,
     committedAt: newest.committedAt,
     commitSeq: newest.commitSeq,
@@ -675,10 +676,12 @@ export async function GET(req: Request) {
   // direct one-partition repair (or test) stays observable. Begin BEFORE the
   // credential check so a missing-key early return still resolves the attempt
   // (rereview finding #5).
-  // Single-partition repair records against only its (year, seasonType) partition
-  // — never the year rollup, so a targeted one-partition refresh cannot present as
-  // whole-year score freshness.
-  const partitionScope = seasonPartitionScope(year, seasonType);
+  // Single-partition repair records against only the exact partition it refreshes
+  // (finding 3): a whole-partition refresh (week === null) uses the season
+  // partition; a week-specific refresh uses the week partition, so a Week 3 repair
+  // never overwrites the whole regular/postseason partition — and neither ever
+  // advances the year rollup.
+  const partitionScope = scoresPartitionScope(year, week, seasonType);
   const providerAttempt = await beginProviderRefreshAttempt('scores', partitionScope, {
     startedAt: new Date(now).toISOString(),
   });

@@ -581,6 +581,96 @@ test('a legacy dataset-only record is NOT read as a scoped year status', async (
   assert.deepEqual(legacy.scope, { kind: 'legacy-unscoped' });
 });
 
+// ---------------------------------------------------------------------------
+// PLATFORM-086A-SCOPED review remediation (finding 4) — a completion token may
+// resolve ONLY the exact dataset + scope it was begun for.
+// ---------------------------------------------------------------------------
+
+test('a success token from scope A cannot advance scope B (and A stays in-progress)', async () => {
+  const tokenFor2025 = await beginProviderRefreshAttempt('schedule', yearScope(2025), {
+    attemptId: 'A25',
+  });
+  // Misroute the completion: resolve 2026 with 2025's token.
+  await recordProviderRefreshSuccess('schedule', yearScope(2026), {
+    attempt: tokenFor2025,
+    source: 'cfbd',
+    rowsCommitted: 999,
+  });
+
+  const s26 = await getProviderRefreshStatus('schedule', yearScope(2026));
+  assert.equal(s26.lastSuccessAt, null, '2026 never received the misrouted success');
+  assert.equal(s26.rowsCommitted, null, '2026 rows not advanced by a foreign token');
+  assert.equal(s26.latestAttemptOutcome, null, '2026 has no attempt at all');
+
+  const s25 = await getProviderRefreshStatus('schedule', yearScope(2025));
+  assert.equal(s25.latestAttemptOutcome, 'in-progress', "A's own scope is untouched (still open)");
+  assert.equal(s25.lastError, null, 'the helper did not synthesize a failure for A');
+});
+
+test('a failure token from one partition cannot mutate a sibling partition', async () => {
+  const regularToken = await beginProviderRefreshAttempt(
+    'scores',
+    seasonPartitionScope(2026, 'regular'),
+    {
+      attemptId: 'REG',
+    }
+  );
+  await recordProviderRefreshFailure('scores', seasonPartitionScope(2026, 'postseason'), {
+    attempt: regularToken,
+    error: 'misrouted boom',
+    status: 500,
+  });
+  const post = await getProviderRefreshStatus('scores', seasonPartitionScope(2026, 'postseason'));
+  assert.equal(post.lastError, null, 'postseason not mutated by regular token');
+  assert.equal(post.latestAttemptOutcome, null);
+  const reg = await getProviderRefreshStatus('scores', seasonPartitionScope(2026, 'regular'));
+  assert.equal(reg.latestAttemptOutcome, 'in-progress', 'regular remains its own open attempt');
+});
+
+test('a token from one dataset cannot resolve another dataset', async () => {
+  const scoresToken = await beginProviderRefreshAttempt('scores', yearScope(2026), {
+    attemptId: 'SC',
+  });
+  await recordProviderRefreshSuccess('schedule', yearScope(2026), {
+    attempt: scoresToken,
+    source: 'cfbd',
+    rowsCommitted: 5,
+  });
+  const schedule = await getProviderRefreshStatus('schedule', yearScope(2026));
+  assert.equal(schedule.lastSuccessAt, null, 'schedule not mutated by a scores token');
+  assert.equal(schedule.latestAttemptOutcome, null);
+});
+
+test('a misrouted no-op token mutates nothing and does not throw', async () => {
+  const tokenA = await beginProviderRefreshAttempt(
+    'scores',
+    weekPartitionScope(2026, 1, 'regular'),
+    {
+      attemptId: 'W1',
+    }
+  );
+  // Resolve a different week with W1's token — must be a no-op on both.
+  await recordProviderRefreshNoop('scores', weekPartitionScope(2026, 2, 'regular'), {
+    attempt: tokenA,
+  });
+  const w2 = await getProviderRefreshStatus('scores', weekPartitionScope(2026, 2, 'regular'));
+  assert.equal(w2.latestAttemptOutcome, null, 'week 2 untouched');
+  const w1 = await getProviderRefreshStatus('scores', weekPartitionScope(2026, 1, 'regular'));
+  assert.equal(w1.latestAttemptOutcome, 'in-progress', 'week 1 still open');
+});
+
+test('a matching token still resolves normally (rejection does not break the happy path)', async () => {
+  const token = await beginProviderRefreshAttempt('schedule', yearScope(2026), { attemptId: 'OK' });
+  await recordProviderRefreshSuccess('schedule', yearScope(2026), {
+    attempt: token,
+    source: 'cfbd',
+    rowsCommitted: 3,
+  });
+  const s = await getProviderRefreshStatus('schedule', yearScope(2026));
+  assert.equal(s.latestAttemptOutcome, 'succeeded');
+  assert.equal(s.rowsCommitted, 3);
+});
+
 test('a stored record whose scopeKey disagrees with its key is ignored (treated as absent)', async () => {
   // Corrupt/mislabeled: stored under schedule:year:2026 but self-describes a
   // different scopeKey. It must not be presented as authoritative.

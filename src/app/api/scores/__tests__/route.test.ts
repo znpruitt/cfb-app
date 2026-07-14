@@ -9,7 +9,11 @@ import {
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
-import { yearScope } from '../../../../lib/providerRefreshScope.ts';
+import {
+  seasonPartitionScope,
+  weekPartitionScope,
+  yearScope,
+} from '../../../../lib/providerRefreshScope.ts';
 
 type MockFetch = typeof fetch;
 
@@ -836,6 +840,88 @@ test('aggregate refresh: an INVALID explicit seasonTypes list falls back to serv
     ['regular'],
     'an unusable client list cannot force a partition; the server derives applicability'
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086A-SCOPED review remediation (findings 2–3) — a single-partition
+// score refresh records ONLY the exact partition it attempted: a week-specific
+// repair uses the week partition (never the whole season partition, never the
+// year rollup); a targeted aggregate subset that omits an applicable sibling
+// records against its own season partition (never the year rollup).
+// ---------------------------------------------------------------------------
+
+test('a week-specific score refresh records the week partition only (season + year untouched)', async () => {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response(JSON.stringify(gamePayload('Texas', 'Rice')), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.equal(res.status, 200);
+
+  const week = await getProviderRefreshStatus('scores', weekPartitionScope(2026, 3, 'regular'));
+  assert.equal(week.latestAttemptOutcome, 'succeeded', 'the week partition owns the outcome');
+  assert.ok(week.lastSuccessAt);
+
+  const season = await getProviderRefreshStatus('scores', seasonPartitionScope(2026, 'regular'));
+  assert.equal(
+    season.latestAttemptOutcome,
+    null,
+    'a Week 3 repair must not write the whole regular-season partition'
+  );
+  assert.equal(season.lastSuccessAt, null);
+
+  const yearRollup = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(
+    yearRollup.latestAttemptOutcome,
+    null,
+    'a week repair never advances the year rollup'
+  );
+  assert.equal(yearRollup.lastSuccessAt, null);
+});
+
+test('a targeted postseason aggregate (regular also applicable) records postseason only, not the year rollup', async () => {
+  // Both partitions are applicable, but the operator explicitly targets postseason.
+  await seedSchedule([scheduleItem('regular'), scheduleItem('postseason')]);
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin !== 'https://api.collegefootballdata.com') {
+      throw new Error(`unexpected URL: ${url.toString()}`);
+    }
+    return new Response(JSON.stringify(gamePayload('Georgia', 'Texas')), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const res = await GET(new Request(`${ORDINARY_AGG}&seasonTypes=postseason`));
+  assert.equal(res.status, 200);
+
+  const postseason = await getProviderRefreshStatus(
+    'scores',
+    seasonPartitionScope(2026, 'postseason')
+  );
+  assert.equal(
+    postseason.latestAttemptOutcome,
+    'succeeded',
+    'the targeted subset owns its own season partition'
+  );
+
+  const yearRollup = await getProviderRefreshStatus('scores', yearScope(2026));
+  assert.equal(
+    yearRollup.latestAttemptOutcome,
+    null,
+    'a subset that omits the applicable regular sibling must not advance the year rollup'
+  );
+  assert.equal(yearRollup.lastSuccessAt, null);
 });
 
 test('PLATFORM-075: scores refresh requires admin authorization when a token is configured', async () => {

@@ -21,7 +21,7 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
-import { yearScope } from '@/lib/providerRefreshScope';
+import { scheduleRefreshScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -385,9 +385,12 @@ export async function GET(req: Request) {
   // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
   // (or bypassCache) refresh will fetch upstream. Record the attempt before the
   // fetch; success is recorded only after a durable commit, failure on any 502.
-  // Schedule status is YEAR-scoped (a 2026 refresh must never affect 2025 status).
-  // Both season-type partitions are fetched under one year target below.
-  const scheduleScope = yearScope(year);
+  // Schedule status scope reflects the ACTUAL refresh target (finding 1): the year
+  // rollup is reserved for the full-year refresh (week === null && all); a
+  // season- or week-targeted repair records against its own partition and can
+  // never clear/advance the full-year status. Captured once here and reused for
+  // every terminal resolution of this attempt so begin and resolve always agree.
+  const scheduleScope = scheduleRefreshScope(year, week, requestedSeasonType);
   const providerAttempt = await beginProviderRefreshAttempt('schedule', scheduleScope, {
     startedAt: new Date(now).toISOString(),
   });

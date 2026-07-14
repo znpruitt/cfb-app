@@ -22,11 +22,15 @@ import {
   getProviderRefreshStatus,
   recordProviderRefreshSuccess,
 } from '../../../../lib/server/providerRefreshStatus.ts';
-import { yearScope } from '../../../../lib/providerRefreshScope.ts';
+import { seasonPartitionScope, yearScope } from '../../../../lib/providerRefreshScope.ts';
 
-// Every provider-refresh-status assertion below exercises the year=2027 refresh
-// path, which records against the year-scoped schedule target.
-const SCHEDULE_SCOPE = yearScope(2027);
+// Schedule status scope now reflects the ACTUAL refresh target (finding 1): a
+// full-year (seasonType=all) refresh records the year rollup, while a single
+// season-type refresh records its season partition. Tests use the scope matching
+// the request they issue.
+const SCHEDULE_YEAR_SCOPE = yearScope(2027);
+const SCHEDULE_REGULAR_SCOPE = seasonPartitionScope(2027, 'regular');
+const SCHEDULE_POSTSEASON_SCOPE = seasonPartitionScope(2027, 'postseason');
 
 type MockFetch = typeof fetch;
 
@@ -305,13 +309,18 @@ test('a durable commit failure resolves the schedule attempt as failed (rereview
   process.env.CFBD_API_KEY = 'test-cfbd-token';
 
   // Seed a prior successful schedule refresh so we can prove it is preserved.
-  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_SCOPE, { attemptId: 'seed' });
-  await recordProviderRefreshSuccess('schedule', SCHEDULE_SCOPE, {
+  // This test refreshes seasonType=regular, which records the regular season
+  // partition scope (finding 1) — the seed + reads use that same scope.
+  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_REGULAR_SCOPE, {
+    attemptId: 'seed',
+  });
+  await recordProviderRefreshSuccess('schedule', SCHEDULE_REGULAR_SCOPE, {
     attempt: seed,
     source: 'cfbd',
     rowsCommitted: 5,
   });
-  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE)).lastSuccessAt;
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_REGULAR_SCOPE))
+    .lastSuccessAt;
   assert.ok(priorSuccessAt);
 
   setMockFetch(async () => {
@@ -344,7 +353,7 @@ test('a durable commit failure resolves the schedule attempt as failed (rereview
 
   assert.equal(res.status, 500, 'a persistence failure is surfaced as an error, not a success');
 
-  const status = await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE);
+  const status = await getProviderRefreshStatus('schedule', SCHEDULE_REGULAR_SCOPE);
   assert.equal(status.latestAttemptOutcome, 'failed', 'the open attempt is resolved as failed');
   assert.equal(status.lastError?.code, 'schedule-durable-commit-failed');
   assert.equal(status.lastSuccessAt, priorSuccessAt, 'prior-good last-success is preserved');
@@ -355,13 +364,16 @@ test('an all-empty schedule refresh records a no-op, not a success advancing las
   process.env.CFBD_API_KEY = 'test-cfbd-token';
 
   // Seed a prior successful schedule refresh to prove it is preserved.
-  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_SCOPE, { attemptId: 'seed' });
-  await recordProviderRefreshSuccess('schedule', SCHEDULE_SCOPE, {
+  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_YEAR_SCOPE, {
+    attemptId: 'seed',
+  });
+  await recordProviderRefreshSuccess('schedule', SCHEDULE_YEAR_SCOPE, {
     attempt: seed,
     source: 'cfbd',
     rowsCommitted: 12,
   });
-  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE)).lastSuccessAt;
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_YEAR_SCOPE))
+    .lastSuccessAt;
   assert.ok(priorSuccessAt);
 
   // Every requested partition validly returns zero rows (a future season not yet
@@ -380,7 +392,7 @@ test('an all-empty schedule refresh records a no-op, not a success advancing las
   assert.equal(res.status, 200);
   assert.deepEqual((await res.json()).items, []);
 
-  const status = await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE);
+  const status = await getProviderRefreshStatus('schedule', SCHEDULE_YEAR_SCOPE);
   assert.equal(status.latestAttemptOutcome, 'no-op', 'all-empty resolves as a no-op');
   assert.equal(
     status.lastSuccessAt,
@@ -423,13 +435,16 @@ test('a prior-cache read failure while classifying an empty response resolves th
     partialFailure: false,
     failedSeasonTypes: [],
   });
-  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_SCOPE, { attemptId: 'seed' });
-  await recordProviderRefreshSuccess('schedule', SCHEDULE_SCOPE, {
+  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_YEAR_SCOPE, {
+    attemptId: 'seed',
+  });
+  await recordProviderRefreshSuccess('schedule', SCHEDULE_YEAR_SCOPE, {
     attempt: seed,
     source: 'cfbd',
     rowsCommitted: 1,
   });
-  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE)).lastSuccessAt;
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_YEAR_SCOPE))
+    .lastSuccessAt;
   assert.ok(priorSuccessAt);
 
   // Provider validly returns empty, but the prior durable SCHEDULE read used to
@@ -453,7 +468,7 @@ test('a prior-cache read failure while classifying an empty response resolves th
   const json = await res.json();
   assert.equal(json.detail?.code, 'schedule-prior-cache-read-failed');
 
-  const status = await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE);
+  const status = await getProviderRefreshStatus('schedule', SCHEDULE_YEAR_SCOPE);
   assert.equal(
     status.latestAttemptOutcome,
     'failed',
@@ -501,13 +516,16 @@ test('an unexpected all-empty refresh does NOT overwrite a populated durable sch
   });
 
   // Seed prior success metadata to prove it is preserved.
-  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_SCOPE, { attemptId: 'seed' });
-  await recordProviderRefreshSuccess('schedule', SCHEDULE_SCOPE, {
+  const seed = await beginProviderRefreshAttempt('schedule', SCHEDULE_YEAR_SCOPE, {
+    attemptId: 'seed',
+  });
+  await recordProviderRefreshSuccess('schedule', SCHEDULE_YEAR_SCOPE, {
     attempt: seed,
     source: 'cfbd',
     rowsCommitted: 1,
   });
-  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE)).lastSuccessAt;
+  const priorSuccessAt = (await getProviderRefreshStatus('schedule', SCHEDULE_YEAR_SCOPE))
+    .lastSuccessAt;
   assert.ok(priorSuccessAt);
 
   // Both partitions now return empty — a suspicious empty replacement.
@@ -540,7 +558,7 @@ test('an unexpected all-empty refresh does NOT overwrite a populated durable sch
   );
 
   // Status resolves as failed; prior-good success metadata preserved.
-  const status = await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE);
+  const status = await getProviderRefreshStatus('schedule', SCHEDULE_YEAR_SCOPE);
   assert.equal(status.latestAttemptOutcome, 'failed', 'unexpected empty resolves as failed');
   assert.equal(status.lastError?.code, 'schedule-empty-replacement-rejected');
   assert.equal(status.lastSuccessAt, priorSuccessAt, 'prior-good last-success preserved');
@@ -569,7 +587,7 @@ test('a valid inapplicable postseason-empty refresh resolves as a no-op without 
   assert.equal(await getAppState('schedule', '2027-all-postseason'), null);
   assert.equal(SCHEDULE_ROUTE_CACHE['2027-all-postseason'], undefined);
 
-  const status = await getProviderRefreshStatus('schedule', SCHEDULE_SCOPE);
+  const status = await getProviderRefreshStatus('schedule', SCHEDULE_POSTSEASON_SCOPE);
   assert.equal(status.latestAttemptOutcome, 'no-op', 'inapplicable postseason empty is a no-op');
   assert.equal(status.lastSuccessAt, null, 'a no-op never advances last-success');
 });

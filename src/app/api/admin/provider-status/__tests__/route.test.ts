@@ -19,6 +19,7 @@ import {
 import {
   globalScope,
   oddsTargetScope,
+  seasonPartitionScope,
   weekPartitionScope,
   yearScope,
   type ProviderRefreshScope,
@@ -276,6 +277,32 @@ test('a targeted week-3 game-stats success does NOT establish year-wide game-sta
   assert.equal(gameStats?.status.lastSuccessAt, null, 'week 3 is not full-season success');
   assert.equal(gameStats?.status.latestAttemptOutcome, null);
   assert.equal(gameStats?.status.scopeKey, 'game-stats:year:2026');
+});
+
+test('a targeted regular-season schedule success does NOT establish year-wide schedule success', async () => {
+  // A season-partition schedule repair writes its own partition key, never the
+  // year rollup the card reflects (review remediation finding 1).
+  await seedSuccess('schedule', seasonPartitionScope(2026, 'regular'), 90);
+
+  const rows = await feedRows(2026);
+  const schedule = rows.find((r) => r.dataset === 'schedule');
+  assert.equal(schedule?.status.lastSuccessAt, null, 'a partition repair is not full-year success');
+  assert.equal(schedule?.status.latestAttemptOutcome, null);
+  assert.equal(schedule?.status.rowsCommitted, null);
+  assert.equal(schedule?.status.scopeKey, 'schedule:year:2026', 'card reflects the year rollup');
+});
+
+test('a targeted postseason score success does NOT establish year-wide scores success', async () => {
+  // A season-partition postseason score repair must not advance the canonical
+  // scores year rollup the card renders (review remediation finding 2).
+  await seedSuccess('scores', seasonPartitionScope(2026, 'postseason'), 12);
+
+  const rows = await feedRows(2026);
+  const scores = rows.find((r) => r.dataset === 'scores');
+  assert.equal(scores?.status.lastSuccessAt, null, 'a postseason repair is not full-year success');
+  assert.equal(scores?.status.latestAttemptOutcome, null);
+  assert.equal(scores?.status.rowsCommitted, null);
+  assert.equal(scores?.status.scopeKey, 'scores:year:2026', 'card reflects the year rollup');
 });
 
 test('a filtered odds success does NOT establish canonical odds freshness', async () => {

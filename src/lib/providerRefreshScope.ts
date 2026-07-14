@@ -141,6 +141,77 @@ export function scopeMatchesKey(
   return providerRefreshScopeKey(dataset, scope) === key;
 }
 
+/** Season-type as accepted by the schedule route (a whole-year `all` is allowed). */
+export type ScheduleSeasonTypeParam = CanonicalSeasonType | 'all';
+
+/**
+ * Canonical status scope for a SCHEDULE refresh operation, selected from the
+ * normalized request target (review remediation finding 1). The year rollup is
+ * reserved for the ONE operation that genuinely covers the whole year
+ * (`week === null && seasonType === 'all'`); a season- or week-targeted repair
+ * records against its own partition and can never clear/advance the full-year
+ * status.
+ *
+ * A specific week with `seasonType === 'all'` spans two week partitions; it is a
+ * targeted (non-year) op and is resolved to the regular week partition by the
+ * codebase's default-to-regular convention. The admin UI only ever issues the
+ * full-year form, so this degenerate combination is API-only.
+ */
+export function scheduleRefreshScope(
+  year: number,
+  week: number | null,
+  seasonType: ScheduleSeasonTypeParam
+): ProviderRefreshScope {
+  if (seasonType === 'all') {
+    return week == null ? yearScope(year) : weekPartitionScope(year, week, 'regular');
+  }
+  return week == null
+    ? seasonPartitionScope(year, seasonType)
+    : weekPartitionScope(year, week, seasonType);
+}
+
+/**
+ * Canonical status scope for a DIRECT single-partition score refresh (review
+ * remediation finding 3): a whole-partition refresh (`week === null`) uses the
+ * season partition; a week-specific refresh uses the week partition, so a Week 3
+ * repair never overwrites the whole regular/postseason partition's status.
+ */
+export function scoresPartitionScope(
+  year: number,
+  week: number | null,
+  seasonType: string
+): ProviderRefreshScope {
+  return week == null
+    ? seasonPartitionScope(year, seasonType)
+    : weekPartitionScope(year, week, seasonType);
+}
+
+/**
+ * Canonical status scope for an AGGREGATE score refresh (review remediation
+ * finding 2). The explicit year rollup is used ONLY when the attempted partitions
+ * cover every applicable partition for the year (a complete year target). A
+ * caller-selected subset that omits an applicable sibling records against its own
+ * single attempted partition instead, so a targeted repair can never advance the
+ * canonical year outcome/rows/source. Applicability is decided server-side by the
+ * caller (`getApplicableScoreSeasonTypes`); skipped INAPPLICABLE partitions do not
+ * block the year rollup, but caller-omitted APPLICABLE partitions do.
+ */
+export function scoresAggregateScope(
+  year: number,
+  attemptedSeasonTypes: readonly string[],
+  applicableSeasonTypes: readonly string[]
+): ProviderRefreshScope {
+  const attempted = attemptedSeasonTypes.map(normalizeCanonicalSeasonType);
+  const coversApplicable =
+    applicableSeasonTypes.length > 0 &&
+    applicableSeasonTypes.every((s) => attempted.includes(normalizeCanonicalSeasonType(s)));
+  // A complete-applicable operation (or a no-applicable-partition year, which the
+  // aggregate resolves as a year-level no-op) owns the year rollup; anything else
+  // is a single-partition targeted repair.
+  if (coversApplicable || attempted.length === 0) return yearScope(year);
+  return seasonPartitionScope(year, attempted[0]!);
+}
+
 /** Human-readable label for panels and diagnostics (never used as identity). */
 export function describeProviderRefreshScope(scope: ProviderRefreshScope): string {
   switch (scope.kind) {

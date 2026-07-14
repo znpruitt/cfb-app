@@ -275,22 +275,32 @@ function isLatest(status: ProviderRefreshStatus, attempt?: ProviderRefreshAttemp
 }
 
 /**
- * Warn (dev/test aid) when a resolving call passes a scope whose key does not
- * match the attempt's begun scope. Not fatal — the passed scope is authoritative
- * for the write — but it flags a caller that opened and resolved different scopes.
+ * A completion token may resolve ONLY the exact dataset + scope it was begun for
+ * (review remediation finding 4). When the passed attempt was opened for a
+ * different dataset or scope than the resolver is mutating, the call is a
+ * misrouted completion: it must NOT write into either scope (it would falsely
+ * advance the resolver's scope while leaving the token's own scope `in-progress`).
+ * Returns `true` to signal "reject — skip the write." It logs a diagnostic and
+ * never throws into the provider path; the caller that lost/misrouted the token is
+ * responsible for correct resolution (this helper does not synthesize a failure
+ * for the token's own scope).
  */
-function assertAttemptScope(
+function isMisroutedAttempt(
   attempt: ProviderRefreshAttempt | undefined,
+  dataset: ProviderDataset,
   scopeKey: string,
   op: string
-): void {
-  if (attempt && attempt.scopeKey !== scopeKey) {
-    console.error('providerRefreshStatus: attempt scope mismatch', {
-      op,
-      begunScopeKey: attempt.scopeKey,
-      resolveScopeKey: scopeKey,
-    });
-  }
+): boolean {
+  if (!attempt) return false;
+  if (attempt.dataset === dataset && attempt.scopeKey === scopeKey) return false;
+  console.error('providerRefreshStatus: rejected misrouted completion token', {
+    op,
+    begunDataset: attempt.dataset,
+    begunScopeKey: attempt.scopeKey,
+    resolveDataset: dataset,
+    resolveScopeKey: scopeKey,
+  });
+  return true;
 }
 
 /**
@@ -377,7 +387,7 @@ export async function recordProviderRefreshSuccess(
   const resolvedAt = new Date().toISOString();
   const committedAt = result.committedAt ?? resolvedAt;
   const scopeKey = providerRefreshScopeKey(dataset, scope);
-  assertAttemptScope(result.attempt, scopeKey, 'success');
+  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'success')) return;
   await withScopeLock(scopeKey, async () => {
     const prior = await readPriorStatus(dataset, scope);
     if (!prior.readOk) {
@@ -453,7 +463,7 @@ export async function recordProviderRefreshNoop(
 ): Promise<void> {
   const resolvedAt = new Date().toISOString();
   const scopeKey = providerRefreshScopeKey(dataset, scope);
-  assertAttemptScope(result.attempt, scopeKey, 'noop');
+  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'noop')) return;
   await withScopeLock(scopeKey, async () => {
     const prior = await readPriorStatus(dataset, scope);
     if (!prior.readOk) {
@@ -508,7 +518,7 @@ export async function recordProviderRefreshFailure(
 ): Promise<void> {
   const resolvedAt = new Date().toISOString();
   const scopeKey = providerRefreshScopeKey(dataset, scope);
-  assertAttemptScope(result.attempt, scopeKey, 'failure');
+  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'failure')) return;
   await withScopeLock(scopeKey, async () => {
     const prior = await readPriorStatus(dataset, scope);
     if (!prior.readOk) {

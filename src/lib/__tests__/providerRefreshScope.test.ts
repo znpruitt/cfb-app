@@ -7,7 +7,10 @@ import {
   normalizeCanonicalSeasonType,
   oddsTargetScope,
   providerRefreshScopeKey,
+  scheduleRefreshScope,
   scopeMatchesKey,
+  scoresAggregateScope,
+  scoresPartitionScope,
   seasonPartitionScope,
   weekPartitionScope,
   yearScope,
@@ -97,6 +100,81 @@ test('legacy-unscoped keys map to the bare dataset (no migration needed)', () =>
 test('scopeMatchesKey validates self-describing agreement', () => {
   assert.equal(scopeMatchesKey('schedule', yearScope(2026), 'schedule:year:2026'), true);
   assert.equal(scopeMatchesKey('schedule', yearScope(2026), 'schedule:year:2025'), false);
+});
+
+// --- Operation → scope selection (review remediation findings 1–3) --------------
+
+test('scheduleRefreshScope reserves the year rollup for the full-year refresh only', () => {
+  assert.deepEqual(scheduleRefreshScope(2026, null, 'all'), { kind: 'year', year: 2026 });
+  assert.deepEqual(scheduleRefreshScope(2026, null, 'regular'), {
+    kind: 'season-partition',
+    year: 2026,
+    seasonType: 'regular',
+  });
+  assert.deepEqual(scheduleRefreshScope(2026, null, 'postseason'), {
+    kind: 'season-partition',
+    year: 2026,
+    seasonType: 'postseason',
+  });
+  assert.deepEqual(scheduleRefreshScope(2026, 3, 'regular'), {
+    kind: 'week-partition',
+    year: 2026,
+    week: 3,
+    seasonType: 'regular',
+  });
+  // A specific week with `all` is a targeted (non-year) op — never the year rollup.
+  assert.notEqual(
+    providerRefreshScopeKey('schedule', scheduleRefreshScope(2026, 3, 'all')),
+    'schedule:year:2026'
+  );
+});
+
+test('scoresPartitionScope uses a week scope only when a week is present', () => {
+  assert.deepEqual(scoresPartitionScope(2026, null, 'regular'), {
+    kind: 'season-partition',
+    year: 2026,
+    seasonType: 'regular',
+  });
+  assert.deepEqual(scoresPartitionScope(2026, 3, 'regular'), {
+    kind: 'week-partition',
+    year: 2026,
+    week: 3,
+    seasonType: 'regular',
+  });
+  assert.deepEqual(scoresPartitionScope(2026, 1, 'postseason'), {
+    kind: 'week-partition',
+    year: 2026,
+    week: 1,
+    seasonType: 'postseason',
+  });
+});
+
+test('scoresAggregateScope writes the year rollup only for a complete applicable target', () => {
+  // Derived complete set (attempted == applicable) → year rollup.
+  assert.deepEqual(
+    scoresAggregateScope(2026, ['regular', 'postseason'], ['regular', 'postseason']),
+    {
+      kind: 'year',
+      year: 2026,
+    }
+  );
+  // Only regular applicable, operation attempts regular → still a complete year.
+  assert.deepEqual(scoresAggregateScope(2026, ['regular'], ['regular']), {
+    kind: 'year',
+    year: 2026,
+  });
+  // Targeted subset that omits an applicable sibling → its own partition, not year.
+  assert.deepEqual(scoresAggregateScope(2026, ['postseason'], ['regular', 'postseason']), {
+    kind: 'season-partition',
+    year: 2026,
+    seasonType: 'postseason',
+  });
+  // A forced partition when nothing is applicable is still targeted, never year.
+  assert.deepEqual(scoresAggregateScope(2026, ['postseason'], []), {
+    kind: 'season-partition',
+    year: 2026,
+    seasonType: 'postseason',
+  });
 });
 
 test('describeProviderRefreshScope is human-readable per kind', () => {
