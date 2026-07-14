@@ -238,7 +238,7 @@ Enable async drafts where owners have a configurable window to make each pick ra
 
 #### Provider Refresh Observability & Automation (PLATFORM-086)
 
-The provider campaign: truthful refresh observability (complete), then narrow correctness follow-ups, then automation — one job family per PR under the campaign's small-PR rule (detailed plan, task boundaries, and execution order live in `docs/next-tasks.md` → Active priorities #1).
+The provider campaign: truthful refresh observability (complete), then narrow correctness follow-ups, then automation — correctly sized, cohesive PRs under the campaign's PR-sizing rule (detailed plan, task boundaries, and execution order live in `docs/next-tasks.md` → Active priorities #1).
 
 Provider limits (canonical): CFBD Tier 1 = 5,000 calls/month; The Odds API = 500 credits/month (current request cost 3 credits; Odds automation targets ~450 credits with a ~50-credit safety buffer).
 

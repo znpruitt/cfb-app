@@ -24,7 +24,7 @@ Supersedes: (none)
 
 **Key outcomes:** CFBD became the sole normal production score provider (automatic ESPN score fallback removed); a failed refresh can never advance last-success or masquerade as another target's status; operators see truthful per-dataset operational state for the selected year. No new cron cadence shipped — automation follows in the revised PLATFORM-086B–I plan (`docs/next-tasks.md`).
 
-**Optional follow-up debt (non-blocking):** seven review findings deliberately deferred at merge, scheduled as PLATFORM-086G (provider-boundary truthfulness), PLATFORM-086H (game-stats recovery), and PLATFORM-086I (settings feedback); PLATFORM-086F diagnostics IA redesign deferred until real automation jobs exist. Scope lesson recorded in `docs/next-tasks.md`: the 77-file / ~11.9k-insertion diff is the named failure case for the campaign's small-PR rule.
+**Optional follow-up debt (non-blocking):** seven review findings deliberately deferred at merge, scheduled as PLATFORM-086G1 (CFBD score & quota truthfulness), PLATFORM-086G2 (Odds boundary & usage truthfulness), PLATFORM-086H (game-stats recovery), and PLATFORM-086I (settings feedback); PLATFORM-086F diagnostics IA redesign deferred until real automation jobs exist. Scope lesson recorded in `docs/next-tasks.md`: the 77-file / ~11.9k-insertion diff is the named failure case for the campaign's PR-sizing rule.
 
 ### Markdownlint Documentation Tooling — Complete
 
