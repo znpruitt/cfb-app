@@ -148,6 +148,115 @@ function logDebug(params: {
   });
 }
 
+/**
+ * Canonical season-type partition for a schedule row. Every row mapped by
+ * `mapCfbdScheduleGame` carries a canonical `seasonType` ('regular' | 'postseason');
+ * we read that field directly — never a raw provider label. `gamePhase` is only a
+ * defensive fallback for a hypothetical legacy row persisted before `seasonType`
+ * was populated (conference championships are part of the regular season type).
+ */
+function canonicalSeasonType(item: ScheduleItem): SeasonType {
+  if (item.seasonType === 'regular' || item.seasonType === 'postseason') {
+    return item.seasonType;
+  }
+  return item.gamePhase === 'postseason' ? 'postseason' : 'regular';
+}
+
+/**
+ * Rows of a pre-split `${year}-${week}-all` aggregate that belong to one canonical
+ * partition. Used ONLY as a read-time compatibility fallback (composition + empty
+ * classification) — the aggregate itself is never mutated or deleted.
+ */
+function legacyPartitionRows(items: ScheduleItem[], seasonType: SeasonType): ScheduleItem[] {
+  return items.filter((item) => canonicalSeasonType(item) === seasonType);
+}
+
+/**
+ * Read a `week + all` schedule view by COMPOSING it from the exact regular/
+ * postseason child caches at read time — the authoritative source after the
+ * PLATFORM-086A week+all split — rather than reading a materialized aggregate
+ * entry. Precedence per partition:
+ *   1. exact child cache `${year}-${week}-${seasonType}` (process cache, then durable)
+ *   2. matching rows from the legacy `${year}-${week}-all` aggregate (durable only,
+ *      read-only compatibility fallback for partitions with no child cache)
+ *   3. absent — the partition contributes no rows
+ * Returns `null` only when EVERY partition is absent (no child, no legacy), i.e. a
+ * genuine full cache miss. The composed entry's `at` is the OLDEST contributing
+ * partition's timestamp, so a stale partition makes the whole view stale (the
+ * conservative, truthful choice). The legacy aggregate is NEVER promoted into the
+ * process cache (there is no authoritative aggregate process-cache slot post-split),
+ * so a stale aggregate can never be served in place of a fresh child.
+ */
+async function readComposedWeekAllEntry(params: {
+  year: number;
+  week: number;
+}): Promise<{ entry: CacheEntry; sources: Array<'child' | 'legacy'> } | null> {
+  const { year, week } = params;
+  const seasonTypes: SeasonType[] = ['regular', 'postseason'];
+
+  // Precedence 1: exact child caches (process cache first, then durable). A child
+  // key IS authoritative, so promote a durable hit into the process cache.
+  const childEntries = new Map<SeasonType, CacheEntry>();
+  for (const seasonType of seasonTypes) {
+    const childKey = `${year}-${week}-${seasonType}`;
+    let child = SCHEDULE_ROUTE_CACHE[childKey];
+    if (!child) {
+      const stored = await getAppState<CacheEntry>('schedule', childKey);
+      if (stored?.value) {
+        child = stored.value;
+        SCHEDULE_ROUTE_CACHE[childKey] = child;
+      }
+    }
+    if (child) childEntries.set(seasonType, child);
+  }
+
+  // Precedence 2: legacy aggregate, consulted (durable-only) ONLY when a child is
+  // missing. Never written to the process cache and never mutated here.
+  let legacy: CacheEntry | undefined;
+  if (seasonTypes.some((seasonType) => !childEntries.has(seasonType))) {
+    legacy = (await getAppState<CacheEntry>('schedule', `${year}-${week}-all`))?.value ?? undefined;
+  }
+
+  const resolutions: Array<{ source: 'child' | 'legacy'; entry: CacheEntry }> = [];
+  for (const seasonType of seasonTypes) {
+    const child = childEntries.get(seasonType);
+    if (child) {
+      resolutions.push({ source: 'child', entry: child });
+      continue;
+    }
+    if (legacy) {
+      resolutions.push({
+        source: 'legacy',
+        entry: {
+          at: legacy.at,
+          items: legacyPartitionRows(legacy.items, seasonType),
+          partialFailure: legacy.partialFailure,
+          // Only carry the legacy aggregate's failure metadata for the partition
+          // it is actually covering here.
+          failedSeasonTypes: legacy.failedSeasonTypes.filter((s) => s === seasonType),
+        },
+      });
+    }
+    // else: partition absent — contributes no rows.
+  }
+
+  if (resolutions.length === 0) return null;
+
+  const items = resolutions
+    .flatMap((r) => r.entry.items)
+    .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
+
+  return {
+    entry: {
+      at: Math.min(...resolutions.map((r) => r.entry.at)),
+      items,
+      partialFailure: resolutions.some((r) => r.entry.partialFailure),
+      failedSeasonTypes: Array.from(new Set(resolutions.flatMap((r) => r.entry.failedSeasonTypes))),
+    },
+    sources: resolutions.map((r) => r.source),
+  };
+}
+
 async function fetchSeasonType(params: {
   year: number;
   week: number | null;
@@ -309,13 +418,24 @@ async function refreshScheduleWeekPartition(params: {
   }
 
   if (fetched.items.length === 0) {
-    // Classify the empty result against THIS child's prior durable rows (the same
-    // shared policy as the single-target flow): a valid absence is a no-op; an
-    // empty replacement over a populated prior-good child is rejected.
+    // Classify the empty result against this partition's prior durable rows (the
+    // same shared policy as the single-target flow): a valid absence is a no-op;
+    // an empty replacement over a populated prior-good partition is rejected. The
+    // prior-good rows are whichever the composed read would serve: the exact child
+    // key if present, else the matching partition of the legacy `${year}-${week}-all`
+    // aggregate. Consulting the legacy aggregate is essential — a child key absent
+    // post-split does NOT mean the partition had no prior-good games; the pre-split
+    // aggregate may still carry them, so a provider [] over legacy-covered games is
+    // an unexpected empty replacement (recorded failure), not a valid no-op.
     let priorDurableRows: number;
     try {
       const prior = await getAppState<CacheEntry>('schedule', childCacheKey);
-      priorDurableRows = prior?.value?.items?.length ?? 0;
+      let priorRows = prior?.value?.items?.length ?? 0;
+      if (priorRows === 0) {
+        const legacy = await getAppState<CacheEntry>('schedule', `${year}-${week}-all`);
+        priorRows = legacy?.value ? legacyPartitionRows(legacy.value.items, seasonType).length : 0;
+      }
+      priorDurableRows = priorRows;
     } catch (readError) {
       await recordProviderRefreshFailure('schedule', childScope, {
         attempt,
@@ -431,46 +551,90 @@ export async function GET(req: Request) {
   const isAdmin = !adminAuthFailure;
   if (bypassCache && adminAuthFailure) return adminAuthFailure;
 
-  const hit = SCHEDULE_ROUTE_CACHE[cacheKey];
-  if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
-    recordRouteCacheHit('schedule');
-    return NextResponse.json<ScheduleResponse>({
-      items: hit.items,
-      meta: {
-        source: 'cfbd',
-        cache: 'hit',
-        fallbackUsed: false,
-        generatedAt: new Date(hit.at).toISOString(),
-        partialFailure: hit.partialFailure,
-        ...(hit.failedSeasonTypes.length > 0 ? { failedSeasonTypes: hit.failedSeasonTypes } : {}),
-      },
-    });
-  }
+  // `week + all` (a specific week with no season type) spans two week partitions
+  // and has no single authoritative aggregate cache entry. It is served by COMPOSING
+  // the exact regular/postseason child caches at read time, with the legacy
+  // `${year}-${week}-all` aggregate as a read-only compatibility fallback — so the
+  // generic single-key cache path is skipped for this shape.
+  const isWeekAll = week != null && requestedSeasonType === 'all';
 
-  if (!bypassCache) {
-    const stored = await getAppState<CacheEntry>('schedule', cacheKey);
-    const storedValue = stored?.value;
-    if (storedValue && isFreshScheduleCacheEntry(storedValue, now)) {
-      SCHEDULE_ROUTE_CACHE[cacheKey] = storedValue;
-      pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
+  if (isWeekAll) {
+    if (!bypassCache) {
+      const composed = await readComposedWeekAllEntry({ year, week });
+      if (composed) {
+        pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
+        const { entry } = composed;
+        if (isFreshScheduleCacheEntry(entry, now)) {
+          recordRouteCacheHit('schedule');
+          return NextResponse.json<ScheduleResponse>({
+            items: entry.items,
+            meta: {
+              source: 'cfbd',
+              cache: 'hit',
+              fallbackUsed: false,
+              generatedAt: new Date(entry.at).toISOString(),
+              partialFailure: entry.partialFailure,
+              ...(entry.failedSeasonTypes.length > 0
+                ? { failedSeasonTypes: entry.failedSeasonTypes }
+                : {}),
+            },
+          });
+        }
+        // Composed view exists but is stale (its oldest partition is past TTL).
+        // Non-admins get the stale rows flagged for rebuild (mirroring the single-key
+        // stale path); admins fall through to refresh the underlying children.
+        if (!isAdmin) {
+          recordRouteCacheHit('schedule');
+          return NextResponse.json<ScheduleResponse>({
+            items: entry.items,
+            meta: {
+              source: 'cfbd',
+              cache: 'hit',
+              fallbackUsed: false,
+              generatedAt: new Date(entry.at).toISOString(),
+              partialFailure: entry.partialFailure,
+              stale: true,
+              rebuildRequired: true,
+              ...(entry.failedSeasonTypes.length > 0
+                ? { failedSeasonTypes: entry.failedSeasonTypes }
+                : {}),
+            },
+          });
+        }
+      } else if (!isAdmin) {
+        // Full miss: neither child cache nor legacy aggregate covers either partition.
+        return NextResponse.json(
+          {
+            error:
+              'schedule cache miss: admin refresh required (retry with bypassCache=1 and admin token)',
+          },
+          { status: 503 }
+        );
+      }
+    }
+    // bypassCache, or admin with a stale/absent composed view → fall through to the
+    // per-child refresh branch below.
+  } else {
+    const hit = SCHEDULE_ROUTE_CACHE[cacheKey];
+    if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
-        items: storedValue.items,
+        items: hit.items,
         meta: {
           source: 'cfbd',
           cache: 'hit',
           fallbackUsed: false,
-          generatedAt: new Date(storedValue.at).toISOString(),
-          partialFailure: storedValue.partialFailure,
-          ...(storedValue.failedSeasonTypes.length > 0
-            ? { failedSeasonTypes: storedValue.failedSeasonTypes }
-            : {}),
+          generatedAt: new Date(hit.at).toISOString(),
+          partialFailure: hit.partialFailure,
+          ...(hit.failedSeasonTypes.length > 0 ? { failedSeasonTypes: hit.failedSeasonTypes } : {}),
         },
       });
     }
 
-    if (!isAdmin) {
-      if (storedValue) {
+    if (!bypassCache) {
+      const stored = await getAppState<CacheEntry>('schedule', cacheKey);
+      const storedValue = stored?.value;
+      if (storedValue && isFreshScheduleCacheEntry(storedValue, now)) {
         SCHEDULE_ROUTE_CACHE[cacheKey] = storedValue;
         pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
         recordRouteCacheHit('schedule');
@@ -482,8 +646,6 @@ export async function GET(req: Request) {
             fallbackUsed: false,
             generatedAt: new Date(storedValue.at).toISOString(),
             partialFailure: storedValue.partialFailure,
-            stale: true,
-            rebuildRequired: true,
             ...(storedValue.failedSeasonTypes.length > 0
               ? { failedSeasonTypes: storedValue.failedSeasonTypes }
               : {}),
@@ -491,13 +653,36 @@ export async function GET(req: Request) {
         });
       }
 
-      return NextResponse.json(
-        {
-          error:
-            'schedule cache miss: admin refresh required (retry with bypassCache=1 and admin token)',
-        },
-        { status: 503 }
-      );
+      if (!isAdmin) {
+        if (storedValue) {
+          SCHEDULE_ROUTE_CACHE[cacheKey] = storedValue;
+          pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
+          recordRouteCacheHit('schedule');
+          return NextResponse.json<ScheduleResponse>({
+            items: storedValue.items,
+            meta: {
+              source: 'cfbd',
+              cache: 'hit',
+              fallbackUsed: false,
+              generatedAt: new Date(storedValue.at).toISOString(),
+              partialFailure: storedValue.partialFailure,
+              stale: true,
+              rebuildRequired: true,
+              ...(storedValue.failedSeasonTypes.length > 0
+                ? { failedSeasonTypes: storedValue.failedSeasonTypes }
+                : {}),
+            },
+          });
+        }
+
+        return NextResponse.json(
+          {
+            error:
+              'schedule cache miss: admin refresh required (retry with bypassCache=1 and admin token)',
+          },
+          { status: 503 }
+        );
+      }
     }
   }
 
@@ -511,7 +696,7 @@ export async function GET(req: Request) {
   // preserved; only the durable refresh status is partition-specific. The
   // full-year (week === null && all) and single-partition forms are unchanged and
   // continue on the single-scope path below.
-  if (week != null && requestedSeasonType === 'all') {
+  if (isWeekAll) {
     const childSeasonTypes: SeasonType[] = ['regular', 'postseason'];
     const outcomes = await Promise.all(
       childSeasonTypes.map((seasonType) =>
@@ -560,52 +745,18 @@ export async function GET(req: Request) {
     }
 
     // Every applicable child committed or was a valid no-op — serve the combined
-    // rows (empty when both partitions were valid no-ops). Each child owns only
-    // its own week-partition status; no broader status rollup is written.
+    // rows (empty when both partitions were valid no-ops). Each child owns only its
+    // own week-partition status; no broader status rollup is written. Each
+    // committed child already persisted its OWN authoritative `${year}-${week}-${seasonType}`
+    // cache and its OWN week-partition status. We deliberately do NOT materialize a
+    // combined `${year}-${week}-all` entry: the cache-only read path COMPOSES the
+    // aggregate from those child caches at read time (`readComposedWeekAllEntry`), so
+    // maintaining a second derived copy here would only reintroduce the data-loss /
+    // staleness the composition removes. This response body is derived from the same
+    // child commits the composed read will serve.
     const items = committed
       .flatMap((o) => o.items)
       .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
-
-    if (committed.length > 0) {
-      // Persist the combined AGGREGATE cache entry under the established
-      // `${year}-${week}-all` key (`cacheKey`), so the cache-only read path — which
-      // loads exactly that key — reflects this refresh instead of returning a 503 /
-      // stale entry (WEEK-ALL-AGGREGATE-CACHE remediation). This entry is a READ
-      // CONTRACT artifact only; it carries NO provider-refresh status (status stays
-      // child-scoped). Written durable-first and ONLY after all applicable children
-      // resolved WITHOUT failure (the partial-failure branch above already returned),
-      // so a partial result can never replace prior-good aggregate data. Its rows are
-      // exactly the canonical rows the children committed — no second normalization.
-      const aggregateEntry: CacheEntry = {
-        at: now,
-        items,
-        partialFailure: false,
-        failedSeasonTypes: [],
-      };
-      try {
-        await setAppState('schedule', cacheKey, aggregateEntry);
-      } catch (aggregateError) {
-        // Provider fetch + both child commits succeeded, but persisting the DERIVED
-        // aggregate cache failed. Do NOT roll back the child caches or rewrite their
-        // (successful) statuses, and do NOT synthesize a child provider failure — the
-        // provider work succeeded. A failed durable write does not replace the
-        // prior-good aggregate entry. Surface a truthful aggregate cache-commit
-        // failure through the route's established error path.
-        return NextResponse.json(
-          {
-            error: 'schedule week+all aggregate cache commit failed',
-            detail: {
-              code: 'schedule-week-all-aggregate-cache-commit-failed',
-              committedSeasonTypes: committed.map((c) => c.seasonType),
-              message: aggregateError instanceof Error ? aggregateError.message : 'unknown error',
-            },
-          },
-          { status: 500 }
-        );
-      }
-      SCHEDULE_ROUTE_CACHE[cacheKey] = aggregateEntry;
-      pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
-    }
 
     return NextResponse.json<ScheduleResponse>({
       items,

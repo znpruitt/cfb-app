@@ -720,35 +720,60 @@ const WA_YEAR = 2027;
 const WA_WEEK = 1;
 const WA_REGULAR = weekPartitionScope(WA_YEAR, WA_WEEK, 'regular');
 const WA_POSTSEASON = weekPartitionScope(WA_YEAR, WA_WEEK, 'postseason');
-// The established aggregate cache key the cache-only read path loads for a
-// week+all request (WEEK-ALL-AGGREGATE-CACHE remediation).
-const WA_AGG_KEY = `${WA_YEAR}-${WA_WEEK}-all`;
+const WA_REGULAR_KEY = `${WA_YEAR}-${WA_WEEK}-regular`;
+const WA_POSTSEASON_KEY = `${WA_YEAR}-${WA_WEEK}-postseason`;
+// The pre-split `${year}-${week}-all` aggregate is now a READ-ONLY legacy
+// compatibility fallback (WEEK-ALL-READ-COMPOSITION remediation): composed reads
+// consult it only for a partition with no exact child cache, and NO code path ever
+// writes, replaces, or deletes it.
+const WA_LEGACY_KEY = `${WA_YEAR}-${WA_WEEK}-all`;
 
-type SeededCacheEntry = {
-  at: number;
-  items: Array<{ id: string; [k: string]: unknown }>;
-  [k: string]: unknown;
-};
-function priorAggregate(id: string, at: number): SeededCacheEntry {
+// A canonical schedule row tagged with its `seasonType` — the field composition
+// partitions the legacy aggregate by (never a raw provider label).
+function scheduleRow(id: string, seasonType: 'regular' | 'postseason') {
   return {
+    id,
+    week: WA_WEEK,
+    startDate:
+      seasonType === 'postseason' ? '2027-12-31T00:00:00.000Z' : '2027-09-01T00:00:00.000Z',
+    neutralSite: false,
+    conferenceGame: false,
+    homeTeam: `${id}-home`,
+    awayTeam: `${id}-away`,
+    homeConference: 'X',
+    awayConference: 'Y',
+    status: 'scheduled',
+    seasonType,
+  };
+}
+
+// Seed a durable child cache for one partition (the authoritative post-split source).
+function seedChild(seasonType: 'regular' | 'postseason', ids: string[], at: number = Date.now()) {
+  return setAppState('schedule', `${WA_YEAR}-${WA_WEEK}-${seasonType}`, {
     at,
-    items: [
-      {
-        id,
-        week: WA_WEEK,
-        startDate: '2027-01-01T00:00:00.000Z',
-        neutralSite: false,
-        conferenceGame: false,
-        homeTeam: 'Old',
-        awayTeam: 'Prior',
-        homeConference: 'X',
-        awayConference: 'Y',
-        status: 'scheduled',
-      },
-    ],
+    items: ids.map((id) => scheduleRow(id, seasonType)),
     partialFailure: false,
     failedSeasonTypes: [],
-  };
+  });
+}
+
+// Seed a pre-split `${year}-${week}-all` aggregate holding rows for BOTH partitions,
+// tagged by canonical `seasonType` — the legacy read-only fallback.
+function seedLegacyAggregate(
+  rows: Array<{ id: string; seasonType: 'regular' | 'postseason' }>,
+  at: number = Date.now()
+) {
+  return setAppState('schedule', WA_LEGACY_KEY, {
+    at,
+    items: rows.map((r) => scheduleRow(r.id, r.seasonType)),
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+}
+
+// A cache-only (no bypassCache) week+all read — the composition read path.
+function weekAllCacheOnlyRequest() {
+  return new Request(`http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}`);
 }
 
 // Per-partition mock for a week+all refresh. 'ok' → one mappable game, 'empty' →
@@ -799,7 +824,7 @@ function weekAllRequest() {
   return new Request(`http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}&bypassCache=1`);
 }
 
-test('week+all: both partitions succeed → independent week-partition successes, no rollup', async () => {
+test('week+all: both partitions succeed → independent child commits, no rollup, no materialized aggregate', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   setWeekAllMock({ regular: 'ok', postseason: 'ok' });
   const res = await GET(weekAllRequest());
@@ -817,29 +842,41 @@ test('week+all: both partitions succeed → independent week-partition successes
   const yr = await getProviderRefreshStatus('schedule', yearScope(WA_YEAR));
   assert.equal(yr.latestAttemptOutcome, null, 'no year rollup is written by a week refresh');
 
-  // The combined AGGREGATE cache entry is persisted under the read-path key — it is
-  // a read-contract artifact only, with NO provider-refresh status of its own.
-  const agg = await getAppState<{ items: unknown[] }>('schedule', WA_AGG_KEY);
-  assert.equal(agg?.value.items.length, 2, 'the aggregate cache entry carries both partitions');
+  // Each child persisted its OWN authoritative cache key; NO combined
+  // `${year}-${week}-all` aggregate is materialized (read-time composition only).
+  const regChild = await getAppState<{ items: unknown[] }>('schedule', WA_REGULAR_KEY);
+  const postChild = await getAppState<{ items: unknown[] }>('schedule', WA_POSTSEASON_KEY);
+  assert.equal(regChild?.value.items.length, 1, 'regular child cache persisted');
+  assert.equal(postChild?.value.items.length, 1, 'postseason child cache persisted');
+  assert.equal(
+    await getAppState('schedule', WA_LEGACY_KEY),
+    null,
+    'no materialized `${year}-${week}-all` aggregate entry is written'
+  );
 
-  // A cache-only read (no bypassCache) now serves the refreshed aggregate WITHOUT
-  // any provider call — the read contract the split path had regressed is restored.
+  // A cache-only read (no bypassCache) COMPOSES the aggregate from the child caches
+  // WITHOUT any provider call — the read contract the split path regressed, restored
+  // without a second authoritative copy.
   setMockFetch(async () => {
     throw new Error('cache-only week+all read must not call upstream');
   });
-  const cached = await GET(
-    new Request(`http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}`)
-  );
+  const cached = await GET(weekAllCacheOnlyRequest());
   assert.equal(cached.status, 200);
   const cachedJson = await cached.json();
-  assert.equal(cachedJson.items.length, 2, 'the refreshed aggregate is served from cache');
+  assert.equal(cachedJson.items.length, 2, 'the composed read serves both child partitions');
   assert.equal(cachedJson.meta.cache, 'hit');
 });
 
-test('week+all: regular succeeds while postseason fails → independent records, prior aggregate retained', async () => {
+test('week+all: regular succeeds while postseason fails → independent records, legacy aggregate untouched', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
-  // Prior-good aggregate cache exists; a partial failure must NOT replace it.
-  await setAppState('schedule', WA_AGG_KEY, priorAggregate('prior', Date.now() - 1000));
+  // A legacy aggregate exists; a partial failure must NOT mutate or replace it.
+  await seedLegacyAggregate(
+    [
+      { id: 'leg-reg', seasonType: 'regular' },
+      { id: 'leg-post', seasonType: 'postseason' },
+    ],
+    Date.now() - 1000
+  );
   setWeekAllMock({ regular: 'ok', postseason: 'fail' });
   const res = await GET(weekAllRequest());
   assert.notEqual(res.status, 200, 'a partition failure fails the aggregate action');
@@ -855,16 +892,12 @@ test('week+all: regular succeeds while postseason fails → independent records,
   assert.equal(reg.lastError, null);
   assert.equal(post.latestAttemptOutcome, 'failed', 'postseason owns its own failure');
 
-  // The prior-good aggregate cache is retained — no partial (regular-only) overwrite.
-  const agg = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_AGG_KEY);
-  assert.equal(
-    agg?.value.items[0]?.id,
-    'prior',
-    'a partial child failure does not replace the prior-good aggregate entry'
-  );
+  // The legacy aggregate is a read-only fallback — never mutated by a refresh.
+  const legacy = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_LEGACY_KEY);
+  assert.equal(legacy?.value.items.length, 2, 'the legacy aggregate is untouched by the refresh');
 });
 
-test('week+all: a valid-empty postseason is a no-op, not a failure; regular still succeeds', async () => {
+test('week+all: a valid-empty postseason (no prior rows anywhere) is a no-op, not a failure', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   setWeekAllMock({ regular: 'ok', postseason: 'empty' });
   const res = await GET(weekAllRequest());
@@ -878,15 +911,46 @@ test('week+all: a valid-empty postseason is a no-op, not a failure; regular stil
   assert.equal(
     post.latestAttemptOutcome,
     'no-op',
-    'an inapplicable postseason week is a truthful no-op, not a failure'
+    'an inapplicable postseason week with no prior-good rows is a truthful no-op'
   );
 
-  // The aggregate cache is written from the only applicable (regular) child.
-  const agg = await getAppState<{ items: unknown[] }>('schedule', WA_AGG_KEY);
+  // The empty postseason wrote no child cache; only the applicable regular child is
+  // persisted, and no aggregate is materialized.
+  assert.equal(await getAppState('schedule', WA_POSTSEASON_KEY), null, 'empty writes no child');
   assert.equal(
-    agg?.value.items.length,
-    1,
-    'the aggregate is written from the applicable child rows'
+    (await getAppState<{ items: unknown[] }>('schedule', WA_REGULAR_KEY))?.value.items.length,
+    1
+  );
+  assert.equal(await getAppState('schedule', WA_LEGACY_KEY), null);
+});
+
+test('week+all: a provider [] for a partition covered ONLY by the legacy aggregate is an empty replacement, not a no-op', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  // Pre-split aggregate carries postseason games; NO postseason child key exists.
+  // A provider [] would drop those legacy-covered games on the composed read, so it
+  // must be classified as an unexpected empty replacement (recorded failure), NOT a
+  // valid no-op — the empty-classification consults the legacy aggregate as prior-good.
+  await seedLegacyAggregate([
+    { id: 'leg-reg', seasonType: 'regular' },
+    { id: 'leg-post', seasonType: 'postseason' },
+  ]);
+  setWeekAllMock({ regular: 'ok', postseason: 'empty' });
+  const res = await GET(weekAllRequest());
+  assert.notEqual(res.status, 200, 'an empty over legacy-covered games fails the aggregate action');
+
+  const post = await getProviderRefreshStatus('schedule', WA_POSTSEASON);
+  assert.equal(
+    post.latestAttemptOutcome,
+    'failed',
+    'a [] over legacy-covered postseason games is a failure, not a silent no-op'
+  );
+
+  // No data loss: the legacy aggregate is retained, so a composed read still serves
+  // the legacy postseason rows (and the freshly committed regular child).
+  const legacy = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_LEGACY_KEY);
+  assert.ok(
+    legacy?.value.items.some((i) => i.id === 'leg-post'),
+    'the legacy postseason rows are retained (never dropped by the failed empty)'
   );
 });
 
@@ -934,6 +998,54 @@ test('week+all: a later regular-only week refresh updates its own scope, not the
   );
 });
 
+test('week+all: a targeted regular-only repair is immediately reflected by the composed read (no stale aggregate)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  // An initial week+all refresh commits both children (regular id 11, postseason id 91).
+  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
+  await GET(weekAllRequest());
+
+  // A targeted regular-only repair commits NEW regular rows (id 777).
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    assert.equal(
+      url.searchParams.get('seasonType'),
+      'regular',
+      'only the regular child is repaired'
+    );
+    return new Response(
+      JSON.stringify([
+        {
+          week: WA_WEEK,
+          home_team: 'Repaired',
+          away_team: 'Team',
+          id: 777,
+          start_date: '2027-09-03T00:00:00Z',
+        },
+      ]),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+  const repair = await GET(
+    new Request(
+      `http://localhost/api/schedule?year=${WA_YEAR}&week=${WA_WEEK}&seasonType=regular&bypassCache=1`
+    )
+  );
+  assert.equal(repair.status, 200);
+
+  // A cache-only week+all read must serve the REPAIRED regular rows (777) plus the
+  // unchanged postseason child (91) — never a pre-repair aggregate snapshot (the v3
+  // materialized-aggregate staleness this remediation removes).
+  setMockFetch(async () => {
+    throw new Error('coherent composed read must not call upstream');
+  });
+  const composed = await GET(weekAllCacheOnlyRequest());
+  assert.equal(composed.status, 200);
+  const ids = (await composed.json()).items.map((i: { id: string }) => i.id);
+  assert.ok(ids.includes('777'), 'the composed read reflects the repaired regular child');
+  assert.ok(ids.includes('91'), 'the postseason child is retained');
+  assert.ok(!ids.includes('11'), 'the pre-repair regular rows are gone');
+});
+
 test('week+all: explicit seasonType=all with a week behaves the same as the omitted form', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   setWeekAllMock({ regular: 'ok', postseason: 'ok' });
@@ -953,7 +1065,7 @@ test('week+all: explicit seasonType=all with a week behaves the same as the omit
   );
 });
 
-test('week+all: both partitions empty → aggregate no-op response, no rollup', async () => {
+test('week+all: both partitions empty → no-op response, no rollup, no child/aggregate writes', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   setWeekAllMock({ regular: 'empty', postseason: 'empty' });
   const res = await GET(weekAllRequest());
@@ -974,76 +1086,117 @@ test('week+all: both partitions empty → aggregate no-op response, no rollup', 
     'no year rollup'
   );
 
-  // Both partitions were valid no-ops with no rows — no misleading empty aggregate
-  // entry is written (prior-good, if any, is preserved).
-  assert.equal(
-    await getAppState('schedule', WA_AGG_KEY),
-    null,
-    'a both-empty no-op writes no aggregate cache entry'
-  );
+  // Both partitions were valid no-ops — no child caches and no aggregate are written.
+  assert.equal(await getAppState('schedule', WA_REGULAR_KEY), null);
+  assert.equal(await getAppState('schedule', WA_POSTSEASON_KEY), null);
+  assert.equal(await getAppState('schedule', WA_LEGACY_KEY), null);
 });
 
-test('week+all: a successful refresh replaces a STALE aggregate cache entry', async () => {
+// ---------------------------------------------------------------------------
+// WEEK-ALL-READ-COMPOSITION — cache-only week+all reads COMPOSE from the exact
+// child partitions, falling back to the legacy aggregate only for a partition with
+// no child cache. The materialized `${year}-${week}-all` aggregate is gone.
+// ---------------------------------------------------------------------------
+
+test('week+all: a pre-split legacy aggregate with no child caches is served via read-time composition', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
-  await setAppState(
-    'schedule',
-    WA_AGG_KEY,
-    priorAggregate('stale', Date.now() - 10 * 60 * 60 * 1000)
-  );
-  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
-  const res = await GET(weekAllRequest());
+  await seedLegacyAggregate([
+    { id: 'leg-reg', seasonType: 'regular' },
+    { id: 'leg-post', seasonType: 'postseason' },
+  ]);
+  setMockFetch(async () => {
+    throw new Error('composed legacy read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
   assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.meta.cache, 'hit');
+  assert.equal(json.items.length, 2, 'both legacy partitions are composed into the response');
 
-  const agg = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_AGG_KEY);
-  assert.equal(
-    agg?.value.items.length,
-    2,
-    'the stale aggregate is replaced with the refreshed rows'
-  );
-  assert.ok(
-    !agg?.value.items.some((i) => i.id === 'stale'),
-    'no stale row survives the successful refresh'
+  // The legacy aggregate is a read-only fallback — never mutated or promoted by a read.
+  const legacy = await getAppState<{ items: unknown[] }>('schedule', WA_LEGACY_KEY);
+  assert.equal(legacy?.value.items.length, 2, 'the legacy aggregate is untouched by the read');
+});
+
+test('week+all: an exact child cache takes precedence over legacy aggregate rows for the same partition', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  // Legacy has both partitions; a fresh regular CHILD supersedes the legacy regular.
+  await seedLegacyAggregate([
+    { id: 'leg-reg', seasonType: 'regular' },
+    { id: 'leg-post', seasonType: 'postseason' },
+  ]);
+  await seedChild('regular', ['child-reg']);
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const ids = (await res.json()).items.map((i: { id: string }) => i.id).sort();
+  // regular from the CHILD (not 'leg-reg'); postseason falls back to legacy.
+  assert.deepEqual(ids, ['child-reg', 'leg-post']);
+});
+
+test('week+all: composes truthfully with only one partition cached (incomplete coverage)', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  await seedChild('regular', ['solo-reg']);
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.meta.cache, 'hit');
+  assert.deepEqual(
+    json.items.map((i: { id: string }) => i.id),
+    ['solo-reg'],
+    'only the cached regular partition is served; the absent postseason contributes nothing'
   );
 });
 
-test('week+all: an aggregate cache-commit failure keeps child successes and retains prior aggregate', async () => {
+test('week+all: a full miss (no child, no legacy) blocks non-admin reads with 503', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
-  // Prior-good aggregate to prove a failed aggregate write does not replace it.
-  await setAppState('schedule', WA_AGG_KEY, priorAggregate('prior', Date.now() - 1000));
-  setWeekAllMock({ regular: 'ok', postseason: 'ok' });
-  // Fail ONLY the aggregate key write; the child-key commits still succeed.
-  __setAppStateWriteFailureForTests(new Error('aggregate disk full'), 'schedule', WA_AGG_KEY);
-  let res: Response;
-  try {
-    res = await GET(weekAllRequest());
-  } finally {
-    __setAppStateWriteFailureForTests(null);
-  }
-  assert.equal(res.status, 500);
-  const body = (await res.json()) as { detail?: { code?: string } };
-  assert.equal(body.detail?.code, 'schedule-week-all-aggregate-cache-commit-failed');
+  process.env.ADMIN_API_TOKEN = 'admin-token'; // make the anonymous read non-admin
+  setMockFetch(async () => {
+    throw new Error('non-admin full-miss read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 503);
+  assert.match(String((await res.json()).error ?? ''), /admin refresh required/i);
+});
 
-  // The provider work succeeded — children stay committed + successful, NOT rolled
-  // back and NOT rewritten as failed.
-  assert.equal(
-    (await getProviderRefreshStatus('schedule', WA_REGULAR)).latestAttemptOutcome,
-    'succeeded'
-  );
-  assert.equal(
-    (await getProviderRefreshStatus('schedule', WA_POSTSEASON)).latestAttemptOutcome,
-    'succeeded'
-  );
-  const regChild = await getAppState<{ items: unknown[] }>(
-    'schedule',
-    `${WA_YEAR}-${WA_WEEK}-regular`
-  );
-  assert.equal(regChild?.value.items.length, 1, 'the regular child cache remains committed');
+test('week+all: a stale composed view is served to non-admins flagged for rebuild', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  const staleAt = Date.now() - 10 * 60 * 60 * 1000;
+  await seedChild('regular', ['stale-reg'], staleAt);
+  await seedChild('postseason', ['stale-post'], staleAt);
+  setMockFetch(async () => {
+    throw new Error('stale non-admin read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
+  assert.equal(json.meta.cache, 'hit');
+  assert.equal(json.meta.stale, true);
+  assert.equal(json.meta.rebuildRequired, true);
+  assert.equal(json.items.length, 2);
+});
 
-  // The prior-good aggregate entry is retained (a failed write does not replace it).
-  const agg = await getAppState<{ items: Array<{ id: string }> }>('schedule', WA_AGG_KEY);
+test('week+all: a fresh partition paired with a stale partition composes to a stale view', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  await seedChild('regular', ['fresh-reg'], Date.now());
+  await seedChild('postseason', ['stale-post'], Date.now() - 10 * 60 * 60 * 1000);
+  setMockFetch(async () => {
+    throw new Error('composed read must not call upstream');
+  });
+  const res = await GET(weekAllCacheOnlyRequest());
+  assert.equal(res.status, 200);
+  const json = await res.json();
   assert.equal(
-    agg?.value.items[0]?.id,
-    'prior',
-    'the prior aggregate entry is not falsely replaced by a failed aggregate write'
+    json.meta.stale,
+    true,
+    'the oldest contributing partition makes the whole composed view stale'
   );
+  assert.equal(json.items.length, 2, 'both partitions are still served');
 });
