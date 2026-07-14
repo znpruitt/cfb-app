@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-07-09
+Last verified: 2026-07-14
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -14,6 +14,28 @@ Supersedes: (none)
 - Add future completed phases/milestones here instead of mixing history into `docs/next-tasks.md`.
 
 ## Completed phases / milestones
+
+### PLATFORM-086A — Provider-Refresh Observability Foundation — Complete
+
+**Status:** Complete. Merged to `main` via PR #391 (`platform/086a-refresh-observability`, merge commit `9da8857`, 2026-07-14). 17 commits with ~10 Codex review/remediation rounds folded in pre-merge.
+**PROMPT_ID(s):** PLATFORM-086A-REFRESH-OBSERVABILITY-v1 (plus the folded remediation prompts — see the PLATFORM-086A entry in `docs/prompt-registry.md` for the full sub-prompt list).
+
+**Goals completed:** The operational foundation for PLATFORM-086 provider automation: durable per-dataset provider-refresh status (scores, schedule, odds, rankings, conferences, game stats) keyed by typed canonical target scopes with per-scope attempt ordering and cross-scope completion-token rejection; durable operator settings (global noncritical provider pause + per-dataset enable/disable); the `/admin/diagnostics` Provider Data Status panel with manual refresh for all six datasets; cache-aware missing-data diagnostics; CFBD quota normalization around the Tier 1 limit (5,000 calls/month); a reusable user-facing freshness label; durable-first provider commits; extensive empty-response/schema-drift classification; and schedule `week + all` read-time cache composition.
+
+**Key outcomes:** CFBD became the sole normal production score provider (automatic ESPN score fallback removed); a failed refresh can never advance last-success or masquerade as another target's status; operators see truthful per-dataset operational state for the selected year. No new cron cadence shipped — automation follows in the revised PLATFORM-086B–I plan (`docs/next-tasks.md`).
+
+**Optional follow-up debt (non-blocking):** seven review findings deliberately deferred at merge, scheduled as PLATFORM-086G (provider-boundary truthfulness), PLATFORM-086H (game-stats recovery), and PLATFORM-086I (settings feedback); PLATFORM-086F diagnostics IA redesign deferred until real automation jobs exist. Scope lesson recorded in `docs/next-tasks.md`: the 77-file / ~11.9k-insertion diff is the named failure case for the campaign's small-PR rule.
+
+### Markdownlint Documentation Tooling — Complete
+
+**Status:** Complete. Merged to `main` via PR #392 (`chore/add-markdownlint`, merge commit `c8b8d12`, 2026-07-14).
+**PROMPT_ID(s):** (operator-driven tooling change; no formal PROMPT_ID)
+
+**Goals completed:** Added `markdownlint-cli2` with a repo config (`.markdownlint-cli2.jsonc`: defaults on; MD013 long lines, MD041 first-line-heading, MD060 table formatting, and MD036 bold-label headings disabled; MD024 duplicate headings allowed under different parent sections), `lint:markdown` / `lint:markdown:fix` scripts, and markdown linting appended to the `lint` and `lint:all` chains. Brought the living Markdown docs to a clean baseline (archives excluded via `#docs/archive/**`).
+
+**Key outcomes:** `npm run lint:markdown` passes repo-wide (0 errors) and now guards documentation changes. One review remediation fixed an autofix-introduced ordered-list numbering regression in `docs/deployment-runbook.md`.
+
+**Optional follow-up debt (non-blocking):** none.
 
 ### Draft Timer Integrity + Server-Authoritative Round Boundaries — Complete
 

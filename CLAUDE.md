@@ -95,7 +95,7 @@ The list below is a **deliberate minimal echo** of the few invariants worth keep
 - **League password access is separate from Clerk/admin authorization.** Clerk provides identity + app roles; the league password gate (`LEAGUE_AUTH_SECRET`) only unlocks a passworded league's pages and grants no role. See `AGENTS.md` → Auth Architecture Invariants and `docs/deployment-runbook.md`.
 - **CSV is not the default current-season ownership path** — draft/team-assignment is; current-season CSV import is explicit admin repair. CSV is never a game-identity source. (See `AGENTS.md` Core rule on CSV — honest transitional state noted there.)
 
-If a proposed solution conflicts with any `AGENTS.md` guardrail, flag it explicitly before proceeding. Quota discipline (CFBD ~1000/mo, Odds ~500/mo, cache-first) and admin-only refresh of season-persistent data also remain binding — see `AGENTS.md`.
+If a proposed solution conflicts with any `AGENTS.md` guardrail, flag it explicitly before proceeding. Quota discipline (CFBD Tier 1 5,000 calls/mo, Odds ~500 credits/mo, cache-first) and admin-only refresh of season-persistent data also remain binding — see `AGENTS.md`.
 
 ---
 

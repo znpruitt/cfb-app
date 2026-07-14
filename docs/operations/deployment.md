@@ -1,7 +1,7 @@
 # Deployment
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-14
 Owner: Project documentation
 Canonical for: high-level deploy/env/auth-secret/cron overview and operational checks
 Supersedes: (none — the detailed step-by-step operator checklist remains [../deployment-runbook.md](../deployment-runbook.md); this doc is the high-level companion)
@@ -17,8 +17,8 @@ Names only — never commit real values; configure them in the hosting platform'
 | Variable | Purpose |
 |----------|---------|
 | `DATABASE_URL` | Postgres connection for the app-state store. Production **requires** it — the store throws (`production-misconfigured`) rather than fall back to the file store. See [../architecture/storage-and-caching.md](../architecture/storage-and-caching.md). |
-| `CFBD_API_KEY` | CFBD provider key (schedule/scores). Quota ~1000/month. |
-| `ODDS_API_KEY` | The Odds API key. Quota ~500/month. |
+| `CFBD_API_KEY` | CFBD provider key (schedule/scores). Quota is tier-derived from the provider-reported patron level (current key: Tier 1 = 5,000 calls/month). |
+| `ODDS_API_KEY` | The Odds API key. Quota ~500 credits/month. |
 | Clerk keys | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY` — identity & app roles. |
 | `CRON_SECRET` | Bearer secret for `/api/cron/*`. Missing → every scheduled run fails closed (`401`), stopping season transition/rollover/stats ingestion. |
 | `LEAGUE_AUTH_SECRET` | HMAC key for the per-league password gate. Required whenever any league sets a password; the gate throws on a missing/empty value. |
