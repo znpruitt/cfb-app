@@ -7,6 +7,7 @@ import {
   type ProviderRefreshStatus,
 } from '../../../lib/server/providerRefreshStatus.ts';
 import { getProviderDatasetDescriptor } from '../../../lib/providerDatasets.ts';
+import { yearScope } from '../../../lib/providerRefreshScope.ts';
 
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 const scores = getProviderDatasetDescriptor('scores');
@@ -14,7 +15,7 @@ const gameStats = getProviderDatasetDescriptor('game-stats');
 const conferences = getProviderDatasetDescriptor('conferences');
 
 function status(overrides: Partial<ProviderRefreshStatus> = {}): ProviderRefreshStatus {
-  return { ...emptyProviderRefreshStatus('scores'), ...overrides };
+  return { ...emptyProviderRefreshStatus('scores', yearScope(2026)), ...overrides };
 }
 
 function summarize(

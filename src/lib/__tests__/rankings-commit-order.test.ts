@@ -10,6 +10,7 @@ import {
   setAppState,
 } from '../server/appStateStore.ts';
 import { getProviderRefreshStatus } from '../server/providerRefreshStatus.ts';
+import { yearScope } from '../providerRefreshScope.ts';
 import type { RankingsResponse } from '../rankings.ts';
 
 // ---------------------------------------------------------------------------
@@ -137,7 +138,7 @@ test('rankings refresh: a missing CFBD key records a failed attempt (rereview fi
     () => loadSeasonRankings(SEASON, { allowRefresh: true }),
     /CFBD_API_KEY missing/
   );
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
 });
@@ -189,7 +190,7 @@ test('rankings refresh: a valid pre-poll empty resolves as a no-op without persi
 
   // Nothing durable was written (no empty "healthy" snapshot).
   assert.equal(await getAppState('rankings', String(SEASON)), null);
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'no-op');
   assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
 });
@@ -210,7 +211,7 @@ test('rankings refresh: an unexpected empty over prior-good preserves it and rec
   const durable = await getAppState<{ response: RankingsResponse }>('rankings', String(SEASON));
   assert.equal(durable?.value?.response?.weeks?.length, 1, 'durable rankings not overwritten');
 
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'rankings-empty-replacement-rejected');
 });
@@ -238,7 +239,7 @@ test('rankings refresh: a drifted regular partition rejects even when postseason
   const durable = await getAppState<{ response: RankingsResponse }>('rankings', String(SEASON));
   assert.equal(durable?.value?.response?.weeks?.length, 1, 'durable rankings not overwritten');
 
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'rankings-partition-schema-drift');
   assert.deepEqual(status.failedPartitions, ['regular']);
@@ -252,7 +253,7 @@ test('rankings refresh: a drifted postseason partition rejects even when regular
     /partition schema drift/
   );
   assert.equal(await getAppState('rankings', String(SEASON)), null, 'nothing committed');
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.deepEqual(status.failedPartitions, ['postseason']);
   // 7th-review finding #3: the outer catch must NOT overwrite the specific code
@@ -268,7 +269,7 @@ test('rankings refresh: both partitions drifting with no prior cache is a failur
     /partition schema drift/
   );
   assert.equal(await getAppState('rankings', String(SEASON)), null, 'nothing committed');
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.deepEqual(status.failedPartitions, ['regular', 'postseason']);
   assert.equal(status.lastError?.code, 'rankings-partition-schema-drift');
@@ -280,7 +281,7 @@ test('rankings refresh: a generic provider failure still records a generic (non-
   global.fetch = (async () =>
     new Response('upstream unavailable', { status: 503 })) as typeof fetch;
   await assert.rejects(() => loadSeasonRankings(SEASON, { allowRefresh: true }));
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.notEqual(status.lastError?.code, 'rankings-partition-schema-drift');
 });
@@ -292,6 +293,6 @@ test('rankings refresh: usable regular + genuinely empty postseason commits succ
   const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
   assert.equal(response.meta.cache, 'miss');
   assert.ok(response.weeks.length >= 1, 'usable regular weeks committed');
-  const status = await getProviderRefreshStatus('rankings');
+  const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'succeeded');
 });

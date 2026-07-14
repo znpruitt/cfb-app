@@ -6,6 +6,7 @@ import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
 import { classifyGameStatsPayload } from '@/lib/gameStats/coverage';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import { weekPartitionScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -130,14 +131,18 @@ export async function GET(req: Request) {
   // attempt before credential validation and the fetch, so a missing-key early
   // return still resolves a recorded failed attempt (rereview finding #5).
   // Success is recorded only after the durable cache write.
-  const attempt = await beginProviderRefreshAttempt('game-stats', {
+  // Manual game-stats refresh targets one (year, week, seasonType) partition: it
+  // records against only that week partition and can never establish full-season
+  // game-stats success.
+  const gameStatsScope = weekPartitionScope(year, week, seasonType);
+  const attempt = await beginProviderRefreshAttempt('game-stats', gameStatsScope, {
     startedAt: new Date().toISOString(),
   });
 
   // Fetch from CFBD
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
-    await recordProviderRefreshFailure('game-stats', {
+    await recordProviderRefreshFailure('game-stats', gameStatsScope, {
       attempt,
       error: 'CFBD_API_KEY not configured',
       code: 'cfbd-api-key-missing',
@@ -162,7 +167,7 @@ export async function GET(req: Request) {
     // preserved), and only a payload with ≥1 usable row commits.
     const classification = classifyGameStatsPayload(rawGames, week, seasonType);
     if (classification.kind === 'noop') {
-      await recordProviderRefreshNoop('game-stats', { attempt, source: 'cfbd' });
+      await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });
       return NextResponse.json({
         year,
         week,
@@ -173,7 +178,7 @@ export async function GET(req: Request) {
       });
     }
     if (classification.kind === 'no-usable-rows') {
-      await recordProviderRefreshFailure('game-stats', {
+      await recordProviderRefreshFailure('game-stats', gameStatsScope, {
         attempt,
         error: 'provider returned rows but none normalized to a usable game stat',
         code: 'game-stats-no-usable-rows',
@@ -199,7 +204,7 @@ export async function GET(req: Request) {
     const committedAt = new Date().toISOString();
     const commitSeq = nextProviderCommitSeq();
 
-    await recordProviderRefreshSuccess('game-stats', {
+    await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
       attempt,
       committedAt,
       commitSeq,
@@ -212,7 +217,7 @@ export async function GET(req: Request) {
       meta: { cache: 'miss', source: 'cfbd' },
     });
   } catch (error) {
-    await recordProviderRefreshFailure('game-stats', {
+    await recordProviderRefreshFailure('game-stats', gameStatsScope, {
       attempt,
       error: error instanceof Error ? error.message : 'unknown error',
       status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,

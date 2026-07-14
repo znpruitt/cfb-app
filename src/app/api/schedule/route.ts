@@ -21,6 +21,7 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { yearScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -384,7 +385,10 @@ export async function GET(req: Request) {
   // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
   // (or bypassCache) refresh will fetch upstream. Record the attempt before the
   // fetch; success is recorded only after a durable commit, failure on any 502.
-  const providerAttempt = await beginProviderRefreshAttempt('schedule', {
+  // Schedule status is YEAR-scoped (a 2026 refresh must never affect 2025 status).
+  // Both season-type partitions are fetched under one year target below.
+  const scheduleScope = yearScope(year);
+  const providerAttempt = await beginProviderRefreshAttempt('schedule', scheduleScope, {
     startedAt: new Date(now).toISOString(),
   });
 
@@ -454,7 +458,7 @@ export async function GET(req: Request) {
     // A required-partition failure is a REJECTED refresh (085B/085C): no commit,
     // prior-good durable schedule retained. Record failure so last-success is not
     // advanced and the partial is visible to operators.
-    await recordProviderRefreshFailure('schedule', {
+    await recordProviderRefreshFailure('schedule', scheduleScope, {
       attempt: providerAttempt,
       error:
         firstError instanceof Error
@@ -524,7 +528,7 @@ export async function GET(req: Request) {
       // leaving it permanently `in-progress`, write nothing (prior-good retained),
       // and return the established 502 error. Recording + returning here means no
       // outer catch double-resolves the attempt.
-      await recordProviderRefreshFailure('schedule', {
+      await recordProviderRefreshFailure('schedule', scheduleScope, {
         attempt: providerAttempt,
         error: `schedule ${requestedSeasonType} ${year}: prior durable schedule could not be read while classifying an empty provider response — cannot safely determine prior schedule state (${readError instanceof Error ? readError.message : 'unknown read error'})`,
         code: 'schedule-prior-cache-read-failed',
@@ -547,7 +551,7 @@ export async function GET(req: Request) {
       // (A) Do NOT overwrite prior-good durable schedule and do NOT touch the
       // process cache. Record a failure so `lastSuccessAt` is preserved and the
       // empty replacement is visible to operators.
-      await recordProviderRefreshFailure('schedule', {
+      await recordProviderRefreshFailure('schedule', scheduleScope, {
         attempt: providerAttempt,
         error: `schedule ${requestedSeasonType} ${year}: provider returned zero games while a populated schedule is cached — rejected as an unexpected empty replacement`,
         code: 'schedule-empty-replacement-rejected',
@@ -566,7 +570,7 @@ export async function GET(req: Request) {
     // inapplicable request. Nothing is written (durable prior-good, if any empty
     // record, is untouched; the process cache is not mutated). Record a no-op so
     // `lastSuccessAt` is not advanced with zero rows, and serve an empty success.
-    await recordProviderRefreshNoop('schedule', {
+    await recordProviderRefreshNoop('schedule', scheduleScope, {
       attempt: providerAttempt,
       source: 'cfbd',
       durationMs: Date.now() - now,
@@ -607,7 +611,7 @@ export async function GET(req: Request) {
     // in-progress attempt with no matching outcome, unlike the other instrumented
     // routes. Prior-good durable schedule is preserved (nothing reached the
     // process cache), and no success is recorded.
-    await recordProviderRefreshFailure('schedule', {
+    await recordProviderRefreshFailure('schedule', scheduleScope, {
       attempt: providerAttempt,
       error: commitError instanceof Error ? commitError.message : 'schedule durable commit failed',
       code: 'schedule-durable-commit-failed',
@@ -630,7 +634,7 @@ export async function GET(req: Request) {
   // Durable schedule committed with real rows (all-empty was classified and
   // returned above, so `items.length > 0` here) — record the success. Reaching
   // this point means all requested partitions resolved (085B gate above).
-  await recordProviderRefreshSuccess('schedule', {
+  await recordProviderRefreshSuccess('schedule', scheduleScope, {
     attempt: providerAttempt,
     committedAt,
     commitSeq,

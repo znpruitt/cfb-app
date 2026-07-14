@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats } from '../../../../lib/gameStats/cache.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
+import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const ORIGINAL = {
@@ -65,7 +66,10 @@ test('manual game-stats refresh with a missing CFBD key records a failed attempt
   const body = (await res.json()) as { error: string };
   assert.equal(body.error, 'CFBD_API_KEY not configured');
 
-  const status = await getProviderRefreshStatus('game-stats');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
   assert.equal(
     status.latestAttemptOutcome,
     'failed',
@@ -86,7 +90,10 @@ test('manual refresh: a genuinely empty provider response is a no-op without a d
   assert.equal(body.meta.noApplicableData, true);
 
   assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'no empty record written');
-  const status = await getProviderRefreshStatus('game-stats');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
   assert.equal(status.latestAttemptOutcome, 'no-op');
   assert.equal(status.lastSuccessAt, null);
 });
@@ -102,7 +109,10 @@ test('manual refresh: a nonempty payload with no usable rows resolves as failure
   assert.equal(body.code, 'game-stats-no-usable-rows');
 
   assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'no unusable record written');
-  const status = await getProviderRefreshStatus('game-stats');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'game-stats-no-usable-rows');
 });
@@ -127,6 +137,9 @@ test('manual refresh: a usable payload commits and records success', async () =>
 
   const stored = await getCachedGameStats(2026, 3, 'regular');
   assert.equal(stored?.games.length, 1, 'the usable record is committed');
-  const status = await getProviderRefreshStatus('game-stats');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
   assert.equal(status.latestAttemptOutcome, 'succeeded');
 });

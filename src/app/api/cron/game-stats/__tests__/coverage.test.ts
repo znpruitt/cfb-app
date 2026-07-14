@@ -14,6 +14,7 @@ import {
 import { getCachedGameStats, setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
 import type { GameStats } from '../../../../../lib/gameStats/types.ts';
 import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
+import { weekPartitionScope } from '../../../../../lib/providerRefreshScope.ts';
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const CRON_SECRET = 'test-cron-secret';
@@ -224,7 +225,10 @@ test('a genuinely empty provider response resolves as a no-op without a durable 
   assert.equal(body.gamesProcessed, 0);
 
   assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no empty record written');
-  const status = await getProviderRefreshStatus('game-stats');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(YEAR, WEEK, 'regular')
+  );
   assert.equal(status.latestAttemptOutcome, 'no-op');
   assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
 });
@@ -240,7 +244,10 @@ test('a nonempty payload that normalizes to zero usable rows resolves as failure
   assert.equal(body.error, 'game-stats-no-usable-rows');
 
   assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no unusable record written');
-  const status = await getProviderRefreshStatus('game-stats');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(YEAR, WEEK, 'regular')
+  );
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'game-stats-no-usable-rows');
 });

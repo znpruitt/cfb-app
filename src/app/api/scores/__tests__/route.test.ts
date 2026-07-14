@@ -9,6 +9,7 @@ import {
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
+import { yearScope } from '../../../../lib/providerRefreshScope.ts';
 
 type MockFetch = typeof fetch;
 
@@ -678,7 +679,7 @@ test('aggregate scores refresh: both partitions succeed → success, rows summed
   assert.equal(res.status, 200);
   const json = await res.json();
   assert.equal(json.items.length, 2, 'both partitions contribute rows to one response');
-  const status = await getProviderRefreshStatus('scores');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(status.latestAttemptOutcome, 'succeeded');
   assert.equal(status.rowsCommitted, 2);
 });
@@ -687,7 +688,7 @@ test('aggregate scores refresh: regular success + postseason no-op → success',
   setAggregateMock({ regular: 'ok', postseason: 'empty' });
   const res = await GET(new Request(AGGREGATE_URL));
   assert.equal(res.status, 200);
-  const status = await getProviderRefreshStatus('scores');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(status.latestAttemptOutcome, 'succeeded');
   assert.equal(status.rowsCommitted, 1);
 });
@@ -696,7 +697,7 @@ test('aggregate scores refresh: regular FAILURE + postseason no-op → FAILURE (
   setAggregateMock({ regular: 'fail', postseason: 'empty' });
   const res = await GET(new Request(AGGREGATE_URL));
   assert.notEqual(res.status, 200, 'a partition failure fails the aggregate action');
-  const status = await getProviderRefreshStatus('scores');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(
     status.latestAttemptOutcome,
     'failed',
@@ -710,7 +711,7 @@ test('aggregate scores refresh: regular FAILURE + postseason success → partial
   setAggregateMock({ regular: 'fail', postseason: 'ok' });
   const res = await GET(new Request(AGGREGATE_URL));
   assert.notEqual(res.status, 200);
-  const status = await getProviderRefreshStatus('scores');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(
     status.latestAttemptOutcome,
     'failed',
@@ -724,7 +725,7 @@ test('aggregate scores refresh: both partitions fail → failure listing both pa
   setAggregateMock({ regular: 'fail', postseason: 'fail' });
   const res = await GET(new Request(AGGREGATE_URL));
   assert.notEqual(res.status, 200);
-  const status = await getProviderRefreshStatus('scores');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.deepEqual(status.failedPartitions, ['regular', 'postseason']);
 });
@@ -735,7 +736,7 @@ test('aggregate scores refresh: both partitions empty → aggregate no-op (no co
   assert.equal(res.status, 200);
   const json = await res.json();
   assert.deepEqual(json.items, []);
-  const status = await getProviderRefreshStatus('scores');
+  const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(status.latestAttemptOutcome, 'no-op', 'no partition committed → aggregate no-op');
   assert.equal(status.lastSuccessAt, null);
 });

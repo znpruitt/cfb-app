@@ -9,9 +9,17 @@ import {
   type ProviderDataset,
 } from '@/lib/providerDatasets';
 import {
+  getLegacyProviderRefreshStatus,
   getProviderRefreshStatus,
   type ProviderRefreshStatus,
 } from '@/lib/server/providerRefreshStatus';
+import {
+  globalScope,
+  oddsTargetScope,
+  yearScope,
+  type ProviderRefreshScope,
+} from '@/lib/providerRefreshScope';
+import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import {
   getProviderRefreshSettings,
   setDatasetAutoRefreshEnabled,
@@ -32,10 +40,42 @@ export const dynamic = 'force-dynamic';
 type DatasetRow = {
   dataset: ProviderDataset;
   descriptor: ReturnType<typeof getProviderDatasetDescriptor>;
+  /**
+   * The CANONICAL selected-year (or global) status that drives the dataset card.
+   * Its `scope`/`scopeKey` are self-describing so the client can label what it is
+   * rendering. A targeted partition/filtered-query status never appears here.
+   */
   status: ProviderRefreshStatus;
+  /**
+   * The legacy pre-scoped record keyed only by dataset, exposed for DEEP
+   * DIAGNOSTICS ONLY (requirement 9). Never used as selected-year truth, never
+   * clears a scoped error, never implies scoped cache availability. `null` when no
+   * legacy record exists.
+   */
+  legacyStatus: ProviderRefreshStatus | null;
   setting: { enabled: boolean };
   diagnostics: ProviderDiagnostic[];
 };
+
+/**
+ * The canonical target a dataset CARD reflects for the requested admin year.
+ * Conferences are global reference data; Odds uses the canonical/default cache
+ * target; every other dataset's card reflects the whole-year target (schedule is
+ * genuinely year-scoped; scores/rankings/game-stats show the explicit year ROLLUP,
+ * which only an operation covering the full year target can advance — a single
+ * partition/week never does). A targeted partition/filtered-query status lives
+ * under a different key and can never masquerade as this canonical year status.
+ */
+function canonicalCardScope(dataset: ProviderDataset, year: number): ProviderRefreshScope {
+  switch (dataset) {
+    case 'conferences':
+      return globalScope();
+    case 'odds':
+      return oddsTargetScope(year, 'canonical', defaultOddsCacheKey(year));
+    default:
+      return yearScope(year);
+  }
+}
 
 /**
  * Unified provider-data status feed for the platform-admin panel (PLATFORM-086A).
@@ -63,23 +103,47 @@ export async function GET(req: Request): Promise<Response> {
     // timestamp (4th-review finding #4).
     const oddsUsage = await getLatestKnownOddsUsage({ forceRefresh: true }).catch(() => null);
 
-    const [settings, diagnosticsResult, statuses, cacheStates] = await Promise.all([
+    const [settings, diagnosticsResult, statuses, legacyStatuses, cacheStates] = await Promise.all([
       getProviderRefreshSettings(),
       getProviderDataDiagnostics(year),
-      Promise.all(PROVIDER_DATASETS.map((dataset) => getProviderRefreshStatus(dataset))),
+      // Canonical selected-year (or global) status per dataset. A genuine store
+      // read failure here THROWS → surfaced as a 500 below (never a misleading
+      // "never refreshed"). Reading the canonical scope for the requested year is
+      // what isolates the card from unrelated years/partitions/filtered queries.
+      Promise.all(
+        PROVIDER_DATASETS.map((dataset) =>
+          getProviderRefreshStatus(dataset, canonicalCardScope(dataset, year))
+        )
+      ),
+      // Legacy unscoped records for DEEP DIAGNOSTICS ONLY — best-effort, so a
+      // legacy read failure never sinks the feed and is never selected-year truth.
+      Promise.all(
+        PROVIDER_DATASETS.map((dataset) =>
+          getLegacyProviderRefreshStatus(dataset).catch(() => null)
+        )
+      ),
       // Cache-only availability, so the panel can distinguish "no refresh history"
       // from "no data". A failure of the whole pass degrades to all-unknown rather
       // than sinking the status feed.
       getProviderCacheStates(year).catch(() => unknownProviderCacheStates()),
     ]);
 
-    const rows: DatasetRow[] = PROVIDER_DATASETS.map((dataset, index) => ({
-      dataset,
-      descriptor: getProviderDatasetDescriptor(dataset),
-      status: statuses[index],
-      setting: settings.datasets[dataset],
-      diagnostics: diagnosticsResult.diagnostics.filter((d) => d.dataset === dataset),
-    }));
+    const rows: DatasetRow[] = PROVIDER_DATASETS.map((dataset, index) => {
+      const legacy = legacyStatuses[index];
+      // Expose a legacy record only when one actually exists (has attempt/success
+      // history); an absent legacy record is `null`, not an empty "never refreshed"
+      // shape falsely attributed to the selected year.
+      const legacyStatus =
+        legacy && (legacy.lastAttemptAt != null || legacy.lastSuccessAt != null) ? legacy : null;
+      return {
+        dataset,
+        descriptor: getProviderDatasetDescriptor(dataset),
+        status: statuses[index],
+        legacyStatus,
+        setting: settings.datasets[dataset],
+        diagnostics: diagnosticsResult.diagnostics.filter((d) => d.dataset === dataset),
+      };
+    });
 
     return NextResponse.json({
       generatedAt: new Date().toISOString(),

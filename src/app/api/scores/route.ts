@@ -14,6 +14,7 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { seasonPartitionScope, yearScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -416,12 +417,17 @@ async function handleAggregateScoreRefresh(params: {
       ? explicitSeasonTypes
       : await getApplicableScoreSeasonTypes(year);
 
-  const providerAttempt = await beginProviderRefreshAttempt('scores', {
+  // Aggregate refresh covers the COMPLETE intended year target (every applicable
+  // partition below), so it records the explicit YEAR ROLLUP after deriving a
+  // truthful aggregate outcome. A single partition never advances this rollup
+  // (the per-partition path uses a season-partition scope instead).
+  const scoresYearScope = yearScope(year);
+  const providerAttempt = await beginProviderRefreshAttempt('scores', scoresYearScope, {
     startedAt: new Date(now).toISOString(),
   });
 
   if (cfbdApiKey.length === 0) {
-    await recordProviderRefreshFailure('scores', {
+    await recordProviderRefreshFailure('scores', scoresYearScope, {
       attempt: providerAttempt,
       error: 'CFBD_API_KEY missing',
       code: 'cfbd-api-key-missing',
@@ -459,7 +465,7 @@ async function handleAggregateScoreRefresh(params: {
     // committed). Record ONE failure listing every failed partition; prior-good
     // last-success is preserved and CANNOT be advanced by the committed partition.
     const firstFailure = failures[0]!;
-    await recordProviderRefreshFailure('scores', {
+    await recordProviderRefreshFailure('scores', scoresYearScope, {
       attempt: providerAttempt,
       error: `score refresh failed for partition(s): ${failures.map((f) => f.seasonType).join(', ')}`,
       code: firstFailure.code,
@@ -484,7 +490,7 @@ async function handleAggregateScoreRefresh(params: {
   if (successes.length === 0) {
     // Every applicable partition was a valid empty no-op → aggregate no-op: no
     // commit, prior-good preserved, last-success not advanced.
-    await recordProviderRefreshNoop('scores', {
+    await recordProviderRefreshNoop('scores', scoresYearScope, {
       attempt: providerAttempt,
       source: 'cfbd',
       durationMs,
@@ -501,7 +507,7 @@ async function handleAggregateScoreRefresh(params: {
   // ≥1 partition committed and none failed → aggregate SUCCESS. Order last-success
   // by the newest partition commit (commitSeq is strictly increasing per commit).
   const newest = successes.reduce((a, b) => (b.commitSeq > a.commitSeq ? b : a));
-  await recordProviderRefreshSuccess('scores', {
+  await recordProviderRefreshSuccess('scores', scoresYearScope, {
     attempt: providerAttempt,
     committedAt: newest.committedAt,
     commitSeq: newest.commitSeq,
@@ -669,12 +675,16 @@ export async function GET(req: Request) {
   // direct one-partition repair (or test) stays observable. Begin BEFORE the
   // credential check so a missing-key early return still resolves the attempt
   // (rereview finding #5).
-  const providerAttempt = await beginProviderRefreshAttempt('scores', {
+  // Single-partition repair records against only its (year, seasonType) partition
+  // — never the year rollup, so a targeted one-partition refresh cannot present as
+  // whole-year score freshness.
+  const partitionScope = seasonPartitionScope(year, seasonType);
+  const providerAttempt = await beginProviderRefreshAttempt('scores', partitionScope, {
     startedAt: new Date(now).toISOString(),
   });
 
   if (cfbdApiKey.length === 0) {
-    await recordProviderRefreshFailure('scores', {
+    await recordProviderRefreshFailure('scores', partitionScope, {
       attempt: providerAttempt,
       error: 'CFBD_API_KEY missing',
       code: 'cfbd-api-key-missing',
@@ -701,7 +711,7 @@ export async function GET(req: Request) {
 
   if (result.kind === 'noop') {
     // Valid empty CFBD partition → no-op (prior-good preserved), successful empty.
-    await recordProviderRefreshNoop('scores', {
+    await recordProviderRefreshNoop('scores', partitionScope, {
       attempt: providerAttempt,
       source: 'cfbd',
       durationMs: Date.now() - now,
@@ -718,7 +728,7 @@ export async function GET(req: Request) {
   if (result.kind === 'failure') {
     // CFBD failed (fetch, validation, or durable persistence): prior-good durable
     // cache preserved, failed attempt recorded, failure returned. No ESPN.
-    await recordProviderRefreshFailure('scores', {
+    await recordProviderRefreshFailure('scores', partitionScope, {
       attempt: providerAttempt,
       error: result.error,
       code: result.code,
@@ -735,7 +745,7 @@ export async function GET(req: Request) {
     );
   }
 
-  await recordProviderRefreshSuccess('scores', {
+  await recordProviderRefreshSuccess('scores', partitionScope, {
     attempt: providerAttempt,
     committedAt: result.committedAt,
     commitSeq: result.commitSeq,

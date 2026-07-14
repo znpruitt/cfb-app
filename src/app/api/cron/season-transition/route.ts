@@ -10,6 +10,7 @@ import {
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
+import { yearScope } from '@/lib/providerRefreshScope';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { mapCfbdScheduleGame, type ScheduleItem } from '@/lib/schedule/cfbdSchedule';
 import {
@@ -131,7 +132,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // its probe outcome is still recorded so operators can see when the
         // schedule was last (successfully) refreshed. Multiple probed years in
         // one run are last-write-wins on the shared schedule status key.
-        const scheduleAttempt = await beginProviderRefreshAttempt('schedule', {
+        // Schedule status is YEAR-scoped: this probe records against only the year
+        // it is transitioning (`targetYear`), never a different selected year.
+        const scheduleScope = yearScope(targetYear);
+        const scheduleAttempt = await beginProviderRefreshAttempt('schedule', scheduleScope, {
           startedAt: new Date(nowMs).toISOString(),
         });
 
@@ -154,7 +158,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           // from this fetch. `cached` stays false; the next cron run retries.
           yearResult.partialFailure = true;
           yearResult.failedSeasonTypes = failedSeasonTypes;
-          await recordProviderRefreshFailure('schedule', {
+          await recordProviderRefreshFailure('schedule', scheduleScope, {
             attempt: scheduleAttempt,
             error: `season-transition probe incomplete (missing: ${failedSeasonTypes.join(', ') || 'unknown'})`,
             partialFailure: true,
@@ -186,7 +190,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             // the open attempt as failed rather than letting it dangle
             // `in-progress` when the outer catch returns 500 (rereview finding #2).
             // Prior-good durable schedule is preserved.
-            await recordProviderRefreshFailure('schedule', {
+            await recordProviderRefreshFailure('schedule', scheduleScope, {
               attempt: scheduleAttempt,
               error:
                 persistError instanceof Error
@@ -204,7 +208,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           // that does NOT falsify the schedule commit, so it must not turn this
           // into a "failed" schedule refresh; it propagates to the outer 500
           // handler while the attempt stays truthfully resolved as success.
-          await recordProviderRefreshSuccess('schedule', {
+          await recordProviderRefreshSuccess('schedule', scheduleScope, {
             attempt: scheduleAttempt,
             committedAt,
             commitSeq,
@@ -242,7 +246,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             // `in-progress`, retain prior-good schedule/probe (nothing written), and
             // rethrow to the outer handler's established safe 500 response. The
             // lifecycle transition for this year is skipped.
-            await recordProviderRefreshFailure('schedule', {
+            await recordProviderRefreshFailure('schedule', scheduleScope, {
               attempt: scheduleAttempt,
               error: `season-transition probe for ${targetYear}: prior durable schedule could not be read while classifying an empty provider response — cannot safely determine prior schedule state (${readError instanceof Error ? readError.message : 'unknown read error'})`,
               code: 'schedule-prior-cache-read-failed',
@@ -260,7 +264,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             // valid schedule, so defer the flip to a run where the probe validates.
             yearResult.partialFailure = true;
             transitionBlocked = true;
-            await recordProviderRefreshFailure('schedule', {
+            await recordProviderRefreshFailure('schedule', scheduleScope, {
               attempt: scheduleAttempt,
               error: `season-transition probe returned zero games for ${targetYear} while a populated schedule is cached — rejected as an unexpected empty replacement`,
               code: 'schedule-empty-replacement-rejected',
@@ -270,7 +274,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             // Valid absence (a future season not yet published): leave prior-good
             // durable state untouched and resolve the attempt as a NO-OP so it
             // neither dangles `in-progress` nor advances last-success with zero rows.
-            await recordProviderRefreshNoop('schedule', {
+            await recordProviderRefreshNoop('schedule', scheduleScope, {
               attempt: scheduleAttempt,
               source: 'cfbd',
             });

@@ -10,6 +10,7 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
 import type { ProviderDataset, ProviderDatasetDescriptor } from '@/lib/providerDatasets';
 import type { ProviderCacheAvailability } from '@/lib/server/providerCacheState';
 import type { ProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
+import { describeProviderRefreshScope } from '@/lib/providerRefreshScope';
 import type { ProviderDiagnostic } from '@/lib/server/providerDataDiagnostics';
 import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
 import {
@@ -28,7 +29,10 @@ import { summarizeProviderState, type SummaryTone } from './providerStatusSummar
 type DatasetRow = {
   dataset: ProviderDataset;
   descriptor: ProviderDatasetDescriptor;
+  /** Canonical selected-year (or global) status — the only status the card renders. */
   status: ProviderRefreshStatus;
+  /** Legacy unscoped record for deep diagnostics only; never rendered as card truth. */
+  legacyStatus?: ProviderRefreshStatus | null;
   setting: { enabled: boolean };
   diagnostics: ProviderDiagnostic[];
 };
@@ -435,6 +439,15 @@ export default function ProviderDataStatusPanel({
                     </span>
                     <span className="ml-2 text-[11px] text-gray-400 dark:text-zinc-500">
                       {row.descriptor.provider}
+                    </span>
+                    {/* Canonical target this card reflects (finding: a global or
+                        year-scoped card must not read as owning the year input's
+                        exact partition). Reads from the self-describing status scope. */}
+                    <span
+                      className="ml-2 rounded bg-gray-200 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-zinc-800 dark:text-zinc-400"
+                      title="Canonical refresh target this card reflects"
+                    >
+                      {describeProviderRefreshScope(row.status.scope)}
                     </span>
                     <div className={`text-xs font-medium ${STATE_TONE_CLASS[state.tone]}`}>
                       {state.label}

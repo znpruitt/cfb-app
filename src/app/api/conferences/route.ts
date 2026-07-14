@@ -10,6 +10,7 @@ import {
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { globalScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -138,7 +139,10 @@ export async function GET(req: Request) {
   // refresh was tried (rereview finding #5). Reaching here is always an
   // authorized refresh (bypassCache requires admin; non-admin cache misses
   // returned above).
-  const attempt = await beginProviderRefreshAttempt('conferences', {
+  // Conferences are GLOBAL reference data (no year/partition dimension): every
+  // attempt and outcome records against the single global conferences target.
+  const conferencesScope = globalScope();
+  const attempt = await beginProviderRefreshAttempt('conferences', conferencesScope, {
     startedAt: new Date().toISOString(),
   });
 
@@ -146,7 +150,7 @@ export async function GET(req: Request) {
   if (!cfbdApiKey) {
     // Missing credential: record the failed attempt (prior-good durable snapshot
     // is preserved by the failure helper) and degrade to the bundled snapshot.
-    await recordProviderRefreshFailure('conferences', {
+    await recordProviderRefreshFailure('conferences', conferencesScope, {
       attempt,
       error: 'CFBD_API_KEY missing',
       code: 'cfbd-api-key-missing',
@@ -172,7 +176,7 @@ export async function GET(req: Request) {
     // failure helper preserves last-success/source/rows) and degrades to the bundled
     // snapshot, which `interpretRefreshResponse` reports as a failed refresh.
     if (!Array.isArray(items)) {
-      await recordProviderRefreshFailure('conferences', {
+      await recordProviderRefreshFailure('conferences', conferencesScope, {
         attempt,
         error: 'CFBD conferences response was not an array',
         code: 'conferences-invalid-payload',
@@ -181,7 +185,7 @@ export async function GET(req: Request) {
     }
     const usableItems = items.filter(isUsableConferenceRecord);
     if (usableItems.length === 0) {
-      await recordProviderRefreshFailure('conferences', {
+      await recordProviderRefreshFailure('conferences', conferencesScope, {
         attempt,
         error:
           items.length === 0
@@ -203,7 +207,7 @@ export async function GET(req: Request) {
     const commitSeq = nextProviderCommitSeq();
     setConferencesRouteCache(nextCache);
 
-    await recordProviderRefreshSuccess('conferences', {
+    await recordProviderRefreshSuccess('conferences', conferencesScope, {
       attempt,
       committedAt,
       commitSeq,
@@ -223,7 +227,7 @@ export async function GET(req: Request) {
     // The response gracefully degrades to the bundled snapshot, but the LIVE
     // refresh did fail — record it so operators can see conferences is not
     // refreshing from the provider (prior-good durable snapshot is retained).
-    await recordProviderRefreshFailure('conferences', {
+    await recordProviderRefreshFailure('conferences', conferencesScope, {
       attempt,
       error: error instanceof Error ? error.message : 'conferences refresh failed',
     });

@@ -12,6 +12,53 @@ import {
   setLatestKnownOddsUsage,
 } from '../../../../../lib/server/oddsUsageStore.ts';
 import type { OddsUsageSnapshot } from '../../../../../lib/api/oddsUsage.ts';
+import {
+  beginProviderRefreshAttempt,
+  recordProviderRefreshSuccess,
+} from '../../../../../lib/server/providerRefreshStatus.ts';
+import {
+  globalScope,
+  oddsTargetScope,
+  weekPartitionScope,
+  yearScope,
+  type ProviderRefreshScope,
+} from '../../../../../lib/providerRefreshScope.ts';
+import { defaultOddsCacheKey } from '../../../odds/routeInternals.ts';
+import type { ProviderDataset } from '../../../../../lib/providerDatasets.ts';
+
+type FeedRow = {
+  dataset: string;
+  status: {
+    lastSuccessAt: string | null;
+    latestAttemptOutcome: string | null;
+    source: string | null;
+    rowsCommitted: number | null;
+    scope: ProviderRefreshScope;
+    scopeKey: string;
+  };
+  legacyStatus: { lastSuccessAt: string | null } | null;
+};
+
+async function seedSuccess(
+  dataset: ProviderDataset,
+  scope: ProviderRefreshScope,
+  rows: number
+): Promise<void> {
+  const attempt = await beginProviderRefreshAttempt(dataset, scope, {
+    attemptId: `${dataset}-seed`,
+  });
+  await recordProviderRefreshSuccess(dataset, scope, {
+    attempt,
+    source: 'cfbd',
+    rowsCommitted: rows,
+  });
+}
+
+async function feedRows(year: number): Promise<FeedRow[]> {
+  const res = await GET(getRequest(ADMIN_TOKEN, year));
+  assert.equal(res.status, 200);
+  return ((await res.json()) as { datasets: FeedRow[] }).datasets;
+}
 
 function oddsSnapshot(remaining: number, capturedAt: string): OddsUsageSnapshot {
   return {
@@ -192,6 +239,112 @@ test('GET reflects seeded cached data as available', async () => {
 });
 
 // ---- Rereview finding #4: odds usage is read from durable storage ----
+
+// ---- PLATFORM-086A-SCOPED: selected-year admin feed isolation ----
+
+test('a 2026 schedule success is NOT shown on the 2025 schedule card', async () => {
+  await seedSuccess('schedule', yearScope(2026), 120);
+
+  const rows2025 = await feedRows(2025);
+  const schedule2025 = rows2025.find((r) => r.dataset === 'schedule');
+  assert.equal(schedule2025?.status.lastSuccessAt, null, '2025 has no scoped success');
+  assert.equal(schedule2025?.status.latestAttemptOutcome, null, 'no 2026 outcome leaks to 2025');
+  assert.equal(schedule2025?.status.rowsCommitted, null, 'no 2026 rows leak to 2025');
+  assert.equal(schedule2025?.status.source, null, 'no 2026 source leaks to 2025');
+  assert.equal(
+    schedule2025?.status.scopeKey,
+    'schedule:year:2025',
+    'card reflects the selected year'
+  );
+
+  const rows2026 = await feedRows(2026);
+  const schedule2026 = rows2026.find((r) => r.dataset === 'schedule');
+  assert.equal(
+    schedule2026?.status.lastSuccessAt != null,
+    true,
+    '2026 card shows the 2026 success'
+  );
+  assert.equal(schedule2026?.status.rowsCommitted, 120);
+});
+
+test('a targeted week-3 game-stats success does NOT establish year-wide game-stats success', async () => {
+  await seedSuccess('game-stats', weekPartitionScope(2026, 3, 'regular'), 8);
+
+  const rows = await feedRows(2026);
+  const gameStats = rows.find((r) => r.dataset === 'game-stats');
+  // The game-stats card reflects the year rollup, which a single week never advances.
+  assert.equal(gameStats?.status.lastSuccessAt, null, 'week 3 is not full-season success');
+  assert.equal(gameStats?.status.latestAttemptOutcome, null);
+  assert.equal(gameStats?.status.scopeKey, 'game-stats:year:2026');
+});
+
+test('a filtered odds success does NOT establish canonical odds freshness', async () => {
+  // A filtered variant writes its own target key.
+  await seedSuccess(
+    'odds',
+    oddsTargetScope(2026, 'filtered', '2026:bookmakers=dk|markets=h2h|regions=us'),
+    5
+  );
+
+  const rows = await feedRows(2026);
+  const odds = rows.find((r) => r.dataset === 'odds');
+  assert.equal(
+    odds?.status.lastSuccessAt,
+    null,
+    'canonical odds card is unaffected by a filtered refresh'
+  );
+  assert.equal(odds?.status.scopeKey, `odds:target:2026:canonical:${defaultOddsCacheKey(2026)}`);
+});
+
+test('a canonical odds success DOES show on the canonical odds card', async () => {
+  await seedSuccess('odds', oddsTargetScope(2026, 'canonical', defaultOddsCacheKey(2026)), 9);
+  const rows = await feedRows(2026);
+  const odds = rows.find((r) => r.dataset === 'odds');
+  assert.equal(odds?.status.rowsCommitted, 9, 'the canonical target is reflected');
+});
+
+test('a global conference status is rendered as global (not falsely year-owned) for any year', async () => {
+  await seedSuccess('conferences', globalScope(), 130);
+
+  for (const year of [2025, 2026]) {
+    const rows = await feedRows(year);
+    const conferences = rows.find((r) => r.dataset === 'conferences');
+    assert.deepEqual(
+      conferences?.status.scope,
+      { kind: 'global' },
+      `year ${year} shows global scope`
+    );
+    assert.equal(
+      conferences?.status.rowsCommitted,
+      130,
+      'the global record is reused for every year'
+    );
+  }
+});
+
+test('a legacy unscoped success is not selected-year truth but is exposed as legacyStatus', async () => {
+  await setAppState('provider-refresh-status', 'schedule', {
+    dataset: 'schedule',
+    lastAttemptAt: '2020-01-01T00:00:00.000Z',
+    lastAttemptId: 'legacy',
+    latestAttemptOutcome: 'succeeded',
+    latestAttemptResolvedAt: '2020-01-01T00:00:00.000Z',
+    lastSuccessAt: '2020-01-01T00:00:00.000Z',
+    lastError: null,
+    source: 'cfbd',
+    rowsCommitted: 7,
+    partialFailure: false,
+  });
+
+  const rows = await feedRows(2026);
+  const schedule = rows.find((r) => r.dataset === 'schedule');
+  assert.equal(schedule?.status.lastSuccessAt, null, 'legacy success is not 2026 truth');
+  assert.equal(
+    schedule?.legacyStatus?.lastSuccessAt,
+    '2020-01-01T00:00:00.000Z',
+    'legacy exposed separately'
+  );
+});
 
 test('GET reads odds usage from DURABLE storage, not a stale process memo', async () => {
   // This instance's memo holds an older snapshot (400 remaining).

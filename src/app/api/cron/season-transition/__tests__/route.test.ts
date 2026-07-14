@@ -17,6 +17,7 @@ import {
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
+import { yearScope } from '../../../../../lib/providerRefreshScope.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-071 — cron season-transition must invalidate standings for each
@@ -170,7 +171,7 @@ test('an all-empty schedule probe resolves the attempt as a no-op, not dangling 
   const res = await GET(cronRequest());
   assert.equal(res.status, 200);
 
-  const status = await getProviderRefreshStatus('schedule');
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
   assert.equal(status.latestAttemptOutcome, 'no-op', 'all-empty probe resolves as a no-op');
   assert.notEqual(status.latestAttemptOutcome, 'in-progress', 'the attempt does not dangle');
   assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
@@ -220,7 +221,7 @@ test('an empty cron probe OVER a populated prior-good schedule is rejected, not 
 
   // Status recorded as a FAILURE (same classification the schedule route uses),
   // not a clean no-op that would hide the empty replacement.
-  const status = await getProviderRefreshStatus('schedule');
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'schedule-empty-replacement-rejected');
 
@@ -268,7 +269,7 @@ test('a prior-cache read failure while classifying an empty probe resolves the a
   assert.ok(body.error, 'the cron returns its established safe failure response');
 
   // The open schedule attempt resolves as failed — never left in-progress.
-  const status = await getProviderRefreshStatus('schedule');
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'schedule-prior-cache-read-failed');
 
@@ -306,7 +307,7 @@ test('a schedule persistence failure resolves the attempt as failed, not danglin
   }
   assert.equal(res.status, 500, 'a persistence failure surfaces as a 500');
 
-  const status = await getProviderRefreshStatus('schedule');
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
   assert.equal(status.latestAttemptOutcome, 'failed', 'the open attempt is resolved as failed');
   assert.equal(status.lastError?.code, 'schedule-durable-commit-failed');
 });

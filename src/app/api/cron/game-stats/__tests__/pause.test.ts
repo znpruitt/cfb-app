@@ -13,11 +13,20 @@ import {
   setGlobalPause,
 } from '../../../../../lib/server/providerRefreshSettings.ts';
 import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
+import { yearScope } from '../../../../../lib/providerRefreshScope.ts';
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const ORIGINAL_CRON_SECRET = process.env.CRON_SECRET;
 const CRON_SECRET = 'test-cron-secret';
 const PAUSE_SKIP = 'automatic game-stats refresh is paused or disabled';
+// Season year the cron computes (seasonYearForToday); the missing-key failure
+// records against the year rollup.
+const YEAR = (() => {
+  const d = new Date();
+  const m = d.getUTCMonth();
+  const y = d.getUTCFullYear();
+  return m >= 6 ? y : y - 1;
+})();
 
 function cronRequest(): Request {
   return new Request('https://example.com/api/cron/game-stats', {
@@ -68,7 +77,7 @@ test('missing CFBD key on an unpaused cron records a failed game-stats attempt (
   const body = (await res.json()) as { error?: string };
   assert.equal(res.status, 500);
   assert.equal(body.error, 'CFBD_API_KEY not configured');
-  const status = await getProviderRefreshStatus('game-stats');
+  const status = await getProviderRefreshStatus('game-stats', yearScope(YEAR));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
 });

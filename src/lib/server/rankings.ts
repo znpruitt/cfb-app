@@ -14,6 +14,7 @@ import {
 } from '../rankings.ts';
 import { SEED_ALIASES } from '../teamNames.ts';
 import { getAppState, setAppState } from './appStateStore.ts';
+import { yearScope } from '../providerRefreshScope.ts';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -267,13 +268,18 @@ export async function loadSeasonRankings(
   // reaches here (cache-only reads returned above), so this is a real refresh.
   // Begin BEFORE credential validation so a missing-key early exit still resolves
   // a recorded failed attempt (rereview finding #5).
-  const attempt = await beginProviderRefreshAttempt('rankings', {
+  // One rankings refresh genuinely covers BOTH season-type partitions (regular +
+  // postseason are fetched, validated, and aggregated together below), so it
+  // records the explicit YEAR ROLLUP. There is no regular-only rankings path that
+  // could establish year-wide freshness from a single partition.
+  const rankingsScope = yearScope(season);
+  const attempt = await beginProviderRefreshAttempt('rankings', rankingsScope, {
     startedAt: new Date(now).toISOString(),
   });
 
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
-    await recordProviderRefreshFailure('rankings', {
+    await recordProviderRefreshFailure('rankings', rankingsScope, {
       attempt,
       error: 'CFBD_API_KEY missing',
       code: 'cfbd-api-key-missing',
@@ -326,7 +332,7 @@ export async function loadSeasonRankings(
       // a silently-incomplete snapshot as success, and never advance last-success.
       // Retain prior-good (serve it stale) when available; otherwise surface the
       // drift as a hard failure so the empty replacement cannot pass unnoticed.
-      await recordProviderRefreshFailure('rankings', {
+      await recordProviderRefreshFailure('rankings', rankingsScope, {
         attempt,
         error: `rankings partition(s) ${driftedPartitions.join(', ')} returned a nonempty payload that normalized to zero usable weeks (schema drift)`,
         code: 'rankings-partition-schema-drift',
@@ -364,7 +370,7 @@ export async function loadSeasonRankings(
         (stored?.value?.response?.weeks?.length ?? 0) > 0 ||
         (cached?.response?.weeks?.length ?? 0) > 0;
       if (priorPopulated) {
-        await recordProviderRefreshFailure('rankings', {
+        await recordProviderRefreshFailure('rankings', rankingsScope, {
           attempt,
           error: 'rankings refresh returned zero usable weeks while prior-good rankings are cached',
           code: 'rankings-empty-replacement-rejected',
@@ -379,7 +385,7 @@ export async function loadSeasonRankings(
       // Genuinely empty pre-poll data → no-op: no durable write, prior-good (absent
       // here) preserved, last-success not advanced. A CLEAN empty response (no stale
       // markers) so the manual panel reads it as a successful no-op, not a fallback.
-      await recordProviderRefreshNoop('rankings', {
+      await recordProviderRefreshNoop('rankings', rankingsScope, {
         attempt,
         source: 'cfbd',
         durationMs: Date.now() - now,
@@ -416,7 +422,7 @@ export async function loadSeasonRankings(
     const commitSeq = nextProviderCommitSeq();
     CACHE.set(season, cacheEntry);
 
-    await recordProviderRefreshSuccess('rankings', {
+    await recordProviderRefreshSuccess('rankings', rankingsScope, {
       attempt,
       committedAt,
       commitSeq,
@@ -433,7 +439,7 @@ export async function loadSeasonRankings(
     }
     // A genuinely unrecorded failure (fetch/network/durable-commit) → record the
     // generic failure so the attempt resolves and prior-good is preserved.
-    await recordProviderRefreshFailure('rankings', {
+    await recordProviderRefreshFailure('rankings', rankingsScope, {
       attempt,
       error: error instanceof Error ? error.message : 'rankings refresh failed',
       durationMs: Date.now() - now,

@@ -11,6 +11,7 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
+import { globalScope } from '@/lib/providerRefreshScope';
 
 type MockFetch = typeof fetch;
 
@@ -44,7 +45,7 @@ test('conferences route uses local snapshot when CFBD key is missing', async () 
 
     // Rereview finding #5: the missing-credential refresh is now recorded as a
     // failed attempt rather than being invisible.
-    const status = await getProviderRefreshStatus('conferences');
+    const status = await getProviderRefreshStatus('conferences', globalScope());
     assert.equal(status.latestAttemptOutcome, 'failed');
     assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
   } finally {
@@ -178,7 +179,7 @@ test('conferences refresh rejects a NON-ARRAY payload and retains prior-good (fi
     assert.equal(json.meta.source, 'local_snapshot');
     assert.equal(json.meta.fallbackUsed, true);
 
-    const status = await getProviderRefreshStatus('conferences');
+    const status = await getProviderRefreshStatus('conferences', globalScope());
     assert.equal(status.latestAttemptOutcome, 'failed');
     assert.equal(status.lastError?.code, 'conferences-invalid-payload');
 
@@ -215,7 +216,7 @@ test('conferences refresh rejects an EMPTY array and retains prior-good (finding
     const json = (await res.json()) as { meta: { fallbackUsed: boolean } };
     assert.equal(json.meta.fallbackUsed, true);
 
-    const status = await getProviderRefreshStatus('conferences');
+    const status = await getProviderRefreshStatus('conferences', globalScope());
     assert.equal(status.latestAttemptOutcome, 'failed');
     assert.equal(status.lastError?.code, 'conferences-no-usable-rows');
 
@@ -248,7 +249,7 @@ test('conferences refresh rejects a nonempty payload that normalizes to ZERO usa
     const json = (await res.json()) as { meta: { fallbackUsed: boolean } };
     assert.equal(json.meta.fallbackUsed, true);
 
-    const status = await getProviderRefreshStatus('conferences');
+    const status = await getProviderRefreshStatus('conferences', globalScope());
     assert.equal(status.latestAttemptOutcome, 'failed');
     assert.equal(status.lastError?.code, 'conferences-no-usable-rows');
 
@@ -281,7 +282,7 @@ test('conferences refresh with at least one usable row commits and records succe
     const json = (await res.json()) as { meta: { source: string } };
     assert.equal(json.meta.source, 'cfbd_live');
 
-    const status = await getProviderRefreshStatus('conferences');
+    const status = await getProviderRefreshStatus('conferences', globalScope());
     assert.equal(status.latestAttemptOutcome, 'succeeded');
 
     const durable = await getAppState<{ items: unknown[] }>('conferences', 'snapshot');

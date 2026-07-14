@@ -40,6 +40,7 @@ import {
   recordProviderRefreshSuccess,
   type ProviderRefreshAttempt,
 } from '../../../lib/server/providerRefreshStatus.ts';
+import { oddsTargetScope, type ProviderRefreshScope } from '../../../lib/providerRefreshScope.ts';
 import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import type { AliasMap } from '../../../lib/teamNames.ts';
@@ -449,6 +450,7 @@ export async function GET(req: Request): Promise<Response> {
   // throw). `oddsSuccessRecorded` prevents a post-commit throw from double-writing
   // a failure over an already-recorded success.
   let oddsAttempt: ProviderRefreshAttempt | null = null;
+  let oddsScope: ProviderRefreshScope | null = null;
   let oddsSuccessRecorded = false;
   try {
     const parsedQuery = parseOddsQuery(new URL(req.url));
@@ -483,6 +485,15 @@ export async function GET(req: Request): Promise<Response> {
     // so a 2025 and 2026 request with identical bookmakers/markets/regions
     // aliased the same in-memory entry (PLATFORM-075 item 3).
     const seasonScopedKey = `${query.season}:${cacheKey}`;
+    // Odds status uses the SAME canonical target identity as the durable Odds
+    // cache (the season-scoped cache key), distinguishing the canonical/default
+    // query from any filtered variant. A filtered refresh records against its own
+    // target and can never advance canonical Odds freshness/success/metadata.
+    oddsScope = oddsTargetScope(
+      query.season,
+      isCanonicalDurableQuery(query) ? 'canonical' : 'filtered',
+      seasonScopedKey
+    );
     const now = Date.now();
     const cachedEntry = oddsCache.entries[seasonScopedKey];
     let responseEntry: SharedOddsCacheEntry | undefined = cachedEntry;
@@ -524,7 +535,7 @@ export async function GET(req: Request): Promise<Response> {
       // ---- Authorized admin refresh: the only path allowed to spend quota ----
       recordRouteCacheMiss('odds');
 
-      oddsAttempt = await beginProviderRefreshAttempt('odds', {
+      oddsAttempt = await beginProviderRefreshAttempt('odds', oddsScope, {
         startedAt: new Date().toISOString(),
       });
 
@@ -533,7 +544,7 @@ export async function GET(req: Request): Promise<Response> {
         // The attempt was already recorded; this early return bypasses the catch,
         // so record the matching failure here (PLATFORM-086A) — prior-good odds +
         // last-success are preserved by the failure helper.
-        await recordProviderRefreshFailure('odds', {
+        await recordProviderRefreshFailure('odds', oddsScope, {
           attempt: oddsAttempt,
           error: 'ODDS_API_KEY missing',
           code: 'odds-api-key-missing',
@@ -638,7 +649,7 @@ export async function GET(req: Request): Promise<Response> {
       // Durable odds committed — record success (PLATFORM-086A). Tied to the
       // durable commit per the truthfulness invariant; the guard prevents a later
       // throw (e.g. in canonical item building) from overwriting it with a failure.
-      await recordProviderRefreshSuccess('odds', {
+      await recordProviderRefreshSuccess('odds', oddsScope, {
         attempt: oddsAttempt ?? undefined,
         committedAt,
         commitSeq,
@@ -715,9 +726,9 @@ export async function GET(req: Request): Promise<Response> {
     // Attribute the failure to the odds refresh only when a refresh was actually
     // attempted and no success was recorded (PLATFORM-086A). Public cache-only
     // reads that throw are not refresh attempts.
-    if (oddsAttempt && !oddsSuccessRecorded) {
+    if (oddsAttempt && oddsScope && !oddsSuccessRecorded) {
       const latestUsage = await getLatestKnownOddsUsage().catch(() => null);
-      await recordProviderRefreshFailure('odds', {
+      await recordProviderRefreshFailure('odds', oddsScope, {
         attempt: oddsAttempt,
         error: e instanceof Error ? e.message : 'internal error',
         status: e instanceof UpstreamFetchError ? (e.details.status ?? 502) : 500,

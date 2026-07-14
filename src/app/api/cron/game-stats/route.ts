@@ -11,6 +11,7 @@ import {
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
+import { weekPartitionScope, yearScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -150,11 +151,14 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   if (!CFBD_API_KEY) {
     // Missing credential on an unpaused cron: record a failed attempt so the
     // panel shows the automatic refresh is broken (rereview finding #5), then
-    // return the established safe response. Prior-good data is preserved.
-    const attempt = await beginProviderRefreshAttempt('game-stats', {
+    // return the established safe response. Prior-good data is preserved. No
+    // completed week has been selected yet, so this job-level failure records
+    // against the YEAR rollup rather than any single week partition.
+    const jobScope = yearScope(year);
+    const attempt = await beginProviderRefreshAttempt('game-stats', jobScope, {
       startedAt: new Date().toISOString(),
     });
-    await recordProviderRefreshFailure('game-stats', {
+    await recordProviderRefreshFailure('game-stats', jobScope, {
       attempt,
       error: 'CFBD_API_KEY not configured',
       code: 'cfbd-api-key-missing',
@@ -194,8 +198,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       });
     }
 
-    // Fetch from CFBD
-    const attempt = await beginProviderRefreshAttempt('game-stats', {
+    // Fetch from CFBD. This per-week ingestion records against only its
+    // (year, week, seasonType) partition — one week never establishes full-season
+    // game-stats success.
+    const weekScope = weekPartitionScope(year, week, seasonType);
+    const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
       startedAt: new Date().toISOString(),
     });
 
@@ -214,7 +221,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // Genuine empty provider array (stats not published yet): a no-op, NOT a
         // durable commit. Writing `games: []` would advance last-success while
         // `hasUsableGameStats` still treats the week as uncovered — a contradiction.
-        await recordProviderRefreshNoop('game-stats', { attempt, source: 'cfbd' });
+        await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
         return NextResponse.json({
           year,
           week,
@@ -228,7 +235,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // A NONEMPTY payload that normalized to zero usable rows is schema
         // drift/validation failure — preserve prior-good, record failed, do not
         // advance last-success.
-        await recordProviderRefreshFailure('game-stats', {
+        await recordProviderRefreshFailure('game-stats', weekScope, {
           attempt,
           error: `week ${week} ${seasonType}: provider returned rows but none normalized to a usable game stat`,
           code: 'game-stats-no-usable-rows',
@@ -256,7 +263,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       const committedAt = new Date().toISOString();
       const commitSeq = nextProviderCommitSeq();
 
-      await recordProviderRefreshSuccess('game-stats', {
+      await recordProviderRefreshSuccess('game-stats', weekScope, {
         attempt,
         committedAt,
         commitSeq,
@@ -272,7 +279,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         fetchedAt,
       });
     } catch (err) {
-      await recordProviderRefreshFailure('game-stats', {
+      await recordProviderRefreshFailure('game-stats', weekScope, {
         attempt,
         error: err instanceof Error ? err.message : 'unknown error',
       });
