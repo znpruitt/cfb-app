@@ -6,9 +6,15 @@ import {
   __resetOddsUsageStoreForTests,
   captureOddsUsageSnapshot,
   getLatestKnownOddsUsage,
+  readLatestKnownOddsUsageState,
   setLatestKnownOddsUsage,
 } from '../server/oddsUsageStore.ts';
-import { __setAppStateWriteFailureForTests } from '../server/appStateStore.ts';
+import {
+  __corruptAppStateFileForTests,
+  __deleteAppStateFileForTests,
+  __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
+} from '../server/appStateStore.ts';
 
 test.beforeEach(async () => {
   __setAppStateWriteFailureForTests(null);
@@ -138,4 +144,70 @@ test('setLatestKnownOddsUsage: a durable write failure does not advance the proc
   __resetOddsUsageStoreForTests();
   const durable = await getLatestKnownOddsUsage({ forceRefresh: true });
   assert.equal(durable?.remaining, 400);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 deferred finding #3 — a durable-read failure is DISTINCT from
+// a genuinely absent snapshot; the state-carrying read never throws and never
+// fabricates usage values.
+// ---------------------------------------------------------------------------
+
+test('read state: available when a snapshot is stored', async () => {
+  await setLatestKnownOddsUsage({
+    used: 100,
+    remaining: 400,
+    lastCost: 3,
+    limit: 500,
+    capturedAt: '2026-07-01T00:00:00.000Z',
+    source: 'odds-response-headers',
+  });
+
+  const state = await readLatestKnownOddsUsageState({ forceRefresh: true });
+  assert.equal(state.state, 'available');
+  assert.equal(state.state === 'available' && state.snapshot.remaining, 400);
+});
+
+test('read state: genuinely absent when nothing has ever been stored', async () => {
+  const state = await readLatestKnownOddsUsageState({ forceRefresh: true });
+  assert.deepEqual(state, { state: 'absent' });
+});
+
+test('read state: a durable-read failure is unavailable, never collapsed into absent', async () => {
+  await setLatestKnownOddsUsage({
+    used: 100,
+    remaining: 400,
+    lastCost: 3,
+    limit: 500,
+    capturedAt: '2026-07-01T00:00:00.000Z',
+    source: 'odds-response-headers',
+  });
+
+  __setAppStateReadFailureForTests(new Error('durable odds-usage read boom'), 'odds-usage');
+  try {
+    const state = await readLatestKnownOddsUsageState({ forceRefresh: true });
+    assert.equal(state.state, 'unavailable', 'a read failure must not report absence');
+    assert.match(
+      (state.state === 'unavailable' && state.error) || '',
+      /durable odds-usage read boom/
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+
+  // The failed read does not poison the memo — a later read recovers.
+  const recovered = await readLatestKnownOddsUsageState({ forceRefresh: true });
+  assert.equal(recovered.state, 'available');
+  assert.equal(recovered.state === 'available' && recovered.snapshot.remaining, 400);
+});
+
+test('read state: a CORRUPT app-state file reports unavailable through the real file backend', async () => {
+  // Not the throw-injecting seam — this exercises the genuine file-fallback
+  // read path (086G2 P2 remediation #3): corrupt JSON must not read as absence.
+  await __corruptAppStateFileForTests();
+  try {
+    const state = await readLatestKnownOddsUsageState({ forceRefresh: true });
+    assert.equal(state.state, 'unavailable', 'a corrupt store is not snapshot absence');
+  } finally {
+    await __deleteAppStateFileForTests();
+  }
 });

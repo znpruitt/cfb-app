@@ -5,6 +5,7 @@ import { GET, POST } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import {
@@ -387,4 +388,50 @@ test('GET reads odds usage from DURABLE storage, not a stale process memo', asyn
     20,
     'the durable (newer) value is used, not the stale in-process memo (400)'
   );
+});
+
+// ---- PLATFORM-086G2 finding #3: odds-usage read state is serialized distinctly ----
+
+test('GET serializes oddsUsageState=available alongside the snapshot', async () => {
+  await setLatestKnownOddsUsage(oddsSnapshot(320, '2026-07-12T00:00:00.000Z'));
+
+  const res = await GET(getRequest());
+  const body = (await res.json()) as {
+    oddsUsage: OddsUsageSnapshot | null;
+    oddsUsageState: string;
+    oddsUsageStateDetail: string | null;
+  };
+  assert.equal(body.oddsUsageState, 'available');
+  assert.equal(body.oddsUsage?.remaining, 320);
+  assert.equal(body.oddsUsageStateDetail, null);
+});
+
+test('GET serializes oddsUsageState=absent when no snapshot has ever been stored', async () => {
+  const res = await GET(getRequest());
+  const body = (await res.json()) as {
+    oddsUsage: OddsUsageSnapshot | null;
+    oddsUsageState: string;
+    oddsUsageStateDetail: string | null;
+  };
+  assert.equal(body.oddsUsageState, 'absent', 'first-run absence is the genuine absent state');
+  assert.equal(body.oddsUsage, null);
+  assert.equal(body.oddsUsageStateDetail, null);
+});
+
+test('GET serializes a durable odds-usage read FAILURE as unavailable — never absent, never a sunk feed', async () => {
+  __setAppStateReadFailureForTests(new Error('odds-usage store unreachable'), 'odds-usage');
+  try {
+    const res = await GET(getRequest());
+    assert.equal(res.status, 200, 'a usage read failure must not sink the whole status feed');
+    const body = (await res.json()) as {
+      oddsUsage: OddsUsageSnapshot | null;
+      oddsUsageState: string;
+      oddsUsageStateDetail: string | null;
+    };
+    assert.equal(body.oddsUsageState, 'unavailable', 'read failure is not snapshot absence');
+    assert.equal(body.oddsUsage, null, 'no fabricated usage values');
+    assert.match(body.oddsUsageStateDetail ?? '', /unreachable/);
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
 });

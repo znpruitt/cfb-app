@@ -1,0 +1,400 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { GET } from '../route.ts';
+import {
+  __resetOddsRouteCacheForTests,
+  defaultOddsCacheKey,
+  oddsCache,
+  withOddsTargetLock,
+  type NormalizedOddsEvent,
+  type SharedOddsCacheEntry,
+} from '../routeInternals.ts';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  getAppState,
+  setAppState,
+} from '../../../../lib/server/appStateStore.ts';
+import {
+  __deleteOddsUsageStoreFileForTests,
+  __resetOddsUsageStoreForTests,
+} from '../../../../lib/server/oddsUsageStore.ts';
+import {
+  __deleteDurableOddsStoreFileForTests,
+  __resetDurableOddsStoreForTests,
+} from '../../../../lib/server/durableOddsStore.ts';
+import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
+import { oddsTargetScope } from '../../../../lib/providerRefreshScope.ts';
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 deferred finding #4 — the Odds provider boundary is truthful:
+// non-array and schema-drift payloads FAIL before any durable commit; a genuine
+// empty array is classified contextually (prior-good upcoming events for the
+// exact target, or near-horizon canonical-schedule games, make it an
+// unexpected-empty FAILURE that retains prior-good data; otherwise it is a
+// truthful no-op, never a successful empty commit that replaces prior data).
+// ---------------------------------------------------------------------------
+
+const SEASON = 2026;
+const ODDS_API_HOST = 'api.the-odds-api.com';
+const CACHE_KEY = defaultOddsCacheKey(SEASON);
+const ODDS_SCOPE = oddsTargetScope(SEASON, 'canonical', CACHE_KEY);
+
+test.beforeEach(async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await __deleteOddsUsageStoreFileForTests();
+  __resetOddsUsageStoreForTests();
+  await __deleteDurableOddsStoreFileForTests(SEASON);
+  __resetDurableOddsStoreForTests();
+  __resetOddsRouteCacheForTests();
+  process.env.ODDS_API_KEY = 'test-key';
+});
+
+type FetchStub = { oddsCalls(): number; restore(): void };
+
+function installFetchStub(oddsBody: unknown): FetchStub {
+  const realFetch = globalThis.fetch;
+  let oddsCalls = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = typeof input === 'string' ? input : input.toString();
+    const url = new URL(raw, 'http://localhost');
+    if (url.hostname === ODDS_API_HOST) {
+      oddsCalls += 1;
+      return new Response(JSON.stringify(oddsBody), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '100',
+          'x-requests-remaining': '400',
+          'x-requests-last': '3',
+        },
+      });
+    }
+    if (url.pathname === '/api/schedule' || url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+  return {
+    oddsCalls: () => oddsCalls,
+    restore: () => {
+      globalThis.fetch = realFetch;
+    },
+  };
+}
+
+function refreshRequest(): Request {
+  return new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`);
+}
+
+function normalizedEvent(commenceTime: string): NormalizedOddsEvent {
+  return { homeTeam: 'Georgia', awayTeam: 'Auburn', commenceTime, bookmakers: [] };
+}
+
+async function seedPriorEntry(events: NormalizedOddsEvent[]): Promise<SharedOddsCacheEntry> {
+  const entry: SharedOddsCacheEntry = {
+    data: events,
+    lastFetch: Date.now() - 10 * 60 * 1000,
+    usage: null,
+  };
+  await setAppState('odds-cache', CACHE_KEY, entry);
+  oddsCache.entries[CACHE_KEY] = entry;
+  return entry;
+}
+
+function inDays(days: number): string {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+async function seedSchedule(startDate: string, status = 'scheduled'): Promise<void> {
+  await setAppState('schedule', `${SEASON}-all-all`, {
+    at: Date.now(),
+    items: [
+      {
+        id: 'g-1',
+        week: 7,
+        startDate,
+        homeTeam: 'Georgia',
+        awayTeam: 'Auburn',
+        status,
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+}
+
+test('a non-array odds payload is a FAILURE before commit (nothing cached, no success)', async () => {
+  const stub = installFetchStub({ message: 'not events' });
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502, 'a coercible-to-empty payload must not become a 200');
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-invalid-payload');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'failed');
+    assert.equal(status.lastError?.code, 'odds-invalid-payload');
+    assert.equal(status.lastSuccessAt, null, 'a malformed payload never advances last-success');
+
+    assert.equal(await getAppState('odds-cache', CACHE_KEY), null, 'no durable commit');
+    assert.equal(oddsCache.entries[CACHE_KEY], undefined, 'no process-cache publication');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('a nonempty payload with zero normalizable events is schema-drift FAILURE', async () => {
+  // Rows lack team names — a provider field rename would look like this.
+  const stub = installFetchStub([{ commence_time: inDays(2), bookmakers: [] }]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502);
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-schema-drift');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'failed');
+    assert.equal(status.lastError?.code, 'odds-schema-drift');
+    assert.equal(status.lastSuccessAt, null);
+    assert.equal(await getAppState('odds-cache', CACHE_KEY), null, 'no durable commit');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('an empty payload over prior-good UPCOMING events is an unexpected-empty FAILURE that retains prior data', async () => {
+  const prior = await seedPriorEntry([normalizedEvent(inDays(3))]);
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502, 'losing still-upcoming events is a provider failure');
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-empty-unexpected');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'failed');
+    assert.equal(status.lastError?.code, 'odds-empty-unexpected');
+    assert.equal(status.lastSuccessAt, null, 'a rejected refresh never advances last-success');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1, 'prior-good durable entry retained');
+    assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'durable entry not rewritten');
+    assert.equal(
+      oddsCache.entries[CACHE_KEY]?.data.length,
+      1,
+      'no empty process-cache publication'
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+test('an empty payload with a near-horizon canonical-schedule game is an unexpected-empty FAILURE', async () => {
+  await seedSchedule(inDays(3));
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502);
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-empty-unexpected');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'failed');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('an empty payload with only far-out schedule games is a valid-absence NO-OP', async () => {
+  await seedSchedule(inDays(30));
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'far-out games do not imply posted odds');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'no-op');
+    assert.equal(status.lastSuccessAt, null, 'a no-op is not a successful empty commit');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('a cold-target empty payload is a NO-OP that still seeds the cache entry (cache contract preserved)', async () => {
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200);
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'no-op');
+    assert.equal(status.lastSuccessAt, null);
+
+    // The empty entry replaced nothing, so the cache contract (TTL freshness,
+    // honest snapshot time for follow-up reads) is preserved.
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.deepEqual(durable?.value?.data, []);
+    assert.deepEqual(oddsCache.entries[CACHE_KEY]?.data, []);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('an empty payload over prior data whose events all KICKED OFF is a NO-OP that does not rewrite the prior entry', async () => {
+  const prior = await seedPriorEntry([
+    normalizedEvent(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()),
+  ]);
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'expired prior events are legitimately absent upstream');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'no-op');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1, 'prior entry is preserved, not emptied');
+    assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'prior entry not rewritten');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('a nonempty payload with PARTIAL normalizable coverage remains a normal success', async () => {
+  const stub = installFetchStub([
+    // One usable event…
+    {
+      home_team: 'Georgia',
+      away_team: 'Auburn',
+      commence_time: inDays(2),
+      bookmakers: [],
+    },
+    // …one junk row (no team names) — partial coverage is not schema drift.
+    { commence_time: inDays(2), bookmakers: [] },
+  ]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200);
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'succeeded');
+    assert.equal(status.rowsCommitted, 1, 'the usable event committed');
+    assert.ok(status.lastSuccessAt, 'a usable nonempty payload still advances last-success');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1);
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 Codex P2 remediation — structurally malformed rows are stable
+// schema-drift failures (never mid-normalization 500s), and the empty-payload
+// evidence check + conditional write are serialized per target so a concurrent
+// populated commit can never be clobbered with [].
+// ---------------------------------------------------------------------------
+
+test('a payload containing a null row is schema-drift FAILURE (502), not a normalization 500', async () => {
+  const stub = installFetchStub([null]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502, 'a malformed row must classify, not throw a generic 500');
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-schema-drift');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.lastError?.code, 'odds-schema-drift');
+    assert.equal(await getAppState('odds-cache', CACHE_KEY), null, 'no durable commit');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('one malformed row rejects the whole payload as schema drift and retains prior-good data', async () => {
+  const prior = await seedPriorEntry([normalizedEvent(inDays(3))]);
+  const stub = installFetchStub([
+    // A valid sibling row does not make a structurally broken payload trustworthy.
+    { home_team: 'Georgia', away_team: 'Auburn', commence_time: inDays(2), bookmakers: [] },
+    { home_team: 'Texas', away_team: 'Rice', bookmakers: {} },
+  ]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502);
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-schema-drift');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1, 'prior-good durable entry retained');
+    assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'durable entry not rewritten');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('withOddsTargetLock serializes sections for the same target key', async () => {
+  const order: string[] = [];
+  let releaseFirst!: () => void;
+  const gate = new Promise<void>((resolve) => (releaseFirst = resolve));
+
+  const first = withOddsTargetLock('lock-test-key', async () => {
+    order.push('first-start');
+    await gate;
+    order.push('first-end');
+  });
+  const second = withOddsTargetLock('lock-test-key', async () => {
+    order.push('second');
+  });
+
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(order, ['first-start', 'first-end', 'second']);
+});
+
+test('an in-flight empty refresh cannot clobber a concurrently committed populated entry', async () => {
+  // Hold the per-target lock so the empty refresh's evidence check must queue
+  // behind it; commit a populated entry (as a concurrent nonempty refresh
+  // would) while it waits, then release. The empty refresh's serialized
+  // re-read must see the populated commit and reject the empty payload.
+  let releaseLock!: () => void;
+  const lockGate = new Promise<void>((resolve) => (releaseLock = resolve));
+  const held = withOddsTargetLock(CACHE_KEY, () => lockGate);
+
+  const stub = installFetchStub([]);
+  try {
+    const pendingEmptyRefresh = GET(refreshRequest());
+
+    // Concurrent populated commit for the same target (future-kickoff event).
+    const populated: SharedOddsCacheEntry = {
+      data: [normalizedEvent(inDays(3))],
+      lastFetch: Date.now(),
+      usage: null,
+    };
+    await setAppState('odds-cache', CACHE_KEY, populated);
+    oddsCache.entries[CACHE_KEY] = populated;
+    releaseLock();
+    await held;
+
+    const res = await pendingEmptyRefresh;
+    assert.equal(res.status, 502, 'the serialized re-read must observe the populated commit');
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-empty-unexpected');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1, 'populated durable entry never clobbered by []');
+    assert.equal(
+      oddsCache.entries[CACHE_KEY]?.data.length,
+      1,
+      'populated process entry never clobbered by []'
+    );
+  } finally {
+    stub.restore();
+  }
+});

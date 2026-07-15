@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  __corruptAppStateFileForTests,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
@@ -131,3 +132,28 @@ test(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 P2 remediation #3 — file-fallback reads: only a genuinely
+// MISSING file is absence; a corrupt/unreadable store propagates instead of
+// masquerading as "nothing stored" (which also protected the next RMW write
+// from silently rebuilding the store and discarding every other key).
+// ---------------------------------------------------------------------------
+
+test('file fallback: a missing app-state file is genuine absence (null read)', async () => {
+  await __deleteAppStateFileForTests();
+  assert.equal(await getAppState('read-absence', 'missing'), null);
+});
+
+test('file fallback: a corrupt app-state file PROPAGATES instead of reading as empty', async () => {
+  await __deleteAppStateFileForTests();
+  await __corruptAppStateFileForTests();
+  try {
+    await assert.rejects(
+      () => getAppState('read-absence', 'any-key'),
+      'a corrupt store must never be indistinguishable from an empty one'
+    );
+  } finally {
+    await __deleteAppStateFileForTests();
+  }
+});

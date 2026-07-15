@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { INTERRUPTED_ATTEMPT_AFTER_MS, summarizeProviderState } from '../providerStatusSummary.ts';
+import {
+  INTERRUPTED_ATTEMPT_AFTER_MS,
+  describeOddsUsageAvailability,
+  summarizeProviderState,
+} from '../providerStatusSummary.ts';
 import {
   emptyProviderRefreshStatus,
   type ProviderRefreshStatus,
@@ -230,4 +234,30 @@ test('legacy record (no outcome) falls back to historical-field inference', () =
     lastSuccessAt: new Date(NOW - 60_000).toISOString(),
   });
   assert.equal(summarize(ok).tone, 'ok');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 finding #3 — odds-usage display wording: genuine absence and a
+// durable-read failure must never share wording or tone.
+// ---------------------------------------------------------------------------
+
+test('odds usage: genuine absence renders the healthy first-run wording', () => {
+  const summary = describeOddsUsageAvailability('absent');
+  assert.equal(summary.label, 'no snapshot yet');
+  assert.equal(summary.tone, 'muted');
+});
+
+test('odds usage: a durable-read failure renders an honest error state, never "no snapshot yet"', () => {
+  const summary = describeOddsUsageAvailability('unavailable', 'store unreachable');
+  assert.match(summary.label, /unavailable/);
+  assert.match(summary.label, /read failed/);
+  assert.match(summary.label, /store unreachable/, 'the read-failure detail is surfaced');
+  assert.notEqual(summary.label, 'no snapshot yet');
+  assert.equal(summary.tone, 'bad');
+});
+
+test('odds usage: read-failure wording is honest even without detail', () => {
+  const summary = describeOddsUsageAvailability('unavailable');
+  assert.match(summary.label, /unavailable — durable read failed/);
+  assert.equal(summary.tone, 'bad');
 });

@@ -24,7 +24,11 @@ import {
   panelFeedRenderState,
   shouldApplyStatusResponse,
 } from './manualRefresh';
-import { summarizeProviderState, type SummaryTone } from './providerStatusSummary';
+import {
+  describeOddsUsageAvailability,
+  summarizeProviderState,
+  type SummaryTone,
+} from './providerStatusSummary';
 
 type DatasetRow = {
   dataset: ProviderDataset;
@@ -48,6 +52,13 @@ type StatusFeed = {
   /** Cache-only availability per dataset, to distinguish no-history from no-data. */
   cacheStates: Record<ProviderDataset, ProviderCacheAvailability>;
   oddsUsage: OddsUsageSnapshot | null;
+  /**
+   * Distinct durable odds-usage read state (086G2 finding #3): 'absent' is the
+   * genuine no-snapshot-yet state; 'unavailable' is a durable-read failure and
+   * must never render as "no snapshot yet".
+   */
+  oddsUsageState?: 'available' | 'absent' | 'unavailable';
+  oddsUsageStateDetail?: string | null;
 };
 
 const sectionClass =
@@ -398,7 +409,17 @@ export default function ProviderDataStatusPanel({
               {formatRelativeTimestamp(feed.oddsUsage.capturedAt, now) ?? 'n/a'})
             </>
           ) : (
-            'no snapshot yet'
+            // Absent vs read-failure are DISTINCT states (086G2 finding #3): a
+            // failed durable read must never render as the healthy-looking
+            // "no snapshot yet". Older feeds without the state field keep the
+            // genuine-absence wording.
+            (() => {
+              const usageState = describeOddsUsageAvailability(
+                feed?.oddsUsageState === 'unavailable' ? 'unavailable' : 'absent',
+                feed?.oddsUsageStateDetail
+              );
+              return <span className={STATE_TONE_CLASS[usageState.tone]}>{usageState.label}</span>;
+            })()
           )}
         </div>
       </div>

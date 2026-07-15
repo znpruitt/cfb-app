@@ -137,3 +137,23 @@ function describeSuccess(
     return { label: 'Successfully refreshed but now stale', tone: 'warn' };
   return { label: 'Successfully refreshed', tone: 'ok' };
 }
+
+/**
+ * Odds-usage quota display state, distinct per read outcome (PLATFORM-086G2
+ * finding #3). 'absent' is the genuine first-run "nothing stored yet" state;
+ * 'unavailable' means the durable read FAILED — the two must never share
+ * wording, because "no snapshot yet" reads as healthy while an unreachable
+ * store is an operational problem. Pure so the wording is unit-testable.
+ */
+export function describeOddsUsageAvailability(
+  state: 'absent' | 'unavailable',
+  detail?: string | null
+): StateSummary {
+  if (state === 'unavailable') {
+    return {
+      label: `usage status unavailable — durable read failed${detail ? ` (${detail})` : ''}`,
+      tone: 'bad',
+    };
+  }
+  return { label: 'no snapshot yet', tone: 'muted' };
+}

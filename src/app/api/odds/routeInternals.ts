@@ -19,6 +19,55 @@ export type NormalizedOddsEvent = {
   bookmakers: OddsBookmaker[];
 };
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'string';
+}
+
+/**
+ * STRUCTURAL validation of one raw upstream odds row (PLATFORM-086G2 P2
+ * remediation #2). `normalizeUpstreamOddsEvent` dereferences the row and maps
+ * its nested collections, so a row like `null`, `{ home_team: 5 }`, or
+ * `{ bookmakers: {} }` would THROW mid-normalization — surfacing as a generic
+ * 500 instead of the stable `odds-schema-drift` classification. This predicate
+ * checks only the shapes normalization actually touches (strings-or-absent
+ * team/commence fields; arrays-of-objects for bookmakers/markets/outcomes);
+ * MISSING fields stay valid here — semantic gaps (e.g. no team names) are
+ * normalization's concern and classify separately as usable/unusable rows.
+ */
+export function isStructurallyValidUpstreamOddsEvent(row: unknown): row is UpstreamOddsEvent {
+  if (!isPlainObject(row)) return false;
+  if (
+    !isOptionalString(row.home_team) ||
+    !isOptionalString(row.away_team) ||
+    !isOptionalString(row.commence_time)
+  ) {
+    return false;
+  }
+  const bookmakers = row.bookmakers;
+  if (bookmakers === undefined || bookmakers === null) return true;
+  if (!Array.isArray(bookmakers)) return false;
+  for (const book of bookmakers) {
+    if (!isPlainObject(book)) return false;
+    const markets = book.markets;
+    if (markets === undefined || markets === null) continue;
+    if (!Array.isArray(markets)) return false;
+    for (const market of markets) {
+      if (!isPlainObject(market)) return false;
+      const outcomes = market.outcomes;
+      if (outcomes === undefined || outcomes === null) continue;
+      if (!Array.isArray(outcomes)) return false;
+      for (const outcome of outcomes) {
+        if (!isPlainObject(outcome)) return false;
+      }
+    }
+  }
+  return true;
+}
+
 /**
  * Normalize a raw Odds API event into the canonical attachment shape. Carries
  * `commence_time` through as `commenceTime` so the attachment layer can
@@ -63,6 +112,34 @@ export const oddsCache: OddsCache = {
 
 export function __resetOddsRouteCacheForTests(): void {
   oddsCache.entries = {};
+}
+
+// ---------------------------------------------------------------------------
+// Per-target odds commit serialization (PLATFORM-086G2 P2 remediation #1).
+//
+// An empty-payload refresh must read its prior-entry evidence and perform its
+// conditional cold-target write ATOMICALLY with respect to a concurrent
+// nonempty refresh's commit for the same season-scoped target — otherwise the
+// empty branch can observe "no prior entry", lose the race to a populated
+// commit, and then overwrite both caches with `[]` while refresh status keeps
+// reporting the populated success. Same promise-chain mutex shape as
+// `withScopeLock` in providerRefreshStatus; in-process only (cross-instance
+// ordering remains the documented 086A best-effort limitation — the durable
+// layer's atomic rename prevents torn writes, not stale ones).
+// ---------------------------------------------------------------------------
+const oddsTargetLocks = new Map<string, Promise<unknown>>();
+
+export function withOddsTargetLock<T>(seasonScopedKey: string, fn: () => Promise<T>): Promise<T> {
+  const prev = oddsTargetLocks.get(seasonScopedKey) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  oddsTargetLocks.set(
+    seasonScopedKey,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return run;
 }
 
 /**
