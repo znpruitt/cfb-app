@@ -35,13 +35,17 @@
  *
  * Valid-absence verdicts additionally report whether EVERY retained prior
  * event is provably obsolete (expired, matched to a disrupted or
- * started/completed game, or unmatched against a successfully loaded slate) so
- * the caller may replace a fully obsolete entry with the fresh empty result
- * instead of retaining dead rows indefinitely. Any healthy or indeterminate
- * event blocks that.
+ * started/completed game, or CONFIDENTLY absent from a successfully loaded
+ * slate — no candidate pair at all) so the caller may replace a fully obsolete
+ * entry with the fresh empty result instead of retaining dead rows
+ * indefinitely. UNCERTAIN matching outcomes — ambiguous same-pair candidacy,
+ * kickoff-tolerance misses, one-to-one collisions — are INDETERMINATE: they
+ * contribute no positive evidence AND block clearing, so ambiguous identity
+ * evidence never authorizes a failure or destructive clearing. Any healthy or
+ * indeterminate event blocks the obsolete verdict.
  */
 
-import { attachOddsEventsToSchedule } from '../oddsAttachment.ts';
+import { attachOddsEventsToSchedule, type OddsAttachmentDiagnostic } from '../oddsAttachment.ts';
 import type { ScheduleAttachmentGame } from '../gameAttachment.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
 import { buildPlaceholderParticipant } from '../schedulePostseasonHelpers.ts';
@@ -184,23 +188,47 @@ export function classifyEmptyOddsResponse(params: {
     const itemByGameKey = new Map<string, OddsScheduleEvidenceItem>(
       scheduleItems.map((item, index) => [`evidence-${index}`, item])
     );
+    const diagnostics: OddsAttachmentDiagnostic[] = [];
     const attached = attachOddsEventsToSchedule({
       games,
       events: priorEvents as PriorOddsEventEvidence[],
       resolver,
+      diagnostics,
     });
     const gameKeyByEvent = new Map<PriorOddsEventEvidence, string>(
       attached.map((match) => [match.event, match.gameKey])
     );
+    // Non-attaching events carry a reason (copied fields, not a reference) —
+    // key by the same fields to recover it. Identical events share a verdict.
+    const diagnosticKey = (e: {
+      homeTeam: string;
+      awayTeam: string;
+      commenceTime?: string | null;
+    }) => `${e.homeTeam}|${e.awayTeam}|${e.commenceTime ?? ''}`;
+    const reasonByEventKey = new Map(diagnostics.map((d) => [diagnosticKey(d), d.reason]));
 
     let obsoleteCount = 0;
     for (const event of priorEvents) {
       const gameKey = gameKeyByEvent.get(event);
       if (gameKey === undefined) {
-        // Unmatched against a successfully loaded slate: the cached line's
-        // game no longer exists there (removed, or moved past the matcher's
-        // kickoff tolerance) — provably obsolete, never evidence.
-        obsoleteCount += 1;
+        // Not attached. UNCERTAINTY RULE: only a CONFIDENT absence may prove
+        // obsolescence — 'unmatched_pair' means the slate has no candidate for
+        // this pair at all. Ambiguous candidacy ('ambiguous_pair': repeated
+        // matchup the matcher refused to guess between, e.g. missing commence
+        // time), tolerance misses ('date_mismatch'), and one-to-one collisions
+        // ('consumed_or_duplicate') are INDETERMINATE: no positive evidence,
+        // and they block clearing. An expired cached commence proves
+        // obsolescence regardless — an already-kicked-off line is legitimately
+        // absent from the feed whatever its matching outcome.
+        const commenceMs =
+          event.commenceTime === null ? Number.NaN : Date.parse(event.commenceTime);
+        if (Number.isFinite(commenceMs) && commenceMs <= now) {
+          obsoleteCount += 1;
+          continue;
+        }
+        if (reasonByEventKey.get(diagnosticKey(event)) === 'unmatched_pair') {
+          obsoleteCount += 1;
+        }
         continue;
       }
       const game = itemByGameKey.get(gameKey);

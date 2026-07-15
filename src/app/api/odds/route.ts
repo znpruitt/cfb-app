@@ -216,18 +216,17 @@ async function gatherEmptyOddsEvidence(params: {
       getScopedAliasMap('', params.season),
     ]);
     if (teamsRead.status === 'fulfilled' && aliasRead.status === 'fulfilled') {
-      const observedNames = Array.from(
-        new Set(
-          [
-            ...scheduleItems.flatMap((item) => [item.homeTeam, item.awayTeam]),
-            ...(priorEntry?.data ?? []).flatMap((event) => [event.homeTeam, event.awayTeam]),
-          ].filter(Boolean)
-        )
-      );
+      // Deliberately NO observedNames seeding (identity-uncertainty
+      // remediation): observed names register arbitrary labels as resolved
+      // identities, which would make `isResolvedTeamLabel` bless any
+      // placeholder text ("Home Team TBA") as a real team. This evidence
+      // resolver must recognize ONLY catalog- and alias-resolved teams;
+      // unknown labels stay unresolved and create no positive evidence, and
+      // prior-event pair matching still works through catalog identity keys
+      // (with normalized raw labels as the fallback for identical strings).
       resolver = createTeamIdentityResolver({
         aliasMap: aliasRead.value,
         teams: teamsRead.value,
-        observedNames,
       });
     }
   }

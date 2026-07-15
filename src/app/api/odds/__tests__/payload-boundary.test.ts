@@ -666,8 +666,9 @@ test('postponed/suspended/delayed statuses also exculpate stale prior evidence (
 });
 
 test('a cached-future event whose game already kicked off per the CURRENT schedule is obsolete', async () => {
-  // Rescheduled earlier / played: cached commence is future, slate says started.
-  await seedPriorEntry([normalizedEvent(inDays(3))]);
+  // Moved up within the matcher's 24h tolerance and already played: cached
+  // commence is (barely) future, the slate's current kickoff has passed.
+  await seedPriorEntry([normalizedEvent(new Date(Date.now() + 10 * 60 * 60 * 1000).toISOString())]);
   await seedScheduleItems([
     scheduleGame({
       startDate: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
@@ -808,6 +809,33 @@ test('a dated postseason PLACEHOLDER matchup creates no positive expectation (no
 
     const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
     assert.equal(status.latestAttemptOutcome, 'no-op');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('a repeated matchup with missing commence time stays AMBIGUOUS: no-op retains prior data', async () => {
+  const prior = await seedPriorEntry([
+    { homeTeam: 'Georgia', awayTeam: 'Auburn', commenceTime: null, bookmakers: [] },
+  ]);
+  // Same pair twice, both future and beyond the horizon — no date signal, so
+  // the matcher refuses to guess; uncertainty must not clear retained rows.
+  await seedScheduleItems([
+    scheduleGame({ id: 'g-ga-au-1', startDate: inDays(10) }),
+    scheduleGame({ id: 'g-ga-au-2', startDate: inDays(30) }),
+  ]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'ambiguous identity evidence is not a provider failure');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'no-op');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1, 'ambiguous rows are never cleared');
+    assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'prior entry not rewritten');
   } finally {
     stub.restore();
   }

@@ -17,13 +17,14 @@ const KICKED_OFF = new Date(NOW - 3 * 60 * 60 * 1000).toISOString();
 const DAYS_AGO_20 = new Date(NOW - 20 * 24 * 60 * 60 * 1000).toISOString();
 
 // A minimal but REAL resolver (the same canonical identity machinery the
-// attachment layer uses), backed by a tiny catalog so real labels reach
-// `resolved` status while placeholders (TBD, bracket slots, "Winner of …")
-// do not.
+// attachment layer uses), backed by a tiny catalog + one alias so real labels
+// reach `resolved` status while placeholders and UNKNOWN labels do not.
+// Deliberately NO observedNames (identity-uncertainty remediation): seeding
+// them registers arbitrary labels as resolved identities, which is exactly the
+// production defect under test.
 const RESOLVER = createTeamIdentityResolver({
-  aliasMap: {},
+  aliasMap: { UGA: 'Georgia' },
   teams: [{ school: 'Georgia' }, { school: 'Auburn' }, { school: 'Texas' }, { school: 'Rice' }],
-  observedNames: ['Georgia', 'Auburn', 'Texas', 'Rice'],
 });
 
 function scheduleItem(overrides: Partial<OddsScheduleEvidenceItem> = {}): OddsScheduleEvidenceItem {
@@ -162,10 +163,14 @@ test('a prior event matched to a DISRUPTED game is exculpated and provably obsol
 });
 
 test('a cached-future event whose matched game already STARTED per the authoritative kickoff is obsolete', () => {
-  // Rescheduled earlier / already played: cached commence still future, but the
-  // slate's current startDate has passed.
+  // Moved up within the matcher's 24h tolerance and already kicked off: the
+  // cached commence is still (barely) future, but the slate's current
+  // startDate has passed — the event attaches and the authoritative kickoff
+  // governs. (A larger commence-vs-kickoff gap is a date_mismatch and stays
+  // INDETERMINATE — covered below.)
+  const inTenHours = new Date(NOW + 10 * 60 * 60 * 1000).toISOString();
   const result = classify({
-    priorEvents: [priorEvent({ commenceTime: IN_3_DAYS })],
+    priorEvents: [priorEvent({ commenceTime: inTenHours })],
     scheduleItems: [scheduleItem({ startDate: KICKED_OFF, status: 'final' })],
     resolver: RESOLVER,
   });
@@ -278,5 +283,72 @@ test('a fully RESOLVED matchup inside the horizon still makes an empty payload u
     scheduleItems: [scheduleItem({ homeTeam: 'Georgia', awayTeam: 'Texas' })],
   });
   assert.equal(result.kind, 'unexpected-empty');
+  assert.equal(result.kind === 'unexpected-empty' && result.nearHorizonGameCount, 1);
+});
+
+// ---------------------------------------------------------------------------
+// Identity-uncertainty remediation — ambiguous or unavailable identity
+// evidence authorizes neither an unexpected-empty failure nor destructive
+// clearing; only confident matches and confident absences carry verdicts, and
+// unknown labels never auto-resolve into real teams.
+// ---------------------------------------------------------------------------
+
+test('a repeated matchup with missing commence time is AMBIGUOUS: no evidence, no clearing', () => {
+  const result = classify({
+    priorEvents: [priorEvent({ commenceTime: null })],
+    // Same pair twice, both future and beyond the horizon — the matcher has no
+    // date signal and refuses to guess.
+    scheduleItems: [
+      scheduleItem({ startDate: IN_10_DAYS }),
+      scheduleItem({ startDate: IN_30_DAYS }),
+    ],
+  });
+  assert.deepEqual(result, VALID_ABSENCE, 'ambiguous candidacy must stay indeterminate');
+});
+
+test('a cached commence matching NO candidate kickoff (date_mismatch) is indeterminate, not obsolete', () => {
+  const result = classify({
+    priorEvents: [priorEvent({ commenceTime: IN_3_DAYS })],
+    scheduleItems: [scheduleItem({ startDate: IN_30_DAYS })],
+  });
+  assert.deepEqual(result, VALID_ABSENCE, 'a tolerance miss is uncertainty, not proof of absence');
+});
+
+test('an ambiguous event with an EXPIRED cached commence still proves obsolescence', () => {
+  const result = classify({
+    priorEvents: [priorEvent({ commenceTime: KICKED_OFF })],
+    scheduleItems: [
+      scheduleItem({ startDate: IN_10_DAYS }),
+      scheduleItem({ startDate: IN_30_DAYS }),
+    ],
+  });
+  assert.deepEqual(
+    result,
+    VALID_ABSENCE_OBSOLETE,
+    'an already-kicked-off line is legitimately gone from the feed regardless of matching'
+  );
+});
+
+test('unknown labels like "Home Team TBA" never auto-resolve into positive evidence', () => {
+  assert.deepEqual(
+    classify({
+      scheduleItems: [scheduleItem({ homeTeam: 'Home Team TBA', awayTeam: 'Away Team TBA' })],
+    }),
+    VALID_ABSENCE
+  );
+});
+
+test('one resolved and one UNKNOWN participant is not a positive expectation', () => {
+  assert.deepEqual(
+    classify({ scheduleItems: [scheduleItem({ awayTeam: 'Home Team TBA' })] }),
+    VALID_ABSENCE
+  );
+});
+
+test('alias-resolved participants still create positive evidence', () => {
+  const result = classify({
+    scheduleItems: [scheduleItem({ homeTeam: 'UGA', awayTeam: 'Auburn' })],
+  });
+  assert.equal(result.kind, 'unexpected-empty', 'scoped aliases are genuine canonical identity');
   assert.equal(result.kind === 'unexpected-empty' && result.nearHorizonGameCount, 1);
 });
