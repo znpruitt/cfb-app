@@ -17,13 +17,17 @@ test('tier 0 maps to the free-tier 1,000 limit', () => {
 
 test('an upgraded tier surfaces a limit well above 1,000 (not hardcoded)', () => {
   const usage = resolveCfbdUsage({ patronLevel: 2, remainingCalls: 100 });
-  assert.ok(usage.limit > 1000, `expected limit > 1000, got ${usage.limit}`);
+  assert.ok(
+    usage.limit !== null && usage.limit > 1000,
+    `expected limit > 1000, got ${usage.limit}`
+  );
   assert.equal(usage.used, usage.limit - 100);
 });
 
 test('remaining is taken from the provider response, not inferred from a 1,000 ceiling', () => {
   const usage = resolveCfbdUsage({ patronLevel: 1, remainingCalls: 2500 });
   assert.equal(usage.remaining, 2500);
-  // used never goes negative even if remaining exceeds a lower assumed ceiling.
-  assert.ok(usage.used >= 0);
+  // used is derived against the real tier limit, never a lower assumed ceiling
+  // (and never coerced when the observation is unusable — 086G1 finding #7).
+  assert.equal(usage.used, 2500);
 });
