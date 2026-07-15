@@ -5,7 +5,10 @@ import { GET } from '../route.ts';
 import type { OddsUsageSnapshot } from '../../../../lib/api/oddsUsage.ts';
 import {
   __resetOddsRouteCacheForTests,
+  createOddsCacheKey,
   defaultOddsCacheKey,
+  ODDS_DEFAULT_MARKETS,
+  ODDS_DEFAULT_REGIONS,
   oddsCache,
   withOddsTargetLock,
   type NormalizedOddsEvent,
@@ -14,6 +17,7 @@ import {
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
@@ -587,3 +591,200 @@ for (const [label, rawBody] of [
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 prior-evidence schedule reconciliation — cached future events
+// are reconciled against the current canonical slate (identity + kickoff
+// proximity via the existing attachment matcher): disrupted/started/unmatched
+// games exculpate stale prior evidence, provably obsolete rows may be replaced
+// by a fresh empty commit, and unavailable evidence stays conservative.
+// ---------------------------------------------------------------------------
+
+async function seedScheduleItems(
+  items: Array<Record<string, unknown>>,
+  key = `${SEASON}-all-all`
+): Promise<void> {
+  await setAppState('schedule', key, {
+    at: Date.now(),
+    items,
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+}
+
+function scheduleGame(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'g-ga-au',
+    week: 7,
+    startDate: inDays(3),
+    homeTeam: 'Georgia',
+    awayTeam: 'Auburn',
+    status: 'scheduled',
+    seasonType: 'regular',
+    ...overrides,
+  };
+}
+
+test('a prior event whose game is now CANCELED is exculpated: no-op and the obsolete entry is cleared', async () => {
+  await seedPriorEntry([normalizedEvent(inDays(3))]);
+  await seedScheduleItems([scheduleGame({ status: 'canceled' })]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'a canceled game legitimately drops from the provider feed');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'no-op');
+    assert.equal(status.lastSuccessAt, null);
+
+    // Every retained row was provably obsolete → the fresh empty entry commits.
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.deepEqual(durable?.value?.data, [], 'obsolete rows replaced by the empty entry');
+    assert.deepEqual(oddsCache.entries[CACHE_KEY]?.data, []);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('postponed/suspended/delayed statuses also exculpate stale prior evidence (no-op, not 502)', async () => {
+  for (const gameStatus of ['postponed', 'STATUS_SUSPENDED', 'delayed']) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    __resetOddsRouteCacheForTests();
+    await seedPriorEntry([normalizedEvent(inDays(3))]);
+    await seedScheduleItems([scheduleGame({ status: gameStatus })]);
+
+    const stub = installFetchStub([]);
+    try {
+      const res = await GET(refreshRequest());
+      assert.equal(res.status, 200, `status=${gameStatus} must be a valid-absence no-op`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+test('a cached-future event whose game already kicked off per the CURRENT schedule is obsolete', async () => {
+  // Rescheduled earlier / played: cached commence is future, slate says started.
+  await seedPriorEntry([normalizedEvent(inDays(3))]);
+  await seedScheduleItems([
+    scheduleGame({
+      startDate: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      status: 'final',
+    }),
+  ]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'the authoritative current kickoff governs, not the cached time');
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.deepEqual(durable?.value?.data, [], 'provably obsolete row cleared');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('a prior event unmatched against a loaded slate is obsolete (no-op + clear)', async () => {
+  await seedPriorEntry([normalizedEvent(inDays(3))]); // Georgia/Auburn
+  // Slate exists but holds only a far-out different game (no near-horizon
+  // expectation, no matching pair).
+  await seedScheduleItems([
+    scheduleGame({ id: 'g-tx-ri', homeTeam: 'Texas', awayTeam: 'Rice', startDate: inDays(30) }),
+  ]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200);
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.deepEqual(durable?.value?.data, [], 'unmatched stale row cleared');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('one healthy future match keeps the empty payload UNEXPECTED and prevents any clearing', async () => {
+  const prior = await seedPriorEntry([
+    normalizedEvent(inDays(3)), // Georgia/Auburn — canceled below
+    { homeTeam: 'Texas', awayTeam: 'Rice', commenceTime: inDays(10), bookmakers: [] },
+  ]);
+  await seedScheduleItems([
+    scheduleGame({ status: 'canceled' }),
+    // Healthy rematch beyond the 7-day horizon: only PRIOR evidence protects it.
+    scheduleGame({ id: 'g-tx-ri', homeTeam: 'Texas', awayTeam: 'Rice', startDate: inDays(10) }),
+  ]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502, 'a healthy still-upcoming line must not vanish silently');
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-empty-unexpected');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 2, 'no clearing on a rejected refresh');
+    assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'prior entry not rewritten');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('filtered targets get schedule EXCULPATION but no positive schedule expectation', async () => {
+  const filteredKey = `${SEASON}:${createOddsCacheKey({
+    bookmakers: ['draftkings'],
+    markets: ODDS_DEFAULT_MARKETS,
+    regions: ODDS_DEFAULT_REGIONS,
+  })}`;
+  const filteredUrl = `http://localhost/api/odds?year=${SEASON}&refresh=1&bookmakers=draftkings`;
+
+  // (a) Disrupted-game exculpation applies to the filtered target's own prior data.
+  const priorEntry: SharedOddsCacheEntry = {
+    data: [normalizedEvent(inDays(3))],
+    lastFetch: Date.now() - 10 * 60 * 1000,
+    usage: null,
+  };
+  await setAppState('odds-cache', filteredKey, priorEntry);
+  oddsCache.entries[filteredKey] = priorEntry;
+  await seedScheduleItems([scheduleGame({ status: 'canceled' })]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(new Request(filteredUrl));
+    assert.equal(res.status, 200, 'filtered prior evidence is exculpated by the disrupted slate');
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', filteredKey);
+    assert.deepEqual(durable?.value?.data, [], 'obsolete filtered rows cleared');
+
+    // (b) A healthy near-horizon game creates NO positive expectation for a
+    // filtered target: a cold filtered refresh returning [] stays a no-op.
+    await seedScheduleItems([scheduleGame({ status: 'scheduled', startDate: inDays(3) })]);
+    delete oddsCache.entries[filteredKey];
+    await setAppState('odds-cache', filteredKey, { data: [], lastFetch: 0, usage: null });
+    const cold = await GET(new Request(filteredUrl));
+    assert.equal(cold.status, 200, 'no near-horizon expectation for filtered targets');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('a failed schedule read preserves conservative prior-event evidence (502, nothing cleared)', async () => {
+  const prior = await seedPriorEntry([normalizedEvent(inDays(3))]);
+  await seedScheduleItems([scheduleGame({ status: 'canceled' })]);
+
+  __setAppStateReadFailureForTests(new Error('schedule evidence read boom'), 'schedule');
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 502, 'unavailable exculpatory evidence keeps the conservative 502');
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'odds-empty-unexpected');
+  } finally {
+    __setAppStateReadFailureForTests(null);
+    stub.restore();
+  }
+
+  const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+  assert.equal(durable?.value?.data.length, 1, 'nothing cleared without authoritative evidence');
+  assert.equal(durable?.value?.lastFetch, prior.lastFetch);
+});

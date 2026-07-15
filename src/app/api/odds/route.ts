@@ -31,7 +31,11 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '../../../lib/server/apiUsageBudget.ts';
-import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
+import {
+  createTeamIdentityResolver,
+  type TeamCatalogItem,
+  type TeamIdentityResolver,
+} from '../../../lib/teamIdentity.ts';
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
@@ -163,36 +167,74 @@ class OddsPayloadError extends Error {
 
 /**
  * Best-effort, cache-only evidence for classifying an EMPTY Odds payload
- * (PLATFORM-086G2 finding #4): the prior-good entry for the EXACT season-scoped
- * target (freshest of process + durable, mirroring the public fallback read)
- * plus the canonical schedule for the season. The two sources resolve
- * INDEPENDENTLY — a failed read makes only THAT source unavailable
- * (contributing no evidence — unavailability is never evidence of absence) and
- * never discards what the other source returned. Schedule evidence is gathered
- * ONLY for the canonical target (`includeScheduleEvidence`): a filtered
- * bookmaker/market subset may legitimately be empty, so its only evidence is
- * its own prior-good data. `priorDurableReadOk` lets the caller avoid writing
+ * (PLATFORM-086G2 finding #4; schedule reconciliation added by the seam-audit
+ * remediation): the prior-good entry for the EXACT season-scoped target
+ * (freshest of process + durable, mirroring the public fallback read), the
+ * canonical schedule for the season, and — when prior events need reconciling —
+ * the identity-resolver inputs (bundled teams catalog + scoped alias map, the
+ * same sources the canonical item build uses). Sources resolve INDEPENDENTLY —
+ * a failed read makes only THAT source unavailable (contributing no evidence —
+ * unavailability is never evidence of absence) and never discards what another
+ * source returned.
+ *
+ * The schedule is loaded for EVERY target: it serves as EXCULPATORY evidence
+ * (dismissing stale prior events) everywhere, while positive near-horizon
+ * expectation stays canonical-only via the classifier's
+ * `includeScheduleExpectation` flag — a filtered bookmaker/market subset may
+ * legitimately be empty. `priorDurableReadOk` lets the caller avoid writing
  * over a durable entry it could not read.
  */
 async function gatherEmptyOddsEvidence(params: {
   seasonScopedKey: string;
   season: number;
   memoryEntry: SharedOddsCacheEntry | undefined;
-  includeScheduleEvidence: boolean;
 }): Promise<{
   priorEntry: SharedOddsCacheEntry | undefined;
   priorDurableReadOk: boolean;
   scheduleItems: OddsScheduleEvidenceItem[] | null;
+  resolver: TeamIdentityResolver | null;
 }> {
   const [priorRead, scheduleRead] = await Promise.allSettled([
     getAppState<SharedOddsCacheEntry>('odds-cache', params.seasonScopedKey),
-    params.includeScheduleEvidence ? loadCachedScheduleItems(params.season) : Promise.resolve(null),
+    loadCachedScheduleItems(params.season),
   ]);
   const priorStored = priorRead.status === 'fulfilled' ? priorRead.value?.value : undefined;
+  const priorEntry = pickFreshestOddsFallback(params.memoryEntry, priorStored);
+  const scheduleItems = scheduleRead.status === 'fulfilled' ? scheduleRead.value : null;
+
+  // Identity-resolver inputs are needed only to reconcile PRIOR events against
+  // the slate — load them lazily (empty payloads are rare) and only when there
+  // is something to reconcile. A failed load leaves `resolver` null and the
+  // classifier falls back to the conservative cached-commence rule.
+  let resolver: TeamIdentityResolver | null = null;
+  if (scheduleItems !== null && scheduleItems.length > 0 && (priorEntry?.data.length ?? 0) > 0) {
+    const [teamsRead, aliasRead] = await Promise.allSettled([
+      readTeamsCatalog(),
+      // League-agnostic, matching the canonical item build's alias source.
+      getScopedAliasMap('', params.season),
+    ]);
+    if (teamsRead.status === 'fulfilled' && aliasRead.status === 'fulfilled') {
+      const observedNames = Array.from(
+        new Set(
+          [
+            ...scheduleItems.flatMap((item) => [item.homeTeam, item.awayTeam]),
+            ...(priorEntry?.data ?? []).flatMap((event) => [event.homeTeam, event.awayTeam]),
+          ].filter(Boolean)
+        )
+      );
+      resolver = createTeamIdentityResolver({
+        aliasMap: aliasRead.value,
+        teams: teamsRead.value,
+        observedNames,
+      });
+    }
+  }
+
   return {
-    priorEntry: pickFreshestOddsFallback(params.memoryEntry, priorStored),
+    priorEntry,
     priorDurableReadOk: priorRead.status === 'fulfilled',
-    scheduleItems: scheduleRead.status === 'fulfilled' ? scheduleRead.value : null,
+    scheduleItems,
+    resolver,
   };
 }
 
@@ -763,11 +805,14 @@ export async function GET(req: Request): Promise<Response> {
             seasonScopedKey,
             season: query.season,
             memoryEntry: oddsCache.entries[seasonScopedKey],
-            includeScheduleEvidence: isCanonicalDurableQuery(query),
           });
           const classification = classifyEmptyOddsResponse({
             priorEvents: evidence.priorEntry?.data ?? [],
             scheduleItems: evidence.scheduleItems,
+            resolver: evidence.resolver,
+            // Positive schedule expectation is canonical-only; the schedule
+            // still exculpates stale prior events for filtered targets.
+            includeScheduleExpectation: isCanonicalDurableQuery(query),
             now: Date.now(),
           });
           if (classification.kind === 'unexpected-empty') {
@@ -782,11 +827,16 @@ export async function GET(req: Request): Promise<Response> {
 
           // Valid absence → truthful NO-OP, never a successful empty commit.
           const priorHasData = (evidence.priorEntry?.data.length ?? 0) > 0;
-          if (!priorHasData && evidence.priorDurableReadOk) {
-            // Cold/empty target: the empty entry replaces no prior-good data, so
-            // committing it (durable-first) preserves the existing cache contract
-            // — TTL freshness, honest snapshotCapturedAt, and no repeat upstream
-            // pressure from follow-up reads.
+          const replaceProvablyObsoleteRows =
+            priorHasData && classification.priorRowsProvablyObsolete;
+          if ((!priorHasData || replaceProvablyObsoleteRows) && evidence.priorDurableReadOk) {
+            // Commit the empty entry when it replaces NOTHING of value: a
+            // cold/empty target, or a retained entry whose EVERY row was
+            // proven obsolete against the authoritative canonical slate
+            // (expired, matched to disrupted/completed games, or unmatched) —
+            // retaining dead rows indefinitely would be its own lie. Healthy
+            // or indeterminate rows, or unavailable schedule/identity
+            // evidence, always preserve the prior entry instead.
             const emptyEntry: SharedOddsCacheEntry = { data: [], lastFetch: Date.now(), usage };
             await setAppState('odds-cache', seasonScopedKey, emptyEntry);
             oddsCache.entries[seasonScopedKey] = emptyEntry;
