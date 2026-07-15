@@ -32,7 +32,7 @@ import {
   type ScheduleScoreEvidenceItem,
 } from '@/lib/scores/emptyScoresClassifier';
 import { seasonYearForToday, toScorePackFromCfbd } from '@/lib/scores/normalizers';
-import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache';
+import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import type {
   CfbdFallbackReason,
   CfbdGameLoose,
@@ -225,26 +225,33 @@ function logDebug(params: {
  * Best-effort, cache-only evidence for classifying an EMPTY provider response
  * (PLATFORM-086G1, finding #6): the prior-good durable rows for the EXACT
  * refresh target plus the canonical schedule items for the year. Evidence reads
- * never spend provider quota and never widen to sibling targets. A failed
- * evidence read yields NO evidence — the classifier then conservatively keeps
- * the prior valid-absence behavior rather than manufacturing a failure.
+ * never spend provider quota and never widen to sibling targets.
+ *
+ * Schedule evidence goes through the canonical cache reader
+ * (`loadCachedScheduleItems`) so partition-only layouts — `${year}-all-regular`
+ * / `${year}-all-postseason` without a populated aggregate `${year}-all-all`
+ * entry — still count as evidence (Codex P2 remediation).
+ *
+ * The two sources resolve INDEPENDENTLY (Codex P2 remediation): a failed read
+ * makes only THAT source unavailable (contributing no evidence — unavailability
+ * is never evidence of absence) and never discards what the other source
+ * successfully returned. With no readable evidence at all the classifier
+ * conservatively keeps the prior valid-absence behavior rather than
+ * manufacturing a failure.
  */
 async function gatherEmptyScoresEvidence(params: {
   year: number;
   cacheKey: CacheKey;
 }): Promise<{ priorGoodRowCount: number; scheduleItems: ScheduleScoreEvidenceItem[] }> {
-  try {
-    const [priorGood, schedule] = await Promise.all([
-      getAppState<CacheEntry>('scores', params.cacheKey),
-      getAppState<ScheduleCacheEntry>('schedule', `${params.year}-all-all`),
-    ]);
-    return {
-      priorGoodRowCount: priorGood?.value?.items?.length ?? 0,
-      scheduleItems: schedule?.value?.items ?? [],
-    };
-  } catch {
-    return { priorGoodRowCount: 0, scheduleItems: [] };
-  }
+  const [priorGood, scheduleItems] = await Promise.allSettled([
+    getAppState<CacheEntry>('scores', params.cacheKey),
+    loadCachedScheduleItems(params.year),
+  ]);
+  return {
+    priorGoodRowCount:
+      priorGood.status === 'fulfilled' ? (priorGood.value?.value?.items?.length ?? 0) : 0,
+    scheduleItems: scheduleItems.status === 'fulfilled' ? scheduleItems.value : [],
+  };
 }
 
 type ScorePartitionResult =
