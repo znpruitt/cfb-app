@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { GET } from '../route.ts';
+import type { OddsUsageSnapshot } from '../../../../lib/api/oddsUsage.ts';
 import {
   __resetOddsRouteCacheForTests,
   defaultOddsCacheKey,
@@ -393,6 +394,117 @@ test('an in-flight empty refresh cannot clobber a concurrently committed populat
       oddsCache.entries[CACHE_KEY]?.data.length,
       1,
       'populated process entry never clobbered by []'
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 nested-schema/usage remediation — nested scalar drift is a
+// stable schema-drift rejection (never a committed-then-500 poisoned cache),
+// and a retained-data no-op reports the CURRENT captured usage.
+// ---------------------------------------------------------------------------
+
+test('malformed nested bookmaker/market/outcome scalars are schema-drift FAILURES, never committed', async () => {
+  const validRow = { home_team: 'Georgia', away_team: 'Auburn', commence_time: inDays(2) };
+  const malformedVariants: Array<{ label: string; row: unknown }> = [
+    { label: 'numeric bookmaker key', row: { ...validRow, bookmakers: [{ key: 5 }] } },
+    {
+      label: 'numeric bookmaker title',
+      row: { ...validRow, bookmakers: [{ key: 'draftkings', title: 7 }] },
+    },
+    {
+      label: 'numeric market key',
+      row: { ...validRow, bookmakers: [{ key: 'draftkings', markets: [{ key: 9 }] }] },
+    },
+    {
+      label: 'numeric outcome name',
+      row: {
+        ...validRow,
+        bookmakers: [{ key: 'draftkings', markets: [{ key: 'totals', outcomes: [{ name: 4 }] }] }],
+      },
+    },
+    {
+      label: 'string outcome point',
+      row: {
+        ...validRow,
+        bookmakers: [
+          {
+            key: 'draftkings',
+            markets: [
+              { key: 'spreads', outcomes: [{ name: 'Georgia', point: 'seven', price: -110 }] },
+            ],
+          },
+        ],
+      },
+    },
+  ];
+
+  for (const variant of malformedVariants) {
+    const stub = installFetchStub([variant.row]);
+    try {
+      const res = await GET(refreshRequest());
+      assert.equal(res.status, 502, `${variant.label} must reject, not commit or 500`);
+      const body = (await res.json()) as { code?: string };
+      assert.equal(body.code, 'odds-schema-drift', variant.label);
+      assert.equal(
+        await getAppState('odds-cache', CACHE_KEY),
+        null,
+        `${variant.label}: no durable commit`
+      );
+      assert.equal(
+        oddsCache.entries[CACHE_KEY],
+        undefined,
+        `${variant.label}: no process-cache publication`
+      );
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+test('a retained-data no-op reports the CURRENT captured usage, not the retained entry usage', async () => {
+  // Prior entry: all events kicked off (valid absence on the next empty
+  // payload) and a STALE embedded usage snapshot.
+  const staleUsage: OddsUsageSnapshot = {
+    used: 50,
+    remaining: 450,
+    lastCost: 3,
+    limit: 500,
+    capturedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+    source: 'odds-response-headers',
+  };
+  const prior: SharedOddsCacheEntry = {
+    data: [normalizedEvent(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString())],
+    lastFetch: Date.now() - 10 * 60 * 1000,
+    usage: staleUsage,
+  };
+  await setAppState('odds-cache', CACHE_KEY, prior);
+  oddsCache.entries[CACHE_KEY] = prior;
+
+  // The refresh's provider headers report the CURRENT quota (remaining 400).
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'expired prior events → valid-absence no-op');
+    const body = (await res.json()) as {
+      meta: { usage: { remaining: number } | null };
+    };
+    assert.equal(
+      body.meta.usage?.remaining,
+      400,
+      'the response reports the freshly captured quota, not the retained entry usage (450)'
+    );
+
+    // The retained rows and entry are untouched — only response metadata is current.
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1, 'retained rows preserved');
+    assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'retained entry not rewritten');
+    assert.equal(
+      durable?.value?.usage?.remaining,
+      450,
+      'the stored prior entry keeps its own historical usage'
     );
   } finally {
     stub.restore();

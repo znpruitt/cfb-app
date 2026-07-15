@@ -27,15 +27,25 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || value === null || typeof value === 'string';
 }
 
+function isOptionalNumber(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === 'number';
+}
+
 /**
  * STRUCTURAL validation of one raw upstream odds row (PLATFORM-086G2 P2
- * remediation #2). `normalizeUpstreamOddsEvent` dereferences the row and maps
- * its nested collections, so a row like `null`, `{ home_team: 5 }`, or
- * `{ bookmakers: {} }` would THROW mid-normalization — surfacing as a generic
- * 500 instead of the stable `odds-schema-drift` classification. This predicate
- * checks only the shapes normalization actually touches (strings-or-absent
- * team/commence fields; arrays-of-objects for bookmakers/markets/outcomes);
- * MISSING fields stay valid here — semantic gaps (e.g. no team names) are
+ * remediation #2, tightened by the nested-schema remediation). Downstream code
+ * dereferences the row well past normalization: `normalizeUpstreamOddsEvent`
+ * maps the nested collections verbatim, and the attachment/selection layer
+ * calls string methods on the copied scalars (`pickPreferredBook` lowercases
+ * `bookmakers[].key`; market selection lowercases `markets[].key`; totals
+ * selection lowercases `outcomes[].name`; snapshot building trims `title`) and
+ * does arithmetic on `outcomes[].price`/`point`. A row like `null`,
+ * `{ home_team: 5 }`, `{ bookmakers: {} }`, or `{ bookmakers: [{ key: 5 }] }`
+ * would otherwise either THROW mid-request (a generic 500 instead of the
+ * stable `odds-schema-drift` classification) or — worse — be durably COMMITTED
+ * as a successful refresh and poison later reads. This predicate therefore
+ * validates every nested scalar those layers treat as a string or number.
+ * MISSING fields stay valid — semantic gaps (e.g. no team names) are
  * normalization's concern and classify separately as usable/unusable rows.
  */
 export function isStructurallyValidUpstreamOddsEvent(row: unknown): row is UpstreamOddsEvent {
@@ -52,16 +62,25 @@ export function isStructurallyValidUpstreamOddsEvent(row: unknown): row is Upstr
   if (!Array.isArray(bookmakers)) return false;
   for (const book of bookmakers) {
     if (!isPlainObject(book)) return false;
+    if (!isOptionalString(book.key) || !isOptionalString(book.title)) return false;
     const markets = book.markets;
     if (markets === undefined || markets === null) continue;
     if (!Array.isArray(markets)) return false;
     for (const market of markets) {
       if (!isPlainObject(market)) return false;
+      if (!isOptionalString(market.key)) return false;
       const outcomes = market.outcomes;
       if (outcomes === undefined || outcomes === null) continue;
       if (!Array.isArray(outcomes)) return false;
       for (const outcome of outcomes) {
         if (!isPlainObject(outcome)) return false;
+        if (
+          !isOptionalString(outcome.name) ||
+          !isOptionalNumber(outcome.price) ||
+          !isOptionalNumber(outcome.point)
+        ) {
+          return false;
+        }
       }
     }
   }

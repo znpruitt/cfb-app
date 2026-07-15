@@ -566,6 +566,12 @@ export async function GET(req: Request): Promise<Response> {
     let quotaSuppressed = false;
     let suppressedUsage: OddsUsageSnapshot | null = null;
     let servedStaleFallback = false;
+    // The usage snapshot captured from THIS request's provider headers (refresh
+    // path only). A retained-data no-op serves the PRIOR cache entry, whose
+    // embedded `usage` predates this refresh — the response must still report
+    // the current quota (nested-schema/usage remediation #2). Null on genuine
+    // cache-only reads, which keep using cached/durable usage.
+    let refreshCapturedUsage: OddsUsageSnapshot | null = null;
 
     if (!refreshRequested) {
       // ---- Public/anonymous path: never spends upstream quota (PLATFORM-075) ----
@@ -686,6 +692,7 @@ export async function GET(req: Request): Promise<Response> {
         endpointType: 'odds',
         cacheStatus: 'miss',
       });
+      refreshCapturedUsage = usage;
 
       // ---- Payload classification BEFORE any durable commit (086G2 #4) ----
       // A successful HTTP response is not a valid Odds payload merely because it
@@ -883,7 +890,7 @@ export async function GET(req: Request): Promise<Response> {
       generatedAt: requestTime,
       usage: quotaSuppressed
         ? suppressedUsage
-        : (responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
+        : (refreshCapturedUsage ?? responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
       season: query.season,
       snapshotCapturedAt: servedSnapshotAt,
     });
