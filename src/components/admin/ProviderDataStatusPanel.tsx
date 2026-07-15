@@ -373,7 +373,7 @@ export default function ProviderDataStatusPanel({
             <>
               {cfbdQuota.text}{' '}
               <span className="text-gray-400 dark:text-zinc-500">
-                (tier {cfbdUsage.patronLevel} · live provider observation)
+                (tier {cfbdUsage.patronLevel ?? 'unknown'} · live provider observation)
               </span>
               {cfbdQuota.inconsistent && cfbdQuota.detail && (
                 <span className="mt-0.5 block text-amber-700 dark:text-amber-300">

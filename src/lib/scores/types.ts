@@ -3,6 +3,14 @@ export type CfbdFallbackReason =
   | 'none'
   | 'api-key-missing'
   | 'cfbd-empty'
+  // Provider returned an empty Scores payload for a target where trustworthy,
+  // target-scoped evidence (populated prior-good durable rows for the SAME
+  // canonical target, or started non-disrupted games in the canonical schedule)
+  // says score rows should exist. Classified as a refresh FAILURE — prior-good
+  // data is retained and no empty result is published — never a valid no-op
+  // (PLATFORM-086G1, deferred finding #6). Distinct from 'cfbd-empty', which is
+  // a legitimately empty target (e.g. postseason before bowls).
+  | 'cfbd-empty-unexpected'
   | 'cfbd-timeout'
   | 'cfbd-aborted'
   | 'cfbd-network'

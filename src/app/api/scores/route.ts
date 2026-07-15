@@ -27,7 +27,12 @@ import { getApplicableScoreSeasonTypes } from '@/lib/server/scoreApplicability';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
+import {
+  classifyEmptyScoresResponse,
+  type ScheduleScoreEvidenceItem,
+} from '@/lib/scores/emptyScoresClassifier';
 import { seasonYearForToday, toScorePackFromCfbd } from '@/lib/scores/normalizers';
+import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache';
 import type {
   CfbdFallbackReason,
   CfbdGameLoose,
@@ -216,6 +221,32 @@ function logDebug(params: {
   });
 }
 
+/**
+ * Best-effort, cache-only evidence for classifying an EMPTY provider response
+ * (PLATFORM-086G1, finding #6): the prior-good durable rows for the EXACT
+ * refresh target plus the canonical schedule items for the year. Evidence reads
+ * never spend provider quota and never widen to sibling targets. A failed
+ * evidence read yields NO evidence — the classifier then conservatively keeps
+ * the prior valid-absence behavior rather than manufacturing a failure.
+ */
+async function gatherEmptyScoresEvidence(params: {
+  year: number;
+  cacheKey: CacheKey;
+}): Promise<{ priorGoodRowCount: number; scheduleItems: ScheduleScoreEvidenceItem[] }> {
+  try {
+    const [priorGood, schedule] = await Promise.all([
+      getAppState<CacheEntry>('scores', params.cacheKey),
+      getAppState<ScheduleCacheEntry>('schedule', `${params.year}-all-all`),
+    ]);
+    return {
+      priorGoodRowCount: priorGood?.value?.items?.length ?? 0,
+      scheduleItems: schedule?.value?.items ?? [],
+    };
+  } catch {
+    return { priorGoodRowCount: 0, scheduleItems: [] };
+  }
+}
+
 type ScorePartitionResult =
   | {
       kind: 'success';
@@ -244,7 +275,10 @@ type ScorePartitionResult =
  * (6th-review finding #4). Provider/commit errors are RETURNED (kind 'failure'),
  * not thrown, so the aggregate can collect every partition's outcome. Classifier
  * parity with 085C: a non-array payload and a nonempty→zero-rows payload are
- * schema drift (failure); a genuinely empty CFBD array is valid absence (no-op).
+ * schema drift (failure). An empty CFBD array is classified contextually
+ * (PLATFORM-086G1 finding #6): valid absence stays a no-op, but an empty payload
+ * over target-scoped evidence of expected score rows is a failure
+ * ('cfbd-empty-unexpected') that preserves prior-good data.
  */
 async function refreshScorePartition(params: {
   year: number;
@@ -285,9 +319,53 @@ async function refreshScorePartition(params: {
     }
 
     if (items.length === 0) {
-      // Genuinely empty CFBD partition (valid absence, e.g. postseason before
-      // bowls): do NOT write (prior-good rows preserved) — the caller records a
-      // no-op, never a failure. No ESPN fallback.
+      // An empty CFBD partition is NOT automatically a valid no-op
+      // (PLATFORM-086G1, finding #6). Classify against target-scoped evidence:
+      // populated prior-good durable rows for this exact target, or started
+      // non-disrupted games in the canonical schedule, mean score rows should
+      // exist — an empty payload is then a provider FAILURE, and prior-good
+      // data is preserved because no write happens on this path. With no such
+      // evidence (future target, no expected games, canceled/postponed only)
+      // the empty response remains a valid absence: the caller records a
+      // no-op, never a failure, and never a successful empty commit. No ESPN
+      // fallback either way.
+      const evidence = await gatherEmptyScoresEvidence({ year, cacheKey });
+      const classification = classifyEmptyScoresResponse({
+        priorGoodRowCount: evidence.priorGoodRowCount,
+        scheduleItems: evidence.scheduleItems,
+        seasonType,
+        week,
+        now,
+      });
+      if (classification.kind === 'unexpected-empty') {
+        logDebug({
+          requestId,
+          event: 'upstream_empty_unexpected',
+          endpoint,
+          year,
+          week,
+          seasonType,
+          cacheKey,
+          itemCount: 0,
+          detail: {
+            priorGoodRowCount: classification.priorGoodRowCount,
+            startedGameCount: classification.startedGameCount,
+          },
+        });
+        const target =
+          week === null ? `${seasonType} ${year}` : `${seasonType} ${year} week ${week}`;
+        return {
+          kind: 'failure',
+          seasonType,
+          error:
+            `scores ${target}: CFBD returned 0 rows but score rows are expected for this target ` +
+            `(prior-good durable rows: ${classification.priorGoodRowCount}, ` +
+            `started schedule games: ${classification.startedGameCount}); ` +
+            `prior-good data retained`,
+          code: 'cfbd-empty-unexpected',
+          status: 502,
+        };
+      }
       logDebug({
         requestId,
         event: 'upstream_empty',

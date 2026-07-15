@@ -85,7 +85,7 @@ export default function AdminUsagePanel({
             <h3 className="font-medium">CFBD API Usage</h3>
             <p className="text-xs text-gray-600 dark:text-zinc-400">Quota: {cfbdQuota.text}</p>
             <p className="text-xs text-gray-600 dark:text-zinc-400">
-              Patron level: {cfbdUsage.patronLevel} (
+              Patron level: {cfbdUsage.patronLevel ?? 'unavailable'} (
               {cfbdUsage.normalized.source ?? 'provider read'})
             </p>
             {cfbdQuota.inconsistent && cfbdQuota.detail && (
@@ -95,8 +95,9 @@ export default function AdminUsagePanel({
               </p>
             )}
             <p className="text-[11px] text-gray-500 dark:text-zinc-500">
-              Raw provider response (diagnostic detail): used {cfbdUsage.used}, remaining{' '}
-              {cfbdUsage.remaining}, limit {cfbdUsage.limit}.
+              Raw provider response (diagnostic detail): used {cfbdUsage.used ?? 'unavailable'},
+              remaining {cfbdUsage.remaining ?? 'unavailable'}, limit{' '}
+              {cfbdUsage.limit ?? 'unavailable'}.
             </p>
             <p className="text-xs text-gray-600 dark:text-zinc-400">
               Classification: authoritative provider read (ephemeral per request).

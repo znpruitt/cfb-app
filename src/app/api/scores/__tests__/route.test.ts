@@ -161,8 +161,26 @@ test('a missing CFBD key reports a failure (no ESPN fallback)', async () => {
   assert.equal(fetchCalls, 0, 'no provider call is made without a CFBD key');
 });
 
-test('a valid empty CFBD partition does not erase prior-good cached scores', async () => {
-  // Seed a prior-good week cache.
+// ---------------------------------------------------------------------------
+// PLATFORM-086G1 deferred finding #6 — an empty CFBD Scores payload is
+// classified CONTEXTUALLY: over target-scoped evidence that rows should exist
+// (populated prior-good durable rows for the same target, or started
+// non-disrupted canonical-schedule games) it is a truthful FAILURE that retains
+// prior-good data; with no such evidence it remains a valid no-op.
+// ---------------------------------------------------------------------------
+
+function setEmptyCfbdMock() {
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.origin === 'https://api.collegefootballdata.com') {
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`unexpected URL: ${url.toString()}`);
+  });
+}
+
+test('an empty CFBD payload over populated prior-good target data is an unexpected-empty FAILURE that retains prior-good rows', async () => {
+  // Seed a prior-good week cache — trustworthy evidence that rows should exist.
   await setAppState('scores', '2026-4-regular', {
     at: Date.now() - 60 * 1000,
     items: [
@@ -180,19 +198,20 @@ test('a valid empty CFBD partition does not erase prior-good cached scores', asy
     cfbdFallbackReason: 'none',
   });
 
-  // An authorized refresh of that same week now returns empty (valid absence).
-  setMockFetch(async (input: URL | string) => {
-    const url = new URL(typeof input === 'string' ? input : input.toString());
-    if (url.origin === 'https://api.collegefootballdata.com') {
-      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
-    }
-    throw new Error(`unexpected URL: ${url.toString()}`);
-  });
+  // An authorized refresh of that same week now returns empty — a provider
+  // regression, NOT a valid absence (086G1 finding #6).
+  setEmptyCfbdMock();
   const refresh = await GET(
     new Request('http://localhost/api/scores?year=2026&week=4&seasonType=regular&refresh=1')
   );
-  assert.equal(refresh.status, 200);
-  assert.deepEqual((await refresh.json()).items, [], 'the empty no-op response carries no rows');
+  assert.equal(refresh.status, 502, 'unexpected empty is a failure, not a 200 no-op');
+  const refreshJson = await refresh.json();
+  assert.equal(refreshJson.metadata.cfbdFallbackReason, 'cfbd-empty-unexpected');
+
+  // A truthful failed attempt is recorded against the exact week partition.
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(2026, 4, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'cfbd-empty-unexpected');
 
   // The prior-good durable entry is untouched — a subsequent public read serves it.
   setMockFetch(async () => new Response('[]', { status: 200 }));
@@ -200,8 +219,108 @@ test('a valid empty CFBD partition does not erase prior-good cached scores', asy
     new Request('http://localhost/api/scores?year=2026&week=4&seasonType=regular')
   );
   const anonJson = await anon.json();
-  assert.equal(anonJson.items.length, 1, 'prior-good scores survive a valid empty refresh');
+  assert.equal(anonJson.items.length, 1, 'prior-good scores survive an unexpected empty refresh');
   assert.equal(anonJson.items[0].home.score, 30);
+});
+
+test('an empty CFBD payload when the canonical schedule shows started games is an unexpected-empty FAILURE', async () => {
+  const startedKickoff = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items: [
+      {
+        id: 'g-started',
+        week: 3,
+        startDate: startedKickoff,
+        homeTeam: 'Georgia',
+        awayTeam: 'Auburn',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  setEmptyCfbdMock();
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.equal(res.status, 502, 'started schedule games make an empty payload a failure');
+  const json = await res.json();
+  assert.equal(json.metadata.cfbdFallbackReason, 'cfbd-empty-unexpected');
+
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(2026, 3, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastSuccessAt, null, 'an unexpected empty never advances last-success');
+});
+
+test('an empty CFBD payload for a future-only target remains a valid no-op', async () => {
+  const futureKickoff = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items: [
+      {
+        id: 'g-future',
+        week: 3,
+        startDate: futureKickoff,
+        homeTeam: 'Georgia',
+        awayTeam: 'Auburn',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  setEmptyCfbdMock();
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.equal(res.status, 200, 'no started games → future target stays a valid no-op');
+  const json = await res.json();
+  assert.equal(json.meta.cfbdFallbackReason, 'cfbd-empty');
+
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(2026, 3, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'no-op');
+});
+
+test('canceled and postponed games do not make an empty CFBD payload unexpected', async () => {
+  const pastKickoff = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+  await setAppState('schedule', '2026-all-all', {
+    at: Date.now(),
+    items: [
+      {
+        id: 'g-canceled',
+        week: 3,
+        startDate: pastKickoff,
+        homeTeam: 'Georgia',
+        awayTeam: 'Auburn',
+        status: 'canceled',
+        seasonType: 'regular',
+      },
+      {
+        id: 'g-postponed',
+        week: 3,
+        startDate: pastKickoff,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'postponed',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  setEmptyCfbdMock();
+  const res = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
+  );
+  assert.equal(res.status, 200, 'disrupted games never independently expect score rows');
+  const json = await res.json();
+  assert.equal(json.meta.cfbdFallbackReason, 'cfbd-empty');
 });
 
 test('scores route reports metadata and caches by explicit seasonType', async () => {

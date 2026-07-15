@@ -2,11 +2,15 @@ import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { NormalizedProviderQuota } from '@/lib/api/providerQuota';
 
 export type CfbdUsageSnapshot = {
-  patronLevel: number;
-  /** Raw provider fields (retained for diagnostic detail only). */
-  used: number;
-  remaining: number;
-  limit: number;
+  /**
+   * Raw provider fields (retained for diagnostic detail only). Each is `null`
+   * when the provider did not supply a usable value — unavailable is distinct
+   * from a genuine 0 (PLATFORM-086G1 finding #7).
+   */
+  patronLevel: number | null;
+  used: number | null;
+  remaining: number | null;
+  limit: number | null;
   /**
    * Authoritative reconciled quota shared by both quota surfaces. Panels must
    * render this rather than the raw fields, which may be internally inconsistent.
