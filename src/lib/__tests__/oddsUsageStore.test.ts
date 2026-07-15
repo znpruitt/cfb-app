@@ -200,14 +200,23 @@ test('read state: a durable-read failure is unavailable, never collapsed into ab
   assert.equal(recovered.state === 'available' && recovered.snapshot.remaining, 400);
 });
 
-test('read state: a CORRUPT app-state file reports unavailable through the real file backend', async () => {
-  // Not the throw-injecting seam — this exercises the genuine file-fallback
-  // read path (086G2 P2 remediation #3): corrupt JSON must not read as absence.
-  await __corruptAppStateFileForTests();
-  try {
-    const state = await readLatestKnownOddsUsageState({ forceRefresh: true });
-    assert.equal(state.state, 'unavailable', 'a corrupt store is not snapshot absence');
-  } finally {
-    await __deleteAppStateFileForTests();
+// File-backend-only: with DATABASE_URL configured, reads go to Postgres and a
+// corrupted (unused) file cannot make them fail — skip, mirroring the
+// appStateStore FILE_MODE guard.
+const FILE_MODE = !process.env.DATABASE_URL?.trim();
+
+test(
+  'read state: a CORRUPT app-state file reports unavailable through the real file backend',
+  { skip: !FILE_MODE },
+  async () => {
+    // Not the throw-injecting seam — this exercises the genuine file-fallback
+    // read path (086G2 P2 remediation #3): corrupt JSON must not read as absence.
+    await __corruptAppStateFileForTests();
+    try {
+      const state = await readLatestKnownOddsUsageState({ forceRefresh: true });
+      assert.equal(state.state, 'unavailable', 'a corrupt store is not snapshot absence');
+    } finally {
+      await __deleteAppStateFileForTests();
+    }
   }
-});
+);

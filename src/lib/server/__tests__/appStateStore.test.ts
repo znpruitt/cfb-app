@@ -140,20 +140,28 @@ test(
 // from silently rebuilding the store and discarding every other key).
 // ---------------------------------------------------------------------------
 
-test('file fallback: a missing app-state file is genuine absence (null read)', async () => {
-  await __deleteAppStateFileForTests();
-  assert.equal(await getAppState('read-absence', 'missing'), null);
-});
-
-test('file fallback: a corrupt app-state file PROPAGATES instead of reading as empty', async () => {
-  await __deleteAppStateFileForTests();
-  await __corruptAppStateFileForTests();
-  try {
-    await assert.rejects(
-      () => getAppState('read-absence', 'any-key'),
-      'a corrupt store must never be indistinguishable from an empty one'
-    );
-  } finally {
+test(
+  'file fallback: a missing app-state file is genuine absence (null read)',
+  { skip: !FILE_MODE },
+  async () => {
     await __deleteAppStateFileForTests();
+    assert.equal(await getAppState('read-absence', 'missing'), null);
   }
-});
+);
+
+test(
+  'file fallback: a corrupt app-state file PROPAGATES instead of reading as empty',
+  { skip: !FILE_MODE },
+  async () => {
+    await __deleteAppStateFileForTests();
+    await __corruptAppStateFileForTests();
+    try {
+      await assert.rejects(
+        () => getAppState('read-absence', 'any-key'),
+        'a corrupt store must never be indistinguishable from an empty one'
+      );
+    } finally {
+      await __deleteAppStateFileForTests();
+    }
+  }
+);
