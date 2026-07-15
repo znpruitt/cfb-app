@@ -788,3 +788,27 @@ test('a failed schedule read preserves conservative prior-event evidence (502, n
   assert.equal(durable?.value?.data.length, 1, 'nothing cleared without authoritative evidence');
   assert.equal(durable?.value?.lastFetch, prior.lastFetch);
 });
+
+test('a dated postseason PLACEHOLDER matchup creates no positive expectation (no-op, not 502)', async () => {
+  // CFP-style slot inside the horizon: participants unresolved, status scheduled.
+  await seedScheduleItems([
+    scheduleGame({
+      id: 'g-cfp-slot',
+      homeTeam: 'CFP Quarterfinal 1',
+      awayTeam: 'CFP Quarterfinal 2',
+      startDate: inDays(3),
+      seasonType: 'postseason',
+    }),
+  ]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'unresolved participants cannot have posted odds yet');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'no-op');
+  } finally {
+    stub.restore();
+  }
+});

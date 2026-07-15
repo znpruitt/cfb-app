@@ -44,7 +44,27 @@
 import { attachOddsEventsToSchedule } from '../oddsAttachment.ts';
 import type { ScheduleAttachmentGame } from '../gameAttachment.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
+import { buildPlaceholderParticipant } from '../schedulePostseasonHelpers.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
+
+/**
+ * Whether a schedule label denotes a REAL resolved team, per the canonical
+ * placeholder classifier the schedule build itself uses
+ * (`buildPlaceholderParticipant`): blank labels, `TBD`, bracket-style slot
+ * labels ("CFP Quarterfinal 2"), "Winner of …" derivations, and unresolved
+ * names all classify as non-team slots. The slotId/defaultDisplay params are
+ * display-only and inert here.
+ */
+function isResolvedTeamLabel(resolver: TeamIdentityResolver, raw: string): boolean {
+  return (
+    buildPlaceholderParticipant({
+      resolver,
+      raw,
+      slotId: 'odds-empty-evidence',
+      defaultDisplay: 'TBD',
+    }).kind === 'team'
+  );
+}
 
 /** Kickoffs within this window of `now` are expected to have posted odds. */
 export const ODDS_EXPECTED_KICKOFF_HORIZON_MS = 7 * 24 * 60 * 60 * 1000;
@@ -91,8 +111,10 @@ export type EmptyOddsClassification =
  * never evidence); an EMPTY array is treated the same for reconciliation — a
  * real season slate is never empty, so an empty result proves nothing about a
  * cached event's game. `resolver === null` means identity inputs were
- * unavailable; reconciliation requires it. `includeScheduleExpectation` must
- * be true only for the canonical/default target.
+ * unavailable; both prior-event reconciliation AND positive near-horizon
+ * expectation require it (the latter to exclude unresolved placeholder
+ * matchups). `includeScheduleExpectation` must be true only for the
+ * canonical/default target.
  */
 export function classifyEmptyOddsResponse(params: {
   priorEvents: readonly PriorOddsEventEvidence[];
@@ -103,8 +125,13 @@ export function classifyEmptyOddsResponse(params: {
 }): EmptyOddsClassification {
   const { priorEvents, scheduleItems, resolver, includeScheduleExpectation, now } = params;
 
+  // Positive schedule expectation requires the resolver: the provider cannot
+  // publish an event until BOTH participants are known, so a dated postseason
+  // placeholder (CFP/bowl/championship slot with TBD or bracket labels) must
+  // never make an empty response "unexpected" — and only the canonical
+  // identity machinery can tell a real team label from a placeholder.
   let nearHorizonGameCount = 0;
-  if (includeScheduleExpectation && scheduleItems !== null) {
+  if (includeScheduleExpectation && scheduleItems !== null && resolver !== null) {
     for (const item of scheduleItems) {
       // Canceled/postponed/suspended/delayed games must not independently make
       // odds rows expected; only games strictly ahead of now and inside the
@@ -115,6 +142,14 @@ export function classifyEmptyOddsResponse(params: {
       const startMs = Date.parse(item.startDate);
       if (!Number.isFinite(startMs)) continue;
       if (startMs <= now || startMs - now > ODDS_EXPECTED_KICKOFF_HORIZON_MS) continue;
+      // Unresolved matchups contribute no positive evidence (they stay in the
+      // schedule untouched — they simply cannot have posted odds yet).
+      if (
+        !isResolvedTeamLabel(resolver, item.homeTeam) ||
+        !isResolvedTeamLabel(resolver, item.awayTeam)
+      ) {
+        continue;
+      }
       nearHorizonGameCount += 1;
     }
   }

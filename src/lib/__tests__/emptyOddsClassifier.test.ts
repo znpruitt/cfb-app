@@ -17,10 +17,12 @@ const KICKED_OFF = new Date(NOW - 3 * 60 * 60 * 1000).toISOString();
 const DAYS_AGO_20 = new Date(NOW - 20 * 24 * 60 * 60 * 1000).toISOString();
 
 // A minimal but REAL resolver (the same canonical identity machinery the
-// attachment layer uses) — labels resolve to themselves via observedNames.
+// attachment layer uses), backed by a tiny catalog so real labels reach
+// `resolved` status while placeholders (TBD, bracket slots, "Winner of …")
+// do not.
 const RESOLVER = createTeamIdentityResolver({
   aliasMap: {},
-  teams: [],
+  teams: [{ school: 'Georgia' }, { school: 'Auburn' }, { school: 'Texas' }, { school: 'Rice' }],
   observedNames: ['Georgia', 'Auburn', 'Texas', 'Rice'],
 });
 
@@ -47,7 +49,9 @@ function classify(params: {
   return classifyEmptyOddsResponse({
     priorEvents: params.priorEvents ?? [],
     scheduleItems: params.scheduleItems ?? null,
-    resolver: params.resolver ?? null,
+    // Positive schedule expectation now requires identity inputs, so the
+    // resolver is present by default; fallback tests pass `resolver: null`.
+    resolver: params.resolver === undefined ? RESOLVER : params.resolver,
     includeScheduleExpectation: params.includeScheduleExpectation ?? true,
     now: NOW,
   });
@@ -234,4 +238,45 @@ test('repeat-team matchups disambiguate by kickoff proximity (existing attachmen
     resolver: RESOLVER,
   });
   assert.equal(result.kind, 'unexpected-empty', 'the rematch, not the played meeting, governs');
+});
+
+// ---------------------------------------------------------------------------
+// Unresolved-matchup remediation — dated postseason placeholders (TBD, bracket
+// slots, "Winner of …") cannot have posted odds, so they never create positive
+// expectation; fully resolved matchups still do. Delegated to the canonical
+// placeholder classifier (buildPlaceholderParticipant), never raw string checks.
+// ---------------------------------------------------------------------------
+
+test('a dated placeholder with both participants TBD creates no positive expectation', () => {
+  assert.deepEqual(
+    classify({ scheduleItems: [scheduleItem({ homeTeam: 'TBD', awayTeam: 'TBD' })] }),
+    VALID_ABSENCE
+  );
+});
+
+test('one resolved and one unresolved participant is still not a positive expectation', () => {
+  assert.deepEqual(classify({ scheduleItems: [scheduleItem({ awayTeam: 'TBD' })] }), VALID_ABSENCE);
+});
+
+test('blank participants create no positive expectation', () => {
+  assert.deepEqual(
+    classify({ scheduleItems: [scheduleItem({ homeTeam: '', awayTeam: 'Auburn' })] }),
+    VALID_ABSENCE
+  );
+});
+
+test('bracket-style and "Winner of …" placeholders create no positive expectation', () => {
+  const items = [
+    scheduleItem({ homeTeam: 'CFP Quarterfinal 1', awayTeam: 'CFP Quarterfinal 2' }),
+    scheduleItem({ homeTeam: 'Winner of Sugar Bowl', awayTeam: 'Winner of Rose Bowl' }),
+  ];
+  assert.deepEqual(classify({ scheduleItems: items }), VALID_ABSENCE);
+});
+
+test('a fully RESOLVED matchup inside the horizon still makes an empty payload unexpected', () => {
+  const result = classify({
+    scheduleItems: [scheduleItem({ homeTeam: 'Georgia', awayTeam: 'Texas' })],
+  });
+  assert.equal(result.kind, 'unexpected-empty');
+  assert.equal(result.kind === 'unexpected-empty' && result.nearHorizonGameCount, 1);
 });

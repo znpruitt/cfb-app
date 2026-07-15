@@ -202,12 +202,14 @@ async function gatherEmptyOddsEvidence(params: {
   const priorEntry = pickFreshestOddsFallback(params.memoryEntry, priorStored);
   const scheduleItems = scheduleRead.status === 'fulfilled' ? scheduleRead.value : null;
 
-  // Identity-resolver inputs are needed only to reconcile PRIOR events against
-  // the slate — load them lazily (empty payloads are rare) and only when there
-  // is something to reconcile. A failed load leaves `resolver` null and the
-  // classifier falls back to the conservative cached-commence rule.
+  // Identity-resolver inputs back BOTH classifier uses of the slate — prior
+  // event reconciliation and positive near-horizon expectation (which must
+  // exclude unresolved placeholder matchups) — so load them lazily whenever a
+  // nonempty slate loaded (empty payloads are rare). A failed load leaves
+  // `resolver` null: prior evidence falls back to the conservative
+  // cached-commence rule and the schedule creates no positive expectation.
   let resolver: TeamIdentityResolver | null = null;
-  if (scheduleItems !== null && scheduleItems.length > 0 && (priorEntry?.data.length ?? 0) > 0) {
+  if (scheduleItems !== null && scheduleItems.length > 0) {
     const [teamsRead, aliasRead] = await Promise.allSettled([
       readTeamsCatalog(),
       // League-agnostic, matching the canonical item build's alias source.
