@@ -15,6 +15,17 @@ Supersedes: (none)
 
 ## Completed phases / milestones
 
+### PLATFORM-086G1 — CFBD Score & Quota Truthfulness — Complete
+
+**Status:** Complete. Merged to `main` via PR #394 (`platform/086g1-cfbd-score-quota-truthfulness`, merge commit `987dd04`, 2026-07-14). Two commits; one Codex review round (2 P2 evidence-read findings) remediated pre-merge; final Codex review clean.
+**PROMPT_ID(s):** PLATFORM-086G1-CFBD-SCORE-QUOTA-TRUTHFULNESS-v1 (+ folded PLATFORM-086G1-CODEX-P2-EVIDENCE-READ-REMEDIATION-v1).
+
+**Goals completed:** Closed deferred PLATFORM-086A findings #6 and #7 at the CFBD boundary. Empty CFBD Scores responses are classified contextually against target-scoped, cache-only evidence — populated prior-good durable rows for the exact refresh target, or started non-disrupted canonical-schedule games (read through the canonical schedule fallback so partition-only cache layouts count, with the two evidence sources resolving independently): an unexpected empty is a truthful `cfbd-empty-unexpected` refresh failure (502) that retains prior-good data, publishes nothing, and records against the exact partition scope, while legitimate empties (future targets, no expected games, canceled/postponed-only) remain recorded no-ops. CFBD quota parsing is honest: missing/malformed `remainingCalls`/`patronLevel` resolve to unavailable (never 0-remaining false exhaustion or a guessed tier limit), trustworthy zero remaining still reports genuine exhaustion, and reconciliation authority stays in the canonical `normalizeProviderQuota` path.
+
+**Key outcomes:** A CFBD regression that returns `[]` can no longer silently freeze scores as a "successful" no-op, and a missing provider quota field can no longer render false exhaustion on admin surfaces. New pure classifier `src/lib/scores/emptyScoresClassifier.ts`; `CfbdUsage` fields nullable end-to-end. Validation: focused suites green (scores route 39, classifier 11, quota suites), `tsc`/`lint:all` clean, no provider quota spent during verification.
+
+**Optional follow-up debt (non-blocking):** none. Next in campaign order: PLATFORM-086G2 (Odds boundary & usage truthfulness).
+
 ### PLATFORM-086A — Provider-Refresh Observability Foundation — Complete
 
 **Status:** Complete. Merged to `main` via PR #391 (`platform/086a-refresh-observability`, merge commit `9da8857`, 2026-07-14). 17 commits with ~10 Codex review/remediation rounds folded in pre-merge.
