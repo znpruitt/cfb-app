@@ -1,7 +1,7 @@
 # CFB App Roadmap
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-14
 Owner: Project documentation
 Canonical for: high-level product/platform roadmap and development philosophy only
 Supersedes: (none)
@@ -70,10 +70,10 @@ Fetch and cache weekly game-level team stats from CFBD to power the Insights Eng
 
 - **Data source:** CFBD `game_team_stats` endpoint — one call per week, returns all team stats for all games in that week
 - **Storage:** Cached in `appStateStore` by week, same pattern as scores
-- **Cron:** Monday 11am UTC — fetch weekend game stats (complements existing Wednesday cron for season transition)
+- **Cron:** Monday 11am UTC — fetch weekend game stats (complements the daily 00:00 UTC season-transition cron; see `vercel.json`)
 - **Owner aggregation:** `aggregateOwnerGameStats()` resolves teams via `TeamIdentityResolver`, attributes stats per owner at query time
 - **Stats available:** Yards gained/allowed, turnovers, turnover margin, third-down conversion %, time of possession, plus 6 special teams return stat fields
-- **API cost:** ~19 additional calls per season — well within 1,000/month free tier
+- **API cost:** ~19 additional calls per season — well within the CFBD Tier 1 limit (5,000 calls/month)
 - **2021–2025 backfilled** (5 seasons × ~19 weeks = 95 weeks cached)
 - See `docs/completed-work.md` for full detail.
 
@@ -235,6 +235,24 @@ Enable async drafts where owners have a configurable window to make each pick ra
 ---
 
 ### Platform
+
+#### Provider Refresh Observability & Automation (PLATFORM-086)
+
+The provider campaign: truthful refresh observability (complete), then narrow correctness follow-ups, then automation — correctly sized, cohesive PRs under the campaign's PR-sizing rule (detailed plan, task boundaries, and execution order live in `docs/next-tasks.md` → Active priorities #1).
+
+Provider limits (canonical): CFBD Tier 1 = 5,000 calls/month; The Odds API = 500 credits/month (current request cost 3 credits; Odds automation targets ~450 credits with a ~50-credit safety buffer).
+
+- **PLATFORM-086A — provider-refresh observability foundation ✓ Complete (PR #391).** Durable per-dataset refresh status with typed canonical scopes and per-scope attempt ordering; cross-scope completion-token rejection; durable operator settings (global noncritical pause + per-dataset enable); `/admin/diagnostics` Provider Data Status panel with manual refresh; cache-aware missing-data diagnostics; CFBD quota normalization (Tier 1 = 5,000); user-facing freshness labels; CFBD as the sole normal score provider (automatic ESPN fallback removed); durable-first commits; empty-response/schema-drift classification; schedule `week + all` read-time cache composition.
+- **PLATFORM-086G1 — CFBD score & quota truthfulness (planned, next).** Contextual Scores empty classification; CFBD quota missing-field honesty.
+- **PLATFORM-086G2 — Odds boundary & usage truthfulness (planned).** Odds malformed/unexpected-empty rejection; odds-usage read-failure vs. absence. Separate PR from G1 (different provider family).
+- **PLATFORM-086H — game-stats recovery (planned).** Schedule-derived expected-game completeness, partial-week retry, non-destructive merge, panel no-op wording.
+- **PLATFORM-086I — settings feedback (planned).** Render stored pause/toggle mutation errors beside their controls.
+- **PLATFORM-086B — live-score polling (planned).** Schedule-armed ~3-minute polling only; never bundled with Odds.
+- **PLATFORM-086C — Odds polling (planned).** ~6-hour baseline with modest pre-kickoff priority; separate from live scores.
+- **PLATFORM-086E1 / 086E2 — slow jobs (planned, separate PRs).** Weekly active-season schedule refresh with an **operation-aware** settings gate: general weekly maintenance is noncritical (honors the global pause and schedule toggle), while the postseason/championship-slate refresh that establishes a trustworthy season-rollover boundary is **lifecycle-critical and exempt** — like the season-transition/rollover operations themselves — so rollover never depends solely on data operators can pause, proceeds only from an authoritative championship boundary, and an empty/partial postseason slate never authorizes it; rankings publication refresh (AP/Coaches Sundays 22:00 UTC, CFP Wednesdays 04:00 UTC — cadence fixed in code/`vercel.json`, never admin-editable).
+- **PLATFORM-086F — admin diagnostics information-architecture redesign (planned, last).** After the real automation jobs exist.
+- **PLATFORM-086D — absorbed into 086A (retired).** Operator controls shipped with 086A; only the 086I error-rendering remnant remains.
+- **Conferences remain manual** — no automation task.
 
 #### Multi-tenant Commissioner Sign-up (planned)
 
@@ -402,6 +420,8 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | AppStateStore Caching — Egress Optimization | 🔄 Planned |
 | Server Fetch Architecture Audit | 🔄 Planned |
 | Standings Ownership Model Redesign (Phases 0–5) | ✅ Complete |
+| Provider Refresh Observability (PLATFORM-086A) | ✅ Complete (PR #391) |
+| Provider Automation & Correctness (PLATFORM-086B–I) | 🔄 In progress |
 
 ## Architecture rules
 
