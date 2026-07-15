@@ -684,7 +684,10 @@ export async function GET(req: Request): Promise<Response> {
         });
       }
 
-      const upstreamData: unknown = await upstreamRes.json();
+      // Capture and persist quota headers BEFORE parsing the body (invalid-JSON
+      // remediation): the request consumed provider credits regardless of body
+      // validity, so the usage snapshot must survive a malformed payload — both
+      // for the durable quota accounting and for the failure record below.
       const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
         sportKey: 'americanfootball_ncaaf',
         markets: query.markets,
@@ -693,6 +696,20 @@ export async function GET(req: Request): Promise<Response> {
         cacheStatus: 'miss',
       });
       refreshCapturedUsage = usage;
+
+      // Parse INSIDE the payload-error boundary: a 200 with an invalid,
+      // truncated, or empty body is a malformed provider payload — a stable
+      // `odds-invalid-payload` 502 with prior-good retention, never an uncoded
+      // internal 500 (invalid-JSON remediation).
+      let upstreamData: unknown;
+      try {
+        upstreamData = await upstreamRes.json();
+      } catch {
+        throw new OddsPayloadError(
+          'odds-invalid-payload',
+          `odds ${query.season}: provider returned a 200 response with an invalid or empty JSON body — nothing committed; prior-good odds retained`
+        );
+      }
 
       // ---- Payload classification BEFORE any durable commit (086G2 #4) ----
       // A successful HTTP response is not a valid Odds payload merely because it

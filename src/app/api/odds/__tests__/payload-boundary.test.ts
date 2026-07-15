@@ -20,6 +20,7 @@ import {
 import {
   __deleteOddsUsageStoreFileForTests,
   __resetOddsUsageStoreForTests,
+  getLatestKnownOddsUsage,
 } from '../../../../lib/server/oddsUsageStore.ts';
 import {
   __deleteDurableOddsStoreFileForTests,
@@ -510,3 +511,79 @@ test('a retained-data no-op reports the CURRENT captured usage, not the retained
     stub.restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086G2 invalid-JSON remediation — a 200 with an unparseable or empty
+// body is a stable `odds-invalid-payload` failure (never an uncoded 500), and
+// the consumed-credit quota headers are persisted BEFORE body parsing.
+// ---------------------------------------------------------------------------
+
+function installRawBodyFetchStub(rawBody: string): FetchStub {
+  const realFetch = globalThis.fetch;
+  let oddsCalls = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const raw = typeof input === 'string' ? input : input.toString();
+    const url = new URL(raw, 'http://localhost');
+    if (url.hostname === ODDS_API_HOST) {
+      oddsCalls += 1;
+      return new Response(rawBody, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '100',
+          'x-requests-remaining': '400',
+          'x-requests-last': '3',
+        },
+      });
+    }
+    if (url.pathname === '/api/schedule' || url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+  return {
+    oddsCalls: () => oddsCalls,
+    restore: () => {
+      globalThis.fetch = realFetch;
+    },
+  };
+}
+
+for (const [label, rawBody] of [
+  ['truncated JSON', '[{"home_team": "Georg'],
+  ['empty body', ''],
+] as const) {
+  test(`a 200 response with ${label} is odds-invalid-payload (502) with usage persisted and prior data retained`, async () => {
+    const prior = await seedPriorEntry([
+      normalizedEvent(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()),
+    ]);
+    const stub = installRawBodyFetchStub(rawBody);
+    try {
+      const res = await GET(refreshRequest());
+      assert.equal(res.status, 502, `${label} must classify, not surface an uncoded 500`);
+      const body = (await res.json()) as { code?: string };
+      assert.equal(body.code, 'odds-invalid-payload');
+
+      const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+      assert.equal(status.latestAttemptOutcome, 'failed');
+      assert.equal(status.lastError?.code, 'odds-invalid-payload');
+      assert.equal(status.lastSuccessAt, null, 'a malformed body never advances last-success');
+
+      // The request consumed credits — the header snapshot persisted durably
+      // even though the body never parsed.
+      const usage = await getLatestKnownOddsUsage({ forceRefresh: true });
+      assert.equal(usage?.remaining, 400, `${label}: quota headers persisted before parsing`);
+
+      // Prior-good data untouched, durably and in-process.
+      const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+      assert.equal(durable?.value?.data.length, 1, 'prior-good durable entry retained');
+      assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'durable entry not rewritten');
+      assert.equal(oddsCache.entries[CACHE_KEY]?.data.length, 1, 'process entry retained');
+    } finally {
+      stub.restore();
+    }
+  });
+}
