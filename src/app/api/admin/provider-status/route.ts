@@ -33,7 +33,7 @@ import {
   getProviderCacheStates,
   unknownProviderCacheStates,
 } from '@/lib/server/providerCacheState';
-import { getLatestKnownOddsUsage } from '@/lib/server/oddsUsageStore';
+import { readLatestKnownOddsUsageState } from '@/lib/server/oddsUsageStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -100,8 +100,10 @@ export async function GET(req: Request): Promise<Response> {
     // deployment. This is the operational QUOTA display only — it is deliberately
     // NOT passed to the diagnostics odds-freshness check, which now derives
     // freshness from the season-scoped odds cache instead of this global quota
-    // timestamp (4th-review finding #4).
-    const oddsUsage = await getLatestKnownOddsUsage({ forceRefresh: true }).catch(() => null);
+    // timestamp (4th-review finding #4). The state-carrying read never throws and
+    // never collapses a durable-read failure into "absent" (086G2 finding #3) —
+    // the feed serializes the distinct state so the panel can render honestly.
+    const oddsUsageRead = await readLatestKnownOddsUsageState({ forceRefresh: true });
 
     const [settings, diagnosticsResult, statuses, legacyStatuses, cacheStates] = await Promise.all([
       getProviderRefreshSettings(),
@@ -156,7 +158,12 @@ export async function GET(req: Request): Promise<Response> {
       scoreSeasonTypes: diagnosticsResult.scoreSeasonTypes,
       // Cache-only per-dataset availability, keyed by dataset (hotfix requirement 6).
       cacheStates,
-      oddsUsage,
+      oddsUsage: oddsUsageRead.state === 'available' ? oddsUsageRead.snapshot : null,
+      // Distinct usage read state (086G2 finding #3): 'absent' is the genuine
+      // first-run/no-snapshot state; 'unavailable' is a durable-read failure and
+      // must never render as "no snapshot yet".
+      oddsUsageState: oddsUsageRead.state,
+      oddsUsageStateDetail: oddsUsageRead.state === 'unavailable' ? oddsUsageRead.error : null,
     });
   } catch (error) {
     return NextResponse.json(

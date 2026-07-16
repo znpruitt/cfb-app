@@ -31,21 +31,32 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '../../../lib/server/apiUsageBudget.ts';
-import { createTeamIdentityResolver, type TeamCatalogItem } from '../../../lib/teamIdentity.ts';
+import {
+  createTeamIdentityResolver,
+  type TeamCatalogItem,
+  type TeamIdentityResolver,
+} from '../../../lib/teamIdentity.ts';
 import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
   type ProviderRefreshAttempt,
 } from '../../../lib/server/providerRefreshStatus.ts';
+import {
+  classifyEmptyOddsResponse,
+  type OddsScheduleEvidenceItem,
+} from '../../../lib/odds/emptyOddsClassifier.ts';
+import { loadCachedScheduleItems } from '../../../lib/server/canonicalScheduleCache.ts';
 import { oddsTargetScope, type ProviderRefreshScope } from '../../../lib/providerRefreshScope.ts';
 import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import type { AliasMap } from '../../../lib/teamNames.ts';
 import {
   createOddsCacheKey,
+  isStructurallyValidUpstreamOddsEvent,
   normalizeUpstreamOddsEvent,
   oddsCache,
   ODDS_DEFAULT_BOOKMAKERS,
@@ -53,6 +64,7 @@ import {
   ODDS_DEFAULT_REGIONS,
   pickFreshestOddsFallback,
   resolveDefaultSeason,
+  withOddsTargetLock,
   type NormalizedOddsEvent,
   type SharedOddsCacheEntry,
   type UpstreamOddsEvent,
@@ -129,6 +141,102 @@ type ParsedSeasonResult = { ok: true; season: number } | QueryValidationError;
 
 function isFreshOddsCacheEntry(entry: SharedOddsCacheEntry | undefined, now: number): boolean {
   return Boolean(entry && now - entry.lastFetch < ODDS_CACHE_TTL_MS);
+}
+
+/**
+ * A provider payload that must be REJECTED before any durable commit
+ * (PLATFORM-086G2 finding #4): non-array, schema drift, or an unexpectedly
+ * empty response over target-scoped evidence. Carries the stable diagnostic
+ * code the provider-refresh failure record and the HTTP error body both report.
+ * Thrown from the refresh branch only — the shared catch records exactly one
+ * truthful failure for the exact odds scope, and because it is thrown before
+ * `setAppState`/process-cache publication, prior-good data is untouched and no
+ * downstream invalidation fires.
+ */
+class OddsPayloadError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(code: string, message: string, status = 502) {
+    super(message);
+    this.name = 'OddsPayloadError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/**
+ * Best-effort, cache-only evidence for classifying an EMPTY Odds payload
+ * (PLATFORM-086G2 finding #4; schedule reconciliation added by the seam-audit
+ * remediation): the prior-good entry for the EXACT season-scoped target
+ * (freshest of process + durable, mirroring the public fallback read), the
+ * canonical schedule for the season, and — when prior events need reconciling —
+ * the identity-resolver inputs (bundled teams catalog + scoped alias map, the
+ * same sources the canonical item build uses). Sources resolve INDEPENDENTLY —
+ * a failed read makes only THAT source unavailable (contributing no evidence —
+ * unavailability is never evidence of absence) and never discards what another
+ * source returned.
+ *
+ * The schedule is loaded for EVERY target: it serves as EXCULPATORY evidence
+ * (dismissing stale prior events) everywhere, while positive near-horizon
+ * expectation stays canonical-only via the classifier's
+ * `includeScheduleExpectation` flag — a filtered bookmaker/market subset may
+ * legitimately be empty. `priorDurableReadOk` lets the caller avoid writing
+ * over a durable entry it could not read.
+ */
+async function gatherEmptyOddsEvidence(params: {
+  seasonScopedKey: string;
+  season: number;
+  memoryEntry: SharedOddsCacheEntry | undefined;
+}): Promise<{
+  priorEntry: SharedOddsCacheEntry | undefined;
+  priorDurableReadOk: boolean;
+  scheduleItems: OddsScheduleEvidenceItem[] | null;
+  resolver: TeamIdentityResolver | null;
+}> {
+  const [priorRead, scheduleRead] = await Promise.allSettled([
+    getAppState<SharedOddsCacheEntry>('odds-cache', params.seasonScopedKey),
+    loadCachedScheduleItems(params.season),
+  ]);
+  const priorStored = priorRead.status === 'fulfilled' ? priorRead.value?.value : undefined;
+  const priorEntry = pickFreshestOddsFallback(params.memoryEntry, priorStored);
+  const scheduleItems = scheduleRead.status === 'fulfilled' ? scheduleRead.value : null;
+
+  // Identity-resolver inputs back BOTH classifier uses of the slate — prior
+  // event reconciliation and positive near-horizon expectation (which must
+  // exclude unresolved placeholder matchups) — so load them lazily whenever a
+  // nonempty slate loaded (empty payloads are rare). A failed load leaves
+  // `resolver` null: prior evidence falls back to the conservative
+  // cached-commence rule and the schedule creates no positive expectation.
+  let resolver: TeamIdentityResolver | null = null;
+  if (scheduleItems !== null && scheduleItems.length > 0) {
+    const [teamsRead, aliasRead] = await Promise.allSettled([
+      readTeamsCatalog(),
+      // League-agnostic, matching the canonical item build's alias source.
+      getScopedAliasMap('', params.season),
+    ]);
+    if (teamsRead.status === 'fulfilled' && aliasRead.status === 'fulfilled') {
+      // Deliberately NO observedNames seeding (identity-uncertainty
+      // remediation): observed names register arbitrary labels as resolved
+      // identities, which would make `isResolvedTeamLabel` bless any
+      // placeholder text ("Home Team TBA") as a real team. This evidence
+      // resolver must recognize ONLY catalog- and alias-resolved teams;
+      // unknown labels stay unresolved and create no positive evidence, and
+      // prior-event pair matching still works through catalog identity keys
+      // (with normalized raw labels as the fallback for identical strings).
+      resolver = createTeamIdentityResolver({
+        aliasMap: aliasRead.value,
+        teams: teamsRead.value,
+      });
+    }
+  }
+
+  return {
+    priorEntry,
+    priorDurableReadOk: priorRead.status === 'fulfilled',
+    scheduleItems,
+    resolver,
+  };
 }
 
 function responseFrom(items: CanonicalOddsItem[], meta: OddsMeta, status = 200): Response {
@@ -447,11 +555,11 @@ export async function GET(req: Request): Promise<Response> {
   // Provider-refresh observability (PLATFORM-086A). Hoisted above the try so the
   // shared catch can attribute a failure to the odds refresh ONLY when a refresh
   // was actually attempted (never for a public cache-only read that happens to
-  // throw). `oddsSuccessRecorded` prevents a post-commit throw from double-writing
-  // a failure over an already-recorded success.
+  // throw). `oddsAttemptResolved` prevents a post-resolution throw from
+  // double-writing a failure over an already-recorded success or no-op.
   let oddsAttempt: ProviderRefreshAttempt | null = null;
   let oddsScope: ProviderRefreshScope | null = null;
-  let oddsSuccessRecorded = false;
+  let oddsAttemptResolved = false;
   try {
     const parsedQuery = parseOddsQuery(new URL(req.url));
     if (!parsedQuery.ok) {
@@ -501,6 +609,12 @@ export async function GET(req: Request): Promise<Response> {
     let quotaSuppressed = false;
     let suppressedUsage: OddsUsageSnapshot | null = null;
     let servedStaleFallback = false;
+    // The usage snapshot captured from THIS request's provider headers (refresh
+    // path only). A retained-data no-op serves the PRIOR cache entry, whose
+    // embedded `usage` predates this refresh — the response must still report
+    // the current quota (nested-schema/usage remediation #2). Null on genuine
+    // cache-only reads, which keep using cached/durable usage.
+    let refreshCapturedUsage: OddsUsageSnapshot | null = null;
 
     if (!refreshRequested) {
       // ---- Public/anonymous path: never spends upstream quota (PLATFORM-075) ----
@@ -613,7 +727,10 @@ export async function GET(req: Request): Promise<Response> {
         });
       }
 
-      const upstreamData = (await upstreamRes.json()) as UpstreamOddsEvent[];
+      // Capture and persist quota headers BEFORE parsing the body (invalid-JSON
+      // remediation): the request consumed provider credits regardless of body
+      // validity, so the usage snapshot must survive a malformed payload — both
+      // for the durable quota accounting and for the failure record below.
       const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
         sportKey: 'americanfootball_ncaaf',
         markets: query.markets,
@@ -621,50 +738,173 @@ export async function GET(req: Request): Promise<Response> {
         endpointType: 'odds',
         cacheStatus: 'miss',
       });
+      refreshCapturedUsage = usage;
 
-      responseEntry = {
-        data: Array.isArray(upstreamData)
-          ? upstreamData
-              .map(normalizeUpstreamOddsEvent)
-              .filter((event): event is NormalizedOddsEvent => Boolean(event))
-          : [],
-        lastFetch: Date.now(),
-        usage,
-      };
-      // Durable-first commit order (PLATFORM-085A): persist the raw odds cache
-      // entry BEFORE publishing it to the process cache, so a failed durable
-      // write can never leave this instance serving "fresh" odds that no other
-      // instance can durably reproduce. A setAppState throw propagates to the
-      // route's catch (500), leaving the process cache untouched.
-      await setAppState('odds-cache', seasonScopedKey, responseEntry);
-      // Capture the durable COMMIT time + sequence for success ordering (rereview
-      // findings #3/#6): last-success is ordered by commit time, not by when this
-      // status call runs after the canonical item build below; the sequence breaks
-      // a same-millisecond tie by true commit order.
-      const committedAt = new Date().toISOString();
-      const commitSeq = nextProviderCommitSeq();
-      oddsCache.entries[seasonScopedKey] = responseEntry;
-      fetchedFromUpstream = true;
+      // Parse INSIDE the payload-error boundary: a 200 with an invalid,
+      // truncated, or empty body is a malformed provider payload — a stable
+      // `odds-invalid-payload` 502 with prior-good retention, never an uncoded
+      // internal 500 (invalid-JSON remediation).
+      let upstreamData: unknown;
+      try {
+        upstreamData = await upstreamRes.json();
+      } catch {
+        throw new OddsPayloadError(
+          'odds-invalid-payload',
+          `odds ${query.season}: provider returned a 200 response with an invalid or empty JSON body — nothing committed; prior-good odds retained`
+        );
+      }
 
-      // Durable odds committed — record success (PLATFORM-086A). Tied to the
-      // durable commit per the truthfulness invariant; the guard prevents a later
-      // throw (e.g. in canonical item building) from overwriting it with a failure.
-      await recordProviderRefreshSuccess('odds', oddsScope, {
-        attempt: oddsAttempt ?? undefined,
-        committedAt,
-        commitSeq,
-        source: 'odds-api',
-        rowsCommitted: responseEntry.data.length,
-        usage: usage
-          ? {
-              used: usage.used,
-              remaining: usage.remaining,
-              limit: usage.limit,
-              lastCost: usage.lastCost,
-            }
-          : undefined,
-      });
-      oddsSuccessRecorded = true;
+      // ---- Payload classification BEFORE any durable commit (086G2 #4) ----
+      // A successful HTTP response is not a valid Odds payload merely because it
+      // can be coerced to an empty array. Non-array payloads, payloads carrying
+      // structurally malformed rows, and nonempty payloads with zero
+      // normalizable events are provider failures; a genuine empty array is
+      // classified contextually below.
+      if (!Array.isArray(upstreamData)) {
+        throw new OddsPayloadError(
+          'odds-invalid-payload',
+          `odds ${query.season}: provider returned a non-array payload — nothing committed; prior-good odds retained`
+        );
+      }
+      // Structural row validation BEFORE normalization (086G2 P2 remediation
+      // #2): a row normalization would throw on (`[null]`, `{ bookmakers: {} }`,
+      // non-string team fields) is schema drift for the WHOLE payload — a stable
+      // 502 with prior-good retention, never a mid-normalization TypeError that
+      // surfaces as a generic 500.
+      const malformedRowCount = upstreamData.filter(
+        (row) => !isStructurallyValidUpstreamOddsEvent(row)
+      ).length;
+      if (malformedRowCount > 0) {
+        throw new OddsPayloadError(
+          'odds-schema-drift',
+          `odds ${query.season}: ${malformedRowCount} of ${upstreamData.length} provider event(s) are structurally malformed (schema drift) — nothing committed; prior-good odds retained`
+        );
+      }
+      const normalizedEvents = (upstreamData as UpstreamOddsEvent[])
+        .map(normalizeUpstreamOddsEvent)
+        .filter((event): event is NormalizedOddsEvent => Boolean(event));
+      if (upstreamData.length > 0 && normalizedEvents.length === 0) {
+        throw new OddsPayloadError(
+          'odds-schema-drift',
+          `odds ${query.season}: provider returned ${upstreamData.length} event(s) but none normalized to a usable odds event (schema drift) — nothing committed; prior-good odds retained`
+        );
+      }
+
+      if (normalizedEvents.length === 0) {
+        // Genuinely empty provider array — classify against target-scoped
+        // evidence (086G2 #4): still-upcoming prior-good events for this exact
+        // target, or (canonical target only) non-disrupted schedule games
+        // kicking off within the expected-odds horizon, mean rows should exist.
+        // The evidence read and the conditional cold-target write below are
+        // SERIALIZED per season-scoped target (086G2 P2 remediation #1) so an
+        // overlapping nonempty refresh cannot commit populated data between
+        // this branch's "no prior entry" observation and its empty write —
+        // inside the lock the evidence re-reads both caches and sees any commit
+        // that won the lock first.
+        responseEntry = await withOddsTargetLock(seasonScopedKey, async () => {
+          const evidence = await gatherEmptyOddsEvidence({
+            seasonScopedKey,
+            season: query.season,
+            memoryEntry: oddsCache.entries[seasonScopedKey],
+          });
+          const classification = classifyEmptyOddsResponse({
+            priorEvents: evidence.priorEntry?.data ?? [],
+            scheduleItems: evidence.scheduleItems,
+            resolver: evidence.resolver,
+            // Positive schedule expectation is canonical-only; the schedule
+            // still exculpates stale prior events for filtered targets.
+            includeScheduleExpectation: isCanonicalDurableQuery(query),
+            now: Date.now(),
+          });
+          if (classification.kind === 'unexpected-empty') {
+            throw new OddsPayloadError(
+              'odds-empty-unexpected',
+              `odds ${query.season}: provider returned 0 events but odds are expected for this target ` +
+                `(prior upcoming events: ${classification.priorUpcomingEventCount}, ` +
+                `schedule games within 7 days: ${classification.nearHorizonGameCount}); ` +
+                `prior-good data retained`
+            );
+          }
+
+          // Valid absence → truthful NO-OP, never a successful empty commit.
+          const priorHasData = (evidence.priorEntry?.data.length ?? 0) > 0;
+          const replaceProvablyObsoleteRows =
+            priorHasData && classification.priorRowsProvablyObsolete;
+          if ((!priorHasData || replaceProvablyObsoleteRows) && evidence.priorDurableReadOk) {
+            // Commit the empty entry when it replaces NOTHING of value: a
+            // cold/empty target, or a retained entry whose EVERY row was
+            // proven obsolete against the authoritative canonical slate
+            // (expired, matched to disrupted/completed games, or unmatched) —
+            // retaining dead rows indefinitely would be its own lie. Healthy
+            // or indeterminate rows, or unavailable schedule/identity
+            // evidence, always preserve the prior entry instead.
+            const emptyEntry: SharedOddsCacheEntry = { data: [], lastFetch: Date.now(), usage };
+            await setAppState('odds-cache', seasonScopedKey, emptyEntry);
+            oddsCache.entries[seasonScopedKey] = emptyEntry;
+            return emptyEntry;
+          }
+          // Prior-good data exists (or the durable entry was unreadable): an
+          // unexplained empty payload never replaces it, durably or in-process.
+          // Serve what subsequent cache reads will serve.
+          return evidence.priorEntry ?? oddsCache.entries[seasonScopedKey];
+        });
+        fetchedFromUpstream = true;
+        await recordProviderRefreshNoop('odds', oddsScope, {
+          attempt: oddsAttempt ?? undefined,
+          source: 'odds-api',
+        });
+        oddsAttemptResolved = true;
+      } else {
+        const nextEntry: SharedOddsCacheEntry = {
+          data: normalizedEvents,
+          lastFetch: Date.now(),
+          usage,
+        };
+        responseEntry = nextEntry;
+        // Durable-first commit order (PLATFORM-085A): persist the raw odds cache
+        // entry BEFORE publishing it to the process cache, so a failed durable
+        // write can never leave this instance serving "fresh" odds that no other
+        // instance can durably reproduce. A setAppState throw propagates to the
+        // route's catch (500), leaving the process cache untouched. The commit
+        // runs under the same per-target lock as the empty-payload branch
+        // (086G2 P2 remediation #1) so it can never interleave with a
+        // concurrent empty classification's read-then-write.
+        const { committedAt, commitSeq } = await withOddsTargetLock(seasonScopedKey, async () => {
+          await setAppState('odds-cache', seasonScopedKey, nextEntry);
+          // Capture the durable COMMIT time + sequence for success ordering
+          // (rereview findings #3/#6): last-success is ordered by commit time,
+          // not by when the status call runs after the canonical item build
+          // below; the sequence breaks a same-millisecond tie by true commit
+          // order.
+          const committed = {
+            committedAt: new Date().toISOString(),
+            commitSeq: nextProviderCommitSeq(),
+          };
+          oddsCache.entries[seasonScopedKey] = nextEntry;
+          return committed;
+        });
+        fetchedFromUpstream = true;
+
+        // Durable odds committed — record success (PLATFORM-086A). Tied to the
+        // durable commit per the truthfulness invariant; the guard prevents a later
+        // throw (e.g. in canonical item building) from overwriting it with a failure.
+        await recordProviderRefreshSuccess('odds', oddsScope, {
+          attempt: oddsAttempt ?? undefined,
+          committedAt,
+          commitSeq,
+          source: 'odds-api',
+          rowsCommitted: nextEntry.data.length,
+          usage: usage
+            ? {
+                used: usage.used,
+                remaining: usage.remaining,
+                limit: usage.limit,
+                lastCost: usage.lastCost,
+              }
+            : undefined,
+        });
+        oddsAttemptResolved = true;
+      }
     }
     const requestTime = new Date().toISOString();
     const snapshotCapturedAt = new Date(responseEntry?.lastFetch ?? Date.now()).toISOString();
@@ -718,7 +958,7 @@ export async function GET(req: Request): Promise<Response> {
       generatedAt: requestTime,
       usage: quotaSuppressed
         ? suppressedUsage
-        : (responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
+        : (refreshCapturedUsage ?? responseEntry?.usage ?? (await getLatestKnownOddsUsage())),
       season: query.season,
       snapshotCapturedAt: servedSnapshotAt,
     });
@@ -726,12 +966,21 @@ export async function GET(req: Request): Promise<Response> {
     // Attribute the failure to the odds refresh only when a refresh was actually
     // attempted and no success was recorded (PLATFORM-086A). Public cache-only
     // reads that throw are not refresh attempts.
-    if (oddsAttempt && oddsScope && !oddsSuccessRecorded) {
+    if (oddsAttempt && oddsScope && !oddsAttemptResolved) {
       const latestUsage = await getLatestKnownOddsUsage().catch(() => null);
       await recordProviderRefreshFailure('odds', oddsScope, {
         attempt: oddsAttempt,
         error: e instanceof Error ? e.message : 'internal error',
-        status: e instanceof UpstreamFetchError ? (e.details.status ?? 502) : 500,
+        // Payload rejections carry their stable diagnostic code into the status
+        // record (086G2 #4) so operators can distinguish a malformed payload,
+        // schema drift, or unexpected empty from a transport failure.
+        code: e instanceof OddsPayloadError ? e.code : undefined,
+        status:
+          e instanceof OddsPayloadError
+            ? e.status
+            : e instanceof UpstreamFetchError
+              ? (e.details.status ?? 502)
+              : 500,
         usage: latestUsage
           ? {
               used: latestUsage.used,
@@ -740,6 +989,12 @@ export async function GET(req: Request): Promise<Response> {
               lastCost: latestUsage.lastCost,
             }
           : undefined,
+      });
+    }
+    if (e instanceof OddsPayloadError) {
+      return new Response(JSON.stringify({ error: e.message, code: e.code }), {
+        status: e.status,
+        headers: { 'Content-Type': 'application/json' },
       });
     }
     if (e instanceof UpstreamFetchError) {

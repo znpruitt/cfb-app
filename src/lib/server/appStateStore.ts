@@ -110,13 +110,25 @@ function assertDurableStorageAvailable(): void {
 }
 
 async function readFileStore(): Promise<Record<string, StoredEntry>> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(appStateFilePath(), 'utf8');
-    const parsed = JSON.parse(raw) as FileStoreShape;
-    return parsed.entries ?? {};
-  } catch {
-    return {};
+    raw = await fs.readFile(appStateFilePath(), 'utf8');
+  } catch (error) {
+    // Only a genuinely MISSING file is absence (first run / cleaned store).
+    // Every other failure — permissions, I/O — PROPAGATES (PLATFORM-086G2 P2
+    // remediation #3): swallowing it made an unreadable store indistinguishable
+    // from "nothing stored", so readers reported absence (e.g. odds usage
+    // "no snapshot yet") and the next read-modify-write would silently rebuild
+    // the store from {}, discarding every other key.
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return {};
+    }
+    throw error;
   }
+  // Malformed JSON is a CORRUPT store, not an empty one — propagate for the
+  // same reason as above.
+  const parsed = JSON.parse(raw) as FileStoreShape;
+  return parsed?.entries ?? {};
 }
 
 async function writeFileStore(entries: Record<string, StoredEntry>): Promise<void> {
@@ -452,6 +464,17 @@ export async function __deleteAppStateFileForTests(): Promise<void> {
   }
 
   await fs.rm(appStateFilePath(), { force: true });
+}
+
+/**
+ * Test-only: write an UNPARSEABLE app-state file so tests can exercise the real
+ * corrupt-store read path (PLATFORM-086G2 P2 remediation #3) — distinct from
+ * the throw-injecting read seam, which fires before the file backend runs.
+ * File-fallback mode only.
+ */
+export async function __corruptAppStateFileForTests(): Promise<void> {
+  await fs.mkdir(path.dirname(appStateFilePath()), { recursive: true });
+  await fs.writeFile(appStateFilePath(), '{not-valid-json', 'utf8');
 }
 
 export function __resetAppStateForTests(): void {
