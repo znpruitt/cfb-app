@@ -6,6 +6,7 @@ import test from 'node:test';
 // decision instead of the missing-key early return (finding #3).
 import './_setup/withCfbdKey';
 import { GET as cronGet } from '../route';
+import { GET as manualGet } from '../../../game-stats/route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -541,6 +542,80 @@ test('a resolved postseason matchup is expected; its incomplete week is recovere
   assert.equal(resultFor(body, 1, 'postseason').outcome, 'committed');
   const stored = await getCachedGameStats(YEAR, 1, 'postseason');
   assert.equal(stored?.games.length, 1);
+});
+
+// Review remediation — synthetic schedule ids (CFBD omitted `game.id`) are
+// unverifiable: coverage rows can never match them, so they must not create a
+// permanent expectation the cron re-fetches every week.
+test('a synthetic schedule id never creates a false expectation or endless recovery', async () => {
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    // mapCfbdScheduleGame fallback shape when CFBD omits game.id.
+    { id: '3-Home-Away', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  await setCachedGameStats({
+    year: YEAR,
+    week: 3,
+    seasonType: 'regular',
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    games: [usableRow(5001)],
+  });
+  stubThrow('cron must not fetch: the only verifiable expected game is covered');
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(
+    resultFor(body, 3).outcome,
+    'skipped-complete',
+    'the unverifiable synthetic-id row stays out of the completeness denominator'
+  );
+});
+
+// Review remediation — the read→merge→write critical section is shared by the
+// cron and the manual route, so overlapping refreshes produce the UNION.
+test('an overlapping cron and manual refresh adding different games produce the union', async () => {
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  // Serve a DIFFERENT game to each request so a lost update would be visible.
+  const payloads = [[rawGame(5001)], [rawGame(5002)]];
+  let call = 0;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(payloads[Math.min(call++, payloads.length - 1)]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+
+  const priorNodeEnv = MUTABLE_ENV.NODE_ENV;
+  const priorAdminToken = MUTABLE_ENV.ADMIN_API_TOKEN;
+  MUTABLE_ENV.NODE_ENV = 'development';
+  MUTABLE_ENV.ADMIN_API_TOKEN = 'test-admin-token';
+  try {
+    const manualRequest = new Request(
+      `https://example.com/api/game-stats?year=${YEAR}&week=3&seasonType=regular&bypassCache=1`,
+      { headers: { 'x-admin-token': 'test-admin-token' } }
+    );
+    const [cronRes, manualRes] = await Promise.all([
+      cronGet(cronRequest()),
+      manualGet(manualRequest),
+    ]);
+    assert.equal(cronRes.status, 200, await cronRes.clone().text());
+    assert.equal(manualRes.status, 200, await manualRes.clone().text());
+  } finally {
+    if (priorNodeEnv === undefined) delete MUTABLE_ENV.NODE_ENV;
+    else MUTABLE_ENV.NODE_ENV = priorNodeEnv;
+    if (priorAdminToken === undefined) delete MUTABLE_ENV.ADMIN_API_TOKEN;
+    else MUTABLE_ENV.ADMIN_API_TOKEN = priorAdminToken;
+  }
+
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.deepEqual(
+    stored?.games.map((g) => g.providerGameId).sort(),
+    [5001, 5002],
+    'neither overlapping refresh lost the other one’s row'
+  );
 });
 
 test('an unusable recovery row never clobbers the usable prior row for the same game', async () => {

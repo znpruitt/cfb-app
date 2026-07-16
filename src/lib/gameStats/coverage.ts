@@ -106,7 +106,28 @@ export type ExpectedGameStatsSlate = {
   hasScheduleEvidence: boolean;
   /** Schedule-defined canonical game ids expected to produce team stats. */
   expectedIds: Set<string>;
+  /**
+   * Rows that WOULD be expected but carry no provider-addressable game id
+   * (missing, synthetic fallback, zero/negative, or malformed). They are
+   * UNVERIFIABLE — kept out of the completeness denominator (a coverage row can
+   * never match them, so counting them would make the slate permanently
+   * incomplete and re-fetched forever) — but surfaced here for diagnostics.
+   */
+  unverifiableCount: number;
 };
+
+/**
+ * Whether a canonical schedule id can be matched by game-stats coverage: a
+ * positive integer CFBD game id. `mapCfbdScheduleGame` synthesizes fallback ids
+ * (`${week}-${home}-${away}`) when CFBD omits `game.id`, and cached coverage
+ * rows only ever carry positive numeric provider ids (`isUsableGameStatsRow`) —
+ * so a non-numeric id could never be covered and must not create an expectation
+ * (review remediation). Identity is still never inferred from stat rows; this
+ * only rejects schedule ids the provider cannot address.
+ */
+function isProviderAddressableGameId(id: string): boolean {
+  return /^\d+$/.test(id) && Number.parseInt(id, 10) > 0;
+}
 
 /**
  * Derive the canonical game ids EXPECTED to produce team stats for one weekly
@@ -122,6 +143,8 @@ export type ExpectedGameStatsSlate = {
  *     of BOTH conferences (`inferSubdivisionFromConference`) — an unknown
  *     classification never excludes, so a real FBS game can't be silently
  *     dropped from expectations.
+ * A row that passes all of the above but has no provider-addressable id is
+ * UNVERIFIABLE (counted, never expected) — see `isProviderAddressableGameId`.
  */
 export function deriveExpectedGameStatsIds(
   items: readonly GameStatsScheduleItem[],
@@ -130,12 +153,11 @@ export function deriveExpectedGameStatsIds(
 ): ExpectedGameStatsSlate {
   const expectedIds = new Set<string>();
   let hasScheduleEvidence = false;
+  let unverifiableCount = 0;
 
   for (const item of items) {
     if (item.week !== week || normalizeSlateSeasonType(item.seasonType) !== seasonType) continue;
     hasScheduleEvidence = true;
-    const id = typeof item.id === 'string' ? item.id.trim() : '';
-    if (!id) continue;
     if (!expectsGameStats(item.status)) continue;
     if (isPlaceholderTeamLabel(item.homeTeam) || isPlaceholderTeamLabel(item.awayTeam)) continue;
     if (
@@ -144,10 +166,15 @@ export function deriveExpectedGameStatsIds(
     ) {
       continue;
     }
+    const id = typeof item.id === 'string' ? item.id.trim() : '';
+    if (!isProviderAddressableGameId(id)) {
+      unverifiableCount += 1;
+      continue;
+    }
     expectedIds.add(id);
   }
 
-  return { hasScheduleEvidence, expectedIds };
+  return { hasScheduleEvidence, expectedIds, unverifiableCount };
 }
 
 export type WeeklyGameStatsCompleteness =

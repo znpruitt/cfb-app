@@ -5,6 +5,7 @@ import { GET } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateWriteFailureForTests,
 } from '../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats, setCachedGameStats } from '../../../../lib/gameStats/cache.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
@@ -248,4 +249,82 @@ test('manual refresh: identical provider data is a truthful no-op — no rewrite
     successAfterFirst.lastSuccessAt,
     'a no-change refresh does not advance last-success'
   );
+});
+
+// Review remediation — the read→merge→write sequence is a per-week critical
+// section, so overlapping refreshes for the same week produce the UNION of
+// their rows instead of the later write dropping the earlier one's.
+
+function rawGamePayload(id: number, home: string, away: string) {
+  return [
+    {
+      id,
+      teams: [
+        {
+          teamId: id * 10 + 1,
+          team: home,
+          conference: 'X',
+          homeAway: 'home',
+          points: 21,
+          stats: [],
+        },
+        {
+          teamId: id * 10 + 2,
+          team: away,
+          conference: 'Y',
+          homeAway: 'away',
+          points: 14,
+          stats: [],
+        },
+      ],
+    },
+  ];
+}
+
+test('two overlapping manual refreshes adding different games produce the union', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  // Serve a DIFFERENT game to each request so a lost update would be visible.
+  const payloads = [rawGamePayload(5001, 'Alpha', 'Beta'), rawGamePayload(5002, 'Gamma', 'Delta')];
+  let call = 0;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(payloads[Math.min(call++, payloads.length - 1)]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+
+  const [a, b] = await Promise.all([GET(adminRefresh()), GET(adminRefresh())]);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, 200);
+
+  const stored = await getCachedGameStats(2026, 3, 'regular');
+  assert.deepEqual(
+    stored?.games.map((g) => g.providerGameId).sort(),
+    [5001, 5002],
+    'neither overlapping refresh lost the other one’s row'
+  );
+});
+
+test('a failed durable write releases the week lock; the next refresh succeeds', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  stubJson(rawGamePayload(5001, 'Alpha', 'Beta'));
+  // Fail ONLY the game-stats data commit; provider-status writes still persist.
+  __setAppStateWriteFailureForTests(new Error('game-stats write down'), 'game-stats');
+  let failed: Response;
+  try {
+    failed = await GET(adminRefresh());
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(failed.status, 502, 'the failed write surfaces as a refresh failure');
+  const statusAfterFailure = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
+  assert.equal(statusAfterFailure.latestAttemptOutcome, 'failed');
+
+  stubJson(rawGamePayload(5001, 'Alpha', 'Beta'));
+  const retried = await GET(adminRefresh());
+  assert.equal(retried.status, 200, 'the lock is not poisoned by the failed write');
+  const stored = await getCachedGameStats(2026, 3, 'regular');
+  assert.equal(stored?.games.length, 1, 'the retry committed normally');
 });

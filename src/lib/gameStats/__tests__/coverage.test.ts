@@ -188,10 +188,60 @@ test('FCS-vs-FCS is excluded by classification; FBS-vs-FCS and unknowns stay exp
   assert.deepEqual([...slate.expectedIds].sort(), ['302', '303']);
 });
 
-test('a schedule row with no id cannot be expected', () => {
+test('a schedule row with no id is unverifiable, never expected', () => {
   const slate = deriveExpectedGameStatsIds([scheduleItem({ id: '' })], 1, 'regular');
   assert.equal(slate.hasScheduleEvidence, true);
   assert.equal(slate.expectedIds.size, 0);
+  assert.equal(slate.unverifiableCount, 1);
+});
+
+// Review remediation — only provider-addressable (positive numeric) ids can be
+// expected: coverage rows only ever carry positive numeric provider ids, so a
+// synthetic/malformed schedule id could never be covered and would leave the
+// slate permanently incomplete.
+
+test('synthetic, zero, negative, and malformed ids are unverifiable — not expected', () => {
+  for (const id of ['3-Alpha-Beta', '0', '-5', 'abc', '12.5', ' ']) {
+    const slate = deriveExpectedGameStatsIds([scheduleItem({ id })], 1, 'regular');
+    assert.equal(slate.expectedIds.size, 0, `id ${JSON.stringify(id)} must not be expected`);
+    assert.equal(slate.unverifiableCount, 1, `id ${JSON.stringify(id)} counts as unverifiable`);
+  }
+  const valid = deriveExpectedGameStatsIds([scheduleItem({ id: '101' })], 1, 'regular');
+  assert.deepEqual([...valid.expectedIds], ['101']);
+  assert.equal(valid.unverifiableCount, 0);
+});
+
+test('a non-stat-producing row with a synthetic id is excluded, not unverifiable', () => {
+  const slate = deriveExpectedGameStatsIds(
+    [scheduleItem({ id: '3-Alpha-Beta', status: 'Canceled' })],
+    1,
+    'regular'
+  );
+  assert.equal(slate.expectedIds.size, 0);
+  assert.equal(
+    slate.unverifiableCount,
+    0,
+    'a disrupted game is not "unverifiable" — it expects no stats'
+  );
+});
+
+test('unverifiable rows never suppress completeness of the verifiable coverage', () => {
+  const items = [
+    scheduleItem({ id: '101' }),
+    scheduleItem({ id: '3-Alpha-Beta' }), // synthetic fallback id — unverifiable
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  assert.deepEqual([...slate.expectedIds], ['101']);
+  assert.equal(slate.unverifiableCount, 1);
+  // The covered verifiable game makes the week COMPLETE — the unverifiable row
+  // stays out of the denominator, so it cannot cause endless weekly recovery.
+  assert.deepEqual(evaluate(items, [row(101)]), { state: 'complete', expectedCount: 1 });
+});
+
+test('a slate of only unverifiable rows expects nothing (no permanent partial coverage)', () => {
+  assert.deepEqual(evaluate([scheduleItem({ id: '3-Alpha-Beta' })], null), {
+    state: 'no-expected-games',
+  });
 });
 
 // === PLATFORM-086H — weekly completeness contract (finding #5) ===

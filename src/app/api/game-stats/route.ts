@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
-import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
+import {
+  getCachedGameStats,
+  setCachedGameStats,
+  withGameStatsWeekLock,
+} from '@/lib/gameStats/cache';
 import { classifyGameStatsPayload, mergeWeeklyGameStats } from '@/lib/gameStats/coverage';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
@@ -205,56 +209,70 @@ export async function GET(req: Request) {
     // Merge by canonical game id (PLATFORM-086H requirement 4, shared with the
     // cron): prior-good rows a partial provider response omits are retained, an
     // unusable incoming row never clobbers a usable prior row, and identical data
-    // is a no-op — no durable rewrite, no downstream invalidation.
-    const prior = await getCachedGameStats(year, week, seasonType);
-    const merge = mergeWeeklyGameStats(prior, classification.games);
-    // A commit classification always carries ≥1 usable row, so `changed` can only
-    // be false when a prior record already holds identical rows.
-    if (prior && !merge.changed) {
+    // is a no-op — no durable rewrite, no downstream invalidation. The fresh
+    // prior read → merge → durable write runs as one per-week critical section
+    // (review remediation): an overlapping cron/manual refresh for the same week
+    // can no longer read the same prior record and drop the other's rows —
+    // overlapping refreshes produce the union. Commit time/seq are captured
+    // inside the section, immediately after the durable write.
+    const outcome = await withGameStatsWeekLock(year, week, seasonType, async () => {
+      const prior = await getCachedGameStats(year, week, seasonType);
+      const merge = mergeWeeklyGameStats(prior, classification.games);
+      // A commit classification always carries ≥1 usable row, so `changed` can
+      // only be false when a prior record already holds identical rows.
+      if (prior && !merge.changed) {
+        return { kind: 'no-change' as const, prior };
+      }
+      const result: WeeklyGameStats = {
+        year,
+        week,
+        seasonType,
+        fetchedAt: new Date().toISOString(),
+        games: merge.games,
+      };
+      // Durable write FIRST; refresh status advances only after the merged
+      // record is committed (rereview findings #3/#6).
+      await setCachedGameStats(result);
+      return {
+        kind: 'committed' as const,
+        result,
+        rowsCommitted: merge.rowsCommitted,
+        committedAt: new Date().toISOString(),
+        commitSeq: nextProviderCommitSeq(),
+      };
+    });
+
+    if (outcome.kind === 'no-change') {
       await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });
       return NextResponse.json({
-        ...prior,
+        ...outcome.prior,
         meta: {
           cache: 'miss',
           source: 'cfbd',
           outcome: 'noop',
           noopReason: 'no-new-rows',
           rowsCommitted: 0,
-          rowsCached: prior.games.length,
+          rowsCached: outcome.prior.games.length,
         },
       });
     }
 
-    const result: WeeklyGameStats = {
-      year,
-      week,
-      seasonType,
-      fetchedAt: new Date().toISOString(),
-      games: merge.games,
-    };
-
-    // Durable write FIRST; refresh status advances only after the merged record
-    // is committed (rereview findings #3/#6).
-    await setCachedGameStats(result);
-    const committedAt = new Date().toISOString();
-    const commitSeq = nextProviderCommitSeq();
-
     await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
       attempt,
-      committedAt,
-      commitSeq,
+      committedAt: outcome.committedAt,
+      commitSeq: outcome.commitSeq,
       source: 'cfbd',
-      rowsCommitted: merge.rowsCommitted,
+      rowsCommitted: outcome.rowsCommitted,
     });
 
     return NextResponse.json({
-      ...result,
+      ...outcome.result,
       meta: {
         cache: 'miss',
         source: 'cfbd',
         outcome: 'committed',
-        rowsCommitted: merge.rowsCommitted,
-        rowsCached: result.games.length,
+        rowsCommitted: outcome.rowsCommitted,
+        rowsCached: outcome.result.games.length,
       },
     });
   } catch (error) {

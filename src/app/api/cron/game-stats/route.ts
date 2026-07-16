@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
-import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
+import {
+  getCachedGameStats,
+  setCachedGameStats,
+  withGameStatsWeekLock,
+} from '@/lib/gameStats/cache';
 import {
   classifyGameStatsPayload,
   evaluateWeeklyGameStatsCompleteness,
@@ -329,43 +333,54 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
 
       // Merge by canonical game id: prior-good rows the response omits are
       // retained, and identical data is a no-op (no durable rewrite, no
-      // downstream invalidation) — see mergeWeeklyGameStats.
-      const existing = await getCachedGameStats(year, week, seasonType);
-      const merge = mergeWeeklyGameStats(existing, classification.games);
-      if (!merge.changed) {
+      // downstream invalidation) — see mergeWeeklyGameStats. The fresh prior
+      // read → merge → durable write runs as one per-week critical section
+      // (review remediation, shared with the manual route): an overlapping
+      // refresh for the same week can no longer read the same prior record and
+      // drop the other's rows — overlapping refreshes produce the union.
+      const outcome = await withGameStatsWeekLock(year, week, seasonType, async () => {
+        const existing = await getCachedGameStats(year, week, seasonType);
+        const merge = mergeWeeklyGameStats(existing, classification.games);
+        if (!merge.changed) return { kind: 'no-change' as const };
+        const result: WeeklyGameStats = {
+          year,
+          week,
+          seasonType,
+          fetchedAt: new Date().toISOString(),
+          games: merge.games,
+        };
+        // Durable write FIRST; only then advance refresh status/last-success
+        // (rereview findings #3/#6) so no consumer observes success before the
+        // merged record is durably committed.
+        await setCachedGameStats(result);
+        return {
+          kind: 'committed' as const,
+          rowsCommitted: merge.rowsCommitted,
+          totalRows: result.games.length,
+          committedAt: new Date().toISOString(),
+          commitSeq: nextProviderCommitSeq(),
+        };
+      });
+
+      if (outcome.kind === 'no-change') {
         await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
         weekResult.outcome = 'no-change';
         weekResult.detail = 'provider data matches the cached rows; nothing rewritten';
         continue;
       }
 
-      const result: WeeklyGameStats = {
-        year,
-        week,
-        seasonType,
-        fetchedAt: new Date().toISOString(),
-        games: merge.games,
-      };
-
-      // Durable write FIRST; only then advance refresh status/last-success
-      // (rereview findings #3/#6) so no consumer observes success before the
-      // merged record is durably committed.
-      await setCachedGameStats(result);
-      const committedAt = new Date().toISOString();
-      const commitSeq = nextProviderCommitSeq();
-
       await recordProviderRefreshSuccess('game-stats', weekScope, {
         attempt,
-        committedAt,
-        commitSeq,
+        committedAt: outcome.committedAt,
+        commitSeq: outcome.commitSeq,
         source: 'cfbd',
-        rowsCommitted: merge.rowsCommitted,
+        rowsCommitted: outcome.rowsCommitted,
       });
 
-      gamesProcessed += merge.rowsCommitted;
+      gamesProcessed += outcome.rowsCommitted;
       weekResult.outcome = 'committed';
-      weekResult.rowsCommitted = merge.rowsCommitted;
-      weekResult.detail = `${merge.rowsCommitted} rows added or updated; ${merge.games.length} total cached`;
+      weekResult.rowsCommitted = outcome.rowsCommitted;
+      weekResult.detail = `${outcome.rowsCommitted} rows added or updated; ${outcome.totalRows} total cached`;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown error';
       await recordProviderRefreshFailure('game-stats', weekScope, {

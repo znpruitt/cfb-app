@@ -45,7 +45,9 @@ async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseas
     failedSeasonTypes: [],
     items: [
       {
-        id: `${week}-${seasonType}`,
+        // Provider-addressable (positive numeric) id — a synthetic label would be
+        // unverifiable and leave the slate with no expected games.
+        id: `${week}${seasonType === 'postseason' ? '9' : '1'}01`,
         week,
         seasonType,
         startDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
