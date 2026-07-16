@@ -32,14 +32,26 @@ type GameStatsResult = {
  * had nothing, or nothing new) must never render as "Cached 0 games" — that
  * inferred success-from-`games.length` wording is kept only as a legacy fallback
  * for a response without the outcome contract.
+ *
+ * No-op wording is deliberately NEUTRAL (review remediation): the response
+ * carries no schedule-relative completeness evidence, so an unchanged response
+ * must not claim the week is "up to date" (a partial week can echo only its
+ * already-cached subset and stays recovery-eligible), and a provider-empty
+ * response may still retain cached rows — "nothing is cached" is claimed only
+ * when the reported cached count is actually zero.
  */
 export function describeGameStatsRefreshResult(result: GameStatsResult): string {
   const slate = `week ${result.week} (${result.seasonType})`;
   const outcome = result.meta?.outcome;
   if (outcome === 'noop') {
-    return result.meta?.noopReason === 'no-new-rows'
-      ? `${slate} is already up to date — the provider returned no new stats (${result.meta?.rowsCached ?? 0} cached)`
-      : `No game stats available yet for ${slate} — nothing was cached or overwritten`;
+    const cached = result.meta?.rowsCached ?? 0;
+    const retained = `${cached} cached game${cached !== 1 ? 's' : ''} retained`;
+    if (result.meta?.noopReason === 'no-new-rows') {
+      return `No new game stats were added for ${slate} — ${retained}`;
+    }
+    return cached > 0
+      ? `Provider returned no game stats for ${slate} — ${retained}`
+      : `Provider returned no game stats for ${slate} — nothing is cached yet`;
   }
   if (outcome === 'committed') {
     const committed = result.meta?.rowsCommitted ?? result.games.length;
@@ -47,6 +59,36 @@ export function describeGameStatsRefreshResult(result: GameStatsResult): string 
     return `Committed ${committed} new or updated game${committed !== 1 ? 's' : ''} for ${slate} — ${cached} total cached`;
   }
   return `Cached ${result.games.length} game${result.games.length !== 1 ? 's' : ''} for ${slate}`;
+}
+
+export type BackfillWeekOutcome = 'updated' | 'unchanged' | 'provider-empty';
+
+/**
+ * Bucket one successful backfill response by its explicit outcome contract
+ * (review remediation): an unchanged week (`no-new-rows` — cached rows exist,
+ * the provider echoed nothing new) must never be counted as "no stats
+ * available"; only a genuine provider-empty response (`no-provider-rows`) is.
+ * A response without the contract (legacy) counts as updated, as before.
+ */
+export function classifyBackfillResponse(data: GameStatsResult | null): BackfillWeekOutcome {
+  if (data?.meta?.outcome === 'noop') {
+    return data.meta.noopReason === 'no-provider-rows' ? 'provider-empty' : 'unchanged';
+  }
+  return 'updated';
+}
+
+/** Backfill summary with unchanged and provider-empty weeks reported separately. */
+export function describeBackfillSummary(counts: {
+  updated: number;
+  unchanged: number;
+  providerEmpty: number;
+  failed: number;
+}): string {
+  const parts = [`${counts.updated} week${counts.updated !== 1 ? 's' : ''} updated`];
+  if (counts.unchanged > 0) parts.push(`${counts.unchanged} unchanged`);
+  if (counts.providerEmpty > 0) parts.push(`${counts.providerEmpty} with no provider stats`);
+  if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+  return `Backfill complete — ${parts.join(', ')}`;
 }
 
 type BackfillStatus = 'idle' | 'running' | 'done';
@@ -117,7 +159,8 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
 
     const errors: string[] = [];
     let updated = 0;
-    let noData = 0;
+    let unchanged = 0;
+    let providerEmpty = 0;
     const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
     const total = BACKFILL_STEPS.length;
 
@@ -141,10 +184,12 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
             `${step.seasonType} wk ${step.week}: ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}`
           );
         } else {
-          // A valid no-op (no stats available / nothing new) is not an "updated"
-          // week — count it truthfully instead of as a cached success.
+          // A valid no-op is not an "updated" week — and an unchanged week
+          // (cached rows echoed back) is not a "no stats available" week either.
           const data = (await res.json().catch(() => null)) as GameStatsResult | null;
-          if (data?.meta?.outcome === 'noop') noData++;
+          const bucket = classifyBackfillResponse(data);
+          if (bucket === 'provider-empty') providerEmpty++;
+          else if (bucket === 'unchanged') unchanged++;
           else updated++;
         }
       } catch (err) {
@@ -157,9 +202,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
 
     setBackfillErrors(errors);
     setBackfillSummary(
-      `Backfill complete — ${updated} week${updated !== 1 ? 's' : ''} updated` +
-        `${noData > 0 ? `, ${noData} with no stats available` : ''}` +
-        `${errors.length > 0 ? `, ${errors.length} failed` : ''}`
+      describeBackfillSummary({ updated, unchanged, providerEmpty, failed: errors.length })
     );
     setBackfillProgress('');
     setBackfillStatus('done');
