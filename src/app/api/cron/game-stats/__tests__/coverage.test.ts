@@ -53,6 +53,9 @@ function usableRow(providerGameId: number): GameStats {
   };
 }
 
+// Schedule fixtures use REAL catalog teams: expected coverage now requires each
+// participant to resolve canonically (catalog/alias) or classify FCS — a made-up
+// label with an unknown conference is correctly non-expected.
 async function seedCompletedSchedule() {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: Date.now(),
@@ -66,10 +69,10 @@ async function seedCompletedSchedule() {
         startDate: COMPLETED_KICKOFF,
         neutralSite: false,
         conferenceGame: false,
-        homeTeam: 'Alpha',
-        awayTeam: 'Beta',
-        homeConference: 'X',
-        awayConference: 'Y',
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
         status: 'STATUS_FINAL',
       },
     ],
@@ -100,10 +103,11 @@ async function seedScheduleItems(items: ScheduleSeed[]) {
       startDate: it.startDate,
       neutralSite: false,
       conferenceGame: false,
-      homeTeam: it.homeTeam ?? `Home ${it.id}`,
-      awayTeam: it.awayTeam ?? `Away ${it.id}`,
-      homeConference: it.homeConference ?? 'X',
-      awayConference: it.awayConference ?? 'Y',
+      // Real catalog teams by default — see seedCompletedSchedule.
+      homeTeam: it.homeTeam ?? 'Alabama',
+      awayTeam: it.awayTeam ?? 'Georgia',
+      homeConference: it.homeConference ?? 'SEC',
+      awayConference: it.awayConference ?? 'SEC',
       status: it.status,
     })),
   });
@@ -530,11 +534,11 @@ test('a resolved postseason matchup is expected; its incomplete week is recovere
       seasonType: 'postseason',
       startDate: DAYS_AGO(4),
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
   ]);
-  stubJson([rawGame(7001, 'Alpha', 'Beta')]);
+  stubJson([rawGame(7001, 'Alabama', 'Georgia')]);
 
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as CronBody;
@@ -570,6 +574,40 @@ test('a synthetic schedule id never creates a false expectation or endless recov
     'skipped-complete',
     'the unverifiable synthetic-id row stays out of the completeness denominator'
   );
+});
+
+// Review remediation — the completion cutoff applies to the WHOLE slate (shared
+// deriveCompletedSlates): a finished Thursday game must not make the week a
+// candidate while a Saturday game is pending or less than six hours old.
+test('a split slate becomes a candidate only after its latest game passes the cutoff', async () => {
+  const HOURS_AGO = (n: number) => new Date(Date.now() - n * 60 * 60 * 1000).toISOString();
+  await seedScheduleItems([
+    // Thursday final, long finished.
+    { id: '7001', week: 7, startDate: DAYS_AGO(3), status: 'STATUS_FINAL' },
+    // Saturday game only 2h old — the slate is still active.
+    { id: '7002', week: 7, startDate: HOURS_AGO(2), status: 'STATUS_FINAL' },
+  ]);
+  stubThrow('cron must not fetch a still-active slate');
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.match(
+    String(body.skipped ?? ''),
+    /no completed weeks/i,
+    'the Thursday final alone must not complete the week'
+  );
+
+  // Once the latest game passes the 6h cutoff, the slate is eligible.
+  await seedScheduleItems([
+    { id: '7001', week: 7, startDate: DAYS_AGO(3), status: 'STATUS_FINAL' },
+    { id: '7002', week: 7, startDate: HOURS_AGO(7), status: 'STATUS_FINAL' },
+  ]);
+  stubJson([rawGame(7001), rawGame(7002)]);
+  const eligible = await cronGet(cronRequest());
+  const eligibleBody = (await eligible.json()) as CronBody;
+  assert.equal(eligible.status, 200, JSON.stringify(eligibleBody));
+  assert.equal(resultFor(eligibleBody, 7).outcome, 'committed');
 });
 
 // Review remediation — the read→merge→write critical section is shared by the

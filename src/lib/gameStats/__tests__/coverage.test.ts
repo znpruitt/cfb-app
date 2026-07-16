@@ -244,6 +244,64 @@ test('a slate of only unverifiable rows expects nothing (no permanent partial co
   });
 });
 
+// Review remediation — participants are classified through canonical identity
+// evidence (catalog/alias resolver), not string patterns alone: a
+// pattern-passing junk label ("Home Team TBA") must not enter expected coverage.
+
+/** Fake canonical evidence: only these labels resolve as catalog teams. */
+const IDENTITY = {
+  isResolvedTeamName: (label: string) => ['Alpha', 'Beta'].includes(label),
+};
+
+test('a pattern-passing unresolved label ("Home Team TBA") is not expected', () => {
+  const items = [scheduleItem({ id: '101', homeTeam: 'Home Team TBA', homeConference: '' })];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
+  assert.equal(slate.expectedIds.size, 0);
+});
+
+test('one resolved and one unresolved participant → not expected', () => {
+  const items = [scheduleItem({ id: '101', awayTeam: 'Mystery Team', awayConference: '' })];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
+  assert.equal(slate.expectedIds.size, 0);
+});
+
+test('two canonically resolved participants enter expected coverage', () => {
+  const slate = deriveExpectedGameStatsIds([scheduleItem({ id: '101' })], 1, 'regular', IDENTITY);
+  assert.deepEqual([...slate.expectedIds], ['101']);
+});
+
+test('an FBS-vs-FCS matchup stays expected: the FCS side classifies by conference', () => {
+  // The FCS opponent is never in the FBS catalog (unresolved) — its positively
+  // classified FCS conference is the canonical evidence it is a real team.
+  const items = [scheduleItem({ id: '101', awayTeam: 'Montana State', awayConference: 'Big Sky' })];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
+  assert.deepEqual([...slate.expectedIds], ['101']);
+});
+
+test('FCS-vs-FCS stays excluded even when identity evidence is available', () => {
+  const items = [
+    scheduleItem({
+      id: '101',
+      homeTeam: 'Montana',
+      awayTeam: 'Montana State',
+      homeConference: 'Big Sky',
+      awayConference: 'Big Sky',
+    }),
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
+  assert.equal(slate.expectedIds.size, 0);
+});
+
+test('unavailable identity evidence falls back to the pattern-only test (over-expect, never suppress)', () => {
+  const items = [scheduleItem({ id: '101', homeTeam: 'Home Team TBA', homeConference: '' })];
+  const withNull = deriveExpectedGameStatsIds(items, 1, 'regular', null);
+  assert.deepEqual(
+    [...withNull.expectedIds],
+    ['101'],
+    'without evidence the pattern-passing label stays expected — retried, not falsely complete'
+  );
+});
+
 // === PLATFORM-086H — weekly completeness contract (finding #5) ===
 
 function evaluate(

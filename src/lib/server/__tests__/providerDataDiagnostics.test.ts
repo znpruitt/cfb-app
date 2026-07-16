@@ -7,7 +7,7 @@ import {
   setAppState,
 } from '../appStateStore.ts';
 import { __resetOddsUsageStoreForTests, setLatestKnownOddsUsage } from '../oddsUsageStore.ts';
-import { getProviderDataDiagnostics } from '../providerDataDiagnostics.ts';
+import { deriveCompletedSlates, getProviderDataDiagnostics } from '../providerDataDiagnostics.ts';
 import { createOddsCacheKey, defaultOddsCacheKey } from '../../../app/api/odds/routeInternals.ts';
 
 const YEAR = 2026;
@@ -45,8 +45,8 @@ function seedSchedule() {
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
       id: '102',
@@ -54,8 +54,8 @@ function seedSchedule() {
       seasonType: 'regular',
       startDate: FUTURE_KICKOFF,
       status: 'STATUS_SCHEDULED',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
 }
@@ -72,8 +72,8 @@ function seedScores(status: string, home: number | null, away: number | null, we
         seasonType: 'regular',
         startDate: COMPLETED_KICKOFF,
         status,
-        home: { team: 'Alpha', score: home },
-        away: { team: 'Beta', score: away },
+        home: { team: 'Alabama', score: home },
+        away: { team: 'Georgia', score: away },
         time: null,
       },
     ],
@@ -85,8 +85,8 @@ function gameStatsRow(providerGameId: number) {
     providerGameId,
     week: 1,
     seasonType: 'regular' as const,
-    home: { school: 'Alpha' },
-    away: { school: 'Beta' },
+    home: { school: 'Alabama' },
+    away: { school: 'Georgia' },
   };
 }
 
@@ -184,8 +184,8 @@ test('a canceled game does not raise an impossible missing-final warning', async
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'Canceled',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
       id: '102',
@@ -193,8 +193,8 @@ test('a canceled game does not raise an impossible missing-final warning', async
       seasonType: 'regular',
       startDate: FUTURE_KICKOFF,
       status: 'STATUS_SCHEDULED',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
   // A canceled game will never have a final score; the cached row reflects that.
@@ -231,8 +231,8 @@ test('a mixed slate with at least one final row counts as covered (slate granula
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
       id: '103',
@@ -240,8 +240,8 @@ test('a mixed slate with at least one final row counts as covered (slate granula
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_IN_PROGRESS',
-      homeTeam: 'Echo',
-      awayTeam: 'Foxtrot',
+      homeTeam: 'Ohio State',
+      awayTeam: 'Michigan',
     },
     {
       id: '102',
@@ -249,8 +249,8 @@ test('a mixed slate with at least one final row counts as covered (slate granula
       seasonType: 'regular',
       startDate: FUTURE_KICKOFF,
       status: 'STATUS_SCHEDULED',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
   await setAppState('scores', `${YEAR}-1-regular`, {
@@ -264,8 +264,8 @@ test('a mixed slate with at least one final row counts as covered (slate granula
         seasonType: 'regular',
         startDate: COMPLETED_KICKOFF,
         status: 'STATUS_FINAL',
-        home: { team: 'Alpha', score: 21 },
-        away: { team: 'Beta', score: 14 },
+        home: { team: 'Alabama', score: 21 },
+        away: { team: 'Georgia', score: 14 },
         time: null,
       },
       {
@@ -274,8 +274,8 @@ test('a mixed slate with at least one final row counts as covered (slate granula
         seasonType: 'regular',
         startDate: COMPLETED_KICKOFF,
         status: 'STATUS_IN_PROGRESS',
-        home: { team: 'Echo', score: 3 },
-        away: { team: 'Foxtrot', score: 0 },
+        home: { team: 'Ohio State', score: 3 },
+        away: { team: 'Michigan', score: 0 },
         time: null,
       },
     ],
@@ -330,8 +330,8 @@ test('partial game-stats coverage is surfaced as an info note', async () => {
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
       id: '104',
@@ -339,8 +339,8 @@ test('partial game-stats coverage is surfaced as an info note', async () => {
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Echo',
-      awayTeam: 'Foxtrot',
+      homeTeam: 'Ohio State',
+      awayTeam: 'Michigan',
     },
     {
       id: '102',
@@ -348,8 +348,8 @@ test('partial game-stats coverage is surfaced as an info note', async () => {
       seasonType: 'regular',
       startDate: FUTURE_KICKOFF,
       status: 'STATUS_SCHEDULED',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
   // Only one of the two expected week-1 games has stats → partial, not missing.
@@ -380,8 +380,8 @@ test('a disrupted (canceled) game is not counted as an expected missing game-sta
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
       id: '105',
@@ -389,8 +389,8 @@ test('a disrupted (canceled) game is not counted as an expected missing game-sta
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'Canceled',
-      homeTeam: 'Echo',
-      awayTeam: 'Foxtrot',
+      homeTeam: 'Ohio State',
+      awayTeam: 'Michigan',
     },
     {
       id: '102',
@@ -398,8 +398,8 @@ test('a disrupted (canceled) game is not counted as an expected missing game-sta
       seasonType: 'regular',
       startDate: FUTURE_KICKOFF,
       status: 'STATUS_SCHEDULED',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
   // Only the played game (101) has stats; the canceled game (105) will never
@@ -427,8 +427,8 @@ test('a completed slate whose every game is disrupted produces NO missing-stats 
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'Canceled',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
       id: '107',
@@ -436,8 +436,8 @@ test('a completed slate whose every game is disrupted produces NO missing-stats 
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'Postponed',
-      homeTeam: 'Echo',
-      awayTeam: 'Foxtrot',
+      homeTeam: 'Ohio State',
+      awayTeam: 'Michigan',
     },
     {
       id: '102',
@@ -445,8 +445,8 @@ test('a completed slate whose every game is disrupted produces NO missing-stats 
       seasonType: 'regular',
       startDate: FUTURE_KICKOFF,
       status: 'STATUS_SCHEDULED',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
   // No game-stats cached for the week, but every completed game is disrupted → no
@@ -470,22 +470,22 @@ const SATURDAY_STILL_LIVE = '2026-10-15T09:30:00.000Z'; // ~2.5h before NOW (< 6
 test('split Thursday/Saturday slate is NOT complete while Saturday games are recent (no false warnings)', async () => {
   await seedScheduleItems([
     {
-      id: 'thu',
+      id: '701',
       week: 7,
       seasonType: 'regular',
       startDate: THURSDAY_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
-      id: 'sat',
+      id: '702',
       week: 7,
       seasonType: 'regular',
       startDate: SATURDAY_STILL_LIVE,
       status: 'STATUS_IN_PROGRESS',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
 
@@ -510,22 +510,22 @@ test('split slate once the whole slate is old DOES warn on missing data', async 
     failedSeasonTypes: [],
     items: [
       {
-        id: 'thu',
+        id: '701',
         week: 7,
         seasonType: 'regular',
         startDate: THURSDAY_KICKOFF,
         status: 'STATUS_FINAL',
-        homeTeam: 'Alpha',
-        awayTeam: 'Beta',
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
       },
       {
-        id: 'sat',
+        id: '702',
         week: 7,
         seasonType: 'regular',
         startDate: SATURDAY_STILL_LIVE,
         status: 'STATUS_FINAL',
-        homeTeam: 'Gamma',
-        awayTeam: 'Delta',
+        homeTeam: 'Texas',
+        awayTeam: 'Oklahoma',
       },
     ],
   });
@@ -540,13 +540,13 @@ test('split slate once the whole slate is old DOES warn on missing data', async 
 test('postseason completed slate with no game stats is flagged', async () => {
   await seedScheduleItems([
     {
-      id: 'bowl',
+      id: '901',
       week: 1,
       seasonType: 'postseason',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
   ]);
 
@@ -573,17 +573,17 @@ test('scoreSeasonTypes includes postseason once the schedule carries bowls', asy
       seasonType: 'regular',
       startDate: COMPLETED_KICKOFF,
       status: 'STATUS_FINAL',
-      homeTeam: 'Alpha',
-      awayTeam: 'Beta',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
     },
     {
-      id: 'bowl',
+      id: '901',
       week: 1,
       seasonType: 'postseason',
       startDate: FUTURE_KICKOFF,
       status: 'STATUS_SCHEDULED',
-      homeTeam: 'Gamma',
-      awayTeam: 'Delta',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
     },
   ]);
   const { scoreSeasonTypes } = await getProviderDataDiagnostics(YEAR, { now: NOW });
@@ -736,5 +736,38 @@ test('an old rankings record with usable weeks warns as stale during an active s
   assert.ok(
     diagnostics.find((d) => d.dataset === 'rankings' && d.severity === 'warning'),
     'usable-but-old rankings warn as stale'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Review remediation — deriveCompletedSlates is the ONE completed-slate
+// definition shared by these diagnostics and the game-stats cron's candidate
+// selection (the cron imports this exact export), so both see the same set.
+// ---------------------------------------------------------------------------
+
+test('deriveCompletedSlates: whole-slate cutoff, disrupted kickoffs excluded, newest first', () => {
+  const now = NOW;
+  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+  const items = [
+    // Week 7: old Thursday final + a Saturday game only 2h old → NOT completed.
+    { id: '701', week: 7, seasonType: 'regular', startDate: iso(2 * DAY), status: 'STATUS_FINAL' },
+    { id: '702', week: 7, seasonType: 'regular', startDate: iso(2 * HOUR), status: 'STATUS_FINAL' },
+    // Week 6: everything old → completed.
+    { id: '601', week: 6, seasonType: 'regular', startDate: iso(9 * DAY), status: 'STATUS_FINAL' },
+    // Week 5: old final + a POSTPONED game rescheduled into the future — the
+    // disrupted kickoff must not decide slate completion.
+    { id: '501', week: 5, seasonType: 'regular', startDate: iso(16 * DAY), status: 'STATUS_FINAL' },
+    { id: '502', week: 5, seasonType: 'regular', startDate: iso(-3 * DAY), status: 'Postponed' },
+    // Week 4: disrupted-only → never a completed (stat-producing) slate.
+    { id: '401', week: 4, seasonType: 'regular', startDate: iso(23 * DAY), status: 'Canceled' },
+  ];
+
+  const slates = deriveCompletedSlates(items, now);
+  assert.deepEqual(
+    slates.map((s) => `${s.week}:${s.seasonType}`),
+    ['6:regular', '5:regular'],
+    'split slate excluded until whole-slate old; disrupted rows never complete or block a slate'
   );
 });

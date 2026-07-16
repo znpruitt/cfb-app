@@ -130,15 +130,36 @@ function isProviderAddressableGameId(id: string): boolean {
 }
 
 /**
+ * Canonical identity evidence for expected-coverage derivation (review
+ * remediation): whether a raw schedule label resolves to a REAL catalog/alias
+ * team via the one canonical placeholder classifier the schedule build uses
+ * (`buildPlaceholderParticipant(...).kind === 'team'` over a catalog+alias
+ * resolver with NO observedNames seeding — the same evidence resolver shape as
+ * the odds empty classifier). Injected so this module stays pure; built
+ * server-side by `loadGameStatsIdentityEvidence`.
+ */
+export type GameStatsIdentityEvidence = {
+  isResolvedTeamName: (label: string) => boolean;
+};
+
+/**
  * Derive the canonical game ids EXPECTED to produce team stats for one weekly
  * slate, from canonical schedule rows only (PLATFORM-086H — never from returned
  * provider stat rows). A schedule game is expected unless the schedule itself
  * proves stats are not coming:
  *   - a disrupted/non-played terminal disposition (`expectsGameStats`);
- *   - an unresolved matchup — either side still a placeholder label (TBD /
- *     "Winner of …" / synthetic postseason slot), via the same predicate
- *     participant building uses; once the schedule resolves the matchup the
- *     game enters the expected set on the next evaluation;
+ *   - an unresolved matchup — a side is a REAL participant only when it passes
+ *     the shared placeholder-label predicate AND, when identity evidence is
+ *     available, it either resolves canonically (catalog/alias, via
+ *     `isResolvedTeamName`) or its conference positively classifies FCS (a real
+ *     FCS opponent is never in the FBS catalog, and FBS-vs-FCS games DO produce
+ *     stats). A pattern-passing but unresolved label with no FCS classification
+ *     ("Home Team TBA") is NOT expected (review remediation). When identity
+ *     evidence is UNAVAILABLE (`identity` null/omitted), the pattern-only test
+ *     stands alone — the conservative direction: over-expecting retries a week,
+ *     while under-expecting would falsely complete it and suppress recovery.
+ *     Once the schedule resolves a matchup the game enters the expected set on
+ *     the next evaluation;
  *   - an FCS-vs-FCS pairing, excluded only on POSITIVE canonical classification
  *     of BOTH conferences (`inferSubdivisionFromConference`) — an unknown
  *     classification never excludes, so a real FBS game can't be silently
@@ -149,17 +170,35 @@ function isProviderAddressableGameId(id: string): boolean {
 export function deriveExpectedGameStatsIds(
   items: readonly GameStatsScheduleItem[],
   week: number,
-  seasonType: CfbdSeasonType
+  seasonType: CfbdSeasonType,
+  identity?: GameStatsIdentityEvidence | null
 ): ExpectedGameStatsSlate {
   const expectedIds = new Set<string>();
   let hasScheduleEvidence = false;
   let unverifiableCount = 0;
 
+  const isRealParticipant = (
+    label: string | null | undefined,
+    conference: string | null | undefined
+  ): boolean => {
+    if (isPlaceholderTeamLabel(label)) return false;
+    if (!identity) return true;
+    return (
+      identity.isResolvedTeamName((label ?? '').trim()) ||
+      inferSubdivisionFromConference(conference) === 'FCS'
+    );
+  };
+
   for (const item of items) {
     if (item.week !== week || normalizeSlateSeasonType(item.seasonType) !== seasonType) continue;
     hasScheduleEvidence = true;
     if (!expectsGameStats(item.status)) continue;
-    if (isPlaceholderTeamLabel(item.homeTeam) || isPlaceholderTeamLabel(item.awayTeam)) continue;
+    if (
+      !isRealParticipant(item.homeTeam, item.homeConference) ||
+      !isRealParticipant(item.awayTeam, item.awayConference)
+    ) {
+      continue;
+    }
     if (
       inferSubdivisionFromConference(item.homeConference) === 'FCS' &&
       inferSubdivisionFromConference(item.awayConference) === 'FCS'
@@ -201,12 +240,15 @@ export function evaluateWeeklyGameStatsCompleteness(params: {
   week: number;
   seasonType: CfbdSeasonType;
   record: WeeklyGameStats | null | undefined;
+  /** Canonical identity evidence; null/omitted → pattern-only participant test. */
+  identity?: GameStatsIdentityEvidence | null;
 }): WeeklyGameStatsCompleteness {
-  const { scheduleItems, week, seasonType, record } = params;
+  const { scheduleItems, week, seasonType, record, identity } = params;
   const { hasScheduleEvidence, expectedIds } = deriveExpectedGameStatsIds(
     scheduleItems,
     week,
-    seasonType
+    seasonType,
+    identity
   );
   if (!hasScheduleEvidence) return { state: 'schedule-unavailable' };
   if (expectedIds.size === 0) return { state: 'no-expected-games' };

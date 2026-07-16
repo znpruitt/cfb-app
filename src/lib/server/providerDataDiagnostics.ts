@@ -12,7 +12,12 @@ import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
-import { deriveExpectedGameStatsIds, usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import {
+  deriveExpectedGameStatsIds,
+  expectsGameStats,
+  usableGameStatsGameIds,
+} from '../gameStats/coverage.ts';
+import { loadGameStatsIdentityEvidence } from './gameStatsIdentityEvidence.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
@@ -64,24 +69,43 @@ function normalizeSeasonType(value: unknown): CfbdSeasonType {
   return value === 'postseason' ? 'postseason' : 'regular';
 }
 
-type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff: number };
+export type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff: number };
 
 /**
- * Completed slates (whole-slate latest kickoff > 6h ago), newest first.
+ * Completed slates (whole-slate latest kickoff > 6h ago), newest first — the ONE
+ * definition shared by these diagnostics AND the game-stats cron's candidate
+ * selection (review remediation), so the two cannot drift.
  *
  * A slate is grouped by (year — implicit in the caller, week, seasonType) and its
- * `latestKickoff` is the MAX kickoff across ALL its games. The completion
- * threshold is applied to that per-slate maximum, AFTER grouping — never
- * per-game. This is the PLATFORM-086A remediation for split slates: a week with
- * an early Thursday game and later Saturday games is not "complete" until the
- * Saturday games are old, so it no longer raises false missing-score /
- * missing-game-stats warnings while the slate is still underway.
+ * `latestKickoff` is the MAX kickoff across its STAT-PRODUCING games. The
+ * completion threshold is applied to that per-slate maximum, AFTER grouping —
+ * never per-game. This is the PLATFORM-086A remediation for split slates: a week
+ * with an early Thursday game and later Saturday games is not "complete" until
+ * the Saturday games are old — no false missing-data warnings mid-slate, and the
+ * cron never fetches a still-active week (a per-game cutoff would let the old
+ * Thursday final make the whole week look finished). Disrupted games
+ * (canceled/postponed/…, via the shared `expectsGameStats`) are excluded from
+ * the grouping: they produce neither stats nor finals, so a disrupted-only slate
+ * is never completed/selected and a disrupted game's (possibly stale or
+ * rescheduled) kickoff never decides a slate's completion.
  */
-function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number): CompletedSlate[] {
-  // 1) Group EVERY game by slate; track each slate's max kickoff across all games.
+/** Structural slice both `ScheduleItem` and `ScheduleWireItem` satisfy. */
+type SlateSourceItem = {
+  week: number;
+  seasonType?: string | null;
+  startDate?: string | null;
+  status?: string | null;
+};
+
+export function deriveCompletedSlates(
+  items: readonly SlateSourceItem[],
+  now: number
+): CompletedSlate[] {
+  // 1) Group every stat-producing game by slate; track each slate's max kickoff.
   const latestByKey = new Map<SlateKey, CompletedSlate>();
   for (const item of items) {
     if (!item.startDate) continue;
+    if (!expectsGameStats(item.status)) continue;
     const kickoff = new Date(item.startDate).getTime();
     if (!Number.isFinite(kickoff)) continue;
     const seasonType = normalizeSeasonType(item.seasonType);
@@ -221,16 +245,21 @@ export async function getProviderDataDiagnostics(
       }
       // Expected (canonical) STAT-PRODUCING games per completed slate, from the
       // schedule, via the ONE shared derivation the game-stats cron uses
-      // (PLATFORM-086H): disrupted games, unresolved placeholder matchups, and
-      // positively classified FCS-vs-FCS pairings are excluded, so they neither
-      // manufacture a partial gap nor, when a whole slate has no expected games,
-      // a permanent missing warning (5th-review findings #1/#3).
+      // (PLATFORM-086H): disrupted games, unresolved placeholder matchups
+      // (resolver-backed — the same canonical identity evidence the cron loads),
+      // and positively classified FCS-vs-FCS pairings are excluded, so they
+      // neither manufacture a partial gap nor, when a whole slate has no
+      // expected games, a permanent missing warning (5th-review findings #1/#3).
+      // Evidence-load failure → null → the pattern-only fallback, which
+      // over-expects rather than hiding genuinely missing coverage.
+      const identity = await loadGameStatsIdentityEvidence(year);
       const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
       for (const slate of completedSlates) {
         const { expectedIds } = deriveExpectedGameStatsIds(
           scheduleItems,
           slate.week,
-          slate.seasonType
+          slate.seasonType,
+          identity
         );
         expectedIdsBySlate.set(slateKey(slate.week, slate.seasonType), expectedIds);
       }
