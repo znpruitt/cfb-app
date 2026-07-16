@@ -840,3 +840,34 @@ test('a repeated matchup with missing commence time stays AMBIGUOUS: no-op retai
     stub.restore();
   }
 });
+
+test('an unresolved provider spelling retains prior odds: identity failure is not confident absence', async () => {
+  const prior = await seedPriorEntry([
+    {
+      homeTeam: 'Zzz Nonexistent A',
+      awayTeam: 'Zzz Nonexistent B',
+      commenceTime: inDays(3),
+      bookmakers: [],
+    },
+  ]);
+  // A fully resolved, far-out slate (no near-horizon expectation) that simply
+  // does not contain the unresolvable pair.
+  await seedScheduleItems([
+    scheduleGame({ id: 'g-tx-ri', homeTeam: 'Texas', awayTeam: 'Rice', startDate: inDays(30) }),
+  ]);
+
+  const stub = installFetchStub([]);
+  try {
+    const res = await GET(refreshRequest());
+    assert.equal(res.status, 200, 'unresolved identity is uncertainty, not a provider failure');
+
+    const status = await getProviderRefreshStatus('odds', ODDS_SCOPE);
+    assert.equal(status.latestAttemptOutcome, 'no-op');
+
+    const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', CACHE_KEY);
+    assert.equal(durable?.value?.data.length, 1, 'unresolved rows are never cleared');
+    assert.equal(durable?.value?.lastFetch, prior.lastFetch, 'prior entry not rewritten');
+  } finally {
+    stub.restore();
+  }
+});

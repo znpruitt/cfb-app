@@ -352,3 +352,37 @@ test('alias-resolved participants still create positive evidence', () => {
   assert.equal(result.kind, 'unexpected-empty', 'scoped aliases are genuine canonical identity');
   assert.equal(result.kind === 'unexpected-empty' && result.nearHorizonGameCount, 1);
 });
+
+// ---------------------------------------------------------------------------
+// State-model remediation — failure to match is not proof of absence unless
+// BOTH event and slate identities were confidently resolved. Only then may an
+// unmatched row prove obsolescence.
+// ---------------------------------------------------------------------------
+
+test('an unresolved provider spelling is identity-unresolved: retained, never proof of absence', () => {
+  const result = classify({
+    priorEvents: [priorEvent({ homeTeam: 'Zzz Unknown Home', awayTeam: 'Zzz Unknown Away' })],
+    scheduleItems: [scheduleItem({ homeTeam: 'Texas', awayTeam: 'Rice', startDate: IN_30_DAYS })],
+  });
+  assert.deepEqual(result, VALID_ABSENCE, 'identity failure must not read as confident absence');
+});
+
+test('placeholder slate rows conceal games: a resolved unmatched event is NOT confidently absent', () => {
+  const result = classify({
+    priorEvents: [priorEvent({ commenceTime: IN_10_DAYS })], // Georgia/Auburn, resolved
+    // The only slate row is an unreachable placeholder slot the event's game
+    // may resolve into once participants are announced.
+    scheduleItems: [scheduleItem({ homeTeam: 'TBD', awayTeam: 'TBD', startDate: IN_10_DAYS })],
+  });
+  assert.deepEqual(result, VALID_ABSENCE, 'a concealing placeholder blocks confident absence');
+});
+
+test('one unresolved participant anywhere in the slate suppresses unmatched clearing', () => {
+  const result = classify({
+    priorEvents: [priorEvent()], // Georgia/Auburn, resolved
+    scheduleItems: [
+      scheduleItem({ homeTeam: 'Texas', awayTeam: 'Zzz Unknown Spelling', startDate: IN_30_DAYS }),
+    ],
+  });
+  assert.deepEqual(result, VALID_ABSENCE, 'an unreachable slate row blocks confident absence');
+});

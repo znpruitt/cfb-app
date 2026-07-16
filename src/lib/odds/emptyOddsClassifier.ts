@@ -73,6 +73,84 @@ function isResolvedTeamLabel(resolver: TeamIdentityResolver, raw: string): boole
 /** Kickoffs within this window of `now` are expected to have posted odds. */
 export const ODDS_EXPECTED_KICKOFF_HORIZON_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * The explicit state of one prior Odds row after reconciliation
+ * (state-model remediation). Exactly one state per row; the verdicts are
+ * derived mechanically: `matched-healthy` proves odds are still expected;
+ * `matched-obsolete`, `expired`, and `confidently-absent` prove obsolescence;
+ * every other state is INDETERMINATE — it contributes no positive evidence
+ * AND blocks destructive clearing, because failure to match is not proof of
+ * absence unless both event and slate identities were confidently resolved.
+ */
+type PriorOddsRowState =
+  | 'matched-healthy'
+  | 'matched-obsolete'
+  | 'matched-indeterminate'
+  | 'expired'
+  | 'confidently-absent'
+  | 'identity-unresolved'
+  | 'match-ambiguous'
+  | 'date-indeterminate';
+
+const PROVES_OBSOLETE: ReadonlySet<PriorOddsRowState> = new Set([
+  'matched-obsolete',
+  'expired',
+  'confidently-absent',
+]);
+
+/**
+ * Assign one prior row its state (pure). `game` is the attached slate item
+ * (null when the matcher did not attach); `reason` is the matcher's diagnostic
+ * for non-attaching events.
+ *
+ *   - Attached: disruption or a past authoritative kickoff → matched-obsolete;
+ *     a future authoritative kickoff → matched-healthy (deliberately with NO
+ *     horizon cap, so a provider regression dropping early-posted lines beyond
+ *     7 days is still caught); an unparseable kickoff → expired if the cached
+ *     commence has passed, else matched-indeterminate.
+ *   - Not attached: an expired cached commence proves obsolescence regardless
+ *     of the matching outcome (an already-kicked-off line is legitimately
+ *     absent from an upcoming-events feed). Otherwise 'unmatched_pair' is
+ *     confident absence ONLY when both event labels resolved canonically AND
+ *     the whole slate is participant-confident — an unresolved provider
+ *     spelling (event side) or a concealing placeholder/unresolved row (slate
+ *     side) is identity-unresolved, not proof. 'date_mismatch' (kickoff
+ *     tolerance miss) and 'ambiguous_pair'/'consumed_or_duplicate' (candidacy
+ *     the matcher refused to guess between) stay indeterminate.
+ */
+function classifyPriorRow(params: {
+  event: PriorOddsEventEvidence;
+  game: OddsScheduleEvidenceItem | null;
+  reason: OddsAttachmentDiagnostic['reason'] | undefined;
+  resolver: TeamIdentityResolver;
+  slateParticipantsConfident: boolean;
+  now: number;
+}): PriorOddsRowState {
+  const { event, game, reason, resolver, slateParticipantsConfident, now } = params;
+  const commenceMs = event.commenceTime === null ? Number.NaN : Date.parse(event.commenceTime);
+  const commenceExpired = Number.isFinite(commenceMs) && commenceMs <= now;
+
+  if (game !== null) {
+    if (isDisruptedStatusLabel(game.status)) return 'matched-obsolete';
+    const startMs = game.startDate === null ? Number.NaN : Date.parse(game.startDate);
+    if (Number.isFinite(startMs) && startMs > now) return 'matched-healthy';
+    if (Number.isFinite(startMs)) return 'matched-obsolete';
+    return commenceExpired ? 'expired' : 'matched-indeterminate';
+  }
+
+  if (commenceExpired) return 'expired';
+  if (reason === 'unmatched_pair') {
+    const eventIdentitiesResolved =
+      resolver.resolveName(event.homeTeam).status === 'resolved' &&
+      resolver.resolveName(event.awayTeam).status === 'resolved';
+    return eventIdentitiesResolved && slateParticipantsConfident
+      ? 'confidently-absent'
+      : 'identity-unresolved';
+  }
+  if (reason === 'date_mismatch') return 'date-indeterminate';
+  return 'match-ambiguous';
+}
+
 /** Minimal slice of a prior-good cached odds event used as evidence. */
 export type PriorOddsEventEvidence = {
   homeTeam: string;
@@ -207,58 +285,36 @@ export function classifyEmptyOddsResponse(params: {
     }) => `${e.homeTeam}|${e.awayTeam}|${e.commenceTime ?? ''}`;
     const reasonByEventKey = new Map(diagnostics.map((d) => [diagnosticKey(d), d.reason]));
 
+    // Slate-side identity confidence, computed once: a pair miss can only
+    // prove ABSENCE when no slate row could be concealing the event's game —
+    // i.e. every row's participants classify as real resolved teams. A
+    // placeholder slot (TBD/bracket/"Winner of …") or an unresolved spelling
+    // anywhere in the slate is a row the pair index cannot reach, so an
+    // unmatched event might simply be hiding behind it.
+    const slateParticipantsConfident = scheduleItems.every(
+      (item) =>
+        isResolvedTeamLabel(resolver, item.homeTeam) && isResolvedTeamLabel(resolver, item.awayTeam)
+    );
+
+    let healthyCount = 0;
     let obsoleteCount = 0;
     for (const event of priorEvents) {
-      const gameKey = gameKeyByEvent.get(event);
-      if (gameKey === undefined) {
-        // Not attached. UNCERTAINTY RULE: only a CONFIDENT absence may prove
-        // obsolescence — 'unmatched_pair' means the slate has no candidate for
-        // this pair at all. Ambiguous candidacy ('ambiguous_pair': repeated
-        // matchup the matcher refused to guess between, e.g. missing commence
-        // time), tolerance misses ('date_mismatch'), and one-to-one collisions
-        // ('consumed_or_duplicate') are INDETERMINATE: no positive evidence,
-        // and they block clearing. An expired cached commence proves
-        // obsolescence regardless — an already-kicked-off line is legitimately
-        // absent from the feed whatever its matching outcome.
-        const commenceMs =
-          event.commenceTime === null ? Number.NaN : Date.parse(event.commenceTime);
-        if (Number.isFinite(commenceMs) && commenceMs <= now) {
-          obsoleteCount += 1;
-          continue;
-        }
-        if (reasonByEventKey.get(diagnosticKey(event)) === 'unmatched_pair') {
-          obsoleteCount += 1;
-        }
-        continue;
-      }
-      const game = itemByGameKey.get(gameKey);
-      if (!game) continue; // unreachable; defensive — indeterminate
-      if (isDisruptedStatusLabel(game.status)) {
-        obsoleteCount += 1;
-        continue;
-      }
-      const startMs = game.startDate === null ? Number.NaN : Date.parse(game.startDate);
-      if (Number.isFinite(startMs) && startMs > now) {
-        // Healthy: the AUTHORITATIVE current kickoff is still ahead —
-        // deliberately with NO horizon cap, so a provider regression dropping
-        // early-posted lines beyond 7 days is still caught.
-        priorUpcomingEventCount += 1;
-        continue;
-      }
-      if (Number.isFinite(startMs)) {
-        // Started/completed per the authoritative kickoff (e.g. rescheduled
-        // earlier): legitimately absent from the provider feed.
-        obsoleteCount += 1;
-        continue;
-      }
-      // Matched game with no parseable kickoff: not evidence, but expired
-      // cached commence still proves obsolescence; otherwise indeterminate
-      // (blocks clearing, contributes nothing).
-      const commenceMs = event.commenceTime === null ? Number.NaN : Date.parse(event.commenceTime);
-      if (Number.isFinite(commenceMs) && commenceMs <= now) {
-        obsoleteCount += 1;
-      }
+      const state = classifyPriorRow({
+        event,
+        game: (() => {
+          const gameKey = gameKeyByEvent.get(event);
+          return gameKey === undefined ? null : (itemByGameKey.get(gameKey) ?? null);
+        })(),
+        reason: reasonByEventKey.get(diagnosticKey(event)),
+        resolver,
+        slateParticipantsConfident,
+        now,
+      });
+      if (state === 'matched-healthy') healthyCount += 1;
+      else if (PROVES_OBSOLETE.has(state)) obsoleteCount += 1;
+      // Every other state is INDETERMINATE: no positive evidence, blocks clearing.
     }
+    priorUpcomingEventCount = healthyCount;
     priorRowsProvablyObsolete = obsoleteCount === priorEvents.length;
   }
 
