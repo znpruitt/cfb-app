@@ -15,6 +15,17 @@ Supersedes: (none)
 
 ## Completed phases / milestones
 
+### PLATFORM-086G2 — Odds Boundary & Usage Truthfulness — Complete
+
+**Status:** Complete. Merged to `main` via PR #395 (`platform/086g2-odds-boundary-usage-truthfulness`, merge commit `0ee58b4`, 2026-07-16). Eight commits; eight Codex review rounds remediated pre-merge (two consolidated fixes scoped by read-only audit prompts); final Codex review clean.
+**PROMPT_ID(s):** PLATFORM-086G2-ODDS-BOUNDARY-USAGE-TRUTHFULNESS-v1 (plus seven folded remediation prompts and two read-only audit prompts — see the PLATFORM-086G2 entry in `docs/prompt-registry.md` for the full list).
+
+**Goals completed:** Closed deferred PLATFORM-086A findings #4 and #3 at the Odds boundary. A 200 provider response is validated before any durable commit: non-array payloads, structurally malformed rows (including nested bookmaker/market/outcome scalars), and invalid/truncated/empty JSON bodies fail with stable codes (`odds-invalid-payload`, `odds-schema-drift`), while quota headers persist regardless of body validity. Genuine empty payloads are classified contextually by a pure classifier with a typed per-row identity-certainty state model: prior cached events are reconciled against the current canonical slate via the existing identity/attachment matcher, positive near-horizon expectation (canonical target only, 7-day horizon) requires two canonically resolved participants, unexpected empties are truthful `odds-empty-unexpected` failures that retain prior-good data, and a valid-absence no-op replaces retained rows only when every row is provably obsolete — ambiguous or unavailable identity evidence authorizes neither failure nor destructive clearing. Per-target commit serialization prevents an in-flight empty refresh from clobbering a concurrent populated commit. The odds-usage durable read carries a distinct `available | absent | unavailable` state end to end, and file-fallback app-state reads treat only a genuinely missing file as absence (corrupt/unreadable stores propagate).
+
+**Key outcomes:** An Odds provider regression can no longer be committed as a successful empty refresh or silently replace prior-good lines; false-failure alarms from placeholders, reschedules, and unknown provider spellings are excluded by construction; operators can distinguish "no usage snapshot yet" from "the store is unreachable". New `src/lib/odds/emptyOddsClassifier.ts`; `withOddsTargetLock` + structural row validation in `routeInternals.ts`; `readLatestKnownOddsUsageState`; ENOENT-only file-store tolerance. Validation: final combined suites green (payload-boundary 44, classifier 31, attachment/identity/usage/provider-status), `tsc`/`lint:all` clean, no provider quota spent.
+
+**Optional follow-up debt (non-blocking):** clearing of provably obsolete rows is deliberately rare during postseason windows (placeholder slots suppress confident absence), so retained entries persist until a nonempty refresh — acceptable by design. Next in campaign order: PLATFORM-086H (game-stats recovery).
+
 ### PLATFORM-086G1 — CFBD Score & Quota Truthfulness — Complete
 
 **Status:** Complete. Merged to `main` via PR #394 (`platform/086g1-cfbd-score-quota-truthfulness`, merge commit `987dd04`, 2026-07-14). Two commits; one Codex review round (2 P2 evidence-read findings) remediated pre-merge; final Codex review clean.
