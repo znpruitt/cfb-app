@@ -1,5 +1,7 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
+import { inferSubdivisionFromConference } from '../conferenceSubdivision.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
+import { isPlaceholderTeamLabel } from '../teamNormalization.ts';
 import { normalizeGameTeamStats } from './normalizers.ts';
 import type { GameStats, RawGameTeamStats, WeeklyGameStats } from './types.ts';
 
@@ -73,6 +75,205 @@ export function usableGameStatsGameIds(record: WeeklyGameStats | null | undefine
  */
 export function hasUsableGameStats(record: WeeklyGameStats | null | undefined): boolean {
   return usableGameStatsGameIds(record).size > 0;
+}
+
+/**
+ * The structural slice of a canonical `ScheduleItem` that expected-coverage
+ * derivation reads. Kept structural (not the wire type) so pure helpers and
+ * tests do not drag the schedule module graph in.
+ */
+export type GameStatsScheduleItem = {
+  id?: string | null;
+  week: number;
+  seasonType?: string | null;
+  status?: string | null;
+  homeTeam?: string | null;
+  awayTeam?: string | null;
+  homeConference?: string | null;
+  awayConference?: string | null;
+};
+
+function normalizeSlateSeasonType(value: unknown): CfbdSeasonType {
+  return value === 'postseason' ? 'postseason' : 'regular';
+}
+
+export type ExpectedGameStatsSlate = {
+  /**
+   * Whether the canonical schedule carries ANY row for this (week, seasonType)
+   * slate. `false` means there is no schedule evidence to judge the week with —
+   * callers must treat completeness as unprovable, never as complete.
+   */
+  hasScheduleEvidence: boolean;
+  /** Schedule-defined canonical game ids expected to produce team stats. */
+  expectedIds: Set<string>;
+};
+
+/**
+ * Derive the canonical game ids EXPECTED to produce team stats for one weekly
+ * slate, from canonical schedule rows only (PLATFORM-086H — never from returned
+ * provider stat rows). A schedule game is expected unless the schedule itself
+ * proves stats are not coming:
+ *   - a disrupted/non-played terminal disposition (`expectsGameStats`);
+ *   - an unresolved matchup — either side still a placeholder label (TBD /
+ *     "Winner of …" / synthetic postseason slot), via the same predicate
+ *     participant building uses; once the schedule resolves the matchup the
+ *     game enters the expected set on the next evaluation;
+ *   - an FCS-vs-FCS pairing, excluded only on POSITIVE canonical classification
+ *     of BOTH conferences (`inferSubdivisionFromConference`) — an unknown
+ *     classification never excludes, so a real FBS game can't be silently
+ *     dropped from expectations.
+ */
+export function deriveExpectedGameStatsIds(
+  items: readonly GameStatsScheduleItem[],
+  week: number,
+  seasonType: CfbdSeasonType
+): ExpectedGameStatsSlate {
+  const expectedIds = new Set<string>();
+  let hasScheduleEvidence = false;
+
+  for (const item of items) {
+    if (item.week !== week || normalizeSlateSeasonType(item.seasonType) !== seasonType) continue;
+    hasScheduleEvidence = true;
+    const id = typeof item.id === 'string' ? item.id.trim() : '';
+    if (!id) continue;
+    if (!expectsGameStats(item.status)) continue;
+    if (isPlaceholderTeamLabel(item.homeTeam) || isPlaceholderTeamLabel(item.awayTeam)) continue;
+    if (
+      inferSubdivisionFromConference(item.homeConference) === 'FCS' &&
+      inferSubdivisionFromConference(item.awayConference) === 'FCS'
+    ) {
+      continue;
+    }
+    expectedIds.add(id);
+  }
+
+  return { hasScheduleEvidence, expectedIds };
+}
+
+export type WeeklyGameStatsCompleteness =
+  /** No schedule rows for the slate — completeness is unprovable, never "complete". */
+  | { state: 'schedule-unavailable' }
+  /** Schedule rows exist but none is expected to produce stats (disrupted/placeholder/FCS-only). */
+  | { state: 'no-expected-games' }
+  /** Expected games exist but no usable row covers any of them. */
+  | { state: 'no-usable-rows'; expectedCount: number; missingIds: string[] }
+  /** Some — not all — expected games have usable rows. */
+  | { state: 'partial'; expectedCount: number; coveredCount: number; missingIds: string[] }
+  /** Every expected game id has a usable cached row. */
+  | { state: 'complete'; expectedCount: number };
+
+/**
+ * Schedule-relative weekly completeness (PLATFORM-086H finding #5). A week is
+ * complete only when EVERY schedule-expected canonical game id has a usable
+ * cached row; games the schedule proves non-stat-producing are already excluded
+ * from the expected set. "Some usable rows exist" is explicitly NOT completeness
+ * — a partial week stays eligible for recovery.
+ */
+export function evaluateWeeklyGameStatsCompleteness(params: {
+  scheduleItems: readonly GameStatsScheduleItem[];
+  week: number;
+  seasonType: CfbdSeasonType;
+  record: WeeklyGameStats | null | undefined;
+}): WeeklyGameStatsCompleteness {
+  const { scheduleItems, week, seasonType, record } = params;
+  const { hasScheduleEvidence, expectedIds } = deriveExpectedGameStatsIds(
+    scheduleItems,
+    week,
+    seasonType
+  );
+  if (!hasScheduleEvidence) return { state: 'schedule-unavailable' };
+  if (expectedIds.size === 0) return { state: 'no-expected-games' };
+
+  const covered = usableGameStatsGameIds(record);
+  const missingIds = [...expectedIds].filter((id) => !covered.has(id)).sort();
+  if (missingIds.length === 0) return { state: 'complete', expectedCount: expectedIds.size };
+  const coveredCount = expectedIds.size - missingIds.length;
+  if (coveredCount === 0) {
+    return { state: 'no-usable-rows', expectedCount: expectedIds.size, missingIds };
+  }
+  return { state: 'partial', expectedCount: expectedIds.size, coveredCount, missingIds };
+}
+
+export type WeeklyGameStatsMerge = {
+  /** The merged rows to persist (prior order preserved; new rows appended). */
+  games: GameStats[];
+  /** Rows this refresh actually added or replaced with new authoritative data. */
+  rowsCommitted: number;
+  /** Prior rows preserved because the response omitted them or was not authoritative. */
+  rowsRetained: number;
+  /** Whether the merged content differs from the prior record at all. */
+  changed: boolean;
+};
+
+/** Merge key: the canonical (provider) game id, when the row carries a valid one. */
+function mergeKey(row: GameStats): string | null {
+  return typeof row.providerGameId === 'number' &&
+    Number.isFinite(row.providerGameId) &&
+    row.providerGameId > 0
+    ? String(row.providerGameId)
+    : null;
+}
+
+/**
+ * Best-effort row equality. Rows are produced by the one shared normalizer, so a
+ * stable field order makes JSON comparison reliable; a false negative merely
+ * causes a redundant (harmless) rewrite, never data loss.
+ */
+function rowsEqual(a: GameStats, b: GameStats): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Merge freshly normalized provider rows into the prior cached weekly record by
+ * canonical game id (PLATFORM-086H requirement 4). Recovery of a partial week
+ * must be strictly additive-or-replacing:
+ *   - a prior row the response omits is RETAINED — a partial or empty recovery
+ *     response can never delete prior-good rows;
+ *   - an incoming row replaces the prior row for its game id only when it is
+ *     authoritative — an UNUSABLE incoming row (blank team identity) never
+ *     clobbers a usable prior row;
+ *   - identical incoming data changes nothing (`changed: false`), so callers can
+ *     skip the durable rewrite and downstream invalidation entirely.
+ * Identity comes only from ids already on the rows — this merges rows, it never
+ * creates game identity from provider stats.
+ */
+export function mergeWeeklyGameStats(
+  prior: WeeklyGameStats | null | undefined,
+  incoming: readonly GameStats[]
+): WeeklyGameStatsMerge {
+  const merged: GameStats[] = [...(prior?.games ?? [])];
+  const indexByKey = new Map<string, number>();
+  merged.forEach((row, index) => {
+    const key = mergeKey(row);
+    // First occurrence wins the index; duplicate prior ids are left in place.
+    if (key !== null && !indexByKey.has(key)) indexByKey.set(key, index);
+  });
+
+  let rowsCommitted = 0;
+  let replacedCount = 0;
+  for (const row of incoming) {
+    const key = mergeKey(row);
+    const priorIndex = key !== null ? indexByKey.get(key) : undefined;
+    if (priorIndex === undefined) {
+      merged.push(row);
+      if (key !== null) indexByKey.set(key, merged.length - 1);
+      rowsCommitted += 1;
+      continue;
+    }
+    const priorRow = merged[priorIndex];
+    const authoritative = isUsableGameStatsRow(row) || !isUsableGameStatsRow(priorRow);
+    if (!authoritative || rowsEqual(priorRow, row)) continue;
+    merged[priorIndex] = row;
+    rowsCommitted += 1;
+    replacedCount += 1;
+  }
+
+  return {
+    games: merged,
+    rowsCommitted,
+    rowsRetained: (prior?.games.length ?? 0) - replacedCount,
+    changed: rowsCommitted > 0,
+  };
 }
 
 export type GameStatsPayloadClassification =

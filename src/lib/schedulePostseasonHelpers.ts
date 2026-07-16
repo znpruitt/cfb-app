@@ -1,5 +1,9 @@
 import { createTeamIdentityResolver } from './teamIdentity.ts';
-import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
+import {
+  isLikelyInvalidTeamLabel,
+  isPlaceholderTeamLabel,
+  isSyntheticPostseasonSlotLabel,
+} from './teamNormalization.ts';
 import type { AppGame, ParticipantSlot, ScheduleWireItem } from './schedule.ts';
 
 function participantCsvValue(participant: ParticipantSlot): string {
@@ -65,12 +69,7 @@ export function buildPlaceholderParticipant(params: {
     };
   }
 
-  const isSyntheticPostseasonSlotLabel =
-    /(college football playoff|\bcfp\b|quarterfinal|semifinal|championship|\bbowl\b)/i.test(
-      trimmed
-    ) && /\b\d+\b/.test(trimmed);
-
-  if (isSyntheticPostseasonSlotLabel) {
+  if (isSyntheticPostseasonSlotLabel(trimmed)) {
     return {
       kind: 'placeholder',
       slotId,
@@ -79,7 +78,10 @@ export function buildPlaceholderParticipant(params: {
     };
   }
 
-  if (trimmed && !/\btbd\b/i.test(trimmed) && !isLikelyInvalidTeamLabel(trimmed)) {
+  // Shared label-level placeholder test (winner-of and synthetic labels already
+  // returned above) — the same predicate game-stats expected-coverage uses, so a
+  // label this function would treat as a placeholder is never "expected" either.
+  if (!isPlaceholderTeamLabel(trimmed)) {
     const resolved = resolver.resolveName(trimmed);
     if (resolved.status === 'resolved') {
       const canonical = resolved.canonicalName ?? trimmed;

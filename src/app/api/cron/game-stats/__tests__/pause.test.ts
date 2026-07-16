@@ -103,11 +103,15 @@ test('missing CFBD key with a resolved target records a WEEK-partition failure, 
   // it) — never the year data rollup.
   await seedCompletedWeek(3, 'regular');
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { error?: string; week?: number; seasonType?: string };
+  const body = (await res.json()) as {
+    error?: string;
+    results?: Array<{ week: number; seasonType: string; outcome: string }>;
+  };
   assert.equal(res.status, 500);
   assert.equal(body.error, 'CFBD_API_KEY not configured');
-  assert.equal(body.week, 3, 'the response identifies the resolved target week');
-  assert.equal(body.seasonType, 'regular');
+  const failed = body.results?.find((r) => r.outcome === 'failed');
+  assert.equal(failed?.week, 3, 'the response identifies the resolved target week');
+  assert.equal(failed?.seasonType, 'regular');
 
   const week = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 3, 'regular'));
   assert.equal(

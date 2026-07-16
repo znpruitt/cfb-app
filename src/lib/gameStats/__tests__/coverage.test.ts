@@ -3,9 +3,13 @@ import test from 'node:test';
 
 import {
   classifyGameStatsPayload,
+  deriveExpectedGameStatsIds,
+  evaluateWeeklyGameStatsCompleteness,
   expectsGameStats,
   hasUsableGameStats,
+  mergeWeeklyGameStats,
   usableGameStatsGameIds,
+  type GameStatsScheduleItem,
 } from '../coverage.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 
@@ -112,4 +116,205 @@ test('classifyGameStatsPayload: ≥1 usable row → commit with the normalized g
   const result = classifyGameStatsPayload(raw, 1, 'regular');
   assert.equal(result.kind, 'commit');
   assert.equal(result.kind === 'commit' && result.games.length, 1);
+});
+
+// === PLATFORM-086H — schedule-relative expected coverage ===
+
+function scheduleItem(overrides: Partial<GameStatsScheduleItem> = {}): GameStatsScheduleItem {
+  return {
+    id: '101',
+    week: 1,
+    seasonType: 'regular',
+    status: 'STATUS_FINAL',
+    homeTeam: 'Alpha',
+    awayTeam: 'Beta',
+    homeConference: 'SEC',
+    awayConference: 'Big Ten',
+    ...overrides,
+  };
+}
+
+test('expected ids come from schedule ids scoped to the exact week + season type', () => {
+  const items = [
+    scheduleItem({ id: '101', week: 1 }),
+    scheduleItem({ id: '102', week: 2 }),
+    scheduleItem({ id: '103', week: 1, seasonType: 'postseason' }),
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  assert.equal(slate.hasScheduleEvidence, true);
+  assert.deepEqual([...slate.expectedIds], ['101']);
+});
+
+test('no schedule rows for the slate → no schedule evidence (never "complete")', () => {
+  const slate = deriveExpectedGameStatsIds([scheduleItem({ week: 2 })], 1, 'regular');
+  assert.equal(slate.hasScheduleEvidence, false);
+  assert.equal(slate.expectedIds.size, 0);
+});
+
+test('disrupted terminal dispositions are not expected (canceled / postponed)', () => {
+  const items = [
+    scheduleItem({ id: '101', status: 'Canceled' }),
+    scheduleItem({ id: '102', status: 'STATUS_POSTPONED' }),
+    scheduleItem({ id: '103', status: 'STATUS_FINAL' }),
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  assert.equal(slate.hasScheduleEvidence, true);
+  assert.deepEqual([...slate.expectedIds], ['103']);
+});
+
+test('unresolved placeholders are not expected; a resolved postseason matchup is', () => {
+  const items = [
+    scheduleItem({ id: '201', seasonType: 'postseason', awayTeam: 'TBD' }),
+    scheduleItem({ id: '202', seasonType: 'postseason', homeTeam: 'Winner of Rose Bowl' }),
+    scheduleItem({
+      id: '203',
+      seasonType: 'postseason',
+      homeTeam: 'College Football Playoff Quarterfinal 1',
+    }),
+    scheduleItem({ id: '204', seasonType: 'postseason', homeTeam: 'Alpha', awayTeam: 'Beta' }),
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'postseason');
+  assert.deepEqual([...slate.expectedIds], ['204']);
+});
+
+test('FCS-vs-FCS is excluded by classification; FBS-vs-FCS and unknowns stay expected', () => {
+  const items = [
+    scheduleItem({ id: '301', homeConference: 'Big Sky', awayConference: 'Big Sky' }),
+    scheduleItem({ id: '302', homeConference: 'SEC', awayConference: 'Big Sky' }),
+    // Unknown conferences never positively classify as FCS → not excluded.
+    scheduleItem({ id: '303', homeConference: 'X', awayConference: 'Y' }),
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  assert.deepEqual([...slate.expectedIds].sort(), ['302', '303']);
+});
+
+test('a schedule row with no id cannot be expected', () => {
+  const slate = deriveExpectedGameStatsIds([scheduleItem({ id: '' })], 1, 'regular');
+  assert.equal(slate.hasScheduleEvidence, true);
+  assert.equal(slate.expectedIds.size, 0);
+});
+
+// === PLATFORM-086H — weekly completeness contract (finding #5) ===
+
+function evaluate(
+  items: GameStatsScheduleItem[],
+  games: GameStats[] | null
+): ReturnType<typeof evaluateWeeklyGameStatsCompleteness> {
+  return evaluateWeeklyGameStatsCompleteness({
+    scheduleItems: items,
+    week: 1,
+    seasonType: 'regular',
+    record: games === null ? null : record(games),
+  });
+}
+
+test('completeness: schedule evidence unavailable is its own state, never complete', () => {
+  assert.deepEqual(evaluate([], [row(101)]), { state: 'schedule-unavailable' });
+});
+
+test('completeness: a slate with no expected games is not applicable', () => {
+  assert.deepEqual(evaluate([scheduleItem({ status: 'Canceled' })], null), {
+    state: 'no-expected-games',
+  });
+});
+
+test('completeness: expected games with no usable rows', () => {
+  const items = [scheduleItem({ id: '101' }), scheduleItem({ id: '102' })];
+  assert.deepEqual(evaluate(items, null), {
+    state: 'no-usable-rows',
+    expectedCount: 2,
+    missingIds: ['101', '102'],
+  });
+  // A record whose every row is unusable is equivalent to no rows.
+  assert.equal(evaluate(items, [row(101, '', '')]).state, 'no-usable-rows');
+});
+
+test('completeness: a subset of expected coverage is PARTIAL, not complete (finding #5)', () => {
+  const items = [scheduleItem({ id: '101' }), scheduleItem({ id: '102' })];
+  assert.deepEqual(evaluate(items, [row(101)]), {
+    state: 'partial',
+    expectedCount: 2,
+    coveredCount: 1,
+    missingIds: ['102'],
+  });
+});
+
+test('completeness: complete only when EVERY expected id has a usable row', () => {
+  const items = [
+    scheduleItem({ id: '101' }),
+    scheduleItem({ id: '102' }),
+    // Non-expected games (disrupted) do not block completeness.
+    scheduleItem({ id: '103', status: 'Postponed' }),
+  ];
+  assert.deepEqual(evaluate(items, [row(101), row(102)]), {
+    state: 'complete',
+    expectedCount: 2,
+  });
+});
+
+// === PLATFORM-086H — merge without regression (requirement 4) ===
+
+test('merge: rows for new game ids are appended and counted as committed', () => {
+  const merge = mergeWeeklyGameStats(null, [row(101), row(102)]);
+  assert.equal(merge.changed, true);
+  assert.equal(merge.rowsCommitted, 2);
+  assert.equal(merge.rowsRetained, 0);
+  assert.deepEqual(
+    merge.games.map((g) => g.providerGameId),
+    [101, 102]
+  );
+});
+
+test('merge: prior rows omitted by a partial response are retained, never deleted', () => {
+  const prior = record([row(101), row(102)]);
+  const merge = mergeWeeklyGameStats(prior, [row(103)]);
+  assert.deepEqual(
+    merge.games.map((g) => g.providerGameId),
+    [101, 102, 103]
+  );
+  assert.equal(merge.rowsCommitted, 1);
+  assert.equal(merge.rowsRetained, 2);
+});
+
+test('merge: an empty recovery response changes nothing and retains all prior rows', () => {
+  const prior = record([row(101), row(102)]);
+  const merge = mergeWeeklyGameStats(prior, []);
+  assert.equal(merge.changed, false);
+  assert.equal(merge.rowsRetained, 2);
+  assert.deepEqual(
+    merge.games.map((g) => g.providerGameId),
+    [101, 102]
+  );
+});
+
+test('merge: identical incoming rows are a no-change (no rewrite, no invalidation)', () => {
+  const prior = record([row(101), row(102)]);
+  const merge = mergeWeeklyGameStats(prior, [row(101), row(102)]);
+  assert.equal(merge.changed, false);
+  assert.equal(merge.rowsCommitted, 0);
+});
+
+test('merge: a changed usable row replaces the prior row for the same game id', () => {
+  const prior = record([row(101, 'Alpha', 'Beta'), row(102)]);
+  const updated = row(101, 'Alpha Corrected', 'Beta');
+  const merge = mergeWeeklyGameStats(prior, [updated]);
+  assert.equal(merge.changed, true);
+  assert.equal(merge.rowsCommitted, 1);
+  assert.equal(merge.games[0].home.school, 'Alpha Corrected');
+  assert.equal(merge.games[1].providerGameId, 102, 'the untouched prior row is retained in place');
+});
+
+test('merge: an UNUSABLE incoming row never clobbers a usable prior row', () => {
+  const prior = record([row(101, 'Alpha', 'Beta')]);
+  const merge = mergeWeeklyGameStats(prior, [row(101, '', '')]);
+  assert.equal(merge.changed, false);
+  assert.equal(merge.games[0].home.school, 'Alpha', 'the usable prior row survives');
+});
+
+test('merge: a usable incoming row repairs a previously unusable prior row', () => {
+  const prior = record([row(101, '', '')]);
+  const merge = mergeWeeklyGameStats(prior, [row(101, 'Alpha', 'Beta')]);
+  assert.equal(merge.changed, true);
+  assert.equal(merge.rowsCommitted, 1);
+  assert.equal(merge.games[0].home.school, 'Alpha');
 });

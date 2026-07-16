@@ -6,7 +6,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
 } from '../../../../lib/server/appStateStore.ts';
-import { getCachedGameStats } from '../../../../lib/gameStats/cache.ts';
+import { getCachedGameStats, setCachedGameStats } from '../../../../lib/gameStats/cache.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
 
@@ -85,9 +85,16 @@ test('manual refresh: a genuinely empty provider response is a no-op without a d
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { games: unknown[]; meta: { noApplicableData?: boolean } };
+  const body = (await res.json()) as {
+    games: unknown[];
+    meta: { noApplicableData?: boolean; outcome?: string; noopReason?: string };
+  };
   assert.deepEqual(body.games, []);
   assert.equal(body.meta.noApplicableData, true);
+  // PLATFORM-086H finding #1: the response reports the valid no-op explicitly so
+  // the panel never has to infer an outcome from games.length.
+  assert.equal(body.meta.outcome, 'noop');
+  assert.equal(body.meta.noopReason, 'no-provider-rows');
 
   assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'no empty record written');
   const status = await getProviderRefreshStatus(
@@ -131,9 +138,14 @@ test('manual refresh: a usable payload commits and records success', async () =>
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { games: unknown[]; meta: { cache: string } };
+  const body = (await res.json()) as {
+    games: unknown[];
+    meta: { cache: string; outcome?: string; rowsCommitted?: number };
+  };
   assert.equal(body.games.length, 1);
   assert.equal(body.meta.cache, 'miss');
+  assert.equal(body.meta.outcome, 'committed');
+  assert.equal(body.meta.rowsCommitted, 1);
 
   const stored = await getCachedGameStats(2026, 3, 'regular');
   assert.equal(stored?.games.length, 1, 'the usable record is committed');
@@ -142,4 +154,98 @@ test('manual refresh: a usable payload commits and records success', async () =>
     weekPartitionScope(2026, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'succeeded');
+});
+
+// === PLATFORM-086H — the manual refresh shares the cron's merge contract ===
+
+test('manual refresh: a partial provider response merges with prior-good rows, never replaces them', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  await setCachedGameStats({
+    year: 2026,
+    week: 3,
+    seasonType: 'regular',
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    games: [
+      {
+        providerGameId: 5001,
+        week: 3,
+        seasonType: 'regular',
+        home: { school: 'Alpha' } as never,
+        away: { school: 'Beta' } as never,
+      },
+    ],
+  });
+  // The refresh returns ONLY a different game — the prior row must survive.
+  stubJson([
+    {
+      id: 5002,
+      teams: [
+        { teamId: 1, team: 'Gamma', conference: 'X', homeAway: 'home', points: 30, stats: [] },
+        { teamId: 2, team: 'Delta', conference: 'Y', homeAway: 'away', points: 3, stats: [] },
+      ],
+    },
+  ]);
+
+  const res = await GET(adminRefresh());
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    games: Array<{ providerGameId: number }>;
+    meta: { outcome?: string; rowsCommitted?: number; rowsCached?: number };
+  };
+  assert.equal(body.meta.outcome, 'committed');
+  assert.equal(body.meta.rowsCommitted, 1);
+  assert.equal(body.meta.rowsCached, 2);
+
+  const stored = await getCachedGameStats(2026, 3, 'regular');
+  assert.deepEqual(
+    stored?.games.map((g) => g.providerGameId).sort(),
+    [5001, 5002],
+    'the prior-good row was retained alongside the new row'
+  );
+});
+
+test('manual refresh: identical provider data is a truthful no-op — no rewrite, no last-success advance', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  const payload = [
+    {
+      id: 5001,
+      teams: [
+        { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
+        { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+      ],
+    },
+  ];
+  stubJson(payload);
+  const first = await GET(adminRefresh());
+  assert.equal(first.status, 200);
+  const committed = await getCachedGameStats(2026, 3, 'regular');
+  const successAfterFirst = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
+
+  stubJson(payload);
+  const second = await GET(adminRefresh());
+  assert.equal(second.status, 200);
+  const body = (await second.json()) as {
+    games: unknown[];
+    meta: { outcome?: string; noopReason?: string; rowsCached?: number };
+  };
+  assert.equal(body.meta.outcome, 'noop');
+  assert.equal(body.meta.noopReason, 'no-new-rows');
+  assert.equal(body.meta.rowsCached, 1);
+  assert.equal(body.games.length, 1, 'the response still carries the cached rows');
+
+  const after = await getCachedGameStats(2026, 3, 'regular');
+  assert.equal(after?.fetchedAt, committed?.fetchedAt, 'no durable rewrite for identical data');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
+  assert.equal(status.latestAttemptOutcome, 'no-op');
+  assert.equal(
+    status.lastSuccessAt,
+    successAfterFirst.lastSuccessAt,
+    'a no-change refresh does not advance last-success'
+  );
 });

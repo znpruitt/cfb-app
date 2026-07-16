@@ -12,7 +12,7 @@ import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
-import { expectsGameStats, usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import { deriveExpectedGameStatsIds, usableGameStatsGameIds } from '../gameStats/coverage.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
@@ -220,23 +220,19 @@ export async function getProviderDataDiagnostics(
         );
       }
       // Expected (canonical) STAT-PRODUCING games per completed slate, from the
-      // schedule. Disrupted games (canceled/postponed/suspended/delayed) are
-      // excluded via the shared `expectsGameStats` helper — the same definition the
-      // cron uses — so they neither manufacture a partial gap nor, when a whole
-      // slate is disrupted, a permanent missing warning (5th-review findings #1/#3).
-      const completedKeys = new Set(completedSlates.map((s) => slateKey(s.week, s.seasonType)));
+      // schedule, via the ONE shared derivation the game-stats cron uses
+      // (PLATFORM-086H): disrupted games, unresolved placeholder matchups, and
+      // positively classified FCS-vs-FCS pairings are excluded, so they neither
+      // manufacture a partial gap nor, when a whole slate has no expected games,
+      // a permanent missing warning (5th-review findings #1/#3).
       const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
-      for (const item of scheduleItems) {
-        const key = slateKey(item.week, normalizeSeasonType(item.seasonType));
-        if (!completedKeys.has(key)) continue;
-        if (!expectsGameStats(item.status)) continue;
-        if (!item.id) continue;
-        let expected = expectedIdsBySlate.get(key);
-        if (!expected) {
-          expected = new Set<string>();
-          expectedIdsBySlate.set(key, expected);
-        }
-        expected.add(String(item.id));
+      for (const slate of completedSlates) {
+        const { expectedIds } = deriveExpectedGameStatsIds(
+          scheduleItems,
+          slate.week,
+          slate.seasonType
+        );
+        expectedIdsBySlate.set(slateKey(slate.week, slate.seasonType), expectedIds);
       }
 
       const missing: CompletedSlate[] = [];

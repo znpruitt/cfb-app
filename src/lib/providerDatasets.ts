@@ -151,8 +151,9 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     label: 'Game stats',
     provider: 'CFBD',
     hasActiveAutomation: true,
-    currentAutomation: 'Weekly ingestion cron (Mondays 11:00 UTC).',
-    plannedPolicy: 'Planned (PLATFORM-086C): weekly ingestion plus missing-week recovery.',
+    currentAutomation:
+      'Weekly ingestion cron (Mondays 11:00 UTC); incomplete weeks are retried and merged on later runs (PLATFORM-086H).',
+    plannedPolicy: 'No further automation planned — missing-week recovery shipped (PLATFORM-086H).',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
     // Weekly ingestion cron.

@@ -10,13 +10,44 @@ const buttonClass =
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
+type GameStatsRefreshMeta = {
+  outcome?: 'committed' | 'noop';
+  noopReason?: 'no-provider-rows' | 'no-new-rows';
+  rowsCommitted?: number;
+  rowsCached?: number;
+};
+
 type GameStatsResult = {
   year: number;
   week: number;
   seasonType: string;
-  fetchedAt: string;
+  fetchedAt: string | null;
   games: unknown[];
+  meta?: GameStatsRefreshMeta;
 };
+
+/**
+ * Truthful wording for a manual game-stats refresh outcome (PLATFORM-086H
+ * finding #1). The server reports an explicit outcome: a valid no-op (provider
+ * had nothing, or nothing new) must never render as "Cached 0 games" — that
+ * inferred success-from-`games.length` wording is kept only as a legacy fallback
+ * for a response without the outcome contract.
+ */
+export function describeGameStatsRefreshResult(result: GameStatsResult): string {
+  const slate = `week ${result.week} (${result.seasonType})`;
+  const outcome = result.meta?.outcome;
+  if (outcome === 'noop') {
+    return result.meta?.noopReason === 'no-new-rows'
+      ? `${slate} is already up to date — the provider returned no new stats (${result.meta?.rowsCached ?? 0} cached)`
+      : `No game stats available yet for ${slate} — nothing was cached or overwritten`;
+  }
+  if (outcome === 'committed') {
+    const committed = result.meta?.rowsCommitted ?? result.games.length;
+    const cached = result.meta?.rowsCached ?? result.games.length;
+    return `Committed ${committed} new or updated game${committed !== 1 ? 's' : ''} for ${slate} — ${cached} total cached`;
+  }
+  return `Cached ${result.games.length} game${result.games.length !== 1 ? 's' : ''} for ${slate}`;
+}
 
 type BackfillStatus = 'idle' | 'running' | 'done';
 
@@ -85,7 +116,8 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
     setError(undefined);
 
     const errors: string[] = [];
-    let cached = 0;
+    let updated = 0;
+    let noData = 0;
     const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
     const total = BACKFILL_STEPS.length;
 
@@ -109,7 +141,11 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
             `${step.seasonType} wk ${step.week}: ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}`
           );
         } else {
-          cached++;
+          // A valid no-op (no stats available / nothing new) is not an "updated"
+          // week — count it truthfully instead of as a cached success.
+          const data = (await res.json().catch(() => null)) as GameStatsResult | null;
+          if (data?.meta?.outcome === 'noop') noData++;
+          else updated++;
         }
       } catch (err) {
         errors.push(
@@ -121,7 +157,9 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
 
     setBackfillErrors(errors);
     setBackfillSummary(
-      `Backfill complete — ${cached} week${cached !== 1 ? 's' : ''} cached${errors.length > 0 ? `, ${errors.length} failed` : ''}`
+      `Backfill complete — ${updated} week${updated !== 1 ? 's' : ''} updated` +
+        `${noData > 0 ? `, ${noData} with no stats available` : ''}` +
+        `${errors.length > 0 ? `, ${errors.length} failed` : ''}`
     );
     setBackfillProgress('');
     setBackfillStatus('done');
@@ -201,8 +239,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
         )}
         {status === 'success' && result && (
           <span className="text-xs text-green-600 dark:text-green-400">
-            Cached {result.games.length} game{result.games.length !== 1 ? 's' : ''} for week{' '}
-            {result.week} ({result.seasonType})
+            {describeGameStatsRefreshResult(result)}
           </span>
         )}
         {status === 'error' && (

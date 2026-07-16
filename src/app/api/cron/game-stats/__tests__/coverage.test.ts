@@ -81,6 +81,10 @@ type ScheduleSeed = {
   startDate: string;
   status: string;
   seasonType?: 'regular' | 'postseason';
+  homeTeam?: string;
+  awayTeam?: string;
+  homeConference?: string;
+  awayConference?: string;
 };
 
 async function seedScheduleItems(items: ScheduleSeed[]) {
@@ -95,13 +99,35 @@ async function seedScheduleItems(items: ScheduleSeed[]) {
       startDate: it.startDate,
       neutralSite: false,
       conferenceGame: false,
-      homeTeam: `Home ${it.id}`,
-      awayTeam: `Away ${it.id}`,
-      homeConference: 'X',
-      awayConference: 'Y',
+      homeTeam: it.homeTeam ?? `Home ${it.id}`,
+      awayTeam: it.awayTeam ?? `Away ${it.id}`,
+      homeConference: it.homeConference ?? 'X',
+      awayConference: it.awayConference ?? 'Y',
       status: it.status,
     })),
   });
+}
+
+type CronWeekResult = {
+  week: number;
+  seasonType: string;
+  outcome: string;
+  detail?: string;
+  rowsCommitted?: number;
+};
+
+type CronBody = {
+  year: number;
+  results: CronWeekResult[];
+  gamesProcessed: number;
+  skipped?: string;
+  error?: string;
+};
+
+function resultFor(body: CronBody, week: number, seasonType = 'regular'): CronWeekResult {
+  const found = body.results.find((r) => r.week === week && r.seasonType === seasonType);
+  assert.ok(found, `expected a result for week ${week} ${seasonType}: ${JSON.stringify(body)}`);
+  return found;
 }
 
 const DAYS_AGO = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
@@ -160,16 +186,17 @@ test('the cron re-fetches a week whose cached record is empty (games:[]), not sk
   stubTeamStats();
 
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { skipped?: string; gamesProcessed?: number };
+  const body = (await res.json()) as CronBody;
   assert.equal(res.status, 200, JSON.stringify(body));
   assert.equal(body.skipped, undefined, 'an empty cached record must not be treated as covered');
   assert.equal(body.gamesProcessed, 1, 'the cron re-fetched and persisted usable stats');
+  assert.equal(resultFor(body, WEEK).outcome, 'committed');
 
   const stored = await getCachedGameStats(YEAR, WEEK, 'regular');
   assert.equal(stored?.games.length, 1, 'the empty record was repaired with usable content');
 });
 
-test('the cron skips a week that already has usable cached stats (finding #3)', async () => {
+test('the cron skips a week the completeness contract proves complete (findings #3/#5)', async () => {
   await seedCompletedSchedule();
   await setCachedGameStats({
     year: YEAR,
@@ -178,15 +205,16 @@ test('the cron skips a week that already has usable cached stats (finding #3)', 
     fetchedAt: '2026-01-01T00:00:00.000Z',
     games: [usableRow(5001)],
   });
-  // Fetch must NOT run when usable coverage already exists.
+  // Fetch must NOT run when every expected game already has usable coverage.
   globalThis.fetch = (async () => {
-    throw new Error('cron must not fetch when usable stats already exist');
+    throw new Error('cron must not fetch when the week is complete');
   }) as typeof fetch;
 
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { skipped?: string };
+  const body = (await res.json()) as CronBody;
   assert.equal(res.status, 200);
-  assert.match(String(body.skipped ?? ''), /already cached/i);
+  assert.match(String(body.skipped ?? ''), /complete/i);
+  assert.equal(resultFor(body, WEEK).outcome, 'skipped-complete');
 });
 
 // 5th-review finding #1 — disrupted-only slates are never selected for retrieval.
@@ -201,9 +229,14 @@ test('the cron does not select a disrupted-only latest slate; it picks the older
   stubTeamStats();
 
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { week?: number; gamesProcessed?: number; skipped?: string };
+  const body = (await res.json()) as CronBody;
   assert.equal(res.status, 200, JSON.stringify(body));
-  assert.equal(body.week, 3, 'the disrupted week 5 is skipped; the eligible week 3 is selected');
+  assert.equal(resultFor(body, 3).outcome, 'committed', 'the eligible week 3 is recovered');
+  assert.equal(
+    body.results.find((r) => r.week === 5),
+    undefined,
+    'the disrupted-only week 5 is never a candidate'
+  );
   assert.equal(body.gamesProcessed, 1);
 });
 
@@ -225,9 +258,10 @@ test('a genuinely empty provider response resolves as a no-op without a durable 
   await seedCompletedSchedule();
   stubJson([]); // CFBD returns [] — stats not published yet
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { skipped?: string; gamesProcessed?: number };
+  const body = (await res.json()) as CronBody;
   assert.equal(res.status, 200, JSON.stringify(body));
   assert.equal(body.gamesProcessed, 0);
+  assert.equal(resultFor(body, WEEK).outcome, 'noop');
 
   assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no empty record written');
   const status = await getProviderRefreshStatus(
@@ -300,9 +334,10 @@ test('a nonempty payload that normalizes to zero usable rows resolves as failure
   stubJson([{ id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] }]);
 
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { error?: string };
+  const body = (await res.json()) as CronBody;
   assert.equal(res.status, 502, JSON.stringify(body));
   assert.equal(body.error, 'game-stats-no-usable-rows');
+  assert.equal(resultFor(body, WEEK).outcome, 'failed');
 
   assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no unusable record written');
   const status = await getProviderRefreshStatus(
@@ -311,4 +346,228 @@ test('a nonempty payload that normalizes to zero usable rows resolves as failure
   );
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'game-stats-no-usable-rows');
+});
+
+// === PLATFORM-086H — schedule-relative completeness, retry, and safe merge ===
+
+/** Wire fixture: a usable CFBD /games/teams row for the given provider game id. */
+function rawGame(id: number, home = `Home ${id}`, away = `Away ${id}`) {
+  return {
+    id,
+    teams: [
+      { teamId: id * 10 + 1, team: home, conference: 'X', homeAway: 'home', points: 21, stats: [] },
+      { teamId: id * 10 + 2, team: away, conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+    ],
+  };
+}
+
+/** Stub CFBD, serving per-week payloads and recording the requested weeks. */
+function stubWeeklyPayloads(payloads: Record<string, unknown>): { requested: string[] } {
+  const requested: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    const key = `${url.searchParams.get('week')}:${url.searchParams.get('seasonType')}`;
+    requested.push(key);
+    return new Response(JSON.stringify(payloads[key] ?? []), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  return { requested };
+}
+
+test('a partial stored week stays incomplete and is retried; recovery merges with prior-good rows', async () => {
+  // Week 3 expects two games; only 5001 is cached → partial, NOT complete.
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  await setCachedGameStats({
+    year: YEAR,
+    week: 3,
+    seasonType: 'regular',
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    games: [usableRow(5001)],
+  });
+  // The recovery response carries ONLY the missing game — the prior row must survive.
+  stubJson([rawGame(5002)]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 3).outcome, 'committed');
+  assert.equal(resultFor(body, 3).rowsCommitted, 1);
+
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.deepEqual(
+    stored?.games.map((g) => g.providerGameId).sort(),
+    [5001, 5002],
+    'the recovered row merged in; the prior-good row was not deleted'
+  );
+});
+
+test('an empty recovery response for a partial week retains prior-good rows (no-op)', async () => {
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  await setCachedGameStats({
+    year: YEAR,
+    week: 3,
+    seasonType: 'regular',
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    games: [usableRow(5001)],
+  });
+  stubJson([]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 3).outcome, 'noop');
+
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.deepEqual(
+    stored?.games.map((g) => g.providerGameId),
+    [5001],
+    'prior-good rows survive an empty recovery response'
+  );
+});
+
+test('a recovery response identical to the cached rows is a no-change (no rewrite)', async () => {
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  stubJson([rawGame(5001)]);
+  // First run commits 5001 (the week stays partial — 5002 is still missing).
+  const first = (await (await cronGet(cronRequest())).json()) as CronBody;
+  assert.equal(resultFor(first, 3).outcome, 'committed');
+  const committed = await getCachedGameStats(YEAR, 3, 'regular');
+
+  // Second run re-fetches the still-partial week; identical data must not rewrite.
+  stubJson([rawGame(5001)]);
+  const second = (await (await cronGet(cronRequest())).json()) as CronBody;
+  assert.equal(resultFor(second, 3).outcome, 'no-change');
+
+  const after = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.equal(
+    after?.fetchedAt,
+    committed?.fetchedAt,
+    'identical provider data does not rewrite the durable record'
+  );
+});
+
+test('every incomplete completed week is a recovery candidate; complete weeks are skipped', async () => {
+  // Week 4 (newest) is fully covered; weeks 3 and 2 are incomplete.
+  await seedScheduleItems([
+    { id: '4001', week: 4, startDate: DAYS_AGO(3), status: 'STATUS_FINAL' },
+    { id: '3001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '2001', week: 2, startDate: DAYS_AGO(17), status: 'STATUS_FINAL' },
+  ]);
+  await setCachedGameStats({
+    year: YEAR,
+    week: 4,
+    seasonType: 'regular',
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    games: [usableRow(4001)],
+  });
+  const stub = stubWeeklyPayloads({
+    '3:regular': [rawGame(3001)],
+    '2:regular': [rawGame(2001)],
+  });
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 4).outcome, 'skipped-complete', 'the complete week spends no call');
+  assert.equal(resultFor(body, 3).outcome, 'committed');
+  assert.equal(resultFor(body, 2).outcome, 'committed');
+  assert.deepEqual(
+    stub.requested,
+    ['3:regular', '2:regular'],
+    'one bounded call per incomplete week, newest first'
+  );
+});
+
+test('unresolved placeholders, canceled games, and FCS-vs-FCS pairings never block completeness', async () => {
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    // Unresolved postseason-style placeholder participant.
+    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'scheduled', awayTeam: 'TBD' },
+    // Canceled: terminal, non-stat-producing.
+    { id: '5003', week: 3, startDate: DAYS_AGO(10), status: 'Canceled' },
+    // Positively classified FCS-vs-FCS.
+    {
+      id: '5004',
+      week: 3,
+      startDate: DAYS_AGO(10),
+      status: 'STATUS_FINAL',
+      homeConference: 'Big Sky',
+      awayConference: 'Big Sky',
+    },
+  ]);
+  await setCachedGameStats({
+    year: YEAR,
+    week: 3,
+    seasonType: 'regular',
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    games: [usableRow(5001)],
+  });
+  stubThrow('cron must not fetch: the only expected game is already covered');
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 3).outcome, 'skipped-complete');
+});
+
+test('a resolved postseason matchup is expected; its incomplete week is recovered', async () => {
+  await seedScheduleItems([
+    {
+      id: '7001',
+      week: 1,
+      seasonType: 'postseason',
+      startDate: DAYS_AGO(4),
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  stubJson([rawGame(7001, 'Alpha', 'Beta')]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 1, 'postseason').outcome, 'committed');
+  const stored = await getCachedGameStats(YEAR, 1, 'postseason');
+  assert.equal(stored?.games.length, 1);
+});
+
+test('an unusable recovery row never clobbers the usable prior row for the same game', async () => {
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  await setCachedGameStats({
+    year: YEAR,
+    week: 3,
+    seasonType: 'regular',
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+    games: [usableRow(5001)],
+  });
+  // 5001 comes back with blank team identities (unusable); 5002 is usable.
+  stubJson([rawGame(5001, '', ''), rawGame(5002)]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 3).outcome, 'committed');
+
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  const row5001 = stored?.games.find((g) => g.providerGameId === 5001);
+  assert.equal(row5001?.home.school, 'Alpha', 'the usable prior row survives the unusable update');
+  assert.ok(
+    stored?.games.some((g) => g.providerGameId === 5002),
+    'the usable new row is merged in'
+  );
 });

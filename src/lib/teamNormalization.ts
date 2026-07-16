@@ -44,3 +44,33 @@ export function isLikelyInvalidTeamLabel(name: string): boolean {
   if (/\d{4}/.test(trimmed) && /\b(et|ct|mt|pt)\b/i.test(trimmed)) return true;
   return INVALID_TEAM_LABEL_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
+
+/**
+ * A synthetic postseason slot label ("College Football Playoff Quarterfinal 1",
+ * "SEC Championship 2", …): an event/round name with a slot number where a team
+ * name belongs, produced by providers before the matchup is set.
+ */
+export function isSyntheticPostseasonSlotLabel(name: string): boolean {
+  const trimmed = name.trim();
+  return (
+    /(college football playoff|\bcfp\b|quarterfinal|semifinal|championship|\bbowl\b)/i.test(
+      trimmed
+    ) && /\b\d+\b/.test(trimmed)
+  );
+}
+
+/**
+ * Whether a raw schedule team label denotes an UNRESOLVED participant rather than
+ * a real team: empty, "TBD", a "Winner of …" derivation, a synthetic postseason
+ * slot label, or any label {@link isLikelyInvalidTeamLabel} rejects. This is the
+ * single label-level placeholder test shared by participant building
+ * (`buildPlaceholderParticipant`) and game-stats expected-coverage derivation —
+ * a game whose side is still a placeholder is not expected to produce stats yet.
+ */
+export function isPlaceholderTeamLabel(name: string | null | undefined): boolean {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return true;
+  if (/^winner of /i.test(trimmed)) return true;
+  if (isSyntheticPostseasonSlotLabel(trimmed)) return true;
+  return /\btbd\b/i.test(trimmed) || isLikelyInvalidTeamLabel(trimmed);
+}
