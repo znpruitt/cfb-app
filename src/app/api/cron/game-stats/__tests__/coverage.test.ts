@@ -354,16 +354,20 @@ test('a target-resolution read failure returns 500 and mutates no game-stats sco
   assert.equal(week.latestAttemptOutcome, null, 'no week-scope failure fabricated');
 });
 
-test('a nonempty payload that normalizes to zero usable rows resolves as failure (no write)', async () => {
+test('a nonempty payload with zero usable rows is a TARGET-LOCAL failure (no write, sweep completes)', async () => {
   await seedCompletedSchedule();
   // A row missing its away team is dropped by normalization → zero usable rows.
   stubJson([{ id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] }]);
 
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as CronBody;
-  assert.equal(res.status, 502, JSON.stringify(body));
-  assert.equal(body.error, 'game-stats-no-usable-rows');
+  // Adversarial-review remediation: target-local validation failures no longer
+  // abort the whole run — the sweep completes (200) with the failure visible
+  // per week and summarized at the top level, never reading as total success.
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.match(String(body.error ?? ''), /game-stats-no-usable-rows/);
   assert.equal(resultFor(body, WEEK).outcome, 'failed');
+  assert.equal(resultFor(body, WEEK).detail, 'game-stats-no-usable-rows');
 
   assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no unusable record written');
   const status = await getProviderRefreshStatus(
@@ -610,6 +614,77 @@ test('a synthetic schedule id never creates a false expectation or endless recov
     resultFor(body, 3).outcome,
     'skipped-complete',
     'the unverifiable synthetic-id row stays out of the completeness denominator'
+  );
+});
+
+// Adversarial-review remediation — bounded fairness: a persistently bad NEWEST
+// slate (target-local validation failure) must not starve older incomplete
+// weeks; provider-wide thrown failures still abort the remaining candidates.
+test('a poison newest slate fails target-locally while the older slate is still recovered', async () => {
+  await seedScheduleItems([
+    { id: '4001', week: 4, startDate: DAYS_AGO(3), status: 'STATUS_FINAL' },
+    { id: '3001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  // Newest week returns identity-only rows (no-authoritative-rows) every time;
+  // the older week returns a healthy payload.
+  const stub = stubWeeklyPayloads({
+    '4:regular': [
+      {
+        id: 4001,
+        teams: [
+          {
+            teamId: 1,
+            team: 'Alabama',
+            conference: 'SEC',
+            homeAway: 'home',
+            points: 21,
+            stats: [],
+          },
+          {
+            teamId: 2,
+            team: 'Georgia',
+            conference: 'SEC',
+            homeAway: 'away',
+            points: 14,
+            stats: [],
+          },
+        ],
+      },
+    ],
+    '3:regular': [rawGame(3001)],
+  });
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 4).outcome, 'failed');
+  assert.equal(resultFor(body, 4).detail, 'game-stats-no-authoritative-rows');
+  assert.equal(resultFor(body, 3).outcome, 'committed', 'the older slate is still attempted');
+  assert.deepEqual(stub.requested, ['4:regular', '3:regular']);
+  assert.match(String(body.error ?? ''), /failed target-local validation/);
+  assert.equal((await getCachedGameStats(YEAR, 3, 'regular'))?.games.length, 1);
+  assert.equal(await getCachedGameStats(YEAR, 4, 'regular'), null, 'no zero-filled row persisted');
+});
+
+test('a provider-wide thrown failure still aborts the remaining candidates', async () => {
+  await seedScheduleItems([
+    { id: '4001', week: 4, startDate: DAYS_AGO(3), status: 'STATUS_FINAL' },
+    { id: '3001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  stubThrow('CFBD unreachable');
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 500);
+  assert.equal(
+    resultFor(body, 4).outcome,
+    'failed',
+    'the attempted newest target records the failure'
+  );
+  assert.equal(
+    resultFor(body, 3).outcome,
+    'deferred',
+    'older candidates are not attempted after a provider-wide failure'
   );
 });
 

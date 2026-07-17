@@ -174,10 +174,11 @@ test('manual refresh: a usable payload commits and records success', async () =>
   assert.equal(status.latestAttemptOutcome, 'succeeded');
 });
 
-// Review remediation — an identity-only payload (valid ids and team names but
-// zero provider-present stat fields) is never authoritative: on a cold key it
-// must resolve as a truthful no-op, never an empty durable commit.
-test('manual refresh: an identity-only payload on a cold key is a no-op, not an empty commit', async () => {
+// Adversarial-review remediation — an identity-only payload (valid ids and team
+// names but zero recognized stat categories) is SCHEMA DRIFT, not unpublished
+// data: a visible target-local failure, never a silent no-op and never an empty
+// durable commit. (A legitimately unpublished week is an EMPTY payload → no-op.)
+test('manual refresh: an identity-only payload is a visible no-authoritative-rows failure', async () => {
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
   stubJson([
     {
@@ -190,13 +191,9 @@ test('manual refresh: an identity-only payload on a cold key is a no-op, not an 
   ]);
 
   const res = await GET(adminRefresh());
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as {
-    games: unknown[];
-    meta: { outcome?: string; rowsCached?: number };
-  };
-  assert.equal(body.meta.outcome, 'noop');
-  assert.equal(body.meta.rowsCached, 0);
+  assert.equal(res.status, 502);
+  const body = (await res.json()) as { code?: string };
+  assert.equal(body.code, 'game-stats-no-authoritative-rows');
 
   assert.equal(
     await getCachedGameStats(2026, 3, 'regular'),
@@ -207,7 +204,8 @@ test('manual refresh: an identity-only payload on a cold key is a no-op, not an 
     'game-stats',
     weekPartitionScope(2026, 3, 'regular')
   );
-  assert.equal(status.latestAttemptOutcome, 'no-op');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'game-stats-no-authoritative-rows');
   assert.equal(status.lastSuccessAt, null, 'no last-success advance for zero coverage');
 });
 

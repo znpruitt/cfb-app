@@ -4,7 +4,7 @@ import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import {
   getCachedGameStats,
-  setCachedGameStats,
+  withDurableGameStatsWeek,
   withGameStatsWeekLock,
 } from '@/lib/gameStats/cache';
 import {
@@ -301,54 +301,70 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         weekResult.detail = 'provider returned no game stats yet; prior rows retained';
         continue;
       }
-      if (classification.kind === 'no-usable-rows') {
-        // A NONEMPTY payload that normalized to zero usable rows is schema
-        // drift/validation failure — preserve prior-good, record failed, do not
-        // advance last-success.
+      if (
+        classification.kind === 'no-usable-rows' ||
+        classification.kind === 'no-authoritative-rows'
+      ) {
+        // TARGET-LOCAL validation failure (adversarial-review remediation): a
+        // NONEMPTY payload with zero usable rows, or usable identity but zero
+        // AUTHORITATIVE rows (identity-only / one-sided / unknown-categories-only
+        // schema drift). Preserve prior-good, record the week-scoped failure, and
+        // CONTINUE to the next candidate — one persistently bad slate must never
+        // starve older incomplete weeks (each candidate still costs exactly one
+        // bounded call per run). Provider-wide failures (thrown transport/auth/
+        // quota errors) abort in the catch below instead.
+        const code =
+          classification.kind === 'no-usable-rows'
+            ? 'game-stats-no-usable-rows'
+            : 'game-stats-no-authoritative-rows';
         await recordProviderRefreshFailure('game-stats', weekScope, {
           attempt,
-          error: `week ${week} ${seasonType}: provider returned rows but none normalized to a usable game stat`,
-          code: 'game-stats-no-usable-rows',
+          error:
+            classification.kind === 'no-usable-rows'
+              ? `week ${week} ${seasonType}: provider returned rows but none normalized to a usable game stat`
+              : `week ${week} ${seasonType}: provider returned rows but none carried authoritative stat content`,
+          code,
           status: 502,
         });
         weekResult.outcome = 'failed';
-        weekResult.detail = 'game-stats-no-usable-rows';
-        return NextResponse.json(
-          { ...emptyResult, results, gamesProcessed, error: 'game-stats-no-usable-rows' },
-          { status: 502 }
-        );
+        weekResult.detail = code;
+        continue;
       }
 
       // Merge by canonical game id: prior-good rows the response omits are
       // retained, and identical data is a no-op (no durable rewrite, no
       // downstream invalidation) — see mergeWeeklyGameStats. The fresh prior
-      // read → merge → durable write runs as one per-week critical section
-      // (review remediation, shared with the manual route): an overlapping
-      // refresh for the same week can no longer read the same prior record and
-      // drop the other's rows — overlapping refreshes produce the union.
-      const outcome = await withGameStatsWeekLock(year, week, seasonType, async () => {
-        const existing = await getCachedGameStats(year, week, seasonType);
-        const merge = mergeWeeklyGameStats(existing, classification.games);
-        if (!merge.changed) return { kind: 'no-change' as const };
-        const result: WeeklyGameStats = {
-          year,
-          week,
-          seasonType,
-          fetchedAt: new Date().toISOString(),
-          games: merge.games,
-        };
-        // Durable write FIRST; only then advance refresh status/last-success
-        // (rereview findings #3/#6) so no consumer observes success before the
-        // merged record is durably committed.
-        await setCachedGameStats(result);
-        return {
-          kind: 'committed' as const,
-          rowsCommitted: merge.rowsCommitted,
-          totalRows: result.games.length,
-          committedAt: new Date().toISOString(),
-          commitSeq: nextProviderCommitSeq(),
-        };
-      });
+      // read → merge → durable write runs inside the CROSS-INSTANCE durable
+      // critical section (`withDurableGameStatsWeek`, adversarial-review
+      // remediation — a Postgres transaction-scoped advisory lock in
+      // production, shared with the manual route), so overlapping refreshes on
+      // ANY instances produce the union; the in-process week lock remains as a
+      // same-instance optimization.
+      const outcome = await withGameStatsWeekLock(year, week, seasonType, () =>
+        withDurableGameStatsWeek(year, week, seasonType, async (durable) => {
+          const existing = await durable.read();
+          const merge = mergeWeeklyGameStats(existing, classification.games);
+          if (!merge.changed) return { kind: 'no-change' as const };
+          const result: WeeklyGameStats = {
+            year,
+            week,
+            seasonType,
+            fetchedAt: new Date().toISOString(),
+            games: merge.games,
+          };
+          // Durable write FIRST; only then advance refresh status/last-success
+          // (rereview findings #3/#6) so no consumer observes success before the
+          // merged record is durably committed.
+          await durable.write(result);
+          return {
+            kind: 'committed' as const,
+            rowsCommitted: merge.rowsCommitted,
+            totalRows: result.games.length,
+            committedAt: new Date().toISOString(),
+            commitSeq: nextProviderCommitSeq(),
+          };
+        })
+      );
 
       if (outcome.kind === 'no-change') {
         await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
@@ -370,6 +386,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       weekResult.rowsCommitted = outcome.rowsCommitted;
       weekResult.detail = `${outcome.rowsCommitted} rows added or updated; ${outcome.totalRows} total cached`;
     } catch (err) {
+      // PROVIDER-WIDE failure (transport/auth/quota/durable error thrown from
+      // the fetch or the atomic merge): abort the remaining candidates — they
+      // would almost certainly fail too and burn quota. Earlier per-target
+      // outcomes are preserved in `results`; the untouched candidates keep
+      // their 'deferred' outcome and are retried next run.
       const message = err instanceof Error ? err.message : 'unknown error';
       await recordProviderRefreshFailure('game-stats', weekScope, {
         attempt,
@@ -384,5 +405,23 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     }
   }
 
-  return NextResponse.json({ year, results, gamesProcessed });
+  // The sweep COMPLETED (every incomplete candidate got its one bounded
+  // attempt), so this is a successful transport response even when some targets
+  // failed target-local validation — their failures stay visible per week in
+  // `results` and in the week-scoped provider status, and are summarized in
+  // `error` so a mixed run never reads as total success. Non-2xx remains
+  // reserved for provider-wide aborts above.
+  const failedWeeks = results.filter((r) => r.outcome === 'failed');
+  return NextResponse.json({
+    year,
+    results,
+    gamesProcessed,
+    ...(failedWeeks.length > 0
+      ? {
+          error: `${failedWeeks.length} week(s) failed target-local validation: ${failedWeeks
+            .map((r) => `${r.week} ${r.seasonType} (${r.detail ?? 'failed'})`)
+            .join('; ')}`,
+        }
+      : {}),
+  });
 }

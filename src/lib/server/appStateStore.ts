@@ -352,6 +352,121 @@ export async function setAppState<T>(
   });
 }
 
+/** Key-scoped read/write accessors valid only inside `withAppStateKeyLock`. */
+export type AppStateKeyLockAccess = {
+  get<T>(): Promise<AppStateRecord<T> | null>;
+  set<T>(value: T): Promise<AppStateRecord<T>>;
+};
+
+/**
+ * CROSS-INSTANCE per-key critical section for a durable read→modify→write
+ * (adversarial-review remediation). `setAppState` alone is a last-writer-wins
+ * upsert, and any in-process mutex only serializes ONE serverless instance —
+ * two instances sharing Postgres could both read the same prior value, merge
+ * independently, and have the later upsert erase the earlier one's rows.
+ *
+ * Postgres path: one dedicated pooled client runs BEGIN →
+ * `pg_advisory_xact_lock(hashtextextended('<scope>/<key>', 0))` → the callback's
+ * reads/writes THROUGH THAT SAME CLIENT → COMMIT. The transaction-scoped
+ * advisory lock serializes every holder of the same scope/key across all
+ * instances, is safe under transaction-pooling (lock and queries share one
+ * transaction), works for cold keys (locking is independent of row existence),
+ * and releases automatically on commit, rollback, or disconnect — a failed
+ * callback can never strand it. Keep callbacks small: read, compute, write.
+ *
+ * File-fallback path (dev/tests, single process): the existing whole-file write
+ * mutex already serializes every read-modify-write, so the callback runs inside
+ * it with direct store access (calling setAppState inside would deadlock on the
+ * same mutex).
+ */
+export async function withAppStateKeyLock<T>(
+  scope: string,
+  key: string,
+  fn: (access: AppStateKeyLockAccess) => Promise<T>
+): Promise<T> {
+  assertDurableStorageAvailable();
+
+  const shouldFailRead = (): boolean =>
+    Boolean(
+      __readFailureForTests &&
+        (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
+    );
+  const shouldFailWrite = (): boolean =>
+    Boolean(
+      __writeFailureForTests &&
+        (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope)
+    );
+
+  if (hasDatabaseConfig()) {
+    await ensureDatabase();
+    const client = await getPool().connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `${scope}/${key}`,
+      ]);
+      const result = await fn({
+        async get<V>(): Promise<AppStateRecord<V> | null> {
+          if (shouldFailRead()) throw __readFailureForTests;
+          const res = await client.query<{ value: V; updated_at: Date | string }>(
+            'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
+            [scope, key]
+          );
+          const row = res.rows[0];
+          if (!row) return null;
+          return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
+        },
+        async set<V>(value: V): Promise<AppStateRecord<V>> {
+          if (shouldFailWrite()) throw __writeFailureForTests;
+          const updatedAt = new Date().toISOString();
+          await client.query(
+            `
+              insert into app_state (scope, key, value, updated_at)
+              values ($1, $2, $3::jsonb, $4::timestamptz)
+              on conflict (scope, key)
+              do update set value = excluded.value, updated_at = excluded.updated_at
+            `,
+            [scope, key, JSON.stringify(value), updatedAt]
+          );
+          return { value, updatedAt };
+        },
+      });
+      await client.query('commit');
+      return result;
+    } catch (error) {
+      try {
+        await client.query('rollback');
+      } catch {
+        // A connection-level failure also releases the xact lock server-side.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const compositeKey = buildCompositeKey(scope, key);
+  return withFileWriteLock(appStateFilePath(), async () =>
+    fn({
+      async get<V>(): Promise<AppStateRecord<V> | null> {
+        if (shouldFailRead()) throw __readFailureForTests;
+        const entries = await readFileStore();
+        const entry = entries[compositeKey];
+        if (!entry) return null;
+        return { value: entry.value as V, updatedAt: entry.updatedAt };
+      },
+      async set<V>(value: V): Promise<AppStateRecord<V>> {
+        if (shouldFailWrite()) throw __writeFailureForTests;
+        const updatedAt = new Date().toISOString();
+        const entries = await readFileStore();
+        entries[compositeKey] = { value, updatedAt };
+        await writeFileStore(entries);
+        return { value, updatedAt };
+      },
+    })
+  );
+}
+
 export async function getAppStateEntries<T>(
   scope: string,
   keyPrefix?: string

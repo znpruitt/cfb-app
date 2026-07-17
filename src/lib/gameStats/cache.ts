@@ -4,6 +4,7 @@ import {
   getAppStateEntries,
   setAppState,
   listAppStateKeys,
+  withAppStateKeyLock,
 } from '../server/appStateStore.ts';
 import type { WeeklyGameStats } from './types.ts';
 
@@ -31,20 +32,15 @@ export async function setCachedGameStats(stats: WeeklyGameStats): Promise<void> 
 const weekLocks = new Map<string, Promise<unknown>>();
 
 /**
- * Per-week critical section for the game-stats read→merge→write sequence
- * (PLATFORM-086H review remediation). Both refresh paths (cron and manual)
- * mutate a weekly record via read prior → merge → durable write; two overlapping
- * refreshes for the same (year, week, seasonType) could otherwise both read the
- * same prior record and the later write would silently drop rows the first just
- * merged in — violating the prior-good retention guarantee. Same promise-chain
- * mutex shape as the provider-status `withScopeLock` and odds
- * `withOddsTargetLock`. A rejected operation propagates to its caller but never
- * poisons the chain (the stored tail swallows the rejection), so later refreshes
- * proceed normally. The durable write IS the publication step for this dataset
- * (no separate process cache), so everything downstream observes only complete
- * merges. IN-PROCESS ONLY, per the documented 086A limitation — cross-instance
- * serialization is out of scope; the durable store remains last-writer-wins
- * across instances.
+ * IN-PROCESS per-week mutex for the game-stats read→merge→write sequence — an
+ * OPTIMIZATION ONLY (it keeps same-instance overlapping refreshes from
+ * contending on the durable lock), NOT a correctness guarantee: production runs
+ * multiple serverless instances against shared Postgres, and a process-local
+ * promise chain cannot serialize them. Cross-instance correctness comes from
+ * `withDurableGameStatsWeek` below (adversarial-review remediation), which
+ * every weekly writer must use. Same promise-chain mutex shape as the
+ * provider-status `withScopeLock`; a rejected operation propagates but never
+ * poisons the chain.
  */
 export function withGameStatsWeekLock<T>(
   year: number,
@@ -63,6 +59,40 @@ export function withGameStatsWeekLock<T>(
     )
   );
   return run;
+}
+
+/** Key-scoped weekly record accessors valid only inside `withDurableGameStatsWeek`. */
+export type DurableGameStatsWeekAccess = {
+  read: () => Promise<WeeklyGameStats | null>;
+  write: (stats: WeeklyGameStats) => Promise<void>;
+};
+
+/**
+ * CROSS-INSTANCE atomic boundary for a weekly game-stats read→merge→write
+ * (adversarial-review remediation): runs the callback under the durable
+ * per-key lock (`withAppStateKeyLock` — a transaction-scoped Postgres advisory
+ * lock in production; the whole-file mutex in the file fallback), so two
+ * writers on DIFFERENT instances can no longer read the same prior record and
+ * have the later last-writer-wins upsert erase the earlier one's merged rows.
+ * The fresh durable read, the merge decision, and the durable write (the
+ * publication step for this dataset) must all happen inside the callback;
+ * provider fetches and status recording stay outside. A failed callback rolls
+ * the transaction back and releases the lock — later attempts are unaffected.
+ */
+export function withDurableGameStatsWeek<T>(
+  year: number,
+  week: number,
+  seasonType: CfbdSeasonType,
+  fn: (access: DurableGameStatsWeekAccess) => Promise<T>
+): Promise<T> {
+  return withAppStateKeyLock(SCOPE, getGameStatsKey(year, week, seasonType), (access) =>
+    fn({
+      read: async () => (await access.get<WeeklyGameStats>())?.value ?? null,
+      write: async (stats) => {
+        await access.set(stats);
+      },
+    })
+  );
 }
 
 export async function listCachedGameStatsWeeks(year: number): Promise<string[]> {

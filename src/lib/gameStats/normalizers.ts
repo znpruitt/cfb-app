@@ -34,6 +34,44 @@ function parsePossessionTime(value: string | undefined | null): number {
   return minutes * 60 + seconds;
 }
 
+/**
+ * The provider stat categories `normalizeTeam` actually consumes — THE
+ * canonical recognized-category contract (review remediation). Stat AUTHORITY
+ * derives from this list: `statMap` copies every wire category into `raw`
+ * unfiltered (unknown/renamed categories stay visible for debugging), but only
+ * these keys produce normalized values, so only these keys may establish
+ * authority — otherwise a schema-drifted payload of unrecognized categories
+ * would count as real data while every normalized metric is a fabricated zero.
+ * Kept HERE, next to the consumption site, with a contract test locking the
+ * list, so validation and normalization cannot drift.
+ */
+export const RECOGNIZED_STAT_CATEGORIES: readonly string[] = [
+  'firstDowns',
+  'fourthDownEff',
+  'fumblesLost',
+  'fumblesRecovered',
+  'interceptionTDs',
+  'interceptionYards',
+  'interceptions',
+  'kickReturnTDs',
+  'kickReturnYards',
+  'netPassingYards',
+  'passAttempts',
+  'passCompletions',
+  'passesIntercepted',
+  'passingTDs',
+  'possessionTime',
+  'puntReturnTDs',
+  'puntReturnYards',
+  'rushingAttempts',
+  'rushingTDs',
+  'rushingYards',
+  'thirdDownEff',
+  'totalPenaltiesYards',
+  'totalYards',
+  'turnovers',
+] as const;
+
 function statMap(team: RawGameTeamStatsTeam): Record<string, string> {
   const map: Record<string, string> = {};
   for (const entry of team.stats ?? []) {

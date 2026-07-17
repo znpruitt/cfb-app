@@ -10,6 +10,7 @@ import {
   getAppState,
   isReadOnlyTransactionError,
   setAppState,
+  withAppStateKeyLock,
 } from '@/lib/server/appStateStore';
 
 // Regression for the PLATFORM-081b dry-run hotfix: a dry-run inspection against
@@ -165,3 +166,65 @@ test(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// Adversarial-review remediation — withAppStateKeyLock: the durable per-key
+// critical section for read→modify→write. These tests exercise the file-backed
+// contract (serialization, union preservation, failure release, cold keys);
+// the Postgres path uses a transaction-scoped advisory lock with the same
+// contract but CANNOT be proven in default CI (no live database) — that
+// limitation is documented in the 086H registry entry.
+// ---------------------------------------------------------------------------
+
+test('withAppStateKeyLock: concurrent read-modify-writes preserve the union', async () => {
+  await setAppState('lock-test', 'week', { rows: ['A'] });
+
+  const addRow = (label: string) =>
+    withAppStateKeyLock('lock-test', 'week', async (access) => {
+      const prior = (await access.get<{ rows: string[] }>())?.value ?? { rows: [] };
+      await access.set({ rows: [...prior.rows, label] });
+    });
+
+  await Promise.all([addRow('B'), addRow('C')]);
+  const stored = await getAppState<{ rows: string[] }>('lock-test', 'week');
+  assert.deepEqual(
+    stored?.value.rows.sort(),
+    ['A', 'B', 'C'],
+    'neither writer lost the other one’s modification'
+  );
+});
+
+test('withAppStateKeyLock: concurrent cold-key creation is safe', async () => {
+  const create = (label: string) =>
+    withAppStateKeyLock('lock-test', 'cold', async (access) => {
+      const prior = (await access.get<{ rows: string[] }>())?.value ?? { rows: [] };
+      await access.set({ rows: [...prior.rows, label] });
+    });
+  await Promise.all([create('X'), create('Y')]);
+  const stored = await getAppState<{ rows: string[] }>('lock-test', 'cold');
+  assert.deepEqual(stored?.value.rows.sort(), ['X', 'Y']);
+});
+
+test('withAppStateKeyLock: a failed operation releases the lock and preserves prior data', async () => {
+  await setAppState('lock-test', 'fail', { rows: ['keep'] });
+  __setAppStateWriteFailureForTests(new Error('durable write down'), 'lock-test');
+  try {
+    await assert.rejects(
+      withAppStateKeyLock('lock-test', 'fail', async (access) => {
+        await access.set({ rows: [] });
+      }),
+      /durable write down/
+    );
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  const stored = await getAppState<{ rows: string[] }>('lock-test', 'fail');
+  assert.deepEqual(stored?.value.rows, ['keep'], 'the failed writer changed nothing');
+
+  await withAppStateKeyLock('lock-test', 'fail', async (access) => {
+    const prior = (await access.get<{ rows: string[] }>())?.value ?? { rows: [] };
+    await access.set({ rows: [...prior.rows, 'after'] });
+  });
+  const after = await getAppState<{ rows: string[] }>('lock-test', 'fail');
+  assert.deepEqual(after?.value.rows, ['keep', 'after'], 'the lock is not poisoned');
+});

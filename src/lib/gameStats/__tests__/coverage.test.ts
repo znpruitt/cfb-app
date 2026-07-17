@@ -16,6 +16,7 @@ import {
   resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
 } from '../../conferenceSubdivision.ts';
+import { RECOGNIZED_STAT_CATEGORIES } from '../normalizers.ts';
 import { aggregateOwnerGameStats, aggregateOwnerSeasonStats } from '../ownerStats.ts';
 import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
@@ -118,8 +119,28 @@ test('classifyGameStatsPayload: nonempty payload with no usable rows → no-usab
   assert.deepEqual(classifyGameStatsPayload(raw, 1, 'regular'), { kind: 'no-usable-rows' });
 });
 
-test('classifyGameStatsPayload: ≥1 usable row → commit with the normalized games', () => {
+const WIRE_STATS = [{ category: 'totalYards', stat: '100' }];
+
+test('classifyGameStatsPayload: ≥1 authoritative row → commit with the normalized games', () => {
   const raw = [
+    {
+      id: 5001,
+      teams: [
+        { team: 'Alpha', homeAway: 'home', points: 21, stats: WIRE_STATS },
+        { team: 'Beta', homeAway: 'away', points: 14, stats: WIRE_STATS },
+      ],
+    },
+  ];
+  const result = classifyGameStatsPayload(raw, 1, 'regular');
+  assert.equal(result.kind, 'commit');
+  assert.equal(result.kind === 'commit' && result.games.length, 1);
+});
+
+// Adversarial-review remediation — schema drift is distinguished from
+// unpublished data: usable identity with zero AUTHORITATIVE rows is a visible
+// target-local failure, never a silent acceptance of zero-filled stats.
+test('classifyGameStatsPayload: identity-only or unknown-category rows → no-authoritative-rows', () => {
+  const identityOnly = [
     {
       id: 5001,
       teams: [
@@ -128,9 +149,62 @@ test('classifyGameStatsPayload: ≥1 usable row → commit with the normalized g
       ],
     },
   ];
-  const result = classifyGameStatsPayload(raw, 1, 'regular');
+  assert.deepEqual(classifyGameStatsPayload(identityOnly, 1, 'regular'), {
+    kind: 'no-authoritative-rows',
+  });
+
+  const unknownOnly = [
+    {
+      id: 5001,
+      teams: [
+        {
+          team: 'Alpha',
+          homeAway: 'home',
+          points: 21,
+          stats: [{ category: 'rushYds', stat: '150' }],
+        },
+        {
+          team: 'Beta',
+          homeAway: 'away',
+          points: 14,
+          stats: [{ category: 'rushYds', stat: '80' }],
+        },
+      ],
+    },
+  ];
+  assert.deepEqual(classifyGameStatsPayload(unknownOnly, 1, 'regular'), {
+    kind: 'no-authoritative-rows',
+  });
+});
+
+test('classifyGameStatsPayload: a mixed payload commits; the merge drops the drifted row', () => {
+  const mixed = [
+    {
+      id: 5001,
+      teams: [
+        { team: 'Alpha', homeAway: 'home', points: 21, stats: WIRE_STATS },
+        { team: 'Beta', homeAway: 'away', points: 14, stats: WIRE_STATS },
+      ],
+    },
+    {
+      id: 5002,
+      teams: [
+        { team: 'Gamma', homeAway: 'home', points: 10, stats: [] },
+        { team: 'Delta', homeAway: 'away', points: 7, stats: [] },
+      ],
+    },
+  ];
+  const result = classifyGameStatsPayload(mixed, 1, 'regular');
   assert.equal(result.kind, 'commit');
-  assert.equal(result.kind === 'commit' && result.games.length, 1);
+  if (result.kind === 'commit') {
+    const merge = mergeWeeklyGameStats(null, result.games);
+    assert.deepEqual(
+      merge.games.map((g) => g.providerGameId),
+      [5001],
+      'only the authoritative row persists'
+    );
+    assert.equal(merge.rowsDroppedStatless, 1);
+  }
 });
 
 // === PLATFORM-086H — schedule-relative expected coverage ===
@@ -739,4 +813,106 @@ test('a mature placeholder with a synthetic id is unverifiable, not expected', (
   const slate = deriveExpectedGameStatsIds(items, 1, 'postseason', NOW);
   assert.equal(slate.expectedIds.size, 0);
   assert.equal(slate.unverifiableCount, 1);
+});
+
+// === Adversarial-review remediation — recognized-category authority ===
+
+/** Row with independent per-side raw maps. */
+function sidedRow(
+  providerGameId: number,
+  homeRaw: Record<string, string>,
+  awayRaw: Record<string, string>
+): GameStats {
+  return {
+    providerGameId,
+    week: 1,
+    seasonType: 'regular',
+    home: { school: 'Alpha', raw: homeRaw } as unknown as GameStats['home'],
+    away: { school: 'Beta', raw: awayRaw } as unknown as GameStats['away'],
+  };
+}
+
+test('the recognized-category contract is locked to the normalizer', () => {
+  assert.deepEqual(
+    [...RECOGNIZED_STAT_CATEGORIES].sort(),
+    [
+      'firstDowns',
+      'fourthDownEff',
+      'fumblesLost',
+      'fumblesRecovered',
+      'interceptionTDs',
+      'interceptionYards',
+      'interceptions',
+      'kickReturnTDs',
+      'kickReturnYards',
+      'netPassingYards',
+      'passAttempts',
+      'passCompletions',
+      'passesIntercepted',
+      'passingTDs',
+      'possessionTime',
+      'puntReturnTDs',
+      'puntReturnYards',
+      'rushingAttempts',
+      'rushingTDs',
+      'rushingYards',
+      'thirdDownEff',
+      'totalPenaltiesYards',
+      'totalYards',
+      'turnovers',
+    ],
+    'the list must match exactly the raw keys normalizeTeam consumes — update both together'
+  );
+});
+
+test('authority requires a recognized category on EACH side', () => {
+  // Both sides recognized (explicit zeros included) → authoritative.
+  assert.equal(
+    isAuthoritativeGameStatsRow(sidedRow(101, { totalYards: '0' }, { turnovers: '0' })),
+    true
+  );
+  // Recognized on only one side → non-authoritative (the other side's metrics
+  // would all be fabricated zeros).
+  assert.equal(isAuthoritativeGameStatsRow(sidedRow(101, { totalYards: '350' }, {})), false);
+  assert.equal(isAuthoritativeGameStatsRow(sidedRow(101, {}, { totalYards: '280' })), false);
+  // Unknown/renamed categories only → non-authoritative on both sides.
+  assert.equal(
+    isAuthoritativeGameStatsRow(sidedRow(101, { rushYds: '150' }, { rushYds: '80' })),
+    false
+  );
+  // Mixed: only the recognized key establishes authority.
+  assert.equal(
+    isAuthoritativeGameStatsRow(
+      sidedRow(101, { rushYds: '150', totalYards: '350' }, { totalYards: '280' })
+    ),
+    true
+  );
+});
+
+test('one-sided rows never count toward completeness, availability, or analytics', () => {
+  const oneSided = sidedRow(101, { totalYards: '350' }, {});
+  assert.equal(usableGameStatsGameIds(record([oneSided])).size, 0);
+  const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+  const owners = aggregateOwnerGameStats([oneSided], new Map([['Alpha', 'OwnerA']]), resolver);
+  assert.equal(owners.length, 0, 'the statless side would be fabricated zeros');
+  // The scheduled game therefore stays recovery-eligible…
+  assert.equal(evaluate([scheduleItem({ id: '101' })], [oneSided]).state, 'no-usable-rows');
+  // …and a later fully authoritative row repairs it.
+  const repaired = mergeWeeklyGameStats(record([oneSided]), [row(101)]);
+  assert.equal(repaired.changed, true);
+  assert.equal(usableGameStatsGameIds(record(repaired.games)).size, 1);
+});
+
+test('unknown categories in a prior row never block a recognized-superset replacement', () => {
+  const prior = record([
+    sidedRow(101, { totalYards: '350', mysteryCat: 'x' }, { totalYards: '280' }),
+  ]);
+  const incoming = sidedRow(
+    101,
+    { totalYards: '360', rushingYards: '150' },
+    { totalYards: '290', rushingYards: '90' }
+  );
+  const merge = mergeWeeklyGameStats(prior, [incoming]);
+  assert.equal(merge.changed, true, 'only RECOGNIZED categories participate in the superset rule');
+  assert.equal(merge.games[0].home.raw.rushingYards, '150');
 });

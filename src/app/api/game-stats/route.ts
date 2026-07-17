@@ -4,7 +4,7 @@ import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import {
   getCachedGameStats,
-  setCachedGameStats,
+  withDurableGameStatsWeek,
   withGameStatsWeekLock,
 } from '@/lib/gameStats/cache';
 import { classifyGameStatsPayload, mergeWeeklyGameStats } from '@/lib/gameStats/coverage';
@@ -205,44 +205,67 @@ export async function GET(req: Request) {
         { status: 502 }
       );
     }
+    if (classification.kind === 'no-authoritative-rows') {
+      // Usable identity but zero authoritative rows (identity-only, one-sided,
+      // or unknown-categories-only data): schema drift, a visible target-local
+      // failure — never silently accepted as zero-filled stats, never conflated
+      // with legitimately unpublished data (an EMPTY payload → no-op above).
+      // Prior-good rows are untouched and last-success does not advance.
+      await recordProviderRefreshFailure('game-stats', gameStatsScope, {
+        attempt,
+        error: 'provider returned rows but none carried authoritative stat content',
+        code: 'game-stats-no-authoritative-rows',
+        status: 502,
+      });
+      return NextResponse.json(
+        {
+          error: 'game-stats refresh produced no authoritative rows',
+          code: 'game-stats-no-authoritative-rows',
+        },
+        { status: 502 }
+      );
+    }
 
     // Merge by canonical game id (PLATFORM-086H requirement 4, shared with the
     // cron): prior-good rows a partial provider response omits are retained, an
     // unusable incoming row never clobbers a usable prior row, and identical data
     // is a no-op — no durable rewrite, no downstream invalidation. The fresh
-    // prior read → merge → durable write runs as one per-week critical section
-    // (review remediation): an overlapping cron/manual refresh for the same week
-    // can no longer read the same prior record and drop the other's rows —
-    // overlapping refreshes produce the union. Commit time/seq are captured
-    // inside the section, immediately after the durable write.
-    const outcome = await withGameStatsWeekLock(year, week, seasonType, async () => {
-      const prior = await getCachedGameStats(year, week, seasonType);
-      const merge = mergeWeeklyGameStats(prior, classification.games);
-      // `changed` is false when a prior record already holds identical rows OR
-      // when every incoming row was dropped (keyless / identity-only). Either
-      // way nothing may be rewritten — especially not an empty record over a
-      // cold key, which would advance last-success for zero coverage.
-      if (!merge.changed) {
-        return { kind: 'no-change' as const, prior: prior ?? null };
-      }
-      const result: WeeklyGameStats = {
-        year,
-        week,
-        seasonType,
-        fetchedAt: new Date().toISOString(),
-        games: merge.games,
-      };
-      // Durable write FIRST; refresh status advances only after the merged
-      // record is committed (rereview findings #3/#6).
-      await setCachedGameStats(result);
-      return {
-        kind: 'committed' as const,
-        result,
-        rowsCommitted: merge.rowsCommitted,
-        committedAt: new Date().toISOString(),
-        commitSeq: nextProviderCommitSeq(),
-      };
-    });
+    // prior read → merge → durable write runs inside the CROSS-INSTANCE durable
+    // critical section (`withDurableGameStatsWeek`, adversarial-review
+    // remediation) — a Postgres transaction-scoped advisory lock in production —
+    // so overlapping cron/manual refreshes on ANY instances produce the union;
+    // the in-process week lock remains as a same-instance optimization. Commit
+    // time/seq are captured inside the boundary, immediately after the write.
+    const outcome = await withGameStatsWeekLock(year, week, seasonType, () =>
+      withDurableGameStatsWeek(year, week, seasonType, async (durable) => {
+        const prior = await durable.read();
+        const merge = mergeWeeklyGameStats(prior, classification.games);
+        // `changed` is false when a prior record already holds identical rows OR
+        // when every incoming row was dropped (keyless / non-authoritative).
+        // Either way nothing may be rewritten — especially not an empty record
+        // over a cold key, which would advance last-success for zero coverage.
+        if (!merge.changed) {
+          return { kind: 'no-change' as const, prior: prior ?? null };
+        }
+        const result: WeeklyGameStats = {
+          year,
+          week,
+          seasonType,
+          fetchedAt: new Date().toISOString(),
+          games: merge.games,
+        };
+        // Durable write FIRST; refresh status advances only after the merged
+        // record is committed (rereview findings #3/#6).
+        await durable.write(result);
+        return {
+          kind: 'committed' as const,
+          result,
+          rowsCommitted: merge.rowsCommitted,
+          committedAt: new Date().toISOString(),
+          commitSeq: nextProviderCommitSeq(),
+        };
+      })
+    );
 
     if (outcome.kind === 'no-change') {
       await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });

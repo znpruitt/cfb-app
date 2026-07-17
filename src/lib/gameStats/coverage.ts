@@ -2,8 +2,10 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import { isPolicyFcsConference } from '../conferenceSubdivision.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import { isPlaceholderTeamLabel } from '../teamNormalization.ts';
-import { normalizeGameTeamStats } from './normalizers.ts';
+import { normalizeGameTeamStats, RECOGNIZED_STAT_CATEGORIES } from './normalizers.ts';
 import type { GameStats, RawGameTeamStats, WeeklyGameStats } from './types.ts';
+
+const RECOGNIZED_CATEGORY_SET = new Set(RECOGNIZED_STAT_CATEGORIES);
 
 /**
  * Whether a canonical schedule game is EXPECTED to produce team stats. Disrupted
@@ -55,34 +57,46 @@ export function isUsableGameStatsRow(game: GameStats): boolean {
 }
 
 /**
- * STAT AUTHORITY, separate from merge identity: how many stat fields the
- * provider EXPLICITLY supplied for this row, counted from the normalizer's
- * per-team `raw` category map — which records exactly the fields present on the
- * wire BEFORE omitted categories are normalized to zero. An explicitly supplied
- * "0" is present in `raw` and counts (a real zero is valid data); an omitted
- * category is absent and does not. Deliberately a presence count, never a
- * nonzero-value heuristic.
+ * STAT AUTHORITY, separate from merge identity: the RECOGNIZED provider
+ * categories (`RECOGNIZED_STAT_CATEGORIES` — exactly the keys the normalizer
+ * consumes) explicitly supplied for ONE side, read from the per-team `raw`
+ * category map — which records the fields present on the wire BEFORE omitted
+ * categories are normalized to zero. An explicitly supplied "0" is present and
+ * counts (a real zero is valid data); an omitted category does not; an unknown
+ * or renamed category does not either (review remediation) — it produces no
+ * normalized value, so counting it would let schema drift masquerade as real
+ * data. Deliberately a presence test, never a nonzero-value heuristic.
  */
-function statFieldsPresent(row: GameStats): number {
-  return Object.keys(row.home?.raw ?? {}).length + Object.keys(row.away?.raw ?? {}).length;
+function recognizedCategories(side: GameStats['home'] | GameStats['away'] | undefined): string[] {
+  return Object.keys(side?.raw ?? {}).filter((category) => RECOGNIZED_CATEGORY_SET.has(category));
 }
 
 /**
- * THE canonical authority contract for a cached/normalized game-stats row
- * (review remediation), shared by completeness coverage, cache availability,
- * and owner analytics so no layer can disagree about what counts as real data:
- * a row is authoritative when it has usable canonical identity
- * (`isUsableGameStatsRow` — positive provider id + both team identities) AND at
- * least one structurally present provider stat category. An identity-only row
- * (valid id and schools, empty `raw` maps — a shape the pre-086H ingestion path
- * could durably persist from `stats: []`) is NOT authoritative: its normalized
- * values are all zero-fills, so counting it as coverage would mark the week
- * complete and leave zero-filled analytics in place forever. Deliberately NOT
- * used by `classifyGameStatsPayload`: an identity-only payload stays a
- * merge-level no-op (bounded retry), never a provider failure.
+ * Whether a row carries authoritative STAT CONTENT: at least one recognized
+ * provider category on the home side AND at least one on the away side (review
+ * remediation). One-sided data is not authoritative — the statless side's
+ * normalized metrics would all be fabricated zeros feeding owner analytics.
+ */
+function hasAuthoritativeStatContent(row: GameStats): boolean {
+  return recognizedCategories(row.home).length > 0 && recognizedCategories(row.away).length > 0;
+}
+
+/**
+ * THE canonical authority contract for a cached/normalized game-stats row,
+ * shared by completeness coverage, cache availability, owner analytics, and
+ * merge decisions so no layer can disagree about what counts as real data:
+ * usable canonical identity (`isUsableGameStatsRow` — positive provider id +
+ * both team identities) AND at least one RECOGNIZED provider category on EACH
+ * side. Identity-only rows (empty `raw` — a shape pre-086H ingestion could
+ * persist from `stats: []`), one-sided rows, and unknown-categories-only rows
+ * are all NOT authoritative: their normalized values are zero-fills, so
+ * counting them as coverage would mark the week complete and leave fabricated
+ * zeros in analytics forever. `classifyGameStatsPayload` uses this to separate
+ * schema drift (`no-authoritative-rows`, a visible target-local failure) from
+ * legitimately unpublished data (an EMPTY payload → no-op).
  */
 export function isAuthoritativeGameStatsRow(game: GameStats): boolean {
-  return isUsableGameStatsRow(game) && statFieldsPresent(game) > 0;
+  return isUsableGameStatsRow(game) && hasAuthoritativeStatContent(game);
 }
 
 /**
@@ -342,19 +356,22 @@ function rowsEqual(a: GameStats, b: GameStats): boolean {
 }
 
 /**
- * Whether the incoming row's provider-present categories are a PER-SIDE
- * superset of the prior row's (review remediation): home ⊇ home AND away ⊇
- * away, compared as category SETS — never aggregate counts, which would let an
+ * Whether the incoming row's RECOGNIZED categories are a PER-SIDE superset of
+ * the prior row's (review remediation): home ⊇ home AND away ⊇ away, compared
+ * as recognized-category SETS — never aggregate counts, which would let an
  * equal-count but different subset (incoming `rushingYards` over prior
  * `totalYards`) replace the row and erase cached categories behind normalized
  * zeros. Equal sets qualify, so corrected provider values still flow (for a
- * category present on both rows, the incoming value wins).
+ * category present on both rows, the incoming value wins). Only RECOGNIZED
+ * categories participate: unknown/renamed keys produce no normalized values, so
+ * an unknown category lingering in a prior row must not permanently block a
+ * legitimate authoritative replacement.
  */
 function coversPriorCategories(incoming: GameStats, prior: GameStats): boolean {
   const sideCovers = (side: 'home' | 'away'): boolean => {
-    const incomingRaw = incoming[side]?.raw ?? {};
-    for (const category of Object.keys(prior[side]?.raw ?? {})) {
-      if (!(category in incomingRaw)) return false;
+    const incomingRecognized = new Set(recognizedCategories(incoming[side]));
+    for (const category of recognizedCategories(prior[side])) {
+      if (!incomingRecognized.has(category)) return false;
     }
     return true;
   };
@@ -415,11 +432,12 @@ export function mergeWeeklyGameStats(
       rowsDroppedKeyless += 1;
       continue;
     }
-    const coverage = statFieldsPresent(row);
+    const authoritativeContent = hasAuthoritativeStatContent(row);
     const priorIndex = indexByKey.get(key);
     if (priorIndex === undefined) {
-      if (coverage === 0) {
-        // Identity-only row with nothing to retain against: never persisted.
+      if (!authoritativeContent) {
+        // Identity-only / one-sided / unknown-categories-only row with nothing
+        // to retain against: never persisted as authoritative game stats.
         rowsDroppedStatless += 1;
         continue;
       }
@@ -428,8 +446,8 @@ export function mergeWeeklyGameStats(
       rowsCommitted += 1;
       continue;
     }
-    // Identity-only rows never replace a prior row of any kind.
-    if (coverage === 0) continue;
+    // Non-authoritative content never replaces a prior row of any kind.
+    if (!authoritativeContent) continue;
     const priorRow = merged[priorIndex];
     if (isUsableGameStatsRow(priorRow)) {
       // A usable prior row is replaced only by a usable incoming row whose
@@ -459,18 +477,26 @@ export function mergeWeeklyGameStats(
 export type GameStatsPayloadClassification =
   | { kind: 'noop' } // genuine empty provider array — valid absence
   | { kind: 'no-usable-rows' } // nonempty/non-array → zero usable rows — failure
-  | { kind: 'commit'; games: GameStats[] }; // ≥1 usable row — commit
+  | { kind: 'no-authoritative-rows' } // usable identity but zero authoritative rows — failure
+  | { kind: 'commit'; games: GameStats[] }; // ≥1 authoritative row — commit
 
 /**
  * Classify a raw CFBD `/games/teams` payload into the durable outcome it should
- * produce (5th-review finding #5). Shared by the game-stats cron AND the manual
- * `/api/game-stats` refresh so both behave identically:
- *   - a non-array payload, or a NONEMPTY payload whose normalized rows include zero
- *     USABLE rows (schema drift / blank team identities) → `no-usable-rows`
- *     (failure — preserve prior-good, never commit an empty/unusable record);
- *   - a genuinely EMPTY array → `noop` (valid absence — no durable write, no
- *     last-success advance);
- *   - at least one usable row → `commit` with the normalized games.
+ * produce (5th-review finding #5; taxonomy extended by the adversarial-review
+ * remediation). Shared by the game-stats cron AND the manual `/api/game-stats`
+ * refresh so both behave identically:
+ *   - a non-array payload, or a NONEMPTY payload whose normalized rows include
+ *     zero USABLE rows (blank team identities) → `no-usable-rows` (target-local
+ *     validation failure — preserve prior-good, never commit);
+ *   - a NONEMPTY payload with usable identity but ZERO AUTHORITATIVE rows
+ *     (identity-only, one-sided, or unknown-categories-only data) →
+ *     `no-authoritative-rows` (target-local validation failure — schema drift
+ *     must be VISIBLE, never silently accepted as zero-filled data and never
+ *     conflated with legitimately unpublished stats);
+ *   - a genuinely EMPTY array → `noop` (valid absence / unpublished — no durable
+ *     write, no last-success advance);
+ *   - at least one authoritative row → `commit` with the normalized games (the
+ *     merge still drops any non-authoritative rows riding alongside).
  */
 export function classifyGameStatsPayload(
   rawGames: unknown,
@@ -481,5 +507,6 @@ export function classifyGameStatsPayload(
   if (rawGames.length === 0) return { kind: 'noop' };
   const games = normalizeGameTeamStats(rawGames as RawGameTeamStats[], week, seasonType);
   if (!games.some(isUsableGameStatsRow)) return { kind: 'no-usable-rows' };
+  if (!games.some(isAuthoritativeGameStatsRow)) return { kind: 'no-authoritative-rows' };
   return { kind: 'commit', games };
 }
