@@ -4,6 +4,8 @@ import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import { isPlaceholderTeamLabel } from '../teamNormalization.ts';
 import {
   ANALYTICS_REQUIRED_CATEGORIES,
+  buildTeamStats,
+  isParseValidCategoryValue,
   normalizeGameTeamStats,
   RECOGNIZED_STAT_CATEGORIES,
 } from './normalizers.ts';
@@ -72,14 +74,20 @@ export function isUsableGameStatsRow(game: GameStats): boolean {
  * data. Deliberately a presence test, never a nonzero-value heuristic.
  */
 function recognizedCategories(side: GameStats['home'] | GameStats['away'] | undefined): string[] {
-  return Object.keys(side?.raw ?? {}).filter((category) => RECOGNIZED_CATEGORY_SET.has(category));
+  const raw = side?.raw ?? {};
+  return Object.keys(raw).filter(
+    (category) =>
+      RECOGNIZED_CATEGORY_SET.has(category) && isParseValidCategoryValue(category, raw[category])
+  );
 }
 
 /**
- * Whether a row carries authoritative STAT CONTENT: at least one recognized
- * provider category on the home side AND at least one on the away side (review
- * remediation). One-sided data is not authoritative — the statless side's
- * normalized metrics would all be fabricated zeros feeding owner analytics.
+ * Whether a row carries authoritative STAT CONTENT: at least one recognized,
+ * PARSE-VALID provider category on the home side AND at least one on the away
+ * side (adversarial-review remediation). One-sided data is not authoritative,
+ * and neither is a row whose recognized keys all hold malformed values — the
+ * normalizer would silently turn them into fabricated zeros. Explicit valid
+ * zeros ("0", "0-0", "0:00") parse and count.
  */
 function hasAuthoritativeStatContent(row: GameStats): boolean {
   return recognizedCategories(row.home).length > 0 && recognizedCategories(row.away).length > 0;
@@ -119,7 +127,19 @@ export function hasCompleteStatCoverage(game: GameStats): boolean {
   if (!isUsableGameStatsRow(game)) return false;
   const sideComplete = (side: GameStats['home'] | GameStats['away']): boolean => {
     const raw = side?.raw ?? {};
-    return ANALYTICS_REQUIRED_CATEGORIES.every((category) => category in raw);
+    // Every required category must be structurally present AND parse-valid
+    // (adversarial-review remediation): the normalizer converts malformed
+    // values to fallback zeros, so key presence alone would bless schema drift
+    // as durable false statistics. `points` is a structural wire field the
+    // normalizer also defaults to 0, so completeness additionally requires the
+    // captured `pointsProvided` flag (absent on legacy rows → incomplete →
+    // naturally re-fetched and stamped).
+    return (
+      side?.pointsProvided === true &&
+      ANALYTICS_REQUIRED_CATEGORIES.every(
+        (category) => category in raw && isParseValidCategoryValue(category, raw[category])
+      )
+    );
   };
   return sideComplete(game.home) && sideComplete(game.away);
 }
@@ -412,26 +432,57 @@ function rowsEqual(a: GameStats, b: GameStats): boolean {
 }
 
 /**
- * Whether the incoming row's RECOGNIZED categories are a PER-SIDE superset of
- * the prior row's (review remediation): home ⊇ home AND away ⊇ away, compared
- * as recognized-category SETS — never aggregate counts, which would let an
- * equal-count but different subset (incoming `rushingYards` over prior
- * `totalYards`) replace the row and erase cached categories behind normalized
- * zeros. Equal sets qualify, so corrected provider values still flow (for a
- * category present on both rows, the incoming value wins). Only RECOGNIZED
- * categories participate: unknown/renamed keys produce no normalized values, so
- * an unknown category lingering in a prior row must not permanently block a
- * legitimate authoritative replacement.
+ * FIELD-LEVEL merge of a provably-later same-game observation into the prior
+ * row (adversarial-review remediation, replacing the former whole-row
+ * category-superset rule — which made a stale optional category, e.g. a prior
+ * `puntReturnYards` a later response omits, permanently block legitimate
+ * corrections). Per side:
+ *   - start from the prior row's raw map;
+ *   - apply each incoming RECOGNIZED, PARSE-VALID field (valid incoming
+ *     corrections win per field; explicit valid zeros included);
+ *   - retain prior fields the incoming response omits, and retain prior valid
+ *     values where the incoming value is malformed;
+ *   - apply incoming `points` when structurally provided, else retain prior
+ *     provided points;
+ *   - rebuild every normalized value from the MERGED raw map through the one
+ *     shared normalizer path (`buildTeamStats`) — normalized fallback zeros are
+ *     never merge inputs, and nothing is synthesized for categories neither
+ *     observation validly supplied.
+ * Identity fields come from the incoming (usable) row.
  */
-function coversPriorCategories(incoming: GameStats, prior: GameStats): boolean {
-  const sideCovers = (side: 'home' | 'away'): boolean => {
-    const incomingRecognized = new Set(recognizedCategories(incoming[side]));
-    for (const category of recognizedCategories(prior[side])) {
-      if (!incomingRecognized.has(category)) return false;
+function fieldMergeRows(prior: GameStats, incoming: GameStats): GameStats {
+  const mergeSide = (side: 'home' | 'away'): GameStats['home'] => {
+    const priorSide = prior[side];
+    const incomingSide = incoming[side];
+    const mergedRaw: Record<string, string> = { ...(priorSide?.raw ?? {}) };
+    const incomingRaw = incomingSide?.raw ?? {};
+    for (const category of Object.keys(incomingRaw)) {
+      if (
+        RECOGNIZED_CATEGORY_SET.has(category) &&
+        isParseValidCategoryValue(category, incomingRaw[category])
+      ) {
+        mergedRaw[category] = incomingRaw[category];
+      }
     }
-    return true;
+    const incomingPoints = incomingSide?.pointsProvided === true;
+    const priorPoints = priorSide?.pointsProvided === true;
+    return buildTeamStats({
+      school: incomingSide?.school || priorSide?.school || '',
+      schoolId: incomingSide?.schoolId ?? priorSide?.schoolId ?? 0,
+      conference: incomingSide?.conference || priorSide?.conference || '',
+      homeAway: side,
+      points: incomingPoints ? incomingSide.points : priorPoints ? priorSide.points : 0,
+      pointsProvided: incomingPoints || priorPoints,
+      raw: mergedRaw,
+    });
   };
-  return sideCovers('home') && sideCovers('away');
+  return {
+    providerGameId: incoming.providerGameId,
+    week: incoming.week,
+    seasonType: incoming.seasonType,
+    home: mergeSide('home'),
+    away: mergeSide('away'),
+  };
 }
 
 /**
@@ -440,22 +491,19 @@ function coversPriorCategories(incoming: GameStats, prior: GameStats): boolean {
  * must be strictly additive-or-replacing:
  *   - a prior row the response omits is RETAINED — a partial or empty recovery
  *     response can never delete prior-good rows;
- *   - an incoming row replaces the prior row for its game id only when it is
+ *   - an incoming row updates the prior row for its game id only when it is
  *     authoritative on BOTH axes — identity (an UNUSABLE incoming row with blank
- *     team identity never clobbers a usable prior row) and STAT CONTENT
- *     (review remediation): an identity-only row (zero provider-present stat
- *     fields) never replaces anything and is never persisted as new, and a row
- *     that does not carry a PER-SIDE category superset of the usable prior row
- *     (`coversPriorCategories`) retains the prior — a partially published or
- *     re-shaped CFBD response must not regress or erase real cached categories
- *     behind normalized zeros. A strict subset, an equal-count different set,
- *     and complementary subsets all retain the prior; equal or superset sets
- *     replace, with incoming values winning per category. Complementary maps
- *     are deliberately NOT field-merged into a synthetic row — replacement is
- *     whole-row or nothing. Explicit zero values are present fields and remain
- *     valid. A usable incoming row with content still repairs a prior row whose
- *     identity is unusable (that prior row is unreachable by owner aggregation
- *     regardless of its stats);
+ *     team identity never clobbers a usable prior row) and STAT CONTENT (at
+ *     least one recognized, PARSE-VALID category per side): identity-only,
+ *     one-sided, unknown-only, and malformed-only rows never change anything
+ *     and are never persisted as new. Updates to a usable prior row are
+ *     FIELD-LEVEL merges (`fieldMergeRows`, adversarial-review remediation):
+ *     valid incoming fields win per side, omitted or malformed incoming fields
+ *     retain the prior values, and normalized metrics are rebuilt from the
+ *     merged raw maps — so a later correction is never blocked by a stale
+ *     optional category and malformed data can never overwrite valid data. A
+ *     usable incoming row still repairs a prior row whose identity is unusable
+ *     (that prior row is unreachable by owner aggregation regardless);
  *   - an incoming row WITHOUT a canonical merge key is never persisted (review
  *     remediation): it could never be replaced or deduplicated, so a
  *     still-incomplete week would append another copy on every recovery run and
@@ -538,21 +586,28 @@ export function mergeWeeklyGameStats(
       continue;
     }
     // Non-authoritative content never replaces a prior row of any kind, and NO
-    // replacement is allowed from an overlapping/indeterminate observation.
+    // replacement or field-merge is allowed from an overlapping/indeterminate
+    // observation (first-committed wins).
     if (!authoritativeContent) continue;
     if (!observationProvablyLater) continue;
     const priorRow = merged[priorIndex];
+    let candidate: GameStats;
     if (isUsableGameStatsRow(priorRow)) {
-      // A usable prior row is replaced only by a usable incoming row whose
-      // per-side category sets cover everything the prior row carries.
+      // A usable prior row accepts a FIELD-LEVEL merge from a usable, provably
+      // later observation: valid incoming fields win per side, omitted or
+      // malformed incoming fields retain the prior values.
       if (!isUsableGameStatsRow(row)) continue;
-      if (!coversPriorCategories(row, priorRow)) continue;
-    } else if (!isUsableGameStatsRow(row)) {
+      candidate = fieldMergeRows(priorRow, row);
+    } else if (isUsableGameStatsRow(row)) {
+      // Identity repair: the prior row's identity is unusable (unreachable by
+      // aggregation regardless of its stats) — take the usable incoming row.
+      candidate = row;
+    } else {
       // Neither side usable: keep the prior row; nothing improves.
       continue;
     }
-    if (rowsEqual(priorRow, row)) continue;
-    merged[priorIndex] = row;
+    if (rowsEqual(priorRow, candidate)) continue;
+    merged[priorIndex] = candidate;
     rowsCommitted += 1;
     replacedCount += 1;
   }

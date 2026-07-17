@@ -17,27 +17,48 @@ import {
   resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
 } from '../../conferenceSubdivision.ts';
-import { ANALYTICS_REQUIRED_CATEGORIES, RECOGNIZED_STAT_CATEGORIES } from '../normalizers.ts';
+import {
+  ANALYTICS_REQUIRED_CATEGORIES,
+  buildTeamStats,
+  RECOGNIZED_STAT_CATEGORIES,
+} from '../normalizers.ts';
 import { aggregateOwnerGameStats, aggregateOwnerSeasonStats } from '../ownerStats.ts';
 import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
+
+/** Full-shape team row built through the SAME normalizer path production uses. */
+function team(
+  school: string,
+  homeAway: 'home' | 'away',
+  rawFields: Record<string, string>,
+  // `null` = the provider structurally omitted points.
+  points: number | null = homeAway === 'home' ? 21 : 14
+): GameStats['home'] {
+  return buildTeamStats({
+    school,
+    schoolId: 0,
+    conference: 'X',
+    homeAway,
+    points: points ?? 0,
+    pointsProvided: points !== null,
+    raw: rawFields,
+  });
+}
 
 function row(
   providerGameId: number,
   homeSchool = 'Alpha',
   awaySchool = 'Beta',
-  // Provider-PRESENT stat fields per side (stat authority evidence): the
-  // normalizer records exactly the wire-supplied categories in `raw`, so a
-  // realistic row carries at least one. Pass {} to build an identity-only row.
+  // Provider-PRESENT stat fields per side (stat authority evidence). Pass {}
+  // to build an identity-only row.
   rawFields: Record<string, string> = FULL_RAW
 ): GameStats {
   return {
     providerGameId,
     week: 1,
     seasonType: 'regular',
-    // Only the fields coverage/merge inspect need to be real; the rest are structural.
-    home: { school: homeSchool, raw: rawFields } as unknown as GameStats['home'],
-    away: { school: awaySchool, raw: rawFields } as unknown as GameStats['away'],
+    home: team(homeSchool, 'home', rawFields),
+    away: team(awaySchool, 'away', rawFields),
   };
 }
 
@@ -633,12 +654,13 @@ test('merge: an identity-only incoming row is not persisted when no prior row ex
   assert.equal(merge.rowsDroppedStatless, 1);
 });
 
-test('merge: weaker present-field coverage never replaces stronger prior coverage', () => {
+test('merge: a later sparse update corrects its field and RETAINS omitted prior fields', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350', rushingYards: '150' })]);
   const weaker = row(101, 'Alpha', 'Beta', { totalYards: '10' });
   const merge = mergeLater(prior, [weaker]);
-  assert.equal(merge.changed, false);
-  assert.equal(merge.games[0].home.raw.totalYards, '350', 'the stronger prior row is retained');
+  assert.equal(merge.changed, true, 'a provably later valid correction applies');
+  assert.equal(merge.games[0].home.raw.totalYards, '10', 'the corrected field wins');
+  assert.equal(merge.games[0].home.raw.rushingYards, '150', 'omitted prior fields are retained');
 });
 
 test('merge: explicitly supplied zero-valued statistics are valid authority', () => {
@@ -715,20 +737,23 @@ test('a legacy statless row is repaired naturally by a later authoritative row',
   assert.deepEqual(stillLegacy.games, legacy.games, 'prior rows retained untouched');
 });
 
-test('merge: equal-count but DIFFERENT category sets never replace prior data', () => {
+test('merge: a different-category later update merges in without erasing prior data', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350' })]);
   const differentSet = row(101, 'Alpha', 'Beta', { rushingYards: '150' });
   const merge = mergeLater(prior, [differentSet]);
-  assert.equal(merge.changed, false);
+  assert.equal(merge.changed, true);
   assert.equal(merge.games[0].home.raw.totalYards, '350', 'cached categories are never erased');
+  assert.equal(merge.games[0].home.raw.rushingYards, '150', 'the new field is applied');
 });
 
-test('merge: complementary non-superset category sets retain the prior row', () => {
+test('merge: complementary later fields merge per side; overlapping field corrections win', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350', firstDowns: '20' })]);
   const complementary = row(101, 'Alpha', 'Beta', { rushingYards: '150', firstDowns: '21' });
   const merge = mergeLater(prior, [complementary]);
-  assert.equal(merge.changed, false, 'no synthetic field-merge; whole-row replace or nothing');
-  assert.equal(merge.games[0].home.raw.totalYards, '350');
+  assert.equal(merge.changed, true);
+  assert.equal(merge.games[0].home.raw.totalYards, '350', 'omitted prior field retained');
+  assert.equal(merge.games[0].home.raw.rushingYards, '150', 'new field applied');
+  assert.equal(merge.games[0].home.raw.firstDowns, '21', 'shared field corrected');
 });
 
 test('merge: a strict per-side category superset replaces; incoming values win', () => {
@@ -740,31 +765,27 @@ test('merge: a strict per-side category superset replaces; incoming values win',
   assert.equal(merge.games[0].home.raw.rushingYards, '150');
 });
 
-test('merge: home and away category coverage are evaluated independently', () => {
+test('merge: home and away sides field-merge independently', () => {
   const prior: GameStats = {
     providerGameId: 101,
     week: 1,
     seasonType: 'regular',
-    home: { school: 'Alpha', raw: { totalYards: '350' } } as unknown as GameStats['home'],
-    away: {
-      school: 'Beta',
-      raw: { totalYards: '280', firstDowns: '18' },
-    } as unknown as GameStats['away'],
+    home: team('Alpha', 'home', { totalYards: '350' }),
+    away: team('Beta', 'away', { totalYards: '280', firstDowns: '18' }),
   };
-  // Home side is a superset, but the away side LOST firstDowns → retained.
   const incoming: GameStats = {
     providerGameId: 101,
     week: 1,
     seasonType: 'regular',
-    home: {
-      school: 'Alpha',
-      raw: { totalYards: '360', rushingYards: '150' },
-    } as unknown as GameStats['home'],
-    away: { school: 'Beta', raw: { totalYards: '290' } } as unknown as GameStats['away'],
+    home: team('Alpha', 'home', { totalYards: '360', rushingYards: '150' }),
+    away: team('Beta', 'away', { totalYards: '290' }),
   };
   const merge = mergeLater(record([prior]), [incoming]);
-  assert.equal(merge.changed, false, 'one weaker side blocks the whole-row replacement');
-  assert.equal(merge.games[0].away.raw.firstDowns, '18');
+  assert.equal(merge.changed, true);
+  assert.equal(merge.games[0].home.raw.totalYards, '360');
+  assert.equal(merge.games[0].home.raw.rushingYards, '150');
+  assert.equal(merge.games[0].away.raw.totalYards, '290', 'the away correction applies');
+  assert.equal(merge.games[0].away.raw.firstDowns, '18', 'the omitted away field is retained');
 });
 
 test('analytics ignore legacy statless and keyless rows; authoritative zeros still count', () => {
@@ -848,7 +869,7 @@ test('a mature placeholder with a synthetic id is unverifiable, not expected', (
 
 // === Adversarial-review remediation — recognized-category authority ===
 
-/** Row with independent per-side raw maps. */
+/** Row with independent per-side raw maps (full shape via the normalizer path). */
 function sidedRow(
   providerGameId: number,
   homeRaw: Record<string, string>,
@@ -858,8 +879,8 @@ function sidedRow(
     providerGameId,
     week: 1,
     seasonType: 'regular',
-    home: { school: 'Alpha', raw: homeRaw } as unknown as GameStats['home'],
-    away: { school: 'Beta', raw: awayRaw } as unknown as GameStats['away'],
+    home: team('Alpha', 'home', homeRaw),
+    away: team('Beta', 'away', awayRaw),
   };
 }
 
@@ -1156,4 +1177,127 @@ test('overlapping requests still ADD previously absent game ids (union preserved
     'the addition merges while the protected same-game row is retained'
   );
   assert.equal(merge.games[0].home.raw.totalYards, FULL_RAW.totalYards, 'no replacement occurred');
+});
+
+// === Adversarial-review remediation — parse validity, not key presence ===
+
+const MALFORMED_RAW: Record<string, string> = {
+  netPassingYards: 'not-a-number',
+  possessionTime: 'not-a-number',
+  rushingYards: 'not-a-number',
+  thirdDownEff: 'not-a-number',
+  totalYards: 'not-a-number',
+  turnovers: 'not-a-number',
+};
+
+test('all six required keys with malformed values do NOT establish complete coverage', () => {
+  const malformed = row(101, 'Alpha', 'Beta', MALFORMED_RAW);
+  assert.equal(hasCompleteStatCoverage(malformed), false);
+  assert.equal(isAuthoritativeGameStatsRow(malformed), false, 'malformed-only is schema drift');
+  assert.equal(usableGameStatsGameIds(record([malformed])).size, 0, 'no availability');
+  const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+  assert.equal(
+    aggregateOwnerGameStats([malformed], new Map([['Alpha', 'OwnerA']]), resolver).length,
+    0,
+    'malformed rows never enter analytics as fabricated zeros'
+  );
+});
+
+test('individually malformed required values keep the row incomplete', () => {
+  for (const [category, badValue] of [
+    ['totalYards', 'NaNish'],
+    ['thirdDownEff', '6/14'],
+    ['possessionTime', 'thirty minutes'],
+  ] as const) {
+    const raw = { ...FULL_RAW, [category]: badValue };
+    assert.equal(
+      hasCompleteStatCoverage(row(101, 'Alpha', 'Beta', raw)),
+      false,
+      `malformed ${category} must not count as complete`
+    );
+  }
+});
+
+test('missing or malformed points keeps the row incomplete; valid zero points is complete', () => {
+  const noPoints: GameStats = {
+    providerGameId: 101,
+    week: 1,
+    seasonType: 'regular',
+    home: team('Alpha', 'home', FULL_RAW, null), // points structurally absent
+    away: team('Beta', 'away', FULL_RAW),
+  };
+  assert.equal(hasCompleteStatCoverage(noPoints), false, 'missing points is not a real zero');
+
+  const zeroPoints: GameStats = {
+    providerGameId: 101,
+    week: 1,
+    seasonType: 'regular',
+    home: team('Alpha', 'home', FULL_RAW, 0),
+    away: team('Beta', 'away', FULL_RAW, 0),
+  };
+  assert.equal(hasCompleteStatCoverage(zeroPoints), true, 'an explicit valid 0 score is complete');
+});
+
+test('one valid team and one malformed team remains incomplete but repairable', () => {
+  const half = sidedRow(101, FULL_RAW, MALFORMED_RAW);
+  assert.equal(hasCompleteStatCoverage(half), false);
+  const stored = mergeLater(null, [half]);
+  const repaired = mergeLater(record(stored.games), [row(101)]);
+  assert.equal(hasCompleteStatCoverage(repaired.games[0]), true, 'a later valid payload repairs');
+});
+
+// === Adversarial-review remediation — field-level merge specifics ===
+
+test('an omitted optional category no longer blocks a later valid correction', () => {
+  const prior = record([row(101, 'Alpha', 'Beta', { ...FULL_RAW, puntReturnYards: '12' })]);
+  // The later response omits puntReturnYards while correcting required values.
+  const corrected = row(101, 'Alpha', 'Beta', { ...FULL_RAW, totalYards: '400', turnovers: '3' });
+  const merge = mergeLater(prior, [corrected]);
+  assert.equal(merge.changed, true, 'the correction applies despite the omitted optional field');
+  assert.equal(merge.games[0].home.raw.totalYards, '400');
+  assert.equal(merge.games[0].home.raw.turnovers, '3');
+  assert.equal(merge.games[0].home.raw.puntReturnYards, '12', 'the optional prior field survives');
+  assert.equal(
+    merge.games[0].home.puntReturnYards,
+    12,
+    'normalized values rebuild from merged raw'
+  );
+});
+
+test('malformed incoming fields cannot overwrite valid prior fields', () => {
+  const prior = record([row(101)]);
+  const partiallyMalformed = row(101, 'Alpha', 'Beta', {
+    ...FULL_RAW,
+    totalYards: 'not-a-number', // malformed → prior retained
+    rushingYards: '175', // valid → applied
+  });
+  const merge = mergeLater(prior, [partiallyMalformed]);
+  assert.equal(merge.changed, true);
+  assert.equal(merge.games[0].home.raw.totalYards, FULL_RAW.totalYards, 'valid prior retained');
+  assert.equal(merge.games[0].home.raw.rushingYards, '175', 'valid correction applied');
+});
+
+test('incoming points corrections apply; absent incoming points retain prior points', () => {
+  const prior = record([row(101)]); // home points 21 provided
+  const pointsCorrection: GameStats = {
+    providerGameId: 101,
+    week: 1,
+    seasonType: 'regular',
+    home: team('Alpha', 'home', FULL_RAW, 28),
+    away: team('Beta', 'away', FULL_RAW),
+  };
+  const corrected = mergeLater(prior, [pointsCorrection]);
+  assert.equal(corrected.games[0].home.points, 28, 'a provided points correction applies');
+
+  const noIncomingPoints: GameStats = {
+    providerGameId: 101,
+    week: 1,
+    seasonType: 'regular',
+    home: team('Alpha', 'home', { ...FULL_RAW, totalYards: '390' }, null),
+    away: team('Beta', 'away', FULL_RAW),
+  };
+  const retained = mergeLater(record(corrected.games), [noIncomingPoints]);
+  assert.equal(retained.games[0].home.points, 28, 'absent incoming points retain the prior score');
+  assert.equal(retained.games[0].home.pointsProvided, true, 'prior points provenance survives');
+  assert.equal(retained.games[0].home.raw.totalYards, '390', 'the field correction still applies');
 });

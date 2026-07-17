@@ -29,6 +29,14 @@ export type TeamGameStats = {
   conference: string;
   homeAway: 'home' | 'away';
   points: number;
+  /**
+   * Whether the provider STRUCTURALLY supplied a parse-valid `points` value
+   * (additive; absent on legacy rows). The normalizer defaults an absent or
+   * malformed wire `points` to 0, which is indistinguishable from a real 0 at
+   * read time — this flag preserves the distinction so complete coverage never
+   * blesses a fabricated zero score.
+   */
+  pointsProvided?: boolean;
   totalYards: number;
   rushingYards: number;
   passingYards: number;

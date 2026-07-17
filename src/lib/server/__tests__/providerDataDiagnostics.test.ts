@@ -95,6 +95,7 @@ function gameStatsRow(providerGameId: number) {
     // identity — an identity-only row must not count as covered.
     home: {
       school: 'Alabama',
+      pointsProvided: true,
       raw: {
         netPassingYards: '200',
         possessionTime: '29:00',
@@ -106,6 +107,7 @@ function gameStatsRow(providerGameId: number) {
     },
     away: {
       school: 'Georgia',
+      pointsProvided: true,
       raw: {
         netPassingYards: '150',
         possessionTime: '31:00',

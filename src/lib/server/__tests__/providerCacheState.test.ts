@@ -128,6 +128,7 @@ test('a game-stats cache of only identity-only rows is absent; an authoritative 
         seasonType: 'regular',
         home: {
           school: 'Alabama',
+          pointsProvided: true,
           raw: {
             netPassingYards: '200',
             possessionTime: '29:00',
@@ -139,6 +140,7 @@ test('a game-stats cache of only identity-only rows is absent; an authoritative 
         },
         away: {
           school: 'Georgia',
+          pointsProvided: true,
           raw: {
             netPassingYards: '150',
             possessionTime: '31:00',

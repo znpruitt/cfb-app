@@ -22,6 +22,7 @@ function makeTeam(school: string, points: number, homeAway: 'home' | 'away'): Te
     conference: 'Test',
     homeAway,
     points,
+    pointsProvided: true,
     totalYards: points * 10,
     rushingYards: 0,
     passingYards: 0,

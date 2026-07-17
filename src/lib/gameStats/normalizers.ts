@@ -1,37 +1,63 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { RawGameTeamStats, RawGameTeamStatsTeam, TeamGameStats, GameStats } from './types.ts';
 
-function safeInt(value: string | undefined | null): number {
-  if (!value) return 0;
+/** parseInt that reports malformation as null instead of a fallback zero. */
+function parseIntOrNull(value: string | undefined | null): number | null {
+  if (!value) return null;
   const parsed = parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function safeInt(value: string | undefined | null): number {
+  return parseIntOrNull(value) ?? 0;
 }
 
 /**
  * Parse a fraction string like "6-14" into [numerator, denominator].
- * Returns [0, 0] if malformed.
+ * Returns null if malformed (the normalizer falls back to [0, 0]).
  */
-function parseFraction(value: string | undefined | null): [number, number] {
-  if (!value) return [0, 0];
+function parseFractionOrNull(value: string | undefined | null): [number, number] | null {
+  if (!value) return null;
   const parts = value.split('-');
-  if (parts.length !== 2) return [0, 0];
+  if (parts.length !== 2) return null;
   const num = parseInt(parts[0], 10);
   const den = parseInt(parts[1], 10);
-  return [Number.isFinite(num) ? num : 0, Number.isFinite(den) ? den : 0];
+  if (!Number.isFinite(num) || !Number.isFinite(den)) return null;
+  return [num, den];
 }
 
 /**
  * Parse "MM:SS" possession time to total seconds.
- * Returns 0 if malformed.
+ * Returns null if malformed (the normalizer falls back to 0).
  */
-function parsePossessionTime(value: string | undefined | null): number {
-  if (!value) return 0;
+function parsePossessionTimeOrNull(value: string | undefined | null): number | null {
+  if (!value) return null;
   const parts = value.split(':');
-  if (parts.length !== 2) return 0;
+  if (parts.length !== 2) return null;
   const minutes = parseInt(parts[0], 10);
   const seconds = parseInt(parts[1], 10);
-  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0;
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
   return minutes * 60 + seconds;
+}
+
+const FRACTION_CATEGORIES = new Set(['thirdDownEff', 'fourthDownEff', 'totalPenaltiesYards']);
+
+/**
+ * Whether a provider-supplied category VALUE parses successfully under the SAME
+ * parsers the normalizer uses (adversarial-review remediation) — presence alone
+ * proves nothing, because every malformed value normalizes to a fallback zero
+ * indistinguishable from real data. An explicit valid zero ("0", "0-0", "0:00")
+ * parses and counts; `not-a-number` does not. One parsing system: these checks
+ * delegate to the exact OrNull parsers `normalizeTeam` consumes.
+ */
+export function isParseValidCategoryValue(
+  category: string,
+  value: string | undefined | null
+): boolean {
+  if (typeof value !== 'string') return false;
+  if (FRACTION_CATEGORIES.has(category)) return parseFractionOrNull(value) !== null;
+  if (category === 'possessionTime') return parsePossessionTimeOrNull(value) !== null;
+  return parseIntOrNull(value) !== null;
 }
 
 /**
@@ -105,18 +131,37 @@ function statMap(team: RawGameTeamStatsTeam): Record<string, string> {
   return map;
 }
 
-function normalizeTeam(team: RawGameTeamStatsTeam): TeamGameStats {
-  const raw = statMap(team);
-  const [thirdDownConversions, thirdDownAttempts] = parseFraction(raw.thirdDownEff);
-  const [fourthDownConversions, fourthDownAttempts] = parseFraction(raw.fourthDownEff);
-  const [penaltyCount, penaltyYards] = parseFraction(raw.totalPenaltiesYards);
+/**
+ * Build a normalized team row from its provider RAW category map plus identity
+ * and points metadata — THE single normalization path (adversarial-review
+ * remediation): `normalizeTeam` wraps it for wire rows, and the field-level
+ * merge rebuilds merged rows through it, so normalized values always derive
+ * from raw provider fields via one parser set (never from normalized fallback
+ * zeros used as inputs).
+ */
+export function buildTeamStats(params: {
+  school: string;
+  schoolId: number;
+  conference: string;
+  homeAway: 'home' | 'away';
+  points: number;
+  pointsProvided: boolean;
+  raw: Record<string, string>;
+}): TeamGameStats {
+  const { raw } = params;
+  const [thirdDownConversions, thirdDownAttempts] = parseFractionOrNull(raw.thirdDownEff) ?? [0, 0];
+  const [fourthDownConversions, fourthDownAttempts] = parseFractionOrNull(raw.fourthDownEff) ?? [
+    0, 0,
+  ];
+  const [penaltyCount, penaltyYards] = parseFractionOrNull(raw.totalPenaltiesYards) ?? [0, 0];
 
   return {
-    school: team.team ?? '',
-    schoolId: team.teamId ?? 0,
-    conference: team.conference ?? '',
-    homeAway: team.homeAway === 'away' ? 'away' : 'home',
-    points: typeof team.points === 'number' ? team.points : 0,
+    school: params.school,
+    schoolId: params.schoolId,
+    conference: params.conference,
+    homeAway: params.homeAway,
+    points: params.points,
+    pointsProvided: params.pointsProvided,
     totalYards: safeInt(raw.totalYards),
     rushingYards: safeInt(raw.rushingYards),
     passingYards: safeInt(raw.netPassingYards),
@@ -138,7 +183,7 @@ function normalizeTeam(team: RawGameTeamStatsTeam): TeamGameStats {
     fourthDownConversions,
     penaltyCount,
     penaltyYards,
-    possessionSeconds: parsePossessionTime(raw.possessionTime),
+    possessionSeconds: parsePossessionTimeOrNull(raw.possessionTime) ?? 0,
     interceptionReturnYards: safeInt(raw.interceptionYards),
     interceptionReturnTDs: safeInt(raw.interceptionTDs),
     kickReturnYards: safeInt(raw.kickReturnYards),
@@ -147,6 +192,19 @@ function normalizeTeam(team: RawGameTeamStatsTeam): TeamGameStats {
     puntReturnTDs: safeInt(raw.puntReturnTDs),
     raw,
   };
+}
+
+function normalizeTeam(team: RawGameTeamStatsTeam): TeamGameStats {
+  const pointsProvided = typeof team.points === 'number' && Number.isFinite(team.points);
+  return buildTeamStats({
+    school: team.team ?? '',
+    schoolId: team.teamId ?? 0,
+    conference: team.conference ?? '',
+    homeAway: team.homeAway === 'away' ? 'away' : 'home',
+    points: pointsProvided ? (team.points as number) : 0,
+    pointsProvided,
+    raw: statMap(team),
+  });
 }
 
 export function normalizeGameTeamStats(

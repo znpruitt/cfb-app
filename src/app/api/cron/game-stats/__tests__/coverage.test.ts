@@ -52,6 +52,7 @@ function usableRow(providerGameId: number): GameStats {
     // than identity, and an identity-only cached row would not count.
     home: {
       school: 'Alpha',
+      pointsProvided: true,
       raw: {
         netPassingYards: '200',
         possessionTime: '29:00',
@@ -63,6 +64,7 @@ function usableRow(providerGameId: number): GameStats {
     } as unknown as GameStats['home'],
     away: {
       school: 'Beta',
+      pointsProvided: true,
       raw: {
         netPassingYards: '150',
         possessionTime: '31:00',
