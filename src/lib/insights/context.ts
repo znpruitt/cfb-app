@@ -1,5 +1,6 @@
 import type { CfbdSeasonType } from '../cfbd';
 import { getCachedGameStats, listCachedGameStatsWeeks } from '../gameStats/cache';
+import { selectAnalyticsRows } from '../gameStats/contract';
 import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
 import type { GameStats } from '../gameStats/types';
 import type { League } from '../league';
@@ -35,14 +36,31 @@ function buildHistoricalRosters(archives: SeasonArchive[]): Record<number, Map<s
   return result;
 }
 
+/**
+ * Narrow analytics-availability result (PLATFORM-086H1). A cached week list is
+ * NOT proof of usable analytics: partitions can exist with zero games, and
+ * stored rows can be analytics-ineligible (statless/malformed/sparse under the
+ * game-stats contract). The states keep those situations distinguishable so a
+ * caller can no longer read "cache exists" as "aggregates are trustworthy":
+ *   - `cache-unavailable` — no cached partitions (or none readable) for the year;
+ *   - `no-eligible-games` — cache exists but zero analytics-eligible rows;
+ *   - `no-owner-mapping` — eligible rows exist but none resolve to a rostered owner;
+ *   - `available` — eligible owner aggregates exist.
+ */
+export type OwnerSeasonStatsResult =
+  | { state: 'cache-unavailable' }
+  | { state: 'no-eligible-games' }
+  | { state: 'no-owner-mapping' }
+  | { state: 'available'; stats: OwnerSeasonStats[] };
+
 export async function loadOwnerSeasonStats(
   leagueSlug: string,
   year: number,
   currentRoster: Map<string, string>,
   games: AppGame[]
-): Promise<OwnerSeasonStats[] | null> {
+): Promise<OwnerSeasonStatsResult> {
   const weekKeys = await listCachedGameStatsWeeks(year);
-  if (weekKeys.length === 0) return null;
+  if (weekKeys.length === 0) return { state: 'cache-unavailable' };
 
   const [teams, aliasMap] = await Promise.all([
     getTeamDatabaseItems(),
@@ -65,8 +83,14 @@ export async function loadOwnerSeasonStats(
     weeklyGames.push(stats.games);
   }
 
-  if (weeklyGames.length === 0) return null;
-  return aggregateOwnerSeasonStats(weeklyGames, currentRoster, resolver, year);
+  if (weeklyGames.length === 0) return { state: 'cache-unavailable' };
+
+  const { selected } = selectAnalyticsRows(weeklyGames.flat());
+  if (selected.length === 0) return { state: 'no-eligible-games' };
+
+  const stats = aggregateOwnerSeasonStats(weeklyGames, currentRoster, resolver, year);
+  if (stats.length === 0) return { state: 'no-owner-mapping' };
+  return { state: 'available', stats };
 }
 
 export type CareerStatsDiagnostic = {
@@ -187,15 +211,20 @@ export async function buildOwnerCareerStats(params: {
       }
     }
 
-    const yearStats = await loadOwnerSeasonStats(
+    const yearStatsResult = await loadOwnerSeasonStats(
       leagueSlug,
       archive.year,
       yearRoster,
       archive.games
     );
-    const gameStatsAvailable = yearStats !== null;
-    if (yearStats) {
-      for (const stats of yearStats) {
+    // "Available" means the cache holds analytics-ELIGIBLE rows — a cache whose
+    // every row is ineligible (`no-eligible-games`) is NOT healthy availability,
+    // even though a week key exists (PLATFORM-086H1). `no-owner-mapping` still
+    // counts as available: the eligible data exists; the roster is the gap.
+    const gameStatsAvailable =
+      yearStatsResult.state === 'available' || yearStatsResult.state === 'no-owner-mapping';
+    if (yearStatsResult.state === 'available') {
+      for (const stats of yearStatsResult.stats) {
         if (!activeOwners.has(stats.owner)) continue;
         const acc = accumulators.get(stats.owner)!;
         acc.totalYards += stats.totalYards;
@@ -285,10 +314,22 @@ export async function buildInsightContext(
 
   const { resolvedRoster, usingArchivedRoster } = computeRosterFallback(currentRoster, archives);
 
-  const ownerGameStats =
+  const ownerStatsResult =
     lifecycleState === 'preseason' || lifecycleState === 'offseason'
       ? null
       : await loadOwnerSeasonStats(leagueSlug, league.year, resolvedRoster, games);
+  // `null` = stats genuinely unavailable (no cache, or zero eligible rows);
+  // `[]` = eligible rows exist but none map to a rostered owner. Generators
+  // treat null as "don't speak about stats", which is now truthful for the
+  // zero-eligible case instead of serving an empty-but-"available" aggregate.
+  const ownerGameStats =
+    ownerStatsResult === null
+      ? null
+      : ownerStatsResult.state === 'available'
+        ? ownerStatsResult.stats
+        : ownerStatsResult.state === 'no-owner-mapping'
+          ? []
+          : null;
 
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,

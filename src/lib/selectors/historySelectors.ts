@@ -1063,9 +1063,10 @@ export async function loadOwnerCareerExtras(
       console.warn('[loadOwnerCareerExtras] archive load failed:', result.reason);
       continue;
     }
-    const stats = result.value;
-    if (!stats) continue;
-    for (const s of stats) {
+    // Only the 'available' state carries aggregates; unavailable caches,
+    // zero-eligible caches, and unmapped rosters all contribute nothing here.
+    if (result.value.state !== 'available') continue;
+    for (const s of result.value.stats) {
       const prev = accumulator.get(s.owner) ?? { totalYards: 0, totalTurnoverMargin: 0 };
       accumulator.set(s.owner, {
         totalYards: prev.totalYards + s.totalYards,
