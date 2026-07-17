@@ -1,6 +1,6 @@
 import type { OwnerSeasonStats } from '../insights/types.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
-import { isAuthoritativeGameStatsRow } from './coverage.ts';
+import { hasCompleteStatCoverage } from './coverage.ts';
 import type { GameStats, OwnerWeekStats, TeamGameStats } from './types.ts';
 
 type OwnerAccumulator = {
@@ -79,14 +79,14 @@ export function aggregateOwnerGameStats(
   const accumulators = new Map<string, OwnerAccumulator>();
 
   for (const game of games) {
-    // Defensive authority boundary (review remediation): durable caches may
-    // still hold legacy rows written before ingestion enforced authority —
-    // keyless/malformed rows and identity-only rows whose categories are all
-    // normalized zero-fills. Counting them would inflate gamesPlayed and drag
-    // every average, so analytics require the SAME canonical predicate the
-    // merge and completeness layers use. Explicit zero-valued categories are
-    // present provider fields and still count.
-    if (!isAuthoritativeGameStatsRow(game)) continue;
+    // Defensive eligibility boundary (review remediation): analytics consume
+    // exactly the ANALYTICS_REQUIRED_CATEGORIES-backed fields, so a row must
+    // carry COMPLETE stat coverage on both sides — the same contract
+    // completeness and cache availability use. Sparse, legacy identity-only,
+    // keyless, and unusable rows are all excluded: their omitted metrics would
+    // aggregate as fabricated zeros and drag every total and average. Explicit
+    // zero-valued categories are present provider fields and still count.
+    if (!hasCompleteStatCoverage(game)) continue;
     const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
       { team: game.home, opponent: game.away },
       { team: game.away, opponent: game.home },
@@ -134,8 +134,8 @@ export function aggregateOwnerSeasonStats(
 
   for (const games of weeklyGames) {
     for (const game of games) {
-      // Same defensive authority boundary as aggregateOwnerGameStats above.
-      if (!isAuthoritativeGameStatsRow(game)) continue;
+      // Same defensive eligibility boundary as aggregateOwnerGameStats above.
+      if (!hasCompleteStatCoverage(game)) continue;
       const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
         { team: game.home, opponent: game.away },
         { team: game.away, opponent: game.home },

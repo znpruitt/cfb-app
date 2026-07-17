@@ -157,6 +157,10 @@ export async function GET(req: Request) {
 
   try {
     const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
+    // Provider-OBSERVATION window start (review remediation): CFBD supplies no
+    // observation timestamp, so the request-start/response-received pair is the
+    // only evidence bounding this snapshot's freshness for replacement fencing.
+    const fetchStartedAt = new Date().toISOString();
     const rawGames = await fetchUpstreamJson<RawGameTeamStats[]>(cfbdUrl.toString(), {
       cache: 'no-store',
       timeoutMs: 12_000,
@@ -239,7 +243,7 @@ export async function GET(req: Request) {
     const outcome = await withGameStatsWeekLock(year, week, seasonType, () =>
       withDurableGameStatsWeek(year, week, seasonType, async (durable) => {
         const prior = await durable.read();
-        const merge = mergeWeeklyGameStats(prior, classification.games);
+        const merge = mergeWeeklyGameStats(prior, classification.games, { fetchStartedAt });
         // `changed` is false when a prior record already holds identical rows OR
         // when every incoming row was dropped (keyless / non-authoritative).
         // Either way nothing may be rewritten — especially not an empty record
@@ -251,6 +255,7 @@ export async function GET(req: Request) {
           year,
           week,
           seasonType,
+          fetchStartedAt,
           fetchedAt: new Date().toISOString(),
           games: merge.games,
         };

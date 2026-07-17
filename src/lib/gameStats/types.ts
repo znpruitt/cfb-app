@@ -72,7 +72,15 @@ export type WeeklyGameStats = {
   year: number;
   week: number;
   seasonType: CfbdSeasonType;
+  /** When the provider response that produced this record was RECEIVED. */
   fetchedAt: string;
+  /**
+   * When the provider request that produced this record was STARTED (additive,
+   * absent on legacy records). Together with `fetchedAt` this bounds the
+   * provider-observation window used to fence overlapping same-game
+   * replacements — CFBD supplies no observation timestamp of its own.
+   */
+  fetchStartedAt?: string;
   games: GameStats[];
 };
 

@@ -70,6 +70,8 @@ type CronResult = {
   results: CronWeekResult[];
   /** Total rows added or replaced across all committed weeks this run. */
   gamesProcessed: number;
+  /** Machine-readable failed targets on a degraded (502) completed sweep. */
+  failedWeeks?: Array<{ week: number; seasonType: CfbdSeasonType; code: string }>;
   skipped?: string;
   error?: string;
 };
@@ -283,6 +285,9 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
 
     try {
       const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
+      // Provider-OBSERVATION window start (review remediation): the only
+      // evidence bounding this snapshot's freshness for replacement fencing.
+      const fetchStartedAt = new Date().toISOString();
       const rawGames = await fetchUpstreamJson<RawGameTeamStats[]>(cfbdUrl.toString(), {
         headers: { Authorization: `Bearer ${CFBD_API_KEY}` },
         timeoutMs: 15_000,
@@ -343,12 +348,13 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       const outcome = await withGameStatsWeekLock(year, week, seasonType, () =>
         withDurableGameStatsWeek(year, week, seasonType, async (durable) => {
           const existing = await durable.read();
-          const merge = mergeWeeklyGameStats(existing, classification.games);
+          const merge = mergeWeeklyGameStats(existing, classification.games, { fetchStartedAt });
           if (!merge.changed) return { kind: 'no-change' as const };
           const result: WeeklyGameStats = {
             year,
             week,
             seasonType,
+            fetchStartedAt,
             fetchedAt: new Date().toISOString(),
             games: merge.games,
           };
@@ -405,23 +411,33 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     }
   }
 
-  // The sweep COMPLETED (every incomplete candidate got its one bounded
-  // attempt), so this is a successful transport response even when some targets
-  // failed target-local validation — their failures stay visible per week in
-  // `results` and in the week-scoped provider status, and are summarized in
-  // `error` so a mixed run never reads as total success. Non-2xx remains
-  // reserved for provider-wide aborts above.
-  const failedWeeks = results.filter((r) => r.outcome === 'failed');
-  return NextResponse.json({
-    year,
-    results,
-    gamesProcessed,
-    ...(failedWeeks.length > 0
-      ? {
-          error: `${failedWeeks.length} week(s) failed target-local validation: ${failedWeeks
-            .map((r) => `${r.week} ${r.seasonType} (${r.detail ?? 'failed'})`)
-            .join('; ')}`,
-        }
-      : {}),
-  });
+  // The sweep COMPLETED — every incomplete candidate got its one bounded
+  // attempt, and committed recoveries are already durable. A sweep with ANY
+  // target-local failure returns 502 (adversarial-review remediation): Vercel
+  // cron marks an invocation failed only on non-2xx (and does not auto-retry,
+  // so no duplicate provider calls), and nothing consumes a 200-body error
+  // field — HTTP status is the only signal automated monitoring sees. The
+  // machine-readable `failedWeeks` list plus per-week `results` keep the
+  // degradation diagnosable; 200 is reserved for clean sweeps and non-2xx
+  // provider-wide aborts return above.
+  const failed = results.filter((r) => r.outcome === 'failed');
+  if (failed.length > 0) {
+    return NextResponse.json(
+      {
+        year,
+        results,
+        gamesProcessed,
+        failedWeeks: failed.map((r) => ({
+          week: r.week,
+          seasonType: r.seasonType,
+          code: r.detail ?? 'failed',
+        })),
+        error: `${failed.length} week(s) failed target-local validation: ${failed
+          .map((r) => `${r.week} ${r.seasonType} (${r.detail ?? 'failed'})`)
+          .join('; ')}`,
+      },
+      { status: 502 }
+    );
+  }
+  return NextResponse.json({ year, results, gamesProcessed });
 }

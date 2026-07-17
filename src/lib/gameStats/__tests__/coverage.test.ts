@@ -6,6 +6,7 @@ import {
   deriveExpectedGameStatsIds,
   evaluateWeeklyGameStatsCompleteness,
   expectsGameStats,
+  hasCompleteStatCoverage,
   hasUsableGameStats,
   isAuthoritativeGameStatsRow,
   mergeWeeklyGameStats,
@@ -16,7 +17,7 @@ import {
   resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
 } from '../../conferenceSubdivision.ts';
-import { RECOGNIZED_STAT_CATEGORIES } from '../normalizers.ts';
+import { ANALYTICS_REQUIRED_CATEGORIES, RECOGNIZED_STAT_CATEGORIES } from '../normalizers.ts';
 import { aggregateOwnerGameStats, aggregateOwnerSeasonStats } from '../ownerStats.ts';
 import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
@@ -28,7 +29,7 @@ function row(
   // Provider-PRESENT stat fields per side (stat authority evidence): the
   // normalizer records exactly the wire-supplied categories in `raw`, so a
   // realistic row carries at least one. Pass {} to build an identity-only row.
-  rawFields: Record<string, string> = { totalYards: '100' }
+  rawFields: Record<string, string> = FULL_RAW
 ): GameStats {
   return {
     providerGameId,
@@ -39,6 +40,36 @@ function row(
     away: { school: awaySchool, raw: rawFields } as unknown as GameStats['away'],
   };
 }
+
+/** Every analytics-required category present — a COMPLETE side. */
+const FULL_RAW: Record<string, string> = {
+  netPassingYards: '210',
+  possessionTime: '30:00',
+  rushingYards: '150',
+  thirdDownEff: '6-14',
+  totalYards: '360',
+  turnovers: '1',
+};
+
+/** All required categories explicitly zero — complete, and legitimately so. */
+const FULL_RAW_ZEROS: Record<string, string> = {
+  netPassingYards: '0',
+  possessionTime: '0:00',
+  rushingYards: '0',
+  thirdDownEff: '0-0',
+  totalYards: '0',
+  turnovers: '0',
+};
+
+// Observation window provably later than every fixture record's fetchedAt
+// ('2026-10-01…'), so persistence-level merge tests exercise replacement rules
+// without the overlap fence rejecting them (fencing has its own tests below).
+const LATER_OBSERVATION = { fetchStartedAt: '2026-10-02T00:00:00.000Z' };
+const mergeLater = (
+  prior: WeeklyGameStats | null,
+  incoming: readonly GameStats[]
+): ReturnType<typeof mergeWeeklyGameStats> =>
+  mergeWeeklyGameStats(prior, incoming, LATER_OBSERVATION);
 
 function record(games: GameStats[]): WeeklyGameStats {
   return {
@@ -197,7 +228,7 @@ test('classifyGameStatsPayload: a mixed payload commits; the merge drops the dri
   const result = classifyGameStatsPayload(mixed, 1, 'regular');
   assert.equal(result.kind, 'commit');
   if (result.kind === 'commit') {
-    const merge = mergeWeeklyGameStats(null, result.games);
+    const merge = mergeLater(null, result.games);
     assert.deepEqual(
       merge.games.map((g) => g.providerGameId),
       [5001],
@@ -487,7 +518,7 @@ test('completeness: complete only when EVERY expected id has a usable row', () =
 // === PLATFORM-086H — merge without regression (requirement 4) ===
 
 test('merge: rows for new game ids are appended and counted as committed', () => {
-  const merge = mergeWeeklyGameStats(null, [row(101), row(102)]);
+  const merge = mergeLater(null, [row(101), row(102)]);
   assert.equal(merge.changed, true);
   assert.equal(merge.rowsCommitted, 2);
   assert.equal(merge.rowsRetained, 0);
@@ -499,7 +530,7 @@ test('merge: rows for new game ids are appended and counted as committed', () =>
 
 test('merge: prior rows omitted by a partial response are retained, never deleted', () => {
   const prior = record([row(101), row(102)]);
-  const merge = mergeWeeklyGameStats(prior, [row(103)]);
+  const merge = mergeLater(prior, [row(103)]);
   assert.deepEqual(
     merge.games.map((g) => g.providerGameId),
     [101, 102, 103]
@@ -510,7 +541,7 @@ test('merge: prior rows omitted by a partial response are retained, never delete
 
 test('merge: an empty recovery response changes nothing and retains all prior rows', () => {
   const prior = record([row(101), row(102)]);
-  const merge = mergeWeeklyGameStats(prior, []);
+  const merge = mergeLater(prior, []);
   assert.equal(merge.changed, false);
   assert.equal(merge.rowsRetained, 2);
   assert.deepEqual(
@@ -521,7 +552,7 @@ test('merge: an empty recovery response changes nothing and retains all prior ro
 
 test('merge: identical incoming rows are a no-change (no rewrite, no invalidation)', () => {
   const prior = record([row(101), row(102)]);
-  const merge = mergeWeeklyGameStats(prior, [row(101), row(102)]);
+  const merge = mergeLater(prior, [row(101), row(102)]);
   assert.equal(merge.changed, false);
   assert.equal(merge.rowsCommitted, 0);
 });
@@ -529,7 +560,7 @@ test('merge: identical incoming rows are a no-change (no rewrite, no invalidatio
 test('merge: a changed usable row replaces the prior row for the same game id', () => {
   const prior = record([row(101, 'Alpha', 'Beta'), row(102)]);
   const updated = row(101, 'Alpha Corrected', 'Beta');
-  const merge = mergeWeeklyGameStats(prior, [updated]);
+  const merge = mergeLater(prior, [updated]);
   assert.equal(merge.changed, true);
   assert.equal(merge.rowsCommitted, 1);
   assert.equal(merge.games[0].home.school, 'Alpha Corrected');
@@ -538,14 +569,14 @@ test('merge: a changed usable row replaces the prior row for the same game id', 
 
 test('merge: an UNUSABLE incoming row never clobbers a usable prior row', () => {
   const prior = record([row(101, 'Alpha', 'Beta')]);
-  const merge = mergeWeeklyGameStats(prior, [row(101, '', '')]);
+  const merge = mergeLater(prior, [row(101, '', '')]);
   assert.equal(merge.changed, false);
   assert.equal(merge.games[0].home.school, 'Alpha', 'the usable prior row survives');
 });
 
 test('merge: a usable incoming row repairs a previously unusable prior row', () => {
   const prior = record([row(101, '', '')]);
-  const merge = mergeWeeklyGameStats(prior, [row(101, 'Alpha', 'Beta')]);
+  const merge = mergeLater(prior, [row(101, 'Alpha', 'Beta')]);
   assert.equal(merge.changed, true);
   assert.equal(merge.rowsCommitted, 1);
   assert.equal(merge.games[0].home.school, 'Alpha');
@@ -558,7 +589,7 @@ test('merge: a usable incoming row repairs a previously unusable prior row', () 
 test('merge: incoming rows without a canonical merge key are dropped, valid rows persist', () => {
   const prior = record([row(101)]);
   const keylessNonNumeric = { ...row(102), providerGameId: 'abc' as unknown as number };
-  const merge = mergeWeeklyGameStats(prior, [row(0), row(-5), keylessNonNumeric, row(103)]);
+  const merge = mergeLater(prior, [row(0), row(-5), keylessNonNumeric, row(103)]);
   assert.deepEqual(
     merge.games.map((g) => g.providerGameId),
     [101, 103],
@@ -569,12 +600,12 @@ test('merge: incoming rows without a canonical merge key are dropped, valid rows
 });
 
 test('merge: repeated recovery with the same malformed row never accumulates duplicates', () => {
-  const first = mergeWeeklyGameStats(null, [row(101), row(-5)]);
+  const first = mergeLater(null, [row(101), row(-5)]);
   assert.deepEqual(
     first.games.map((g) => g.providerGameId),
     [101]
   );
-  const second = mergeWeeklyGameStats(record(first.games), [row(101), row(-5)]);
+  const second = mergeLater(record(first.games), [row(101), row(-5)]);
   assert.equal(second.changed, false, 'the repeated malformed row forces no rewrite');
   assert.deepEqual(
     second.games.map((g) => g.providerGameId),
@@ -590,13 +621,13 @@ test('merge: repeated recovery with the same malformed row never accumulates dup
 test('merge: an identity-only incoming row never replaces prior populated statistics', () => {
   const prior = record([row(101)]);
   const identityOnly = row(101, 'Alpha', 'Beta', {});
-  const merge = mergeWeeklyGameStats(prior, [identityOnly]);
+  const merge = mergeLater(prior, [identityOnly]);
   assert.equal(merge.changed, false);
-  assert.deepEqual(merge.games[0].home.raw, { totalYards: '100' }, 'prior stats survive');
+  assert.deepEqual(merge.games[0].home.raw, FULL_RAW, 'prior stats survive');
 });
 
 test('merge: an identity-only incoming row is not persisted when no prior row exists', () => {
-  const merge = mergeWeeklyGameStats(null, [row(101, 'Alpha', 'Beta', {})]);
+  const merge = mergeLater(null, [row(101, 'Alpha', 'Beta', {})]);
   assert.equal(merge.changed, false);
   assert.deepEqual(merge.games, [], 'zero-filled identity-only rows are never authoritative');
   assert.equal(merge.rowsDroppedStatless, 1);
@@ -605,7 +636,7 @@ test('merge: an identity-only incoming row is not persisted when no prior row ex
 test('merge: weaker present-field coverage never replaces stronger prior coverage', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350', rushingYards: '150' })]);
   const weaker = row(101, 'Alpha', 'Beta', { totalYards: '10' });
-  const merge = mergeWeeklyGameStats(prior, [weaker]);
+  const merge = mergeLater(prior, [weaker]);
   assert.equal(merge.changed, false);
   assert.equal(merge.games[0].home.raw.totalYards, '350', 'the stronger prior row is retained');
 });
@@ -613,13 +644,13 @@ test('merge: weaker present-field coverage never replaces stronger prior coverag
 test('merge: explicitly supplied zero-valued statistics are valid authority', () => {
   // A present "0" is real data, not an omission — it persists and can replace
   // an equal-coverage prior row.
-  const fresh = mergeWeeklyGameStats(null, [row(101, 'Alpha', 'Beta', { totalYards: '0' })]);
+  const fresh = mergeLater(null, [row(101, 'Alpha', 'Beta', { totalYards: '0' })]);
   assert.equal(fresh.changed, true);
   assert.equal(fresh.games[0].home.raw.totalYards, '0');
 
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '100' })]);
   const zeroUpdate = row(101, 'Alpha', 'Beta', { totalYards: '0' });
-  const replaced = mergeWeeklyGameStats(prior, [zeroUpdate]);
+  const replaced = mergeLater(prior, [zeroUpdate]);
   assert.equal(replaced.changed, true, 'equal-coverage explicit zeros replace normally');
   assert.equal(replaced.games[0].home.raw.totalYards, '0');
 });
@@ -627,7 +658,7 @@ test('merge: explicitly supplied zero-valued statistics are valid authority', ()
 test('merge: equal or stronger present-field coverage still replaces normally', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '100' })]);
   const stronger = row(101, 'Alpha', 'Beta', { totalYards: '120', rushingYards: '60' });
-  const merge = mergeWeeklyGameStats(prior, [stronger]);
+  const merge = mergeLater(prior, [stronger]);
   assert.equal(merge.changed, true);
   assert.equal(merge.rowsCommitted, 1);
   assert.equal(merge.games[0].home.raw.rushingYards, '60');
@@ -636,8 +667,8 @@ test('merge: equal or stronger present-field coverage still replaces normally', 
 test('merge: dropped keyless rows cannot inflate owner aggregation', () => {
   // Two recovery passes carrying the same malformed keyless duplicate: the
   // merged record holds ONE game, so the owner is credited exactly once.
-  const first = mergeWeeklyGameStats(null, [row(101, 'Alpha', 'Beta'), row(0, 'Alpha', 'Beta')]);
-  const second = mergeWeeklyGameStats(record(first.games), [
+  const first = mergeLater(null, [row(101, 'Alpha', 'Beta'), row(0, 'Alpha', 'Beta')]);
+  const second = mergeLater(record(first.games), [
     row(101, 'Alpha', 'Beta'),
     row(0, 'Alpha', 'Beta'),
   ]);
@@ -675,11 +706,11 @@ test('coverage requires stat authority: a legacy identity-only cached row is NOT
 
 test('a legacy statless row is repaired naturally by a later authoritative row', () => {
   const legacy = record([row(101, 'Alpha', 'Beta', {})]);
-  const repaired = mergeWeeklyGameStats(legacy, [row(101)]);
+  const repaired = mergeLater(legacy, [row(101)]);
   assert.equal(repaired.changed, true);
-  assert.deepEqual(repaired.games[0].home.raw, { totalYards: '100' });
+  assert.deepEqual(repaired.games[0].home.raw, FULL_RAW);
   // Another identity-only response is a truthful no-op: nothing rewritten.
-  const stillLegacy = mergeWeeklyGameStats(legacy, [row(101, 'Alpha', 'Beta', {})]);
+  const stillLegacy = mergeLater(legacy, [row(101, 'Alpha', 'Beta', {})]);
   assert.equal(stillLegacy.changed, false);
   assert.deepEqual(stillLegacy.games, legacy.games, 'prior rows retained untouched');
 });
@@ -687,7 +718,7 @@ test('a legacy statless row is repaired naturally by a later authoritative row',
 test('merge: equal-count but DIFFERENT category sets never replace prior data', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350' })]);
   const differentSet = row(101, 'Alpha', 'Beta', { rushingYards: '150' });
-  const merge = mergeWeeklyGameStats(prior, [differentSet]);
+  const merge = mergeLater(prior, [differentSet]);
   assert.equal(merge.changed, false);
   assert.equal(merge.games[0].home.raw.totalYards, '350', 'cached categories are never erased');
 });
@@ -695,7 +726,7 @@ test('merge: equal-count but DIFFERENT category sets never replace prior data', 
 test('merge: complementary non-superset category sets retain the prior row', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350', firstDowns: '20' })]);
   const complementary = row(101, 'Alpha', 'Beta', { rushingYards: '150', firstDowns: '21' });
-  const merge = mergeWeeklyGameStats(prior, [complementary]);
+  const merge = mergeLater(prior, [complementary]);
   assert.equal(merge.changed, false, 'no synthetic field-merge; whole-row replace or nothing');
   assert.equal(merge.games[0].home.raw.totalYards, '350');
 });
@@ -703,7 +734,7 @@ test('merge: complementary non-superset category sets retain the prior row', () 
 test('merge: a strict per-side category superset replaces; incoming values win', () => {
   const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350' })]);
   const superset = row(101, 'Alpha', 'Beta', { totalYards: '360', rushingYards: '150' });
-  const merge = mergeWeeklyGameStats(prior, [superset]);
+  const merge = mergeLater(prior, [superset]);
   assert.equal(merge.changed, true);
   assert.equal(merge.games[0].home.raw.totalYards, '360');
   assert.equal(merge.games[0].home.raw.rushingYards, '150');
@@ -731,7 +762,7 @@ test('merge: home and away category coverage are evaluated independently', () =>
     } as unknown as GameStats['home'],
     away: { school: 'Beta', raw: { totalYards: '290' } } as unknown as GameStats['away'],
   };
-  const merge = mergeWeeklyGameStats(record([prior]), [incoming]);
+  const merge = mergeLater(record([prior]), [incoming]);
   assert.equal(merge.changed, false, 'one weaker side blocks the whole-row replacement');
   assert.equal(merge.games[0].away.raw.firstDowns, '18');
 });
@@ -740,7 +771,7 @@ test('analytics ignore legacy statless and keyless rows; authoritative zeros sti
   const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
   const roster = new Map([['Alpha', 'OwnerA']]);
   const games = [
-    row(101, 'Alpha', 'Beta', { totalYards: '0' }), // authoritative explicit zero
+    row(101, 'Alpha', 'Beta', FULL_RAW_ZEROS), // complete explicit-zero row
     row(102, 'Alpha', 'Beta', {}), // legacy identity-only zero-fill
     row(0, 'Alpha', 'Beta'), // keyless/malformed legacy row
     row(103, '', ''), // unusable identity
@@ -898,7 +929,7 @@ test('one-sided rows never count toward completeness, availability, or analytics
   // The scheduled game therefore stays recovery-eligible…
   assert.equal(evaluate([scheduleItem({ id: '101' })], [oneSided]).state, 'no-usable-rows');
   // …and a later fully authoritative row repairs it.
-  const repaired = mergeWeeklyGameStats(record([oneSided]), [row(101)]);
+  const repaired = mergeLater(record([oneSided]), [row(101)]);
   assert.equal(repaired.changed, true);
   assert.equal(usableGameStatsGameIds(record(repaired.games)).size, 1);
 });
@@ -912,7 +943,7 @@ test('unknown categories in a prior row never block a recognized-superset replac
     { totalYards: '360', rushingYards: '150' },
     { totalYards: '290', rushingYards: '90' }
   );
-  const merge = mergeWeeklyGameStats(prior, [incoming]);
+  const merge = mergeLater(prior, [incoming]);
   assert.equal(merge.changed, true, 'only RECOGNIZED categories participate in the superset rule');
   assert.equal(merge.games[0].home.raw.rushingYards, '150');
 });
@@ -942,7 +973,7 @@ test('merge: a jsonb-style key-order round trip of an identical row is a truthfu
   );
   // The durable prior comes back with reordered keys at every nesting level.
   const roundTripped = JSON.parse(JSON.stringify(reorderKeys(original))) as GameStats;
-  const merge = mergeWeeklyGameStats(record([roundTripped]), [original]);
+  const merge = mergeLater(record([roundTripped]), [original]);
   assert.equal(merge.changed, false, 'key order must never fabricate a change');
   assert.equal(merge.rowsCommitted, 0);
 });
@@ -952,7 +983,7 @@ test('merge: equality still detects genuinely different values under reordered k
     reorderKeys(sidedRow(101, { totalYards: '350', rushingYards: '150' }, { totalYards: '280' })),
   ]);
   const updated = sidedRow(101, { totalYards: '360', rushingYards: '150' }, { totalYards: '280' });
-  const merge = mergeWeeklyGameStats(prior, [updated]);
+  const merge = mergeLater(prior, [updated]);
   assert.equal(merge.changed, true, 'a changed stat value is a real change');
   assert.equal(merge.games[0].home.raw.totalYards, '360');
 });
@@ -963,6 +994,166 @@ test('merge: array ordering remains significant in row equality', () => {
       ...sidedRow(101, { totalYards: '350' }, { totalYards: '280' }),
       order,
     }) as unknown as GameStats;
-  const merge = mergeWeeklyGameStats(record([withArray([1, 2])]), [withArray([2, 1])]);
+  const merge = mergeLater(record([withArray([1, 2])]), [withArray([2, 1])]);
   assert.equal(merge.changed, true, 'reordered ARRAYS are different data, not key-order noise');
+});
+
+// === Adversarial-review remediation — complete coverage vs persistence authority ===
+
+test('the analytics-required category contract is locked and recognized', () => {
+  assert.deepEqual(
+    [...ANALYTICS_REQUIRED_CATEGORIES].sort(),
+    [
+      'netPassingYards',
+      'possessionTime',
+      'rushingYards',
+      'thirdDownEff',
+      'totalYards',
+      'turnovers',
+    ],
+    'exactly the raw-backed fields addTeamStats consumes — update both together'
+  );
+  for (const category of ANALYTICS_REQUIRED_CATEGORIES) {
+    assert.ok(
+      RECOGNIZED_STAT_CATEGORIES.includes(category),
+      `${category} must be a recognized normalizer category`
+    );
+  }
+});
+
+test('a sparse one-category row is STORED but never complete, available, or analytics-eligible', () => {
+  const sparse = sidedRow(101, { totalYards: '350' }, { totalYards: '280' });
+  assert.equal(isAuthoritativeGameStatsRow(sparse), true, 'sparse rows are real, storable data');
+  assert.equal(hasCompleteStatCoverage(sparse), false);
+  const stored = mergeLater(null, [sparse]);
+  assert.equal(stored.changed, true, 'the sparse row persists');
+  assert.equal(usableGameStatsGameIds(record(stored.games)).size, 0, 'not counted as covered');
+  assert.equal(
+    evaluate([scheduleItem({ id: '101' })], stored.games).state,
+    'no-usable-rows',
+    'the week stays recovery-eligible'
+  );
+  const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+  assert.equal(
+    aggregateOwnerGameStats(stored.games, new Map([['Alpha', 'OwnerA']]), resolver).length,
+    0,
+    'sparse rows never reach analytics — their omitted metrics would be fabricated zeros'
+  );
+});
+
+test('one complete team plus one sparse team remains incomplete', () => {
+  const halfComplete = sidedRow(101, FULL_RAW, { totalYards: '280' });
+  assert.equal(hasCompleteStatCoverage(halfComplete), false);
+  assert.equal(usableGameStatsGameIds(record([halfComplete])).size, 0);
+});
+
+test('explicit zeros across all required categories are complete and analytics-eligible', () => {
+  const zeros = row(101, 'Alpha', 'Beta', FULL_RAW_ZEROS);
+  assert.equal(hasCompleteStatCoverage(zeros), true);
+  assert.equal(usableGameStatsGameIds(record([zeros])).size, 1);
+  const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+  const owners = aggregateOwnerGameStats([zeros], new Map([['Alpha', 'OwnerA']]), resolver);
+  assert.equal(owners.length, 1);
+  assert.equal(owners[0].gamesPlayed, 1, 'a real zero-stat game still counts');
+});
+
+test('a later complete response repairs a sparse stored row', () => {
+  const sparse = mergeLater(null, [sidedRow(101, { totalYards: '350' }, { totalYards: '280' })]);
+  const repaired = mergeLater(record(sparse.games), [row(101)]);
+  assert.equal(repaired.changed, true);
+  assert.equal(hasCompleteStatCoverage(repaired.games[0]), true);
+  assert.equal(usableGameStatsGameIds(record(repaired.games)).size, 1);
+});
+
+// === Adversarial-review remediation — unusable new rows never persist ===
+
+test('a mixed payload persists only the valid row; blank-school rows are dropped', () => {
+  for (const [home, away] of [
+    ['', 'Beta'],
+    ['Alpha', ''],
+  ] as const) {
+    const valid = row(101);
+    const unusable = row(102, home, away); // full stat content, unusable identity
+    const merge = mergeLater(null, [valid, unusable]);
+    assert.deepEqual(
+      merge.games.map((g) => g.providerGameId),
+      [101],
+      `blank ${home === '' ? 'home' : 'away'} school row must not persist`
+    );
+    assert.equal(merge.rowsCommitted, 1, 'dropped rows never count as committed');
+    assert.equal(merge.rowsDroppedUnusable, 1);
+  }
+});
+
+test('repeated recovery does not accumulate unusable rows', () => {
+  const payload = [row(101), row(102, '', 'Beta')];
+  const first = mergeLater(null, payload);
+  const second = mergeLater(record(first.games), payload);
+  assert.equal(second.changed, false, 'the repeat is a truthful no-op');
+  assert.deepEqual(
+    second.games.map((g) => g.providerGameId),
+    [101],
+    'no unusable duplicate accumulates'
+  );
+});
+
+// === Adversarial-review remediation — provider-observation window fencing ===
+
+/** Prior record fetched at a KNOWN completion time for window comparisons. */
+function recordFetchedAt(games: GameStats[], fetchedAt: string): WeeklyGameStats {
+  return { ...record(games), fetchedAt };
+}
+
+const PRIOR_FETCHED_AT = '2026-10-10T12:00:00.000Z';
+const OVERLAPPING = { fetchStartedAt: '2026-10-10T11:59:00.000Z' }; // started before prior completed
+const PROVABLY_LATER = { fetchStartedAt: '2026-10-10T12:00:01.000Z' };
+
+test('an overlapping older snapshot cannot replace a committed same-game row', () => {
+  const prior = recordFetchedAt([row(101, 'Alpha', 'Beta', FULL_RAW)], PRIOR_FETCHED_AT);
+  const differing = row(101, 'Alpha', 'Beta', { ...FULL_RAW, totalYards: '111' });
+  const merge = mergeWeeklyGameStats(prior, [differing], OVERLAPPING);
+  assert.equal(merge.changed, false, 'first-committed wins for overlapping observations');
+  assert.equal(merge.games[0].home.raw.totalYards, FULL_RAW.totalYards);
+});
+
+test('an overlapping strict superset also cannot replace the committed row (no exemption)', () => {
+  const prior = recordFetchedAt(
+    [sidedRow(101, { totalYards: '350' }, { totalYards: '280' })],
+    PRIOR_FETCHED_AT
+  );
+  const superset = row(101, 'Alpha', 'Beta', FULL_RAW);
+  const merge = mergeWeeklyGameStats(prior, [superset], OVERLAPPING);
+  assert.equal(merge.changed, false, 'coverage gain does not override snapshot-order uncertainty');
+});
+
+test('a provably later observation can correct equal-set values and enrich coverage', () => {
+  const prior = recordFetchedAt([row(101, 'Alpha', 'Beta', FULL_RAW)], PRIOR_FETCHED_AT);
+  const corrected = row(101, 'Alpha', 'Beta', { ...FULL_RAW, totalYards: '400' });
+  const equalSet = mergeWeeklyGameStats(prior, [corrected], PROVABLY_LATER);
+  assert.equal(equalSet.changed, true, 'later non-overlapping corrections still flow');
+  assert.equal(equalSet.games[0].home.raw.totalYards, '400');
+
+  const sparsePrior = recordFetchedAt(
+    [sidedRow(101, { totalYards: '350' }, { totalYards: '280' })],
+    PRIOR_FETCHED_AT
+  );
+  const enriched = mergeWeeklyGameStats(sparsePrior, [row(101)], PROVABLY_LATER);
+  assert.equal(enriched.changed, true, 'later supersets still repair sparse rows');
+  assert.equal(hasCompleteStatCoverage(enriched.games[0]), true);
+});
+
+test('overlapping requests still ADD previously absent game ids (union preserved)', () => {
+  const prior = recordFetchedAt([row(101, 'Alpha', 'Beta', FULL_RAW)], PRIOR_FETCHED_AT);
+  const merge = mergeWeeklyGameStats(
+    prior,
+    [row(101, 'Alpha', 'Beta', { ...FULL_RAW, totalYards: '111' }), row(102)],
+    OVERLAPPING
+  );
+  assert.equal(merge.changed, true);
+  assert.deepEqual(
+    merge.games.map((g) => g.providerGameId),
+    [101, 102],
+    'the addition merges while the protected same-game row is retained'
+  );
+  assert.equal(merge.games[0].home.raw.totalYards, FULL_RAW.totalYards, 'no replacement occurred');
 });

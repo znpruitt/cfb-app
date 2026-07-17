@@ -72,6 +72,29 @@ export const RECOGNIZED_STAT_CATEGORIES: readonly string[] = [
   'turnovers',
 ] as const;
 
+/**
+ * The raw-backed categories owner-stat aggregation actually CONSUMES
+ * (`addTeamStats` reads the normalized fields these produce: totalYards,
+ * rushingYards, passingYards←netPassingYards, turnovers, thirdDown*←
+ * thirdDownEff, possessionSeconds←possessionTime). COMPLETE stat coverage —
+ * the bar for a game to count as covered, for cache availability, and for
+ * analytics eligibility — requires ALL of these structurally present on BOTH
+ * teams; a sparse row missing any of them is stored (real partial data) but
+ * stays recovery-eligible and analytics-ineligible, because its omitted
+ * metrics would otherwise aggregate as fabricated zeros. `points` is a
+ * structural wire field (not raw-backed), so its presence cannot be gated
+ * here — documented limitation. Kept next to `RECOGNIZED_STAT_CATEGORIES`
+ * with a contract test so it cannot drift from the aggregation code.
+ */
+export const ANALYTICS_REQUIRED_CATEGORIES: readonly string[] = [
+  'netPassingYards',
+  'possessionTime',
+  'rushingYards',
+  'thirdDownEff',
+  'totalYards',
+  'turnovers',
+] as const;
+
 function statMap(team: RawGameTeamStatsTeam): Record<string, string> {
   const map: Record<string, string> = {};
   for (const entry of team.stats ?? []) {

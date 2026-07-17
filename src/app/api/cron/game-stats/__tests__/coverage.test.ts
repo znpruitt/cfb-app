@@ -50,8 +50,28 @@ function usableRow(providerGameId: number): GameStats {
     seasonType: 'regular',
     // Provider-present stat fields (stat authority) — coverage requires more
     // than identity, and an identity-only cached row would not count.
-    home: { school: 'Alpha', raw: { totalYards: '350' } } as unknown as GameStats['home'],
-    away: { school: 'Beta', raw: { totalYards: '280' } } as unknown as GameStats['away'],
+    home: {
+      school: 'Alpha',
+      raw: {
+        netPassingYards: '200',
+        possessionTime: '29:00',
+        rushingYards: '140',
+        thirdDownEff: '5-12',
+        totalYards: '350',
+        turnovers: '2',
+      },
+    } as unknown as GameStats['home'],
+    away: {
+      school: 'Beta',
+      raw: {
+        netPassingYards: '150',
+        possessionTime: '31:00',
+        rushingYards: '120',
+        thirdDownEff: '4-11',
+        totalYards: '280',
+        turnovers: '1',
+      },
+    } as unknown as GameStats['away'],
   };
 }
 
@@ -127,6 +147,7 @@ type CronBody = {
   year: number;
   results: CronWeekResult[];
   gamesProcessed: number;
+  failedWeeks?: Array<{ week: number; seasonType: string; code: string }>;
   skipped?: string;
   error?: string;
 };
@@ -142,7 +163,14 @@ const DAYS_AGO = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).t
 // Wire stat entries make the row AUTHORITATIVE (provider-present fields) — a
 // teams row with `stats: []` is identity-only and is deliberately never
 // persisted by the merge.
-const WIRE_STATS = [{ category: 'totalYards', stat: '100' }];
+const WIRE_STATS = [
+  { category: 'netPassingYards', stat: '210' },
+  { category: 'possessionTime', stat: '30:00' },
+  { category: 'rushingYards', stat: '150' },
+  { category: 'thirdDownEff', stat: '6-14' },
+  { category: 'totalYards', stat: '360' },
+  { category: 'turnovers', stat: '1' },
+];
 
 function stubTeamStats() {
   globalThis.fetch = (async () =>
@@ -362,10 +390,13 @@ test('a nonempty payload with zero usable rows is a TARGET-LOCAL failure (no wri
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as CronBody;
   // Adversarial-review remediation: target-local validation failures no longer
-  // abort the whole run — the sweep completes (200) with the failure visible
-  // per week and summarized at the top level, never reading as total success.
-  assert.equal(res.status, 200, JSON.stringify(body));
+  // abort the sweep, but a DEGRADED completed sweep returns 502 — HTTP status
+  // is the only signal cron monitoring sees, and Vercel does not auto-retry.
+  assert.equal(res.status, 502, JSON.stringify(body));
   assert.match(String(body.error ?? ''), /game-stats-no-usable-rows/);
+  assert.deepEqual(body.failedWeeks, [
+    { week: WEEK, seasonType: 'regular', code: 'game-stats-no-usable-rows' },
+  ]);
   assert.equal(resultFor(body, WEEK).outcome, 'failed');
   assert.equal(resultFor(body, WEEK).detail, 'game-stats-no-usable-rows');
 
@@ -656,12 +687,17 @@ test('a poison newest slate fails target-locally while the older slate is still 
 
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as CronBody;
-  assert.equal(res.status, 200, JSON.stringify(body));
+  // Degraded completed sweep: fair continuation happened, successes are
+  // durable, and the run is visibly failed to monitoring via 502.
+  assert.equal(res.status, 502, JSON.stringify(body));
   assert.equal(resultFor(body, 4).outcome, 'failed');
   assert.equal(resultFor(body, 4).detail, 'game-stats-no-authoritative-rows');
   assert.equal(resultFor(body, 3).outcome, 'committed', 'the older slate is still attempted');
   assert.deepEqual(stub.requested, ['4:regular', '3:regular']);
   assert.match(String(body.error ?? ''), /failed target-local validation/);
+  assert.deepEqual(body.failedWeeks, [
+    { week: 4, seasonType: 'regular', code: 'game-stats-no-authoritative-rows' },
+  ]);
   assert.equal((await getCachedGameStats(YEAR, 3, 'regular'))?.games.length, 1);
   assert.equal(await getCachedGameStats(YEAR, 4, 'regular'), null, 'no zero-filled row persisted');
 });
@@ -816,6 +852,72 @@ test('a split slate becomes a candidate only after its latest game passes the cu
   const eligibleBody = (await eligible.json()) as CronBody;
   assert.equal(eligible.status, 200, JSON.stringify(eligibleBody));
   assert.equal(resultFor(eligibleBody, 7).outcome, 'committed');
+});
+
+// Adversarial-review remediation — same-game overlap fencing across WRITERS:
+// an overlapping cron and manual refresh with differing values for the same
+// game commit exactly once (first-committed wins; the loser is a no-op).
+test('an overlapping cron and manual refresh with differing same-game values commit once', async () => {
+  await seedScheduleItems([
+    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  const withYards = (totalYards: string) => [
+    {
+      id: 5001,
+      teams: [
+        {
+          teamId: 1,
+          team: 'Alpha',
+          conference: 'X',
+          homeAway: 'home',
+          points: 21,
+          stats: WIRE_STATS.map((entry) =>
+            entry.category === 'totalYards' ? { category: 'totalYards', stat: totalYards } : entry
+          ),
+        },
+        {
+          teamId: 2,
+          team: 'Beta',
+          conference: 'Y',
+          homeAway: 'away',
+          points: 14,
+          stats: WIRE_STATS,
+        },
+      ],
+    },
+  ];
+  const payloads = [withYards('333'), withYards('444')];
+  let call = 0;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(payloads[Math.min(call++, payloads.length - 1)]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+
+  const priorNodeEnv = MUTABLE_ENV.NODE_ENV;
+  const priorAdminToken = MUTABLE_ENV.ADMIN_API_TOKEN;
+  MUTABLE_ENV.NODE_ENV = 'development';
+  MUTABLE_ENV.ADMIN_API_TOKEN = 'test-admin-token';
+  try {
+    const manualRequest = new Request(
+      `https://example.com/api/game-stats?year=${YEAR}&week=3&seasonType=regular&bypassCache=1`,
+      { headers: { 'x-admin-token': 'test-admin-token' } }
+    );
+    await Promise.all([cronGet(cronRequest()), manualGet(manualRequest)]);
+  } finally {
+    if (priorNodeEnv === undefined) delete MUTABLE_ENV.NODE_ENV;
+    else MUTABLE_ENV.NODE_ENV = priorNodeEnv;
+    if (priorAdminToken === undefined) delete MUTABLE_ENV.ADMIN_API_TOKEN;
+    else MUTABLE_ENV.ADMIN_API_TOKEN = priorAdminToken;
+  }
+
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.equal(stored?.games.length, 1, 'the same game never duplicates');
+  assert.ok(
+    ['333', '444'].includes(stored?.games[0]?.home.raw.totalYards ?? ''),
+    'the stored row is exactly one snapshot, never a mix of both'
+  );
 });
 
 // Review remediation — the read→merge→write critical section is shared by the

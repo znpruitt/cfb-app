@@ -2,7 +2,11 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import { isPolicyFcsConference } from '../conferenceSubdivision.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import { isPlaceholderTeamLabel } from '../teamNormalization.ts';
-import { normalizeGameTeamStats, RECOGNIZED_STAT_CATEGORIES } from './normalizers.ts';
+import {
+  ANALYTICS_REQUIRED_CATEGORIES,
+  normalizeGameTeamStats,
+  RECOGNIZED_STAT_CATEGORIES,
+} from './normalizers.ts';
 import type { GameStats, RawGameTeamStats, WeeklyGameStats } from './types.ts';
 
 const RECOGNIZED_CATEGORY_SET = new Set(RECOGNIZED_STAT_CATEGORIES);
@@ -100,18 +104,40 @@ export function isAuthoritativeGameStatsRow(game: GameStats): boolean {
 }
 
 /**
+ * COMPLETE stat coverage — strictly stronger than persistence authority
+ * (adversarial-review remediation): usable identity PLUS every
+ * analytics-consumed raw-backed category (`ANALYTICS_REQUIRED_CATEGORIES`)
+ * structurally present on EACH side. This is the bar for a game to count as
+ * COVERED (recovery may stop), for cache availability, and for analytics
+ * eligibility: a sparse-but-authoritative row (e.g. `totalYards` only) is real
+ * partial data — it is STORED and may be enriched later — but treating it as
+ * complete would stop recovery forever while every omitted metric aggregates
+ * as a fabricated zero. Explicitly supplied zeros of required categories are
+ * present and fully valid; omitted categories are never inferred as zero.
+ */
+export function hasCompleteStatCoverage(game: GameStats): boolean {
+  if (!isUsableGameStatsRow(game)) return false;
+  const sideComplete = (side: GameStats['home'] | GameStats['away']): boolean => {
+    const raw = side?.raw ?? {};
+    return ANALYTICS_REQUIRED_CATEGORIES.every((category) => category in raw);
+  };
+  return sideComplete(game.home) && sideComplete(game.away);
+}
+
+/**
  * The set of canonical game ids (as strings, to match `ScheduleItem.id`) that a
- * cached weekly record actually covers. Coverage requires the SAME minimum stat
- * authority the merge enforces (`isAuthoritativeGameStatsRow`, review
- * remediation): a legacy identity-only row must leave its game recovery-eligible
- * instead of marking the week complete around zero-filled data. Empty for a
- * missing record, a `games: []` record, or a record with no authoritative rows.
+ * cached weekly record actually covers. Coverage requires COMPLETE stat
+ * coverage (`hasCompleteStatCoverage`, adversarial-review remediation), not
+ * mere persistence authority: a sparse or legacy identity-only row must leave
+ * its game recovery-eligible instead of marking the week complete around
+ * zero-filled data. Empty for a missing record, a `games: []` record, or a
+ * record with no complete rows.
  */
 export function usableGameStatsGameIds(record: WeeklyGameStats | null | undefined): Set<string> {
   const ids = new Set<string>();
   if (!record) return ids;
   for (const game of record.games ?? []) {
-    if (isAuthoritativeGameStatsRow(game)) ids.add(String(game.providerGameId));
+    if (hasCompleteStatCoverage(game)) ids.add(String(game.providerGameId));
   }
   return ids;
 }
@@ -333,6 +359,14 @@ export type WeeklyGameStatsMerge = {
    * is never authoritative game stats (review remediation).
    */
   rowsDroppedStatless: number;
+  /**
+   * Keyed, stat-bearing incoming rows DISCARDED because their IDENTITY is
+   * unusable (blank home/away school) and no prior row existed: completeness
+   * could never count them and analytics could never resolve them, so
+   * persisting them would accumulate permanent non-coverage garbage on every
+   * recovery run (review remediation).
+   */
+  rowsDroppedUnusable: number;
   /** Whether the merged content differs from the prior record at all. */
   changed: boolean;
 };
@@ -428,13 +462,28 @@ function coversPriorCategories(incoming: GameStats, prior: GameStats): boolean {
  *     inflate downstream owner aggregation. No fallback key is ever constructed
  *     from team names — identity comes only from the provider id;
  *   - identical incoming data changes nothing (`changed: false`), so callers can
- *     skip the durable rewrite and downstream invalidation entirely.
+ *     skip the durable rewrite and downstream invalidation entirely;
+ *   - REPLACEMENTS are additionally fenced by the provider-OBSERVATION window
+ *     (adversarial-review remediation): CFBD supplies no observation timestamp,
+ *     and neither lock order, commit time, nor request completion proves which
+ *     payload is newer — the only sound evidence is that the incoming request
+ *     STARTED after the stored record's fetch COMPLETED (disjoint, provably
+ *     later windows). An overlapping or indeterminate window keeps the FIRST
+ *     COMMITTED row for every replacement — equal sets AND strict supersets
+ *     alike (no superset exemption during overlap) — while ADDING a previously
+ *     absent game id is always allowed (union preservation). A later
+ *     non-overlapping fetch may correct equal-set values, enrich coverage, or
+ *     replace sparse data with complete data.
  * Identity comes only from ids already on the rows — this merges rows, it never
  * creates game identity from provider stats.
  */
 export function mergeWeeklyGameStats(
   prior: WeeklyGameStats | null | undefined,
-  incoming: readonly GameStats[]
+  incoming: readonly GameStats[],
+  observation: {
+    /** When the provider request that produced `incoming` was started. */
+    fetchStartedAt: string;
+  }
 ): WeeklyGameStatsMerge {
   const merged: GameStats[] = [...(prior?.games ?? [])];
   const indexByKey = new Map<string, number>();
@@ -444,10 +493,22 @@ export function mergeWeeklyGameStats(
     if (key !== null && !indexByKey.has(key)) indexByKey.set(key, index);
   });
 
+  // Replacements require the incoming observation to have STARTED after the
+  // stored record's fetch COMPLETED. Unparseable/missing evidence (legacy
+  // records without timestamps) is indeterminate → first-committed wins.
+  const incomingStarted = Date.parse(observation.fetchStartedAt);
+  const priorCompleted = prior ? Date.parse(prior.fetchedAt) : Number.NaN;
+  const observationProvablyLater =
+    prior == null ||
+    (Number.isFinite(incomingStarted) &&
+      Number.isFinite(priorCompleted) &&
+      incomingStarted > priorCompleted);
+
   let rowsCommitted = 0;
   let replacedCount = 0;
   let rowsDroppedKeyless = 0;
   let rowsDroppedStatless = 0;
+  let rowsDroppedUnusable = 0;
   for (const row of incoming) {
     const key = mergeKey(row);
     if (key === null) {
@@ -463,13 +524,23 @@ export function mergeWeeklyGameStats(
         rowsDroppedStatless += 1;
         continue;
       }
+      if (!isUsableGameStatsRow(row)) {
+        // Stat content but UNUSABLE identity (blank school): completeness could
+        // never count it and analytics could never resolve it, so persisting it
+        // would accumulate permanent non-coverage garbage on every recovery run
+        // (review remediation) — full row authority is required to append.
+        rowsDroppedUnusable += 1;
+        continue;
+      }
       merged.push(row);
       indexByKey.set(key, merged.length - 1);
       rowsCommitted += 1;
       continue;
     }
-    // Non-authoritative content never replaces a prior row of any kind.
+    // Non-authoritative content never replaces a prior row of any kind, and NO
+    // replacement is allowed from an overlapping/indeterminate observation.
     if (!authoritativeContent) continue;
+    if (!observationProvablyLater) continue;
     const priorRow = merged[priorIndex];
     if (isUsableGameStatsRow(priorRow)) {
       // A usable prior row is replaced only by a usable incoming row whose
@@ -492,6 +563,7 @@ export function mergeWeeklyGameStats(
     rowsRetained: (prior?.games.length ?? 0) - replacedCount,
     rowsDroppedKeyless,
     rowsDroppedStatless,
+    rowsDroppedUnusable,
     changed: rowsCommitted > 0,
   };
 }

@@ -50,9 +50,16 @@ function makeTeam(school: string, points: number, homeAway: 'home' | 'away'): Te
     kickReturnTDs: 0,
     puntReturnYards: 0,
     puntReturnTDs: 0,
-    // Provider-present stat fields: analytics require stat AUTHORITY (an empty
-    // raw map is a legacy identity-only shape and is deliberately ignored).
-    raw: { totalYards: String(points * 10) },
+    // All analytics-required categories present: analytics require COMPLETE
+    // stat coverage (sparse or legacy identity-only rows are ignored).
+    raw: {
+      netPassingYards: '100',
+      possessionTime: '30:00',
+      rushingYards: '100',
+      thirdDownEff: '5-12',
+      totalYards: String(points * 10),
+      turnovers: '1',
+    },
   };
 }
 

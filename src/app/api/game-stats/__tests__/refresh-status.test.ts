@@ -21,7 +21,14 @@ const ORIGINAL_FETCH = globalThis.fetch;
 const ADMIN_TOKEN = 'test-admin-token';
 // Wire stat entries make a row AUTHORITATIVE (provider-present fields); a
 // teams row with `stats: []` is identity-only and never persisted by the merge.
-const WIRE_STATS = [{ category: 'totalYards', stat: '100' }];
+const WIRE_STATS = [
+  { category: 'netPassingYards', stat: '210' },
+  { category: 'possessionTime', stat: '30:00' },
+  { category: 'rushingYards', stat: '150' },
+  { category: 'thirdDownEff', stat: '6-14' },
+  { category: 'totalYards', stat: '360' },
+  { category: 'turnovers', stat: '1' },
+];
 
 function adminRefresh(): Request {
   return new Request(
@@ -478,4 +485,70 @@ test('a failed durable write releases the week lock; the next refresh succeeds',
   assert.equal(retried.status, 200, 'the lock is not poisoned by the failed write');
   const stored = await getCachedGameStats(2026, 3, 'regular');
   assert.equal(stored?.games.length, 1, 'the retry committed normally');
+});
+
+// Adversarial-review remediation — same-game overlap fencing at the route
+// level: two overlapping manual refreshes with DIFFERING values for the same
+// game commit exactly once; the overlapped loser resolves as a truthful no-op.
+test('overlapping manual refreshes with differing same-game values commit exactly once', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  const payloadWithYards = (totalYards: string) => [
+    {
+      id: 5001,
+      teams: [
+        {
+          teamId: 1,
+          team: 'Alpha',
+          conference: 'X',
+          homeAway: 'home',
+          points: 21,
+          stats: [
+            { category: 'netPassingYards', stat: '210' },
+            { category: 'possessionTime', stat: '30:00' },
+            { category: 'rushingYards', stat: '150' },
+            { category: 'thirdDownEff', stat: '6-14' },
+            { category: 'totalYards', stat: totalYards },
+            { category: 'turnovers', stat: '1' },
+          ],
+        },
+        {
+          teamId: 2,
+          team: 'Beta',
+          conference: 'Y',
+          homeAway: 'away',
+          points: 14,
+          stats: [
+            { category: 'netPassingYards', stat: '150' },
+            { category: 'possessionTime', stat: '30:00' },
+            { category: 'rushingYards', stat: '120' },
+            { category: 'thirdDownEff', stat: '4-11' },
+            { category: 'totalYards', stat: '280' },
+            { category: 'turnovers', stat: '2' },
+          ],
+        },
+      ],
+    },
+  ];
+  const payloads = [payloadWithYards('333'), payloadWithYards('444')];
+  let call = 0;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(payloads[Math.min(call++, payloads.length - 1)]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+
+  const [a, b] = await Promise.all([GET(adminRefresh()), GET(adminRefresh())]);
+  const bodies = [
+    (await a.json()) as { meta: { outcome?: string } },
+    (await b.json()) as { meta: { outcome?: string } },
+  ];
+  const committed = bodies.filter((body) => body.meta.outcome === 'committed');
+  assert.equal(committed.length, 1, 'exactly one overlapping refresh commits (first wins)');
+
+  const stored = await getCachedGameStats(2026, 3, 'regular');
+  assert.equal(stored?.games.length, 1);
+  assert.ok(
+    ['333', '444'].includes(stored?.games[0]?.home.raw.totalYards ?? ''),
+    'the stored row is exactly one snapshot, never a mix'
+  );
 });

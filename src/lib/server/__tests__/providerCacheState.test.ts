@@ -126,10 +126,50 @@ test('a game-stats cache of only identity-only rows is absent; an authoritative 
         providerGameId: 201,
         week: 2,
         seasonType: 'regular',
+        home: {
+          school: 'Alabama',
+          raw: {
+            netPassingYards: '200',
+            possessionTime: '29:00',
+            rushingYards: '140',
+            thirdDownEff: '5-12',
+            totalYards: '350',
+            turnovers: '2',
+          },
+        },
+        away: {
+          school: 'Georgia',
+          raw: {
+            netPassingYards: '150',
+            possessionTime: '31:00',
+            rushingYards: '120',
+            thirdDownEff: '4-11',
+            totalYards: '280',
+            turnovers: '1',
+          },
+        },
+      },
+    ],
+  });
+  assert.equal((await getProviderCacheStates(YEAR))['game-stats'], 'available');
+});
+
+test('a game-stats cache of only SPARSE rows is absent (no complete coverage)', async () => {
+  await setAppState('game-stats', `${YEAR}:3:regular`, {
+    year: YEAR,
+    week: 3,
+    seasonType: 'regular',
+    fetchedAt: '2026-10-01T00:00:00.000Z',
+    games: [
+      {
+        providerGameId: 301,
+        week: 3,
+        seasonType: 'regular',
+        // Usable identity, real partial data — but not complete coverage.
         home: { school: 'Alabama', raw: { totalYards: '350' } },
         away: { school: 'Georgia', raw: { totalYards: '280' } },
       },
     ],
   });
-  assert.equal((await getProviderCacheStates(YEAR))['game-stats'], 'available');
+  assert.equal((await getProviderCacheStates(YEAR))['game-stats'], 'absent');
 });

@@ -93,8 +93,28 @@ function gameStatsRow(providerGameId: number) {
     seasonType: 'regular' as const,
     // Provider-present stat fields: coverage requires stat AUTHORITY, not just
     // identity — an identity-only row must not count as covered.
-    home: { school: 'Alabama', raw: { totalYards: '350' } },
-    away: { school: 'Georgia', raw: { totalYards: '280' } },
+    home: {
+      school: 'Alabama',
+      raw: {
+        netPassingYards: '200',
+        possessionTime: '29:00',
+        rushingYards: '140',
+        thirdDownEff: '5-12',
+        totalYards: '350',
+        turnovers: '2',
+      },
+    },
+    away: {
+      school: 'Georgia',
+      raw: {
+        netPassingYards: '150',
+        possessionTime: '31:00',
+        rushingYards: '120',
+        thirdDownEff: '4-11',
+        totalYards: '280',
+        turnovers: '1',
+      },
+    },
   };
 }
 
