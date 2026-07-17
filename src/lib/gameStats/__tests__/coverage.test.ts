@@ -916,3 +916,53 @@ test('unknown categories in a prior row never block a recognized-superset replac
   assert.equal(merge.changed, true, 'only RECOGNIZED categories participate in the superset rule');
   assert.equal(merge.games[0].home.raw.rushingYards, '150');
 });
+
+// === Review remediation — structural equality independent of jsonb key order ===
+
+/** Recursively rebuild `value` with every object's keys in REVERSED order —
+ * simulating the Postgres `jsonb` round-trip, which does not preserve key
+ * insertion order. */
+function reorderKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => reorderKeys(item)) as unknown as T;
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).reverse()) {
+      out[key] = reorderKeys((value as Record<string, unknown>)[key]);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+test('merge: a jsonb-style key-order round trip of an identical row is a truthful no-op', () => {
+  const original = sidedRow(
+    101,
+    { totalYards: '350', rushingYards: '150' },
+    { totalYards: '280', firstDowns: '18' }
+  );
+  // The durable prior comes back with reordered keys at every nesting level.
+  const roundTripped = JSON.parse(JSON.stringify(reorderKeys(original))) as GameStats;
+  const merge = mergeWeeklyGameStats(record([roundTripped]), [original]);
+  assert.equal(merge.changed, false, 'key order must never fabricate a change');
+  assert.equal(merge.rowsCommitted, 0);
+});
+
+test('merge: equality still detects genuinely different values under reordered keys', () => {
+  const prior = record([
+    reorderKeys(sidedRow(101, { totalYards: '350', rushingYards: '150' }, { totalYards: '280' })),
+  ]);
+  const updated = sidedRow(101, { totalYards: '360', rushingYards: '150' }, { totalYards: '280' });
+  const merge = mergeWeeklyGameStats(prior, [updated]);
+  assert.equal(merge.changed, true, 'a changed stat value is a real change');
+  assert.equal(merge.games[0].home.raw.totalYards, '360');
+});
+
+test('merge: array ordering remains significant in row equality', () => {
+  const withArray = (order: number[]): GameStats =>
+    ({
+      ...sidedRow(101, { totalYards: '350' }, { totalYards: '280' }),
+      order,
+    }) as unknown as GameStats;
+  const merge = mergeWeeklyGameStats(record([withArray([1, 2])]), [withArray([2, 1])]);
+  assert.equal(merge.changed, true, 'reordered ARRAYS are different data, not key-order noise');
+});

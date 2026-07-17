@@ -27,6 +27,8 @@ type ScheduleItemSeed = {
   status: string;
   homeTeam: string;
   awayTeam: string;
+  homeConference?: string;
+  awayConference?: string;
 };
 
 function seedScheduleItems(items: ScheduleItemSeed[]) {
@@ -1095,5 +1097,95 @@ test('a legacy identity-only cached row does not satisfy coverage (recovery-elig
   assert.ok(
     diagnostics.find((d) => d.dataset === 'game-stats'),
     'a zero-filled legacy row must not mark the week complete'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Review remediation — the missing-stats WARNING anchors on the newest
+// completed stat slate whose expected set is nonempty: a newer no-expected
+// slate (FCS-vs-FCS-only, unverifiable-only) must not absorb the "latest" slot
+// and downgrade the newest applicable missing slate to backfill info.
+// ---------------------------------------------------------------------------
+
+test('a newer FCS-only slate does not downgrade the newest applicable missing slate', async () => {
+  await seedScheduleItems([
+    // Newest completed slate: positively classified FCS-vs-FCS only → expects nothing.
+    {
+      id: '201',
+      week: 2,
+      seasonType: 'regular',
+      startDate: '2026-10-13T20:00:00.000Z', // newer than week 1, still > 6h old
+      status: 'STATUS_FINAL',
+      homeTeam: 'Montana',
+      awayTeam: 'Montana State',
+      homeConference: 'Big Sky',
+      awayConference: 'Big Sky',
+    },
+    // Older applicable slate with a provider-addressable id and no stats.
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+    },
+    {
+      id: '102',
+      week: 3,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
+    },
+  ]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const warning = diagnostics.find(
+    (d) =>
+      d.dataset === 'game-stats' &&
+      d.severity === 'warning' &&
+      /no cached game stats/i.test(d.message)
+  );
+  assert.ok(warning, 'the newest APPLICABLE missing slate keeps warning severity');
+  assert.match(warning!.message, /week 1 regular/, 'the applicable slate is the anchor');
+});
+
+test('an unverifiable-only newer slate does not downgrade the applicable missing warning', async () => {
+  await seedScheduleItems([
+    {
+      // Synthetic id → unverifiable, expects nothing.
+      id: '2-Alabama-Georgia',
+      week: 2,
+      seasonType: 'regular',
+      startDate: '2026-10-13T20:00:00.000Z',
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+    },
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
+    },
+  ]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find(
+      (d) =>
+        d.dataset === 'game-stats' &&
+        d.severity === 'warning' &&
+        /week 1 regular.*no cached game stats/i.test(d.message)
+    ),
+    'the applicable slate keeps its warning'
+  );
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats' && /provider-addressable/i.test(d.message)),
+    'the unverifiable slate stays separately visible'
   );
 });

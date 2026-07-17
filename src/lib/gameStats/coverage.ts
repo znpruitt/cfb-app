@@ -347,12 +347,34 @@ function mergeKey(row: GameStats): string | null {
 }
 
 /**
- * Best-effort row equality. Rows are produced by the one shared normalizer, so a
- * stable field order makes JSON comparison reliable; a false negative merely
- * causes a redundant (harmless) rewrite, never data loss.
+ * STRUCTURAL equality, independent of object-key order at every nesting level
+ * (review remediation): durable storage is Postgres `jsonb`, which does NOT
+ * preserve object key insertion order, so a cached prior row can round-trip
+ * with keys ordered differently from an identical freshly normalized row. A
+ * stringify comparison would then misread every identical refresh of a partial
+ * week as a change — rewriting the record and recording a successful commit
+ * where a truthful no-op belongs. Array order stays significant; value types
+ * and values must match exactly.
  */
+function structurallyEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, index) => structurallyEqual(item, b[index]));
+  }
+  if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+    const aRecord = a as Record<string, unknown>;
+    const bRecord = b as Record<string, unknown>;
+    const aKeys = Object.keys(aRecord);
+    if (aKeys.length !== Object.keys(bRecord).length) return false;
+    return aKeys.every((key) => key in bRecord && structurallyEqual(aRecord[key], bRecord[key]));
+  }
+  return false;
+}
+
+/** Row equality for merge no-op detection — see `structurallyEqual`. */
 function rowsEqual(a: GameStats, b: GameStats): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return structurallyEqual(a, b);
 }
 
 /**

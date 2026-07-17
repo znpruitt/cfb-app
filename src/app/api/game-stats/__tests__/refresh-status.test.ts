@@ -209,6 +209,77 @@ test('manual refresh: an identity-only payload is a visible no-authoritative-row
   assert.equal(status.lastSuccessAt, null, 'no last-success advance for zero coverage');
 });
 
+// Review remediation — Postgres `jsonb` does not preserve object key order, so
+// an identical refresh over a key-reordered durable record must still be a
+// truthful no-op (no rewrite, no last-success advance).
+test('manual refresh: identical data over a jsonb-key-reordered durable record is a no-op', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  const payload = [
+    {
+      id: 5001,
+      teams: [
+        {
+          teamId: 1,
+          team: 'Alpha',
+          conference: 'X',
+          homeAway: 'home',
+          points: 21,
+          stats: WIRE_STATS,
+        },
+        {
+          teamId: 2,
+          team: 'Beta',
+          conference: 'Y',
+          homeAway: 'away',
+          points: 14,
+          stats: WIRE_STATS,
+        },
+      ],
+    },
+  ];
+  stubJson(payload);
+  const first = await GET(adminRefresh());
+  assert.equal(first.status, 200);
+
+  // Simulate the jsonb round trip: rewrite the stored record with every
+  // object's keys reversed at every nesting level.
+  const reorderKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(reorderKeys);
+    if (value !== null && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(value as Record<string, unknown>).reverse()) {
+        out[key] = reorderKeys((value as Record<string, unknown>)[key]);
+      }
+      return out;
+    }
+    return value;
+  };
+  const committed = await getCachedGameStats(2026, 3, 'regular');
+  assert.ok(committed);
+  await setCachedGameStats(reorderKeys(committed) as NonNullable<typeof committed>);
+  const successAfterFirst = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
+
+  stubJson(payload);
+  const second = await GET(adminRefresh());
+  assert.equal(second.status, 200);
+  const body = (await second.json()) as { meta: { outcome?: string; noopReason?: string } };
+  assert.equal(body.meta.outcome, 'noop', 'key order alone must never fabricate a change');
+  assert.equal(body.meta.noopReason, 'no-new-rows');
+
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
+  assert.equal(
+    status.lastSuccessAt,
+    successAfterFirst.lastSuccessAt,
+    'no last-success advance for a key-order-only difference'
+  );
+});
+
 // === PLATFORM-086H — the manual refresh shares the cron's merge contract ===
 
 test('manual refresh: a partial provider response merges with prior-good rows, never replaces them', async () => {

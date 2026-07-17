@@ -344,11 +344,18 @@ export async function getProviderDataDiagnostics(
       }
 
       if (missing.length > 0) {
-        const latest = completedStatSlates[0];
-        const latestMissing = missing.some(
-          (s) => s.week === latest.week && s.seasonType === latest.seasonType
+        // The warning severity anchors on the newest completed stat slate that
+        // actually EXPECTS coverage (review remediation): a newer slate with an
+        // empty expected set — FCS-vs-FCS-only, all-unverifiable, or otherwise
+        // not applicable — must not absorb the "latest" slot and silently
+        // downgrade the newest applicable missing slate to backfill info.
+        const latest = completedStatSlates.find(
+          (s) => (expectedBySlate.get(slateKey(s.week, s.seasonType))?.expectedIds.size ?? 0) > 0
         );
-        if (latestMissing) {
+        const latestMissing =
+          latest !== undefined &&
+          missing.some((s) => s.week === latest.week && s.seasonType === latest.seasonType);
+        if (latest && latestMissing) {
           push(
             'game-stats',
             'warning',
@@ -356,7 +363,7 @@ export async function getProviderDataDiagnostics(
           );
         }
         const older = missing.filter(
-          (s) => !(s.week === latest.week && s.seasonType === latest.seasonType)
+          (s) => !(latest && s.week === latest.week && s.seasonType === latest.seasonType)
         );
         if (older.length > 0) {
           push(
