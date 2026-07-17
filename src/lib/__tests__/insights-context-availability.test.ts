@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { setCachedGameStats } from '../gameStats/cache.ts';
-import { completeLegacyRow, statlessLegacyRow } from '../gameStats/__tests__/fixtures.ts';
+import {
+  completeLegacyRow,
+  prototypeNamedCategoryLegacyRow,
+  statlessLegacyRow,
+} from '../gameStats/__tests__/fixtures.ts';
 import { buildOwnerCareerStats, loadOwnerSeasonStats } from '../insights/context.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import { __deleteAppStateFileForTests, __resetAppStateForTests } from '../server/appStateStore.ts';
@@ -70,6 +74,16 @@ test('eligible owner aggregates → available with stats', async () => {
   assert.equal(alice!.totalYards, 412);
 });
 
+test('a prototype-named category row does not suppress Insights availability', async () => {
+  // One poisoned row in the same partition must neither crash owner-stat
+  // loading nor degrade the season to unavailable.
+  await seedWeek(2024, [completeLegacyRow(75), prototypeNamedCategoryLegacyRow(76)]);
+  const result = await loadOwnerSeasonStats('avail-proto', 2024, roster, []);
+  assert.equal(result.state, 'available');
+  const stats = result.state === 'available' ? result.stats : [];
+  assert.equal(stats.find((s) => s.owner === 'Alice')?.gamesPlayed, 1);
+});
+
 function minimalArchive(year: number, rosterCsv: string): SeasonArchive {
   return {
     leagueSlug: 'avail-career',
@@ -87,8 +101,10 @@ test('career totals: compatible years contribute; zero-eligible years read as ca
   // 2023: only an analytics-ineligible (statless) row — cache key exists but
   // must NOT be reported as available, and must contribute no totals.
   await seedWeek(2023, [statlessLegacyRow(80)]);
-  // 2024: a compatible legacy row that must keep contributing career yards.
-  await seedWeek(2024, [completeLegacyRow(81)]);
+  // 2024: a compatible legacy row that must keep contributing career yards —
+  // alongside a prototype-named-category row that must not knock the whole
+  // historical season out of career aggregation.
+  await seedWeek(2024, [completeLegacyRow(81), prototypeNamedCategoryLegacyRow(82)]);
 
   const rosterCsv = 'Team,Owner\nAlpha State,Alice\nBeta Tech,Bob';
   const { ownerCareerStats, diagnosticsByYear } = await buildOwnerCareerStats({

@@ -30,10 +30,79 @@ import {
   malformedRequiredLegacyRow,
   missingRequiredLegacyRow,
   normalizedMismatchLegacyRow,
+  prototypeNamedCategoryLegacyRow,
   statlessLegacyRow,
   v2RowLike,
   wireGame,
 } from './fixtures.ts';
+
+// PLATFORM-086H1-PROTOTYPE-SAFE-CATEGORY-LOOKUP-REMEDIATION-v1: untrusted
+// provider categories named after Object.prototype members must resolve as
+// unknown categories via an own-property guard — never as inherited object
+// values, and never as a thrown TypeError anywhere downstream.
+const PROTOTYPE_NAMED_CATEGORIES = [
+  'toString',
+  'constructor',
+  'hasOwnProperty',
+  'valueOf',
+  '__proto__',
+] as const;
+
+test('prototype-named categories always resolve as unknown, never as inherited specs', () => {
+  for (const category of PROTOTYPE_NAMED_CATEGORIES) {
+    const result = parseCategoryValue(category, '3');
+    assert.deepEqual(result, { status: 'unknown-category' }, category);
+  }
+});
+
+test('prototype-named categories never crash classification or establish authority', () => {
+  // A v2 row carrying ONLY prototype-named categories takes the normal
+  // unknown-only path and returns a valid typed result.
+  const unknownOnly = classifyGameStatsRow(
+    v2RowLike({
+      homeRaw: { ['toString']: '3', ['__proto__']: 'x' },
+      awayRaw: { ['constructor']: '55' },
+    })
+  );
+  assert.equal(unknownOnly.state, 'non-persistable-unknown-only');
+
+  // A legacy row carrying only prototype-named categories classifies through
+  // the normal malformed path (required categories missing) without throwing.
+  assert.equal(classifyGameStatsRow(prototypeNamedCategoryLegacyRow()).state, 'legacy-malformed');
+
+  // A complete row with an ADDITIONAL prototype-named category stays complete
+  // on the strength of its valid recognized required evidence alone.
+  const completeRaw = {
+    totalYards: '412',
+    rushingYards: '187',
+    netPassingYards: '225',
+    turnovers: '1',
+    thirdDownEff: '6-14',
+    possessionTime: '31:24',
+  };
+  const completePlus = v2RowLike({
+    homeRaw: { ...completeRaw, ['toString']: '55' },
+    awayRaw: { ...completeRaw, ['hasOwnProperty']: '1' },
+  });
+  assert.equal(classifyGameStatsRow(completePlus).state, 'v2-complete');
+  assert.equal(isCompleteStatRow(completePlus), true);
+  const legacyRow = completeLegacyRow(77);
+  const legacyPlus = {
+    ...legacyRow,
+    home: { ...legacyRow.home, raw: { ...legacyRow.home.raw, ['valueOf']: '1' } },
+  };
+  assert.equal(classifyGameStatsRow(legacyPlus).state, 'legacy-compatible');
+
+  // Prototype-named categories establish NO persistence authority.
+  const wire = wireGame();
+  wire.teams = wire.teams.map((t) => ({
+    ...t,
+    stats: [{ category: 'toString', stat: '3' }],
+  }));
+  const parsed = parseV2GameObservation(wire);
+  assert.ok(parsed.ok);
+  assert.equal(isPersistableIncomingRow(parsed.ok ? parsed.observation : (null as never)), false);
+});
 
 // === Category specification ===
 

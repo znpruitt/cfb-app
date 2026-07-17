@@ -179,8 +179,14 @@ function parsePair(value: string): { first: number; second: number } | null {
  * outside the contract).
  */
 export function parseCategoryValue(category: string, value: unknown): CategoryParseResult {
-  const spec = GAME_STAT_CATEGORY_SPECS[category];
-  if (!spec) return { status: 'unknown-category' };
+  // Own-property guard: the spec map is a normal object, so an untrusted
+  // provider category named after an Object.prototype member (`toString`,
+  // `constructor`, `__proto__`, …) would otherwise resolve to an inherited
+  // function instead of "unknown" and crash the switch below.
+  if (!Object.prototype.hasOwnProperty.call(GAME_STAT_CATEGORY_SPECS, category)) {
+    return { status: 'unknown-category' };
+  }
+  const spec = GAME_STAT_CATEGORY_SPECS[category]!;
   if (typeof value !== 'string') return { status: 'malformed' };
 
   switch (spec.kind) {

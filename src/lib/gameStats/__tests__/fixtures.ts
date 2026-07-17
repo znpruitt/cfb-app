@@ -205,6 +205,21 @@ export function normalizedMismatchLegacyRow(id = 401_000_010): GameStats {
   return { ...row, home: { ...row.home, totalYards: row.home.totalYards + 25 } };
 }
 
+/**
+ * synthesized: a row whose raw map carries only categories named after
+ * `Object.prototype` members. Untrusted provider category strings must resolve
+ * as unknown categories — never as inherited object values — so this row must
+ * classify through the normal malformed path without throwing.
+ */
+export function prototypeNamedCategoryLegacyRow(id = 401_000_012): GameStats {
+  const row = completeLegacyRow(id);
+  return {
+    ...row,
+    home: { ...row.home, raw: { ['toString']: '55', ['constructor']: '3' } },
+    away: { ...row.away, raw: { ['valueOf']: '1', ['hasOwnProperty']: '2' } },
+  };
+}
+
 /** synthesized: unusable identity (blank school) on a legacy row. */
 export function blankSchoolLegacyRow(id = 401_000_011): GameStats {
   const row = completeLegacyRow(id);

@@ -12,6 +12,7 @@ import {
   malformedOptionalLegacyRow,
   malformedRequiredLegacyRow,
   normalizedMismatchLegacyRow,
+  prototypeNamedCategoryLegacyRow,
   statlessLegacyRow,
   v2RowLike,
   wireGame,
@@ -103,6 +104,20 @@ test('ineligible rows contribute nothing — no fabricated zero games', () => {
   );
   // Only the single eligible game may appear.
   assert.equal(ownerRow(stats, 'Alice').gamesPlayed, 1);
+});
+
+test('a prototype-named category row cannot crash or suppress aggregation', () => {
+  // One unrelated row carrying only Object.prototype-named categories must not
+  // throw for the whole scope; it is excluded by normal classification while
+  // the valid row keeps producing owner statistics.
+  const stats = aggregateOwnerGameStats(
+    [completeLegacyRow(1), prototypeNamedCategoryLegacyRow(2)],
+    roster,
+    resolver
+  );
+  const alice = ownerRow(stats, 'Alice');
+  assert.equal(alice.gamesPlayed, 1);
+  assert.equal(alice.totalYards, 412);
 });
 
 test('current legacy and v2 rows for different games aggregate together', () => {
