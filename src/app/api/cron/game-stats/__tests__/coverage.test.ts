@@ -576,6 +576,41 @@ test('a synthetic schedule id never creates a false expectation or endless recov
   );
 });
 
+// Review remediation — a malformed keyless provider row (negative/non-numeric
+// id) is never persisted, so repeated recovery of a still-incomplete week
+// cannot accumulate duplicates.
+test('a keyless malformed provider row is never persisted and cannot accumulate across runs', async () => {
+  await seedScheduleItems([
+    { id: '3001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+    { id: '3002', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+  ]);
+  const malformed = {
+    id: -5,
+    teams: [
+      { teamId: 91, team: 'Junk A', conference: 'X', homeAway: 'home', points: 1, stats: [] },
+      { teamId: 92, team: 'Junk B', conference: 'Y', homeAway: 'away', points: 2, stats: [] },
+    ],
+  };
+  stubJson([rawGame(3001), malformed]);
+  const first = (await (await cronGet(cronRequest())).json()) as CronBody;
+  assert.equal(resultFor(first, 3).outcome, 'committed');
+  assert.deepEqual(
+    (await getCachedGameStats(YEAR, 3, 'regular'))?.games.map((g) => g.providerGameId),
+    [3001],
+    'the keyless row is dropped at merge time'
+  );
+
+  // The still-partial week is retried with the SAME malformed payload.
+  stubJson([rawGame(3001), malformed]);
+  const second = (await (await cronGet(cronRequest())).json()) as CronBody;
+  assert.equal(resultFor(second, 3).outcome, 'no-change');
+  assert.deepEqual(
+    (await getCachedGameStats(YEAR, 3, 'regular'))?.games.map((g) => g.providerGameId),
+    [3001],
+    'repeated recovery does not accumulate malformed duplicates'
+  );
+});
+
 // Review remediation — the completion cutoff applies to the WHOLE slate (shared
 // deriveCompletedSlates): a finished Thursday game must not make the week a
 // candidate while a Saturday game is pending or less than six hours old.

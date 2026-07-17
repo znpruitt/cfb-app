@@ -15,6 +15,8 @@ import {
   resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
 } from '../../conferenceSubdivision.ts';
+import { aggregateOwnerGameStats } from '../ownerStats.ts';
+import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 
 function row(providerGameId: number, homeSchool = 'Alpha', awaySchool = 'Beta'): GameStats {
@@ -459,4 +461,51 @@ test('merge: a usable incoming row repairs a previously unusable prior row', () 
   assert.equal(merge.changed, true);
   assert.equal(merge.rowsCommitted, 1);
   assert.equal(merge.games[0].home.school, 'Alpha');
+});
+
+// Review remediation — incoming rows without a canonical merge key are never
+// persisted: they could never be replaced or deduplicated, so every recovery
+// run of a still-incomplete week would append another copy.
+
+test('merge: incoming rows without a canonical merge key are dropped, valid rows persist', () => {
+  const prior = record([row(101)]);
+  const keylessNonNumeric = { ...row(102), providerGameId: 'abc' as unknown as number };
+  const merge = mergeWeeklyGameStats(prior, [row(0), row(-5), keylessNonNumeric, row(103)]);
+  assert.deepEqual(
+    merge.games.map((g) => g.providerGameId),
+    [101, 103],
+    'only the prior-good row and the valid incoming row are persisted'
+  );
+  assert.equal(merge.rowsDroppedKeyless, 3);
+  assert.equal(merge.rowsCommitted, 1);
+});
+
+test('merge: repeated recovery with the same malformed row never accumulates duplicates', () => {
+  const first = mergeWeeklyGameStats(null, [row(101), row(-5)]);
+  assert.deepEqual(
+    first.games.map((g) => g.providerGameId),
+    [101]
+  );
+  const second = mergeWeeklyGameStats(record(first.games), [row(101), row(-5)]);
+  assert.equal(second.changed, false, 'the repeated malformed row forces no rewrite');
+  assert.deepEqual(
+    second.games.map((g) => g.providerGameId),
+    [101],
+    'no duplicate accumulates across recovery runs'
+  );
+});
+
+test('merge: dropped keyless rows cannot inflate owner aggregation', () => {
+  // Two recovery passes carrying the same malformed keyless duplicate: the
+  // merged record holds ONE game, so the owner is credited exactly once.
+  const first = mergeWeeklyGameStats(null, [row(101, 'Alpha', 'Beta'), row(0, 'Alpha', 'Beta')]);
+  const second = mergeWeeklyGameStats(record(first.games), [
+    row(101, 'Alpha', 'Beta'),
+    row(0, 'Alpha', 'Beta'),
+  ]);
+  const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+  const owners = aggregateOwnerGameStats(second.games, new Map([['Alpha', 'OwnerA']]), resolver);
+  assert.equal(owners.length, 1);
+  assert.equal(owners[0].owner, 'OwnerA');
+  assert.equal(owners[0].gamesPlayed, 1, 'the keyless duplicate never reaches aggregation');
 });

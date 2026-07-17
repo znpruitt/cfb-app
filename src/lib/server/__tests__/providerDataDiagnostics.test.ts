@@ -855,3 +855,85 @@ test('a postponed-only old slate still raises a scores diagnostic (not silently 
     'the same disrupted-only slate is never a game-stats expectation'
   );
 });
+
+// ---------------------------------------------------------------------------
+// Review remediation — unverifiable schedule rows (no provider-addressable id)
+// stay diagnostically VISIBLE without becoming ordinary missing stats or cron
+// recovery candidates.
+// ---------------------------------------------------------------------------
+
+test('an unverifiable-only completed slate emits an explicit game-stats warning', async () => {
+  await seedScheduleItems([
+    {
+      // mapCfbdScheduleGame fallback shape when CFBD omits game.id.
+      id: '1-Alabama-Georgia',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+    },
+    {
+      id: '102',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
+    },
+  ]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const unverifiable = diagnostics.find(
+    (d) => d.dataset === 'game-stats' && /provider-addressable/i.test(d.message)
+  );
+  assert.ok(unverifiable, 'the unverifiable-only slate must not be silently skipped');
+  assert.equal(unverifiable!.severity, 'warning');
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats' && /no cached game stats/i.test(d.message)),
+    undefined,
+    'unverifiable rows are not classified as ordinary missing game stats'
+  );
+});
+
+test('a mixed slate reports BOTH missing valid ids and unverifiable rows', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+    },
+    {
+      id: '1-Texas-Oklahoma',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
+    },
+    {
+      id: '103',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Ohio State',
+      awayTeam: 'Michigan',
+    },
+  ]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats' && /no cached game stats/i.test(d.message)),
+    'the valid expected id is still reported as missing'
+  );
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats' && /provider-addressable/i.test(d.message)),
+    'the unverifiable row is reported distinctly'
+  );
+});

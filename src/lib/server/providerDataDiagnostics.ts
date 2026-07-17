@@ -16,6 +16,7 @@ import {
   deriveExpectedGameStatsIds,
   expectsGameStats,
   usableGameStatsGameIds,
+  type ExpectedGameStatsSlate,
 } from '../gameStats/coverage.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
@@ -279,24 +280,34 @@ export async function getProviderDataDiagnostics(
       // expected games, a permanent missing warning (5th-review findings #1/#3).
       // The derivation is deterministic — pure schedule inputs plus the bundled
       // static conference policy; there is no identity-evidence load path.
-      const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
+      const expectedBySlate = new Map<SlateKey, ExpectedGameStatsSlate>();
       for (const slate of completedStatSlates) {
-        const { expectedIds } = deriveExpectedGameStatsIds(
-          scheduleItems,
-          slate.week,
-          slate.seasonType
+        expectedBySlate.set(
+          slateKey(slate.week, slate.seasonType),
+          deriveExpectedGameStatsIds(scheduleItems, slate.week, slate.seasonType)
         );
-        expectedIdsBySlate.set(slateKey(slate.week, slate.seasonType), expectedIds);
       }
 
       const missing: CompletedSlate[] = [];
       const partial: CompletedSlate[] = [];
+      const unverifiable: CompletedSlate[] = [];
+      let unverifiableRows = 0;
       for (const slate of completedStatSlates) {
         const key = slateKey(slate.week, slate.seasonType);
+        const derived = expectedBySlate.get(key);
+        // Unverifiable rows (would-be-expected games with no provider-addressable
+        // id) are NOT ordinary missing stats and never enter the recovery
+        // denominator — but they must stay VISIBLE (review remediation): an
+        // unverifiable-only slate would otherwise be silently skipped with no
+        // operator signal that its stats cannot be verified or recovered.
+        if (derived && derived.unverifiableCount > 0) {
+          unverifiable.push(slate);
+          unverifiableRows += derived.unverifiableCount;
+        }
         // Determine applicability BEFORE checking coverage: a slate with zero
         // expected stat-producing games (e.g. entirely disrupted) is not applicable,
         // so it must not be reported as missing (5th-review finding #3).
-        const expected = expectedIdsBySlate.get(key);
+        const expected = derived?.expectedIds;
         if (!expected || expected.size === 0) continue;
         const covered = coveredIdsBySlate.get(key);
         if (!covered || covered.size === 0) {
@@ -306,6 +317,14 @@ export async function getProviderDataDiagnostics(
         if ([...expected].some((id) => !covered.has(id))) {
           partial.push(slate);
         }
+      }
+
+      if (unverifiable.length > 0) {
+        push(
+          'game-stats',
+          'warning',
+          `${describeSlates(unverifiable)} include ${unverifiableRows} scheduled game(s) without a provider-addressable id — their stats cannot be verified or recovered automatically.`
+        );
       }
 
       if (missing.length > 0) {

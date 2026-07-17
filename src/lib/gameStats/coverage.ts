@@ -235,6 +235,14 @@ export type WeeklyGameStatsMerge = {
   rowsCommitted: number;
   /** Prior rows preserved because the response omitted them or was not authoritative. */
   rowsRetained: number;
+  /**
+   * Incoming rows DISCARDED because they carry no canonical merge key (missing/
+   * zero/negative/non-numeric provider game id). Such a row can never be
+   * addressed, replaced, or deduplicated, so persisting it would let every
+   * recovery run of a still-incomplete week append another copy — accumulating
+   * duplicates that inflate downstream owner aggregation (review remediation).
+   */
+  rowsDroppedKeyless: number;
   /** Whether the merged content differs from the prior record at all. */
   changed: boolean;
 };
@@ -266,6 +274,11 @@ function rowsEqual(a: GameStats, b: GameStats): boolean {
  *   - an incoming row replaces the prior row for its game id only when it is
  *     authoritative — an UNUSABLE incoming row (blank team identity) never
  *     clobbers a usable prior row;
+ *   - an incoming row WITHOUT a canonical merge key is never persisted (review
+ *     remediation): it could never be replaced or deduplicated, so a
+ *     still-incomplete week would append another copy on every recovery run and
+ *     inflate downstream owner aggregation. No fallback key is ever constructed
+ *     from team names — identity comes only from the provider id;
  *   - identical incoming data changes nothing (`changed: false`), so callers can
  *     skip the durable rewrite and downstream invalidation entirely.
  * Identity comes only from ids already on the rows — this merges rows, it never
@@ -285,12 +298,17 @@ export function mergeWeeklyGameStats(
 
   let rowsCommitted = 0;
   let replacedCount = 0;
+  let rowsDroppedKeyless = 0;
   for (const row of incoming) {
     const key = mergeKey(row);
-    const priorIndex = key !== null ? indexByKey.get(key) : undefined;
+    if (key === null) {
+      rowsDroppedKeyless += 1;
+      continue;
+    }
+    const priorIndex = indexByKey.get(key);
     if (priorIndex === undefined) {
       merged.push(row);
-      if (key !== null) indexByKey.set(key, merged.length - 1);
+      indexByKey.set(key, merged.length - 1);
       rowsCommitted += 1;
       continue;
     }
@@ -306,6 +324,7 @@ export function mergeWeeklyGameStats(
     games: merged,
     rowsCommitted,
     rowsRetained: (prior?.games.length ?? 0) - replacedCount,
+    rowsDroppedKeyless,
     changed: rowsCommitted > 0,
   };
 }
