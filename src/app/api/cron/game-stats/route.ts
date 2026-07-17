@@ -130,11 +130,15 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   // against the EXACT week partition this run intends to refresh, never the year
   // rollup (SCOPED-STATUS review v2 #1). A weekly cron never owns the year
   // data-rollup status.
+  // One explicit evaluation time shared by slate completion AND the expected-
+  // coverage lifecycle (stale-placeholder maturity), so both judge the same
+  // instant.
+  const now = Date.now();
   let scheduleItems: ScheduleWireItem[];
   let candidates: CandidateSlate[];
   try {
     scheduleItems = await loadCachedScheduleItems(year);
-    candidates = deriveCompletedStatSlates(scheduleItems, Date.now());
+    candidates = deriveCompletedStatSlates(scheduleItems, now);
   } catch (err) {
     // Local target resolution itself failed (e.g. a durable schedule read error).
     // Use the established cron failure path WITHOUT assigning the failure to any
@@ -170,6 +174,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         week,
         seasonType,
         record: existing,
+        now,
       });
       if (completeness.state === 'complete') {
         results.push({

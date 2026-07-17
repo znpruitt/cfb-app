@@ -55,15 +55,49 @@ export function isUsableGameStatsRow(game: GameStats): boolean {
 }
 
 /**
+ * STAT AUTHORITY, separate from merge identity: how many stat fields the
+ * provider EXPLICITLY supplied for this row, counted from the normalizer's
+ * per-team `raw` category map — which records exactly the fields present on the
+ * wire BEFORE omitted categories are normalized to zero. An explicitly supplied
+ * "0" is present in `raw` and counts (a real zero is valid data); an omitted
+ * category is absent and does not. Deliberately a presence count, never a
+ * nonzero-value heuristic.
+ */
+function statFieldsPresent(row: GameStats): number {
+  return Object.keys(row.home?.raw ?? {}).length + Object.keys(row.away?.raw ?? {}).length;
+}
+
+/**
+ * THE canonical authority contract for a cached/normalized game-stats row
+ * (review remediation), shared by completeness coverage, cache availability,
+ * and owner analytics so no layer can disagree about what counts as real data:
+ * a row is authoritative when it has usable canonical identity
+ * (`isUsableGameStatsRow` — positive provider id + both team identities) AND at
+ * least one structurally present provider stat category. An identity-only row
+ * (valid id and schools, empty `raw` maps — a shape the pre-086H ingestion path
+ * could durably persist from `stats: []`) is NOT authoritative: its normalized
+ * values are all zero-fills, so counting it as coverage would mark the week
+ * complete and leave zero-filled analytics in place forever. Deliberately NOT
+ * used by `classifyGameStatsPayload`: an identity-only payload stays a
+ * merge-level no-op (bounded retry), never a provider failure.
+ */
+export function isAuthoritativeGameStatsRow(game: GameStats): boolean {
+  return isUsableGameStatsRow(game) && statFieldsPresent(game) > 0;
+}
+
+/**
  * The set of canonical game ids (as strings, to match `ScheduleItem.id`) that a
- * cached weekly record actually covers. Empty for a missing record, a `games: []`
- * record, or a record whose every row was dropped.
+ * cached weekly record actually covers. Coverage requires the SAME minimum stat
+ * authority the merge enforces (`isAuthoritativeGameStatsRow`, review
+ * remediation): a legacy identity-only row must leave its game recovery-eligible
+ * instead of marking the week complete around zero-filled data. Empty for a
+ * missing record, a `games: []` record, or a record with no authoritative rows.
  */
 export function usableGameStatsGameIds(record: WeeklyGameStats | null | undefined): Set<string> {
   const ids = new Set<string>();
   if (!record) return ids;
   for (const game of record.games ?? []) {
-    if (isUsableGameStatsRow(game)) ids.add(String(game.providerGameId));
+    if (isAuthoritativeGameStatsRow(game)) ids.add(String(game.providerGameId));
   }
   return ids;
 }
@@ -87,11 +121,31 @@ export type GameStatsScheduleItem = {
   week: number;
   seasonType?: string | null;
   status?: string | null;
+  startDate?: string | null;
   homeTeam?: string | null;
   awayTeam?: string | null;
   homeConference?: string | null;
   awayConference?: string | null;
 };
+
+/**
+ * How long after kickoff a game counts as provably COMPLETED. The single
+ * maturity threshold shared by slate completion (`deriveCompletedSlates` /
+ * `deriveCompletedStatSlates`) and the placeholder recovery lifecycle below —
+ * one policy, no second hard-coded cutoff.
+ */
+export const COMPLETED_GAME_MATURITY_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Whether a schedule row's kickoff is provably past the completion-maturity
+ * cutoff relative to the caller's explicit `now`. Missing or unparseable dates
+ * prove nothing and return false.
+ */
+function hasReachedCompletionMaturity(startDate: string | null | undefined, now: number): boolean {
+  if (typeof startDate !== 'string' || !startDate) return false;
+  const kickoff = new Date(startDate).getTime();
+  return Number.isFinite(kickoff) && kickoff <= now - COMPLETED_GAME_MATURITY_MS;
+}
 
 function normalizeSlateSeasonType(value: unknown): CfbdSeasonType {
   return value === 'postseason' ? 'postseason' : 'regular';
@@ -138,13 +192,21 @@ function isProviderAddressableGameId(id: string): boolean {
  *   - an unresolved matchup — a side blocks expectation only on POSITIVE
  *     placeholder evidence: the shared label predicate (`isPlaceholderTeamLabel`
  *     — TBD/TBA/"to be announced|determined"/"Winner of …"/synthetic slot/
- *     invalid labels). A pattern-valid but otherwise unknown participant STAYS
- *     expected (review remediation): the FBS-only catalog cannot disprove a
- *     real FCS opponent, and wrongly excluding a real game falsely completes
+ *     invalid labels) — and only while the game has NOT provably completed
+ *     (review remediation). A placeholder label on a row whose kickoff is past
+ *     the completion-maturity cutoff is STALE schedule evidence, not proof the
+ *     game is unresolved: no in-season automation refreshes the schedule, so a
+ *     postseason matchup cached pre-resolution keeps its TBD label after the
+ *     game is played — the game is expected by its schedule-provided provider
+ *     id (identity still comes from the schedule row, never from stat rows;
+ *     display participants stay stale until a schedule refresh, which only
+ *     affects naming, not recovery). A dateless/unparseable-date placeholder
+ *     proves nothing and stays suppressed. A pattern-valid but otherwise
+ *     unknown participant STAYS expected: the FBS-only catalog cannot disprove
+ *     a real FCS opponent, and wrongly excluding a real game falsely completes
  *     the week and silently suppresses recovery, while wrongly including a junk
  *     label costs one bounded weekly retry that self-heals when the schedule
- *     resolves. Once the schedule resolves a matchup the game enters the
- *     expected set on the next evaluation;
+ *     resolves;
  *   - an FCS-vs-FCS pairing, excluded only when BOTH conferences positively
  *     classify FCS via the pure, static present-day policy
  *     (`isPolicyFcsConference`) — never the mutable CFBD conference index, so
@@ -159,7 +221,9 @@ function isProviderAddressableGameId(id: string): boolean {
 export function deriveExpectedGameStatsIds(
   items: readonly GameStatsScheduleItem[],
   week: number,
-  seasonType: CfbdSeasonType
+  seasonType: CfbdSeasonType,
+  /** Explicit evaluation time — the same `now` the caller uses for slate completion. */
+  now: number
 ): ExpectedGameStatsSlate {
   const expectedIds = new Set<string>();
   let hasScheduleEvidence = false;
@@ -169,7 +233,9 @@ export function deriveExpectedGameStatsIds(
     if (item.week !== week || normalizeSlateSeasonType(item.seasonType) !== seasonType) continue;
     hasScheduleEvidence = true;
     if (!expectsGameStats(item.status)) continue;
-    if (isPlaceholderTeamLabel(item.homeTeam) || isPlaceholderTeamLabel(item.awayTeam)) continue;
+    const placeholderLabeled =
+      isPlaceholderTeamLabel(item.homeTeam) || isPlaceholderTeamLabel(item.awayTeam);
+    if (placeholderLabeled && !hasReachedCompletionMaturity(item.startDate, now)) continue;
     if (isPolicyFcsConference(item.homeConference) && isPolicyFcsConference(item.awayConference)) {
       continue;
     }
@@ -208,12 +274,15 @@ export function evaluateWeeklyGameStatsCompleteness(params: {
   week: number;
   seasonType: CfbdSeasonType;
   record: WeeklyGameStats | null | undefined;
+  /** Explicit evaluation time — the same `now` the caller uses for slate completion. */
+  now: number;
 }): WeeklyGameStatsCompleteness {
-  const { scheduleItems, week, seasonType, record } = params;
+  const { scheduleItems, week, seasonType, record, now } = params;
   const { hasScheduleEvidence, expectedIds } = deriveExpectedGameStatsIds(
     scheduleItems,
     week,
-    seasonType
+    seasonType,
+    now
   );
   if (!hasScheduleEvidence) return { state: 'schedule-unavailable' };
   if (expectedIds.size === 0) return { state: 'no-expected-games' };
@@ -273,18 +342,23 @@ function rowsEqual(a: GameStats, b: GameStats): boolean {
 }
 
 /**
- * STAT AUTHORITY, separate from merge identity (review remediation): how many
- * stat fields the provider EXPLICITLY supplied for this row, counted from the
- * normalizer's per-team `raw` category map — which records exactly the fields
- * present on the wire BEFORE omitted categories are normalized to zero. An
- * explicitly supplied "0" is present in `raw` and counts (a real zero is valid
- * data); an omitted category is absent and does not. A row with a valid id and
- * team names but zero present fields is IDENTITY-ONLY — never authoritative:
- * its zero-filled normalized values would silently replace real prior totals.
- * Deliberately a presence count, never a nonzero-value heuristic.
+ * Whether the incoming row's provider-present categories are a PER-SIDE
+ * superset of the prior row's (review remediation): home ⊇ home AND away ⊇
+ * away, compared as category SETS — never aggregate counts, which would let an
+ * equal-count but different subset (incoming `rushingYards` over prior
+ * `totalYards`) replace the row and erase cached categories behind normalized
+ * zeros. Equal sets qualify, so corrected provider values still flow (for a
+ * category present on both rows, the incoming value wins).
  */
-function statFieldsPresent(row: GameStats): number {
-  return Object.keys(row.home?.raw ?? {}).length + Object.keys(row.away?.raw ?? {}).length;
+function coversPriorCategories(incoming: GameStats, prior: GameStats): boolean {
+  const sideCovers = (side: 'home' | 'away'): boolean => {
+    const incomingRaw = incoming[side]?.raw ?? {};
+    for (const category of Object.keys(prior[side]?.raw ?? {})) {
+      if (!(category in incomingRaw)) return false;
+    }
+    return true;
+  };
+  return sideCovers('home') && sideCovers('away');
 }
 
 /**
@@ -296,14 +370,19 @@ function statFieldsPresent(row: GameStats): number {
  *   - an incoming row replaces the prior row for its game id only when it is
  *     authoritative on BOTH axes — identity (an UNUSABLE incoming row with blank
  *     team identity never clobbers a usable prior row) and STAT CONTENT
- *     (`statFieldsPresent`, review remediation): an identity-only row (zero
- *     provider-present stat fields) never replaces anything and is never
- *     persisted as new, and a row with WEAKER present-field coverage than the
- *     usable prior row retains the prior — a partially published CFBD response
- *     must not regress real totals to normalized zeros. Explicit zero values are
- *     present fields and remain valid. A usable incoming row with content still
- *     repairs a prior row whose identity is unusable (that prior row is
- *     unreachable by owner aggregation regardless of its stats);
+ *     (review remediation): an identity-only row (zero provider-present stat
+ *     fields) never replaces anything and is never persisted as new, and a row
+ *     that does not carry a PER-SIDE category superset of the usable prior row
+ *     (`coversPriorCategories`) retains the prior — a partially published or
+ *     re-shaped CFBD response must not regress or erase real cached categories
+ *     behind normalized zeros. A strict subset, an equal-count different set,
+ *     and complementary subsets all retain the prior; equal or superset sets
+ *     replace, with incoming values winning per category. Complementary maps
+ *     are deliberately NOT field-merged into a synthetic row — replacement is
+ *     whole-row or nothing. Explicit zero values are present fields and remain
+ *     valid. A usable incoming row with content still repairs a prior row whose
+ *     identity is unusable (that prior row is unreachable by owner aggregation
+ *     regardless of its stats);
  *   - an incoming row WITHOUT a canonical merge key is never persisted (review
  *     remediation): it could never be replaced or deduplicated, so a
  *     still-incomplete week would append another copy on every recovery run and
@@ -354,9 +433,9 @@ export function mergeWeeklyGameStats(
     const priorRow = merged[priorIndex];
     if (isUsableGameStatsRow(priorRow)) {
       // A usable prior row is replaced only by a usable incoming row whose
-      // provider-present stat coverage is at least as strong.
+      // per-side category sets cover everything the prior row carries.
       if (!isUsableGameStatsRow(row)) continue;
-      if (coverage < statFieldsPresent(priorRow)) continue;
+      if (!coversPriorCategories(row, priorRow)) continue;
     } else if (!isUsableGameStatsRow(row)) {
       // Neither side usable: keep the prior row; nothing improves.
       continue;

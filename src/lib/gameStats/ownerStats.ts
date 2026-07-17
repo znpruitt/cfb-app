@@ -1,5 +1,6 @@
 import type { OwnerSeasonStats } from '../insights/types.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
+import { isAuthoritativeGameStatsRow } from './coverage.ts';
 import type { GameStats, OwnerWeekStats, TeamGameStats } from './types.ts';
 
 type OwnerAccumulator = {
@@ -78,6 +79,14 @@ export function aggregateOwnerGameStats(
   const accumulators = new Map<string, OwnerAccumulator>();
 
   for (const game of games) {
+    // Defensive authority boundary (review remediation): durable caches may
+    // still hold legacy rows written before ingestion enforced authority —
+    // keyless/malformed rows and identity-only rows whose categories are all
+    // normalized zero-fills. Counting them would inflate gamesPlayed and drag
+    // every average, so analytics require the SAME canonical predicate the
+    // merge and completeness layers use. Explicit zero-valued categories are
+    // present provider fields and still count.
+    if (!isAuthoritativeGameStatsRow(game)) continue;
     const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
       { team: game.home, opponent: game.away },
       { team: game.away, opponent: game.home },
@@ -125,6 +134,8 @@ export function aggregateOwnerSeasonStats(
 
   for (const games of weeklyGames) {
     for (const game of games) {
+      // Same defensive authority boundary as aggregateOwnerGameStats above.
+      if (!isAuthoritativeGameStatsRow(game)) continue;
       const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
         { team: game.home, opponent: game.away },
         { team: game.away, opponent: game.home },

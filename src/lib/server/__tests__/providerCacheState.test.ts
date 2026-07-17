@@ -94,3 +94,42 @@ test('unknownProviderCacheStates is an all-unknown map for every dataset', () =>
     true
   );
 });
+
+// Review remediation — game-stats availability requires stat AUTHORITY: a cache
+// holding only identity-only rows (valid id + schools, empty raw maps — a legacy
+// pre-authority shape) is zero-filled data, not available provider content.
+test('a game-stats cache of only identity-only rows is absent; an authoritative row is available', async () => {
+  await setAppState('game-stats', `${YEAR}:1:regular`, {
+    year: YEAR,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: '2026-10-01T00:00:00.000Z',
+    games: [
+      {
+        providerGameId: 101,
+        week: 1,
+        seasonType: 'regular',
+        home: { school: 'Alabama', raw: {} },
+        away: { school: 'Georgia', raw: {} },
+      },
+    ],
+  });
+  assert.equal((await getProviderCacheStates(YEAR))['game-stats'], 'absent');
+
+  await setAppState('game-stats', `${YEAR}:2:regular`, {
+    year: YEAR,
+    week: 2,
+    seasonType: 'regular',
+    fetchedAt: '2026-10-08T00:00:00.000Z',
+    games: [
+      {
+        providerGameId: 201,
+        week: 2,
+        seasonType: 'regular',
+        home: { school: 'Alabama', raw: { totalYards: '350' } },
+        away: { school: 'Georgia', raw: { totalYards: '280' } },
+      },
+    ],
+  });
+  assert.equal((await getProviderCacheStates(YEAR))['game-stats'], 'available');
+});

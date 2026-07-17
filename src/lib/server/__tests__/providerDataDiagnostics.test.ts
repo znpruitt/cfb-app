@@ -89,8 +89,10 @@ function gameStatsRow(providerGameId: number) {
     providerGameId,
     week: 1,
     seasonType: 'regular' as const,
-    home: { school: 'Alabama' },
-    away: { school: 'Georgia' },
+    // Provider-present stat fields: coverage requires stat AUTHORITY, not just
+    // identity — an identity-only row must not count as covered.
+    home: { school: 'Alabama', raw: { totalYards: '350' } },
+    away: { school: 'Georgia', raw: { totalYards: '280' } },
   };
 }
 
@@ -1031,5 +1033,67 @@ test('combined regular + postseason partitions are judged together', async () =>
     gameStats.length >= 2,
     true,
     'the regular slate is reported alongside the postseason one'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Review remediation — stale-placeholder recovery lifecycle: a placeholder
+// label on a MATURE dated game is stale schedule evidence, so the game stays
+// expected (and reported) by its numeric provider id; the same lifecycle holds
+// for partition-only cache layouts, using the same `now` as slate completion.
+// ---------------------------------------------------------------------------
+
+const STALE_PLACEHOLDER_ITEMS: ScheduleItemSeed[] = [
+  {
+    id: '911',
+    week: 1,
+    seasonType: 'postseason',
+    startDate: COMPLETED_KICKOFF, // mature: days past the completion cutoff
+    status: 'scheduled',
+    homeTeam: 'Alabama',
+    awayTeam: 'TBD',
+  },
+];
+
+test('a mature numeric-id game with a stale placeholder label is reported missing (aggregate layout)', async () => {
+  await seedScheduleItems(STALE_PLACEHOLDER_ITEMS);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats' && d.severity === 'warning'),
+    'the played game is expected by its provider id despite the stale TBD label'
+  );
+});
+
+test('the same stale-placeholder lifecycle holds for a partition-only cache layout', async () => {
+  await seedPartition('postseason', STALE_PLACEHOLDER_ITEMS);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats' && d.severity === 'warning'),
+    'aggregate and partition layouts share the same lifecycle behavior'
+  );
+});
+
+test('a legacy identity-only cached row does not satisfy coverage (recovery-eligible)', async () => {
+  await seedSchedule();
+  await setAppState('game-stats', `${YEAR}:1:regular`, {
+    year: YEAR,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: new Date(NOW).toISOString(),
+    // Legacy pre-authority shape: valid id + schools, empty raw maps.
+    games: [
+      {
+        providerGameId: 101,
+        week: 1,
+        seasonType: 'regular' as const,
+        home: { school: 'Alabama', raw: {} },
+        away: { school: 'Georgia', raw: {} },
+      },
+    ],
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    'a zero-filled legacy row must not mark the week complete'
   );
 });

@@ -48,8 +48,10 @@ function usableRow(providerGameId: number): GameStats {
     providerGameId,
     week: WEEK,
     seasonType: 'regular',
-    home: { school: 'Alpha' } as GameStats['home'],
-    away: { school: 'Beta' } as GameStats['away'],
+    // Provider-present stat fields (stat authority) — coverage requires more
+    // than identity, and an identity-only cached row would not count.
+    home: { school: 'Alpha', raw: { totalYards: '350' } } as unknown as GameStats['home'],
+    away: { school: 'Beta', raw: { totalYards: '280' } } as unknown as GameStats['away'],
   };
 }
 
@@ -530,8 +532,10 @@ test('every incomplete completed week is a recovery candidate; complete weeks ar
 test('unresolved placeholders, canceled games, and FCS-vs-FCS pairings never block completeness', async () => {
   await seedScheduleItems([
     { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
-    // Unresolved postseason-style placeholder participant.
-    { id: '5002', week: 3, startDate: DAYS_AGO(10), status: 'scheduled', awayTeam: 'TBD' },
+    // Unresolved DATELESS placeholder participant: proves nothing about
+    // completion, so it stays suppressed (a dated, mature placeholder would
+    // instead be expected — stale-label recovery, tested separately).
+    { id: '5002', week: 3, startDate: '', status: 'scheduled', awayTeam: 'TBD' },
     // Canceled: terminal, non-stat-producing.
     { id: '5003', week: 3, startDate: DAYS_AGO(10), status: 'Canceled' },
     // Positively classified FCS-vs-FCS.
@@ -606,6 +610,34 @@ test('a synthetic schedule id never creates a false expectation or endless recov
     resultFor(body, 3).outcome,
     'skipped-complete',
     'the unverifiable synthetic-id row stays out of the completeness denominator'
+  );
+});
+
+// Review remediation — a stale placeholder label on a MATURE dated game (the
+// schedule was cached before the matchup resolved and nothing refreshes it
+// in-season) must not suppress recovery: the game is expected by its numeric
+// provider id once past the completion cutoff.
+test('a mature postseason game with a stale TBD label is recovered by its provider id', async () => {
+  await seedScheduleItems([
+    {
+      id: '9101',
+      week: 1,
+      seasonType: 'postseason',
+      startDate: DAYS_AGO(4),
+      status: 'scheduled',
+      awayTeam: 'TBD',
+    },
+  ]);
+  stubJson([rawGame(9101)]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 1, 'postseason').outcome, 'committed');
+  assert.equal(
+    (await getCachedGameStats(YEAR, 1, 'postseason'))?.games[0]?.providerGameId,
+    9101,
+    'stats attach by the schedule-provided id; participant naming waits for a schedule refresh'
   );
 });
 

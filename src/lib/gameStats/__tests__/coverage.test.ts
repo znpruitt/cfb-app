@@ -7,6 +7,7 @@ import {
   evaluateWeeklyGameStatsCompleteness,
   expectsGameStats,
   hasUsableGameStats,
+  isAuthoritativeGameStatsRow,
   mergeWeeklyGameStats,
   usableGameStatsGameIds,
   type GameStatsScheduleItem,
@@ -15,7 +16,7 @@ import {
   resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
 } from '../../conferenceSubdivision.ts';
-import { aggregateOwnerGameStats } from '../ownerStats.ts';
+import { aggregateOwnerGameStats, aggregateOwnerSeasonStats } from '../ownerStats.ts';
 import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 
@@ -33,8 +34,8 @@ function row(
     week: 1,
     seasonType: 'regular',
     // Only the fields coverage/merge inspect need to be real; the rest are structural.
-    home: { school: homeSchool, raw: rawFields } as GameStats['home'],
-    away: { school: awaySchool, raw: rawFields } as GameStats['away'],
+    home: { school: homeSchool, raw: rawFields } as unknown as GameStats['home'],
+    away: { school: awaySchool, raw: rawFields } as unknown as GameStats['away'],
   };
 }
 
@@ -134,6 +135,8 @@ test('classifyGameStatsPayload: ≥1 usable row → commit with the normalized g
 
 // === PLATFORM-086H — schedule-relative expected coverage ===
 
+const NOW = Date.parse('2026-10-15T12:00:00.000Z');
+
 function scheduleItem(overrides: Partial<GameStatsScheduleItem> = {}): GameStatsScheduleItem {
   return {
     id: '101',
@@ -154,13 +157,13 @@ test('expected ids come from schedule ids scoped to the exact week + season type
     scheduleItem({ id: '102', week: 2 }),
     scheduleItem({ id: '103', week: 1, seasonType: 'postseason' }),
   ];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
   assert.equal(slate.hasScheduleEvidence, true);
   assert.deepEqual([...slate.expectedIds], ['101']);
 });
 
 test('no schedule rows for the slate → no schedule evidence (never "complete")', () => {
-  const slate = deriveExpectedGameStatsIds([scheduleItem({ week: 2 })], 1, 'regular');
+  const slate = deriveExpectedGameStatsIds([scheduleItem({ week: 2 })], 1, 'regular', NOW);
   assert.equal(slate.hasScheduleEvidence, false);
   assert.equal(slate.expectedIds.size, 0);
 });
@@ -171,7 +174,7 @@ test('disrupted terminal dispositions are not expected (canceled / postponed)', 
     scheduleItem({ id: '102', status: 'STATUS_POSTPONED' }),
     scheduleItem({ id: '103', status: 'STATUS_FINAL' }),
   ];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
   assert.equal(slate.hasScheduleEvidence, true);
   assert.deepEqual([...slate.expectedIds], ['103']);
 });
@@ -187,7 +190,7 @@ test('unresolved placeholders are not expected; a resolved postseason matchup is
     }),
     scheduleItem({ id: '204', seasonType: 'postseason', homeTeam: 'Alpha', awayTeam: 'Beta' }),
   ];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'postseason');
+  const slate = deriveExpectedGameStatsIds(items, 1, 'postseason', NOW);
   assert.deepEqual([...slate.expectedIds], ['204']);
 });
 
@@ -198,12 +201,12 @@ test('FCS-vs-FCS is excluded by classification; FBS-vs-FCS and unknowns stay exp
     // Unknown conferences never positively classify as FCS → not excluded.
     scheduleItem({ id: '303', homeConference: 'X', awayConference: 'Y' }),
   ];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
   assert.deepEqual([...slate.expectedIds].sort(), ['302', '303']);
 });
 
 test('a schedule row with no id is unverifiable, never expected', () => {
-  const slate = deriveExpectedGameStatsIds([scheduleItem({ id: '' })], 1, 'regular');
+  const slate = deriveExpectedGameStatsIds([scheduleItem({ id: '' })], 1, 'regular', NOW);
   assert.equal(slate.hasScheduleEvidence, true);
   assert.equal(slate.expectedIds.size, 0);
   assert.equal(slate.unverifiableCount, 1);
@@ -216,11 +219,11 @@ test('a schedule row with no id is unverifiable, never expected', () => {
 
 test('synthetic, zero, negative, and malformed ids are unverifiable — not expected', () => {
   for (const id of ['3-Alpha-Beta', '0', '-5', 'abc', '12.5', ' ']) {
-    const slate = deriveExpectedGameStatsIds([scheduleItem({ id })], 1, 'regular');
+    const slate = deriveExpectedGameStatsIds([scheduleItem({ id })], 1, 'regular', NOW);
     assert.equal(slate.expectedIds.size, 0, `id ${JSON.stringify(id)} must not be expected`);
     assert.equal(slate.unverifiableCount, 1, `id ${JSON.stringify(id)} counts as unverifiable`);
   }
-  const valid = deriveExpectedGameStatsIds([scheduleItem({ id: '101' })], 1, 'regular');
+  const valid = deriveExpectedGameStatsIds([scheduleItem({ id: '101' })], 1, 'regular', NOW);
   assert.deepEqual([...valid.expectedIds], ['101']);
   assert.equal(valid.unverifiableCount, 0);
 });
@@ -229,7 +232,8 @@ test('a non-stat-producing row with a synthetic id is excluded, not unverifiable
   const slate = deriveExpectedGameStatsIds(
     [scheduleItem({ id: '3-Alpha-Beta', status: 'Canceled' })],
     1,
-    'regular'
+    'regular',
+    NOW
   );
   assert.equal(slate.expectedIds.size, 0);
   assert.equal(
@@ -244,7 +248,7 @@ test('unverifiable rows never suppress completeness of the verifiable coverage',
     scheduleItem({ id: '101' }),
     scheduleItem({ id: '3-Alpha-Beta' }), // synthetic fallback id — unverifiable
   ];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
   assert.deepEqual([...slate.expectedIds], ['101']);
   assert.equal(slate.unverifiableCount, 1);
   // The covered verifiable game makes the week COMPLETE — the unverifiable row
@@ -275,7 +279,7 @@ test('placeholder-labeled matchups are not expected (TBD / TBA / to-be-announced
     'College Football Playoff Quarterfinal 1',
   ]) {
     const items = [scheduleItem({ id: '101', awayTeam: label, awayConference: '' })];
-    const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+    const slate = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
     assert.equal(slate.expectedIds.size, 0, `label ${JSON.stringify(label)} must not be expected`);
   }
 });
@@ -284,19 +288,19 @@ test('an FBS-vs-unknown opponent with an EMPTY conference stays expected', () =>
   // The catalog is FBS-only, so an absent conference cannot disprove a real
   // (e.g. FCS) opponent — excluding it would falsely complete the week.
   const items = [scheduleItem({ id: '101', awayTeam: 'Mystery College', awayConference: '' })];
-  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular').expectedIds], ['101']);
+  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular', NOW).expectedIds], ['101']);
 });
 
 test('an FBS-vs-unknown opponent with an UNRECOGNIZED conference stays expected', () => {
   const items = [
     scheduleItem({ id: '101', awayTeam: 'Mystery College', awayConference: 'Frontier League' }),
   ];
-  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular').expectedIds], ['101']);
+  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular', NOW).expectedIds], ['101']);
 });
 
 test('an FBS-vs-known-FCS matchup stays expected', () => {
   const items = [scheduleItem({ id: '101', awayTeam: 'Montana State', awayConference: 'Big Sky' })];
-  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular').expectedIds], ['101']);
+  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular', NOW).expectedIds], ['101']);
 });
 
 test('FCS-vs-FCS is excluded only by the static policy classification of BOTH sides', () => {
@@ -311,7 +315,8 @@ test('FCS-vs-FCS is excluded only by the static policy classification of BOTH si
       }),
     ],
     1,
-    'regular'
+    'regular',
+    NOW
   );
   assert.equal(excluded.expectedIds.size, 0);
 });
@@ -329,15 +334,15 @@ test('expected coverage is deterministic across mutable conference-index mutatio
       awayConference: 'Frontier League',
     }),
   ];
-  const before = deriveExpectedGameStatsIds(items, 1, 'regular');
+  const before = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
   setConferenceClassificationRecords([{ id: 999, name: 'Frontier League', classification: 'fcs' }]);
   try {
-    const during = deriveExpectedGameStatsIds(items, 1, 'regular');
+    const during = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
     assert.deepEqual([...during.expectedIds], [...before.expectedIds]);
   } finally {
     resetConferenceClassificationRecords();
   }
-  const after = deriveExpectedGameStatsIds(items, 1, 'regular');
+  const after = deriveExpectedGameStatsIds(items, 1, 'regular', NOW);
   assert.deepEqual([...after.expectedIds], [...before.expectedIds]);
   assert.deepEqual(
     [...before.expectedIds],
@@ -357,6 +362,7 @@ function evaluate(
     week: 1,
     seasonType: 'regular',
     record: games === null ? null : record(games),
+    now: NOW,
   });
 }
 
@@ -566,4 +572,171 @@ test('merge: dropped keyless rows cannot inflate owner aggregation', () => {
   assert.equal(owners.length, 1);
   assert.equal(owners[0].owner, 'OwnerA');
   assert.equal(owners[0].gamesPlayed, 1, 'the keyless duplicate never reaches aggregation');
+});
+
+// === Review remediation — canonical stat authority + per-side category sets ===
+
+test('isAuthoritativeGameStatsRow: identity-only rows are not authoritative; explicit zeros are', () => {
+  assert.equal(isAuthoritativeGameStatsRow(row(101)), true);
+  assert.equal(isAuthoritativeGameStatsRow(row(101, 'Alpha', 'Beta', {})), false, 'identity-only');
+  assert.equal(
+    isAuthoritativeGameStatsRow(row(101, 'Alpha', 'Beta', { totalYards: '0' })),
+    true,
+    'an explicitly supplied zero is present provider data'
+  );
+  assert.equal(isAuthoritativeGameStatsRow(row(0)), false, 'keyless');
+  assert.equal(isAuthoritativeGameStatsRow(row(101, '', 'Beta')), false, 'unusable identity');
+});
+
+test('coverage requires stat authority: a legacy identity-only cached row is NOT covered', () => {
+  const legacy = record([row(101, 'Alpha', 'Beta', {})]);
+  assert.equal(usableGameStatsGameIds(legacy).size, 0);
+  // The scheduled game therefore stays recovery-eligible instead of "complete".
+  assert.deepEqual(evaluate([scheduleItem({ id: '101' })], legacy.games), {
+    state: 'no-usable-rows',
+    expectedCount: 1,
+    missingIds: ['101'],
+  });
+});
+
+test('a legacy statless row is repaired naturally by a later authoritative row', () => {
+  const legacy = record([row(101, 'Alpha', 'Beta', {})]);
+  const repaired = mergeWeeklyGameStats(legacy, [row(101)]);
+  assert.equal(repaired.changed, true);
+  assert.deepEqual(repaired.games[0].home.raw, { totalYards: '100' });
+  // Another identity-only response is a truthful no-op: nothing rewritten.
+  const stillLegacy = mergeWeeklyGameStats(legacy, [row(101, 'Alpha', 'Beta', {})]);
+  assert.equal(stillLegacy.changed, false);
+  assert.deepEqual(stillLegacy.games, legacy.games, 'prior rows retained untouched');
+});
+
+test('merge: equal-count but DIFFERENT category sets never replace prior data', () => {
+  const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350' })]);
+  const differentSet = row(101, 'Alpha', 'Beta', { rushingYards: '150' });
+  const merge = mergeWeeklyGameStats(prior, [differentSet]);
+  assert.equal(merge.changed, false);
+  assert.equal(merge.games[0].home.raw.totalYards, '350', 'cached categories are never erased');
+});
+
+test('merge: complementary non-superset category sets retain the prior row', () => {
+  const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350', firstDowns: '20' })]);
+  const complementary = row(101, 'Alpha', 'Beta', { rushingYards: '150', firstDowns: '21' });
+  const merge = mergeWeeklyGameStats(prior, [complementary]);
+  assert.equal(merge.changed, false, 'no synthetic field-merge; whole-row replace or nothing');
+  assert.equal(merge.games[0].home.raw.totalYards, '350');
+});
+
+test('merge: a strict per-side category superset replaces; incoming values win', () => {
+  const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350' })]);
+  const superset = row(101, 'Alpha', 'Beta', { totalYards: '360', rushingYards: '150' });
+  const merge = mergeWeeklyGameStats(prior, [superset]);
+  assert.equal(merge.changed, true);
+  assert.equal(merge.games[0].home.raw.totalYards, '360');
+  assert.equal(merge.games[0].home.raw.rushingYards, '150');
+});
+
+test('merge: home and away category coverage are evaluated independently', () => {
+  const prior: GameStats = {
+    providerGameId: 101,
+    week: 1,
+    seasonType: 'regular',
+    home: { school: 'Alpha', raw: { totalYards: '350' } } as unknown as GameStats['home'],
+    away: {
+      school: 'Beta',
+      raw: { totalYards: '280', firstDowns: '18' },
+    } as unknown as GameStats['away'],
+  };
+  // Home side is a superset, but the away side LOST firstDowns → retained.
+  const incoming: GameStats = {
+    providerGameId: 101,
+    week: 1,
+    seasonType: 'regular',
+    home: {
+      school: 'Alpha',
+      raw: { totalYards: '360', rushingYards: '150' },
+    } as unknown as GameStats['home'],
+    away: { school: 'Beta', raw: { totalYards: '290' } } as unknown as GameStats['away'],
+  };
+  const merge = mergeWeeklyGameStats(record([prior]), [incoming]);
+  assert.equal(merge.changed, false, 'one weaker side blocks the whole-row replacement');
+  assert.equal(merge.games[0].away.raw.firstDowns, '18');
+});
+
+test('analytics ignore legacy statless and keyless rows; authoritative zeros still count', () => {
+  const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+  const roster = new Map([['Alpha', 'OwnerA']]);
+  const games = [
+    row(101, 'Alpha', 'Beta', { totalYards: '0' }), // authoritative explicit zero
+    row(102, 'Alpha', 'Beta', {}), // legacy identity-only zero-fill
+    row(0, 'Alpha', 'Beta'), // keyless/malformed legacy row
+    row(103, '', ''), // unusable identity
+  ];
+  const weekly = aggregateOwnerGameStats(games, roster, resolver);
+  assert.equal(weekly.length, 1);
+  assert.equal(weekly[0].gamesPlayed, 1, 'only the authoritative row is counted');
+
+  const season = aggregateOwnerSeasonStats([games], roster, resolver, 2026);
+  assert.equal(season.length, 1);
+  assert.equal(season[0].gamesPlayed, 1, 'season aggregation applies the same boundary');
+});
+
+// === Review remediation — kickoff-gated placeholder recovery lifecycle ===
+
+const MATURE_KICKOFF = new Date(NOW - 24 * 60 * 60 * 1000).toISOString();
+const RECENT_KICKOFF = new Date(NOW - 60 * 60 * 1000).toISOString(); // 1h ago < 6h cutoff
+
+test('a dated numeric-id placeholder PAST the maturity cutoff is expected (stale label)', () => {
+  const items = [
+    scheduleItem({
+      id: '901',
+      seasonType: 'postseason',
+      awayTeam: 'TBD',
+      startDate: MATURE_KICKOFF,
+    }),
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'postseason', NOW);
+  assert.deepEqual(
+    [...slate.expectedIds],
+    ['901'],
+    'a played game with a stale placeholder label stays recoverable by its provider id'
+  );
+});
+
+test('the same placeholder BEFORE the maturity cutoff remains suppressed', () => {
+  const items = [
+    scheduleItem({
+      id: '901',
+      seasonType: 'postseason',
+      awayTeam: 'TBD',
+      startDate: RECENT_KICKOFF,
+    }),
+  ];
+  assert.equal(deriveExpectedGameStatsIds(items, 1, 'postseason', NOW).expectedIds.size, 0);
+});
+
+test('a dateless or unparseable-date placeholder remains suppressed', () => {
+  for (const startDate of [undefined, null, '', 'not-a-date']) {
+    const items = [
+      scheduleItem({ id: '901', seasonType: 'postseason', awayTeam: 'TBD', startDate }),
+    ];
+    assert.equal(
+      deriveExpectedGameStatsIds(items, 1, 'postseason', NOW).expectedIds.size,
+      0,
+      `startDate ${JSON.stringify(startDate)} proves nothing`
+    );
+  }
+});
+
+test('a mature placeholder with a synthetic id is unverifiable, not expected', () => {
+  const items = [
+    scheduleItem({
+      id: '1-TBD-TBD',
+      seasonType: 'postseason',
+      awayTeam: 'TBD',
+      startDate: MATURE_KICKOFF,
+    }),
+  ];
+  const slate = deriveExpectedGameStatsIds(items, 1, 'postseason', NOW);
+  assert.equal(slate.expectedIds.size, 0);
+  assert.equal(slate.unverifiableCount, 1);
 });

@@ -50,7 +50,9 @@ function makeTeam(school: string, points: number, homeAway: 'home' | 'away'): Te
     kickReturnTDs: 0,
     puntReturnYards: 0,
     puntReturnTDs: 0,
-    raw: {},
+    // Provider-present stat fields: analytics require stat AUTHORITY (an empty
+    // raw map is a legacy identity-only shape and is deliberately ignored).
+    raw: { totalYards: String(points * 10) },
   };
 }
 

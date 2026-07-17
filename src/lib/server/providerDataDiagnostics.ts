@@ -15,6 +15,7 @@ import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { loadCachedScheduleItems } from './canonicalScheduleCache.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
 import {
+  COMPLETED_GAME_MATURITY_MS,
   deriveExpectedGameStatsIds,
   expectsGameStats,
   usableGameStatsGameIds,
@@ -53,9 +54,11 @@ export type ProviderDataDiagnosticsResult = {
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-// A slate counts as "complete" once its latest kickoff is > 6h in the past —
-// the same threshold the game-stats cron uses to pick the latest finished week.
-const SLATE_COMPLETE_AFTER_MS = 6 * HOUR_MS;
+// A slate counts as "complete" once its latest kickoff is past the ONE shared
+// completion-maturity cutoff (`COMPLETED_GAME_MATURITY_MS` in the game-stats
+// coverage module) — the same threshold the cron's candidate selection and the
+// stale-placeholder recovery lifecycle use, so there is exactly one policy.
+const SLATE_COMPLETE_AFTER_MS = COMPLETED_GAME_MATURITY_MS;
 const STALE_SCHEDULE_AFTER_MS = 8 * DAY_MS;
 const STALE_RANKINGS_AFTER_MS = 8 * DAY_MS;
 const STALE_ODDS_AFTER_MS = 2 * DAY_MS;
@@ -295,7 +298,9 @@ export async function getProviderDataDiagnostics(
       for (const slate of completedStatSlates) {
         expectedBySlate.set(
           slateKey(slate.week, slate.seasonType),
-          deriveExpectedGameStatsIds(scheduleItems, slate.week, slate.seasonType)
+          // Same `now` as slate completion, so the stale-placeholder recovery
+          // lifecycle agrees with candidate selection.
+          deriveExpectedGameStatsIds(scheduleItems, slate.week, slate.seasonType, now)
         );
       }
 
