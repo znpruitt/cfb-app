@@ -14,8 +14,10 @@ import {
 } from '@/lib/gameStats/coverage';
 import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
 import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
-import { loadGameStatsIdentityEvidence } from '@/lib/server/gameStatsIdentityEvidence';
-import { deriveCompletedSlates, type CompletedSlate } from '@/lib/server/providerDataDiagnostics';
+import {
+  deriveCompletedStatSlates,
+  type CompletedSlate,
+} from '@/lib/server/providerDataDiagnostics';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { weekPartitionScope } from '@/lib/providerRefreshScope';
 import {
@@ -85,16 +87,17 @@ function seasonYearForToday(now = new Date()): number {
   return month >= 6 ? year : year - 1;
 }
 
-// Candidate selection is the SHARED `deriveCompletedSlates` (review
-// remediation): every completed stat-producing slate — whole-slate cutoff, so a
-// split slate with a finished Thursday game and a pending/recent Saturday game
-// is not yet a candidate — is a recovery candidate every run, newest first.
-// This generalizes the former latest-week-only selection (PLATFORM-086H): a
-// week left incomplete (partial CFBD publication, a prior failure) is retried
-// on later scheduled runs instead of being abandoned once a newer week
-// completes, and a disrupted-only slate is never a candidate (5th-review
-// finding #1) — otherwise every run would re-spend CFBD quota on a permanently
-// unresolvable week.
+// Candidate selection is `deriveCompletedStatSlates` — the stat-producing slate
+// definition SHARED with the game-stats diagnostics section (score diagnostics
+// use the generic all-games variant): every completed stat-producing slate —
+// whole-slate cutoff, so a split slate with a finished Thursday game and a
+// pending/recent Saturday game is not yet a candidate — is a recovery candidate
+// every run, newest first. This generalizes the former latest-week-only
+// selection (PLATFORM-086H): a week left incomplete (partial CFBD publication,
+// a prior failure) is retried on later scheduled runs instead of being
+// abandoned once a newer week completes, and a disrupted-only slate is never a
+// candidate (5th-review finding #1) — otherwise every run would re-spend CFBD
+// quota on a permanently unresolvable week.
 type CandidateSlate = CompletedSlate;
 
 export async function GET(req: Request): Promise<NextResponse<CronResult>> {
@@ -131,7 +134,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   let candidates: CandidateSlate[];
   try {
     scheduleItems = await loadCachedScheduleItems(year);
-    candidates = deriveCompletedSlates(scheduleItems, Date.now());
+    candidates = deriveCompletedStatSlates(scheduleItems, Date.now());
   } catch (err) {
     // Local target resolution itself failed (e.g. a durable schedule read error).
     // Use the established cron failure path WITHOUT assigning the failure to any
@@ -154,10 +157,8 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   // Evaluate the schedule-relative completeness contract for every candidate
   // (cache-only). A week is skipped ONLY when the contract proves it complete or
   // proves no stats are expected; anything else stays eligible for recovery.
-  // Identity evidence (catalog+alias resolver) backs the resolved-participant
-  // test; a failed load → null → the pattern-only fallback, which over-expects
-  // rather than falsely completing a week.
-  const identity = await loadGameStatsIdentityEvidence(year);
+  // The contract is deterministic — pure schedule inputs plus the bundled static
+  // conference policy; no identity-evidence load can fail or vary the result.
   const results: CronWeekResult[] = [];
   const targets: CandidateSlate[] = [];
   try {
@@ -169,7 +170,6 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         week,
         seasonType,
         record: existing,
-        identity,
       });
       if (completeness.state === 'complete') {
         results.push({

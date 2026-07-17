@@ -4,6 +4,8 @@ const INVALID_TEAM_LABEL_PATTERNS: RegExp[] = [
   /\bkickoff\b/i,
   /\bclassic\b/i,
   /\btbd\b/i,
+  /\btba\b/i,
+  /\bto be (?:announced|determined)\b/i,
   /\b(?:am|pm)\b/i,
   /\b(?:et|ct|mt|pt)\b/i,
   /\b(?:abc|cbs|nbc|fox|espn|espn2|fs1|accn|secn)\b/i,

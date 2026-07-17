@@ -11,6 +11,10 @@ import {
   usableGameStatsGameIds,
   type GameStatsScheduleItem,
 } from '../coverage.ts';
+import {
+  resetConferenceClassificationRecords,
+  setConferenceClassificationRecords,
+} from '../../conferenceSubdivision.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 
 function row(providerGameId: number, homeSchool = 'Alpha', awaySchool = 'Beta'): GameStats {
@@ -244,61 +248,91 @@ test('a slate of only unverifiable rows expects nothing (no permanent partial co
   });
 });
 
-// Review remediation — participants are classified through canonical identity
-// evidence (catalog/alias resolver), not string patterns alone: a
-// pattern-passing junk label ("Home Team TBA") must not enter expected coverage.
+// Review remediation — expected coverage is decided by POSITIVE, deterministic
+// evidence only: the shared placeholder patterns (extended with TBA / "to be
+// announced|determined") and the static conference policy. A pattern-valid but
+// unknown participant STAYS expected — the FBS-only catalog cannot disprove a
+// real FCS opponent, and wrongly excluding a real game would falsely complete
+// the week and silently suppress recovery.
 
-/** Fake canonical evidence: only these labels resolve as catalog teams. */
-const IDENTITY = {
-  isResolvedTeamName: (label: string) => ['Alpha', 'Beta'].includes(label),
-};
-
-test('a pattern-passing unresolved label ("Home Team TBA") is not expected', () => {
-  const items = [scheduleItem({ id: '101', homeTeam: 'Home Team TBA', homeConference: '' })];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
-  assert.equal(slate.expectedIds.size, 0);
+test('placeholder-labeled matchups are not expected (TBD / TBA / to-be-announced / determined)', () => {
+  for (const label of [
+    'TBD',
+    'Home Team TBA',
+    'To Be Announced',
+    'To Be Determined',
+    'Winner of Rose Bowl',
+    'College Football Playoff Quarterfinal 1',
+  ]) {
+    const items = [scheduleItem({ id: '101', awayTeam: label, awayConference: '' })];
+    const slate = deriveExpectedGameStatsIds(items, 1, 'regular');
+    assert.equal(slate.expectedIds.size, 0, `label ${JSON.stringify(label)} must not be expected`);
+  }
 });
 
-test('one resolved and one unresolved participant → not expected', () => {
-  const items = [scheduleItem({ id: '101', awayTeam: 'Mystery Team', awayConference: '' })];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
-  assert.equal(slate.expectedIds.size, 0);
+test('an FBS-vs-unknown opponent with an EMPTY conference stays expected', () => {
+  // The catalog is FBS-only, so an absent conference cannot disprove a real
+  // (e.g. FCS) opponent — excluding it would falsely complete the week.
+  const items = [scheduleItem({ id: '101', awayTeam: 'Mystery College', awayConference: '' })];
+  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular').expectedIds], ['101']);
 });
 
-test('two canonically resolved participants enter expected coverage', () => {
-  const slate = deriveExpectedGameStatsIds([scheduleItem({ id: '101' })], 1, 'regular', IDENTITY);
-  assert.deepEqual([...slate.expectedIds], ['101']);
+test('an FBS-vs-unknown opponent with an UNRECOGNIZED conference stays expected', () => {
+  const items = [
+    scheduleItem({ id: '101', awayTeam: 'Mystery College', awayConference: 'Frontier League' }),
+  ];
+  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular').expectedIds], ['101']);
 });
 
-test('an FBS-vs-FCS matchup stays expected: the FCS side classifies by conference', () => {
-  // The FCS opponent is never in the FBS catalog (unresolved) — its positively
-  // classified FCS conference is the canonical evidence it is a real team.
+test('an FBS-vs-known-FCS matchup stays expected', () => {
   const items = [scheduleItem({ id: '101', awayTeam: 'Montana State', awayConference: 'Big Sky' })];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
-  assert.deepEqual([...slate.expectedIds], ['101']);
+  assert.deepEqual([...deriveExpectedGameStatsIds(items, 1, 'regular').expectedIds], ['101']);
 });
 
-test('FCS-vs-FCS stays excluded even when identity evidence is available', () => {
+test('FCS-vs-FCS is excluded only by the static policy classification of BOTH sides', () => {
+  const excluded = deriveExpectedGameStatsIds(
+    [
+      scheduleItem({
+        id: '101',
+        homeTeam: 'Montana',
+        awayTeam: 'Montana State',
+        homeConference: 'Big Sky',
+        awayConference: 'Big Sky',
+      }),
+    ],
+    1,
+    'regular'
+  );
+  assert.equal(excluded.expectedIds.size, 0);
+});
+
+test('expected coverage is deterministic across mutable conference-index mutation', () => {
+  // A conference only the (mutable) CFBD record index would classify as FCS:
+  // loading or resetting those records — as unrelated schedule builds do in the
+  // same process — must not change the derivation.
   const items = [
     scheduleItem({
       id: '101',
-      homeTeam: 'Montana',
-      awayTeam: 'Montana State',
-      homeConference: 'Big Sky',
-      awayConference: 'Big Sky',
+      homeTeam: 'Mystery A',
+      awayTeam: 'Mystery B',
+      homeConference: 'Frontier League',
+      awayConference: 'Frontier League',
     }),
   ];
-  const slate = deriveExpectedGameStatsIds(items, 1, 'regular', IDENTITY);
-  assert.equal(slate.expectedIds.size, 0);
-});
-
-test('unavailable identity evidence falls back to the pattern-only test (over-expect, never suppress)', () => {
-  const items = [scheduleItem({ id: '101', homeTeam: 'Home Team TBA', homeConference: '' })];
-  const withNull = deriveExpectedGameStatsIds(items, 1, 'regular', null);
+  const before = deriveExpectedGameStatsIds(items, 1, 'regular');
+  setConferenceClassificationRecords([{ id: 999, name: 'Frontier League', classification: 'fcs' }]);
+  try {
+    const during = deriveExpectedGameStatsIds(items, 1, 'regular');
+    assert.deepEqual([...during.expectedIds], [...before.expectedIds]);
+  } finally {
+    resetConferenceClassificationRecords();
+  }
+  const after = deriveExpectedGameStatsIds(items, 1, 'regular');
+  assert.deepEqual([...after.expectedIds], [...before.expectedIds]);
   assert.deepEqual(
-    [...withNull.expectedIds],
+    [...before.expectedIds],
     ['101'],
-    'without evidence the pattern-passing label stays expected — retried, not falsely complete'
+    'static policy alone decides — stays expected'
   );
 });
 

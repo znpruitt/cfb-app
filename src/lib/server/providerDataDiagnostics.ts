@@ -17,7 +17,6 @@ import {
   expectsGameStats,
   usableGameStatsGameIds,
 } from '../gameStats/coverage.ts';
-import { loadGameStatsIdentityEvidence } from './gameStatsIdentityEvidence.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
@@ -71,24 +70,6 @@ function normalizeSeasonType(value: unknown): CfbdSeasonType {
 
 export type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff: number };
 
-/**
- * Completed slates (whole-slate latest kickoff > 6h ago), newest first — the ONE
- * definition shared by these diagnostics AND the game-stats cron's candidate
- * selection (review remediation), so the two cannot drift.
- *
- * A slate is grouped by (year — implicit in the caller, week, seasonType) and its
- * `latestKickoff` is the MAX kickoff across its STAT-PRODUCING games. The
- * completion threshold is applied to that per-slate maximum, AFTER grouping —
- * never per-game. This is the PLATFORM-086A remediation for split slates: a week
- * with an early Thursday game and later Saturday games is not "complete" until
- * the Saturday games are old — no false missing-data warnings mid-slate, and the
- * cron never fetches a still-active week (a per-game cutoff would let the old
- * Thursday final make the whole week look finished). Disrupted games
- * (canceled/postponed/…, via the shared `expectsGameStats`) are excluded from
- * the grouping: they produce neither stats nor finals, so a disrupted-only slate
- * is never completed/selected and a disrupted game's (possibly stale or
- * rescheduled) kickoff never decides a slate's completion.
- */
 /** Structural slice both `ScheduleItem` and `ScheduleWireItem` satisfy. */
 type SlateSourceItem = {
   week: number;
@@ -97,15 +78,26 @@ type SlateSourceItem = {
   status?: string | null;
 };
 
-export function deriveCompletedSlates(
+/**
+ * One private grouped-cutoff core behind BOTH exported slate helpers: group the
+ * relevant games by (week, seasonType), track each slate's MAX kickoff, and
+ * apply the completion threshold to that per-slate maximum AFTER grouping —
+ * never per-game. This is the PLATFORM-086A remediation for split slates: a week
+ * with an early Thursday game and later Saturday games is not "complete" until
+ * the Saturday games are old — no false missing-data warnings mid-slate, and no
+ * mid-slate provider fetches (a per-game cutoff would let the old Thursday final
+ * make the whole week look finished). What counts as a RELEVANT game is the only
+ * consumer-specific decision, supplied by the named exports below.
+ */
+function deriveCompletedSlatesWith(
   items: readonly SlateSourceItem[],
-  now: number
+  now: number,
+  isRelevantGame: (item: SlateSourceItem) => boolean
 ): CompletedSlate[] {
-  // 1) Group every stat-producing game by slate; track each slate's max kickoff.
   const latestByKey = new Map<SlateKey, CompletedSlate>();
   for (const item of items) {
     if (!item.startDate) continue;
-    if (!expectsGameStats(item.status)) continue;
+    if (!isRelevantGame(item)) continue;
     const kickoff = new Date(item.startDate).getTime();
     if (!Number.isFinite(kickoff)) continue;
     const seasonType = normalizeSeasonType(item.seasonType);
@@ -115,10 +107,41 @@ export function deriveCompletedSlates(
       latestByKey.set(key, { week: item.week, seasonType, latestKickoff: kickoff });
     }
   }
-  // 2) A slate is complete only once its WHOLE-slate latest kickoff is old enough.
   return [...latestByKey.values()]
     .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
+}
+
+/**
+ * Completed slates for SCORE diagnostics (whole-slate latest kickoff > 6h ago),
+ * newest first, over ALL games with parseable kickoffs — including disrupted
+ * ones. Postponed/suspended/delayed games are unresolved but NOT terminal
+ * (`gameStatus.ts`), so their slates must stay visible to the missing-final
+ * checks (review remediation: filtering them here silently suppressed score
+ * diagnostics); a canceled game still resolves score coverage terminally
+ * downstream via `isCanceledStatusLabel`.
+ */
+export function deriveCompletedSlates(
+  items: readonly SlateSourceItem[],
+  now: number
+): CompletedSlate[] {
+  return deriveCompletedSlatesWith(items, now, () => true);
+}
+
+/**
+ * Completed STAT-PRODUCING slates — the shared candidate definition for
+ * game-stats recovery (the cron) AND the game-stats diagnostics section, so the
+ * two cannot drift. Disrupted games (canceled/postponed/…, via the shared
+ * `expectsGameStats`) are excluded from the grouping: they never produce team
+ * stats, so a disrupted-only slate is never a candidate (5th-review finding #1)
+ * and a disrupted game's stale or rescheduled kickoff never decides whether the
+ * played games' stats may be ingested.
+ */
+export function deriveCompletedStatSlates(
+  items: readonly SlateSourceItem[],
+  now: number
+): CompletedSlate[] {
+  return deriveCompletedSlatesWith(items, now, (item) => expectsGameStats(item.status));
 }
 
 /** Whether the season is "active" around now (any game within ±45 days). */
@@ -229,9 +252,14 @@ export async function getProviderDataDiagnostics(
     push('scores', 'warning', `Score diagnostics unavailable: ${errText(error)}`);
   }
 
-  // ---- Game stats: completed slates missing usable cached game-stats CONTENT ----
+  // ---- Game stats: completed STAT slates missing usable game-stats CONTENT ----
+  // Uses the stat-producing slate helper (shared with the cron) — NOT the score
+  // diagnostics' generic completed set — so a disrupted game's kickoff never
+  // delays or manufactures a game-stats expectation while score diagnostics
+  // above still see every slate.
   try {
-    if (completedSlates.length > 0) {
+    const completedStatSlates = deriveCompletedStatSlates(scheduleItems, now);
+    if (completedStatSlates.length > 0) {
       // Coverage is judged by CONTENT resolved through canonical game identity, not
       // key existence: a record with `games: []` — or one whose every row was
       // dropped during normalization — is NOT coverage (4th-review finding #3). A
@@ -245,28 +273,25 @@ export async function getProviderDataDiagnostics(
       }
       // Expected (canonical) STAT-PRODUCING games per completed slate, from the
       // schedule, via the ONE shared derivation the game-stats cron uses
-      // (PLATFORM-086H): disrupted games, unresolved placeholder matchups
-      // (resolver-backed — the same canonical identity evidence the cron loads),
-      // and positively classified FCS-vs-FCS pairings are excluded, so they
+      // (PLATFORM-086H): disrupted games, positively placeholder-labeled
+      // matchups, and static-policy FCS-vs-FCS pairings are excluded, so they
       // neither manufacture a partial gap nor, when a whole slate has no
       // expected games, a permanent missing warning (5th-review findings #1/#3).
-      // Evidence-load failure → null → the pattern-only fallback, which
-      // over-expects rather than hiding genuinely missing coverage.
-      const identity = await loadGameStatsIdentityEvidence(year);
+      // The derivation is deterministic — pure schedule inputs plus the bundled
+      // static conference policy; there is no identity-evidence load path.
       const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
-      for (const slate of completedSlates) {
+      for (const slate of completedStatSlates) {
         const { expectedIds } = deriveExpectedGameStatsIds(
           scheduleItems,
           slate.week,
-          slate.seasonType,
-          identity
+          slate.seasonType
         );
         expectedIdsBySlate.set(slateKey(slate.week, slate.seasonType), expectedIds);
       }
 
       const missing: CompletedSlate[] = [];
       const partial: CompletedSlate[] = [];
-      for (const slate of completedSlates) {
+      for (const slate of completedStatSlates) {
         const key = slateKey(slate.week, slate.seasonType);
         // Determine applicability BEFORE checking coverage: a slate with zero
         // expected stat-producing games (e.g. entirely disrupted) is not applicable,
@@ -284,7 +309,7 @@ export async function getProviderDataDiagnostics(
       }
 
       if (missing.length > 0) {
-        const latest = completedSlates[0];
+        const latest = completedStatSlates[0];
         const latestMissing = missing.some(
           (s) => s.week === latest.week && s.seasonType === latest.seasonType
         );

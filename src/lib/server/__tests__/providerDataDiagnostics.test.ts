@@ -7,7 +7,11 @@ import {
   setAppState,
 } from '../appStateStore.ts';
 import { __resetOddsUsageStoreForTests, setLatestKnownOddsUsage } from '../oddsUsageStore.ts';
-import { deriveCompletedSlates, getProviderDataDiagnostics } from '../providerDataDiagnostics.ts';
+import {
+  deriveCompletedSlates,
+  deriveCompletedStatSlates,
+  getProviderDataDiagnostics,
+} from '../providerDataDiagnostics.ts';
 import { createOddsCacheKey, defaultOddsCacheKey } from '../../../app/api/odds/routeInternals.ts';
 
 const YEAR = 2026;
@@ -740,34 +744,114 @@ test('an old rankings record with usable weeks warns as stale during an active s
 });
 
 // ---------------------------------------------------------------------------
-// Review remediation — deriveCompletedSlates is the ONE completed-slate
-// definition shared by these diagnostics and the game-stats cron's candidate
-// selection (the cron imports this exact export), so both see the same set.
+// Review remediation — one private grouped-cutoff core behind two named
+// helpers: `deriveCompletedSlates` (ALL games — score diagnostics, so disrupted
+// slates stay visible to missing-final checks) and `deriveCompletedStatSlates`
+// (stat-producing games only — the cron imports this exact export, so game-stats
+// recovery and its diagnostics section always see the same candidate set).
 // ---------------------------------------------------------------------------
 
-test('deriveCompletedSlates: whole-slate cutoff, disrupted kickoffs excluded, newest first', () => {
-  const now = NOW;
-  const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
-  const HOUR = 60 * 60 * 1000;
-  const DAY = 24 * HOUR;
-  const items = [
-    // Week 7: old Thursday final + a Saturday game only 2h old → NOT completed.
-    { id: '701', week: 7, seasonType: 'regular', startDate: iso(2 * DAY), status: 'STATUS_FINAL' },
-    { id: '702', week: 7, seasonType: 'regular', startDate: iso(2 * HOUR), status: 'STATUS_FINAL' },
-    // Week 6: everything old → completed.
-    { id: '601', week: 6, seasonType: 'regular', startDate: iso(9 * DAY), status: 'STATUS_FINAL' },
-    // Week 5: old final + a POSTPONED game rescheduled into the future — the
-    // disrupted kickoff must not decide slate completion.
-    { id: '501', week: 5, seasonType: 'regular', startDate: iso(16 * DAY), status: 'STATUS_FINAL' },
-    { id: '502', week: 5, seasonType: 'regular', startDate: iso(-3 * DAY), status: 'Postponed' },
-    // Week 4: disrupted-only → never a completed (stat-producing) slate.
-    { id: '401', week: 4, seasonType: 'regular', startDate: iso(23 * DAY), status: 'Canceled' },
-  ];
+const SLATE_FIXTURE_HOUR = 60 * 60 * 1000;
+const SLATE_FIXTURE_DAY = 24 * SLATE_FIXTURE_HOUR;
+const slateIso = (msAgo: number) => new Date(NOW - msAgo).toISOString();
+const SLATE_FIXTURE_ITEMS = [
+  // Week 7: old Thursday final + a Saturday game only 2h old → NOT completed
+  // for ANY consumer (whole-slate cutoff).
+  {
+    id: '701',
+    week: 7,
+    seasonType: 'regular',
+    startDate: slateIso(2 * SLATE_FIXTURE_DAY),
+    status: 'STATUS_FINAL',
+  },
+  {
+    id: '702',
+    week: 7,
+    seasonType: 'regular',
+    startDate: slateIso(2 * SLATE_FIXTURE_HOUR),
+    status: 'STATUS_FINAL',
+  },
+  // Week 6: everything old → completed for every consumer.
+  {
+    id: '601',
+    week: 6,
+    seasonType: 'regular',
+    startDate: slateIso(9 * SLATE_FIXTURE_DAY),
+    status: 'STATUS_FINAL',
+  },
+  // Week 5: old final + a POSTPONED game rescheduled into the future — the
+  // disrupted kickoff blocks the generic (scores) view until it resolves but
+  // must not delay stat ingestion of the played games.
+  {
+    id: '501',
+    week: 5,
+    seasonType: 'regular',
+    startDate: slateIso(16 * SLATE_FIXTURE_DAY),
+    status: 'STATUS_FINAL',
+  },
+  {
+    id: '502',
+    week: 5,
+    seasonType: 'regular',
+    startDate: slateIso(-3 * SLATE_FIXTURE_DAY),
+    status: 'Postponed',
+  },
+  // Week 4: disrupted-only with an old kickoff → completed for scores (its
+  // unresolved status stays visible) but never a stat-producing candidate.
+  {
+    id: '401',
+    week: 4,
+    seasonType: 'regular',
+    startDate: slateIso(23 * SLATE_FIXTURE_DAY),
+    status: 'Postponed',
+  },
+];
 
-  const slates = deriveCompletedSlates(items, now);
+test('deriveCompletedStatSlates: whole-slate cutoff over stat-producing games only', () => {
   assert.deepEqual(
-    slates.map((s) => `${s.week}:${s.seasonType}`),
+    deriveCompletedStatSlates(SLATE_FIXTURE_ITEMS, NOW).map((s) => `${s.week}:${s.seasonType}`),
     ['6:regular', '5:regular'],
-    'split slate excluded until whole-slate old; disrupted rows never complete or block a slate'
+    'split slate excluded until whole-slate old; disrupted rows never complete, block, or create a stat slate'
+  );
+});
+
+test('deriveCompletedSlates (scores view): disrupted slates stay visible', () => {
+  assert.deepEqual(
+    deriveCompletedSlates(SLATE_FIXTURE_ITEMS, NOW).map((s) => `${s.week}:${s.seasonType}`),
+    ['6:regular', '4:regular'],
+    'the disrupted-only week 4 remains a completed slate for score checks; week 5 waits for its rescheduled game; the split week 7 stays excluded'
+  );
+});
+
+test('a postponed-only old slate still raises a scores diagnostic (not silently dropped)', async () => {
+  await seedScheduleItems([
+    {
+      id: '401',
+      week: 4,
+      seasonType: 'regular',
+      startDate: '2026-09-15T20:00:00.000Z', // long before NOW
+      status: 'Postponed',
+      homeTeam: 'Alabama',
+      awayTeam: 'Georgia',
+    },
+    {
+      id: '102',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Texas',
+      awayTeam: 'Oklahoma',
+    },
+  ]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'scores'),
+    'a postponed game is unresolved, not terminal — its slate must stay visible to score checks'
+  );
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    undefined,
+    'the same disrupted-only slate is never a game-stats expectation'
   );
 });
