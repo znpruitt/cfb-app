@@ -937,3 +937,99 @@ test('a mixed slate reports BOTH missing valid ids and unverifiable rows', async
     'the unverifiable row is reported distinctly'
   );
 });
+
+// ---------------------------------------------------------------------------
+// Review remediation — diagnostics load the SAME canonical partition-fallback
+// schedule views as cron recovery (`loadCachedScheduleItems`): `-all-all`, else
+// the regular/postseason pair. A partition-only layout must not report "no
+// schedule" while the cron actively recovers its slates.
+// ---------------------------------------------------------------------------
+
+function seedPartition(partition: 'regular' | 'postseason', items: ScheduleItemSeed[]) {
+  return setAppState('schedule', `${YEAR}-all-${partition}`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items,
+  });
+}
+
+const REGULAR_PARTITION_ITEMS: ScheduleItemSeed[] = [
+  {
+    id: '101',
+    week: 1,
+    seasonType: 'regular',
+    startDate: COMPLETED_KICKOFF,
+    status: 'STATUS_FINAL',
+    homeTeam: 'Alabama',
+    awayTeam: 'Georgia',
+  },
+  {
+    id: '102',
+    week: 2,
+    seasonType: 'regular',
+    startDate: FUTURE_KICKOFF,
+    status: 'STATUS_SCHEDULED',
+    homeTeam: 'Texas',
+    awayTeam: 'Oklahoma',
+  },
+];
+
+const POSTSEASON_PARTITION_ITEMS: ScheduleItemSeed[] = [
+  {
+    id: '901',
+    week: 1,
+    seasonType: 'postseason',
+    startDate: COMPLETED_KICKOFF,
+    status: 'STATUS_FINAL',
+    homeTeam: 'Alabama',
+    awayTeam: 'Georgia',
+  },
+];
+
+test('a regular-only partition cache is fully visible to diagnostics', async () => {
+  await seedPartition('regular', REGULAR_PARTITION_ITEMS);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'schedule' && d.severity === 'error'),
+    undefined,
+    'a partition-only layout is not "no schedule"'
+  );
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'game-stats' && d.severity === 'warning'),
+    'the completed slate the cron would recover is judged by diagnostics too'
+  );
+});
+
+test('a postseason-only partition cache is fully visible to diagnostics', async () => {
+  await seedPartition('postseason', POSTSEASON_PARTITION_ITEMS);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'schedule' && d.severity === 'error'),
+    undefined
+  );
+  const gsWarning = diagnostics.find(
+    (d) => d.dataset === 'game-stats' && /postseason/i.test(d.message)
+  );
+  assert.ok(gsWarning, 'the completed postseason slate is judged');
+});
+
+test('combined regular + postseason partitions are judged together', async () => {
+  await seedPartition('regular', REGULAR_PARTITION_ITEMS);
+  await seedPartition('postseason', POSTSEASON_PARTITION_ITEMS);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'schedule' && d.severity === 'error'),
+    undefined
+  );
+  const gameStats = diagnostics.filter((d) => d.dataset === 'game-stats');
+  assert.ok(
+    gameStats.some((d) => /postseason|\(post\)/i.test(d.message)),
+    'the postseason slate is reported'
+  );
+  assert.equal(
+    gameStats.length >= 2,
+    true,
+    'the regular slate is reported alongside the postseason one'
+  );
+});

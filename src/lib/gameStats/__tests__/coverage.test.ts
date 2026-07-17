@@ -19,14 +19,22 @@ import { aggregateOwnerGameStats } from '../ownerStats.ts';
 import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 
-function row(providerGameId: number, homeSchool = 'Alpha', awaySchool = 'Beta'): GameStats {
+function row(
+  providerGameId: number,
+  homeSchool = 'Alpha',
+  awaySchool = 'Beta',
+  // Provider-PRESENT stat fields per side (stat authority evidence): the
+  // normalizer records exactly the wire-supplied categories in `raw`, so a
+  // realistic row carries at least one. Pass {} to build an identity-only row.
+  rawFields: Record<string, string> = { totalYards: '100' }
+): GameStats {
   return {
     providerGameId,
     week: 1,
     seasonType: 'regular',
-    // Only the fields coverage inspects need to be real; the rest are structural.
-    home: { school: homeSchool } as GameStats['home'],
-    away: { school: awaySchool } as GameStats['away'],
+    // Only the fields coverage/merge inspect need to be real; the rest are structural.
+    home: { school: homeSchool, raw: rawFields } as GameStats['home'],
+    away: { school: awaySchool, raw: rawFields } as GameStats['away'],
   };
 }
 
@@ -493,6 +501,56 @@ test('merge: repeated recovery with the same malformed row never accumulates dup
     [101],
     'no duplicate accumulates across recovery runs'
   );
+});
+
+// Review remediation — merge identity is separate from STAT AUTHORITY: a row's
+// authority comes from provider-PRESENT stat fields (`raw`, recorded before
+// omitted categories are normalized to zero), never from nonzero values.
+
+test('merge: an identity-only incoming row never replaces prior populated statistics', () => {
+  const prior = record([row(101)]);
+  const identityOnly = row(101, 'Alpha', 'Beta', {});
+  const merge = mergeWeeklyGameStats(prior, [identityOnly]);
+  assert.equal(merge.changed, false);
+  assert.deepEqual(merge.games[0].home.raw, { totalYards: '100' }, 'prior stats survive');
+});
+
+test('merge: an identity-only incoming row is not persisted when no prior row exists', () => {
+  const merge = mergeWeeklyGameStats(null, [row(101, 'Alpha', 'Beta', {})]);
+  assert.equal(merge.changed, false);
+  assert.deepEqual(merge.games, [], 'zero-filled identity-only rows are never authoritative');
+  assert.equal(merge.rowsDroppedStatless, 1);
+});
+
+test('merge: weaker present-field coverage never replaces stronger prior coverage', () => {
+  const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '350', rushingYards: '150' })]);
+  const weaker = row(101, 'Alpha', 'Beta', { totalYards: '10' });
+  const merge = mergeWeeklyGameStats(prior, [weaker]);
+  assert.equal(merge.changed, false);
+  assert.equal(merge.games[0].home.raw.totalYards, '350', 'the stronger prior row is retained');
+});
+
+test('merge: explicitly supplied zero-valued statistics are valid authority', () => {
+  // A present "0" is real data, not an omission — it persists and can replace
+  // an equal-coverage prior row.
+  const fresh = mergeWeeklyGameStats(null, [row(101, 'Alpha', 'Beta', { totalYards: '0' })]);
+  assert.equal(fresh.changed, true);
+  assert.equal(fresh.games[0].home.raw.totalYards, '0');
+
+  const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '100' })]);
+  const zeroUpdate = row(101, 'Alpha', 'Beta', { totalYards: '0' });
+  const replaced = mergeWeeklyGameStats(prior, [zeroUpdate]);
+  assert.equal(replaced.changed, true, 'equal-coverage explicit zeros replace normally');
+  assert.equal(replaced.games[0].home.raw.totalYards, '0');
+});
+
+test('merge: equal or stronger present-field coverage still replaces normally', () => {
+  const prior = record([row(101, 'Alpha', 'Beta', { totalYards: '100' })]);
+  const stronger = row(101, 'Alpha', 'Beta', { totalYards: '120', rushingYards: '60' });
+  const merge = mergeWeeklyGameStats(prior, [stronger]);
+  assert.equal(merge.changed, true);
+  assert.equal(merge.rowsCommitted, 1);
+  assert.equal(merge.games[0].home.raw.rushingYards, '60');
 });
 
 test('merge: dropped keyless rows cannot inflate owner aggregation', () => {

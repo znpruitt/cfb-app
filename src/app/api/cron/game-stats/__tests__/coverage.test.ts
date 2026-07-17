@@ -137,6 +137,11 @@ function resultFor(body: CronBody, week: number, seasonType = 'regular'): CronWe
 
 const DAYS_AGO = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
 
+// Wire stat entries make the row AUTHORITATIVE (provider-present fields) — a
+// teams row with `stats: []` is identity-only and is deliberately never
+// persisted by the merge.
+const WIRE_STATS = [{ category: 'totalYards', stat: '100' }];
+
 function stubTeamStats() {
   globalThis.fetch = (async () =>
     new Response(
@@ -144,8 +149,22 @@ function stubTeamStats() {
         {
           id: 5001,
           teams: [
-            { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-            { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+            {
+              teamId: 1,
+              team: 'Alpha',
+              conference: 'X',
+              homeAway: 'home',
+              points: 21,
+              stats: WIRE_STATS,
+            },
+            {
+              teamId: 2,
+              team: 'Beta',
+              conference: 'Y',
+              homeAway: 'away',
+              points: 14,
+              stats: WIRE_STATS,
+            },
           ],
         },
       ]),
@@ -355,13 +374,27 @@ test('a nonempty payload that normalizes to zero usable rows resolves as failure
 
 // === PLATFORM-086H — schedule-relative completeness, retry, and safe merge ===
 
-/** Wire fixture: a usable CFBD /games/teams row for the given provider game id. */
+/** Wire fixture: a usable, stat-bearing CFBD /games/teams row for the given id. */
 function rawGame(id: number, home = `Home ${id}`, away = `Away ${id}`) {
   return {
     id,
     teams: [
-      { teamId: id * 10 + 1, team: home, conference: 'X', homeAway: 'home', points: 21, stats: [] },
-      { teamId: id * 10 + 2, team: away, conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+      {
+        teamId: id * 10 + 1,
+        team: home,
+        conference: 'X',
+        homeAway: 'home',
+        points: 21,
+        stats: WIRE_STATS,
+      },
+      {
+        teamId: id * 10 + 2,
+        team: away,
+        conference: 'Y',
+        homeAway: 'away',
+        points: 14,
+        stats: WIRE_STATS,
+      },
     ],
   };
 }
@@ -574,6 +607,39 @@ test('a synthetic schedule id never creates a false expectation or endless recov
     'skipped-complete',
     'the unverifiable synthetic-id row stays out of the completeness denominator'
   );
+});
+
+// Review remediation — the cron's schedule loader supports the partition-only
+// cache layout (`-all-regular` / `-all-postseason` without `-all-all`), and
+// diagnostics read the SAME canonical loader, so both judge the same slates.
+test('a partition-only schedule cache layout is recovered by the cron', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: Date.now(),
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: '8001',
+        week: 8,
+        seasonType: 'regular',
+        startDate: DAYS_AGO(5),
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Alabama',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'STATUS_FINAL',
+      },
+    ],
+  });
+  stubJson([rawGame(8001)]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(resultFor(body, 8).outcome, 'committed');
+  assert.equal((await getCachedGameStats(YEAR, 8, 'regular'))?.games.length, 1);
 });
 
 // Review remediation — a malformed keyless provider row (negative/non-numeric

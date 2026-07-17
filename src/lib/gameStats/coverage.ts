@@ -243,6 +243,13 @@ export type WeeklyGameStatsMerge = {
    * duplicates that inflate downstream owner aggregation (review remediation).
    */
   rowsDroppedKeyless: number;
+  /**
+   * Keyed incoming rows DISCARDED because they carried NO stat content at all
+   * (identity-only rows — the provider supplied a game id and team names but
+   * zero stat fields) and no prior row existed to retain. An identity-only row
+   * is never authoritative game stats (review remediation).
+   */
+  rowsDroppedStatless: number;
   /** Whether the merged content differs from the prior record at all. */
   changed: boolean;
 };
@@ -266,14 +273,37 @@ function rowsEqual(a: GameStats, b: GameStats): boolean {
 }
 
 /**
+ * STAT AUTHORITY, separate from merge identity (review remediation): how many
+ * stat fields the provider EXPLICITLY supplied for this row, counted from the
+ * normalizer's per-team `raw` category map — which records exactly the fields
+ * present on the wire BEFORE omitted categories are normalized to zero. An
+ * explicitly supplied "0" is present in `raw` and counts (a real zero is valid
+ * data); an omitted category is absent and does not. A row with a valid id and
+ * team names but zero present fields is IDENTITY-ONLY — never authoritative:
+ * its zero-filled normalized values would silently replace real prior totals.
+ * Deliberately a presence count, never a nonzero-value heuristic.
+ */
+function statFieldsPresent(row: GameStats): number {
+  return Object.keys(row.home?.raw ?? {}).length + Object.keys(row.away?.raw ?? {}).length;
+}
+
+/**
  * Merge freshly normalized provider rows into the prior cached weekly record by
  * canonical game id (PLATFORM-086H requirement 4). Recovery of a partial week
  * must be strictly additive-or-replacing:
  *   - a prior row the response omits is RETAINED — a partial or empty recovery
  *     response can never delete prior-good rows;
  *   - an incoming row replaces the prior row for its game id only when it is
- *     authoritative — an UNUSABLE incoming row (blank team identity) never
- *     clobbers a usable prior row;
+ *     authoritative on BOTH axes — identity (an UNUSABLE incoming row with blank
+ *     team identity never clobbers a usable prior row) and STAT CONTENT
+ *     (`statFieldsPresent`, review remediation): an identity-only row (zero
+ *     provider-present stat fields) never replaces anything and is never
+ *     persisted as new, and a row with WEAKER present-field coverage than the
+ *     usable prior row retains the prior — a partially published CFBD response
+ *     must not regress real totals to normalized zeros. Explicit zero values are
+ *     present fields and remain valid. A usable incoming row with content still
+ *     repairs a prior row whose identity is unusable (that prior row is
+ *     unreachable by owner aggregation regardless of its stats);
  *   - an incoming row WITHOUT a canonical merge key is never persisted (review
  *     remediation): it could never be replaced or deduplicated, so a
  *     still-incomplete week would append another copy on every recovery run and
@@ -299,22 +329,39 @@ export function mergeWeeklyGameStats(
   let rowsCommitted = 0;
   let replacedCount = 0;
   let rowsDroppedKeyless = 0;
+  let rowsDroppedStatless = 0;
   for (const row of incoming) {
     const key = mergeKey(row);
     if (key === null) {
       rowsDroppedKeyless += 1;
       continue;
     }
+    const coverage = statFieldsPresent(row);
     const priorIndex = indexByKey.get(key);
     if (priorIndex === undefined) {
+      if (coverage === 0) {
+        // Identity-only row with nothing to retain against: never persisted.
+        rowsDroppedStatless += 1;
+        continue;
+      }
       merged.push(row);
       indexByKey.set(key, merged.length - 1);
       rowsCommitted += 1;
       continue;
     }
+    // Identity-only rows never replace a prior row of any kind.
+    if (coverage === 0) continue;
     const priorRow = merged[priorIndex];
-    const authoritative = isUsableGameStatsRow(row) || !isUsableGameStatsRow(priorRow);
-    if (!authoritative || rowsEqual(priorRow, row)) continue;
+    if (isUsableGameStatsRow(priorRow)) {
+      // A usable prior row is replaced only by a usable incoming row whose
+      // provider-present stat coverage is at least as strong.
+      if (!isUsableGameStatsRow(row)) continue;
+      if (coverage < statFieldsPresent(priorRow)) continue;
+    } else if (!isUsableGameStatsRow(row)) {
+      // Neither side usable: keep the prior row; nothing improves.
+      continue;
+    }
+    if (rowsEqual(priorRow, row)) continue;
     merged[priorIndex] = row;
     rowsCommitted += 1;
     replacedCount += 1;
@@ -325,6 +372,7 @@ export function mergeWeeklyGameStats(
     rowsCommitted,
     rowsRetained: (prior?.games.length ?? 0) - replacedCount,
     rowsDroppedKeyless,
+    rowsDroppedStatless,
     changed: rowsCommitted > 0,
   };
 }

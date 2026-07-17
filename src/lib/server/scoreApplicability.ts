@@ -23,7 +23,9 @@ function normalizeSeasonType(value: unknown): CfbdSeasonType {
  * no-op that should be skipped. Applicability is never inferred from week number.
  */
 export function deriveApplicableScoreSeasonTypes(
-  items: ScheduleCacheEntry['items']
+  // Structural: only seasonType is read, so both ScheduleItem[] (route cache)
+  // and ScheduleWireItem[] (canonical partition-fallback loader) are accepted.
+  items: ReadonlyArray<{ seasonType?: string | null }>
 ): CfbdSeasonType[] {
   let hasRegular = false;
   let hasPostseason = false;

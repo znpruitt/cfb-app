@@ -19,6 +19,9 @@ const ORIGINAL = {
 };
 const ORIGINAL_FETCH = globalThis.fetch;
 const ADMIN_TOKEN = 'test-admin-token';
+// Wire stat entries make a row AUTHORITATIVE (provider-present fields); a
+// teams row with `stats: []` is identity-only and never persisted by the merge.
+const WIRE_STATS = [{ category: 'totalYards', stat: '100' }];
 
 function adminRefresh(): Request {
   return new Request(
@@ -131,8 +134,22 @@ test('manual refresh: a usable payload commits and records success', async () =>
     {
       id: 5001,
       teams: [
-        { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-        { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+        {
+          teamId: 1,
+          team: 'Alpha',
+          conference: 'X',
+          homeAway: 'home',
+          points: 21,
+          stats: WIRE_STATS,
+        },
+        {
+          teamId: 2,
+          team: 'Beta',
+          conference: 'Y',
+          homeAway: 'away',
+          points: 14,
+          stats: WIRE_STATS,
+        },
       ],
     },
   ]);
@@ -155,6 +172,43 @@ test('manual refresh: a usable payload commits and records success', async () =>
     weekPartitionScope(2026, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'succeeded');
+});
+
+// Review remediation — an identity-only payload (valid ids and team names but
+// zero provider-present stat fields) is never authoritative: on a cold key it
+// must resolve as a truthful no-op, never an empty durable commit.
+test('manual refresh: an identity-only payload on a cold key is a no-op, not an empty commit', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  stubJson([
+    {
+      id: 5001,
+      teams: [
+        { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
+        { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+      ],
+    },
+  ]);
+
+  const res = await GET(adminRefresh());
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    games: unknown[];
+    meta: { outcome?: string; rowsCached?: number };
+  };
+  assert.equal(body.meta.outcome, 'noop');
+  assert.equal(body.meta.rowsCached, 0);
+
+  assert.equal(
+    await getCachedGameStats(2026, 3, 'regular'),
+    null,
+    'no empty record is committed for zero-authority rows'
+  );
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
+  );
+  assert.equal(status.latestAttemptOutcome, 'no-op');
+  assert.equal(status.lastSuccessAt, null, 'no last-success advance for zero coverage');
 });
 
 // === PLATFORM-086H — the manual refresh shares the cron's merge contract ===
@@ -181,8 +235,22 @@ test('manual refresh: a partial provider response merges with prior-good rows, n
     {
       id: 5002,
       teams: [
-        { teamId: 1, team: 'Gamma', conference: 'X', homeAway: 'home', points: 30, stats: [] },
-        { teamId: 2, team: 'Delta', conference: 'Y', homeAway: 'away', points: 3, stats: [] },
+        {
+          teamId: 1,
+          team: 'Gamma',
+          conference: 'X',
+          homeAway: 'home',
+          points: 30,
+          stats: WIRE_STATS,
+        },
+        {
+          teamId: 2,
+          team: 'Delta',
+          conference: 'Y',
+          homeAway: 'away',
+          points: 3,
+          stats: WIRE_STATS,
+        },
       ],
     },
   ]);
@@ -211,8 +279,22 @@ test('manual refresh: identical provider data is a truthful no-op — no rewrite
     {
       id: 5001,
       teams: [
-        { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-        { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+        {
+          teamId: 1,
+          team: 'Alpha',
+          conference: 'X',
+          homeAway: 'home',
+          points: 21,
+          stats: WIRE_STATS,
+        },
+        {
+          teamId: 2,
+          team: 'Beta',
+          conference: 'Y',
+          homeAway: 'away',
+          points: 14,
+          stats: WIRE_STATS,
+        },
       ],
     },
   ];
@@ -266,7 +348,7 @@ function rawGamePayload(id: number, home: string, away: string) {
           conference: 'X',
           homeAway: 'home',
           points: 21,
-          stats: [],
+          stats: WIRE_STATS,
         },
         {
           teamId: id * 10 + 2,
@@ -274,7 +356,7 @@ function rawGamePayload(id: number, home: string, away: string) {
           conference: 'Y',
           homeAway: 'away',
           points: 14,
-          stats: [],
+          stats: WIRE_STATS,
         },
       ],
     },

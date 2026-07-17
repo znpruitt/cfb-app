@@ -10,7 +10,9 @@
 import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache';
 import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
+import type { ScheduleWireItem } from '../schedule.ts';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
+import { loadCachedScheduleItems } from './canonicalScheduleCache.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
 import {
   deriveExpectedGameStatsIds,
@@ -146,7 +148,7 @@ export function deriveCompletedStatSlates(
 }
 
 /** Whether the season is "active" around now (any game within ±45 days). */
-function isSeasonActive(items: ScheduleCacheEntry['items'], now: number): boolean {
+function isSeasonActive(items: readonly SlateSourceItem[], now: number): boolean {
   const windowMs = 45 * DAY_MS;
   for (const item of items) {
     if (!item.startDate) continue;
@@ -170,17 +172,26 @@ export async function getProviderDataDiagnostics(
   };
 
   // ---- Schedule (also the source of "completed slate" expectations) ----
-  let scheduleItems: ScheduleCacheEntry['items'] = [];
+  let scheduleItems: ScheduleWireItem[] = [];
   let seasonActive = false;
   try {
+    // Schedule items come from the SAME canonical partition-fallback loader the
+    // game-stats cron uses (`loadCachedScheduleItems`: `-all-all`, else the
+    // regular/postseason pair — review remediation), so diagnostics and cron
+    // recovery always judge the same slate set: a partition-only cache layout no
+    // longer reports "no schedule" here while the cron actively recovers it. The
+    // aggregate `-all-all` entry is still read separately for its refresh
+    // METADATA (partial-failure flag, refresh age) — those fields exist only on
+    // the aggregate record, so they are simply skipped for partition-only
+    // layouts rather than fabricated.
+    scheduleItems = await loadCachedScheduleItems(year);
     const scheduleRec = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-all`);
     const entry = scheduleRec?.value;
-    scheduleItems = entry?.items ?? [];
     seasonActive = isSeasonActive(scheduleItems, now);
 
-    if (!entry || scheduleItems.length === 0) {
+    if (scheduleItems.length === 0) {
       push('schedule', 'error', `No current-season schedule cached for ${year}.`);
-    } else {
+    } else if (entry) {
       if (entry.partialFailure) {
         const missing = entry.failedSeasonTypes?.length
           ? ` (missing: ${entry.failedSeasonTypes.join(', ')})`

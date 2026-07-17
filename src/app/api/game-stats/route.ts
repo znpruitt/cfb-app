@@ -218,10 +218,12 @@ export async function GET(req: Request) {
     const outcome = await withGameStatsWeekLock(year, week, seasonType, async () => {
       const prior = await getCachedGameStats(year, week, seasonType);
       const merge = mergeWeeklyGameStats(prior, classification.games);
-      // A commit classification always carries ≥1 usable row, so `changed` can
-      // only be false when a prior record already holds identical rows.
-      if (prior && !merge.changed) {
-        return { kind: 'no-change' as const, prior };
+      // `changed` is false when a prior record already holds identical rows OR
+      // when every incoming row was dropped (keyless / identity-only). Either
+      // way nothing may be rewritten — especially not an empty record over a
+      // cold key, which would advance last-success for zero coverage.
+      if (!merge.changed) {
+        return { kind: 'no-change' as const, prior: prior ?? null };
       }
       const result: WeeklyGameStats = {
         year,
@@ -245,14 +247,14 @@ export async function GET(req: Request) {
     if (outcome.kind === 'no-change') {
       await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });
       return NextResponse.json({
-        ...outcome.prior,
+        ...(outcome.prior ?? { year, week, seasonType, fetchedAt: null, games: [] }),
         meta: {
           cache: 'miss',
           source: 'cfbd',
           outcome: 'noop',
           noopReason: 'no-new-rows',
           rowsCommitted: 0,
-          rowsCached: outcome.prior.games.length,
+          rowsCached: outcome.prior?.games.length ?? 0,
         },
       });
     }
