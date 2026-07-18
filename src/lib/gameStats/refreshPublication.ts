@@ -17,6 +17,7 @@ import {
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
   type ProviderRefreshAttempt,
+  type ProviderStatusMutationResult,
 } from '../server/providerRefreshStatus.ts';
 
 /**
@@ -104,6 +105,14 @@ export type GameStatsRefreshPublication = {
   reread: 'ok' | 'failed' | 'skipped';
   /** Durable changes the merge ACCEPTED (inserted + updated + fence-refreshed). */
   acceptedGames: number;
+  /**
+   * Typed persistence result of the status-ledger mutation (PLATFORM-086H3).
+   * Evidence durability and status publication are SEPARATE facts: when the
+   * evidence committed but the ledger write failed, `recorded` is downgraded
+   * to `partial-success` (never `success` — the ledger was not updated) and
+   * this field says exactly why.
+   */
+  statusPublication: ProviderStatusMutationResult;
   dispositionReason: GameStatsRefreshDispositionReason;
   /**
    * Provider-attempt diagnostics carried through publication (never erased by
@@ -124,6 +133,8 @@ export type GameStatsAttemptDiagnostics = {
   attachment: ObservationAttachmentCounts | null;
   /** Attached observations the MERGE skipped as non-persistable. */
   skippedNonPersistable: number;
+  /** Matched observations in a `no-persistable-observations` outcome. */
+  noPersistableObservations: number;
   degraded: boolean;
 };
 
@@ -133,6 +144,8 @@ function attemptDiagnostics(ingestion: GameStatsIngestionResult): GameStatsAttem
   const attachment = 'attachment' in ingestion ? ingestion.attachment : null;
   const skippedNonPersistable =
     ingestion.kind === 'merged' ? ingestion.merge.skippedNonPersistable : 0;
+  const noPersistableObservations =
+    ingestion.kind === 'no-persistable-observations' ? ingestion.attachment.matched : 0;
   const parseFailureCount = Object.values(parseFailures).reduce(
     (sum, count) => sum + (count ?? 0),
     0
@@ -143,21 +156,24 @@ function attemptDiagnostics(ingestion: GameStatsIngestionResult): GameStatsAttem
       attachment.unresolvedParticipant +
       attachment.excludedClassification +
       attachment.unscheduledId +
-      attachment.placeholderDeferred >
+      attachment.placeholderDeferred +
+      attachment.canonicalUnresolved +
+      attachment.classificationUnknown >
       0;
   const degraded =
     parseFailureCount > 0 ||
     attachmentDegradation ||
     skippedNonPersistable > 0 ||
-    ingestion.kind === 'no-persistable-observations';
-  return { parseFailures, attachment, skippedNonPersistable, degraded };
+    noPersistableObservations > 0;
+  return { parseFailures, attachment, skippedNonPersistable, noPersistableObservations, degraded };
 }
 
 function attachmentDetail(attachment: ObservationAttachmentCounts): string {
   return (
     `matched ${attachment.matched}, participant-mismatch ${attachment.participantMismatch}, ` +
     `unresolved-participant ${attachment.unresolvedParticipant}, unscheduled ${attachment.unscheduledId}, ` +
-    `excluded ${attachment.excludedClassification}, placeholder-deferred ${attachment.placeholderDeferred}`
+    `excluded ${attachment.excludedClassification}, placeholder-deferred ${attachment.placeholderDeferred}, ` +
+    `canonical-unresolved ${attachment.canonicalUnresolved}, classification-unknown ${attachment.classificationUnknown}`
   );
 }
 
@@ -217,11 +233,12 @@ export async function finalizeGameStatsRefresh(
     httpStatus: number,
     extras: Partial<GameStatsRefreshPublication> = {}
   ): Promise<GameStatsRefreshPublication> => {
-    await recordProviderRefreshFailure('game-stats', scope, {
+    const statusPublication = await recordProviderRefreshFailure('game-stats', scope, {
       attempt,
       error: `${contextLabel}: ${detail}`,
       code,
       status: httpStatus,
+      diagnostics,
     });
     return {
       recorded: 'failure',
@@ -232,6 +249,7 @@ export async function finalizeGameStatsRefresh(
       coverage: null,
       reread: 'skipped',
       acceptedGames: 0,
+      statusPublication,
       dispositionReason: reason,
       attempt: diagnostics,
       ...extras,
@@ -266,7 +284,11 @@ export async function finalizeGameStatsRefresh(
           502
         );
       }
-      await recordProviderRefreshNoop('game-stats', scope, { attempt, source });
+      const statusPublication = await recordProviderRefreshNoop('game-stats', scope, {
+        attempt,
+        source,
+        diagnostics,
+      });
       return {
         recorded: 'noop',
         detail: 'provider returned no game stats yet (nothing expected for this slate)',
@@ -275,6 +297,7 @@ export async function finalizeGameStatsRefresh(
         coverage: null,
         reread: 'skipped',
         acceptedGames: 0,
+        statusPublication,
         dispositionReason: 'empty-expected',
         attempt: diagnostics,
       };
@@ -363,27 +386,35 @@ export async function finalizeGameStatsRefresh(
     // status ledger's compare-and-write orders by TRUE cross-instance commit
     // order — a stalled reread/finalizer cannot reorder commits.
     const partial = !complete || merge.conflicts.length > 0 || diagnostics.degraded;
-    await recordProviderRefreshSuccess('game-stats', scope, {
+    const statusPublication = await recordProviderRefreshSuccess('game-stats', scope, {
       attempt,
       committedAt: merge.commit?.committedAt,
       commitRevision: merge.commit?.commitRevision,
       source,
       rowsCommitted: accepted,
       partialFailure: partial,
+      diagnostics,
     });
     const degradedNote = diagnostics.degraded
       ? '; provider payload degradation observed (parse/attachment diagnostics retained)'
       : '';
+    // Evidence durability and status publication are separate facts: the
+    // evidence COMMITTED regardless, but `recorded: success` is truthful only
+    // when the ledger actually recorded it.
+    const publicationFailed = statusPublication === 'failed';
     return {
-      recorded: partial ? 'partial-success' : 'success',
-      detail: complete
-        ? `committed ${accepted} game(s); committed coverage is complete${degradedNote}`
-        : `committed ${accepted} game(s); committed coverage is ${coverage.state} (${coverage.satisfied.length}/${coverage.expected.length} expected games satisfied)${degradedNote}`,
+      recorded: partial || publicationFailed ? 'partial-success' : 'success',
+      detail: `${
+        complete
+          ? `committed ${accepted} game(s); committed coverage is complete${degradedNote}`
+          : `committed ${accepted} game(s); committed coverage is ${coverage.state} (${coverage.satisfied.length}/${coverage.expected.length} expected games satisfied)${degradedNote}`
+      }${publicationFailed ? '; evidence committed but refresh-status publication FAILED' : ''}`,
       httpStatus: 200,
       committed,
       coverage,
       reread: 'ok',
       acceptedGames: accepted,
+      statusPublication,
       dispositionReason: complete ? 'satisfied' : 'partial-coverage',
       attempt: diagnostics,
     };
@@ -392,7 +423,11 @@ export async function finalizeGameStatsRefresh(
   // No durable change (`unchanged` at an equal fence, or every observation
   // `stale`). Committed coverage — not the outcome label — decides.
   if (complete) {
-    await recordProviderRefreshNoop('game-stats', scope, { attempt, source });
+    const statusPublication = await recordProviderRefreshNoop('game-stats', scope, {
+      attempt,
+      source,
+      diagnostics,
+    });
     return {
       recorded: 'noop',
       detail: `durable state already satisfies the schedule expectation (${merge.outcome})`,
@@ -401,6 +436,7 @@ export async function finalizeGameStatsRefresh(
       coverage,
       reread: 'ok',
       acceptedGames: 0,
+      statusPublication,
       dispositionReason: 'satisfied',
       attempt: diagnostics,
     };

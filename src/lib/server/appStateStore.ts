@@ -40,6 +40,10 @@ let __writeFailureForTests: Error | null = null;
 // test can fail a provider-data commit while status-scope writes still persist).
 // Null means the failure applies to every scope. Always null outside tests.
 let __writeFailureScopeForTests: string | null = null;
+// Test-only: number of matching writes still ALLOWED before the armed failure
+// fires (so a test can let an early write in a multi-write flow commit — e.g. a
+// recovery claim — and fail a later one — e.g. its release). Always 0 outside tests.
+let __writeFailureRemainingSuccessesForTests = 0;
 // Test-only: when set, `getAppState` throws this (writes unaffected). See
 // `__setAppStateReadFailureForTests`. Always null outside tests.
 let __readFailureForTests: Error | null = null;
@@ -53,6 +57,11 @@ let __keyLockFailureScopeForTests: string | null = null;
 // test can fail a `'schedule'` read while `'provider-refresh-status'` reads still
 // succeed). Null means the failure applies to every scope. Always null outside tests.
 let __readFailureScopeForTests: string | null = null;
+// Test-only: number of matching reads still ALLOWED before the armed read
+// failure fires (so a test can let an early read in a multi-read flow succeed —
+// e.g. recovery planning — and fail a later one — e.g. the post-claim
+// authoritative reread). Always 0 outside tests.
+let __readFailureRemainingSuccessesForTests = 0;
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -369,10 +378,23 @@ export class AppStateTxnCleanupError extends Error {
   }
 }
 
-/** Transaction-scoped accessor for exactly one (scope, key). */
+/**
+ * Transaction-scoped accessor for one PRIMARY (scope, key) — the advisory
+ * lock target — plus narrowly scoped secondary-key access within the SAME
+ * transaction (PLATFORM-086H3). `readKey`/`writeKey` let a lock-owning
+ * critical section atomically co-commit closely related bookkeeping (e.g.
+ * the game-stats revision ledger) with its primary write: both persist or
+ * neither does. Secondary keys take NO additional advisory lock — callers
+ * must ensure every writer of a secondary key already serializes on the
+ * primary key's lock (true for the 1:1 partition↔ledger pairing). This is
+ * deliberately the smallest extension over the one-key API, not a general
+ * multi-key transaction system.
+ */
 export type AppStateKeyTxn = {
   read<T>(): Promise<AppStateRecord<T> | null>;
   write<T>(value: T): Promise<void>;
+  readKey<T>(scope: string, key: string): Promise<AppStateRecord<T> | null>;
+  writeKey<T>(scope: string, key: string, value: T): Promise<void>;
 };
 
 const keyLockChains = new Map<string, Promise<unknown>>();
@@ -408,43 +430,50 @@ export async function withAppStateKeyTransaction<T>(
     let txnFailed = false;
     // The ACTUAL first statement failure — never replaced by a placeholder.
     let firstStatementFailure: unknown = null;
+    const readRow = async <V>(
+      rowScope: string,
+      rowKey: string
+    ): Promise<AppStateRecord<V> | null> => {
+      if (finished) throw new Error('app-state key transaction already finished');
+      try {
+        const result = await client.query<{ value: V; updated_at: Date | string }>(
+          'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
+          [rowScope, rowKey]
+        );
+        const row = result.rows[0];
+        if (!row) return null;
+        return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
+      } catch (error) {
+        txnFailed = true;
+        firstStatementFailure ??= error;
+        throw error;
+      }
+    };
+    const writeRow = async <V>(rowScope: string, rowKey: string, value: V): Promise<void> => {
+      if (finished) throw new Error('app-state key transaction already finished');
+      writeAttempted = true;
+      try {
+        await client.query(
+          `
+            insert into app_state (scope, key, value, updated_at)
+            values ($1, $2, $3::jsonb, $4::timestamptz)
+            on conflict (scope, key)
+            do update set value = excluded.value, updated_at = excluded.updated_at
+          `,
+          [rowScope, rowKey, JSON.stringify(value), new Date().toISOString()]
+        );
+        writeAcknowledged = true;
+      } catch (error) {
+        txnFailed = true;
+        firstStatementFailure ??= error;
+        throw error;
+      }
+    };
     const txn: AppStateKeyTxn = {
-      async read<V>(): Promise<AppStateRecord<V> | null> {
-        if (finished) throw new Error('app-state key transaction already finished');
-        try {
-          const result = await client.query<{ value: V; updated_at: Date | string }>(
-            'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
-            [scope, key]
-          );
-          const row = result.rows[0];
-          if (!row) return null;
-          return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
-        } catch (error) {
-          txnFailed = true;
-          firstStatementFailure ??= error;
-          throw error;
-        }
-      },
-      async write<V>(value: V): Promise<void> {
-        if (finished) throw new Error('app-state key transaction already finished');
-        writeAttempted = true;
-        try {
-          await client.query(
-            `
-              insert into app_state (scope, key, value, updated_at)
-              values ($1, $2, $3::jsonb, $4::timestamptz)
-              on conflict (scope, key)
-              do update set value = excluded.value, updated_at = excluded.updated_at
-            `,
-            [scope, key, JSON.stringify(value), new Date().toISOString()]
-          );
-          writeAcknowledged = true;
-        } catch (error) {
-          txnFailed = true;
-          firstStatementFailure ??= error;
-          throw error;
-        }
-      },
+      read: <V>() => readRow<V>(scope, key),
+      write: <V>(value: V) => writeRow(scope, key, value),
+      readKey: readRow,
+      writeKey: writeRow,
     };
 
     // Client containment: a client whose transaction state is uncertain —
@@ -568,6 +597,14 @@ export async function withAppStateKeyTransaction<T>(
       if (fileFinished) throw new Error('app-state key transaction already finished');
       await setAppState(scope, key, value);
     },
+    readKey: async <V>(rowScope: string, rowKey: string) => {
+      if (fileFinished) throw new Error('app-state key transaction already finished');
+      return await getAppState<V>(rowScope, rowKey);
+    },
+    writeKey: async <V>(rowScope: string, rowKey: string, value: V) => {
+      if (fileFinished) throw new Error('app-state key transaction already finished');
+      await setAppState(rowScope, rowKey, value);
+    },
   };
   const invoke = async (): Promise<T> => {
     try {
@@ -604,7 +641,11 @@ export async function getAppState<T>(
     __readFailureForTests &&
     (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
   ) {
-    throw __readFailureForTests;
+    if (__readFailureRemainingSuccessesForTests > 0) {
+      __readFailureRemainingSuccessesForTests -= 1;
+    } else {
+      throw __readFailureForTests;
+    }
   }
 
   if (hasDatabaseConfig()) {
@@ -642,11 +683,17 @@ export async function setAppState<T>(
   // persist does not publish process-local "fresh" provider data. Never set in
   // production paths. Optionally scoped so a test can fail one provider-data commit
   // while other scopes still persist.
-  const shouldFailWrite = (): boolean =>
-    Boolean(
-      __writeFailureForTests &&
-        (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope)
-    );
+  const shouldFailWrite = (): boolean => {
+    if (!__writeFailureForTests) return false;
+    if (__writeFailureScopeForTests !== null && __writeFailureScopeForTests !== scope) {
+      return false;
+    }
+    if (__writeFailureRemainingSuccessesForTests > 0) {
+      __writeFailureRemainingSuccessesForTests -= 1;
+      return false;
+    }
+    return true;
+  };
 
   if (hasDatabaseConfig()) {
     if (shouldFailWrite()) throw __writeFailureForTests;
@@ -807,8 +854,10 @@ export function __resetAppStateForTests(): void {
   hasLoggedProductionConfigError = false;
   __writeFailureForTests = null;
   __writeFailureScopeForTests = null;
+  __writeFailureRemainingSuccessesForTests = 0;
   __readFailureForTests = null;
   __readFailureScopeForTests = null;
+  __readFailureRemainingSuccessesForTests = 0;
   __keyLockFailureForTests = null;
   __keyLockFailureScopeForTests = null;
   keyLockChains.clear();
@@ -828,13 +877,19 @@ export function __resetAppStateForTests(): void {
  * one provider-data commit (e.g. `'schedule'`) while other scopes — notably the
  * `'provider-refresh-status'` best-effort writes — still persist. Omit `scope`
  * to fail every write.
+ *
+ * `options.afterWrites` lets that many MATCHING writes succeed before the
+ * failure fires — e.g. commit a recovery claim (first write) and fail its later
+ * release, exercising dual-failure post-claim paths deterministically.
  */
 export function __setAppStateWriteFailureForTests(
   error: Error | null,
-  scope: string | null = null
+  scope: string | null = null,
+  options?: { afterWrites?: number }
 ): void {
   __writeFailureForTests = error;
   __writeFailureScopeForTests = error ? scope : null;
+  __writeFailureRemainingSuccessesForTests = error ? (options?.afterWrites ?? 0) : 0;
 }
 
 /**
@@ -846,13 +901,20 @@ export function __setAppStateWriteFailureForTests(
  * Optionally scope the failure to a single app-state `scope` so a test can fail
  * one scope's reads (e.g. `'schedule'`) while other scopes — notably the
  * `'provider-refresh-status'` reads — still succeed. Omit `scope` to fail every read.
+ *
+ * `options.afterReads` lets that many MATCHING reads succeed before the failure
+ * fires — e.g. let recovery planning read the schedule (first read) and fail
+ * the post-claim authoritative reread (second), exercising dual-failure
+ * post-claim paths deterministically.
  */
 export function __setAppStateReadFailureForTests(
   error: Error | null,
-  scope: string | null = null
+  scope: string | null = null,
+  options?: { afterReads?: number }
 ): void {
   __readFailureForTests = error;
   __readFailureScopeForTests = error ? scope : null;
+  __readFailureRemainingSuccessesForTests = error ? (options?.afterReads ?? 0) : 0;
 }
 
 /**

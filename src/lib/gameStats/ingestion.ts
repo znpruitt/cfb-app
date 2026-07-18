@@ -431,21 +431,33 @@ export type ObservationAttachmentState =
   | 'matched'
   /** Scheduled id, resolvable provider participants, but they do NOT agree with the canonical participants/orientation. */
   | 'participant-mismatch'
-  /** Scheduled id, but a provider participant cannot resolve to any team identity. */
+  /** Scheduled id, but a PROVIDER participant cannot resolve to any team identity. */
   | 'unresolved-participant'
   /** Scheduled id excluded from persistence by classification (FCS-vs-FCS). */
   | 'excluded-classification'
-  /** Scheduled id whose canonical participants are still unresolved placeholders. */
+  /** Scheduled id whose canonical participants are still placeholder labels (TBD/bowl slots). */
   | 'placeholder-deferred'
+  /** Scheduled id whose CANONICAL participant has no authoritative registry identity. */
+  | 'canonical-unresolved'
+  /** Scheduled id whose canonical classification is UNKNOWN (outside the explicit allowlist). */
+  | 'classification-unknown'
   /** Provider id the canonical schedule slate does not define at all. */
   | 'unscheduled-id';
 
+/**
+ * Exact per-reason attachment counts. Each observation retains the PRECISE
+ * reason assigned here — later layers carry these counts verbatim and never
+ * reconstruct or collapse them (canonical-unresolved and
+ * classification-unknown are NOT folded into placeholder deferral).
+ */
 export type ObservationAttachmentCounts = {
   matched: number;
   participantMismatch: number;
   unresolvedParticipant: number;
   excludedClassification: number;
   placeholderDeferred: number;
+  canonicalUnresolved: number;
+  classificationUnknown: number;
   unscheduledId: number;
 };
 
@@ -456,6 +468,8 @@ export function emptyAttachmentCounts(): ObservationAttachmentCounts {
     unresolvedParticipant: 0,
     excludedClassification: 0,
     placeholderDeferred: 0,
+    canonicalUnresolved: 0,
+    classificationUnknown: 0,
     unscheduledId: 0,
   };
 }
@@ -495,13 +509,9 @@ export function classifyObservationAttachment(
   const game = expectation.games.get(id);
   if (!game) {
     if (expectation.excludedIds.has(id)) return 'excluded-classification';
-    if (
-      expectation.placeholderIds.has(id) ||
-      expectation.unresolvedIds.has(id) ||
-      expectation.classificationUnknownIds.has(id)
-    ) {
-      return 'placeholder-deferred';
-    }
+    if (expectation.placeholderIds.has(id)) return 'placeholder-deferred';
+    if (expectation.unresolvedIds.has(id)) return 'canonical-unresolved';
+    if (expectation.classificationUnknownIds.has(id)) return 'classification-unknown';
     return 'unscheduled-id';
   }
 
@@ -628,6 +638,12 @@ export async function ingestGameStatsObservations(
         break;
       case 'placeholder-deferred':
         attachment.placeholderDeferred += 1;
+        break;
+      case 'canonical-unresolved':
+        attachment.canonicalUnresolved += 1;
+        break;
+      case 'classification-unknown':
+        attachment.classificationUnknown += 1;
         break;
       case 'unscheduled-id':
         attachment.unscheduledId += 1;

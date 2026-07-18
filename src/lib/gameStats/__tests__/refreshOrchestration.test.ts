@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   claimAndRevalidateNextCandidate,
+  GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+  GameStatsRecoveryRevalidationError,
   runManualGameStatsRefresh,
   runScheduledGameStatsRefresh,
 } from '../refreshOrchestration.ts';
@@ -15,6 +17,7 @@ import { readGameStatsRecoveryDisposition } from '../recoveryDisposition.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../server/appStateStore.ts';
@@ -597,4 +600,108 @@ test('failure injection: scheduled retirement failure is surfaced on the result,
   );
   assert.equal(scheduled.recoveryFailures![0]!.operation, 'retire');
   assert.match(scheduled.recoveryFailures![0]!.detail, /retirement store down/);
+});
+
+// === Post-claim DUAL failures: primary revalidation cause + release-finalization cause ===
+
+function planSingleCandidate(resolver: Awaited<ReturnType<typeof loadGameStatsIdentityResolver>>) {
+  return planGameStatsRecovery({
+    year: YEAR,
+    scheduleItems: [
+      {
+        id: '5001',
+        week: WEEK,
+        seasonType: 'regular',
+        startDate: COMPLETED,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha State',
+        awayTeam: 'Beta Tech',
+      },
+    ],
+    resolver,
+    records: [],
+    now: NOW,
+    seasonRelation: 'current',
+  });
+}
+
+test('dual failure: schedule-context reread AND release finalization both fail — both causes survive, stable code', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  const resolver = await loadGameStatsIdentityResolver();
+  const plan = planSingleCandidate(resolver);
+  assert.equal(plan.candidates.length, 1);
+
+  // The claim commits (first recovery-scope write allowed), the post-claim
+  // schedule reread fails, and the token-conditional release ALSO fails.
+  __setAppStateReadFailureForTests(new Error('schedule store down'), 'schedule');
+  __setAppStateWriteFailureForTests(
+    new Error('recovery release store down'),
+    'game-stats-recovery',
+    { afterWrites: 1 }
+  );
+  try {
+    await assert.rejects(
+      claimAndRevalidateNextCandidate({
+        year: YEAR,
+        now: NOW + 1000,
+        candidates: plan.candidates,
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof GameStatsRecoveryRevalidationError, String(err));
+        assert.equal(err.code, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE, 'stable code');
+        assert.equal(err.primary.stage, 'schedule-context');
+        assert.match(err.primary.detail, /schedule store down/, 'primary cause preserved');
+        assert.equal(err.recoveryFailures.length, 1, 'secondary cause preserved');
+        assert.equal(err.recoveryFailures[0]!.operation, 'stale-claim-finalize');
+        assert.match(err.recoveryFailures[0]!.detail, /recovery release store down/);
+        assert.equal(err.leaseMayRemainActive, true, 'uncertain release stays truthful');
+        assert.equal(err.providerAccessOccurred, false, 'zero provider access');
+        return true;
+      }
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no evidence mutation');
+});
+
+test('dual failure: durable-reread AND release finalization both fail — both causes survive, stable code', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  const resolver = await loadGameStatsIdentityResolver();
+  const plan = planSingleCandidate(resolver);
+  assert.equal(plan.candidates.length, 1);
+
+  // Schedule context succeeds; the committed-partition reread fails; the
+  // release finalization fails too (claim write already spent the grace).
+  __setAppStateReadFailureForTests(new Error('game-stats partition store down'), 'game-stats');
+  __setAppStateWriteFailureForTests(
+    new Error('recovery release store down'),
+    'game-stats-recovery',
+    { afterWrites: 1 }
+  );
+  try {
+    await assert.rejects(
+      claimAndRevalidateNextCandidate({
+        year: YEAR,
+        now: NOW + 1000,
+        candidates: plan.candidates,
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof GameStatsRecoveryRevalidationError, String(err));
+        assert.equal(err.code, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE, 'stable code');
+        assert.equal(err.primary.stage, 'durable-reread');
+        assert.match(err.primary.detail, /partition store down/, 'primary cause preserved');
+        assert.equal(err.recoveryFailures.length, 1, 'secondary cause preserved');
+        assert.equal(err.recoveryFailures[0]!.operation, 'stale-claim-finalize');
+        assert.match(err.recoveryFailures[0]!.detail, /recovery release store down/);
+        assert.equal(err.leaseMayRemainActive, true);
+        assert.equal(err.providerAccessOccurred, false);
+        return true;
+      }
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+    __setAppStateWriteFailureForTests(null);
+  }
 });

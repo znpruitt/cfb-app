@@ -458,6 +458,26 @@ test('attachment: excluded, placeholder, and unscheduled ids classify distinctly
   );
 });
 
+test('attachment: canonical-unresolved and classification-unknown are DISTINCT states, never folded', () => {
+  const expectation = expectationFor([
+    item({ id: '801', awayTeam: 'Unknown Northern' }), // canonical registry-unknown
+    item({ id: '802', awayTeam: 'Grass Valley', awayConference: 'Mystery League' }), // classification unknown
+    item({ id: '803', homeTeam: 'TBD', awayTeam: 'TBD' }), // placeholder labels
+  ]);
+  assert.equal(
+    classifyObservationAttachment(observationOf(wireGame({ id: 801 })), expectation, RESOLVER),
+    'canonical-unresolved'
+  );
+  assert.equal(
+    classifyObservationAttachment(observationOf(wireGame({ id: 802 })), expectation, RESOLVER),
+    'classification-unknown'
+  );
+  assert.equal(
+    classifyObservationAttachment(observationOf(wireGame({ id: 803 })), expectation, RESOLVER),
+    'placeholder-deferred'
+  );
+});
+
 // === ingestGameStatsObservations ===
 
 function baseInput(payload: unknown, expectation = expectationFor(SLATE)) {

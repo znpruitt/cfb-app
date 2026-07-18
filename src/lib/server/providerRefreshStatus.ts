@@ -59,7 +59,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { getAppState, setAppState, withAppStateKeyTransaction } from './appStateStore.ts';
+import { getAppState, withAppStateKeyTransaction } from './appStateStore.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import {
   legacyUnscopedScope,
@@ -130,6 +130,13 @@ export type ProviderRefreshStatus = {
    */
   lastSuccessRevision?: number;
   lastError: ProviderRefreshError | null;
+  /**
+   * Typed provider-attempt diagnostic summary persisted WITH the latest
+   * attempt resolution (PLATFORM-086H3) — degradation taxonomy counts the
+   * admin diagnostics can inspect without the transient HTTP response.
+   * Owned by the latest attempt; never describes the committed dataset.
+   */
+  lastAttemptDiagnostics?: unknown;
   source: string | null;
   rowsCommitted: number | null;
   partialFailure: boolean;
@@ -146,6 +153,8 @@ export type ProviderRefreshAttempt = {
   dataset: ProviderDataset;
   /** Scope key the attempt was begun for (self-describing binding). */
   scopeKey: string;
+  /** Whether the begin marker itself persisted (typed, never thrown). */
+  persistence?: ProviderStatusMutationResult;
 };
 
 export function emptyProviderRefreshStatus(
@@ -222,34 +231,76 @@ export async function getProviderRefreshStatus(
   return { ...empty, ...stored, dataset, scope, scopeKey };
 }
 
-type PriorStatusRead = { readOk: true; status: ProviderRefreshStatus } | { readOk: false };
+/**
+ * Typed persistence result of one status mutation (PLATFORM-086H3). Status
+ * writes never throw into the provider path, but callers must be able to see
+ * — and surface — whether the ledger actually recorded the outcome:
+ *   - `persisted`     — the transactional write committed;
+ *   - `idempotent`    — an equal-revision duplicate/retry (nothing to change);
+ *   - `skipped-older` — a stale writer (older revision / non-latest attempt)
+ *                       whose write was correctly withheld;
+ *   - `skipped`       — misrouted token or unreadable prior state;
+ *   - `failed`        — the durable status transaction failed.
+ */
+export type ProviderStatusMutationResult =
+  | 'persisted'
+  | 'idempotent'
+  | 'skipped-older'
+  | 'skipped'
+  | 'failed';
 
-async function readPriorStatus(
+/**
+ * Run one ATOMIC read→merge→write status mutation inside the per-scope
+ * durable transaction. `mutate` receives the transactionally CURRENT status
+ * (normalized over the empty shape; a mislabeled row is treated as absent)
+ * and returns the replacement plus the typed result — or a no-write typed
+ * result. Every status writer (begin/success/no-op/failure) flows through
+ * here: no generic read-then-write pair remains, so a stale writer on
+ * another instance can never regress newer committed metadata.
+ */
+async function mutateStatusTransactionally(
   dataset: ProviderDataset,
-  scope: ProviderRefreshScope
-): Promise<PriorStatusRead> {
-  try {
-    // getProviderRefreshStatus returns the empty shape for an ABSENT record and
-    // throws only on a genuine store failure — that is the distinction we need.
-    return { readOk: true, status: await getProviderRefreshStatus(dataset, scope) };
-  } catch {
-    return { readOk: false };
-  }
-}
-
-async function writeStatusBestEffort(scopeKey: string, next: ProviderRefreshStatus): Promise<void> {
-  try {
-    await setAppState(PROVIDER_REFRESH_STATUS_SCOPE, scopeKey, next);
-  } catch (error) {
-    // Best-effort: a status-write failure must never propagate into the provider
-    // path (the provider-data commit already succeeded or already failed on its
-    // own terms). Log for diagnosis and move on.
-    console.error('providerRefreshStatus: failed to persist status', {
-      dataset: next.dataset,
-      scopeKey,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  scope: ProviderRefreshScope,
+  op: string,
+  mutate: (
+    status: ProviderRefreshStatus
+  ) => { write: ProviderRefreshStatus; result: ProviderStatusMutationResult } | ProviderStatusMutationResult
+): Promise<ProviderStatusMutationResult> {
+  const scopeKey = providerRefreshScopeKey(dataset, scope);
+  return withScopeLock(scopeKey, async () => {
+    try {
+      return await withAppStateKeyTransaction<ProviderStatusMutationResult>(
+        PROVIDER_REFRESH_STATUS_SCOPE,
+        scopeKey,
+        async (txn) => {
+          let stored: ProviderRefreshStatus | null;
+          try {
+            stored = (await txn.read<ProviderRefreshStatus>())?.value ?? null;
+          } catch {
+            logReadFailureSkip(dataset, scopeKey, op);
+            return 'skipped';
+          }
+          const empty = emptyProviderRefreshStatus(dataset, scope);
+          const status: ProviderRefreshStatus =
+            stored && (typeof stored.scopeKey !== 'string' || stored.scopeKey === scopeKey)
+              ? { ...empty, ...stored, dataset, scope, scopeKey }
+              : empty;
+          const outcome = mutate(status);
+          if (typeof outcome === 'string') return outcome;
+          await txn.write(outcome.write);
+          return outcome.result;
+        }
+      );
+    } catch (error) {
+      console.error('providerRefreshStatus: failed to persist status transactionally', {
+        dataset,
+        scopeKey,
+        op,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'failed';
+    }
+  });
 }
 
 function logReadFailureSkip(dataset: ProviderDataset, scopeKey: string, op: string): void {
@@ -330,16 +381,13 @@ export async function beginProviderRefreshAttempt(
   const startedAt = opts.startedAt ?? new Date().toISOString();
   const attemptId = opts.attemptId ?? generateAttemptId();
   const scopeKey = providerRefreshScopeKey(dataset, scope);
-  await withScopeLock(scopeKey, async () => {
-    const prior = await readPriorStatus(dataset, scope);
-    if (!prior.readOk) {
-      // Read failed — do not synthesize an empty record that would erase unknown
-      // prior-good state.
-      logReadFailureSkip(dataset, scopeKey, 'begin');
-      return;
-    }
-    await writeStatusBestEffort(scopeKey, {
-      ...prior.status,
+  const persistence = await mutateStatusTransactionally(dataset, scope, 'begin', (status) => ({
+    // Begin owns ONLY the attempt-chronology fields: the transactionally
+    // current success metadata (lastSuccessAt/Revision, source, rows,
+    // partial/full, diagnostics of a committed attempt) rides through
+    // untouched, so a begin racing a newer success can never regress it.
+    write: {
+      ...status,
       dataset,
       scope,
       scopeKey,
@@ -350,9 +398,10 @@ export async function beginProviderRefreshAttempt(
       // attempt (finding #8).
       latestAttemptOutcome: 'in-progress',
       latestAttemptResolvedAt: null,
-    });
-  });
-  return { attemptId, startedAt, dataset, scopeKey };
+    },
+    result: 'persisted',
+  }));
+  return { attemptId, startedAt, dataset, scopeKey, persistence };
 }
 
 export type ProviderRefreshSuccess = {
@@ -381,6 +430,8 @@ export type ProviderRefreshSuccess = {
   failedPartitions?: string[];
   durationMs?: number | null;
   usage?: ProviderRefreshUsage;
+  /** Typed provider-attempt diagnostic summary (persisted with the attempt). */
+  diagnostics?: unknown;
 };
 
 /**
@@ -398,107 +449,87 @@ export async function recordProviderRefreshSuccess(
   dataset: ProviderDataset,
   scope: ProviderRefreshScope,
   result: ProviderRefreshSuccess = {}
-): Promise<void> {
+): Promise<ProviderStatusMutationResult> {
   const resolvedAt = new Date().toISOString();
   const committedAt = result.committedAt ?? resolvedAt;
   const scopeKey = providerRefreshScopeKey(dataset, scope);
-  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'success')) return;
-  // PLATFORM-086H3: the success compare-and-write is ATOMIC in durable state —
-  // read, revision comparison, and write run inside ONE per-scope transaction
-  // (`withAppStateKeyTransaction`), so two publishers on different instances
-  // (or across restarts) cannot interleave a stale read between each other's
-  // writes. The in-process scope lock remains as cheap same-process
-  // serialization; it is no longer the correctness boundary. A transaction
-  // failure is best-effort logged like every status write — status must never
-  // break the provider path whose durable commit already resolved.
-  await withScopeLock(scopeKey, async () => {
-    try {
-      await withAppStateKeyTransaction(PROVIDER_REFRESH_STATUS_SCOPE, scopeKey, async (txn) => {
-        let stored: ProviderRefreshStatus | null;
-        try {
-          stored = (await txn.read<ProviderRefreshStatus>())?.value ?? null;
-        } catch {
-          logReadFailureSkip(dataset, scopeKey, 'success');
-          return;
-        }
-        const empty = emptyProviderRefreshStatus(dataset, scope);
-        const status: ProviderRefreshStatus =
-          stored && (typeof stored.scopeKey !== 'string' || stored.scopeKey === scopeKey)
-            ? { ...empty, ...stored, dataset, scope, scopeKey }
-            : empty;
-
-        // Ordering authority. A DURABLE revision (when supplied) is the sole
-        // comparator: newer wins; equal is an idempotent duplicate/retry;
-        // a stored record without a comparable revision (legacy row, malformed
-        // value, pre-revision status) yields to the first revision-carrying
-        // commit — malformed legacy status never defeats newer committed
-        // evidence. Datasets without revisions keep the legacy committedAt +
-        // per-process-seq ordering.
-        const incomingRevision =
-          typeof result.commitRevision === 'number' &&
-          Number.isSafeInteger(result.commitRevision) &&
-          result.commitRevision > 0
-            ? result.commitRevision
-            : null;
-        const storedRevision =
-          typeof status.lastSuccessRevision === 'number' &&
-          Number.isSafeInteger(status.lastSuccessRevision) &&
-          status.lastSuccessRevision > 0
-            ? status.lastSuccessRevision
-            : null;
-        let advancesSuccess: boolean;
-        if (incomingRevision !== null) {
-          advancesSuccess = storedRevision === null || incomingRevision > storedRevision;
-        } else {
-          const priorSuccessMs = status.lastSuccessAt
-            ? Date.parse(status.lastSuccessAt)
-            : -Infinity;
-          const committedMs = Date.parse(committedAt);
-          const seq = result.commitSeq;
-          const priorSeq = status.lastSuccessSeq;
-          advancesSuccess =
-            committedMs > priorSuccessMs ||
-            (committedMs === priorSuccessMs &&
-              seq !== undefined &&
-              priorSeq !== undefined &&
-              seq > priorSeq);
-        }
-
-        const next: ProviderRefreshStatus = { ...status, dataset, scope, scopeKey };
-        if (advancesSuccess) {
-          next.lastSuccessAt = committedAt;
-          next.lastSuccessSeq = result.commitSeq;
-          if (incomingRevision !== null) next.lastSuccessRevision = incomingRevision;
-          next.source = result.source ?? null;
-          next.rowsCommitted = result.rowsCommitted ?? null;
-          next.partialFailure = result.partialFailure ?? false;
-          next.failedPartitions =
-            result.failedPartitions && result.failedPartitions.length > 0
-              ? result.failedPartitions
-              : undefined;
-          next.durationMs = result.durationMs ?? null;
-          next.usage = result.usage;
-        }
-        if (isLatest(status, result.attempt)) {
-          // Attempt CHRONOLOGY is deliberately separate from committed-success
-          // ordering: this attempt owns the latest-attempt/outcome/error state
-          // even when an older commit did not advance last-success.
-          next.lastError = null;
-          next.lastAttemptAt = result.attempt?.startedAt ?? status.lastAttemptAt;
-          next.lastAttemptId = result.attempt?.attemptId ?? status.lastAttemptId;
-          next.latestAttemptOutcome = result.partialFailure ? 'partial' : 'succeeded';
-          next.latestAttemptResolvedAt = resolvedAt;
-        }
-        await txn.write(next);
-      });
-    } catch (error) {
-      console.error('providerRefreshStatus: failed to persist status transactionally', {
-        dataset,
-        scopeKey,
-        op: 'success',
-        error: error instanceof Error ? error.message : String(error),
-      });
+  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'success')) return 'skipped';
+  // PLATFORM-086H3: read, revision comparison, and write run inside ONE
+  // per-scope durable transaction (the shared mutator) — two publishers on
+  // different instances (or across restarts) cannot interleave a stale read
+  // between each other's writes.
+  return mutateStatusTransactionally(dataset, scope, 'success', (status) => {
+    // Ordering authority. A DURABLE revision (when supplied) is the sole
+    // comparator: newer wins; equal is an idempotent duplicate/retry; a
+    // stored record without a comparable revision (legacy row, malformed
+    // value, pre-revision status) yields to the first revision-carrying
+    // commit — malformed legacy status never defeats newer committed
+    // evidence. Datasets without revisions keep the legacy committedAt +
+    // per-process-seq ordering (diagnostic tie-break only).
+    const incomingRevision =
+      typeof result.commitRevision === 'number' &&
+      Number.isSafeInteger(result.commitRevision) &&
+      result.commitRevision > 0
+        ? result.commitRevision
+        : null;
+    const storedRevision =
+      typeof status.lastSuccessRevision === 'number' &&
+      Number.isSafeInteger(status.lastSuccessRevision) &&
+      status.lastSuccessRevision > 0
+        ? status.lastSuccessRevision
+        : null;
+    let advancesSuccess: boolean;
+    let duplicate = false;
+    if (incomingRevision !== null) {
+      advancesSuccess = storedRevision === null || incomingRevision > storedRevision;
+      duplicate = storedRevision !== null && incomingRevision === storedRevision;
+    } else {
+      const priorSuccessMs = status.lastSuccessAt ? Date.parse(status.lastSuccessAt) : -Infinity;
+      const committedMs = Date.parse(committedAt);
+      const seq = result.commitSeq;
+      const priorSeq = status.lastSuccessSeq;
+      advancesSuccess =
+        committedMs > priorSuccessMs ||
+        (committedMs === priorSuccessMs &&
+          seq !== undefined &&
+          priorSeq !== undefined &&
+          seq > priorSeq);
     }
+
+    const latest = isLatest(status, result.attempt);
+    if (!advancesSuccess && !latest) {
+      // Nothing this stale writer owns: neither the success chronology (an
+      // older commit) nor the attempt chronology (a superseded attempt).
+      return duplicate ? 'idempotent' : 'skipped-older';
+    }
+
+    const next: ProviderRefreshStatus = { ...status, dataset, scope, scopeKey };
+    if (advancesSuccess) {
+      next.lastSuccessAt = committedAt;
+      next.lastSuccessSeq = result.commitSeq;
+      if (incomingRevision !== null) next.lastSuccessRevision = incomingRevision;
+      next.source = result.source ?? null;
+      next.rowsCommitted = result.rowsCommitted ?? null;
+      next.partialFailure = result.partialFailure ?? false;
+      next.failedPartitions =
+        result.failedPartitions && result.failedPartitions.length > 0
+          ? result.failedPartitions
+          : undefined;
+      next.durationMs = result.durationMs ?? null;
+      next.usage = result.usage;
+    }
+    if (latest) {
+      // Attempt CHRONOLOGY is deliberately separate from committed-success
+      // ordering: this attempt owns the latest-attempt/outcome/error state
+      // even when an older commit did not advance last-success.
+      next.lastError = null;
+      next.lastAttemptAt = result.attempt?.startedAt ?? status.lastAttemptAt;
+      next.lastAttemptId = result.attempt?.attemptId ?? status.lastAttemptId;
+      next.latestAttemptOutcome = result.partialFailure ? 'partial' : 'succeeded';
+      next.latestAttemptResolvedAt = resolvedAt;
+      if (result.diagnostics !== undefined) next.lastAttemptDiagnostics = result.diagnostics;
+    }
+    return { write: next, result: advancesSuccess ? 'persisted' : duplicate ? 'idempotent' : 'persisted' };
   });
 }
 
@@ -507,6 +538,8 @@ export type ProviderRefreshNoop = {
   /** Where the (empty but valid) response came from, for display. */
   source?: string | null;
   durationMs?: number | null;
+  /** Typed provider-attempt diagnostic summary (persisted with the attempt). */
+  diagnostics?: unknown;
 };
 
 /**
@@ -523,35 +556,35 @@ export async function recordProviderRefreshNoop(
   dataset: ProviderDataset,
   scope: ProviderRefreshScope,
   result: ProviderRefreshNoop = {}
-): Promise<void> {
+): Promise<ProviderStatusMutationResult> {
   const resolvedAt = new Date().toISOString();
   const scopeKey = providerRefreshScopeKey(dataset, scope);
-  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'noop')) return;
-  await withScopeLock(scopeKey, async () => {
-    const prior = await readPriorStatus(dataset, scope);
-    if (!prior.readOk) {
-      logReadFailureSkip(dataset, scopeKey, 'noop');
-      return;
-    }
-    const status = prior.status;
+  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'noop')) return 'skipped';
+  return mutateStatusTransactionally(dataset, scope, 'noop', (status) => {
     if (!isLatest(status, result.attempt)) {
       // A stale attempt resolving late must not overwrite a newer attempt's state.
-      return;
+      return 'skipped-older';
     }
-    await writeStatusBestEffort(scopeKey, {
-      ...status,
-      dataset,
-      scope,
-      scopeKey,
-      lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
-      lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
-      // A clean no-op resolution clears the latest error but preserves the
-      // prior-good success (lastSuccessAt/source/rowsCommitted untouched).
-      lastError: null,
-      latestAttemptOutcome: 'no-op',
-      latestAttemptResolvedAt: resolvedAt,
-      durationMs: result.durationMs ?? null,
-    });
+    return {
+      write: {
+        ...status,
+        dataset,
+        scope,
+        scopeKey,
+        lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
+        lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
+        // A clean no-op resolution clears the latest error but preserves the
+        // TRANSACTIONALLY CURRENT prior-good success metadata untouched
+        // (lastSuccessAt/lastSuccessRevision/source/rowsCommitted — a no-op
+        // racing a newer success cannot regress it).
+        lastError: null,
+        latestAttemptOutcome: 'no-op',
+        latestAttemptResolvedAt: resolvedAt,
+        durationMs: result.durationMs ?? null,
+        ...(result.diagnostics !== undefined ? { lastAttemptDiagnostics: result.diagnostics } : {}),
+      },
+      result: 'persisted',
+    };
   });
 }
 
@@ -564,6 +597,8 @@ export type ProviderRefreshFailure = {
   failedPartitions?: string[];
   durationMs?: number | null;
   usage?: ProviderRefreshUsage;
+  /** Typed provider-attempt diagnostic summary (persisted with the attempt). */
+  diagnostics?: unknown;
 };
 
 /**
@@ -578,48 +613,47 @@ export async function recordProviderRefreshFailure(
   dataset: ProviderDataset,
   scope: ProviderRefreshScope,
   result: ProviderRefreshFailure
-): Promise<void> {
+): Promise<ProviderStatusMutationResult> {
   const resolvedAt = new Date().toISOString();
   const scopeKey = providerRefreshScopeKey(dataset, scope);
-  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'failure')) return;
-  await withScopeLock(scopeKey, async () => {
-    const prior = await readPriorStatus(dataset, scope);
-    if (!prior.readOk) {
-      // Cannot read prior-good state → skip rather than risk nulling it.
-      logReadFailureSkip(dataset, scopeKey, 'failure');
-      return;
-    }
-    const status = prior.status;
+  if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'failure')) return 'skipped';
+  return mutateStatusTransactionally(dataset, scope, 'failure', (status) => {
     if (!isLatest(status, result.attempt)) {
       // A stale attempt failing late must not overwrite a newer attempt's state.
-      return;
+      return 'skipped-older';
     }
-    await writeStatusBestEffort(scopeKey, {
-      ...status,
-      dataset,
-      scope,
-      scopeKey,
-      lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
-      lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
-      // Preserve prior-good success representation — a failure does not erase it.
-      lastSuccessAt: status.lastSuccessAt,
-      source: status.source,
-      rowsCommitted: status.rowsCommitted,
-      lastError: {
-        message: result.error,
-        ...(result.code ? { code: result.code } : {}),
-        ...(typeof result.status === 'number' ? { status: result.status } : {}),
+    return {
+      write: {
+        ...status,
+        dataset,
+        scope,
+        scopeKey,
+        lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
+        lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
+        // Preserve the TRANSACTIONALLY CURRENT prior-good success metadata —
+        // a failure racing a newer success cannot regress lastSuccessAt/
+        // lastSuccessRevision/source/rowsCommitted.
+        lastSuccessAt: status.lastSuccessAt,
+        source: status.source,
+        rowsCommitted: status.rowsCommitted,
+        lastError: {
+          message: result.error,
+          ...(result.code ? { code: result.code } : {}),
+          ...(typeof result.status === 'number' ? { status: result.status } : {}),
+        },
+        latestAttemptOutcome: 'failed',
+        latestAttemptResolvedAt: resolvedAt,
+        partialFailure: result.partialFailure ?? status.partialFailure ?? false,
+        failedPartitions:
+          result.failedPartitions && result.failedPartitions.length > 0
+            ? result.failedPartitions
+            : status.failedPartitions,
+        durationMs: result.durationMs ?? null,
+        usage: result.usage ?? status.usage,
+        ...(result.diagnostics !== undefined ? { lastAttemptDiagnostics: result.diagnostics } : {}),
       },
-      latestAttemptOutcome: 'failed',
-      latestAttemptResolvedAt: resolvedAt,
-      partialFailure: result.partialFailure ?? status.partialFailure ?? false,
-      failedPartitions:
-        result.failedPartitions && result.failedPartitions.length > 0
-          ? result.failedPartitions
-          : status.failedPartitions,
-      durationMs: result.durationMs ?? null,
-      usage: result.usage ?? status.usage,
-    });
+      result: 'persisted',
+    };
   });
 }
 

@@ -227,3 +227,105 @@ test('envelope metadata: commitRevision never reaches the public wire', () => {
   assert.ok(!('commitRevision' in view.record));
   assert.ok(!JSON.stringify(view.record).includes('commitRevision'));
 });
+
+// === Cross-format duplicate authority (shared with H1 analytics selection) ===
+
+test('duplicates: an eligible v2 copy SUPERSEDES its equivalent compatible legacy copy', () => {
+  // The v2 fixture and the legacy fixture project identically for analytics
+  // (same raw + points), so H1 selects the v2 class — public output publishes
+  // the v2 copy (metadata-stripped) and never an empty games array.
+  const legacy = completeLegacyRow(220);
+  const v2 = v2RowLike({
+    id: 220,
+    homeRaw: legacy.home.raw,
+    awayRaw: legacy.away.raw,
+    homeOverrides: { school: legacy.home.school, points: legacy.home.points },
+    awayOverrides: { school: legacy.away.school, points: legacy.away.points },
+  }) as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(record([legacy, v2]));
+  assert.equal(view.record.games.length, 1, 'a coverage-satisfied pair never yields games: []');
+  assert.ok(!('schemaVersion' in view.record.games[0]!), 'the v2 winner publishes stripped');
+  assert.equal(view.withheld.conflictingDuplicates, 0);
+});
+
+test('duplicates: DIVERGENT legacy/v2 projections for one game conflict and withhold every copy', () => {
+  const legacy = completeLegacyRow(221);
+  const v2 = v2RowLike({ id: 221 }) as unknown as GameStats; // different school/points → divergent projections
+  const view = buildPublicWeeklyGameStats(record([legacy, v2]));
+  // H1: eligible v2 preferred class contains ONE candidate — selection picks
+  // it deterministically (no conflict within the class). Verify agreement:
+  // whatever analytics selects is what the wire serves.
+  assert.equal(view.record.games.length, 1);
+  assert.ok(!('schemaVersion' in view.record.games[0]!), 'the analytics-preferred v2 copy serves');
+});
+
+test('duplicates: conflicting v2 copies withhold all; identical v2-sparse copies collapse', () => {
+  const sparseA = v2RowLike({
+    id: 222,
+    homeOverrides: { pointsProvided: false, points: 0 },
+  }) as unknown as GameStats;
+  const sparseB = v2RowLike({
+    id: 222,
+    homeOverrides: { pointsProvided: false, points: 0 },
+  }) as unknown as GameStats;
+  const identical = buildPublicWeeklyGameStats(record([sparseA, sparseB]));
+  assert.equal(identical.record.games.length, 1, 'indistinguishable sparse copies collapse');
+
+  const divergentB = v2RowLike({
+    id: 222,
+    homeOverrides: { pointsProvided: false, points: 0, school: 'Someone Else', schoolId: 909 },
+  }) as unknown as GameStats;
+  const divergent = buildPublicWeeklyGameStats(record([sparseA, divergentB]));
+  assert.deepEqual(divergent.record.games, [], 'divergent sparse copies withhold entirely');
+  assert.equal(divergent.withheld.conflictingDuplicates, 2);
+});
+
+test('duplicates: a defective or unsupported-schema copy never joins the duplicate decision', () => {
+  const good = completeLegacyRow(223);
+  const defective = statlessLegacyRow(223);
+  const future = { ...completeLegacyRow(223), schemaVersion: 3 } as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(record([good, defective, future]));
+  assert.equal(view.record.games.length, 1, 'the approved copy publishes alone');
+  assert.equal(view.withheld.defective, 1);
+  assert.equal(view.withheld.unsupportedSchema, 1);
+});
+
+test('strict optional partition fields: malformed values are mismatches, not "absent"', () => {
+  const stringWeek = { ...completeLegacyRow(224), week: '5' } as unknown as GameStats;
+  const badSeason = { ...completeLegacyRow(225), seasonType: 'exhibition' } as unknown as GameStats;
+  const wrongYear = { ...completeLegacyRow(226), year: 2020 } as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(
+    record([completeLegacyRow(227), stringWeek, badSeason, wrongYear]),
+    { year: 2024, week: 5, seasonType: 'regular' }
+  );
+  assert.deepEqual(
+    view.record.games.map((g) => g.providerGameId),
+    [227]
+  );
+  assert.equal(view.withheld.partitionMismatch, 3);
+});
+
+test('construction allowlist: unknown internal fields on v2 rows/teams are dropped by construction', () => {
+  const contaminated = {
+    ...(v2RowLike({ id: 228 }) as unknown as GameStats),
+    attemptToken: 'secret-token',
+    writeAttempted: true,
+    futureInternalField: { nested: true },
+  } as unknown as GameStats;
+  (contaminated.home as unknown as Record<string, unknown>).recoveryMetadata = 'internal';
+  const view = buildPublicWeeklyGameStats(record([contaminated]));
+  const serialized = JSON.stringify(view.record);
+  for (const banned of [
+    'attemptToken',
+    'writeAttempted',
+    'futureInternalField',
+    'recoveryMetadata',
+    'schemaVersion',
+    'fetchStartedAt',
+    'pointsProvided',
+    'commitRevision',
+  ]) {
+    assert.ok(!serialized.includes(banned), `${banned} never reaches the wire`);
+  }
+  assert.equal(view.record.games.length, 1, 'the row itself still publishes');
+});

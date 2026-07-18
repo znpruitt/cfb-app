@@ -211,7 +211,35 @@ const OWNERSHIP_RULES: OwnershipRule[] = [
     allowed: new Set(GAME_STATS_ROUTES),
     rule: 'orchestration-ownership',
   },
+  {
+    // The evidence merge authority: callable only from validated ingestion.
+    module: 'src/lib/gameStats/durableMerge',
+    names: ['mergeGameStatsPartitionDurable', 'computeWeeklyGameStatsMerge'],
+    allowed: new Set(['src/lib/gameStats/ingestion.ts']),
+    rule: 'merge-ownership',
+  },
+  {
+    // Validated ingestion: callable only from the orchestration boundary.
+    module: 'src/lib/gameStats/ingestion',
+    names: ['ingestGameStatsObservations'],
+    allowed: new Set(['src/lib/gameStats/refreshOrchestration.ts']),
+    rule: 'ingestion-ownership',
+  },
+  {
+    // Committed-state finalization: callable only from the orchestration.
+    module: 'src/lib/gameStats/refreshPublication',
+    names: ['finalizeGameStatsRefresh'],
+    allowed: new Set(['src/lib/gameStats/refreshOrchestration.ts']),
+    rule: 'finalization-ownership',
+  },
 ];
+
+/** Files allowed to read RAW game-stats rows via the generic store getter. */
+const RAW_GENERIC_READ_ALLOWED = new Set([
+  'src/lib/gameStats/cache.ts',
+  // Documented raw-inspection debug surface.
+  'src/app/api/debug/game-stats-diagnostic/route.ts',
+]);
 
 // --- guard analysis ---
 
@@ -250,6 +278,7 @@ export function analyzeProductionSource(
   // Pass 1: imports.
   const mutationBindings = new Set<string>();
   const lockBindings = new Set<string>();
+  const readBindings = new Set<string>();
   const storeNamespaces = new Set<string>();
   /** Local bindings holding a guarded capability (for re-export laundering). */
   const guardedBindings = new Map<string, string>();
@@ -364,6 +393,7 @@ export function analyzeProductionSource(
               const local = element.name.text;
               if (MUTATION_NAMES.has(imported)) mutationBindings.add(local);
               if (imported === LOCK_NAME) lockBindings.add(local);
+              if (imported === 'getAppState') readBindings.add(local);
             }
           }
           if (bindings && ts.isNamespaceImport(bindings)) storeNamespaces.add(bindings.name.text);
@@ -400,6 +430,40 @@ export function analyzeProductionSource(
 
   const constStrings = new Map<string, string>();
   const wrapperNames = new Set<string>();
+  const readWrapperNames = new Set<string>();
+  const isTrackedReadExpr = (expr: ts.Expression): boolean => {
+    if (ts.isIdentifier(expr)) return readBindings.has(expr.text);
+    if (ts.isPropertyAccessExpression(expr)) {
+      return (
+        ts.isIdentifier(expr.expression) &&
+        storeNamespaces.has(expr.expression.text) &&
+        expr.name.text === 'getAppState'
+      );
+    }
+    return false;
+  };
+  const touchesRead = (node: ts.Node): boolean => {
+    let found = false;
+    const walk = (n: ts.Node): void => {
+      if (found) return;
+      if (ts.isIdentifier(n) && (readBindings.has(n.text) || readWrapperNames.has(n.text))) {
+        found = true;
+        return;
+      }
+      if (
+        ts.isPropertyAccessExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        storeNamespaces.has(n.expression.text) &&
+        n.name.text === 'getAppState'
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(node);
+    return found;
+  };
   const touchesMutation = (node: ts.Node): boolean => {
     let found = false;
     const walk = (n: ts.Node): void => {
@@ -445,6 +509,10 @@ export function analyzeProductionSource(
           mutationBindings.add(name);
           grew = true;
         }
+        if (isTrackedReadExpr(node.initializer) && !readBindings.has(name)) {
+          readBindings.add(name);
+          grew = true;
+        }
         if (isTrackedLockExpr(node.initializer) && !lockBindings.has(name)) {
           lockBindings.add(name);
           grew = true;
@@ -457,10 +525,24 @@ export function analyzeProductionSource(
           wrapperNames.add(name);
           grew = true;
         }
+        if (
+          (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
+          touchesRead(node.initializer) &&
+          !readWrapperNames.has(name)
+        ) {
+          readWrapperNames.add(name);
+          grew = true;
+        }
       }
       if (ts.isFunctionDeclaration(node) && node.name && node.body && touchesMutation(node.body)) {
         if (!wrapperNames.has(node.name.text)) {
           wrapperNames.add(node.name.text);
+          grew = true;
+        }
+      }
+      if (ts.isFunctionDeclaration(node) && node.name && node.body && touchesRead(node.body)) {
+        if (!readWrapperNames.has(node.name.text)) {
+          readWrapperNames.add(node.name.text);
           grew = true;
         }
       }
@@ -473,6 +555,32 @@ export function analyzeProductionSource(
     if (ts.isStringLiteralLike(arg)) return arg.text === GAME_STATS_SCOPE;
     if (ts.isIdentifier(arg)) return constStrings.get(arg.text) === GAME_STATS_SCOPE;
     return false;
+  };
+
+  /**
+   * A pure FORWARDER: the function body is exactly `return guarded(...)` —
+   * exposing the raw capability to importers. Owner modules wrapping a
+   * capability with real domain semantics (multiple statements, added
+   * logic) are legitimate and not flagged; the import boundary plus this
+   * forwarding check close the trivial laundering shapes.
+   */
+  const forwardsGuardedCapability = (
+    fn: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression
+  ): boolean => {
+    const isGuardedCallee = (expr: ts.Expression): boolean =>
+      ts.isIdentifier(expr) && guardedBindings.has(expr.text);
+    if (!fn.body) return false;
+    if (ts.isBlock(fn.body)) {
+      if (fn.body.statements.length !== 1) return false;
+      const only = fn.body.statements[0]!;
+      return (
+        ts.isReturnStatement(only) &&
+        only.expression !== undefined &&
+        ts.isCallExpression(only.expression) &&
+        isGuardedCallee(only.expression.expression)
+      );
+    }
+    return ts.isCallExpression(fn.body) && isGuardedCallee(fn.body.expression);
   };
 
   // Pass 2: bypass violations.
@@ -508,9 +616,8 @@ export function analyzeProductionSource(
       node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
     ) {
       for (const declaration of node.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
         if (
-          ts.isIdentifier(declaration.name) &&
-          declaration.initializer &&
           ts.isIdentifier(declaration.initializer) &&
           guardedBindings.has(declaration.initializer.text)
         ) {
@@ -521,7 +628,35 @@ export function analyzeProductionSource(
             line: lineAt(sourceFile, declaration),
           });
         }
+        // Exported arrow/function-expression FORWARDER of a guarded capability.
+        if (
+          (ts.isArrowFunction(declaration.initializer) ||
+            ts.isFunctionExpression(declaration.initializer)) &&
+          forwardsGuardedCapability(declaration.initializer)
+        ) {
+          violations.push({
+            file: repoRelativePath,
+            rule: 'guarded-reexport',
+            detail: 'exported forwarding wrapper around a guarded capability',
+            line: lineAt(sourceFile, declaration),
+          });
+        }
       }
+    }
+    // Exported function DECLARATION that merely forwards a guarded capability.
+    if (
+      ts.isFunctionDeclaration(node) &&
+      node.name &&
+      node.body &&
+      node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) &&
+      forwardsGuardedCapability(node)
+    ) {
+      violations.push({
+        file: repoRelativePath,
+        rule: 'guarded-reexport',
+        detail: `exported forwarding wrapper "${node.name.text}" around a guarded capability`,
+        line: lineAt(sourceFile, node),
+      });
     }
     if (ts.isIdentifier(node) && node.text === RETIRED_SETTER) {
       violations.push({
@@ -548,6 +683,31 @@ export function analyzeProductionSource(
           ts.isIdentifier(callee.expression) &&
           storeNamespaces.has(callee.expression.text) &&
           MUTATION_NAMES.has(callee.name.text));
+      // Generic RAW game-stats reads: getAppState (any alias/wrapper/namespace
+      // form) with the evidence scope is restricted to the approved raw-row
+      // owners — routes, analytics, and diagnostics must go through the
+      // typed cache/read boundaries.
+      const calleeIsDirectRead =
+        (ts.isIdentifier(callee) && readBindings.has(callee.text)) ||
+        (ts.isPropertyAccessExpression(callee) &&
+          ts.isIdentifier(callee.expression) &&
+          storeNamespaces.has(callee.expression.text) &&
+          callee.name.text === 'getAppState');
+      const calleeIsReadWrapper = ts.isIdentifier(callee) && readWrapperNames.has(callee.text);
+      if (
+        (calleeIsDirectRead || calleeIsReadWrapper) &&
+        !RAW_GENERIC_READ_ALLOWED.has(repoRelativePath)
+      ) {
+        const args = calleeIsReadWrapper ? node.arguments : node.arguments.slice(0, 1);
+        if (args.some(isGameStatsScopeExpr)) {
+          violations.push({
+            file: repoRelativePath,
+            rule: 'raw-game-stats-read',
+            detail: 'generic raw game-stats read outside the approved raw-row owners',
+            line: lineAt(sourceFile, node),
+          });
+        }
+      }
       const calleeIsWrapper = ts.isIdentifier(callee) && wrapperNames.has(callee.text);
       if (calleeIsDirectMutation || calleeIsWrapper) {
         // Direct mutation: scope is the first argument. Wrappers: the scope
@@ -1003,7 +1163,13 @@ test('analyzer: resurrected legacy-normalizer imports are flagged', () => {
 test('analyzer: clean sources produce no violations', () => {
   const clean = [
     [
-      `import { getAppState } from './server/appStateStore';\nawait getAppState('game-stats', k);`,
+      // Raw evidence reads are legal for the approved raw-row owner.
+      `import { getAppState } from '../server/appStateStore';\nawait getAppState('game-stats', k);`,
+      'src/lib/gameStats/cache.ts',
+    ],
+    [
+      // Other scopes stay unrestricted for generic readers.
+      `import { getAppState } from './server/appStateStore';\nawait getAppState('schedule', k);`,
       'src/lib/example.ts',
     ],
     [`${STORE_IMPORT}\nawait setAppState('schedule', key, value);`, 'src/lib/example.ts'],
@@ -1013,6 +1179,91 @@ test('analyzer: clean sources produce no violations', () => {
   for (const [source, file] of clean) {
     assert.deepEqual(analyzeProductionSource(source, file), [], source);
   }
+});
+
+test('raw-read guard: generic game-stats reads are blocked in every alias/wrapper form', () => {
+  const READ_IMPORT = `import { getAppState } from './server/appStateStore';`;
+  const direct = `${READ_IMPORT}\nawait getAppState('game-stats', key);`;
+  assert.ok(rulesOf(direct, 'src/lib/example.ts').includes('raw-game-stats-read'));
+  // Aliased read.
+  const aliased = `import { getAppState as load } from './server/appStateStore';\nawait load('game-stats', key);`;
+  assert.ok(rulesOf(aliased, 'src/lib/example.ts').includes('raw-game-stats-read'));
+  // Chained alias.
+  const chained = `${READ_IMPORT}\nconst a = getAppState;\nconst b = a;\nawait b('game-stats', key);`;
+  assert.ok(rulesOf(chained, 'src/lib/example.ts').includes('raw-game-stats-read'));
+  // Wrapper with the scope at a non-first argument.
+  const wrapper = `${READ_IMPORT}\nfunction load(key, scope) { return getAppState(scope, key); }\nawait load('k', 'game-stats');`;
+  assert.ok(rulesOf(wrapper, 'src/lib/example.ts').includes('raw-game-stats-read'));
+  // Namespace member.
+  const namespaced = `import * as store from './server/appStateStore';\nawait store.getAppState('game-stats', key);`;
+  assert.ok(rulesOf(namespaced, 'src/lib/example.ts').includes('raw-game-stats-read'));
+  // The documented debug raw-inspection surface stays legal.
+  assert.ok(
+    !rulesOf(
+      `import { getAppState } from '@/lib/server/appStateStore';\nawait getAppState('game-stats', key);`,
+      'src/app/api/debug/game-stats-diagnostic/route.ts'
+    ).includes('raw-game-stats-read')
+  );
+});
+
+test('ownership: merge, ingestion, and finalizer imports are owner-only', () => {
+  assert.ok(
+    rulesOf(
+      `import { mergeGameStatsPartitionDurable } from '@/lib/gameStats/durableMerge';`,
+      'src/app/api/game-stats/route.ts'
+    ).includes('merge-ownership')
+  );
+  assert.ok(
+    rulesOf(
+      `import { ingestGameStatsObservations } from '@/lib/gameStats/ingestion';`,
+      'src/app/api/cron/game-stats/route.ts'
+    ).includes('ingestion-ownership')
+  );
+  assert.ok(
+    rulesOf(
+      `import { finalizeGameStatsRefresh } from '@/lib/gameStats/refreshPublication';`,
+      'src/app/api/game-stats/route.ts'
+    ).includes('finalization-ownership')
+  );
+  // Raw-row reader through a barrel: the barrel re-export itself is flagged.
+  assert.ok(
+    rulesOf(`export * from './cache.ts';`, 'src/lib/gameStats/index.ts').includes(
+      'guarded-reexport'
+    )
+  );
+  // The owners stay clean.
+  assert.ok(
+    !rulesOf(
+      `import { mergeGameStatsPartitionDurable } from './durableMerge.ts';`,
+      'src/lib/gameStats/ingestion.ts'
+    ).includes('merge-ownership')
+  );
+});
+
+test('guarded forwarding wrappers cannot be exported — even by owners', () => {
+  const forwarderFn = `import { withAppStateKeyTransaction } from '../server/appStateStore';
+export function tx(...args) {
+  return withAppStateKeyTransaction(...args);
+}`;
+  assert.ok(
+    rulesOf(forwarderFn, 'src/lib/gameStats/recoveryDisposition.ts').includes('guarded-reexport')
+  );
+  const forwarderArrow = `import { claimGameStatsRecoveryPartition } from './recoveryDisposition.ts';
+export const claim = (...args) => claimGameStatsRecoveryPartition(...args);`;
+  assert.ok(
+    rulesOf(forwarderArrow, 'src/lib/gameStats/refreshOrchestration.ts').includes(
+      'guarded-reexport'
+    )
+  );
+  // A real domain API (multiple statements / added semantics) is NOT flagged.
+  const domainApi = `import { withAppStateKeyTransaction } from '../server/appStateStore';
+export async function claimPartition(scope, key) {
+  const guard = validate(scope);
+  return withAppStateKeyTransaction(scope, key, async (txn) => run(txn, guard));
+}`;
+  assert.ok(
+    !rulesOf(domainApi, 'src/lib/gameStats/recoveryDisposition.ts').includes('guarded-reexport')
+  );
 });
 
 // === Wiring self-tests: disconnected lifecycle paths MUST be detected ===

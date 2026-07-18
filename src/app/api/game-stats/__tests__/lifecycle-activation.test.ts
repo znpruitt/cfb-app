@@ -11,6 +11,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStatePoolForTests,
+  __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
@@ -26,6 +27,7 @@ import {
 } from '../../../../lib/gameStats/recoveryDisposition.ts';
 import { aggregateOwnerSeasonStats } from '../../../../lib/gameStats/ownerStats.ts';
 import { createTeamIdentityResolver } from '../../../../lib/teamIdentity.ts';
+import { GAME_STATS_RECOVERY_METADATA_FAILURE_CODE } from '../../../../lib/gameStats/refreshOrchestration.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
 import {
@@ -939,7 +941,7 @@ class FakePgPool {
   failRollback = false;
 
   private dispatch(
-    pending: { key: string; value: string } | null,
+    pending: Array<{ key: string; value: string }> | null,
     text: string,
     params?: unknown[]
   ) {
@@ -957,14 +959,24 @@ class FakePgPool {
     if (sql.startsWith('insert into app_state')) {
       if (this.failWrite) throw new Error('write statement rejected');
       const [scope, key, json] = params as [string, string, string];
-      return { result: { rows: [] }, pending: { key: `${scope}::${key}`, value: json } };
+      // A transaction may stage MULTIPLE rows (e.g. the merge's partition +
+      // revision-ledger co-commit); COMMIT applies all of them atomically,
+      // exactly as real Postgres does.
+      return {
+        result: { rows: [] },
+        pending: [...(pending ?? []), { key: `${scope}::${key}`, value: json }],
+      };
     }
     if (sql === 'commit') {
       if (this.failCommit) {
-        if (pending && this.commitApplies) this.data.set(pending.key, pending.value);
+        if (pending && this.commitApplies) {
+          for (const write of pending) this.data.set(write.key, write.value);
+        }
         throw new Error('commit confirmation lost');
       }
-      if (pending) this.data.set(pending.key, pending.value);
+      if (pending) {
+        for (const write of pending) this.data.set(write.key, write.value);
+      }
       return { result: { rows: [] }, pending: null };
     }
     if (sql === 'rollback') {
@@ -977,7 +989,7 @@ class FakePgPool {
 
   async connect() {
     // One client per transaction; pending writes are transaction-scoped.
-    let pending: { key: string; value: string } | null = null;
+    let pending: Array<{ key: string; value: string }> | null = null;
     return {
       query: async (text: string, params?: unknown[]) => {
         const { result, pending: next } = this.dispatch(pending, text, params);
@@ -1094,4 +1106,79 @@ test('uncertainty: a rejected write with a failed ROLLBACK is indeterminate; ret
       assert.deepEqual(retry.merge.inserted, [5001]);
     }
   });
+});
+
+// === Post-claim dual-failure shaping through the cron route (RC 33) ===
+
+type RevalidationFailureBody = {
+  error?: string;
+  recoveryFailureCode?: string;
+  recoveryFailures?: Array<{ partition: string; operation: string; detail: string }>;
+  detail?: string;
+};
+
+test('cron shaping: schedule-context + finalization dual failure → 500 with BOTH causes, stable code, zero fetches', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  stubJson([GAME_A()]); // must never be reached
+
+  // Planning reads the schedule once (allowed); the post-claim authoritative
+  // reread fails. The claim commit (first recovery write) is allowed; its
+  // token-conditional release fails.
+  __setAppStateReadFailureForTests(new Error('schedule store down'), 'schedule', {
+    afterReads: 1,
+  });
+  __setAppStateWriteFailureForTests(
+    new Error('recovery release store down'),
+    'game-stats-recovery',
+    { afterWrites: 1 }
+  );
+  let res: Awaited<ReturnType<typeof cronGet>>;
+  try {
+    res = await cronGet(cronRequest());
+  } finally {
+    __setAppStateReadFailureForTests(null);
+    __setAppStateWriteFailureForTests(null);
+  }
+  const body = (await res.json()) as RevalidationFailureBody;
+  assert.equal(res.status, 500, JSON.stringify(body));
+  assert.match(body.error ?? '', /post-claim revalidation failed \(schedule-context\)/);
+  assert.match(body.error ?? '', /schedule store down/, 'primary cause on the wire');
+  assert.equal(body.recoveryFailureCode, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE);
+  assert.equal(body.recoveryFailures?.length, 1, 'secondary cause on the wire');
+  assert.equal(body.recoveryFailures?.[0]?.operation, 'stale-claim-finalize');
+  assert.match(body.recoveryFailures?.[0]?.detail ?? '', /recovery release store down/);
+  assert.match(body.detail ?? '', /zero provider calls/);
+  assert.match(body.detail ?? '', /lease remains bounded/);
+  assert.equal(fetchCalls, 0, 'no provider request was made');
+});
+
+test('cron shaping: durable-reread + finalization dual failure → 500 with BOTH causes, stable code, zero fetches', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  stubJson([GAME_A()]); // must never be reached
+
+  // Planning reads partitions via the entries API (unaffected); the post-claim
+  // committed-partition reread is the first keyed game-stats read and fails.
+  __setAppStateReadFailureForTests(new Error('game-stats partition store down'), 'game-stats');
+  __setAppStateWriteFailureForTests(
+    new Error('recovery release store down'),
+    'game-stats-recovery',
+    { afterWrites: 1 }
+  );
+  let res: Awaited<ReturnType<typeof cronGet>>;
+  try {
+    res = await cronGet(cronRequest());
+  } finally {
+    __setAppStateReadFailureForTests(null);
+    __setAppStateWriteFailureForTests(null);
+  }
+  const body = (await res.json()) as RevalidationFailureBody;
+  assert.equal(res.status, 500, JSON.stringify(body));
+  assert.match(body.error ?? '', /post-claim revalidation failed \(durable-reread\)/);
+  assert.match(body.error ?? '', /partition store down/, 'primary cause on the wire');
+  assert.equal(body.recoveryFailureCode, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE);
+  assert.equal(body.recoveryFailures?.length, 1, 'secondary cause on the wire');
+  assert.equal(body.recoveryFailures?.[0]?.operation, 'stale-claim-finalize');
+  assert.match(body.recoveryFailures?.[0]?.detail ?? '', /recovery release store down/);
+  assert.match(body.detail ?? '', /zero provider calls/);
+  assert.equal(fetchCalls, 0, 'no provider request was made');
 });

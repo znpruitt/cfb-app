@@ -12,7 +12,9 @@ import {
   AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
   withAppStateKeyTransaction,
+  type AppStateKeyTxn,
 } from '../server/appStateStore.ts';
+import { providerRefreshScopeKey, weekPartitionScope } from '../providerRefreshScope.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
@@ -665,24 +667,12 @@ export function computeWeeklyGameStatsMerge(
       ? existing.fetchedAt
       : fence;
 
-  // Partition commit revision: monotonic per partition, allocated from the
-  // durable prior INSIDE the caller's advisory-locked transaction — the
-  // globally comparable refresh-status ordering authority (a malformed stored
-  // revision restarts the sequence rather than poisoning comparability).
-  const priorRevision =
-    typeof existing?.commitRevision === 'number' &&
-    Number.isSafeInteger(existing.commitRevision) &&
-    existing.commitRevision > 0
-      ? existing.commitRevision
-      : 0;
-  result.partition = {
-    year,
-    week,
-    seasonType,
-    fetchedAt,
-    commitRevision: priorRevision + 1,
-    games: mergedGames,
-  };
+  // NOTE: `commitRevision` is stamped by the durable service AFTER ledger
+  // allocation (`allocateCommitRevision`) — the pure merge does not invent
+  // ordering authority. The envelope copy is informational; the dedicated
+  // ledger (+ status floor) is what guarantees monotonicity across
+  // restoration, repair, and corruption.
+  result.partition = { year, week, seasonType, fetchedAt, games: mergedGames };
   return result;
 }
 
@@ -759,6 +749,60 @@ class MergeComputationFailure {
 // exact durable key the game-stats cache reads and writes.
 const GAME_STATS_SCOPE = 'game-stats';
 
+// Dedicated per-partition revision LEDGER (PLATFORM-086H3): the durable
+// ordering authority for refresh-status publication. Keyed 1:1 with the
+// evidence partition, so every allocator serializes on the evidence key's
+// advisory lock; co-committed with the evidence write in the SAME
+// transaction (rollback discards both). Unlike the informational copy on the
+// partition envelope, the ledger survives partition restoration/repair — the
+// allocation floor below guarantees the sequence can never reset.
+const GAME_STATS_REVISION_SCOPE = 'game-stats-revision';
+// Mirrors providerRefreshStatus.PROVIDER_REFRESH_STATUS_SCOPE (imported
+// lazily as a literal to avoid a lifecycle → status-module value import; the
+// revision floor only READS the status row).
+const PROVIDER_REFRESH_STATUS_SCOPE = 'provider-refresh-status';
+
+type RevisionLedgerRecord = { revision: number };
+
+function validRevision(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * Allocate the next durable commit revision for one partition INSIDE the
+ * evidence transaction. The next revision is strictly greater than every
+ * VALID known revision for the scope — the dedicated ledger, the current
+ * partition envelope's informational copy, and the refresh-status ledger's
+ * last published success revision — so no restoration, repair, corruption,
+ * or missing source can ever reset ordering below prior history (a malformed
+ * value simply contributes nothing to the floor and is repaired by the
+ * ledger write that follows). Deterministic for every combination of
+ * missing/malformed/conflicting sources: the floor is the MAX of the valid
+ * values, and entirely legacy state (no valid source anywhere) starts at 1.
+ */
+async function allocateCommitRevision(
+  txn: AppStateKeyTxn,
+  input: { year: number; week: number; seasonType: CfbdSeasonType },
+  existing: WeeklyGameStats | null,
+  key: string
+): Promise<number> {
+  const ledger = await txn.readKey<RevisionLedgerRecord | null>(GAME_STATS_REVISION_SCOPE, key);
+  const statusScopeKey = providerRefreshScopeKey(
+    'game-stats',
+    weekPartitionScope(input.year, input.week, input.seasonType)
+  );
+  const status = await txn.readKey<{ lastSuccessRevision?: unknown } | null>(
+    PROVIDER_REFRESH_STATUS_SCOPE,
+    statusScopeKey
+  );
+  const floor = Math.max(
+    validRevision(ledger?.value?.revision) ?? 0,
+    validRevision(existing?.commitRevision) ?? 0,
+    validRevision(status?.value?.lastSuccessRevision) ?? 0
+  );
+  return floor + 1;
+}
+
 /**
  * Durably merge one validated observation batch into its weekly partition.
  *
@@ -808,12 +852,27 @@ export async function mergeGameStatsPartitionDurable(
         return toResult(computation, noChangeOutcome(computation), partitionKey);
       }
 
+      let nextRevision: number;
+      try {
+        nextRevision = await allocateCommitRevision(txn, input, existing, key);
+      } catch {
+        return unavailable('durable-read-failed', partitionKey);
+      }
+      computation.partition!.commitRevision = nextRevision;
+
       try {
         await txn.write(computation.partition!);
+        // Co-committed ledger advance: the durable ordering authority moves
+        // WITH the evidence in one transaction — rollback discards both, and
+        // a concurrent writer cannot observe (or reuse) this revision because
+        // every allocator holds this partition's advisory lock.
+        await txn.writeKey<RevisionLedgerRecord>(GAME_STATS_REVISION_SCOPE, key, {
+          revision: nextRevision,
+        });
       } catch {
         return unavailable('durable-write-failed', partitionKey);
       }
-      committedRevision = computation.partition!.commitRevision ?? 0;
+      committedRevision = nextRevision;
 
       const clean = computation.stale.length === 0 && computation.conflicts.length === 0;
       return toResult(computation, clean ? 'written' : 'partially-merged', partitionKey);

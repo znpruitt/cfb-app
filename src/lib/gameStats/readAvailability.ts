@@ -226,7 +226,7 @@ export async function readPublicGameStats(params: {
   const age = now - (parseStrictRfc3339Ms(cached.fetchedAt) ?? 0);
   return {
     kind: 'served',
-    view: buildPublicWeeklyGameStats(cached, { week, seasonType }),
+    view: buildPublicWeeklyGameStats(cached, { year, week, seasonType }),
     availability,
     stale: !(age < GAME_STATS_READ_TTL_MS),
   };

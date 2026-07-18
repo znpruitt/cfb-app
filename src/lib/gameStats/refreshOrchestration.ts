@@ -87,6 +87,42 @@ export type RecoveryMetadataFailure = {
 
 export const GAME_STATS_RECOVERY_METADATA_FAILURE_CODE = 'game-stats-recovery-metadata-failure';
 
+/**
+ * Structured post-claim revalidation failure (PLATFORM-086H3): the
+ * authoritative reread (schedule context or committed partition) failed
+ * AFTER a claim was acquired. Carries the PRIMARY failure and every
+ * secondary recovery-metadata failure — nothing is reduced to a generic
+ * message — plus the zero-fetch truth the caller must report.
+ */
+export class GameStatsRecoveryRevalidationError extends Error {
+  readonly code = GAME_STATS_RECOVERY_METADATA_FAILURE_CODE;
+  readonly primary: { stage: 'schedule-context' | 'durable-reread'; detail: string };
+  readonly recoveryFailures: RecoveryMetadataFailure[];
+  readonly partition: string;
+  /** No provider request was made for this claim. */
+  readonly providerAccessOccurred = false as const;
+  /** Whether the released-claim finalization failed (the lease may persist until expiry — still bounded). */
+  readonly leaseMayRemainActive: boolean;
+  constructor(params: {
+    primary: { stage: 'schedule-context' | 'durable-reread'; detail: string };
+    recoveryFailures: RecoveryMetadataFailure[];
+    partition: string;
+    leaseMayRemainActive: boolean;
+  }) {
+    super(
+      `post-claim revalidation failed (${params.primary.stage}): ${params.primary.detail}` +
+        (params.recoveryFailures.length > 0
+          ? `; ${params.recoveryFailures.length} recovery-metadata failure(s)`
+          : '')
+    );
+    this.name = 'GameStatsRecoveryRevalidationError';
+    this.primary = params.primary;
+    this.recoveryFailures = params.recoveryFailures;
+    this.partition = params.partition;
+    this.leaseMayRemainActive = params.leaseMayRemainActive;
+  }
+}
+
 async function finalizeClaimVisible(params: {
   claim: GameStatsRecoveryClaim;
   reason: GameStatsRefreshPublication['dispositionReason'];
@@ -254,8 +290,10 @@ export async function claimAndRevalidateNextCandidate(params: {
     const context = await loadSlateExpectationContext({ year, week, seasonType, now });
     if (!context.ok) {
       // Systemic context failure: no fetch is possible or safe. Release the
-      // claim (token-conditional, escalating backoff) and STOP the run —
-      // continuing to other candidates would hit the same store failure.
+      // claim (token-conditional, escalating backoff) and STOP the run with
+      // a STRUCTURED error — the primary cause and every recovery-metadata
+      // failure both survive to route shaping; continuing to other
+      // candidates would hit the same store failure.
       const release = await finalizeClaimVisible({
         claim,
         reason: 'durable-unavailable',
@@ -269,7 +307,12 @@ export async function claimAndRevalidateNextCandidate(params: {
           detail: release.detail ?? 'finalization failed',
         });
       }
-      throw new Error(`post-claim revalidation context unavailable: ${context.detail}`);
+      throw new GameStatsRecoveryRevalidationError({
+        primary: { stage: 'schedule-context', detail: context.detail },
+        recoveryFailures,
+        partition: claim.partitionKey,
+        leaseMayRemainActive: release.outcome === 'failed',
+      });
     }
 
     let committed;
@@ -289,7 +332,15 @@ export async function claimAndRevalidateNextCandidate(params: {
           detail: release.detail ?? 'finalization failed',
         });
       }
-      throw error;
+      throw new GameStatsRecoveryRevalidationError({
+        primary: {
+          stage: 'durable-reread',
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        recoveryFailures,
+        partition: claim.partitionKey,
+        leaseMayRemainActive: release.outcome === 'failed',
+      });
     }
     const coverage = evaluateGameStatsPartitionCoverage(context.expectation, committed, {
       seasonRelation: 'current',

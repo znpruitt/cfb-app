@@ -283,6 +283,10 @@ async function handleAuthorizedRefresh(target: {
 
   const { publication } = result;
   const availability = toAvailabilitySummary(publication.coverage);
+  const statusPublication =
+    publication.statusPublication !== 'persisted' && publication.statusPublication !== 'idempotent'
+      ? { statusPublication: publication.statusPublication }
+      : {};
   const recovery =
     result.recovery.outcome === 'failed'
       ? {
@@ -302,6 +306,7 @@ async function handleAuthorizedRefresh(target: {
         code: publication.code,
         availability,
         attempt: publication.attempt,
+        ...statusPublication,
         ...recovery,
       },
       { status: publication.httpStatus }
@@ -322,6 +327,7 @@ async function handleAuthorizedRefresh(target: {
         noApplicableData: true,
         emptyContext: 'expected',
         availability,
+        ...statusPublication,
         ...recovery,
       },
     });
@@ -343,11 +349,12 @@ async function handleAuthorizedRefresh(target: {
         source: 'cfbd',
         availability,
         attempt: publication.attempt,
+        ...statusPublication,
         ...recovery,
       },
     });
   }
-  const view = buildPublicWeeklyGameStats(committed, { week, seasonType });
+  const view = buildPublicWeeklyGameStats(committed, { year, week, seasonType });
   return NextResponse.json({
     ...view.record,
     meta: {
@@ -356,6 +363,7 @@ async function handleAuthorizedRefresh(target: {
       accepted: publication.acceptedGames,
       availability,
       attempt: publication.attempt,
+      ...statusPublication,
       ...(Object.values(view.withheld).some((count) => count > 0)
         ? { withheld: view.withheld }
         : {}),

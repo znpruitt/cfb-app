@@ -10,11 +10,15 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
   getProviderRefreshStatus,
+  recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
+  recordProviderRefreshSuccess,
 } from '../../server/providerRefreshStatus.ts';
 import { weekPartitionScope } from '../../providerRefreshScope.ts';
 import { wireGame } from './fixtures.ts';
@@ -281,6 +285,8 @@ function syntheticMerged(merge: Partial<DurableMergeResult>): Awaited<ReturnType
       excludedClassification: 0,
       placeholderDeferred: 0,
       unscheduledId: 0,
+      canonicalUnresolved: 0,
+      classificationUnknown: 0,
     },
     parseFailures: {},
     unresolvedIdentity: 0,
@@ -538,4 +544,274 @@ test('degradation matrix: every provider-boundary bucket flips degraded while co
   assert.equal(multi.attempt.parseFailures['unaddressable-game-id'], 1);
   assert.equal(multi.attempt.attachment?.unscheduledId, 1);
   assert.equal(multi.coverage?.state, 'complete');
+});
+
+// === Durable revision authority: non-reset floor + atomic status writers ===
+
+test('revision floor: a partition RESTORED without its revision cannot reset ordering below status history', async () => {
+  // Commit revision 1 normally.
+  await finalize(await ingest([GAME_A()]));
+  let status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(status.lastSuccessRevision, 1);
+
+  // Simulate a legacy restoration: the partition AND ledger lose their
+  // revisions, while status history remembers revision 10.
+  const stored = await getCachedGameStats(YEAR, WEEK, 'regular');
+  const restored = { ...stored! } as Record<string, unknown>;
+  delete restored.commitRevision;
+  await setAppState('game-stats', `${YEAR}:${WEEK}:regular`, restored);
+  await setAppState('game-stats-revision', `${YEAR}:${WEEK}:regular`, null);
+  await setAppState('provider-refresh-status', status.scopeKey, {
+    ...status,
+    lastSuccessRevision: 10,
+  });
+
+  // The next committed write allocates ABOVE the status floor — never 1.
+  const later = new Date(Date.parse(FENCE) + 120_000).toISOString();
+  const next = await ingest([wireGame({ id: 5001, home: { points: 42 } })], slate([5001]), later);
+  assert.equal(next.kind, 'merged');
+  if (next.kind === 'merged') {
+    assert.equal(next.merge.commit?.commitRevision, 11, 'floor over ALL valid sources + 1');
+  }
+  await finalize(next);
+  status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(status.lastSuccessRevision, 11, 'ordering never reuses historical revisions');
+});
+
+test('revision floor: a MALFORMED partition revision contributes nothing and never resets to 1', async () => {
+  await finalize(await ingest([GAME_A()]));
+  const later1 = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const second = await ingest(
+    [wireGame({ id: 5001, home: { points: 28 } })],
+    slate([5001]),
+    later1
+  );
+  await finalize(second); // revision 2 in ledger + status
+
+  const stored = await getCachedGameStats(YEAR, WEEK, 'regular');
+  await setAppState('game-stats', `${YEAR}:${WEEK}:regular`, {
+    ...stored!,
+    commitRevision: 'corrupted',
+  });
+  const later2 = new Date(Date.parse(FENCE) + 180_000).toISOString();
+  const third = await ingest([wireGame({ id: 5001, home: { points: 35 } })], slate([5001]), later2);
+  assert.equal(third.kind, 'merged');
+  if (third.kind === 'merged') {
+    assert.equal(third.merge.commit?.commitRevision, 3, 'the durable ledger keeps the floor');
+  }
+});
+
+test('atomic status writers: begin/failure/no-op racing a NEWER success never regress its metadata', async () => {
+  // Establish committed success metadata (revision 1).
+  const publication = await finalize(await ingest([GAME_A()]));
+  assert.equal(publication.statusPublication, 'persisted');
+  const afterSuccess = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(afterSuccess.lastSuccessRevision, 1);
+
+  // A STALE publisher (attempt begun before the success) resolves failure,
+  // then no-op, then a stale-revision success — each rereads transactionally
+  // and none may roll back the committed-success fields.
+  const staleAttempt = await beginProviderRefreshAttempt('game-stats', SCOPE, {
+    startedAt: new Date(NOW - 60_000).toISOString(),
+  });
+  assert.equal(staleAttempt.persistence, 'persisted');
+  const failureResult = await recordProviderRefreshFailure('game-stats', SCOPE, {
+    attempt: staleAttempt,
+    error: 'late provider failure',
+    code: 'late-failure',
+  });
+  assert.equal(failureResult, 'persisted', 'the failure owns attempt chronology');
+  let status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(status.latestAttemptOutcome, 'failed', 'attempt chronology updated');
+  assert.equal(status.lastSuccessRevision, 1, 'success metadata untouched by the failure');
+  assert.equal(status.lastSuccessAt, afterSuccess.lastSuccessAt);
+  assert.equal(status.rowsCommitted, afterSuccess.rowsCommitted);
+
+  const noopResult = await recordProviderRefreshNoop('game-stats', SCOPE, {
+    attempt: staleAttempt,
+  });
+  assert.equal(noopResult, 'persisted');
+  status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(status.lastSuccessRevision, 1, 'success metadata untouched by the no-op');
+
+  const staleSuccess = await recordProviderRefreshSuccess('game-stats', SCOPE, {
+    attempt: staleAttempt,
+    committedAt: new Date(NOW - 30_000).toISOString(),
+    commitRevision: 1, // duplicate of the already-published revision
+  });
+  assert.equal(staleSuccess, 'idempotent', 'equal revision is an idempotent duplicate');
+  status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(status.lastSuccessRevision, 1);
+
+  const olderSuccess = await recordProviderRefreshSuccess('game-stats', SCOPE, {
+    committedAt: new Date(NOW - 30_000).toISOString(),
+    commitRevision: 0, // invalid → legacy path; older committedAt loses
+  });
+  void olderSuccess;
+  status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(status.lastSuccessRevision, 1, 'no stale writer regressed committed metadata');
+});
+
+test('typed status results: a broken status store yields failed publication — evidence still committed', async () => {
+  const ingestion = await ingest([GAME_A()]);
+  assert.equal(ingestion.kind, 'merged');
+  __setAppStateWriteFailureForTests(new Error('status store down'), 'provider-refresh-status');
+  let publication;
+  try {
+    publication = await finalize(ingestion);
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(publication.statusPublication, 'failed', 'publication failure is typed, not void');
+  assert.equal(
+    publication.recorded,
+    'partial-success',
+    'never recorded:success when the ledger was not updated'
+  );
+  assert.match(publication.detail, /status publication FAILED/i);
+  assert.ok(publication.committed, 'the evidence itself IS committed');
+});
+
+test('diagnostics persist in the status ledger with the latest attempt', async () => {
+  const publication = await finalize(
+    await ingest([GAME_A(), { garbage: true }, wireGame({ id: 999_999 })])
+  );
+  assert.equal(publication.attempt.degraded, true);
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  const persisted = status.lastAttemptDiagnostics as {
+    parseFailures?: Record<string, number>;
+    attachment?: { unscheduledId?: number };
+    degraded?: boolean;
+  } | null;
+  assert.ok(persisted, 'the typed summary is durably inspectable');
+  assert.equal(persisted!.degraded, true);
+  assert.equal(persisted!.attachment?.unscheduledId, 1);
+  assert.equal(persisted!.parseFailures?.['unaddressable-game-id'], 1);
+});
+
+// === Isolated NEW-bucket degradation (canonical-unresolved / classification-unknown) ===
+
+test('degradation: canonical-unresolved and classification-unknown observations are DISTINCT typed buckets persisted in status', async () => {
+  // 'Unknown Northern' is outside the catalog (registry-unresolved identity);
+  // 'Grass Valley' is catalogued WITHOUT a level and plays in an unknown
+  // conference (classification UNKNOWN). Both slate games defer — neither is
+  // expected, excluded, nor a placeholder.
+  const localResolver = createTeamIdentityResolver({
+    teams: [
+      { school: 'Alpha State', level: 'FBS' },
+      { school: 'Beta Tech', level: 'FBS' },
+      { school: 'Grass Valley' },
+    ],
+    aliasMap: {},
+  });
+  const expectation = deriveSlateExpectation({
+    scheduleItems: [
+      {
+        id: '5001',
+        week: WEEK,
+        seasonType: 'regular',
+        startDate: COMPLETED,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha State',
+        awayTeam: 'Beta Tech',
+      },
+      {
+        id: '5003',
+        week: WEEK,
+        seasonType: 'regular',
+        startDate: COMPLETED,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha State',
+        awayTeam: 'Unknown Northern',
+      },
+      {
+        id: '5004',
+        week: WEEK,
+        seasonType: 'regular',
+        startDate: COMPLETED,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha State',
+        awayTeam: 'Grass Valley',
+        awayConference: 'Mystery League',
+      },
+    ],
+    resolver: localResolver,
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    now: NOW,
+  });
+  assert.deepEqual([...expectation.expectedIds], [5001], 'both deferred games are unexpected');
+  assert.deepEqual([...expectation.unresolvedIds], [5003]);
+  assert.deepEqual([...expectation.classificationUnknownIds], [5004]);
+
+  const ingestion = await ingestGameStatsObservations({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    fetchStartedAt: FENCE,
+    payload: [GAME_A(), wireGame({ id: 5003 }), wireGame({ id: 5004 })],
+    expectation,
+    resolver: localResolver,
+  });
+  assert.equal(ingestion.kind, 'merged');
+  if (ingestion.kind === 'merged') {
+    assert.equal(ingestion.attachment.canonicalUnresolved, 1, 'distinct bucket, not folded');
+    assert.equal(ingestion.attachment.classificationUnknown, 1, 'distinct bucket, not folded');
+    assert.equal(ingestion.attachment.placeholderDeferred, 0, 'never collapsed into placeholder');
+  }
+
+  const publication = await finalize(ingestion, expectation);
+  assert.equal(publication.coverage?.state, 'complete', 'expected game 5001 committed');
+  assert.equal(publication.recorded, 'partial-success', 'degradation downgrades the attempt');
+  assert.equal(publication.attempt.degraded, true);
+  assert.equal(publication.attempt.attachment?.canonicalUnresolved, 1);
+  assert.equal(publication.attempt.attachment?.classificationUnknown, 1);
+
+  // The typed counts survive DURABLY in the status ledger, not only in the
+  // in-process response.
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  const persisted = status.lastAttemptDiagnostics as {
+    attachment?: { canonicalUnresolved?: number; classificationUnknown?: number };
+    degraded?: boolean;
+  };
+  assert.ok(persisted, 'attempt diagnostics persisted in status');
+  assert.equal(persisted.attachment?.canonicalUnresolved, 1);
+  assert.equal(persisted.attachment?.classificationUnknown, 1);
+  assert.equal(persisted.degraded, true);
+});
+
+test('degradation: a payload with ZERO persistable observations is typed noPersistableObservations, never a silent noop', async () => {
+  // The only observation MATCHES the expected game but carries no persistable
+  // category evidence — nothing reaches the merge authority, and the attempt
+  // records the typed no-persistable failure rather than a quiet no-op.
+  const expectation = slate([5001]);
+  const statless5001 = {
+    id: 5001,
+    teams: [
+      {
+        teamId: 101,
+        team: 'Alpha State',
+        conference: 'X',
+        homeAway: 'home',
+        points: 21,
+        stats: [],
+      },
+      { teamId: 202, team: 'Beta Tech', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+    ],
+  };
+  const ingestion = await ingest([statless5001], expectation);
+  assert.equal(ingestion.kind, 'no-persistable-observations');
+  const publication = await finalize(ingestion, expectation);
+  assert.equal(
+    publication.recorded,
+    'failure',
+    'nothing committed against a non-empty expectation'
+  );
+  assert.equal(publication.code, 'game-stats-no-persistable-observations');
+  assert.equal(publication.attempt.noPersistableObservations, 1);
+  assert.equal(publication.attempt.degraded, true);
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  const persisted = status.lastAttemptDiagnostics as { noPersistableObservations?: number };
+  assert.equal(persisted?.noPersistableObservations, 1, 'typed count persisted durably');
 });

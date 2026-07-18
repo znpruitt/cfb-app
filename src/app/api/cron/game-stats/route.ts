@@ -4,6 +4,7 @@ import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import {
   GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+  GameStatsRecoveryRevalidationError,
   runScheduledGameStatsRefresh,
   type RecoveryMetadataFailure,
   type ScheduledGameStatsRefreshResult,
@@ -69,6 +70,8 @@ type CronResult = {
   recoveryFailureCode?: string;
   /** Typed provider-attempt degradation counts (parse/attachment buckets). */
   attempt?: GameStatsAttemptDiagnostics;
+  /** Present when the status-ledger mutation did not persist normally. */
+  statusPublication?: string;
 };
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
@@ -155,6 +158,27 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       fetchPayload: fetchGameTeamStats,
     });
   } catch (err) {
+    if (err instanceof GameStatsRecoveryRevalidationError) {
+      // Post-claim revalidation failed: BOTH causes are preserved — the
+      // primary schedule-context/durable-reread failure and every secondary
+      // recovery-metadata failure — along with the zero-fetch truth: no
+      // provider call was made, no game-stat evidence changed, and any
+      // surviving lease stays bounded by its expiry.
+      return NextResponse.json(
+        {
+          ...emptyResult,
+          error: `post-claim revalidation failed (${err.primary.stage}): ${err.primary.detail}`,
+          recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+          ...(err.recoveryFailures.length > 0 ? { recoveryFailures: err.recoveryFailures } : {}),
+          detail: `partition ${err.partition}: zero provider calls, no evidence mutation; ${
+            err.leaseMayRemainActive
+              ? 'recovery-metadata persistence is uncertain and the claim lease remains bounded by its expiry'
+              : 'the claim was released'
+          }`,
+        },
+        { status: 500 }
+      );
+    }
     // Target resolution / identity context / claim persistence failure: the
     // established cron error path, with NO provider call spent and no failure
     // assigned to a data scope that was never verified.
@@ -217,6 +241,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   const { publication } = result;
   const coverage = coverageSummary(publication);
   const attempt = publication.attempt;
+  const statusPublication =
+    publication.statusPublication !== 'persisted' && publication.statusPublication !== 'idempotent'
+      ? { statusPublication: publication.statusPublication }
+      : {};
   const recovery =
     result.recovery.outcome === 'failed'
       ? `disposition finalization failed: ${result.recovery.detail}`
@@ -232,6 +260,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         detail: publication.detail,
         coverage,
         attempt,
+        ...statusPublication,
         ...(recovery
           ? { recovery, recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE }
           : {}),
@@ -250,6 +279,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       skipped: `week ${result.week} ${result.seasonType}: ${publication.detail}`,
       coverage,
       attempt,
+      ...statusPublication,
       ...(recovery
         ? { recovery, recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE }
         : {}),
@@ -265,6 +295,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     ...(publication.recorded === 'partial-success' ? { detail: publication.detail } : {}),
     coverage,
     attempt,
+    ...statusPublication,
     ...(recovery
       ? { recovery, recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE }
       : {}),
