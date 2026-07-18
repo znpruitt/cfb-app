@@ -75,6 +75,14 @@ export type GameStats = {
    * no production writer emits v2 rows yet (dormant until PR 2/3).
    */
   schemaVersion?: 2;
+  /**
+   * Per-game observation fence (PLATFORM-086H2): when the provider fetch that
+   * produced this row's newest ACCEPTED content started (ISO). Stamped only by
+   * the dormant durable merge service on v2 rows — absent on legacy rows and
+   * on rows whose content a newer observation left unchanged. The merge
+   * service never lets an observation older than this fence overwrite the row.
+   */
+  fetchStartedAt?: string;
   providerGameId: number;
   week: number;
   seasonType: CfbdSeasonType;

@@ -43,6 +43,12 @@ let __writeFailureScopeForTests: string | null = null;
 // Test-only: when set, `getAppState` throws this (writes unaffected). See
 // `__setAppStateReadFailureForTests`. Always null outside tests.
 let __readFailureForTests: Error | null = null;
+// Test-only: when set, `withAppStateKeyLock` throws this at acquisition (reads
+// and writes unaffected). See `__setAppStateKeyLockFailureForTests`. Always
+// null outside tests.
+let __keyLockFailureForTests: Error | null = null;
+// Test-only: when non-null, the lock failure applies ONLY to this scope.
+let __keyLockFailureScopeForTests: string | null = null;
 // Test-only: when non-null, the read failure applies ONLY to this scope (so a
 // test can fail a `'schedule'` read while `'provider-refresh-status'` reads still
 // succeed). Null means the failure applies to every scope. Always null outside tests.
@@ -265,6 +271,76 @@ export async function assertAppStateWritable(): Promise<void> {
   await getPool().query(APP_STATE_TABLE_DDL);
 }
 
+// ---------------------------------------------------------------------------
+// Durable per-key advisory lock (PLATFORM-086H2).
+//
+// Serializes a durable read→merge→write critical section on ONE app-state
+// (scope, key) across ALL instances: in Postgres mode a dedicated pooled
+// client holds `pg_advisory_xact_lock(hashtextextended(scope/key, 0))` inside
+// its own transaction for the duration of `fn` (competing lockers on any
+// instance queue on the database), and COMMIT/ROLLBACK releases it. `fn` runs
+// its reads/writes through the NORMAL app-state helpers — the lock connection
+// exists only to hold the advisory lock, never to carry the caller's queries.
+//
+// The file fallback (dev/tests only — production requires DATABASE_URL) has no
+// cross-process authority, so it serializes with a per-(scope,key) in-process
+// promise chain; the durable advisory lock is the correctness boundary in
+// production, and the whole-file `withFileWriteLock` below it still protects
+// the snapshot rename either way. This is strictly narrower than that lock —
+// different (scope, key) pairs proceed independently.
+const keyLockChains = new Map<string, Promise<unknown>>();
+
+export async function withAppStateKeyLock<T>(
+  scope: string,
+  key: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  assertDurableStorageAvailable();
+  if (
+    __keyLockFailureForTests &&
+    (__keyLockFailureScopeForTests === null || __keyLockFailureScopeForTests === scope)
+  ) {
+    throw __keyLockFailureForTests;
+  }
+
+  if (hasDatabaseConfig()) {
+    await ensureDatabase();
+    const client = await getPool().connect();
+    try {
+      await client.query('begin');
+      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+        `${scope}/${key}`,
+      ]);
+      const result = await fn();
+      await client.query('commit');
+      return result;
+    } catch (error) {
+      // Release the advisory lock even when `fn` fails; a rollback failure must
+      // not mask the original error (the pooled client is released regardless).
+      try {
+        await client.query('rollback');
+      } catch {
+        // ignore — the connection teardown below still frees the lock
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const lockKey = buildCompositeKey(scope, key);
+  const prev = keyLockChains.get(lockKey) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  keyLockChains.set(
+    lockKey,
+    run.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return run;
+}
+
 export async function getAppState<T>(
   scope: string,
   key: string
@@ -484,6 +560,9 @@ export function __resetAppStateForTests(): void {
   __writeFailureScopeForTests = null;
   __readFailureForTests = null;
   __readFailureScopeForTests = null;
+  __keyLockFailureForTests = null;
+  __keyLockFailureScopeForTests = null;
+  keyLockChains.clear();
   if (pool) {
     void pool.end().catch(() => undefined);
   }
@@ -525,4 +604,20 @@ export function __setAppStateReadFailureForTests(
 ): void {
   __readFailureForTests = error;
   __readFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: make subsequent `withAppStateKeyLock` calls reject with `error` at
+ * acquisition time — before `fn` runs — so callers that must map an unavailable
+ * lock to a typed non-destructive outcome (PLATFORM-086H2 durable merge) can be
+ * exercised. Reads and writes are unaffected. Pass `null` to clear; optionally
+ * scope to one app-state `scope`. Cleared automatically by
+ * `__resetAppStateForTests`.
+ */
+export function __setAppStateKeyLockFailureForTests(
+  error: Error | null,
+  scope: string | null = null
+): void {
+  __keyLockFailureForTests = error;
+  __keyLockFailureScopeForTests = error ? scope : null;
 }
