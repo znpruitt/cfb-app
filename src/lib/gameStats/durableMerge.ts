@@ -780,16 +780,18 @@ export async function mergeGameStatsPartitionDurable(
       return error.result;
     }
     if (error instanceof AppStateTxnFinalizeError) {
-      // COMMIT failed: with a pending write, durability is genuinely unknown;
-      // with none, durable state is certainly untouched.
-      return error.didWrite
+      // COMMIT failed: if mutation SQL was SUBMITTED, durability is genuinely
+      // unknown; with none, durable state is certainly untouched.
+      return error.writeAttempted
         ? indeterminate('transaction-finalize-failed', partitionKey)
         : unavailable('transaction-finalize-failed', partitionKey);
     }
     if (error instanceof AppStateTxnCleanupError) {
-      // ROLLBACK failed: with a write statement possibly executed, durability
-      // is unknown; with none, no durable mutation was possible.
-      return error.didWrite
+      // ROLLBACK failed: the uncertainty threshold is whether mutation SQL was
+      // SUBMITTED — a rejected or unacknowledged write may still have executed
+      // server-side. Only a transaction that never submitted mutation SQL is
+      // defensibly untouched.
+      return error.writeAttempted
         ? indeterminate('transaction-cleanup-failed', partitionKey)
         : unavailable('transaction-cleanup-failed', partitionKey);
     }

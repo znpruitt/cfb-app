@@ -129,22 +129,29 @@ class FakeClient {
 
   release(error?: Error): void {
     if (this.released) throw new Error(`double release (client ${this.index})`);
-    this.released = true;
     const destroyed = error !== undefined;
-    this.destroyed = destroyed;
-    if (destroyed) {
-      // Connection teardown: the server discards the open transaction and
-      // frees any advisory locks still attached to it.
-      this.endTransaction();
-    }
-    this.pool.releases.push({ index: this.index, destroyed });
-    this.pool.log.push(`client${this.index}:release${destroyed ? ':destroy' : ''}`);
-    this.pool.freeSlot();
+    // Release-failure injection fires BEFORE any successful-disposal
+    // bookkeeping: the client is neither marked released, idled, nor
+    // slot-freed — a healthy release that throws did NOT complete.
     if (!destroyed && this.pool.releaseFailure) {
       const failure = this.pool.releaseFailure;
       this.pool.releaseFailure = null;
       throw failure;
     }
+    this.released = true;
+    this.destroyed = destroyed;
+    if (destroyed) {
+      // Connection teardown: the server discards the open transaction and
+      // frees any advisory locks still attached to it. Destroyed clients
+      // never enter the idle pool.
+      this.endTransaction();
+      this.pool.destroyedIds.add(this.index);
+    } else {
+      this.pool.idle.push(this);
+    }
+    this.pool.releases.push({ index: this.index, destroyed });
+    this.pool.log.push(`client${this.index}:release${destroyed ? ':destroy' : ''}`);
+    this.pool.freeSlot();
   }
 }
 
@@ -153,6 +160,9 @@ class FakePool {
   readonly releases: Array<{ index: number; destroyed: boolean }> = [];
   readonly committed = new Map<string, string>();
   readonly locks = new Map<string, LockEntry>();
+  /** Healthy released clients, available for reuse by later connects. */
+  readonly idle: FakeClient[] = [];
+  readonly destroyedIds = new Set<number>();
   gates: Record<string, Promise<void> | undefined> = {};
   failures: Partial<Record<QueryKind, Error>> = {};
   perClientFailures: Record<string, Error | undefined> = {};
@@ -184,6 +194,17 @@ class FakePool {
       await new Promise<void>((grant) => this.connectQueue.push(grant));
     }
     this.outstanding += 1;
+    // Healthy idle clients are genuinely reused; destroyed clients can never
+    // be offered again (loudly, so a containment bug fails the test).
+    const reused = this.idle.pop();
+    if (reused) {
+      if (reused.destroyed || this.destroyedIds.has(reused.index)) {
+        throw new Error(`destroyed client ${reused.index} offered for reuse`);
+      }
+      reused.released = false;
+      this.log.push(`pool:connect:reuse:${reused.index}`);
+      return reused;
+    }
     this.connectCount += 1;
     this.log.push('pool:connect');
     return new FakeClient(this, this.connectCount);
@@ -287,8 +308,10 @@ test('read failure and write failure roll back (confirmed) with a healthy releas
       'client1:release',
     ]);
     assert.deepEqual(pool.releases, [{ index: 1, destroyed: false }]);
+  });
 
-    pool.perClientFailures['client2:write'] = new Error('write down');
+  await withFakePg(async (pool) => {
+    pool.perClientFailures['client1:write'] = new Error('write down');
     await withAppStateKeyTransaction('s', 'k', async (txn) => {
       try {
         await txn.write({ x: 1 });
@@ -297,9 +320,51 @@ test('read failure and write failure roll back (confirmed) with a healthy releas
       }
       return null;
     });
-    assert.ok(clientLog(pool, 2).includes('client2:rollback'));
-    assert.ok(!clientLog(pool, 2).includes('client2:commit'));
+    assert.ok(clientLog(pool, 1).includes('client1:rollback'));
+    assert.ok(!clientLog(pool, 1).includes('client1:commit'));
     assert.equal(pool.committed.size, 0);
+  });
+});
+
+test('healthy clients are reused; destroyed clients never reappear', async () => {
+  await withFakePg(async (pool) => {
+    // Two sequential healthy transactions share ONE client via the idle pool.
+    await withAppStateKeyTransaction('s', 'k', async (txn) => txn.write({ a: 1 }));
+    await withAppStateKeyTransaction('s', 'k', async (txn) => txn.read());
+    assert.equal(pool.connectCount, 1);
+    assert.ok(pool.log.includes('pool:connect:reuse:1'), 'healthy client 1 reused');
+
+    // A destroyed client (failed commit) never re-enters the idle pool: the
+    // next connect creates a fresh client instead. (The failing transaction
+    // itself legitimately reused idle client 1 BEFORE destroying it.)
+    pool.perClientFailures['client1:commit'] = new Error('commit lost');
+    await assert.rejects(
+      withAppStateKeyTransaction('s', 'k', async (txn) => txn.write({ b: 2 })),
+      (error: unknown) => error instanceof AppStateTxnFinalizeError
+    );
+    assert.ok(pool.destroyedIds.has(1));
+    const reusesBeforeDestruction = pool.log.filter((e) => e === 'pool:connect:reuse:1').length;
+    await withAppStateKeyTransaction('s', 'k', async (txn) => txn.read());
+    assert.equal(pool.connectCount, 2, 'fresh client created after destruction');
+    assert.equal(
+      pool.log.filter((e) => e === 'pool:connect:reuse:1').length,
+      reusesBeforeDestruction,
+      'destroyed client 1 never reused again'
+    );
+
+    // Confirmed rollback keeps the client healthy and reusable.
+    pool.perClientFailures['client2:read'] = new Error('read down');
+    await withAppStateKeyTransaction('s', 'k', async (txn) => {
+      try {
+        await txn.read();
+      } catch {
+        // handled
+      }
+      return null;
+    });
+    await withAppStateKeyTransaction('s', 'k', async (txn) => txn.read());
+    assert.equal(pool.connectCount, 2, 'confirmed-rollback client reused');
+    assert.ok(pool.log.includes('pool:connect:reuse:2'));
   });
 });
 
@@ -329,8 +394,9 @@ test('rollback failure before any write: typed cleanup error, client destroyed',
       }),
       (error: unknown) =>
         error instanceof AppStateTxnCleanupError &&
-        error.didWrite === false &&
-        String((error.cause as Error).message) === 'callback failed first'
+        error.writeAttempted === false &&
+        String((error.cause as Error).message) === 'callback failed first' &&
+        String((error.cleanupCause as Error).message) === 'rollback down'
     );
     assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
     // The destroyed connection released its advisory lock: a successor with a
@@ -341,7 +407,7 @@ test('rollback failure before any write: typed cleanup error, client destroyed',
   });
 });
 
-test('rollback failure after a write may have executed: cleanup error with didWrite=true', async () => {
+test('rollback failure after an acknowledged write: cleanup error is write-attempted', async () => {
   await withFakePg(async (pool) => {
     pool.perClientFailures['client1:rollback'] = new Error('rollback down');
     await assert.rejects(
@@ -349,13 +415,57 @@ test('rollback failure after a write may have executed: cleanup error with didWr
         await txn.write({ x: 1 });
         throw new Error('after write');
       }),
-      (error: unknown) => error instanceof AppStateTxnCleanupError && error.didWrite === true
+      (error: unknown) =>
+        error instanceof AppStateTxnCleanupError &&
+        error.writeAttempted === true &&
+        error.writeAcknowledged === true
     );
     assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
   });
 });
 
-test('commit failure destroys the uncertain client (with and without pending write)', async () => {
+test('rejected write + failed rollback: attempted-but-unacknowledged, both causes retained', async () => {
+  await withFakePg(async (pool) => {
+    // The mutation SQL was SUBMITTED, its acknowledgement was lost, and the
+    // rollback also failed — the write may still have executed server-side.
+    pool.perClientFailures['client1:write'] = new Error('connection reset');
+    pool.perClientFailures['client1:rollback'] = new Error('rollback failed');
+    await assert.rejects(
+      withAppStateKeyTransaction('s', 'k', async (txn) => {
+        try {
+          await txn.write({ x: 1 });
+        } catch {
+          // handled by the caller — the bounded result path
+        }
+        return null;
+      }),
+      (error: unknown) =>
+        error instanceof AppStateTxnCleanupError &&
+        error.writeAttempted === true &&
+        error.writeAcknowledged === false &&
+        String((error.cause as Error).message) === 'connection reset' &&
+        String((error.cleanupCause as Error).message) === 'rollback failed'
+    );
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
+  });
+});
+
+test('acquisition failure with failed cleanup retains both causes and destroys the client', async () => {
+  await withFakePg(async (pool) => {
+    pool.perClientFailures['client1:lock'] = new Error('lock query failed');
+    pool.perClientFailures['client1:rollback'] = new Error('rollback down');
+    await assert.rejects(
+      withAppStateKeyTransaction('s', 'k', async () => 'x'),
+      (error: unknown) =>
+        error instanceof AppStateKeyLockAcquireError &&
+        String((error.cause as Error).message) === 'lock query failed' &&
+        String((error.cleanupCause as Error).message) === 'rollback down'
+    );
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
+  });
+});
+
+test('commit failure destroys the uncertain client (with and without attempted write)', async () => {
   await withFakePg(async (pool) => {
     pool.perClientFailures['client1:commit'] = new Error('commit lost');
     await assert.rejects(
@@ -363,24 +473,26 @@ test('commit failure destroys the uncertain client (with and without pending wri
         await txn.write({ x: 1 });
         return 'never-surfaced';
       }),
-      (error: unknown) => error instanceof AppStateTxnFinalizeError && error.didWrite === true
+      (error: unknown) =>
+        error instanceof AppStateTxnFinalizeError &&
+        error.writeAttempted === true &&
+        error.writeAcknowledged === true
     );
     assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
 
     pool.perClientFailures['client2:commit'] = new Error('commit lost again');
     await assert.rejects(
       withAppStateKeyTransaction('s', 'k', async () => 'read-only'),
-      (error: unknown) => error instanceof AppStateTxnFinalizeError && error.didWrite === false
+      (error: unknown) =>
+        error instanceof AppStateTxnFinalizeError && error.writeAttempted === false
     );
     assert.deepEqual(pool.releases[1], { index: 2, destroyed: true });
-    // Destroyed clients are never offered for reuse: each connect creates a
-    // fresh client and no destroyed index reappears healthy.
     const destroyedIndexes = pool.releases.filter((r) => r.destroyed).map((r) => r.index);
     assert.deepEqual(destroyedIndexes, [1, 2]);
   });
 });
 
-test('a post-commit release failure never replaces the confirmed result', async () => {
+test('a post-commit release failure never replaces the confirmed result (client destroyed)', async () => {
   await withFakePg(async (pool) => {
     pool.releaseFailure = new Error('release exploded');
     const result = await withAppStateKeyTransaction('s', 'k', async (txn) => {
@@ -389,6 +501,30 @@ test('a post-commit release failure never replaces the confirmed result', async 
     });
     assert.equal(result, 'confirmed');
     assert.deepEqual(JSON.parse(pool.committed.get('s::k')!), { committed: true });
+    // Healthy disposal did not complete → the client was destroyed, not idled.
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
+    assert.ok(pool.destroyedIds.has(1));
+    // A later connect receives a fresh client.
+    await withAppStateKeyTransaction('s', 'k', async (txn) => txn.read());
+    assert.equal(pool.connectCount, 2);
+  });
+});
+
+test('a confirmed-rollback release failure preserves the original result (client destroyed)', async () => {
+  await withFakePg(async (pool) => {
+    pool.perClientFailures['client1:read'] = new Error('read down');
+    pool.releaseFailure = new Error('release exploded');
+    const result = await withAppStateKeyTransaction('s', 'k', async (txn) => {
+      try {
+        await txn.read();
+        return 'unexpected';
+      } catch {
+        return 'handled';
+      }
+    });
+    // The bounded original result survives; the client is contained.
+    assert.equal(result, 'handled');
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
   });
 });
 
@@ -601,13 +737,11 @@ test('service: commit failure is indeterminate; retry afterwards is safe', async
   });
 });
 
-test('service: unconfirmed cleanup is typed transaction-cleanup-failed, never a lock failure', async () => {
+test('service: rejected write + failed rollback is INDETERMINATE (mutation SQL was submitted)', async () => {
   await withFakePg(async (pool) => {
-    // The write statement fails AND the subsequent rollback fails: cleanup
-    // cannot be confirmed. (In the service the single write is the last
-    // statement, so a rollback failure after a SUCCESSFUL write is structurally
-    // unreachable here — that didWrite=true → indeterminate policy is proven at
-    // the primitive level above; the mapping in the service covers both.)
+    // The write statement was SUBMITTED and rejected, and the rollback also
+    // failed: the mutation may still have executed server-side, so durability
+    // is unknown — never "certainly untouched".
     pool.perClientFailures['client1:write'] = new Error('write down');
     pool.perClientFailures['client1:rollback'] = new Error('rollback down');
     const result = await mergeGameStatsPartitionDurable({
@@ -615,10 +749,29 @@ test('service: unconfirmed cleanup is typed transaction-cleanup-failed, never a 
       fetchStartedAt: '2024-10-07T00:00:00.000Z',
       observations: [mergeObservation(301)],
     });
+    assert.equal(result.outcome, 'indeterminate');
+    assert.deepEqual(result.indeterminate, {
+      reason: 'transaction-cleanup-failed',
+      durability: 'unknown',
+      partitionKey: 'game-stats/2024:6:regular',
+    });
+    // The uncertain client was destroyed, never returned as healthy.
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
+  });
+});
+
+test('service: no-write cleanup failure stays a bounded unavailable (no mutation SQL submitted)', async () => {
+  await withFakePg(async (pool) => {
+    pool.perClientFailures['client1:read'] = new Error('read down');
+    pool.perClientFailures['client1:rollback'] = new Error('rollback down');
+    const result = await mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-07T00:00:00.000Z',
+      observations: [mergeObservation(304)],
+    });
     assert.equal(result.outcome, 'unavailable');
     assert.equal(result.unavailableReason, 'transaction-cleanup-failed');
     assert.equal(result.partitionKey, 'game-stats/2024:6:regular');
-    // The uncertain client was destroyed, never returned as healthy.
     assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
   });
 });

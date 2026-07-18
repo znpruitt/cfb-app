@@ -306,41 +306,58 @@ export async function assertAppStateWritable(): Promise<void> {
 // below it still protects the snapshot rename either way.
 
 export class AppStateKeyLockAcquireError extends Error {
-  constructor(cause: unknown) {
+  /** Set when the post-failure ROLLBACK also failed (client destroyed). */
+  readonly cleanupCause?: unknown;
+  constructor(cause: unknown, cleanupCause?: unknown) {
     super('app-state key lock acquisition failed');
     this.name = 'AppStateKeyLockAcquireError';
     this.cause = cause;
+    this.cleanupCause = cleanupCause;
   }
 }
 
 export class AppStateTxnFinalizeError extends Error {
-  readonly didWrite: boolean;
-  constructor(cause: unknown, didWrite: boolean) {
+  /** Mutation SQL was SUBMITTED (set before the query, regardless of result). */
+  readonly writeAttempted: boolean;
+  /** The mutation query resolved successfully (diagnostic detail only). */
+  readonly writeAcknowledged: boolean;
+  constructor(cause: unknown, writeAttempted: boolean, writeAcknowledged: boolean) {
     super('app-state key transaction finalization failed');
     this.name = 'AppStateTxnFinalizeError';
     this.cause = cause;
-    this.didWrite = didWrite;
+    this.writeAttempted = writeAttempted;
+    this.writeAcknowledged = writeAcknowledged;
   }
 }
 
 /**
  * ROLLBACK itself failed, so the transaction could not be confirmed cleanly
  * aborted. The uncertain client is destroyed (never returned to the pool as
- * healthy). `didWrite` distinguishes "no write statement ever ran — durable
- * state defensibly unchanged" from "a write may have executed — durability
- * unknown"; callers must not claim untouched state in the latter case.
- * `cause` preserves the ORIGINAL failure that triggered the rollback;
+ * healthy). The durability-uncertainty threshold is `writeAttempted` —
+ * mutation SQL that was SUBMITTED may have executed server-side even when its
+ * acknowledgement was lost or the query rejected, so callers may claim
+ * untouched state ONLY when no mutation SQL was submitted at all
+ * (`writeAttempted === false`). `writeAcknowledged` is retained as diagnostic
+ * detail, never as the uncertainty threshold. `cause` preserves the ACTUAL
+ * initiating failure (first failed statement, callback error, etc.);
  * `cleanupCause` preserves the rollback's own error.
  */
 export class AppStateTxnCleanupError extends Error {
-  readonly didWrite: boolean;
+  readonly writeAttempted: boolean;
+  readonly writeAcknowledged: boolean;
   readonly cleanupCause: unknown;
-  constructor(cause: unknown, cleanupCause: unknown, didWrite: boolean) {
+  constructor(
+    cause: unknown,
+    cleanupCause: unknown,
+    writeAttempted: boolean,
+    writeAcknowledged: boolean
+  ) {
     super('app-state key transaction cleanup failed');
     this.name = 'AppStateTxnCleanupError';
     this.cause = cause;
     this.cleanupCause = cleanupCause;
-    this.didWrite = didWrite;
+    this.writeAttempted = writeAttempted;
+    this.writeAcknowledged = writeAcknowledged;
   }
 }
 
@@ -375,8 +392,14 @@ export async function withAppStateKeyTransaction<T>(
     }
 
     let finished = false;
-    let didWrite = false;
+    // Mutation possibility is tracked from SUBMISSION, not acknowledgement: a
+    // mutation statement that rejected (or lost its acknowledgement to a
+    // connection failure) may still have executed server-side.
+    let writeAttempted = false;
+    let writeAcknowledged = false;
     let txnFailed = false;
+    // The ACTUAL first statement failure — never replaced by a placeholder.
+    let firstStatementFailure: unknown = null;
     const txn: AppStateKeyTxn = {
       async read<V>(): Promise<AppStateRecord<V> | null> {
         if (finished) throw new Error('app-state key transaction already finished');
@@ -390,11 +413,13 @@ export async function withAppStateKeyTransaction<T>(
           return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
         } catch (error) {
           txnFailed = true;
+          firstStatementFailure ??= error;
           throw error;
         }
       },
       async write<V>(value: V): Promise<void> {
         if (finished) throw new Error('app-state key transaction already finished');
+        writeAttempted = true;
         try {
           await client.query(
             `
@@ -405,9 +430,10 @@ export async function withAppStateKeyTransaction<T>(
             `,
             [scope, key, JSON.stringify(value), new Date().toISOString()]
           );
-          didWrite = true;
+          writeAcknowledged = true;
         } catch (error) {
           txnFailed = true;
+          firstStatementFailure ??= error;
           throw error;
         }
       },
@@ -417,20 +443,28 @@ export async function withAppStateKeyTransaction<T>(
     // failed COMMIT, failed ROLLBACK, protocol failure — must NEVER re-enter
     // the pool as healthy. `release(error)` destroys the connection (pg
     // removes it from the pool), which also guarantees the server drops any
-    // advisory lock still attached to it.
-    let released = false;
-    const releaseHealthy = (): void => {
-      if (released) return;
-      released = true;
-      client.release();
-    };
+    // advisory lock still attached to it. Disposal is recorded only AFTER it
+    // actually completes: a healthy release that throws falls through to
+    // destruction instead of being believed successful, so neither helper ever
+    // throws and disposal happens exactly once.
+    let disposed = false;
     const releaseDestroy = (cause: unknown): void => {
-      if (released) return;
-      released = true;
+      if (disposed) return;
+      disposed = true;
       try {
         client.release(cause instanceof Error ? cause : new Error(String(cause)));
       } catch {
         // The connection is already gone; nothing healthier to do.
+      }
+    };
+    const releaseHealthy = (): void => {
+      if (disposed) return;
+      try {
+        client.release();
+        disposed = true;
+      } catch (error) {
+        // Healthy disposal did NOT complete — contain the client instead.
+        releaseDestroy(error);
       }
     };
 
@@ -452,9 +486,13 @@ export async function withAppStateKeyTransaction<T>(
         ]);
       } catch (error) {
         const cleanup = await tryRollback();
-        if (cleanup.ok) releaseHealthy();
-        else releaseDestroy(cleanup.error);
-        throw new AppStateKeyLockAcquireError(error);
+        if (cleanup.ok) {
+          releaseHealthy();
+          throw new AppStateKeyLockAcquireError(error);
+        }
+        releaseDestroy(cleanup.error);
+        // Both the acquisition failure AND the cleanup failure are retained.
+        throw new AppStateKeyLockAcquireError(error, cleanup.error);
       }
 
       let result: T;
@@ -467,46 +505,42 @@ export async function withAppStateKeyTransaction<T>(
           throw error;
         }
         releaseDestroy(cleanup.error);
-        throw new AppStateTxnCleanupError(error, cleanup.error, didWrite);
+        throw new AppStateTxnCleanupError(error, cleanup.error, writeAttempted, writeAcknowledged);
       }
 
       if (txnFailed) {
         // A statement inside the transaction failed (the callback handled the
         // rethrown error itself); the transaction is aborted — never COMMIT it.
         const cleanup = await tryRollback();
-        if (cleanup.ok) releaseHealthy();
-        else {
-          releaseDestroy(cleanup.error);
-          throw new AppStateTxnCleanupError(
-            new Error('transaction statement failed'),
-            cleanup.error,
-            didWrite
-          );
+        if (cleanup.ok) {
+          releaseHealthy();
+          return result;
         }
-        return result;
+        releaseDestroy(cleanup.error);
+        throw new AppStateTxnCleanupError(
+          firstStatementFailure ?? new Error('transaction statement failed'),
+          cleanup.error,
+          writeAttempted,
+          writeAcknowledged
+        );
       }
 
       try {
         await client.query('commit');
       } catch (error) {
         releaseDestroy(error);
-        throw new AppStateTxnFinalizeError(error, didWrite);
+        throw new AppStateTxnFinalizeError(error, writeAttempted, writeAcknowledged);
       }
-      // COMMIT succeeded: the durable result is CONFIRMED. A release failure
-      // after this point must never replace the confirmed result — destroy the
-      // client best-effort and return normally.
-      try {
-        releaseHealthy();
-      } catch (error) {
-        released = false;
-        releaseDestroy(error);
-      }
+      // COMMIT succeeded: the durable result is CONFIRMED. `releaseHealthy`
+      // self-contains a release failure (falls through to destruction), so
+      // nothing after this point can replace the confirmed result.
+      releaseHealthy();
       return result;
     } finally {
       finished = true;
       // Safety net for any path that somehow skipped explicit handling; a
       // client of unknown state is destroyed, never returned as healthy.
-      if (!released) releaseDestroy(new Error('transaction exited without explicit release'));
+      if (!disposed) releaseDestroy(new Error('transaction exited without explicit release'));
     }
   }
 
