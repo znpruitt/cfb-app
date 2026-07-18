@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseV2GameObservation, type ParsedV2Observation } from '../contract.ts';
+import {
+  classifyGameStatsRow,
+  isAnalyticsEligible,
+  parseV2GameObservation,
+  type ParsedV2Observation,
+} from '../contract.ts';
 import { getCachedGameStats } from '../cache.ts';
 import {
   computeWeeklyGameStatsMerge,
@@ -235,12 +240,269 @@ test('observation fencing: stale never overwrites, equal fences never last-write
   assert.equal(divergent.changed, false);
 });
 
-test('a newer observation that changes nothing is a structural no-op (fence not advanced)', () => {
+test('a strictly newer identical observation is a fence-only durable refresh', () => {
   const existing = v2Partition(T1, [fullObs(70)]);
   const computation = computeWeeklyGameStatsMerge(existing, input(T2, [fullObs(70)]));
-  assert.deepEqual(computation.unchanged, [70]);
-  assert.equal(computation.changed, false);
-  assert.equal(existing.games[0]!.fetchStartedAt, T1);
+  // Freshness evidence is durable evidence: the fence advances via a write.
+  assert.deepEqual(computation.refreshed, [70]);
+  assert.deepEqual(computation.unchanged, []);
+  assert.equal(computation.changed, true);
+  const refreshedRow = computation.partition!.games[0]!;
+  assert.equal(refreshedRow.fetchStartedAt, T2);
+  // Content is byte-preserved apart from the fence.
+  assert.deepEqual({ ...refreshedRow, fetchStartedAt: T1 }, existing.games[0]);
+});
+
+test('regression: divergent T2 arriving after an identical T3 refresh is stale', async () => {
+  // T1: durable state A. T3: identical re-observation. T2 (T1 < T2 < T3):
+  // divergent content B. The T3 refresh must have advanced the fence, so the
+  // reordered older T2 observation can never roll durable content backward.
+  const stateA = customObs(75, { home: { turnovers: '1' }, away: { turnovers: '1' } });
+  await mergeGameStatsPartitionDurable(input(T1, [stateA]));
+  const refresh = await mergeGameStatsPartitionDurable(input(T3, [stateA]));
+  assert.equal(refresh.outcome, 'written');
+  assert.deepEqual(refresh.refreshed, [75]);
+
+  const lateDivergent = await mergeGameStatsPartitionDurable(
+    input(T2, [customObs(75, { home: { turnovers: '9' }, away: { turnovers: '9' } })])
+  );
+  assert.equal(lateDivergent.outcome, 'stale');
+  assert.deepEqual(lateDivergent.stale, [75]);
+
+  const stored = await getCachedGameStats(2024, 6, 'regular');
+  assert.equal(stored!.games[0]!.home.turnovers, 1);
+  assert.equal(stored!.games[0]!.fetchStartedAt, T3);
+});
+
+test('partial-fence policy: an older disjoint-field observation is rejected wholesale', async () => {
+  // Per-game snapshot fencing, explicitly: T3 updates field A (turnovers);
+  // the older T2 batch carries a DISJOINT valid field B (firstDowns) — it is
+  // still rejected as stale to avoid synthesizing a row from two provider
+  // states, at the accepted cost of losing B until a >= T3 observation.
+  await mergeGameStatsPartitionDurable(input(T1, [fullObs(76)]));
+  await mergeGameStatsPartitionDurable(
+    input(T3, [customObs(76, { home: { turnovers: '4' }, away: { turnovers: '4' } })])
+  );
+  const before = await getCachedGameStats(2024, 6, 'regular');
+
+  const disjoint = await mergeGameStatsPartitionDurable(
+    input(T2, [customObs(76, { home: { firstDowns: '30' }, away: { firstDowns: '2' } })])
+  );
+  assert.equal(disjoint.outcome, 'stale');
+  assert.deepEqual(await getCachedGameStats(2024, 6, 'regular'), before);
+});
+
+test('strict RFC 3339 fences: acceptance, rejection, and UTC canonicalization', () => {
+  for (const bad of [
+    '2024-10-06', // date-only
+    '2024-10-06 00:00:00Z', // space separator
+    '2024-10-06T00:00:00', // no timezone
+    '2024-10-06T00:00Z', // no seconds
+    'Oct 6 2024 00:00:00 GMT', // locale/month-name form
+    '1728172800000', // numeric-looking string
+    '2024-13-01T00:00:00Z', // invalid month
+    '2024-02-30T00:00:00Z', // invalid calendar date
+    '2024-10-06T00:00:00+99:00', // invalid offset
+  ]) {
+    assert.throws(
+      () => computeWeeklyGameStatsMerge(null, input(bad, [fullObs(1)])),
+      `fence ${JSON.stringify(bad)} must be rejected`
+    );
+  }
+
+  // Valid offsets are accepted and canonicalized to UTC ISO before persistence.
+  const offsetFence = '2024-10-08T02:00:00+02:00';
+  const computation = computeWeeklyGameStatsMerge(null, input(offsetFence, [fullObs(77)]));
+  assert.equal(computation.partition!.games[0]!.fetchStartedAt, '2024-10-08T00:00:00.000Z');
+  assert.equal(computation.partition!.fetchedAt, '2024-10-08T00:00:00.000Z');
+  const fractional = computeWeeklyGameStatsMerge(
+    null,
+    input('2024-10-08T00:00:00.250Z', [fullObs(78)])
+  );
+  assert.equal(fractional.partition!.games[0]!.fetchStartedAt, '2024-10-08T00:00:00.250Z');
+});
+
+test('legacy normalized evidence survives partial upgrades for every field family', () => {
+  // A legacy row whose RAW evidence is gone (or malformed) but whose stored
+  // normalized values remain — the pre-086H production reality for fields
+  // like passingYards when a category went missing upstream.
+  const legacy = legacyRowFromWire(wireGame({ id: 79 }), 6);
+  const strippedLegacy = {
+    ...legacy,
+    home: { ...legacy.home, raw: {} },
+    away: { ...legacy.away, raw: { totalYards: 'garbage' } },
+  };
+  const existing: WeeklyGameStats = { ...BASE, fetchedAt: T0, games: [strippedLegacy] };
+
+  const incoming = customObs(79, {
+    home: { turnovers: '5' },
+    away: { turnovers: '2' },
+    homePoints: null,
+    awayPoints: null,
+  });
+  const computation = computeWeeklyGameStatsMerge(existing, input(T1, [incoming]));
+  assert.deepEqual(computation.updated, [79]);
+  const merged = computation.partition!.games[0]!;
+
+  // The positively observed field updates…
+  assert.equal(merged.home.turnovers, 5);
+  // …and EVERY other normalized family keeps its prior stored value instead
+  // of collapsing to strict-rebuild zeroes.
+  const preservedFields = [
+    'totalYards',
+    'rushingYards',
+    'passingYards',
+    'rushingAttempts',
+    'passingAttempts',
+    'passingCompletions',
+    'rushingTDs',
+    'passingTDs',
+    'firstDowns',
+    'fumblesLost',
+    'interceptionsThrown',
+    'passesIntercepted',
+    'fumblesRecovered',
+    'thirdDownConversions',
+    'thirdDownAttempts',
+    'thirdDownPct',
+    'fourthDownConversions',
+    'fourthDownAttempts',
+    'penaltyCount',
+    'penaltyYards',
+    'possessionSeconds',
+    'interceptionReturnYards',
+    'interceptionReturnTDs',
+    'kickReturnYards',
+    'kickReturnTDs',
+    'puntReturnYards',
+    'puntReturnTDs',
+  ] as const;
+  for (const field of preservedFields) {
+    assert.equal(merged.home[field], legacy.home[field], `home ${field} preserved`);
+  }
+  // Malformed retained raw (away totalYards) also preserves the stored value.
+  assert.equal(merged.away.totalYards, legacy.away.totalYards);
+  // Points preserved without fabricated evidence.
+  assert.equal(merged.home.points, legacy.home.points);
+  assert.equal(merged.home.pointsProvided, false);
+
+  // Compatibility preservation establishes NO strict authority: the merged
+  // row lacks required raw evidence, so it is sparse and analytics-ineligible.
+  assert.equal(classifyGameStatsRow(merged).state, 'v2-sparse');
+  assert.equal(isAnalyticsEligible(merged), false);
+});
+
+test('existing durable duplicates: identical collapse on update, divergent conflict — order-free', () => {
+  const legacyA = legacyRowFromWire(wireGame({ id: 85 }), 6);
+  const otherGame = legacyRowFromWire(wireGame({ id: 86 }), 6);
+  const update85 = customObs(85, { home: { turnovers: '3' }, away: { turnovers: '3' } });
+  const update86 = customObs(86, { home: { turnovers: '2' }, away: { turnovers: '2' } });
+
+  // Identical duplicates: an accepted update rewrites the game ONCE.
+  for (const games of [
+    [legacyA, { ...legacyA }, otherGame],
+    [otherGame, { ...legacyA }, legacyA],
+  ]) {
+    const existing: WeeklyGameStats = { ...BASE, fetchedAt: T0, games };
+    const computation = computeWeeklyGameStatsMerge(existing, input(T1, [update85]));
+    assert.deepEqual(computation.updated, [85]);
+    assert.deepEqual(
+      computation.partition!.games.map((g) => g.providerGameId).sort((a, b) => a - b),
+      [85, 86]
+    );
+    assert.equal(
+      computation.partition!.games.find((g) => g.providerGameId === 85)!.home.turnovers,
+      3
+    );
+  }
+
+  // Identical duplicates NOT addressed by the batch pass through untouched.
+  const untouched = computeWeeklyGameStatsMerge(
+    { ...BASE, fetchedAt: T0, games: [legacyA, { ...legacyA }, otherGame] },
+    input(T1, [update86])
+  );
+  assert.deepEqual(untouched.retainedExisting, [85]);
+  assert.equal(
+    untouched.partition!.games.filter((g) => g.providerGameId === 85).length,
+    2,
+    'unaddressed identical duplicates are preserved as stored'
+  );
+
+  // Divergent duplicates: typed conflict, every stored row preserved, and the
+  // unrelated game still updates — identically for reversed stored order.
+  const divergentTwin = {
+    ...legacyA,
+    home: { ...legacyA.home, totalYards: 999, raw: { ...legacyA.home.raw, totalYards: '999' } },
+  };
+  const canonicalRows = (games: readonly { providerGameId: number }[]) =>
+    [...games].sort(
+      (a, b) =>
+        a.providerGameId - b.providerGameId || JSON.stringify(a).localeCompare(JSON.stringify(b))
+    );
+  const results = [
+    [legacyA, divergentTwin, otherGame],
+    [otherGame, divergentTwin, legacyA],
+  ].map((games) =>
+    computeWeeklyGameStatsMerge({ ...BASE, fetchedAt: T0, games }, input(T1, [update85, update86]))
+  );
+  for (const computation of results) {
+    assert.deepEqual(computation.conflicts, [
+      { providerGameId: 85, reason: 'duplicate-existing-divergent' },
+    ]);
+    assert.deepEqual(computation.updated, [86]);
+    assert.equal(
+      computation.partition!.games.filter((g) => g.providerGameId === 85).length,
+      2,
+      'both divergent stored rows preserved unchanged'
+    );
+  }
+  assert.deepEqual(
+    canonicalRows(results[0]!.partition!.games),
+    canonicalRows(results[1]!.partition!.games)
+  );
+});
+
+test('unsupported and malformed schema versions are preserved untouched as typed conflicts', () => {
+  const seed = v2Partition(T1, [fullObs(87), fullObs(88)]);
+  const futureRow = { ...seed.games[0]!, schemaVersion: 3 as unknown as 2 };
+  const malformedRows = [
+    { ...seed.games[0]!, schemaVersion: '2' as unknown as 2 },
+    { ...seed.games[0]!, schemaVersion: null as unknown as 2 },
+  ];
+
+  const futureExisting: WeeklyGameStats = {
+    ...BASE,
+    fetchedAt: T0,
+    games: [futureRow, seed.games[1]!],
+  };
+  const computation = computeWeeklyGameStatsMerge(
+    futureExisting,
+    input(T2, [
+      customObs(87, { home: { turnovers: '7' }, away: { turnovers: '7' } }),
+      customObs(88, { home: { turnovers: '6' }, away: { turnovers: '6' } }),
+    ])
+  );
+  assert.deepEqual(computation.conflicts, [
+    { providerGameId: 87, reason: 'unsupported-schema-version' },
+  ]);
+  // The unrelated game still updates; the unsupported row is bit-identical.
+  assert.deepEqual(computation.updated, [88]);
+  assert.deepEqual(
+    computation.partition!.games.find((g) => g.providerGameId === 87),
+    futureRow
+  );
+
+  for (const malformedRow of malformedRows) {
+    const badExisting: WeeklyGameStats = { ...BASE, fetchedAt: T0, games: [malformedRow] };
+    const badComputation = computeWeeklyGameStatsMerge(
+      badExisting,
+      input(T2, [customObs(87, { home: { turnovers: '7' }, away: { turnovers: '7' } })])
+    );
+    assert.deepEqual(badComputation.conflicts, [
+      { providerGameId: 87, reason: 'malformed-schema-version' },
+    ]);
+    assert.equal(badComputation.changed, false);
+  }
 });
 
 test('identity contradiction preserves durable state as a conflict', () => {

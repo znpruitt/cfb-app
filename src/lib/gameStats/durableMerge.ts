@@ -6,8 +6,12 @@ import {
   type ParsedV2Observation,
   type ParsedV2TeamObservation,
 } from './contract.ts';
-import { getCachedGameStats, getGameStatsKey, setCachedGameStats } from './cache.ts';
-import { withAppStateKeyLock } from '../server/appStateStore.ts';
+import { getGameStatsKey } from './cache.ts';
+import {
+  AppStateKeyLockAcquireError,
+  AppStateTxnFinalizeError,
+  withAppStateKeyTransaction,
+} from '../server/appStateStore.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
@@ -20,37 +24,54 @@ import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
  * NOTHING in current production invokes it: no cron, manual refresh, coverage,
  * recovery, analytics, Insights, career, diagnostics, or availability path may
  * import this module until that atomic activation (the recursive
- * dormant-boundary guard enforces this).
+ * dormant-boundary guard enforces this). Activation invariant: every
+ * game-stats writer must route through this authority (or the same
+ * transaction-scoped lock) before the service is activated — an unlocked
+ * writer bypasses the serialization entirely.
  *
  * Core guarantees:
  *   - Durable storage is the source of truth: the read→merge→write sequence
- *     runs under the durable per-key advisory lock (`withAppStateKeyLock`),
- *     merges against the CURRENT durable partition, and writes only when the
- *     merged partition semantically changed. This path has no process-level
- *     cache today; the service performs no mutation besides that single
- *     durable write, so a failure can never leave partial process state.
- *   - Observation fencing is per game: each written v2 row carries
- *     `fetchStartedAt` (when its batch's provider fetch started), an older
- *     observation can never overwrite a newer accepted row, equal fences are
- *     idempotent for identical content and a CONFLICT for divergent content
- *     (never last-writer-wins), and an unparsable stored fence blocks the
- *     overwrite as a conflict instead of silently defeating the fence.
+ *     runs INSIDE one advisory-locked database transaction on one dedicated
+ *     client (`withAppStateKeyTransaction`) — the read, the merge input, and
+ *     the conditional write are transaction-scoped, the lock owner never
+ *     needs a second pooled connection, and no ordinary success is reported
+ *     until COMMIT succeeds. A commit failure with a pending write is
+ *     reported as a typed `indeterminate` outcome (durability unknown), never
+ *     as "durable state untouched".
+ *   - Observation fencing is per game and strictly RFC 3339: fences must be
+ *     full date-time strings with an explicit timezone, are canonicalized to
+ *     UTC ISO form before comparison and persistence, and compare numerically.
+ *     An older observation never overwrites a newer accepted row; equal fences
+ *     are idempotent for identical content and a CONFLICT for divergent
+ *     content (never last-writer-wins); an unparsable stored fence blocks the
+ *     overwrite as a conflict. A strictly NEWER observation that re-confirms
+ *     identical content durably advances the row's fence (a fence-only
+ *     `refreshed` write) — freshness evidence is itself durable evidence, so a
+ *     reordered older observation can never roll state back past it.
  *   - Merging is conservative and field-level: games absent from a partial
  *     batch are retained; a raw category is REPLACED only by a strictly
- *     parse-valid newer value (malformed input never clobbers prior evidence,
- *     and zero/permitted-negative values are positive evidence, never
- *     "missing"); categories the newer observation omits are preserved; points
- *     update only on explicit `pointsProvided` evidence, otherwise the prior
- *     number is preserved without fabricating evidence. Row counts, payload
+ *     parse-valid newer value; categories the newer observation omits are
+ *     preserved; and normalized values that merged raw evidence cannot
+ *     strictly reconstruct are PRESERVED from the prior row rather than
+ *     zeroed (compatibility preservation — it establishes no strict
+ *     completeness, no analytics eligibility, and no raw or points evidence,
+ *     all of which continue to derive from raw/points authority). Points
+ *     update only on explicit `pointsProvided` evidence. Row counts, payload
  *     size, and supersets carry NO replacement authority.
+ *   - Schema-version authority is respected for EXISTING rows: absent →
+ *     legacy-compatible merge; exactly 2 → mergeable v2; any other present
+ *     value → typed conflict (`unsupported-schema-version` /
+ *     `malformed-schema-version`) with the durable row preserved bit-for-bit.
+ *   - Duplicates are deterministic on BOTH sides of the merge: identical
+ *     incoming duplicates count once and divergent ones conflict without
+ *     array-order bias; identical EXISTING durable duplicates are treated as
+ *     one canonical row (collapsed only when an accepted update rewrites the
+ *     game), while divergent existing duplicates conflict and are preserved
+ *     unchanged. Every result list is sorted and deduplicated.
  *   - Identity is never reconstructed from team strings: games pair by
  *     provider game id, sides pair by home/away, and a positive stored
- *     schoolId that contradicts the validated incoming teamId is an
- *     irreconcilable conflict that preserves durable state.
- *   - Normalized fields of every merged row are rebuilt from the merged raw
- *     evidence through the ONE strict normalization path (`buildV2GameStats`)
- *     — a legacy row's lenient normalized values are superseded by the strict
- *     rebuild when it upgrades to v2, while its raw evidence is preserved.
+ *     schoolId contradicting the validated incoming teamId is an
+ *     irreconcilable conflict.
  */
 
 // === Service contract ===
@@ -61,9 +82,9 @@ export type DurableMergeInput = {
   seasonType: CfbdSeasonType;
   /**
    * Observation fence for this batch: when the provider fetch that produced
-   * `observations` STARTED (ISO). Must parse to a finite time — an invalid
-   * fence never silently defeats fencing; it makes the whole call
-   * `unavailable`.
+   * `observations` STARTED. Must be a strict RFC 3339 date-time with an
+   * explicit timezone — anything else makes the whole call `unavailable`
+   * (an invalid fence never silently defeats fencing).
    */
   fetchStartedAt: string;
   observations: readonly ParsedV2Observation[];
@@ -71,9 +92,12 @@ export type DurableMergeInput = {
 
 export type MergeConflictReason =
   | 'duplicate-incoming-divergent'
+  | 'duplicate-existing-divergent'
   | 'same-fence-divergent'
   | 'identity-contradiction'
-  | 'existing-fence-unparsable';
+  | 'existing-fence-unparsable'
+  | 'unsupported-schema-version'
+  | 'malformed-schema-version';
 
 export type MergeConflict = { providerGameId: number; reason: MergeConflictReason };
 
@@ -83,27 +107,41 @@ export type DurableMergeOutcome =
   | 'partially-merged'
   | 'stale'
   | 'conflict'
-  | 'unavailable';
+  | 'unavailable'
+  | 'indeterminate';
 
 export type DurableMergeUnavailableReason =
   | 'invalid-fetch-started-at'
   | 'lock-unavailable'
   | 'durable-read-failed'
-  | 'durable-write-failed';
+  | 'durable-write-failed'
+  | 'transaction-finalize-failed';
 
 export type DurableMergeResult = {
   outcome: DurableMergeOutcome;
-  /** Provider game ids, deterministically sorted ascending. */
+  /** Provider game ids — every list sorted ascending and deduplicated. */
   inserted: number[];
   updated: number[];
+  /** Fence-only durable refreshes: newer observation, identical content. */
+  refreshed: number[];
   unchanged: number[];
   stale: number[];
   conflicts: MergeConflict[];
   /** Existing games the incoming batch did not address — always retained. */
   retainedExisting: number[];
   skippedNonPersistable: number;
-  /** Set ONLY when `outcome` is `unavailable`. */
+  /** Set ONLY when `outcome` is `unavailable` (durable state untouched). */
   unavailableReason?: DurableMergeUnavailableReason;
+  /**
+   * Set ONLY when `outcome` is `indeterminate`: the transaction wrote and its
+   * COMMIT failed, so whether the write persisted is genuinely unknown.
+   * Retrying the same input is safe and idempotent either way.
+   */
+  indeterminate?: {
+    reason: 'transaction-finalize-failed';
+    durability: 'unknown';
+    partitionKey: string;
+  };
 };
 
 // === Structural equality (semantic, key-order independent) ===
@@ -131,13 +169,40 @@ function structurallyEqual(a: unknown, b: unknown): boolean {
   );
 }
 
-// === Pure per-game merge ===
+// === Strict RFC 3339 observation fences ===
+
+// Full date + time + seconds (optional fraction) + explicit Z or numeric
+// offset. Date-only strings, locale formats, month names, bare numbers, and
+// zone-less timestamps are all rejected structurally; calendar and offset
+// components are validated EXPLICITLY because `Date.parse` leniently rolls
+// over impossible days-of-month (e.g. Feb 30 → Mar 1) instead of failing.
+const RFC3339_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
 
 function parseFenceMs(value: unknown): number | null {
   if (typeof value !== 'string') return null;
+  const match = RFC3339_DATE_TIME.exec(value);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, offset] = match;
+  const monthNum = Number(month);
+  if (monthNum < 1 || monthNum > 12) return null;
+  const daysInMonth = new Date(Date.UTC(Number(year), monthNum, 0)).getUTCDate();
+  if (Number(day) < 1 || Number(day) > daysInMonth) return null;
+  if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return null;
+  if (offset !== 'Z' && offset !== 'z') {
+    const [offsetHours, offsetMinutes] = offset!.slice(1).split(':');
+    if (Number(offsetHours) > 23 || Number(offsetMinutes) > 59) return null;
+  }
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
 }
+
+/** Canonical UTC ISO form used for all persisted fences. */
+function canonicalFence(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+// === Pure per-game merge ===
 
 /**
  * Conservative category-level raw merge: categories absent from the newer
@@ -163,7 +228,72 @@ function mergeRawEvidence(
   return merged;
 }
 
-type SideMerge = { team: ParsedV2TeamObservation; preservedPoints: number | null };
+/**
+ * Normalized fields grouped by the raw category that strictly reconstructs
+ * them. When merged raw evidence CANNOT strictly reconstruct a family (the
+ * category is absent or malformed), the prior row's stored normalized values
+ * for that family are preserved instead of the rebuild's zero fallbacks —
+ * legacy normalized evidence must never be destroyed by an unrelated partial
+ * update. Preservation is compatibility-only: strict completeness, analytics
+ * eligibility, and points evidence all continue to derive from raw/points
+ * authority, which this overlay never touches.
+ */
+const NORMALIZED_FIELD_FAMILIES: ReadonlyArray<{
+  category: string;
+  fields: ReadonlyArray<keyof TeamGameStats>;
+}> = [
+  { category: 'totalYards', fields: ['totalYards'] },
+  { category: 'rushingYards', fields: ['rushingYards'] },
+  { category: 'netPassingYards', fields: ['passingYards'] },
+  { category: 'rushingAttempts', fields: ['rushingAttempts'] },
+  { category: 'passAttempts', fields: ['passingAttempts'] },
+  { category: 'passCompletions', fields: ['passingCompletions'] },
+  { category: 'rushingTDs', fields: ['rushingTDs'] },
+  { category: 'passingTDs', fields: ['passingTDs'] },
+  { category: 'firstDowns', fields: ['firstDowns'] },
+  { category: 'turnovers', fields: ['turnovers'] },
+  { category: 'fumblesLost', fields: ['fumblesLost'] },
+  { category: 'interceptions', fields: ['interceptionsThrown'] },
+  { category: 'passesIntercepted', fields: ['passesIntercepted'] },
+  { category: 'fumblesRecovered', fields: ['fumblesRecovered'] },
+  {
+    category: 'thirdDownEff',
+    fields: ['thirdDownConversions', 'thirdDownAttempts', 'thirdDownPct'],
+  },
+  { category: 'fourthDownEff', fields: ['fourthDownConversions', 'fourthDownAttempts'] },
+  { category: 'totalPenaltiesYards', fields: ['penaltyCount', 'penaltyYards'] },
+  { category: 'possessionTime', fields: ['possessionSeconds'] },
+  { category: 'interceptionYards', fields: ['interceptionReturnYards'] },
+  { category: 'interceptionTDs', fields: ['interceptionReturnTDs'] },
+  { category: 'kickReturnYards', fields: ['kickReturnYards'] },
+  { category: 'kickReturnTDs', fields: ['kickReturnTDs'] },
+  { category: 'puntReturnYards', fields: ['puntReturnYards'] },
+  { category: 'puntReturnTDs', fields: ['puntReturnTDs'] },
+];
+
+function preserveUnreconstructedNormalizedFields(
+  rebuilt: TeamGameStats,
+  prior: TeamGameStats,
+  mergedRaw: Record<string, string>
+): void {
+  for (const family of NORMALIZED_FIELD_FAMILIES) {
+    if (parseCategoryValue(family.category, mergedRaw[family.category]).status === 'valid') {
+      continue;
+    }
+    for (const field of family.fields) {
+      const priorValue = prior[field];
+      if (typeof priorValue === 'number') {
+        (rebuilt as Record<string, unknown>)[field] = priorValue;
+      }
+    }
+  }
+}
+
+type SideMerge = {
+  team: ParsedV2TeamObservation;
+  preservedPoints: number | null;
+  prior: TeamGameStats;
+};
 
 /**
  * Merge one side. Returns the synthetic observation to rebuild through the
@@ -178,7 +308,7 @@ function mergeSide(existing: TeamGameStats, incoming: ParsedV2TeamObservation): 
     return null;
   }
 
-  const pointsProvided = incoming.pointsProvided || existing.pointsProvided === true ? true : false;
+  const pointsProvided = incoming.pointsProvided || existing.pointsProvided === true;
   const points = incoming.pointsProvided
     ? incoming.points
     : existing.pointsProvided === true
@@ -195,10 +325,9 @@ function mergeSide(existing: TeamGameStats, incoming: ParsedV2TeamObservation): 
       points,
       raw: mergeRawEvidence(existing.raw ?? {}, incoming.raw),
     },
-    // No explicit evidence on either side: preserve the prior stored number
-    // (legacy rows carry unverified points) without marking it as evidence.
     preservedPoints:
       !pointsProvided && typeof existing.points === 'number' ? existing.points : null,
+    prior: existing,
   };
 }
 
@@ -222,8 +351,13 @@ function mergeGameRow(
     week,
     seasonType
   );
-  if (home.preservedPoints !== null) row.home.points = home.preservedPoints;
-  if (away.preservedPoints !== null) row.away.points = away.preservedPoints;
+  for (const side of [
+    { built: row.home, merge: home },
+    { built: row.away, merge: away },
+  ]) {
+    preserveUnreconstructedNormalizedFields(side.built, side.merge.prior, side.merge.team.raw);
+    if (side.merge.preservedPoints !== null) side.built.points = side.merge.preservedPoints;
+  }
   return { kind: 'merged', row };
 }
 
@@ -237,6 +371,55 @@ function insertGameRow(
   return { ...buildV2GameStats(incoming, week, seasonType), fetchStartedAt: fence };
 }
 
+// === Existing-row schema-version + duplicate grouping ===
+
+type ExistingRowState =
+  | { kind: 'legacy'; row: GameStats }
+  | { kind: 'v2'; row: GameStats }
+  | { kind: 'version-conflict'; reason: 'unsupported-schema-version' | 'malformed-schema-version' };
+
+function classifyExistingRowVersion(row: GameStats): ExistingRowState {
+  const record = row as unknown as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(record, 'schemaVersion')) {
+    return { kind: 'legacy', row };
+  }
+  const version = record.schemaVersion;
+  if (version === 2) return { kind: 'v2', row };
+  if (typeof version === 'number' && Number.isSafeInteger(version) && version > 2) {
+    return { kind: 'version-conflict', reason: 'unsupported-schema-version' };
+  }
+  return { kind: 'version-conflict', reason: 'malformed-schema-version' };
+}
+
+type ExistingGroup =
+  | { kind: 'canonical'; state: ExistingRowState }
+  | { kind: 'divergent-duplicates' };
+
+/**
+ * Group existing durable rows by provider game id WITHOUT array-order
+ * authority: identical duplicates collapse to one canonical row (any copy —
+ * they are structurally equal); divergent duplicates are a typed conflict that
+ * preserves every stored row unchanged.
+ */
+function groupExistingRows(games: readonly GameStats[]): Map<number, ExistingGroup> {
+  const byId = new Map<number, GameStats[]>();
+  for (const game of games) {
+    const rows = byId.get(game.providerGameId);
+    if (rows) rows.push(game);
+    else byId.set(game.providerGameId, [game]);
+  }
+  const groups = new Map<number, ExistingGroup>();
+  for (const [id, rows] of byId) {
+    const allIdentical = rows.every((row) => structurallyEqual(row, rows[0]));
+    if (!allIdentical) {
+      groups.set(id, { kind: 'divergent-duplicates' });
+      continue;
+    }
+    groups.set(id, { kind: 'canonical', state: classifyExistingRowVersion(rows[0]!) });
+  }
+  return groups;
+}
+
 // === Pure weekly-partition merge (the decision table) ===
 
 export type WeeklyMergeComputation = {
@@ -246,6 +429,7 @@ export type WeeklyMergeComputation = {
   changed: boolean;
   inserted: number[];
   updated: number[];
+  refreshed: number[];
   unchanged: number[];
   stale: number[];
   conflicts: MergeConflict[];
@@ -253,27 +437,46 @@ export type WeeklyMergeComputation = {
   skippedNonPersistable: number;
 };
 
+function sortIds(ids: number[]): number[] {
+  return [...new Set(ids)].sort((a, b) => a - b);
+}
+
+function sortConflicts(conflicts: MergeConflict[]): MergeConflict[] {
+  const seen = new Set<string>();
+  const unique = conflicts.filter((c) => {
+    const key = `${c.providerGameId}:${c.reason}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.sort(
+    (a, b) => a.providerGameId - b.providerGameId || a.reason.localeCompare(b.reason)
+  );
+}
+
 /**
  * Pure merge of one incoming batch into one durable weekly partition. Every
- * decision-table state resolves deterministically and independently of the
- * incoming array order; destructive replacement always requires positive
- * evidence (a strictly newer fence AND positively observed field values).
+ * decision-table state resolves deterministically and independently of BOTH
+ * the incoming array order and the stored array order; destructive replacement
+ * always requires positive evidence.
  */
 export function computeWeeklyGameStatsMerge(
   existing: WeeklyGameStats | null,
   input: DurableMergeInput
 ): WeeklyMergeComputation {
-  const { year, week, seasonType, fetchStartedAt } = input;
-  const incomingFenceMs = parseFenceMs(fetchStartedAt);
+  const { year, week, seasonType } = input;
+  const incomingFenceMs = parseFenceMs(input.fetchStartedAt);
   if (incomingFenceMs === null) {
-    throw new Error('computeWeeklyGameStatsMerge requires a parseable fetchStartedAt');
+    throw new Error('computeWeeklyGameStatsMerge requires a strict RFC 3339 fetchStartedAt');
   }
+  const fence = canonicalFence(incomingFenceMs);
 
   const result: WeeklyMergeComputation = {
     partition: existing,
     changed: false,
     inserted: [],
     updated: [],
+    refreshed: [],
     unchanged: [],
     stale: [],
     conflicts: [],
@@ -307,31 +510,42 @@ export function computeWeeklyGameStatsMerge(
     result.conflicts.push({ providerGameId: id, reason: 'duplicate-incoming-divergent' });
   }
 
+  // 3. Existing rows: grouped by id (no stored-order authority), with schema
+  //    version and divergent-duplicate conflicts resolved before any merge.
   const existingGames = existing?.games ?? [];
-  const existingById = new Map<number, GameStats>();
-  for (const game of existingGames) existingById.set(game.providerGameId, game);
+  const existingGroups = groupExistingRows(existingGames);
+  const addressed = new Set<number>(duplicateConflicts);
 
-  // 3. Per-game decisions, iterated in sorted-id order for determinism.
+  // 4. Per-game decisions, iterated in sorted-id order for determinism.
   const replacements = new Map<number, GameStats>();
   const insertedRows: GameStats[] = [];
-  const addressed = new Set<number>(duplicateConflicts);
   for (const id of [...byGame.keys()].sort((a, b) => a - b)) {
     addressed.add(id);
     const incoming = byGame.get(id)!;
-    const current = existingById.get(id);
+    const group = existingGroups.get(id);
 
-    if (!current) {
-      insertedRows.push(insertGameRow(incoming, week, seasonType, fetchStartedAt));
+    if (!group) {
+      insertedRows.push(insertGameRow(incoming, week, seasonType, fence));
       result.inserted.push(id);
       continue;
     }
+    if (group.kind === 'divergent-duplicates') {
+      // Preserve every conflicting stored row; reject mutation for this game.
+      result.conflicts.push({ providerGameId: id, reason: 'duplicate-existing-divergent' });
+      continue;
+    }
+    const state = group.state;
+    if (state.kind === 'version-conflict') {
+      // Unsupported/malformed versions are never rebuilt, downgraded, or
+      // field-dropped — the stored row stays untouched.
+      result.conflicts.push({ providerGameId: id, reason: state.reason });
+      continue;
+    }
 
-    const isLegacy = !Object.prototype.hasOwnProperty.call(current, 'schemaVersion');
-    if (!isLegacy) {
+    const current = state.row;
+    if (state.kind === 'v2') {
       const currentFenceMs = parseFenceMs(current.fetchStartedAt);
       if (currentFenceMs === null) {
-        // A v2 row without a parseable fence cannot prove the incoming
-        // observation is newer — never silently defeat the fence.
         result.conflicts.push({ providerGameId: id, reason: 'existing-fence-unparsable' });
         continue;
       }
@@ -344,19 +558,26 @@ export function computeWeeklyGameStatsMerge(
         result.conflicts.push({ providerGameId: id, reason: merge.reason });
         continue;
       }
-      // Compare CONTENT at the existing fence: an observation that changes
-      // nothing is idempotent and must not advance the fence or force a write.
       const comparable: GameStats = { ...merge.row, fetchStartedAt: current.fetchStartedAt };
-      if (structurallyEqual(comparable, current)) {
-        result.unchanged.push(id);
-        continue;
-      }
+      const contentIdentical = structurallyEqual(comparable, current);
       if (incomingFenceMs === currentFenceMs) {
-        // Same fence, divergent content: never last-writer-wins.
-        result.conflicts.push({ providerGameId: id, reason: 'same-fence-divergent' });
+        if (contentIdentical) {
+          result.unchanged.push(id);
+        } else {
+          // Same fence, divergent content: never last-writer-wins.
+          result.conflicts.push({ providerGameId: id, reason: 'same-fence-divergent' });
+        }
         continue;
       }
-      replacements.set(id, { ...merge.row, fetchStartedAt });
+      if (contentIdentical) {
+        // Strictly newer observation re-confirmed this exact content: persist
+        // the freshness evidence so a reordered OLDER observation can never
+        // roll the row back past this confirmation.
+        replacements.set(id, { ...current, fetchStartedAt: fence });
+        result.refreshed.push(id);
+        continue;
+      }
+      replacements.set(id, { ...merge.row, fetchStartedAt: fence });
       result.updated.push(id);
       continue;
     }
@@ -368,29 +589,51 @@ export function computeWeeklyGameStatsMerge(
       result.conflicts.push({ providerGameId: id, reason: merge.reason });
       continue;
     }
-    replacements.set(id, { ...merge.row, fetchStartedAt });
+    replacements.set(id, { ...merge.row, fetchStartedAt: fence });
     result.updated.push(id);
   }
 
   for (const game of existingGames) {
     if (!addressed.has(game.providerGameId)) result.retainedExisting.push(game.providerGameId);
   }
-  result.retainedExisting.sort((a, b) => a - b);
 
-  result.changed = result.inserted.length > 0 || result.updated.length > 0;
+  result.inserted = sortIds(result.inserted);
+  result.updated = sortIds(result.updated);
+  result.refreshed = sortIds(result.refreshed);
+  result.unchanged = sortIds(result.unchanged);
+  result.stale = sortIds(result.stale);
+  result.retainedExisting = sortIds(result.retainedExisting);
+  result.conflicts = sortConflicts(result.conflicts);
+
+  result.changed =
+    result.inserted.length > 0 || result.updated.length > 0 || result.refreshed.length > 0;
   if (!result.changed) return result;
 
-  // 4. Assemble the merged partition: existing games in their stored order
-  //    (updated in place), inserted games appended in sorted-id order. The
-  //    partition-level `fetchedAt` never moves backward.
-  const mergedGames = existingGames.map((game) => replacements.get(game.providerGameId) ?? game);
+  // 5. Assemble the merged partition: existing games in their stored order
+  //    (an accepted update/refresh replaces the game at its FIRST stored
+  //    position and collapses identical duplicate copies), inserted games
+  //    appended in sorted-id order. Divergent duplicates and version-conflict
+  //    rows pass through bit-for-bit. The partition-level `fetchedAt` never
+  //    moves backward.
+  const emittedReplacement = new Set<number>();
+  const mergedGames: GameStats[] = [];
+  for (const game of existingGames) {
+    const replacement = replacements.get(game.providerGameId);
+    if (!replacement) {
+      mergedGames.push(game);
+      continue;
+    }
+    if (emittedReplacement.has(game.providerGameId)) continue;
+    emittedReplacement.add(game.providerGameId);
+    mergedGames.push(replacement);
+  }
   mergedGames.push(...insertedRows);
 
-  const existingFetchedAtMs = existing ? (parseFenceMs(existing.fetchedAt) ?? 0) : null;
+  const existingFetchedAtMs = existing ? Date.parse(existing.fetchedAt) : Number.NaN;
   const fetchedAt =
-    existing && existingFetchedAtMs !== null && existingFetchedAtMs >= incomingFenceMs
+    existing && Number.isFinite(existingFetchedAtMs) && existingFetchedAtMs >= incomingFenceMs
       ? existing.fetchedAt
-      : fetchStartedAt;
+      : fence;
 
   result.partition = { year, week, seasonType, fetchedAt, games: mergedGames };
   return result;
@@ -412,6 +655,7 @@ function toResult(
     outcome,
     inserted: computation.inserted,
     updated: computation.updated,
+    refreshed: computation.refreshed,
     unchanged: computation.unchanged,
     stale: computation.stale,
     conflicts: computation.conflicts,
@@ -420,35 +664,41 @@ function toResult(
   };
 }
 
-function unavailable(reason: DurableMergeUnavailableReason): DurableMergeResult {
+function emptyResult(outcome: DurableMergeOutcome): DurableMergeResult {
   return {
-    outcome: 'unavailable',
+    outcome,
     inserted: [],
     updated: [],
+    refreshed: [],
     unchanged: [],
     stale: [],
     conflicts: [],
     retainedExisting: [],
     skippedNonPersistable: 0,
-    unavailableReason: reason,
   };
 }
 
+function unavailable(reason: DurableMergeUnavailableReason): DurableMergeResult {
+  return { ...emptyResult('unavailable'), unavailableReason: reason };
+}
+
 // Mirrors the private scope constant in `cache.ts` — the lock must cover the
-// exact durable key the cache helpers read and write.
+// exact durable key the game-stats cache reads and writes.
 const GAME_STATS_SCOPE = 'game-stats';
 
 /**
  * Durably merge one validated observation batch into its weekly partition.
  *
- * The whole read→merge→write sequence runs under the durable per-key advisory
- * lock, so two concurrent writers cannot lose disjoint updates and a stale
- * writer completing late cannot roll state backward (its observations fail the
- * per-game fence against the newer durable state it re-reads under the lock).
- * A semantically unchanged merge performs NO durable write and is idempotent
- * under retry. Any storage-layer failure returns a typed `unavailable` result
- * with durable state untouched — stale, conflict, unchanged, and unavailable
- * are never collapsed.
+ * The whole read→merge→write sequence runs inside ONE advisory-locked
+ * transaction on ONE dedicated client, so two concurrent writers cannot lose
+ * disjoint updates, a stale writer completing late cannot roll state backward
+ * (its observations fail the per-game fence against the newer durable state it
+ * re-reads under the lock), and the lock owner can never be starved of a
+ * second connection. A semantically unchanged merge performs NO durable write
+ * and is idempotent under retry. Storage failures return typed `unavailable`
+ * results with durable state untouched; a COMMIT failure with a pending write
+ * returns a typed `indeterminate` result (durability unknown) — stale,
+ * conflict, unchanged, unavailable, and indeterminate are never collapsed.
  */
 export async function mergeGameStatsPartitionDurable(
   input: DurableMergeInput
@@ -459,10 +709,10 @@ export async function mergeGameStatsPartitionDurable(
 
   const key = getGameStatsKey(input.year, input.week, input.seasonType);
   try {
-    return await withAppStateKeyLock(GAME_STATS_SCOPE, key, async () => {
+    return await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
       let existing: WeeklyGameStats | null;
       try {
-        existing = await getCachedGameStats(input.year, input.week, input.seasonType);
+        existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
       } catch {
         return unavailable('durable-read-failed');
       }
@@ -473,7 +723,7 @@ export async function mergeGameStatsPartitionDurable(
       }
 
       try {
-        await setCachedGameStats(computation.partition!);
+        await txn.write(computation.partition!);
       } catch {
         return unavailable('durable-write-failed');
       }
@@ -481,8 +731,27 @@ export async function mergeGameStatsPartitionDurable(
       const clean = computation.stale.length === 0 && computation.conflicts.length === 0;
       return toResult(computation, clean ? 'written' : 'partially-merged');
     });
-  } catch {
-    // Lock acquisition/machinery failure: durable state untouched.
+  } catch (error) {
+    if (error instanceof AppStateTxnFinalizeError) {
+      if (error.didWrite) {
+        return {
+          ...emptyResult('indeterminate'),
+          indeterminate: {
+            reason: 'transaction-finalize-failed',
+            durability: 'unknown',
+            partitionKey: `${GAME_STATS_SCOPE}/${key}`,
+          },
+        };
+      }
+      // Finalization failed but nothing was written — durable state is
+      // certainly untouched.
+      return unavailable('transaction-finalize-failed');
+    }
+    if (error instanceof AppStateKeyLockAcquireError) {
+      return unavailable('lock-unavailable');
+    }
+    // Unexpected machinery failure with no pending write path of its own:
+    // durable state untouched (writes only happen through txn.write above).
     return unavailable('lock-unavailable');
   }
 }

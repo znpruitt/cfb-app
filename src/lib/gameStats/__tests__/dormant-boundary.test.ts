@@ -113,7 +113,11 @@ function specifierTargetsDormantModule(
   const resolved = path.posix.normalize(
     path.posix.join(path.posix.dirname(toPosix(importerRepoRelativePath)), normalized)
   );
-  return /^src\/lib\/gameStats\/(contract|durableMerge)(\.ts)?$/.test(resolved);
+  // TypeScript source commonly imports with .js/.mjs/.cjs specifiers (NodeNext
+  // resolution) — every supported extension resolves to the same module.
+  return /^src\/lib\/gameStats\/(contract|durableMerge)(\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$/.test(
+    resolved
+  );
 }
 
 type BoundaryViolation = { file: string; pattern: string; line: number };
@@ -219,6 +223,25 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
   assert.equal(
     findBoundaryViolations(`export * from './durableMerge';`, 'src/lib/gameStats/index.ts').length,
     1
+  );
+  // Relative specifiers with JavaScript-resolution extensions (NodeNext style)
+  // resolve to the same dormant modules and must be rejected identically.
+  const extensionFlagged: Array<[string, string]> = [
+    [`import { x } from '../gameStats/contract.js';`, importer],
+    [`const m = require('../gameStats/durableMerge.mjs');`, importer],
+    [`export * from '../gameStats/durableMerge.cjs';`, importer],
+    [`import './contract.js';`, 'src/lib/gameStats/index.ts'],
+    [`export { y } from './durableMerge.js';`, 'src/lib/gameStats/index.ts'],
+  ];
+  for (const [source, file] of extensionFlagged) {
+    const violations = findBoundaryViolations(source, file);
+    assert.equal(violations.length, 1, source);
+    assert.ok(violations[0]!.pattern.startsWith('dormant-module import'), source);
+  }
+  // Unrelated modules with those extensions stay clean.
+  assert.deepEqual(
+    findBoundaryViolations(`import { z } from './contract.js';`, 'src/lib/billing/index.ts'),
+    []
   );
 });
 

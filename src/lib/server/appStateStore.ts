@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 
 import { writeJsonFileAtomic } from './atomicFileWrite.ts';
 
@@ -272,72 +272,195 @@ export async function assertAppStateWritable(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Durable per-key advisory lock (PLATFORM-086H2).
+// Durable per-key locked transaction (PLATFORM-086H2).
 //
 // Serializes a durable read→merge→write critical section on ONE app-state
-// (scope, key) across ALL instances: in Postgres mode a dedicated pooled
-// client holds `pg_advisory_xact_lock(hashtextextended(scope/key, 0))` inside
-// its own transaction for the duration of `fn` (competing lockers on any
-// instance queue on the database), and COMMIT/ROLLBACK releases it. `fn` runs
-// its reads/writes through the NORMAL app-state helpers — the lock connection
-// exists only to hold the advisory lock, never to carry the caller's queries.
+// (scope, key) across ALL instances. In Postgres mode a SINGLE dedicated
+// pooled client performs the ENTIRE operation — BEGIN, advisory lock
+// (`pg_advisory_xact_lock(hashtextextended(scope/key, 0))`), the caller's
+// read, the caller's optional write, COMMIT — so the read and any write are
+// transaction-scoped on the lock-owning connection, never on ordinary pool
+// helpers. The lock owner therefore never needs a second connection: same-key
+// waiters each block on the advisory lock holding only their own client, and
+// the pool cannot starve the active owner into deadlock. Different keys
+// proceed concurrently subject to pool capacity.
+//
+// Failure semantics:
+//   - acquisition failure (connect/BEGIN/lock) → `AppStateKeyLockAcquireError`;
+//   - a failed `txn.read`/`txn.write` marks the transaction and rethrows to
+//     the callback; if the callback settles normally afterwards the
+//     transaction is ROLLED BACK (never committed half-aborted);
+//   - a callback throw rolls back and rethrows the callback's error;
+//   - a COMMIT failure throws `AppStateTxnFinalizeError` carrying `didWrite` —
+//     when a write was pending, the durable outcome is genuinely UNKNOWN and
+//     callers must represent that truthfully rather than assuming untouched
+//     state.
+// The client is released in every path, and the accessor is dead after the
+// transaction completes (`read`/`write` then throw), so callback code cannot
+// retain the client past finalization.
 //
 // The file fallback (dev/tests only — production requires DATABASE_URL) has no
 // cross-process authority, so it serializes with a per-(scope,key) in-process
-// promise chain; the durable advisory lock is the correctness boundary in
-// production, and the whole-file `withFileWriteLock` below it still protects
-// the snapshot rename either way. This is strictly narrower than that lock —
-// different (scope, key) pairs proceed independently.
+// promise chain (cleaned up when the tail settles); the durable transaction is
+// the production correctness boundary, and the whole-file `withFileWriteLock`
+// below it still protects the snapshot rename either way.
+
+export class AppStateKeyLockAcquireError extends Error {
+  constructor(cause: unknown) {
+    super('app-state key lock acquisition failed');
+    this.name = 'AppStateKeyLockAcquireError';
+    this.cause = cause;
+  }
+}
+
+export class AppStateTxnFinalizeError extends Error {
+  readonly didWrite: boolean;
+  constructor(cause: unknown, didWrite: boolean) {
+    super('app-state key transaction finalization failed');
+    this.name = 'AppStateTxnFinalizeError';
+    this.cause = cause;
+    this.didWrite = didWrite;
+  }
+}
+
+/** Transaction-scoped accessor for exactly one (scope, key). */
+export type AppStateKeyTxn = {
+  read<T>(): Promise<AppStateRecord<T> | null>;
+  write<T>(value: T): Promise<void>;
+};
+
 const keyLockChains = new Map<string, Promise<unknown>>();
 
-export async function withAppStateKeyLock<T>(
+export async function withAppStateKeyTransaction<T>(
   scope: string,
   key: string,
-  fn: () => Promise<T>
+  fn: (txn: AppStateKeyTxn) => Promise<T>
 ): Promise<T> {
   assertDurableStorageAvailable();
   if (
     __keyLockFailureForTests &&
     (__keyLockFailureScopeForTests === null || __keyLockFailureScopeForTests === scope)
   ) {
-    throw __keyLockFailureForTests;
+    throw new AppStateKeyLockAcquireError(__keyLockFailureForTests);
   }
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
-    const client = await getPool().connect();
+    let client: PoolClient;
     try {
-      await client.query('begin');
-      await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
-        `${scope}/${key}`,
-      ]);
-      const result = await fn();
-      await client.query('commit');
-      return result;
+      client = await getPool().connect();
     } catch (error) {
-      // Release the advisory lock even when `fn` fails; a rollback failure must
-      // not mask the original error (the pooled client is released regardless).
+      throw new AppStateKeyLockAcquireError(error);
+    }
+
+    let finished = false;
+    let didWrite = false;
+    let txnFailed = false;
+    const txn: AppStateKeyTxn = {
+      async read<V>(): Promise<AppStateRecord<V> | null> {
+        if (finished) throw new Error('app-state key transaction already finished');
+        try {
+          const result = await client.query<{ value: V; updated_at: Date | string }>(
+            'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
+            [scope, key]
+          );
+          const row = result.rows[0];
+          if (!row) return null;
+          return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
+        } catch (error) {
+          txnFailed = true;
+          throw error;
+        }
+      },
+      async write<V>(value: V): Promise<void> {
+        if (finished) throw new Error('app-state key transaction already finished');
+        try {
+          await client.query(
+            `
+              insert into app_state (scope, key, value, updated_at)
+              values ($1, $2, $3::jsonb, $4::timestamptz)
+              on conflict (scope, key)
+              do update set value = excluded.value, updated_at = excluded.updated_at
+            `,
+            [scope, key, JSON.stringify(value), new Date().toISOString()]
+          );
+          didWrite = true;
+        } catch (error) {
+          txnFailed = true;
+          throw error;
+        }
+      },
+    };
+
+    const rollback = async (): Promise<void> => {
       try {
         await client.query('rollback');
       } catch {
-        // ignore — the connection teardown below still frees the lock
+        // ignore — releasing the connection still frees the advisory lock
       }
-      throw error;
+    };
+
+    try {
+      try {
+        await client.query('begin');
+        await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+          `${scope}/${key}`,
+        ]);
+      } catch (error) {
+        await rollback();
+        throw new AppStateKeyLockAcquireError(error);
+      }
+
+      let result: T;
+      try {
+        result = await fn(txn);
+      } catch (error) {
+        await rollback();
+        throw error;
+      }
+
+      if (txnFailed) {
+        // A statement inside the transaction failed (the callback handled the
+        // rethrown error itself); the transaction is aborted — never COMMIT it.
+        await rollback();
+        return result;
+      }
+
+      try {
+        await client.query('commit');
+      } catch (error) {
+        throw new AppStateTxnFinalizeError(error, didWrite);
+      }
+      return result;
     } finally {
+      finished = true;
       client.release();
     }
   }
 
+  // File fallback: single-process serialization; reads/writes are immediately
+  // durable (no transaction), so finalization cannot fail here.
   const lockKey = buildCompositeKey(scope, key);
+  const txn: AppStateKeyTxn = {
+    read: <V>() => getAppState<V>(scope, key),
+    write: async <V>(value: V) => {
+      await setAppState(scope, key, value);
+    },
+  };
   const prev = keyLockChains.get(lockKey) ?? Promise.resolve();
-  const run = prev.then(fn, fn);
-  keyLockChains.set(
-    lockKey,
-    run.then(
-      () => undefined,
-      () => undefined
-    )
+  const run = prev.then(
+    () => fn(txn),
+    () => fn(txn)
   );
+  const tail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  keyLockChains.set(lockKey, tail);
+  void tail.then(() => {
+    // Drop the settled chain — but only when no successor queued behind it.
+    if (keyLockChains.get(lockKey) === tail) keyLockChains.delete(lockKey);
+  });
   return run;
 }
 
@@ -620,4 +743,25 @@ export function __setAppStateKeyLockFailureForTests(
 ): void {
   __keyLockFailureForTests = error;
   __keyLockFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: inject a fake `pg` Pool so the Postgres branch of
+ * `withAppStateKeyTransaction` (single-client transaction lifecycle, advisory
+ * lock ordering, commit-failure indeterminacy) can be exercised without a live
+ * database. Callers must also point DATABASE_URL at a placeholder so
+ * `hasDatabaseConfig()` selects the Postgres path, and must clear both via
+ * `__resetAppStateForTests` / env restore afterwards. Never set in production.
+ */
+export function __setAppStatePoolForTests(fake: Pool | null): void {
+  pool = fake;
+}
+
+/**
+ * Test-only: number of retained per-key file-fallback lock chains. Lets tests
+ * prove settled chains for historical keys are released rather than retained
+ * for the process lifetime.
+ */
+export function __appStateKeyLockChainCountForTests(): number {
+  return keyLockChains.size;
 }
