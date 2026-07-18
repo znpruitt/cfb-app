@@ -15,6 +15,18 @@ Supersedes: (none)
 
 ## Completed phases / milestones
 
+### PLATFORM-086H3 — Atomic Game-Stats Contract Activation + Recovery Integration — Implemented (review pending, not merged)
+
+**Status:** Implemented — review pending — **not merged**. Branch `platform/086h3-atomic-game-stats-contract-activation` (from `main` @ `c8ebed4`), pushed with `preview` updated; no PR opened. Awaiting independent Codex review; this entry records the implementation milestone only and makes no completion claim.
+
+**PROMPT_ID(s):** PLATFORM-086H3-ATOMIC-CONTRACT-ACTIVATION-RECOVERY-INTEGRATION-v1.
+
+**Goals implemented:** Third staged PR of the 086H decomposition — the atomic production activation of the 086H1 contract and 086H2 durable merge authority as ONE game-stats lifecycle: canonical schedule → validated provider observations (`ingestion.ts`: strict single-parser validation; typed invalid/schema-drift/expected-vs-unexpected-empty/unmatched/unresolved-identity/no-persistable outcomes; schedule-only game identity) → durable merge authority (both writers — weekly cron and authorized manual refresh — route through it; the blind `setCachedGameStats` partition overwrite is deleted) → committed durable state → committed-state coverage (`partitionCoverage.ts`, one typed model shared by recovery and diagnostics; analytics eligibility is the sufficiency bar, so legacy-compatible rows stay covered without a forced migration) → bounded schedule-relative recovery (`recovery.ts`: one slate per weekly cron run, newest first; placeholders deferred; blocked schema rows never loop; satisfied slates never refetched) → analytics projection (`ownerStats.ts` consumes `selectAnalyticsRows` exclusively; ineligible rows excluded instead of aggregated as fabricated zeroes) → truthful availability (ordinary reads cache-only for every caller; typed corrupt/unavailable/indeterminate outcomes; fresh/stale/miss distinguished; v2 persistence metadata stripped from the public wire with legacy rows passing through byte-equivalent by reference).
+
+**Key outcomes:** Durable COMMIT strictly precedes any publication (refresh-status success records only after confirmed merge outcomes; `indeterminate` publishes nothing and states durability is unknown with a safe idempotent retry); empty/invalid/uncertain provider responses can never destructively clear prior durable evidence; provider quota stays bounded (one shared request per partition per run, no provider calls from ordinary reads, schedule-unavailable fails a refresh before quota is spent). The dormant-boundary guard is replaced by activation guards: a writer-bypass scanner (direct game-stats writes, retired setter, independent lock users, resurrected legacy-normalizer imports) and an activation-completeness guard (lifecycle wiring asserted end to end), plus 19 deterministic end-to-end lifecycle tests (fake pg pool for transaction-uncertainty scenarios; no sleeps, no live services). Full suite 1822/1822; `tsc` and `lint:all` clean.
+
+**Deliberately out of scope:** PLATFORM-086H4 diagnostics/panel presentation redesign (queued) and the legacy-row migration (queued) — existing legacy durable rows continue to serve through compatibility reads with no migration required.
+
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 
 **Status:** Complete. Merged to `main` via PR #397 (`platform/086h2-durable-game-stats-merge-service`, merge commit `c48e1ca`, 2026-07-18). Four implementation commits plus a docs closeout; three folded Codex review-remediation rounds, each re-reviewed to a clean closure verdict; Claude `/verify` passed with byte-identical branch-vs-`main` HTTP behavior and no dormant metadata leakage; full suite 1758/1758 before closeout.
