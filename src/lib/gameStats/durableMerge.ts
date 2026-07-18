@@ -13,7 +13,6 @@ import {
   AppStateTxnFinalizeError,
   withAppStateKeyTransaction,
 } from '../server/appStateStore.ts';
-import { nextProviderCommitSeq } from '../server/providerRefreshStatus.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
@@ -127,13 +126,16 @@ export type DurableMergeResult = {
   /** The durable partition this merge targeted (`scope/key`). */
   partitionKey: string;
   /**
-   * Durable-commit stamp (PLATFORM-086H3): captured IMMEDIATELY after the
-   * transaction's successful COMMIT for outcomes that wrote (`written` /
-   * `partially-merged`) — before any reread, coverage evaluation, or
-   * publication. Downstream status ordering uses THIS stamp, so a stalled
-   * finalizer can never make an older commit overwrite a newer one.
+   * Durable-commit stamp (PLATFORM-086H3) for outcomes that wrote
+   * (`written` / `partially-merged`). `commitRevision` is the partition's
+   * DURABLE monotonic revision, allocated from the prior committed value
+   * INSIDE this merge's advisory-locked transaction — globally comparable
+   * across processes, instances, and restarts, so downstream status ordering
+   * never depends on process-local sequences or finalizer completion time.
+   * `committedAt` is captured immediately after the confirmed COMMIT
+   * (display/ordering fallback only).
    */
-  commit?: { committedAt: string; commitSeq: number };
+  commit?: { committedAt: string; commitRevision: number };
   /** Provider game ids — every list sorted ascending and deduplicated. */
   inserted: number[];
   updated: number[];
@@ -196,6 +198,16 @@ function structurallyEqual(a: unknown, b: unknown): boolean {
 // over impossible days-of-month (e.g. Feb 30 → Mar 1) instead of failing.
 const RFC3339_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+/**
+ * The ONE strict RFC 3339 / calendar-valid timestamp parser shared by the
+ * game-stats lifecycle: observation fences here, and the public read
+ * boundary's `fetchedAt` envelope validation (`readAvailability.ts`).
+ * Permissive `Date.parse` normalization (e.g. Feb 30 → Mar 1) never passes.
+ */
+export function parseStrictRfc3339Ms(value: unknown): number | null {
+  return parseFenceMs(value);
+}
 
 function parseFenceMs(value: unknown): number | null {
   if (typeof value !== 'string') return null;
@@ -653,7 +665,24 @@ export function computeWeeklyGameStatsMerge(
       ? existing.fetchedAt
       : fence;
 
-  result.partition = { year, week, seasonType, fetchedAt, games: mergedGames };
+  // Partition commit revision: monotonic per partition, allocated from the
+  // durable prior INSIDE the caller's advisory-locked transaction — the
+  // globally comparable refresh-status ordering authority (a malformed stored
+  // revision restarts the sequence rather than poisoning comparability).
+  const priorRevision =
+    typeof existing?.commitRevision === 'number' &&
+    Number.isSafeInteger(existing.commitRevision) &&
+    existing.commitRevision > 0
+      ? existing.commitRevision
+      : 0;
+  result.partition = {
+    year,
+    week,
+    seasonType,
+    fetchedAt,
+    commitRevision: priorRevision + 1,
+    games: mergedGames,
+  };
   return result;
 }
 
@@ -753,6 +782,10 @@ export async function mergeGameStatsPartitionDurable(
     return unavailable('invalid-fetch-started-at', partitionKey);
   }
 
+  // The durable partition revision this transaction WROTE (allocated from the
+  // committed prior inside the locked callback); consulted only after the
+  // transaction resolves — i.e. only after the COMMIT is confirmed.
+  let committedRevision: number | null = null;
   try {
     const result = await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
       let existing: WeeklyGameStats | null;
@@ -780,18 +813,23 @@ export async function mergeGameStatsPartitionDurable(
       } catch {
         return unavailable('durable-write-failed', partitionKey);
       }
+      committedRevision = computation.partition!.commitRevision ?? 0;
 
       const clean = computation.stale.length === 0 && computation.conflicts.length === 0;
       return toResult(computation, clean ? 'written' : 'partially-merged', partitionKey);
     });
     // Commit stamp captured IMMEDIATELY after the confirmed COMMIT (the
     // transaction resolves only post-COMMIT) — never after rereads, coverage
-    // evaluation, or publication, so status ordering reflects TRUE commit
-    // order even when a finalizer stalls.
-    if (result.outcome === 'written' || result.outcome === 'partially-merged') {
+    // evaluation, or publication. The revision was allocated transactionally
+    // WITH the write, so it reflects TRUE durable commit order even when a
+    // finalizer stalls or the process restarts.
+    if (
+      (result.outcome === 'written' || result.outcome === 'partially-merged') &&
+      committedRevision !== null
+    ) {
       result.commit = {
         committedAt: new Date().toISOString(),
-        commitSeq: nextProviderCommitSeq(),
+        commitRevision: committedRevision,
       };
     }
     return result;

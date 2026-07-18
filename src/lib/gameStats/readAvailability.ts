@@ -1,6 +1,7 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { SeasonRelation } from './contract.ts';
 import { getCachedGameStats, listCachedGameStats } from './cache.ts';
+import { parseStrictRfc3339Ms } from './durableMerge.ts';
 import { loadGameStatsIdentityResolver } from './identityContext.ts';
 import { deriveSlateExpectation, type GameStatsSlateExpectation } from './ingestion.ts';
 import {
@@ -51,7 +52,9 @@ export function validateWeeklyGameStatsEnvelope(
   if (value.year !== target.year) failures.push('year-mismatch');
   if (value.week !== target.week) failures.push('week-mismatch');
   if (value.seasonType !== target.seasonType) failures.push('season-type-mismatch');
-  if (typeof value.fetchedAt !== 'string' || !Number.isFinite(Date.parse(value.fetchedAt))) {
+  // STRICT calendar-valid RFC 3339 — permissive Date.parse normalization
+  // (e.g. 2026-02-30 → Mar 1) is a malformed envelope, not a valid one.
+  if (parseStrictRfc3339Ms(value.fetchedAt) === null) {
     failures.push('invalid-fetched-at');
   }
   if (!Array.isArray(value.games)) failures.push('games-not-array');
@@ -220,10 +223,10 @@ export async function readPublicGameStats(params: {
 
   if (!cached) return { kind: 'miss', availability };
 
-  const age = now - Date.parse(cached.fetchedAt);
+  const age = now - (parseStrictRfc3339Ms(cached.fetchedAt) ?? 0);
   return {
     kind: 'served',
-    view: buildPublicWeeklyGameStats(cached),
+    view: buildPublicWeeklyGameStats(cached, { week, seasonType }),
     availability,
     stale: !(age < GAME_STATS_READ_TTL_MS),
   };

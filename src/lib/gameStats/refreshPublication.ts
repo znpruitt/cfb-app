@@ -107,35 +107,50 @@ export type GameStatsRefreshPublication = {
   dispositionReason: GameStatsRefreshDispositionReason;
   /**
    * Provider-attempt diagnostics carried through publication (never erased by
-   * a successful commit). `degraded` is true when the payload carried parse
-   * failures, participant mismatches, or unresolved provider identities —
-   * recovery progress is NEVER judged from these (committed-coverage
-   * fingerprints own that); they exist for observability.
+   * a successful commit). `degraded` is true when ANY provider-boundary
+   * degradation bucket is nonzero — parse failures, participant mismatches,
+   * unresolved participants, excluded classifications, unscheduled ids,
+   * placeholder/classification deferrals, non-persistable observations, or
+   * merge-skipped non-persistable rows. Recovery progress is NEVER judged
+   * from these (committed-coverage fingerprints own that); they exist for
+   * observability, and durable availability is never downgraded by them —
+   * the degraded attempt is simply never hidden.
    */
-  attempt: {
-    parseFailures: ParseFailureCounts;
-    attachment: ObservationAttachmentCounts | null;
-    degraded: boolean;
-  };
+  attempt: GameStatsAttemptDiagnostics;
 };
 
-function attemptDiagnostics(ingestion: GameStatsIngestionResult): {
+export type GameStatsAttemptDiagnostics = {
   parseFailures: ParseFailureCounts;
   attachment: ObservationAttachmentCounts | null;
+  /** Attached observations the MERGE skipped as non-persistable. */
+  skippedNonPersistable: number;
   degraded: boolean;
-} {
+};
+
+function attemptDiagnostics(ingestion: GameStatsIngestionResult): GameStatsAttemptDiagnostics {
   const parseFailures =
     'parseFailures' in ingestion ? ingestion.parseFailures : ({} as ParseFailureCounts);
   const attachment = 'attachment' in ingestion ? ingestion.attachment : null;
+  const skippedNonPersistable =
+    ingestion.kind === 'merged' ? ingestion.merge.skippedNonPersistable : 0;
   const parseFailureCount = Object.values(parseFailures).reduce(
     (sum, count) => sum + (count ?? 0),
     0
   );
+  const attachmentDegradation =
+    attachment !== null &&
+    attachment.participantMismatch +
+      attachment.unresolvedParticipant +
+      attachment.excludedClassification +
+      attachment.unscheduledId +
+      attachment.placeholderDeferred >
+      0;
   const degraded =
     parseFailureCount > 0 ||
-    (attachment !== null &&
-      (attachment.participantMismatch > 0 || attachment.unresolvedParticipant > 0));
-  return { parseFailures, attachment, degraded };
+    attachmentDegradation ||
+    skippedNonPersistable > 0 ||
+    ingestion.kind === 'no-persistable-observations';
+  return { parseFailures, attachment, skippedNonPersistable, degraded };
 }
 
 function attachmentDetail(attachment: ObservationAttachmentCounts): string {
@@ -343,14 +358,15 @@ export async function finalizeGameStatsRefresh(
   const complete = coverage.state === 'complete' || coverage.state === 'not-applicable';
 
   if (accepted > 0) {
-    // The commit stamp comes from the MERGE AUTHORITY, captured immediately
-    // after the confirmed COMMIT — never regenerated here, so a stalled
-    // reread/finalizer cannot reorder commits on the status ledger.
+    // The commit stamp comes from the MERGE AUTHORITY: the durable partition
+    // revision was allocated transactionally WITH the evidence write, so the
+    // status ledger's compare-and-write orders by TRUE cross-instance commit
+    // order — a stalled reread/finalizer cannot reorder commits.
     const partial = !complete || merge.conflicts.length > 0 || diagnostics.degraded;
     await recordProviderRefreshSuccess('game-stats', scope, {
       attempt,
       committedAt: merge.commit?.committedAt,
-      commitSeq: merge.commit?.commitSeq,
+      commitRevision: merge.commit?.commitRevision,
       source,
       rowsCommitted: accepted,
       partialFailure: partial,

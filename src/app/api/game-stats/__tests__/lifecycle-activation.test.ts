@@ -214,6 +214,7 @@ test('lifecycle: a scheduled cron run commits v2 evidence the whole stack serves
   assert.ok(!raw.includes('schemaVersion'), 'no v2 metadata on the public wire');
   assert.ok(!raw.includes('fetchStartedAt'), 'no fence on the public wire');
   assert.ok(!raw.includes('pointsProvided'), 'no evidence flag on the public wire');
+  assert.ok(!raw.includes('commitRevision'), 'no partition revision on the public wire');
   assert.equal(fetchCalls, 0, 'zero provider calls from the public read');
   const readBody = JSON.parse(raw) as {
     games: Array<{ providerGameId: number }>;

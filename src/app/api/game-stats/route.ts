@@ -4,6 +4,7 @@ import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { readPublicGameStats, toAvailabilitySummary } from '@/lib/gameStats/readAvailability';
 import {
+  GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
   runManualGameStatsRefresh,
   type ManualGameStatsRefreshResult,
 } from '@/lib/gameStats/refreshOrchestration';
@@ -163,7 +164,7 @@ export async function GET(req: Request) {
           source: 'cfbd',
           ...(read.stale ? { stale: true } : {}),
           availability: read.availability,
-          ...(read.view.withheld.unsupportedSchema > 0 || read.view.withheld.malformed > 0
+          ...(Object.values(read.view.withheld).some((count) => count > 0)
             ? { withheld: read.view.withheld }
             : {}),
         },
@@ -246,14 +247,33 @@ async function handleAuthorizedRefresh(target: {
     case 'config-failure':
       return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
     case 'provider-failure': {
+      // BOTH causes are retained: the provider failure stays the primary
+      // error, and a recovery-disposition finalization failure is surfaced
+      // separately with its stable code (its persistence state is uncertain —
+      // the backoff bookkeeping may not have been recorded). Game-stat
+      // evidence was not changed either way.
+      const recoveryFailure =
+        result.recovery.outcome === 'failed'
+          ? {
+              recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+              recovery: {
+                outcome: result.recovery.outcome,
+                detail: result.recovery.detail,
+                dispositionPersistence: 'uncertain' as const,
+              },
+            }
+          : { recovery: { outcome: result.recovery.outcome } };
       if (result.error instanceof UpstreamFetchError) {
         return NextResponse.json(
-          { error: 'upstream error', detail: result.error.details },
+          { error: 'upstream error', detail: result.error.details, ...recoveryFailure },
           { status: result.error.details.status ?? 502 }
         );
       }
       return NextResponse.json(
-        { error: result.error instanceof Error ? result.error.message : 'unknown error' },
+        {
+          error: result.error instanceof Error ? result.error.message : 'unknown error',
+          ...recoveryFailure,
+        },
         { status: 502 }
       );
     }
@@ -265,7 +285,14 @@ async function handleAuthorizedRefresh(target: {
   const availability = toAvailabilitySummary(publication.coverage);
   const recovery =
     result.recovery.outcome === 'failed'
-      ? { recovery: `disposition finalization failed: ${result.recovery.detail}` }
+      ? {
+          recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+          recovery: {
+            outcome: result.recovery.outcome,
+            detail: result.recovery.detail,
+            dispositionPersistence: 'uncertain' as const,
+          },
+        }
       : {};
 
   if (publication.recorded === 'failure') {
@@ -320,7 +347,7 @@ async function handleAuthorizedRefresh(target: {
       },
     });
   }
-  const view = buildPublicWeeklyGameStats(committed);
+  const view = buildPublicWeeklyGameStats(committed, { week, seasonType });
   return NextResponse.json({
     ...view.record,
     meta: {
@@ -329,7 +356,7 @@ async function handleAuthorizedRefresh(target: {
       accepted: publication.acceptedGames,
       availability,
       attempt: publication.attempt,
-      ...(view.withheld.unsupportedSchema > 0 || view.withheld.malformed > 0
+      ...(Object.values(view.withheld).some((count) => count > 0)
         ? { withheld: view.withheld }
         : {}),
       ...recovery,

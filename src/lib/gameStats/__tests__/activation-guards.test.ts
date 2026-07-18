@@ -118,12 +118,15 @@ type OwnershipRule = {
 
 const OWNERSHIP_RULES: OwnershipRule[] = [
   {
-    // The transaction-lock primitive: only the two durable authorities.
+    // The transaction-lock primitive: the durable authorities — the evidence
+    // merge, the recovery-metadata owner, and the refresh-status ledger's
+    // atomic compare-and-write (PLATFORM-086H3 status ordering).
     module: 'src/lib/server/appStateStore',
     names: ['withAppStateKeyTransaction'],
     allowed: new Set([
       'src/lib/gameStats/durableMerge.ts',
       'src/lib/gameStats/recoveryDisposition.ts',
+      'src/lib/server/providerRefreshStatus.ts',
     ]),
     rule: 'transaction-lock-ownership',
   },
@@ -248,6 +251,8 @@ export function analyzeProductionSource(
   const mutationBindings = new Set<string>();
   const lockBindings = new Set<string>();
   const storeNamespaces = new Set<string>();
+  /** Local bindings holding a guarded capability (for re-export laundering). */
+  const guardedBindings = new Map<string, string>();
 
   const visitImports = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
@@ -266,39 +271,85 @@ export function analyzeProductionSource(
         // Ownership rules over the resolved module.
         for (const rule of OWNERSHIP_RULES) {
           if (resolved !== rule.module) continue;
-          if (rule.appliesTo && !rule.appliesTo(repoRelativePath)) continue;
-          if (rule.allowed.has(repoRelativePath)) continue;
-          if (ts.isImportDeclaration(node)) {
-            const bindings = node.importClause?.namedBindings;
-            if (bindings && ts.isNamedImports(bindings)) {
-              for (const element of bindings.elements) {
-                const imported = (element.propertyName ?? element.name).text;
-                if (rule.names.includes(imported)) {
+          const isOwner = rule.allowed.has(repoRelativePath);
+          const inScope = !rule.appliesTo || rule.appliesTo(repoRelativePath);
+
+          if (ts.isExportDeclaration(node)) {
+            // RE-EXPORTS of guarded capabilities are forbidden for EVERYONE —
+            // including allowlisted owners: an owner re-exporting the raw
+            // capability would launder it past the import boundary
+            // (`export *`, barrels, aliased named re-exports all count).
+            if (!node.exportClause) {
+              violations.push({
+                file: repoRelativePath,
+                rule: 'guarded-reexport',
+                detail: `\`export *\` from guarded module "${spec.text}"`,
+                line: lineAt(sourceFile, node),
+              });
+            } else if (ts.isNamedExports(node.exportClause)) {
+              for (const element of node.exportClause.elements) {
+                const exported = (element.propertyName ?? element.name).text;
+                if (rule.names.includes(exported)) {
+                  violations.push({
+                    file: repoRelativePath,
+                    rule: 'guarded-reexport',
+                    detail: `re-export of guarded "${exported}" from "${spec.text}"`,
+                    line: lineAt(sourceFile, element),
+                  });
+                } else if (!isOwner && inScope) {
                   violations.push({
                     file: repoRelativePath,
                     rule: rule.rule,
-                    detail: `"${imported}" imported outside its ownership boundary`,
+                    detail: `re-export from guarded module "${spec.text}"`,
                     line: lineAt(sourceFile, element),
                   });
                 }
               }
-            }
-            if (bindings && ts.isNamespaceImport(bindings)) {
-              // A namespace import of a guarded module grants every export —
-              // treat it as importing all guarded names.
+            } else {
+              // `export * as ns from` — namespace re-export grants everything.
               violations.push({
                 file: repoRelativePath,
-                rule: rule.rule,
-                detail: `namespace import of guarded module "${spec.text}"`,
+                rule: 'guarded-reexport',
+                detail: `namespace re-export of guarded module "${spec.text}"`,
                 line: lineAt(sourceFile, node),
               });
             }
-          } else {
-            // Re-export from a guarded module outside its boundary.
+            continue;
+          }
+
+          // Import declarations: binding tracking for laundering detection
+          // applies to every file (owners included)…
+          const bindings = node.importClause?.namedBindings;
+          if (bindings && ts.isNamedImports(bindings)) {
+            for (const element of bindings.elements) {
+              const imported = (element.propertyName ?? element.name).text;
+              if (rule.names.includes(imported)) {
+                guardedBindings.set(element.name.text, imported);
+              }
+            }
+          }
+          // …while the ownership restriction applies to non-owners in scope.
+          if (isOwner || !inScope) continue;
+          if (bindings && ts.isNamedImports(bindings)) {
+            for (const element of bindings.elements) {
+              const imported = (element.propertyName ?? element.name).text;
+              if (rule.names.includes(imported)) {
+                violations.push({
+                  file: repoRelativePath,
+                  rule: rule.rule,
+                  detail: `"${imported}" imported outside its ownership boundary`,
+                  line: lineAt(sourceFile, element),
+                });
+              }
+            }
+          }
+          if (bindings && ts.isNamespaceImport(bindings)) {
+            // A namespace import of a guarded module grants every export —
+            // treat it as importing all guarded names.
             violations.push({
               file: repoRelativePath,
               rule: rule.rule,
-              detail: `re-export from guarded module "${spec.text}"`,
+              detail: `namespace import of guarded module "${spec.text}"`,
               line: lineAt(sourceFile, node),
             });
           }
@@ -428,9 +479,50 @@ export function analyzeProductionSource(
   const lockAllowed =
     repoRelativePath === 'src/lib/server/appStateStore.ts' ||
     repoRelativePath === 'src/lib/gameStats/durableMerge.ts' ||
-    repoRelativePath === 'src/lib/gameStats/recoveryDisposition.ts';
+    repoRelativePath === 'src/lib/gameStats/recoveryDisposition.ts' ||
+    repoRelativePath === 'src/lib/server/providerRefreshStatus.ts';
 
   const visit = (node: ts.Node): void => {
+    // Guarded-capability LAUNDERING: exporting a local binding that holds a
+    // guarded import (`export { withAppStateKeyTransaction }` without a
+    // specifier, or `export const tx = withAppStateKeyTransaction`) is a
+    // re-export in disguise — forbidden for every file, owners included.
+    if (ts.isExportDeclaration(node) && !node.moduleSpecifier && node.exportClause) {
+      if (ts.isNamedExports(node.exportClause)) {
+        for (const element of node.exportClause.elements) {
+          const local = (element.propertyName ?? element.name).text;
+          const guardedName = guardedBindings.get(local);
+          if (guardedName) {
+            violations.push({
+              file: repoRelativePath,
+              rule: 'guarded-reexport',
+              detail: `local re-export of guarded "${guardedName}"`,
+              line: lineAt(sourceFile, element),
+            });
+          }
+        }
+      }
+    }
+    if (
+      ts.isVariableStatement(node) &&
+      node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      for (const declaration of node.declarationList.declarations) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.initializer &&
+          ts.isIdentifier(declaration.initializer) &&
+          guardedBindings.has(declaration.initializer.text)
+        ) {
+          violations.push({
+            file: repoRelativePath,
+            rule: 'guarded-reexport',
+            detail: `exported alias of guarded "${guardedBindings.get(declaration.initializer.text)}"`,
+            line: lineAt(sourceFile, declaration),
+          });
+        }
+      }
+    }
     if (ts.isIdentifier(node) && node.text === RETIRED_SETTER) {
       violations.push({
         file: repoRelativePath,
@@ -808,6 +900,91 @@ test('ownership: forbidden cross-module imports are flagged by module boundary',
       `import { recordProviderRefreshSuccess } from '@/lib/server/providerRefreshStatus';`,
       'src/app/api/scores/route.ts'
     ).includes('status-publication-ownership')
+  );
+});
+
+test('re-export boundary: guarded capabilities cannot be re-exported — by ANYONE', () => {
+  // The exact required fixture.
+  assert.ok(
+    rulesOf(
+      `export { withAppStateKeyTransaction } from '../server/appStateStore';`,
+      'src/lib/gameStats/example.ts'
+    ).includes('guarded-reexport')
+  );
+  // Aliased re-export.
+  assert.ok(
+    rulesOf(
+      `export { withAppStateKeyTransaction as tx } from '../server/appStateStore';`,
+      'src/lib/gameStats/example.ts'
+    ).includes('guarded-reexport')
+  );
+  // `export *` (barrel) from a guarded module.
+  assert.ok(
+    rulesOf(`export * from './recoveryDisposition';`, 'src/lib/gameStats/index.ts').includes(
+      'guarded-reexport'
+    )
+  );
+  assert.ok(
+    rulesOf(`export * from '../server/appStateStore';`, 'src/lib/gameStats/index.ts').includes(
+      'guarded-reexport'
+    )
+  );
+  // Namespace re-export.
+  assert.ok(
+    rulesOf(
+      `export * as store from '../server/appStateStore';`,
+      'src/lib/gameStats/example.ts'
+    ).includes('guarded-reexport')
+  );
+  // OWNER modules are barred too: the laundering fixtures below use the
+  // sanctioned owners' own paths.
+  assert.ok(
+    rulesOf(
+      `export { withAppStateKeyTransaction } from '../server/appStateStore.ts';`,
+      'src/lib/gameStats/recoveryDisposition.ts'
+    ).includes('guarded-reexport')
+  );
+  // Status-publisher laundering.
+  assert.ok(
+    rulesOf(
+      `export { recordProviderRefreshSuccess } from '../server/providerRefreshStatus.ts';`,
+      'src/lib/gameStats/refreshPublication.ts'
+    ).includes('guarded-reexport')
+  );
+  // Recovery-mutator laundering.
+  assert.ok(
+    rulesOf(
+      `export { claimGameStatsRecoveryPartition } from './recoveryDisposition.ts';`,
+      'src/lib/gameStats/refreshOrchestration.ts'
+    ).includes('guarded-reexport')
+  );
+  // Raw-row reader laundering.
+  assert.ok(
+    rulesOf(
+      `export { getCachedGameStats } from './cache.ts';`,
+      'src/lib/gameStats/readAvailability.ts'
+    ).includes('guarded-reexport')
+  );
+  // Local re-export without a specifier.
+  assert.ok(
+    rulesOf(
+      `import { withAppStateKeyTransaction } from '../server/appStateStore';\nexport { withAppStateKeyTransaction };`,
+      'src/lib/gameStats/recoveryDisposition.ts'
+    ).includes('guarded-reexport')
+  );
+  // Exported alias of a guarded binding.
+  assert.ok(
+    rulesOf(
+      `import { withAppStateKeyTransaction } from '../server/appStateStore';\nexport const tx = withAppStateKeyTransaction;`,
+      'src/lib/gameStats/durableMerge.ts'
+    ).includes('guarded-reexport')
+  );
+  // Non-guarded exports from guarded modules stay clean for owners.
+  assert.ok(
+    !rulesOf(
+      `export { getGameStatsKey } from './cache.ts';`,
+      'src/lib/gameStats/readAvailability.ts'
+    ).includes('guarded-reexport')
   );
 });
 

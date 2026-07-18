@@ -9,6 +9,7 @@ import {
 import {
   computeCoverageFingerprint,
   evaluateGameStatsPartitionCoverage,
+  isPartitionRecoverySatisfied,
 } from './partitionCoverage.ts';
 import { planGameStatsRecovery, type GameStatsRecoverySlate } from './recovery.ts';
 import {
@@ -71,6 +72,20 @@ export type RecoveryFinalizationReport = {
   outcome: GameStatsRecoveryFinalization | 'failed';
   detail?: string;
 };
+
+/**
+ * A recovery-METADATA operation that could not be persisted (claim
+ * finalization, retirement, clearing). Surfaced on route results with a
+ * stable code — logging alone is insufficient; game-stat evidence is never
+ * changed by these operations.
+ */
+export type RecoveryMetadataFailure = {
+  partition: string;
+  operation: 'finalize' | 'retire' | 'stale-claim-finalize';
+  detail: string;
+};
+
+export const GAME_STATS_RECOVERY_METADATA_FAILURE_CODE = 'game-stats-recovery-metadata-failure';
 
 async function finalizeClaimVisible(params: {
   claim: GameStatsRecoveryClaim;
@@ -179,9 +194,152 @@ async function executeClaimedRefresh(params: {
   return { publication, recovery, fetchStartedAt };
 }
 
+// === Post-claim authoritative revalidation ===
+
+export type ClaimedRecoveryTarget = {
+  week: number;
+  seasonType: CfbdSeasonType;
+  claim: GameStatsRecoveryClaim;
+  /** FRESH canonical expectation reread AFTER the claim (authoritative). */
+  expectation: GameStatsSlateExpectation;
+  resolver: TeamIdentityResolver;
+};
+
+export type ClaimAndRevalidateResult = {
+  target: ClaimedRecoveryTarget | null;
+  staleClaims: Array<{ week: number; seasonType: CfbdSeasonType }>;
+  recoveryFailures: RecoveryMetadataFailure[];
+};
+
+/**
+ * Claim the next eligible candidate and REVALIDATE it against authoritative
+ * current state before any provider access. The pre-claim recovery plan is a
+ * SNAPSHOT and is never trusted after claim acquisition: another writer may
+ * have satisfied the partition (or the schedule may have changed) between
+ * planning and claiming. After each successful claim this helper rereads the
+ * canonical schedule expectation and the committed durable partition, and
+ * proceeds only when shared coverage still shows recoverable/absent expected
+ * games. A candidate that is now satisfied, blocked, manual-only, unresolved,
+ * placeholder-deferred, classification-ineligible, or gone from the schedule
+ * is released with a token-CONDITIONAL finalization (`satisfied` → cleared;
+ * the token fence means a stale validation can never clear a replacement
+ * claim) and selection rotates onward — ZERO provider calls are spent on
+ * stale candidates, and the caller still performs at most ONE fetch per run.
+ */
+export async function claimAndRevalidateNextCandidate(params: {
+  year: number;
+  now: number;
+  candidates: readonly GameStatsRecoverySlate[];
+}): Promise<ClaimAndRevalidateResult> {
+  const { year, now, candidates } = params;
+  const staleClaims: Array<{ week: number; seasonType: CfbdSeasonType }> = [];
+  const recoveryFailures: RecoveryMetadataFailure[] = [];
+
+  for (const slate of candidates) {
+    if (!slate.eligible) continue;
+    const { week, seasonType } = slate;
+    const claimResult = await claimGameStatsRecoveryPartition({
+      year,
+      week,
+      seasonType,
+      now,
+      coverageFingerprint: computeCoverageFingerprint(slate.coverage),
+      scheduleFingerprint: computeScheduleExpectationFingerprint(slate.expectation),
+    });
+    if (!claimResult.claimed) continue;
+    const claim = claimResult.claim;
+
+    // AUTHORITATIVE reread after the claim: fresh schedule expectation and
+    // fresh committed durable coverage — never the pre-claim plan snapshot.
+    const context = await loadSlateExpectationContext({ year, week, seasonType, now });
+    if (!context.ok) {
+      // Systemic context failure: no fetch is possible or safe. Release the
+      // claim (token-conditional, escalating backoff) and STOP the run —
+      // continuing to other candidates would hit the same store failure.
+      const release = await finalizeClaimVisible({
+        claim,
+        reason: 'durable-unavailable',
+        now,
+        postCoverageFingerprint: null,
+      });
+      if (release.outcome === 'failed') {
+        recoveryFailures.push({
+          partition: claim.partitionKey,
+          operation: 'stale-claim-finalize',
+          detail: release.detail ?? 'finalization failed',
+        });
+      }
+      throw new Error(`post-claim revalidation context unavailable: ${context.detail}`);
+    }
+
+    let committed;
+    try {
+      committed = await getCachedGameStats(year, week, seasonType);
+    } catch (error) {
+      const release = await finalizeClaimVisible({
+        claim,
+        reason: 'durable-unavailable',
+        now,
+        postCoverageFingerprint: null,
+      });
+      if (release.outcome === 'failed') {
+        recoveryFailures.push({
+          partition: claim.partitionKey,
+          operation: 'stale-claim-finalize',
+          detail: release.detail ?? 'finalization failed',
+        });
+      }
+      throw error;
+    }
+    const coverage = evaluateGameStatsPartitionCoverage(context.expectation, committed, {
+      seasonRelation: 'current',
+    });
+    const freshFingerprint = computeCoverageFingerprint(coverage);
+    const stillEligible =
+      context.expectation.expectedIds.size > 0 && !isPartitionRecoverySatisfied(coverage);
+
+    if (!stillEligible) {
+      // The stale-plan race: another writer satisfied this partition (or the
+      // schedule made it ineligible) after planning. Zero provider calls;
+      // token-conditionally clear the claim; rotate onward.
+      staleClaims.push({ week, seasonType });
+      const release = await finalizeClaimVisible({
+        claim,
+        reason: 'satisfied',
+        now,
+        postCoverageFingerprint: freshFingerprint,
+      });
+      if (release.outcome === 'failed') {
+        recoveryFailures.push({
+          partition: claim.partitionKey,
+          operation: 'stale-claim-finalize',
+          detail: release.detail ?? 'finalization failed',
+        });
+      }
+      continue;
+    }
+
+    return {
+      // Progress judgement uses the FRESH pre-fetch fingerprint as the
+      // authoritative BEFORE state (the plan-time fingerprint is stale).
+      target: {
+        week,
+        seasonType,
+        claim: { ...claim, priorCoverageFingerprint: freshFingerprint },
+        expectation: context.expectation,
+        resolver: context.resolver,
+      },
+      staleClaims,
+      recoveryFailures,
+    };
+  }
+
+  return { target: null, staleClaims, recoveryFailures };
+}
+
 // === Scheduled (cron) flow ===
 
-export type ScheduledGameStatsRefreshResult =
+export type ScheduledGameStatsRefreshResult = (
   | {
       kind: 'skipped';
       reason: 'no-schedule' | 'all-satisfied' | 'all-ineligible';
@@ -202,7 +360,13 @@ export type ScheduledGameStatsRefreshResult =
       publication: GameStatsRefreshPublication;
       recovery: RecoveryFinalizationReport;
       fetchStartedAt: string;
-    };
+    }
+) & {
+  /** Claims released post-claim because AUTHORITATIVE state was already satisfied/ineligible. */
+  staleClaims?: Array<{ week: number; seasonType: CfbdSeasonType }>;
+  /** Recovery-METADATA persistence failures (stable code; evidence unchanged). */
+  recoveryFailures?: RecoveryMetadataFailure[];
+};
 
 /**
  * One scheduled recovery run: plan schedule-relative recovery over committed
@@ -247,8 +411,11 @@ export async function runScheduledGameStatsRefresh(params: {
     seasonRelation: 'current',
   });
 
+  const recoveryFailures: RecoveryMetadataFailure[] = [];
+
   // Retire stale dispositions from authoritative planner state (best-effort,
-  // conditional — an active claim is never touched).
+  // conditional — an active claim is never touched). Failures are surfaced on
+  // the result with a stable code, never logging-only.
   for (const slate of plan.satisfied) {
     if (!dispositions.has(`${year}:${slate.week}:${slate.seasonType}`)) continue;
     const isTerminalState =
@@ -262,96 +429,115 @@ export async function runScheduledGameStatsRefresh(params: {
         state: isTerminalState ? 'manual-action' : 'satisfied',
       });
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      recoveryFailures.push({
+        partition: `${year}:${slate.week}:${slate.seasonType}`,
+        operation: 'retire',
+        detail,
+      });
       console.error('game-stats recovery disposition retirement failed', {
         partition: `${year}:${slate.week}:${slate.seasonType}`,
-        detail: error instanceof Error ? error.message : String(error),
+        detail,
       });
     }
   }
+  const withFailures = <T extends ScheduledGameStatsRefreshResult>(result: T): T => ({
+    ...result,
+    ...(recoveryFailures.length > 0 ? { recoveryFailures } : {}),
+  });
 
   if (plan.candidates.length === 0) {
-    return plan.satisfied.length > 0
-      ? {
-          kind: 'skipped',
-          reason: 'all-satisfied',
-          detail: `all ${plan.satisfied.length} completed slate(s) already satisfied by committed durable evidence`,
-        }
-      : {
-          kind: 'skipped',
-          reason: 'no-schedule',
-          detail: 'no completed weeks found in cached schedule',
-        };
+    return withFailures(
+      plan.satisfied.length > 0
+        ? {
+            kind: 'skipped',
+            reason: 'all-satisfied',
+            detail: `all ${plan.satisfied.length} completed slate(s) already satisfied by committed durable evidence`,
+          }
+        : {
+            kind: 'skipped',
+            reason: 'no-schedule',
+            detail: 'no completed weeks found in cached schedule',
+          }
+    );
   }
 
-  // Atomic claim with rotation: try candidates newest-first; a candidate that
-  // a concurrent run claimed (or that entered backoff since planning) refuses
-  // and selection moves to the next eligible one.
-  let claimed: { slate: GameStatsRecoverySlate; claim: GameStatsRecoveryClaim } | null = null;
-  for (const slate of plan.candidates) {
-    if (!slate.eligible) continue;
-    if (!providerConfigured) {
-      // A resolved target with no credential: record the failure against the
-      // exact week partition (no claim — configuration is not partition state).
-      const scope = weekPartitionScope(year, slate.week, slate.seasonType);
-      const attempt = await beginProviderRefreshAttempt('game-stats', scope, {
-        startedAt: new Date(now).toISOString(),
-      });
-      await recordProviderRefreshFailure('game-stats', scope, {
-        attempt,
-        error: 'CFBD_API_KEY not configured',
-        code: 'cfbd-api-key-missing',
-        status: 500,
-      });
-      return { kind: 'config-failure', week: slate.week, seasonType: slate.seasonType };
-    }
-    const result = await claimGameStatsRecoveryPartition({
-      year,
-      week: slate.week,
-      seasonType: slate.seasonType,
-      now,
-      coverageFingerprint: computeCoverageFingerprint(slate.coverage),
-      scheduleFingerprint: computeScheduleExpectationFingerprint(slate.expectation),
+  const eligible = plan.candidates.filter((slate) => slate.eligible);
+  if (!providerConfigured && eligible.length > 0) {
+    // A resolved target with no credential: record the failure against the
+    // exact week partition (no claim — configuration is not partition state).
+    const first = eligible[0]!;
+    const scope = weekPartitionScope(year, first.week, first.seasonType);
+    const attempt = await beginProviderRefreshAttempt('game-stats', scope, {
+      startedAt: new Date(now).toISOString(),
     });
-    if (result.claimed) {
-      claimed = { slate, claim: result.claim };
-      break;
-    }
+    await recordProviderRefreshFailure('game-stats', scope, {
+      attempt,
+      error: 'CFBD_API_KEY not configured',
+      code: 'cfbd-api-key-missing',
+      status: 500,
+    });
+    return withFailures({ kind: 'config-failure', week: first.week, seasonType: first.seasonType });
   }
 
-  if (!claimed) {
-    return {
-      kind: 'skipped',
-      reason: 'all-ineligible',
-      detail: `all ${plan.candidates.length} recovery candidate(s) are claimed, backing off, or awaiting operator action`,
-    };
+  // Atomic claim + POST-CLAIM authoritative revalidation with rotation: a
+  // candidate another run claimed refuses; a candidate whose CURRENT durable
+  // coverage is already satisfied is released with zero provider calls and
+  // selection rotates onward. At most one fetch per run either way.
+  const selection = await claimAndRevalidateNextCandidate({
+    year,
+    now,
+    candidates: plan.candidates,
+  });
+  recoveryFailures.push(...selection.recoveryFailures);
+  const staleClaims = selection.staleClaims;
+  const withSelection = <T extends ScheduledGameStatsRefreshResult>(result: T): T => ({
+    ...withFailures(result),
+    ...(staleClaims.length > 0 ? { staleClaims } : {}),
+  });
+
+  if (!selection.target) {
+    return withSelection(
+      staleClaims.length > 0
+        ? {
+            kind: 'skipped',
+            reason: 'all-satisfied',
+            detail: `${staleClaims.length} claimed candidate(s) were already satisfied on authoritative reread; remaining candidates are claimed, backing off, or awaiting operator action`,
+          }
+        : {
+            kind: 'skipped',
+            reason: 'all-ineligible',
+            detail: `all ${plan.candidates.length} recovery candidate(s) are claimed, backing off, or awaiting operator action`,
+          }
+    );
   }
 
-  const { slate, claim } = claimed;
+  const target = selection.target;
   const execution = await executeClaimedRefresh({
-    claim,
-    expectation: slate.expectation,
-    resolver,
+    claim: target.claim,
+    expectation: target.expectation,
+    resolver: target.resolver,
     seasonRelation: 'current',
     fetchPayload,
-    contextLabel: `week ${slate.week} ${slate.seasonType}`,
+    contextLabel: `week ${target.week} ${target.seasonType}`,
   });
   if ('providerError' in execution) {
-    return {
+    return withSelection({
       kind: 'provider-failure',
-      week: slate.week,
-      seasonType: slate.seasonType,
+      week: target.week,
+      seasonType: target.seasonType,
       error: execution.providerError,
       recovery: execution.recovery,
-    };
+    });
   }
-  return {
+  return withSelection({
     kind: 'executed',
-    week: slate.week,
-    seasonType: slate.seasonType,
+    week: target.week,
+    seasonType: target.seasonType,
     publication: execution.publication,
     recovery: execution.recovery,
     fetchStartedAt: execution.fetchStartedAt,
-  };
+  });
 }
 
 // === Authorized manual flow ===

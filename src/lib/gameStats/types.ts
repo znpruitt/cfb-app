@@ -101,6 +101,15 @@ export type WeeklyGameStats = {
   week: number;
   seasonType: CfbdSeasonType;
   fetchedAt: string;
+  /**
+   * Durable partition commit revision (PLATFORM-086H3): allocated INSIDE the
+   * merge authority's advisory-locked transaction on every accepted write
+   * (`(prior ?? 0) + 1`), so it is monotonic per partition and globally
+   * comparable across processes, instances, and restarts — the refresh-status
+   * ordering authority. Absent on legacy partitions. Internal persistence
+   * metadata — never on the public wire (`publicProjection.ts`).
+   */
+  commitRevision?: number;
   games: GameStats[];
 };
 

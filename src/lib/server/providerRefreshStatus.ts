@@ -59,7 +59,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { getAppState, setAppState } from './appStateStore.ts';
+import { getAppState, setAppState, withAppStateKeyTransaction } from './appStateStore.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import {
   legacyUnscopedScope,
@@ -113,12 +113,22 @@ export type ProviderRefreshStatus = {
   /** Durable COMMIT time of the last successful refresh (ordering key). */
   lastSuccessAt: string | null;
   /**
-   * Per-process commit sequence of the last success — a tie-breaker for two
-   * commits sharing the same millisecond `lastSuccessAt` (rereview finding #6).
-   * Only meaningful WITHIN the process that wrote it; undefined for cross-process
-   * or pre-rereview records.
+   * Per-process commit sequence of the last success — a LEGACY tie-breaker for
+   * datasets that do not yet supply a durable revision. Only meaningful WITHIN
+   * the process that wrote it; undefined for cross-process or pre-rereview
+   * records. Game-stats ordering uses `lastSuccessRevision` instead.
    */
   lastSuccessSeq?: number;
+  /**
+   * DURABLE commit revision of the last success (PLATFORM-086H3): allocated
+   * transactionally with the evidence write, monotonic per scope, and
+   * globally comparable across processes, instances, and restarts. When an
+   * incoming success carries a revision, ordering uses IT exclusively — an
+   * older revision can never overwrite a newer one, an equal revision is an
+   * idempotent duplicate, and a stored record without a valid revision
+   * (legacy or malformed) yields to the first revision-carrying commit.
+   */
+  lastSuccessRevision?: number;
   lastError: ProviderRefreshError | null;
   source: string | null;
   rowsCommitted: number | null;
@@ -355,11 +365,16 @@ export type ProviderRefreshSuccess = {
   committedAt?: string;
   /**
    * Per-process monotonic commit sequence from `nextProviderCommitSeq()`, captured
-   * at commit time alongside `committedAt`. Breaks ties between two commits that
-   * share the same millisecond `committedAt` so the TRUE commit order wins over
-   * status-record order within a process (rereview finding #6).
+   * at commit time alongside `committedAt`. LEGACY tie-breaker for datasets
+   * without a durable revision; ignored when `commitRevision` is present.
    */
   commitSeq?: number;
+  /**
+   * DURABLE commit revision allocated transactionally with the evidence
+   * write (the game-stats merge authority's partition revision). When
+   * present, it is the SOLE ordering authority for last-success metadata.
+   */
+  commitRevision?: number;
   source?: string | null;
   rowsCommitted?: number | null;
   partialFailure?: boolean;
@@ -388,54 +403,102 @@ export async function recordProviderRefreshSuccess(
   const committedAt = result.committedAt ?? resolvedAt;
   const scopeKey = providerRefreshScopeKey(dataset, scope);
   if (isMisroutedAttempt(result.attempt, dataset, scopeKey, 'success')) return;
+  // PLATFORM-086H3: the success compare-and-write is ATOMIC in durable state —
+  // read, revision comparison, and write run inside ONE per-scope transaction
+  // (`withAppStateKeyTransaction`), so two publishers on different instances
+  // (or across restarts) cannot interleave a stale read between each other's
+  // writes. The in-process scope lock remains as cheap same-process
+  // serialization; it is no longer the correctness boundary. A transaction
+  // failure is best-effort logged like every status write — status must never
+  // break the provider path whose durable commit already resolved.
   await withScopeLock(scopeKey, async () => {
-    const prior = await readPriorStatus(dataset, scope);
-    if (!prior.readOk) {
-      logReadFailureSkip(dataset, scopeKey, 'success');
-      return;
-    }
-    const status = prior.status;
-    const priorSuccessMs = status.lastSuccessAt ? Date.parse(status.lastSuccessAt) : -Infinity;
-    const committedMs = Date.parse(committedAt);
-    // Order by DURABLE COMMIT time, not status-call time: only the newest commit
-    // advances last-success metadata (finding #3). When two commits share the same
-    // millisecond `committedAt`, break the tie by the per-process commit sequence
-    // so the TRUE commit order wins regardless of which attempt records status
-    // first (finding #6) — a strict `>` on the timestamp alone would otherwise
-    // reopen the ordering bug for same-ms commits. Cross-process ties (no shared
-    // seq) fall back to first-writer-wins, which is best-effort by design.
-    const seq = result.commitSeq;
-    const priorSeq = status.lastSuccessSeq;
-    const advancesSuccess =
-      committedMs > priorSuccessMs ||
-      (committedMs === priorSuccessMs &&
-        seq !== undefined &&
-        priorSeq !== undefined &&
-        seq > priorSeq);
+    try {
+      await withAppStateKeyTransaction(PROVIDER_REFRESH_STATUS_SCOPE, scopeKey, async (txn) => {
+        let stored: ProviderRefreshStatus | null;
+        try {
+          stored = (await txn.read<ProviderRefreshStatus>())?.value ?? null;
+        } catch {
+          logReadFailureSkip(dataset, scopeKey, 'success');
+          return;
+        }
+        const empty = emptyProviderRefreshStatus(dataset, scope);
+        const status: ProviderRefreshStatus =
+          stored && (typeof stored.scopeKey !== 'string' || stored.scopeKey === scopeKey)
+            ? { ...empty, ...stored, dataset, scope, scopeKey }
+            : empty;
 
-    const next: ProviderRefreshStatus = { ...status, dataset, scope, scopeKey };
-    if (advancesSuccess) {
-      next.lastSuccessAt = committedAt;
-      next.lastSuccessSeq = seq;
-      next.source = result.source ?? null;
-      next.rowsCommitted = result.rowsCommitted ?? null;
-      next.partialFailure = result.partialFailure ?? false;
-      next.failedPartitions =
-        result.failedPartitions && result.failedPartitions.length > 0
-          ? result.failedPartitions
-          : undefined;
-      next.durationMs = result.durationMs ?? null;
-      next.usage = result.usage;
+        // Ordering authority. A DURABLE revision (when supplied) is the sole
+        // comparator: newer wins; equal is an idempotent duplicate/retry;
+        // a stored record without a comparable revision (legacy row, malformed
+        // value, pre-revision status) yields to the first revision-carrying
+        // commit — malformed legacy status never defeats newer committed
+        // evidence. Datasets without revisions keep the legacy committedAt +
+        // per-process-seq ordering.
+        const incomingRevision =
+          typeof result.commitRevision === 'number' &&
+          Number.isSafeInteger(result.commitRevision) &&
+          result.commitRevision > 0
+            ? result.commitRevision
+            : null;
+        const storedRevision =
+          typeof status.lastSuccessRevision === 'number' &&
+          Number.isSafeInteger(status.lastSuccessRevision) &&
+          status.lastSuccessRevision > 0
+            ? status.lastSuccessRevision
+            : null;
+        let advancesSuccess: boolean;
+        if (incomingRevision !== null) {
+          advancesSuccess = storedRevision === null || incomingRevision > storedRevision;
+        } else {
+          const priorSuccessMs = status.lastSuccessAt
+            ? Date.parse(status.lastSuccessAt)
+            : -Infinity;
+          const committedMs = Date.parse(committedAt);
+          const seq = result.commitSeq;
+          const priorSeq = status.lastSuccessSeq;
+          advancesSuccess =
+            committedMs > priorSuccessMs ||
+            (committedMs === priorSuccessMs &&
+              seq !== undefined &&
+              priorSeq !== undefined &&
+              seq > priorSeq);
+        }
+
+        const next: ProviderRefreshStatus = { ...status, dataset, scope, scopeKey };
+        if (advancesSuccess) {
+          next.lastSuccessAt = committedAt;
+          next.lastSuccessSeq = result.commitSeq;
+          if (incomingRevision !== null) next.lastSuccessRevision = incomingRevision;
+          next.source = result.source ?? null;
+          next.rowsCommitted = result.rowsCommitted ?? null;
+          next.partialFailure = result.partialFailure ?? false;
+          next.failedPartitions =
+            result.failedPartitions && result.failedPartitions.length > 0
+              ? result.failedPartitions
+              : undefined;
+          next.durationMs = result.durationMs ?? null;
+          next.usage = result.usage;
+        }
+        if (isLatest(status, result.attempt)) {
+          // Attempt CHRONOLOGY is deliberately separate from committed-success
+          // ordering: this attempt owns the latest-attempt/outcome/error state
+          // even when an older commit did not advance last-success.
+          next.lastError = null;
+          next.lastAttemptAt = result.attempt?.startedAt ?? status.lastAttemptAt;
+          next.lastAttemptId = result.attempt?.attemptId ?? status.lastAttemptId;
+          next.latestAttemptOutcome = result.partialFailure ? 'partial' : 'succeeded';
+          next.latestAttemptResolvedAt = resolvedAt;
+        }
+        await txn.write(next);
+      });
+    } catch (error) {
+      console.error('providerRefreshStatus: failed to persist status transactionally', {
+        dataset,
+        scopeKey,
+        op: 'success',
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    if (isLatest(status, result.attempt)) {
-      // This attempt owns the latest-attempt/outcome/error state.
-      next.lastError = null;
-      next.lastAttemptAt = result.attempt?.startedAt ?? status.lastAttemptAt;
-      next.lastAttemptId = result.attempt?.attemptId ?? status.lastAttemptId;
-      next.latestAttemptOutcome = result.partialFailure ? 'partial' : 'succeeded';
-      next.latestAttemptResolvedAt = resolvedAt;
-    }
-    await writeStatusBestEffort(scopeKey, next);
   });
 }
 

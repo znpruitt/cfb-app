@@ -10,6 +10,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
+  setAppState,
 } from '../../server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
@@ -360,25 +361,181 @@ test('commit-order authority: an OLDER commit publishing LAST cannot overwrite n
   const older: Awaited<ReturnType<typeof ingest>> = syntheticMerged({
     outcome: 'written',
     inserted: [5001],
-    commit: { committedAt: '2026-10-15T11:00:00.000Z', commitSeq: 100 },
+    commit: { committedAt: '2026-10-15T11:00:00.000Z', commitRevision: 7 },
   });
   const newer: Awaited<ReturnType<typeof ingest>> = syntheticMerged({
     outcome: 'written',
     inserted: [5001],
-    commit: { committedAt: '2026-10-15T11:05:00.000Z', commitSeq: 101 },
+    commit: { committedAt: '2026-10-15T11:05:00.000Z', commitRevision: 8 },
   });
 
-  // B (newer commit) publishes FIRST.
+  // B (newer durable revision) publishes FIRST.
   const newerPublication = await finalize(newer);
   assert.equal(newerPublication.recorded, 'success');
   const afterNewer = await getProviderRefreshStatus('game-stats', SCOPE);
   assert.equal(afterNewer.lastSuccessAt, '2026-10-15T11:05:00.000Z');
-  assert.equal(afterNewer.lastSuccessSeq, 101);
+  assert.equal(afterNewer.lastSuccessRevision, 8);
 
-  // A (older commit) publishes LAST — a stalled finalizer resuming.
+  // A (older durable revision) publishes LAST — a stalled finalizer resuming.
   const stalePublication = await finalize(older);
   assert.equal(stalePublication.recorded, 'success', 'the stalled writer still resolves');
   const final = await getProviderRefreshStatus('game-stats', SCOPE);
   assert.equal(final.lastSuccessAt, '2026-10-15T11:05:00.000Z', 'newer commit owns last-success');
-  assert.equal(final.lastSuccessSeq, 101, 'commit sequence not rolled back');
+  assert.equal(final.lastSuccessRevision, 8, 'durable revision not rolled back');
+});
+
+test('durable revision rules: duplicates are idempotent and malformed legacy status yields', async () => {
+  await finalize(await ingest([GAME_A()])); // real committed baseline (revision 1)
+  const statusAfterReal = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(statusAfterReal.lastSuccessRevision, 1, 'merge-allocated revision propagated');
+
+  // Retry publication of the SAME commit (equal revision): idempotent no-advance.
+  const duplicate: Awaited<ReturnType<typeof ingest>> = syntheticMerged({
+    outcome: 'written',
+    inserted: [5001],
+    commit: { committedAt: '2026-10-15T12:30:00.000Z', commitRevision: 1 },
+  });
+  await finalize(duplicate);
+  const afterDuplicate = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(
+    afterDuplicate.lastSuccessAt,
+    statusAfterReal.lastSuccessAt,
+    'duplicate did not advance'
+  );
+
+  // A status row with a MALFORMED revision yields to revision-carrying evidence.
+  const scopeKey = afterDuplicate.scopeKey;
+  await setAppState('provider-refresh-status', scopeKey, {
+    ...afterDuplicate,
+    lastSuccessRevision: 'not-a-number',
+  });
+  const next: Awaited<ReturnType<typeof ingest>> = syntheticMerged({
+    outcome: 'written',
+    inserted: [5001],
+    commit: { committedAt: '2026-10-15T13:00:00.000Z', commitRevision: 2 },
+  });
+  await finalize(next);
+  const final = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(
+    final.lastSuccessRevision,
+    2,
+    'malformed legacy status never defeats newer evidence'
+  );
+  assert.equal(final.lastSuccessAt, '2026-10-15T13:00:00.000Z');
+});
+
+test('restart/multi-instance ordering: durable revisions order publishers with NO shared process state', async () => {
+  // Publisher 1 commits revision 1 through the real merge, then the process
+  // "restarts" (module counters reset). Publisher 2 commits revision 2. A
+  // stale publisher then re-publishes revision 1 after another reset. The
+  // durable revision — never process memory — decides throughout.
+  await finalize(await ingest([GAME_A()]));
+  __resetAppStateForTests(); // clears process-local counters; durable file survives? (reset clears failures only)
+
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const secondIngest = await ingest(
+    [wireGame({ id: 5001, home: { points: 28 } })],
+    slate([5001]),
+    later
+  );
+  assert.equal(secondIngest.kind, 'merged');
+  if (secondIngest.kind === 'merged') {
+    assert.equal(
+      secondIngest.merge.commit?.commitRevision,
+      2,
+      'revision continued from durable state'
+    );
+  }
+  await finalize(secondIngest);
+  __resetAppStateForTests();
+
+  const stale: Awaited<ReturnType<typeof ingest>> = syntheticMerged({
+    outcome: 'written',
+    inserted: [5001],
+    commit: { committedAt: '2026-10-15T14:00:00.000Z', commitRevision: 1 },
+  });
+  await finalize(stale);
+  const final = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(final.lastSuccessRevision, 2, 'ordering survives restarts without shared memory');
+});
+
+// === Mixed-payload degradation matrix (every bucket stays visible) ===
+
+test('degradation matrix: every provider-boundary bucket flips degraded while coverage stays complete', async () => {
+  // Slate expects ONLY game A (5001); B variants are extraneous degradation.
+  const expectation = slate([5001]);
+  const statlessB = {
+    id: 5002,
+    teams: [
+      { teamId: 303, team: 'Gamma Poly', conference: 'X', homeAway: 'home', points: 21, stats: [] },
+      {
+        teamId: 404,
+        team: 'Delta Agricultural',
+        conference: 'Y',
+        homeAway: 'away',
+        points: 14,
+        stats: [],
+      },
+    ],
+  };
+  const scenarios: Array<{
+    name: string;
+    extra: unknown;
+    bucket: (attempt: Awaited<ReturnType<typeof finalize>>['attempt']) => number;
+  }> = [
+    {
+      name: 'unscheduled id',
+      extra: wireGame({ id: 999_999 }),
+      bucket: (a) => a.attachment?.unscheduledId ?? 0,
+    },
+    {
+      name: 'unresolved participant',
+      extra: wireGame({ id: 5001, home: { school: 'TBD' } }),
+      bucket: (a) => a.attachment?.unresolvedParticipant ?? 0,
+    },
+    {
+      name: 'malformed row (parse failure)',
+      extra: { garbage: true },
+      bucket: (a) => a.parseFailures['unaddressable-game-id'] ?? 0,
+    },
+  ];
+  for (const scenario of scenarios) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    const publication = await finalize(
+      await ingest([GAME_A(), scenario.extra], expectation),
+      expectation
+    );
+    assert.equal(publication.coverage?.state, 'complete', scenario.name);
+    assert.equal(
+      publication.recorded,
+      'partial-success',
+      `${scenario.name}: degraded attempt recorded partial, availability NOT downgraded`
+    );
+    assert.equal(publication.attempt.degraded, true, scenario.name);
+    assert.ok(scenario.bucket(publication.attempt) > 0, `${scenario.name}: typed count visible`);
+  }
+
+  // Matched-but-non-persistable B (statless): skipped by the merge, counted.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  const twoGameSlate = slate([5001, 5002]);
+  const withStatless = await finalize(
+    await ingest([GAME_A(), statlessB], twoGameSlate),
+    twoGameSlate
+  );
+  assert.equal(withStatless.attempt.degraded, true, 'skipped non-persistable flips degraded');
+  assert.equal(withStatless.attempt.skippedNonPersistable, 1);
+
+  // Multiple buckets together.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  const multi = await finalize(
+    await ingest([GAME_A(), { garbage: true }, wireGame({ id: 999_999 })], expectation),
+    expectation
+  );
+  assert.equal(multi.attempt.degraded, true);
+  assert.equal(multi.attempt.parseFailures['unaddressable-game-id'], 1);
+  assert.equal(multi.attempt.attachment?.unscheduledId, 1);
+  assert.equal(multi.coverage?.state, 'complete');
 });

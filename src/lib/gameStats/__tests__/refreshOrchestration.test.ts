@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  claimAndRevalidateNextCandidate,
   runManualGameStatsRefresh,
   runScheduledGameStatsRefresh,
 } from '../refreshOrchestration.ts';
+import { loadGameStatsIdentityResolver } from '../identityContext.ts';
+import { ingestGameStatsObservations } from '../ingestion.ts';
+import { planGameStatsRecovery } from '../recovery.ts';
+import { loadSlateExpectationContext } from '../readAvailability.ts';
 import { getCachedGameStats } from '../cache.ts';
 import { readGameStatsRecoveryDisposition } from '../recoveryDisposition.ts';
 import {
@@ -173,7 +178,7 @@ test('commit stamps come from the merge authority at COMMIT, and successive comm
   assert.equal(first.kind, 'executed');
   const statusAfterFirst = await getProviderRefreshStatus('game-stats', scope);
   assert.ok(statusAfterFirst.lastSuccessAt, 'first commit published');
-  assert.ok(statusAfterFirst.lastSuccessSeq !== undefined, 'commit sequence propagated');
+  assert.equal(statusAfterFirst.lastSuccessRevision, 1, 'durable partition revision propagated');
 
   // Second, NEWER commit (later fence, changed content) advances last-success.
   const second = await runManualGameStatsRefresh({
@@ -186,7 +191,11 @@ test('commit stamps come from the merge authority at COMMIT, and successive comm
   });
   assert.equal(second.kind, 'executed');
   const statusAfterSecond = await getProviderRefreshStatus('game-stats', scope);
-  assert.ok(statusAfterSecond.lastSuccessSeq! > statusAfterFirst.lastSuccessSeq!);
+  assert.equal(
+    statusAfterSecond.lastSuccessRevision,
+    2,
+    'the second commit advanced the durable revision'
+  );
 });
 
 test('manual refresh participates in the bounded lifecycle: typed disposition + claim fencing', async () => {
@@ -325,4 +334,267 @@ test('mixed-payload degradation stays observable on a successful commit (partial
     weekPartitionScope(YEAR, WEEK, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'partial');
+});
+
+// === Post-claim authoritative revalidation (the stale-plan race) ===
+
+test('stale-plan race: a plan snapshot cannot trigger a fetch after another writer satisfies P', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  // A plans while P is ABSENT.
+  const resolver = await loadGameStatsIdentityResolver();
+  const stalePlan = planGameStatsRecovery({
+    year: YEAR,
+    scheduleItems: [
+      {
+        id: '5001',
+        week: WEEK,
+        seasonType: 'regular',
+        startDate: COMPLETED,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha State',
+        awayTeam: 'Beta Tech',
+      },
+    ],
+    resolver,
+    records: [],
+    now: NOW,
+    seasonRelation: 'current',
+  });
+  assert.equal(stalePlan.candidates.length, 1, 'the stale plan lists P as recoverable');
+
+  // B claims, fills, and finalizes P (manual override flow).
+  const fill = await runManualGameStatsRefresh({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    now: NOW,
+    providerConfigured: true,
+    fetchPayload: async () => [wireGame({ id: 5001 })],
+  });
+  assert.equal(fill.kind, 'executed');
+  assert.equal(await readGameStatsRecoveryDisposition(YEAR, WEEK, 'regular'), null, 'B cleared P');
+
+  // A later claims FROM ITS STALE PLAN: the post-claim authoritative reread
+  // sees P satisfied → zero provider calls, claim released (cleared), no
+  // durable change.
+  const before = await getCachedGameStats(YEAR, WEEK, 'regular');
+  const selection = await claimAndRevalidateNextCandidate({
+    year: YEAR,
+    now: NOW + 1000,
+    candidates: stalePlan.candidates,
+  });
+  assert.equal(selection.target, null, 'no fetchable target from the stale plan');
+  assert.deepEqual(selection.staleClaims, [{ week: WEEK, seasonType: 'regular' }]);
+  assert.deepEqual(selection.recoveryFailures, []);
+  assert.equal(
+    await readGameStatsRecoveryDisposition(YEAR, WEEK, 'regular'),
+    null,
+    'the stale claim was token-conditionally cleared'
+  );
+  assert.deepEqual(await getCachedGameStats(YEAR, WEEK, 'regular'), before, 'evidence untouched');
+});
+
+test('stale-plan rotation: stale P is released and older eligible Q is selected — one fetch total', async () => {
+  await seedSchedule([
+    { id: '5001', week: 3, startDate: COMPLETED },
+    { id: '2001', week: 2, startDate: new Date(NOW - 11 * 24 * 60 * 60 * 1000).toISOString() },
+  ]);
+  const resolver = await loadGameStatsIdentityResolver();
+  const scheduleItems = [
+    {
+      id: '5001',
+      week: 3,
+      seasonType: 'regular' as const,
+      startDate: COMPLETED,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha State',
+      awayTeam: 'Beta Tech',
+    },
+    {
+      id: '2001',
+      week: 2,
+      seasonType: 'regular' as const,
+      startDate: new Date(NOW - 11 * 24 * 60 * 60 * 1000).toISOString(),
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha State',
+      awayTeam: 'Beta Tech',
+    },
+  ];
+  const stalePlan = planGameStatsRecovery({
+    year: YEAR,
+    scheduleItems,
+    resolver,
+    records: [],
+    now: NOW,
+    seasonRelation: 'current',
+  });
+  assert.deepEqual(
+    stalePlan.candidates.map((c) => c.week),
+    [3, 2]
+  );
+
+  // Another writer satisfies P (week 3) after the plan.
+  const fill = await runManualGameStatsRefresh({
+    year: YEAR,
+    week: 3,
+    seasonType: 'regular',
+    now: NOW,
+    providerConfigured: true,
+    fetchPayload: async () => [wireGame({ id: 5001 })],
+  });
+  assert.equal(fill.kind, 'executed');
+
+  // Selection from the stale plan: P is claimed, revalidated, released;
+  // rotation lands on Q (week 2) WITHOUT any provider call spent so far.
+  const selection = await claimAndRevalidateNextCandidate({
+    year: YEAR,
+    now: NOW + 1000,
+    candidates: stalePlan.candidates,
+  });
+  assert.ok(selection.target, 'the older eligible candidate is selected');
+  assert.equal(selection.target!.week, 2, 'rotation reached Q');
+  assert.deepEqual(selection.staleClaims, [{ week: 3, seasonType: 'regular' }]);
+  assert.equal(
+    await getCachedGameStats(YEAR, 2, 'regular'),
+    null,
+    'no fetch happened during selection'
+  );
+});
+
+test('post-claim revalidation preserves token fencing: the released claim cannot be double-finalized', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  const resolver = await loadGameStatsIdentityResolver();
+  const context = await loadSlateExpectationContext({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    now: NOW,
+  });
+  assert.ok(context.ok);
+  void resolver;
+
+  // Satisfy P first, leaving a STALE disposition so the planner still lists it.
+  const ingestion = await ingestGameStatsObservations({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    fetchStartedAt: new Date(NOW - 1000).toISOString(),
+    payload: [wireGame({ id: 5001 })],
+    expectation: context.ok ? context.expectation : (null as never),
+    resolver: context.ok ? context.resolver : (null as never),
+  });
+  assert.equal(ingestion.kind, 'merged');
+
+  const stalePlanCandidates = [
+    {
+      week: WEEK,
+      seasonType: 'regular' as const,
+      latestCompletedKickoff: 0,
+      expectation: context.ok ? context.expectation : (null as never),
+      coverage: {
+        state: 'absent' as const,
+        expected: [5001],
+        satisfied: [],
+        recoverable: [],
+        manualOnly: [],
+        blocked: [],
+        absent: [5001],
+        unmatchedStored: [],
+        deferredPlaceholders: 0,
+        excludedByClassification: 0,
+        pending: [],
+      },
+      eligible: true,
+      disposition: null,
+    },
+  ];
+  const selection = await claimAndRevalidateNextCandidate({
+    year: YEAR,
+    now: NOW,
+    candidates: stalePlanCandidates,
+  });
+  assert.equal(selection.target, null);
+  assert.deepEqual(selection.staleClaims, [{ week: WEEK, seasonType: 'regular' }]);
+  // The claim is gone (cleared) — a duplicate finalization of the released
+  // token would be stale (fenced), proven by the disposition state.
+  assert.equal(await readGameStatsRecoveryDisposition(YEAR, WEEK, 'regular'), null);
+});
+
+// === Recovery-metadata failure visibility (failure injection) ===
+
+test('failure injection: manual provider failure + disposition-finalization failure keep BOTH causes', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  let fetches = 0;
+  const result = await runManualGameStatsRefresh({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    now: NOW,
+    providerConfigured: true,
+    fetchPayload: async () => {
+      fetches += 1;
+      // Break ONLY the recovery-metadata scope AFTER the claim was persisted —
+      // the finalization that follows the provider failure will fail too.
+      __setAppStateWriteFailureForTests(new Error('disposition store down'), 'game-stats-recovery');
+      throw new Error('provider connection refused');
+    },
+  });
+  __setAppStateWriteFailureForTests(null);
+  assert.equal(fetches, 1);
+  assert.equal(result.kind, 'provider-failure');
+  if (result.kind === 'provider-failure') {
+    assert.match(String(result.error), /provider connection refused/, 'primary cause preserved');
+    assert.equal(result.recovery.outcome, 'failed', 'secondary cause preserved');
+    assert.match(result.recovery.detail ?? '', /disposition store down/);
+  }
+  assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no evidence mutation');
+});
+
+test('failure injection: scheduled retirement failure is surfaced on the result, not just logged', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  // Satisfied partition with a lingering disposition → planner retires it.
+  const fill = await runManualGameStatsRefresh({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    now: NOW,
+    providerConfigured: true,
+    fetchPayload: async () => [wireGame({ id: 5001 })],
+  });
+  assert.equal(fill.kind, 'executed');
+  // Recreate a lingering disposition manually (claim without finalize, lease expired).
+  const lingering = await runManualGameStatsRefresh({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    now: NOW + 1000,
+    providerConfigured: true,
+    fetchPayload: async () => {
+      throw new Error('leave a disposition behind');
+    },
+  });
+  assert.equal(lingering.kind, 'provider-failure');
+  assert.ok(await readGameStatsRecoveryDisposition(YEAR, WEEK, 'regular'), 'disposition lingers');
+
+  __setAppStateWriteFailureForTests(new Error('retirement store down'), 'game-stats-recovery');
+  let scheduled;
+  try {
+    scheduled = await runScheduledGameStatsRefresh({
+      year: YEAR,
+      now: NOW + 2000,
+      providerConfigured: true,
+      fetchPayload: async () => {
+        throw new Error('satisfied partitions must not be fetched');
+      },
+    });
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(scheduled.kind, 'skipped');
+  assert.ok(
+    scheduled.recoveryFailures && scheduled.recoveryFailures.length > 0,
+    'failure surfaced'
+  );
+  assert.equal(scheduled.recoveryFailures![0]!.operation, 'retire');
+  assert.match(scheduled.recoveryFailures![0]!.detail, /retirement store down/);
 });

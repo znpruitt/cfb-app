@@ -10,7 +10,16 @@ import {
   __resetAppStateForTests,
 } from '../../server/appStateStore.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
-import { completeLegacyRow, wireGame } from './fixtures.ts';
+import {
+  blankSchoolLegacyRow,
+  completeLegacyRow,
+  legacyRowFromWire,
+  malformedRequiredLegacyRow,
+  normalizedMismatchLegacyRow,
+  statlessLegacyRow,
+  v2RowLike,
+  wireGame,
+} from './fixtures.ts';
 
 // PLATFORM-086H3 — schema-safe public projection: legacy rows byte-equivalent
 // by reference, v2 metadata stripped, unsupported schema WITHHELD (never
@@ -30,7 +39,13 @@ test('legacy rows pass through by reference — public output stays byte-equival
   const row = completeLegacyRow(101);
   const view = buildPublicWeeklyGameStats(record([row, completeLegacyRow(102)]));
   assert.equal(view.record.games[0], row, 'same reference, not a reshaped copy');
-  assert.deepEqual(view.withheld, { unsupportedSchema: 0, malformed: 0 });
+  assert.deepEqual(view.withheld, {
+    unsupportedSchema: 0,
+    malformed: 0,
+    defective: 0,
+    partitionMismatch: 0,
+    conflictingDuplicates: 0,
+  });
   const source = record([completeLegacyRow(101), completeLegacyRow(102)]);
   assert.equal(
     JSON.stringify(buildPublicWeeklyGameStats(source).record),
@@ -128,5 +143,87 @@ test('a valid envelope with no publishable rows serves an empty games array with
     record([{ ...completeLegacyRow(103), schemaVersion: 3 } as unknown as GameStats])
   );
   assert.deepEqual(view.record.games, []);
-  assert.deepEqual(view.withheld, { unsupportedSchema: 1, malformed: 0 });
+  assert.deepEqual(view.withheld, {
+    unsupportedSchema: 1,
+    malformed: 0,
+    defective: 0,
+    partitionMismatch: 0,
+    conflictingDuplicates: 0,
+  });
+});
+
+// === Explicit H1 public allowlist matrix (RC 19/25) ===
+
+test('allowlist: defective legacy states and non-persistable v2 rows are withheld as defective', () => {
+  const view = buildPublicWeeklyGameStats(
+    record([
+      completeLegacyRow(101), // legacy-compatible → published
+      statlessLegacyRow(102), // legacy-statless → withheld
+      malformedRequiredLegacyRow(103), // legacy-malformed → withheld
+      normalizedMismatchLegacyRow(104), // legacy-normalized-mismatch → withheld
+      blankSchoolLegacyRow(105), // unusable-identity → withheld
+      v2RowLike({ id: 106, homeRaw: {}, awayRaw: {} }) as unknown as GameStats, // non-persistable-empty → withheld
+    ])
+  );
+  assert.deepEqual(
+    view.record.games.map((g) => g.providerGameId),
+    [101],
+    'only allowlisted states reach the wire'
+  );
+  assert.equal(view.withheld.defective, 5);
+});
+
+test('allowlist: a v2-sparse row (authority-written partial evidence) is published', () => {
+  const sparse = v2RowLike({
+    id: 107,
+    homeOverrides: { pointsProvided: false, points: 0 },
+  }) as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(record([sparse]));
+  assert.deepEqual(
+    view.record.games.map((g) => g.providerGameId),
+    [107]
+  );
+  assert.ok(!('schemaVersion' in view.record.games[0]!));
+});
+
+test('projection safety: a malformed v2 row without home/away cannot throw', () => {
+  const noSides = { schemaVersion: 2, providerGameId: 108, week: 5, seasonType: 'regular' };
+  const view = buildPublicWeeklyGameStats(record([noSides as unknown as GameStats]));
+  assert.deepEqual(view.record.games, []);
+  assert.equal(view.withheld.defective, 1, 'missing-side v2 is unusable-identity → defective');
+});
+
+test('duplicates: equivalent eligible copies collapse; conflicting copies are ALL withheld', () => {
+  const a = completeLegacyRow(109);
+  const identical = completeLegacyRow(109);
+  const conflictA = completeLegacyRow(110);
+  const conflictB = legacyRowFromWire(wireGame({ id: 110, home: { points: 99 } }));
+  const view = buildPublicWeeklyGameStats(record([a, identical, conflictA, conflictB]));
+  assert.deepEqual(
+    view.record.games.map((g) => g.providerGameId),
+    [109],
+    'one copy of the identical pair; NO copy of the conflicting pair'
+  );
+  assert.equal(view.withheld.conflictingDuplicates, 2);
+});
+
+test('partition identity: rows claiming a different week or season type are withheld', () => {
+  const wrongWeek = { ...completeLegacyRow(111), week: 9 };
+  const wrongSeason = { ...completeLegacyRow(112), seasonType: 'postseason' as const };
+  const view = buildPublicWeeklyGameStats(
+    record([completeLegacyRow(113), wrongWeek, wrongSeason]),
+    { week: 5, seasonType: 'regular' }
+  );
+  assert.deepEqual(
+    view.record.games.map((g) => g.providerGameId),
+    [113]
+  );
+  assert.equal(view.withheld.partitionMismatch, 2);
+});
+
+test('envelope metadata: commitRevision never reaches the public wire', () => {
+  const stored = { ...record([completeLegacyRow(114)]), commitRevision: 7 };
+  const view = buildPublicWeeklyGameStats(stored);
+  assert.ok(!('commitRevision' in view.record));
+  assert.ok(!JSON.stringify(view.record).includes('commitRevision'));
 });

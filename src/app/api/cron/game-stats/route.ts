@@ -3,10 +3,15 @@ import { NextResponse } from 'next/server';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import {
+  GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
   runScheduledGameStatsRefresh,
+  type RecoveryMetadataFailure,
   type ScheduledGameStatsRefreshResult,
 } from '@/lib/gameStats/refreshOrchestration';
-import type { GameStatsRefreshPublication } from '@/lib/gameStats/refreshPublication';
+import type {
+  GameStatsAttemptDiagnostics,
+  GameStatsRefreshPublication,
+} from '@/lib/gameStats/refreshPublication';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 
 export const dynamic = 'force-dynamic';
@@ -52,6 +57,18 @@ type CronResult = {
   detail?: string;
   coverage?: CronCoverageSummary;
   recovery?: string;
+  /** Post-claim revalidation released these claims with zero provider calls. */
+  staleClaims?: Array<{ week: number; seasonType: CfbdSeasonType }>;
+  /**
+   * Recovery-METADATA persistence failures (stable code
+   * `game-stats-recovery-metadata-failure`): the provider request for these
+   * partitions was skipped or already resolved, recovery bookkeeping could
+   * not be finalized/retired, and game-stat evidence was NOT changed.
+   */
+  recoveryFailures?: RecoveryMetadataFailure[];
+  recoveryFailureCode?: string;
+  /** Typed provider-attempt degradation counts (parse/attachment buckets). */
+  attempt?: GameStatsAttemptDiagnostics;
 };
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
@@ -147,9 +164,21 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     );
   }
 
+  const recoveryMeta = {
+    ...(result.staleClaims && result.staleClaims.length > 0
+      ? { staleClaims: result.staleClaims }
+      : {}),
+    ...(result.recoveryFailures && result.recoveryFailures.length > 0
+      ? {
+          recoveryFailures: result.recoveryFailures,
+          recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+        }
+      : {}),
+  };
+
   switch (result.kind) {
     case 'skipped':
-      return NextResponse.json({ ...emptyResult, skipped: result.detail });
+      return NextResponse.json({ ...emptyResult, skipped: result.detail, ...recoveryMeta });
     case 'config-failure':
       return NextResponse.json(
         {
@@ -157,10 +186,14 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           week: result.week,
           seasonType: result.seasonType,
           error: 'CFBD_API_KEY not configured',
+          ...recoveryMeta,
         },
         { status: 500 }
       );
     case 'provider-failure':
+      // BOTH causes retained: the provider failure is the primary error; a
+      // disposition-finalization failure is surfaced separately with its
+      // stable code — neither replaces the other.
       return NextResponse.json(
         {
           ...emptyResult,
@@ -168,8 +201,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           seasonType: result.seasonType,
           error: result.error instanceof Error ? result.error.message : 'unknown error',
           ...(result.recovery.outcome === 'failed'
-            ? { recovery: `disposition finalization failed: ${result.recovery.detail}` }
+            ? {
+                recovery: `disposition finalization failed: ${result.recovery.detail}`,
+                recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+              }
             : {}),
+          ...recoveryMeta,
         },
         { status: 500 }
       );
@@ -179,6 +216,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
 
   const { publication } = result;
   const coverage = coverageSummary(publication);
+  const attempt = publication.attempt;
   const recovery =
     result.recovery.outcome === 'failed'
       ? `disposition finalization failed: ${result.recovery.detail}`
@@ -193,7 +231,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         error: publication.code,
         detail: publication.detail,
         coverage,
-        ...(recovery ? { recovery } : {}),
+        attempt,
+        ...(recovery
+          ? { recovery, recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE }
+          : {}),
+        ...recoveryMeta,
       },
       { status: publication.httpStatus }
     );
@@ -207,7 +249,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       fetchedAt: null,
       skipped: `week ${result.week} ${result.seasonType}: ${publication.detail}`,
       coverage,
-      ...(recovery ? { recovery } : {}),
+      attempt,
+      ...(recovery
+        ? { recovery, recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE }
+        : {}),
+      ...recoveryMeta,
     });
   }
   return NextResponse.json({
@@ -218,6 +264,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     fetchedAt: result.fetchStartedAt,
     ...(publication.recorded === 'partial-success' ? { detail: publication.detail } : {}),
     coverage,
-    ...(recovery ? { recovery } : {}),
+    attempt,
+    ...(recovery
+      ? { recovery, recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE }
+      : {}),
+    ...recoveryMeta,
   });
 }
