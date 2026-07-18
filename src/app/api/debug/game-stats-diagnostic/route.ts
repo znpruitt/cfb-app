@@ -7,9 +7,9 @@ import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import { createTeamIdentityResolver, type TeamIdentityResolver } from '@/lib/teamIdentity';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { listCachedGameStatsWeeks, getCachedGameStats } from '@/lib/gameStats/cache';
+import { selectAnalyticsRows, type AnalyticsTeamStats } from '@/lib/gameStats/contract';
 import { getSeasonArchive } from '@/lib/seasonArchive';
 import type { CfbdSeasonType } from '@/lib/cfbd';
-import type { TeamGameStats } from '@/lib/gameStats/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,13 +45,13 @@ function emptyAccumulator(): OwnerAccumulator {
 }
 
 function resolveOwner(
-  team: TeamGameStats,
+  school: string,
   rosterByTeam: Map<string, string>,
   resolver: TeamIdentityResolver
 ): string | null {
-  const resolved = resolver.resolveName(team.school);
+  const resolved = resolver.resolveName(school);
   const identityKey = resolved.identityKey;
-  const canonicalName = resolved.canonicalName ?? team.school;
+  const canonicalName = resolved.canonicalName ?? school;
   if (identityKey) {
     const owner = rosterByTeam.get(identityKey);
     if (owner) return owner;
@@ -59,10 +59,13 @@ function resolveOwner(
   return rosterByTeam.get(canonicalName) ?? null;
 }
 
+// PLATFORM-086H3: this diagnostic aggregates through the canonical analytics
+// projection (`selectAnalyticsRows`), not by re-interpreting stored normalized
+// fields — the same view production owner analytics consumes.
 function addTeamToAccumulator(
   acc: OwnerAccumulator,
-  team: TeamGameStats,
-  opponent: TeamGameStats
+  team: AnalyticsTeamStats,
+  opponent: AnalyticsTeamStats
 ): void {
   acc.gamesPlayed += 1;
   acc.points += team.points;
@@ -201,15 +204,16 @@ export async function GET(req: Request): Promise<Response> {
         weeksLoaded++;
         totalGames += stats.games.length;
 
-        for (const game of stats.games) {
-          const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
+        const { selected } = selectAnalyticsRows(stats.games);
+        for (const game of selected) {
+          const sides: Array<{ team: AnalyticsTeamStats; opponent: AnalyticsTeamStats }> = [
             { team: game.home, opponent: game.away },
             { team: game.away, opponent: game.home },
           ];
 
           for (const { team, opponent } of sides) {
             debugGameTeamNames.add(team.school);
-            const owner = resolveOwner(team, rosterByTeam, resolver);
+            const owner = resolveOwner(team.school, rosterByTeam, resolver);
             if (!owner) {
               debugUnresolved.add(team.school);
               continue;

@@ -9,6 +9,7 @@ import {
 import { __resetOddsUsageStoreForTests, setLatestKnownOddsUsage } from '../oddsUsageStore.ts';
 import { getProviderDataDiagnostics } from '../providerDataDiagnostics.ts';
 import { createOddsCacheKey, defaultOddsCacheKey } from '../../../app/api/odds/routeInternals.ts';
+import { legacyRowFromWire, wireGame } from '../../gameStats/__tests__/fixtures.ts';
 
 const YEAR = 2026;
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
@@ -80,14 +81,11 @@ function seedScores(status: string, home: number | null, away: number | null, we
   });
 }
 
+// PLATFORM-086H3: coverage derives from the typed contract, so a "covered"
+// game needs an analytics-ELIGIBLE durable row (built through the legacy
+// writer fixture) — a bare identity shell is recoverable, not coverage.
 function gameStatsRow(providerGameId: number) {
-  return {
-    providerGameId,
-    week: 1,
-    seasonType: 'regular' as const,
-    home: { school: 'Alpha' },
-    away: { school: 'Beta' },
-  };
+  return legacyRowFromWire(wireGame({ id: providerGameId }), 1);
 }
 
 test.beforeEach(async () => {
@@ -313,7 +311,9 @@ test('a record whose every row was dropped (no provider id) does NOT satisfy cov
     week: 1,
     seasonType: 'regular',
     fetchedAt: new Date(NOW).toISOString(),
-    games: [gameStatsRow(0)], // providerGameId 0 → unusable
+    // providerGameId 0 → unaddressable/unusable (hand-rolled: the legacy
+    // writer fixture cannot produce an id-less row by construction).
+    games: [{ ...gameStatsRow(101), providerGameId: 0 }],
   });
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.ok(
@@ -510,7 +510,7 @@ test('split slate once the whole slate is old DOES warn on missing data', async 
     failedSeasonTypes: [],
     items: [
       {
-        id: 'thu',
+        id: '7001',
         week: 7,
         seasonType: 'regular',
         startDate: THURSDAY_KICKOFF,
@@ -519,7 +519,7 @@ test('split slate once the whole slate is old DOES warn on missing data', async 
         awayTeam: 'Beta',
       },
       {
-        id: 'sat',
+        id: '7002',
         week: 7,
         seasonType: 'regular',
         startDate: SATURDAY_STILL_LIVE,
@@ -540,7 +540,7 @@ test('split slate once the whole slate is old DOES warn on missing data', async 
 test('postseason completed slate with no game stats is flagged', async () => {
   await seedScheduleItems([
     {
-      id: 'bowl',
+      id: '9001',
       week: 1,
       seasonType: 'postseason',
       startDate: COMPLETED_KICKOFF,

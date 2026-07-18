@@ -19,13 +19,13 @@ import type { CfbdSeasonType } from '../cfbd.ts';
  *     legacy normalizer backfills zeroes for absent/malformed values, so a
  *     normalized `0` cannot be distinguished from an observed `0` without
  *     consulting the raw category map.
- *   - The lenient legacy normalizer (`normalizers.ts`) remains the unchanged
- *     production write path while v2 writers stay dormant; it is deliberately
- *     NOT rewritten here because strict parsing would alter written output for
- *     observed wire quirks (e.g. `fourthDownEff: "2-1"`). The strict system in
- *     this module is the single parser for classification, projection, v2
- *     construction, and future merge rebuilding — no second strict parser may
- *     be introduced elsewhere.
+ *   - Since PLATFORM-086H3 the strict system in this module is the ONLY
+ *     production parser: classification, projection, v2 construction, and
+ *     merge rebuilding all flow through it, and every production writer emits
+ *     v2 rows via the durable merge authority. The lenient legacy normalizer
+ *     (`normalizers.ts`) no longer has a production writer — it survives only
+ *     for test fixtures that must reproduce byte-exact legacy rows. No second
+ *     strict parser may be introduced elsewhere.
  *
  * The legacy-compatibility bounds in this module were validated against the
  * complete 2021–2025 durable inventory (PLATFORM-086H1-LEGACY-DURABLE-DATA-
@@ -487,7 +487,7 @@ export function isAnalyticsEligible(row: unknown): boolean {
   return state === 'v2-complete' || state === 'legacy-compatible';
 }
 
-// === Incoming v2 observation parsing (dormant until PR 2/3) ===
+// === Incoming v2 observation parsing (ACTIVE via `ingestion.ts`) ===
 
 export type ParsedV2TeamObservation = {
   school: string;
@@ -673,9 +673,9 @@ function buildTeamStatsFromEvidence(team: ParsedV2TeamObservation): TeamGameStat
 /**
  * Pure v2 row constructor: builds a `schemaVersion: 2` game row from a
  * trustworthy parsed observation through the single strict normalization path.
- * NO production writer is connected to this in PLATFORM-086H1 — cron and manual
- * refresh continue to write legacy rows via `normalizers.ts` until PR 2/3
- * deliberately migrate them. Reads never stamp or rewrite legacy rows.
+ * Since PLATFORM-086H3 this is the ONLY production row constructor — the
+ * durable merge authority builds every inserted/updated row through it. Reads
+ * never stamp or rewrite legacy rows.
  */
 export function buildV2GameStats(
   observation: ParsedV2Observation,
@@ -692,7 +692,7 @@ export function buildV2GameStats(
   };
 }
 
-// === Season-aware recovery policy (pure; not wired to cron in this PR) ===
+// === Season-aware recovery policy (ACTIVE via `partitionCoverage.ts`) ===
 
 export type SeasonRelation = 'current' | 'historical';
 

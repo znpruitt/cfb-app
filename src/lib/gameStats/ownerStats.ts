@@ -1,6 +1,29 @@
 import type { OwnerSeasonStats } from '../insights/types.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
-import type { GameStats, OwnerWeekStats, TeamGameStats } from './types.ts';
+import {
+  selectAnalyticsRows,
+  type AnalyticsGameStats,
+  type AnalyticsTeamStats,
+} from './contract.ts';
+import type { GameStats, OwnerWeekStats } from './types.ts';
+
+/**
+ * PLATFORM-086H3 — owner analytics through the canonical projection (ACTIVE).
+ *
+ * Owner aggregation consumes the PLATFORM-086H1 analytics projection
+ * (`selectAnalyticsRows` → `toAnalyticsGameStats`) EXCLUSIVELY: eligible rows
+ * (strict v2-complete or bounded legacy-compatible) project to strictly
+ * re-parsed raw evidence plus valid points, duplicates resolve
+ * deterministically, and ineligible/malformed/sparse rows are excluded rather
+ * than aggregated as fabricated zeroes. No consumer-side category
+ * interpretation and no consumer-specific identity matching exist here: team
+ * resolution stays on the injected `teamIdentity` resolver, and persistence
+ * metadata never appears in the projection.
+ *
+ * For the production legacy inventory this is output-equivalent to the
+ * pre-activation normalized-field aggregation (validated across 2021–2025:
+ * exact owner-analytics parity for every stored row).
+ */
 
 type OwnerAccumulator = {
   owner: string;
@@ -34,7 +57,11 @@ function emptyAccumulator(owner: string): OwnerAccumulator {
   };
 }
 
-function addTeamStats(acc: OwnerAccumulator, team: TeamGameStats, opponent: TeamGameStats): void {
+function addTeamStats(
+  acc: OwnerAccumulator,
+  team: AnalyticsTeamStats,
+  opponent: AnalyticsTeamStats
+): void {
   acc.gamesPlayed += 1;
   acc.points += team.points;
   acc.pointsAgainst += opponent.points;
@@ -46,6 +73,45 @@ function addTeamStats(acc: OwnerAccumulator, team: TeamGameStats, opponent: Team
   acc.thirdDownConversions += team.thirdDownConversions;
   acc.thirdDownAttempts += team.thirdDownAttempts;
   acc.possessionSeconds += team.possessionSeconds;
+}
+
+function resolveOwner(
+  school: string,
+  ownerRoster: Map<string, string>,
+  resolver: TeamIdentityResolver
+): string | undefined {
+  const resolved = resolver.resolveName(school);
+  const canonicalName = resolved.canonicalName ?? school;
+  const identityKey = resolved.identityKey;
+  // Look up owner by identity key first, then canonical name
+  if (identityKey) {
+    const owner = ownerRoster.get(identityKey);
+    if (owner) return owner;
+  }
+  return ownerRoster.get(canonicalName);
+}
+
+function accumulateProjectedGames(
+  accumulators: Map<string, OwnerAccumulator>,
+  projected: readonly AnalyticsGameStats[],
+  ownerRoster: Map<string, string>,
+  resolver: TeamIdentityResolver
+): void {
+  for (const game of projected) {
+    const sides: Array<{ team: AnalyticsTeamStats; opponent: AnalyticsTeamStats }> = [
+      { team: game.home, opponent: game.away },
+      { team: game.away, opponent: game.home },
+    ];
+
+    for (const { team, opponent } of sides) {
+      const owner = resolveOwner(team.school, ownerRoster, resolver);
+      if (!owner) continue;
+
+      const acc = accumulators.get(owner) ?? emptyAccumulator(owner);
+      addTeamStats(acc, team, opponent);
+      accumulators.set(owner, acc);
+    }
+  }
 }
 
 function toOwnerWeekStats(acc: OwnerAccumulator): OwnerWeekStats {
@@ -66,7 +132,7 @@ function toOwnerWeekStats(acc: OwnerAccumulator): OwnerWeekStats {
 /**
  * Aggregate game stats across all teams owned by each owner.
  *
- * @param games - Normalized game stats for a week (or set of weeks)
+ * @param games - Stored game-stats rows for a week (or set of weeks)
  * @param ownerRoster - Map of canonical team name → owner name
  * @param resolver - Team identity resolver for matching CFBD school names to roster names
  */
@@ -76,41 +142,19 @@ export function aggregateOwnerGameStats(
   resolver: TeamIdentityResolver
 ): OwnerWeekStats[] {
   const accumulators = new Map<string, OwnerAccumulator>();
-
-  for (const game of games) {
-    const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
-      { team: game.home, opponent: game.away },
-      { team: game.away, opponent: game.home },
-    ];
-
-    for (const { team, opponent } of sides) {
-      const resolved = resolver.resolveName(team.school);
-      const canonicalName = resolved.canonicalName ?? team.school;
-      const identityKey = resolved.identityKey;
-
-      // Look up owner by identity key first, then canonical name
-      let owner: string | undefined;
-      if (identityKey) {
-        owner = ownerRoster.get(identityKey);
-      }
-      if (!owner) {
-        owner = ownerRoster.get(canonicalName);
-      }
-      if (!owner) continue;
-
-      const acc = accumulators.get(owner) ?? emptyAccumulator(owner);
-      addTeamStats(acc, team, opponent);
-      accumulators.set(owner, acc);
-    }
-  }
-
+  accumulateProjectedGames(
+    accumulators,
+    selectAnalyticsRows(games).selected,
+    ownerRoster,
+    resolver
+  );
   return Array.from(accumulators.values()).map(toOwnerWeekStats);
 }
 
 /**
  * Aggregate game stats across all weeks into per-owner season totals.
  *
- * @param weeklyGames - Array of per-week game stat arrays
+ * @param weeklyGames - Array of per-week stored game-stats row arrays
  * @param ownerRoster - Map of canonical team name → owner name
  * @param resolver - Team identity resolver for matching CFBD school names to roster names
  * @param season - Season year to stamp on each result
@@ -122,34 +166,10 @@ export function aggregateOwnerSeasonStats(
   season: number
 ): OwnerSeasonStats[] {
   const accumulators = new Map<string, OwnerAccumulator>();
-
-  for (const games of weeklyGames) {
-    for (const game of games) {
-      const sides: Array<{ team: TeamGameStats; opponent: TeamGameStats }> = [
-        { team: game.home, opponent: game.away },
-        { team: game.away, opponent: game.home },
-      ];
-
-      for (const { team, opponent } of sides) {
-        const resolved = resolver.resolveName(team.school);
-        const canonicalName = resolved.canonicalName ?? team.school;
-        const identityKey = resolved.identityKey;
-
-        let owner: string | undefined;
-        if (identityKey) {
-          owner = ownerRoster.get(identityKey);
-        }
-        if (!owner) {
-          owner = ownerRoster.get(canonicalName);
-        }
-        if (!owner) continue;
-
-        const acc = accumulators.get(owner) ?? emptyAccumulator(owner);
-        addTeamStats(acc, team, opponent);
-        accumulators.set(owner, acc);
-      }
-    }
-  }
+  // One selection over the whole aggregation scope so duplicate provider game
+  // ids across weeks resolve through the same deterministic policy.
+  const { selected } = selectAnalyticsRows(weeklyGames.flat());
+  accumulateProjectedGames(accumulators, selected, ownerRoster, resolver);
 
   return Array.from(accumulators.values()).map((acc) => ({
     owner: acc.owner,

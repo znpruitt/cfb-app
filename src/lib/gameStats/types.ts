@@ -72,18 +72,21 @@ export type GameStats = {
    * Per-game-row schema version (PLATFORM-086H1). Absent → legacy row; exactly
    * `2` → strict-contract row. Interpretation of malformed/future values lives
    * in `contract.ts` (`classifyGameStatsRow`). Reads never stamp legacy rows;
-   * no production writer emits v2 rows yet (dormant until PR 2/3).
+   * since PLATFORM-086H3 every production writer emits v2 rows through the
+   * durable merge authority. Internal persistence metadata — never on the
+   * public wire (`publicProjection.ts`).
    */
   schemaVersion?: 2;
   /**
    * Per-game observation fence (PLATFORM-086H2): when the provider fetch of
    * this row's newest ACCEPTED observation started (canonical UTC ISO).
-   * Stamped only by the dormant durable merge service on v2 rows — absent on
+   * Stamped only by the durable merge service on v2 rows — absent on
    * legacy rows. Every accepted strictly NEWER observation advances the fence
    * durably, including content-identical fence-only refreshes (freshness
    * evidence is itself durable evidence); equal-fence identical observations
    * are no-write idempotent operations. The merge service never lets an
-   * observation older than this fence overwrite the row.
+   * observation older than this fence overwrite the row. Internal persistence
+   * metadata — never on the public wire (`publicProjection.ts`).
    */
   fetchStartedAt?: string;
   providerGameId: number;

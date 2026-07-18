@@ -14,7 +14,24 @@
  */
 
 import { normalizeGameTeamStats } from '../normalizers.ts';
-import type { GameStats, RawGameTeamStats, RawGameTeamStatsTeam } from '../types.ts';
+import { setAppState } from '../../server/appStateStore.ts';
+import type {
+  GameStats,
+  RawGameTeamStats,
+  RawGameTeamStatsTeam,
+  WeeklyGameStats,
+} from '../types.ts';
+
+/**
+ * Test-only durable seeding. Production has NO direct game-stats write path
+ * (PLATFORM-086H3 retired `setCachedGameStats`; the merge authority owns all
+ * writes), so tests that need pre-existing durable partitions — legacy rows,
+ * corrupt shapes, prior-good evidence — seed them here, outside the guarded
+ * production surface.
+ */
+export async function seedGameStatsPartitionForTests(record: WeeklyGameStats): Promise<void> {
+  await setAppState('game-stats', `${record.year}:${record.week}:${record.seasonType}`, record);
+}
 
 export type WireStatOverrides = Record<string, string | null>;
 

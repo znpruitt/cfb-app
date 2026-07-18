@@ -17,18 +17,19 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
 /**
- * PLATFORM-086H2 — durable game-stats merge service (DORMANT).
+ * PLATFORM-086H2 — durable game-stats merge service (ACTIVE since
+ * PLATFORM-086H3).
  *
- * The durable merge authority the staged activation PR (PR 3) will later wire
- * into validated ingestion → durable merge → cache completeness →
- * schedule-relative recovery → analytics projection → truthful availability.
- * NOTHING in current production invokes it: no cron, manual refresh, coverage,
- * recovery, analytics, Insights, career, diagnostics, or availability path may
- * import this module until that atomic activation (the recursive
- * dormant-boundary guard enforces this). Activation invariant: every
- * game-stats writer must route through this authority (or the same
- * transaction-scoped lock) before the service is activated — an unlocked
- * writer bypasses the serialization entirely.
+ * The one durable merge authority in the activated production lifecycle:
+ * validated ingestion (`ingestion.ts`) → durable merge (this module) →
+ * committed-state coverage (`partitionCoverage.ts`) → schedule-relative
+ * recovery (`recovery.ts`) → analytics projection (`contract.ts` via
+ * `ownerStats.ts`) → truthful availability (`/api/game-stats`). Activation
+ * invariant: every game-stats writer routes through this authority (or the
+ * exact same per-partition transaction-scoped lock) — an unlocked writer
+ * bypasses the serialization entirely, and the activation guard
+ * (`__tests__/activation-guards.test.ts`) fails any bypass or blind
+ * partition overwrite.
  *
  * Core guarantees:
  *   - Durable storage is the source of truth: the read→merge→write sequence

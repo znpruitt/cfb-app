@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { loadOwnerSeasonStats } from '../insights/context.ts';
-import { setCachedGameStats } from '../gameStats/cache.ts';
-import type { TeamGameStats } from '../gameStats/types.ts';
+import {
+  legacyRowFromWire,
+  seedGameStatsPartitionForTests,
+  wireGame,
+} from '../gameStats/__tests__/fixtures.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -15,44 +18,10 @@ test.beforeEach(async () => {
   __resetAppStateForTests();
 });
 
-function makeTeam(school: string, points: number, homeAway: 'home' | 'away'): TeamGameStats {
-  return {
-    school,
-    schoolId: 0,
-    conference: 'Test',
-    homeAway,
-    points,
-    totalYards: points * 10,
-    rushingYards: 0,
-    passingYards: 0,
-    rushingAttempts: 0,
-    passingAttempts: 0,
-    passingCompletions: 0,
-    rushingTDs: 0,
-    passingTDs: 0,
-    firstDowns: 0,
-    turnovers: 0,
-    fumblesLost: 0,
-    interceptionsThrown: 0,
-    passesIntercepted: 0,
-    fumblesRecovered: 0,
-    thirdDownAttempts: 0,
-    thirdDownConversions: 0,
-    thirdDownPct: 0,
-    fourthDownAttempts: 0,
-    fourthDownConversions: 0,
-    penaltyCount: 0,
-    penaltyYards: 0,
-    possessionSeconds: 0,
-    interceptionReturnYards: 0,
-    interceptionReturnTDs: 0,
-    kickReturnYards: 0,
-    kickReturnTDs: 0,
-    puntReturnYards: 0,
-    puntReturnTDs: 0,
-    raw: {},
-  };
-}
+// PLATFORM-086H3: aggregation flows through the analytics projection, so the
+// seeded row must be a real analytics-eligible legacy row (built through the
+// legacy writer fixture), not a hand-rolled statless shape the projection
+// would rightly exclude.
 
 // PLATFORM-055 remediation P2: Insights stat aggregation must resolve team
 // identity through the same effective alias map (global > year > SEED_ALIASES)
@@ -68,19 +37,20 @@ test('insights context resolves owner stats with global-first alias precedence',
   await setAppState('aliases:global', 'map', { 'gulf coast tech': 'Texas' });
   await setAppState(`aliases:${slug}:${year}`, 'map', { 'gulf coast tech': 'Georgia' });
 
-  await setCachedGameStats({
+  await seedGameStatsPartitionForTests({
     year,
     week: 1,
     seasonType: 'regular',
     fetchedAt: `${year}-09-02T00:00:00.000Z`,
     games: [
-      {
-        providerGameId: 1,
-        week: 1,
-        seasonType: 'regular',
-        home: makeTeam('Gulf Coast Tech', 31, 'home'),
-        away: makeTeam('Rival Tech', 10, 'away'),
-      },
+      legacyRowFromWire(
+        wireGame({
+          id: 1,
+          home: { school: 'Gulf Coast Tech', points: 31 },
+          away: { school: 'Rival Tech', points: 10 },
+        }),
+        1
+      ),
     ],
   });
 

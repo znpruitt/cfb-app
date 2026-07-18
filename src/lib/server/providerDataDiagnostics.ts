@@ -12,7 +12,8 @@ import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
-import { expectsGameStats, usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import { deriveSlateExpectation } from '../gameStats/ingestion.ts';
+import { evaluateGameStatsPartitionCoverage } from '../gameStats/partitionCoverage.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
@@ -205,57 +206,51 @@ export async function getProviderDataDiagnostics(
     push('scores', 'warning', `Score diagnostics unavailable: ${errText(error)}`);
   }
 
-  // ---- Game stats: completed slates missing usable cached game-stats CONTENT ----
+  // ---- Game stats: completed slates missing analytics-usable COMMITTED evidence ----
   try {
     if (completedSlates.length > 0) {
-      // Coverage is judged by CONTENT resolved through canonical game identity, not
-      // key existence: a record with `games: []` — or one whose every row was
-      // dropped during normalization — is NOT coverage (4th-review finding #3). A
-      // bare key must never suppress the warning.
-      const coveredIdsBySlate = new Map<SlateKey, Set<string>>();
-      for (const record of await listCachedGameStats(year)) {
-        coveredIdsBySlate.set(
-          slateKey(record.week, normalizeSeasonType(record.seasonType)),
-          usableGameStatsGameIds(record)
-        );
+      // PLATFORM-086H3: coverage derives from COMMITTED durable state through
+      // the one shared typed model (`evaluateGameStatsPartitionCoverage` over
+      // canonical-schedule expectations) — the same model the scheduled cron's
+      // schedule-relative recovery consumes, so the two can never drift. Which
+      // slates are REPORTED still gates on whole-slate completion
+      // (`deriveCompletedSlates` above), preserving the split-slate remediation:
+      // no warning fires while a slate is still underway. Disrupted games and
+      // not-yet-addressable placeholders never manufacture a gap; a record with
+      // `games: []` or only ineligible rows is not coverage.
+      const records = await listCachedGameStats(year);
+      const recordBySlate = new Map<SlateKey, (typeof records)[number]>();
+      for (const record of records) {
+        recordBySlate.set(slateKey(record.week, normalizeSeasonType(record.seasonType)), record);
       }
-      // Expected (canonical) STAT-PRODUCING games per completed slate, from the
-      // schedule. Disrupted games (canceled/postponed/suspended/delayed) are
-      // excluded via the shared `expectsGameStats` helper — the same definition the
-      // cron uses — so they neither manufacture a partial gap nor, when a whole
-      // slate is disrupted, a permanent missing warning (5th-review findings #1/#3).
-      const completedKeys = new Set(completedSlates.map((s) => slateKey(s.week, s.seasonType)));
-      const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
-      for (const item of scheduleItems) {
-        const key = slateKey(item.week, normalizeSeasonType(item.seasonType));
-        if (!completedKeys.has(key)) continue;
-        if (!expectsGameStats(item.status)) continue;
-        if (!item.id) continue;
-        let expected = expectedIdsBySlate.get(key);
-        if (!expected) {
-          expected = new Set<string>();
-          expectedIdsBySlate.set(key, expected);
-        }
-        expected.add(String(item.id));
-      }
+      // Season relation for coverage dispositions (recoverable vs manual-only —
+      // the reported messages do not distinguish them, but the shared model does).
+      const nowDate = new Date(now);
+      const activeSeasonYear =
+        nowDate.getUTCMonth() >= 6 ? nowDate.getUTCFullYear() : nowDate.getUTCFullYear() - 1;
+      const seasonRelation = year >= activeSeasonYear ? 'current' : 'historical';
 
       const missing: CompletedSlate[] = [];
       const partial: CompletedSlate[] = [];
       for (const slate of completedSlates) {
-        const key = slateKey(slate.week, slate.seasonType);
-        // Determine applicability BEFORE checking coverage: a slate with zero
-        // expected stat-producing games (e.g. entirely disrupted) is not applicable,
-        // so it must not be reported as missing (5th-review finding #3).
-        const expected = expectedIdsBySlate.get(key);
-        if (!expected || expected.size === 0) continue;
-        const covered = coveredIdsBySlate.get(key);
-        if (!covered || covered.size === 0) {
-          missing.push(slate);
-          continue;
-        }
-        if ([...expected].some((id) => !covered.has(id))) {
-          partial.push(slate);
-        }
+        const expectation = deriveSlateExpectation({
+          scheduleItems,
+          year,
+          week: slate.week,
+          seasonType: slate.seasonType,
+          now,
+        });
+        // Applicability BEFORE coverage: a slate with zero expected
+        // stat-producing games (e.g. entirely disrupted or placeholder-only)
+        // is not applicable and must not be reported as missing.
+        if (expectation.expectedIds.size === 0) continue;
+        const coverage = evaluateGameStatsPartitionCoverage(
+          expectation,
+          recordBySlate.get(slateKey(slate.week, slate.seasonType)) ?? null,
+          { seasonRelation }
+        );
+        if (coverage.state === 'absent') missing.push(slate);
+        else if (coverage.state === 'partial') partial.push(slate);
       }
 
       if (missing.length > 0) {

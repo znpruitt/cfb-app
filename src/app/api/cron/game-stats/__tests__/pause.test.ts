@@ -8,7 +8,7 @@ import {
   __resetAppStateForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
-import { setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
+import { seedGameStatsPartitionForTests } from '../../../../../lib/gameStats/__tests__/fixtures.ts';
 import {
   setDatasetAutoRefreshEnabled,
   setGlobalPause,
@@ -35,9 +35,10 @@ function cronRequest(): Request {
   });
 }
 
-// Seed the cached schedule so `findLatestCompletedWeek` resolves the given week as
-// the cron's target (a completed, stat-producing slate). Used to exercise the
-// missing-key path WITH a resolved target.
+// Seed the cached schedule so recovery planning resolves the given week as the
+// cron's target (a completed, stat-producing, provider-addressable slate). Used
+// to exercise the missing-key path WITH a resolved target. The id must be a
+// numeric provider id — placeholders are deferred, never targeted.
 async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseason') {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: Date.now(),
@@ -45,7 +46,7 @@ async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseas
     failedSeasonTypes: [],
     items: [
       {
-        id: `${week}-${seasonType}`,
+        id: `${week}00${seasonType === 'postseason' ? 9 : 1}`,
         week,
         seasonType,
         startDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
@@ -167,7 +168,7 @@ test('missing CFBD key with NO applicable target week records no scoped failure 
 
 test('manual game-stats refresh (cache read) remains available while automation is paused', async () => {
   await setGlobalPause(true);
-  await setCachedGameStats({
+  await seedGameStatsPartitionForTests({
     year: 2026,
     week: 3,
     seasonType: 'regular',

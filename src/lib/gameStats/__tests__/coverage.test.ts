@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  classifyGameStatsPayload,
-  expectsGameStats,
-  hasUsableGameStats,
-  usableGameStatsGameIds,
-} from '../coverage.ts';
+import { expectsGameStats, hasUsableGameStats, usableGameStatsGameIds } from '../coverage.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 
 function row(providerGameId: number, homeSchool = 'Alpha', awaySchool = 'Beta'): GameStats {
@@ -71,45 +66,6 @@ test('expectsGameStats excludes disrupted statuses, includes normal ones', () =>
   }
 });
 
-// 5th-review finding #5 — payload classification shared by cron + manual route.
-test('classifyGameStatsPayload: empty array → noop', () => {
-  assert.deepEqual(classifyGameStatsPayload([], 1, 'regular'), { kind: 'noop' });
-});
-
-test('classifyGameStatsPayload: non-array → no-usable-rows (failure)', () => {
-  assert.deepEqual(classifyGameStatsPayload(null, 1, 'regular'), { kind: 'no-usable-rows' });
-  assert.deepEqual(classifyGameStatsPayload({ oops: true }, 1, 'regular'), {
-    kind: 'no-usable-rows',
-  });
-});
-
-test('classifyGameStatsPayload: nonempty payload with no usable rows → no-usable-rows', () => {
-  // A row missing its away team is dropped by normalization; a row with a blank
-  // school normalizes but is not usable — both leave zero usable rows.
-  const raw = [
-    { id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] },
-    {
-      id: 5002,
-      teams: [
-        { team: '', homeAway: 'home', points: 10, stats: [] },
-        { team: '', homeAway: 'away', points: 7, stats: [] },
-      ],
-    },
-  ];
-  assert.deepEqual(classifyGameStatsPayload(raw, 1, 'regular'), { kind: 'no-usable-rows' });
-});
-
-test('classifyGameStatsPayload: ≥1 usable row → commit with the normalized games', () => {
-  const raw = [
-    {
-      id: 5001,
-      teams: [
-        { team: 'Alpha', homeAway: 'home', points: 21, stats: [] },
-        { team: 'Beta', homeAway: 'away', points: 14, stats: [] },
-      ],
-    },
-  ];
-  const result = classifyGameStatsPayload(raw, 1, 'regular');
-  assert.equal(result.kind, 'commit');
-  assert.equal(result.kind === 'commit' && result.games.length, 1);
-});
+// PLATFORM-086H3: raw provider payload classification moved to `ingestion.ts`
+// (`validateGameStatsPayload`, covered in ingestion.test.ts), which parses
+// through the strict contract instead of the legacy normalizer.

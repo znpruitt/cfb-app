@@ -1,7 +1,5 @@
-import type { CfbdSeasonType } from '../cfbd.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
-import { normalizeGameTeamStats } from './normalizers.ts';
-import type { GameStats, RawGameTeamStats, WeeklyGameStats } from './types.ts';
+import type { GameStats, WeeklyGameStats } from './types.ts';
 
 /**
  * Whether a canonical schedule game is EXPECTED to produce team stats. Disrupted
@@ -70,35 +68,13 @@ export function usableGameStatsGameIds(record: WeeklyGameStats | null | undefine
  * Whether a cached weekly record has ANY usable game coverage. `false` for a
  * missing record, an empty `games` array, or an all-dropped record — exactly the
  * cases a bare key-existence check wrongly treated as covered.
+ *
+ * PLATFORM-086H3 note: raw provider payload classification moved to
+ * `ingestion.ts` (`validateGameStatsPayload`), which parses through the single
+ * strict contract parser instead of the legacy normalizer. This module keeps
+ * only the content-based usable-row helpers shared by the cache-availability
+ * probe; schedule-relative COVERAGE lives in `partitionCoverage.ts`.
  */
 export function hasUsableGameStats(record: WeeklyGameStats | null | undefined): boolean {
   return usableGameStatsGameIds(record).size > 0;
-}
-
-export type GameStatsPayloadClassification =
-  | { kind: 'noop' } // genuine empty provider array — valid absence
-  | { kind: 'no-usable-rows' } // nonempty/non-array → zero usable rows — failure
-  | { kind: 'commit'; games: GameStats[] }; // ≥1 usable row — commit
-
-/**
- * Classify a raw CFBD `/games/teams` payload into the durable outcome it should
- * produce (5th-review finding #5). Shared by the game-stats cron AND the manual
- * `/api/game-stats` refresh so both behave identically:
- *   - a non-array payload, or a NONEMPTY payload whose normalized rows include zero
- *     USABLE rows (schema drift / blank team identities) → `no-usable-rows`
- *     (failure — preserve prior-good, never commit an empty/unusable record);
- *   - a genuinely EMPTY array → `noop` (valid absence — no durable write, no
- *     last-success advance);
- *   - at least one usable row → `commit` with the normalized games.
- */
-export function classifyGameStatsPayload(
-  rawGames: unknown,
-  week: number,
-  seasonType: CfbdSeasonType
-): GameStatsPayloadClassification {
-  if (!Array.isArray(rawGames)) return { kind: 'no-usable-rows' };
-  if (rawGames.length === 0) return { kind: 'noop' };
-  const games = normalizeGameTeamStats(rawGames as RawGameTeamStats[], week, seasonType);
-  if (!games.some(isUsableGameStatsRow)) return { kind: 'no-usable-rows' };
-  return { kind: 'commit', games };
 }

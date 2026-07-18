@@ -1,10 +1,5 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
-import {
-  getAppState,
-  getAppStateEntries,
-  setAppState,
-  listAppStateKeys,
-} from '../server/appStateStore.ts';
+import { getAppState, getAppStateEntries, listAppStateKeys } from '../server/appStateStore.ts';
 import type { WeeklyGameStats } from './types.ts';
 
 const SCOPE = 'game-stats';
@@ -12,6 +7,12 @@ const SCOPE = 'game-stats';
 export function getGameStatsKey(year: number, week: number, seasonType: CfbdSeasonType): string {
   return `${year}:${week}:${seasonType}`;
 }
+
+// PLATFORM-086H3: this module is READ-ONLY. The former blind partition
+// overwrite (the cache setter) is retired — every production write flows
+// through the durable merge authority (`durableMerge.ts`), which serializes
+// read→merge→write inside the per-partition transaction-scoped lock. The
+// activation guard fails any reintroduced direct game-stats write.
 
 export async function getCachedGameStats(
   year: number,
@@ -21,11 +22,6 @@ export async function getCachedGameStats(
   const key = getGameStatsKey(year, week, seasonType);
   const stored = await getAppState<WeeklyGameStats>(SCOPE, key);
   return stored?.value ?? null;
-}
-
-export async function setCachedGameStats(stats: WeeklyGameStats): Promise<void> {
-  const key = getGameStatsKey(stats.year, stats.week, stats.seasonType);
-  await setAppState(SCOPE, key, stats);
 }
 
 export async function listCachedGameStatsWeeks(year: number): Promise<string[]> {

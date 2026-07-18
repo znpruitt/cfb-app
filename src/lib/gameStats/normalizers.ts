@@ -1,6 +1,14 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { RawGameTeamStats, RawGameTeamStatsTeam, TeamGameStats, GameStats } from './types.ts';
 
+/**
+ * PLATFORM-086H3: the lenient LEGACY normalizer. No production writer uses it
+ * anymore — ingestion parses through the strict contract and the durable merge
+ * authority builds v2 rows. It is retained ONLY so test fixtures can reproduce
+ * byte-exact legacy rows (the stored 2021–2025 inventory shape) for
+ * compatibility coverage. The activation guard fails any production import.
+ */
+
 function safeInt(value: string | undefined | null): number {
   if (!value) return 0;
   const parsed = parseInt(value, 10);

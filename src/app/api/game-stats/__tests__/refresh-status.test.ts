@@ -5,8 +5,10 @@ import { GET } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats } from '../../../../lib/gameStats/cache.ts';
+import { wireGame } from '../../../../lib/gameStats/__tests__/fixtures.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
 
@@ -18,12 +20,38 @@ const ORIGINAL = {
 };
 const ORIGINAL_FETCH = globalThis.fetch;
 const ADMIN_TOKEN = 'test-admin-token';
+const YEAR = 2026;
 
 function adminRefresh(): Request {
   return new Request(
-    'https://example.com/api/game-stats?year=2026&week=3&seasonType=regular&bypassCache=1',
+    `https://example.com/api/game-stats?year=${YEAR}&week=3&seasonType=regular&bypassCache=1`,
     { headers: { 'x-admin-token': ADMIN_TOKEN } }
   );
+}
+
+// The activated refresh attaches observations to canonical-schedule games, so
+// the manual route requires a cached schedule for the target year.
+async function seedSchedule() {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: Date.now(),
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: '5001',
+        week: 3,
+        seasonType: 'regular',
+        startDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Alpha State',
+        awayTeam: 'Beta Tech',
+        homeConference: 'X',
+        awayConference: 'Y',
+        status: 'STATUS_FINAL',
+      },
+    ],
+  });
 }
 
 function stubJson(body: unknown) {
@@ -51,24 +79,18 @@ test.after(() => {
   globalThis.fetch = ORIGINAL_FETCH;
 });
 
-test('manual game-stats refresh with a missing CFBD key records a failed attempt (finding #5)', async () => {
+test('manual game-stats refresh with a missing CFBD key records a failed attempt', async () => {
+  await seedSchedule();
   delete MUTABLE_ENV.CFBD_API_KEY;
 
-  const res = await GET(
-    new Request(
-      'https://example.com/api/game-stats?year=2026&week=3&seasonType=regular&bypassCache=1',
-      {
-        headers: { 'x-admin-token': ADMIN_TOKEN },
-      }
-    )
-  );
+  const res = await GET(adminRefresh());
   assert.equal(res.status, 500);
   const body = (await res.json()) as { error: string };
   assert.equal(body.error, 'CFBD_API_KEY not configured');
 
   const status = await getProviderRefreshStatus(
     'game-stats',
-    weekPartitionScope(2026, 3, 'regular')
+    weekPartitionScope(YEAR, 3, 'regular')
   );
   assert.equal(
     status.latestAttemptOutcome,
@@ -78,68 +100,74 @@ test('manual game-stats refresh with a missing CFBD key records a failed attempt
   assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
 });
 
-// 5th-review finding #5 — manual route shares the cron's empty/nonempty-zero rules.
 test('manual refresh: a genuinely empty provider response is a no-op without a durable write', async () => {
+  await seedSchedule();
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
   stubJson([]);
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { games: unknown[]; meta: { noApplicableData?: boolean } };
+  const body = (await res.json()) as {
+    games: unknown[];
+    meta: { noApplicableData?: boolean; emptyContext?: string };
+  };
   assert.deepEqual(body.games, []);
   assert.equal(body.meta.noApplicableData, true);
+  assert.equal(body.meta.emptyContext, 'unexpected', 'a completed slate expected stats');
 
-  assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'no empty record written');
+  assert.equal(await getCachedGameStats(YEAR, 3, 'regular'), null, 'no empty record written');
   const status = await getProviderRefreshStatus(
     'game-stats',
-    weekPartitionScope(2026, 3, 'regular')
+    weekPartitionScope(YEAR, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'no-op');
   assert.equal(status.lastSuccessAt, null);
 });
 
-test('manual refresh: a nonempty payload with no usable rows resolves as failure (no write)', async () => {
+test('manual refresh: a nonempty payload with zero parseable observations fails as schema drift', async () => {
+  await seedSchedule();
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
-  // A row missing its away team is dropped by normalization → zero usable rows.
-  stubJson([{ id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] }]);
+  // A row missing its away side fails observation parsing.
+  stubJson([
+    { id: 5001, teams: [{ teamId: 1, team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] },
+  ]);
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 502);
   const body = (await res.json()) as { code?: string };
-  assert.equal(body.code, 'game-stats-no-usable-rows');
+  assert.equal(body.code, 'game-stats-schema-drift');
 
-  assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'no unusable record written');
+  assert.equal(await getCachedGameStats(YEAR, 3, 'regular'), null, 'no unusable record written');
   const status = await getProviderRefreshStatus(
     'game-stats',
-    weekPartitionScope(2026, 3, 'regular')
+    weekPartitionScope(YEAR, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'failed');
-  assert.equal(status.lastError?.code, 'game-stats-no-usable-rows');
+  assert.equal(status.lastError?.code, 'game-stats-schema-drift');
 });
 
-test('manual refresh: a usable payload commits and records success', async () => {
+test('manual refresh: a valid payload merges durably and records success after commit', async () => {
+  await seedSchedule();
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
-  stubJson([
-    {
-      id: 5001,
-      teams: [
-        { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-        { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
-      ],
-    },
-  ]);
+  stubJson([wireGame({ id: 5001 })]);
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { games: unknown[]; meta: { cache: string } };
+  const body = (await res.json()) as {
+    games: unknown[];
+    meta: { cache: string; durable?: { outcome: string } };
+  };
   assert.equal(body.games.length, 1);
   assert.equal(body.meta.cache, 'miss');
+  assert.equal(body.meta.durable?.outcome, 'written');
 
-  const stored = await getCachedGameStats(2026, 3, 'regular');
-  assert.equal(stored?.games.length, 1, 'the usable record is committed');
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.equal(stored?.games.length, 1, 'the record is committed');
+  assert.equal(stored?.games[0]?.schemaVersion, 2, 'committed through the merge authority');
   const status = await getProviderRefreshStatus(
     'game-stats',
-    weekPartitionScope(2026, 3, 'regular')
+    weekPartitionScope(YEAR, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'succeeded');
+  assert.equal(status.rowsCommitted, 1);
 });
