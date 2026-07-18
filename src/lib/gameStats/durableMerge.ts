@@ -9,6 +9,7 @@ import {
 import { getGameStatsKey } from './cache.ts';
 import {
   AppStateKeyLockAcquireError,
+  AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
   withAppStateKeyTransaction,
 } from '../server/appStateStore.ts';
@@ -115,10 +116,14 @@ export type DurableMergeUnavailableReason =
   | 'lock-unavailable'
   | 'durable-read-failed'
   | 'durable-write-failed'
+  | 'merge-computation-failed'
+  | 'transaction-cleanup-failed'
   | 'transaction-finalize-failed';
 
 export type DurableMergeResult = {
   outcome: DurableMergeOutcome;
+  /** The durable partition this merge targeted (`scope/key`). */
+  partitionKey: string;
   /** Provider game ids — every list sorted ascending and deduplicated. */
   inserted: number[];
   updated: number[];
@@ -133,12 +138,15 @@ export type DurableMergeResult = {
   /** Set ONLY when `outcome` is `unavailable` (durable state untouched). */
   unavailableReason?: DurableMergeUnavailableReason;
   /**
-   * Set ONLY when `outcome` is `indeterminate`: the transaction wrote and its
-   * COMMIT failed, so whether the write persisted is genuinely unknown.
-   * Retrying the same input is safe and idempotent either way.
+   * Set ONLY when `outcome` is `indeterminate`: a write statement ran and the
+   * transaction could not be confirmed committed OR cleanly rolled back
+   * (`transaction-finalize-failed` = COMMIT failed;
+   * `transaction-cleanup-failed` = ROLLBACK failed after a write may have
+   * executed), so whether the write persisted is genuinely unknown. Retrying
+   * the same input is safe and idempotent either way.
    */
   indeterminate?: {
-    reason: 'transaction-finalize-failed';
+    reason: 'transaction-finalize-failed' | 'transaction-cleanup-failed';
     durability: 'unknown';
     partitionKey: string;
   };
@@ -649,10 +657,12 @@ function noChangeOutcome(computation: WeeklyMergeComputation): DurableMergeOutco
 
 function toResult(
   computation: WeeklyMergeComputation,
-  outcome: DurableMergeOutcome
+  outcome: DurableMergeOutcome,
+  partitionKey: string
 ): DurableMergeResult {
   return {
     outcome,
+    partitionKey,
     inserted: computation.inserted,
     updated: computation.updated,
     refreshed: computation.refreshed,
@@ -664,9 +674,10 @@ function toResult(
   };
 }
 
-function emptyResult(outcome: DurableMergeOutcome): DurableMergeResult {
+function emptyResult(outcome: DurableMergeOutcome, partitionKey: string): DurableMergeResult {
   return {
     outcome,
+    partitionKey,
     inserted: [],
     updated: [],
     refreshed: [],
@@ -678,8 +689,31 @@ function emptyResult(outcome: DurableMergeOutcome): DurableMergeResult {
   };
 }
 
-function unavailable(reason: DurableMergeUnavailableReason): DurableMergeResult {
-  return { ...emptyResult('unavailable'), unavailableReason: reason };
+function unavailable(
+  reason: DurableMergeUnavailableReason,
+  partitionKey: string
+): DurableMergeResult {
+  return { ...emptyResult('unavailable', partitionKey), unavailableReason: reason };
+}
+
+function indeterminate(
+  reason: 'transaction-finalize-failed' | 'transaction-cleanup-failed',
+  partitionKey: string
+): DurableMergeResult {
+  return {
+    ...emptyResult('indeterminate', partitionKey),
+    indeterminate: { reason, durability: 'unknown', partitionKey },
+  };
+}
+
+/**
+ * Internal control-flow sentinel: thrown from inside the transaction callback
+ * when the pure merge computation itself fails (e.g. structurally invalid
+ * durable state), so the primitive ROLLS BACK before the typed result is
+ * returned. Never escapes `mergeGameStatsPartitionDurable`.
+ */
+class MergeComputationFailure {
+  constructor(readonly result: DurableMergeResult) {}
 }
 
 // Mirrors the private scope constant in `cache.ts` — the lock must cover the
@@ -703,55 +737,68 @@ const GAME_STATS_SCOPE = 'game-stats';
 export async function mergeGameStatsPartitionDurable(
   input: DurableMergeInput
 ): Promise<DurableMergeResult> {
+  const key = getGameStatsKey(input.year, input.week, input.seasonType);
+  const partitionKey = `${GAME_STATS_SCOPE}/${key}`;
   if (parseFenceMs(input.fetchStartedAt) === null) {
-    return unavailable('invalid-fetch-started-at');
+    return unavailable('invalid-fetch-started-at', partitionKey);
   }
 
-  const key = getGameStatsKey(input.year, input.week, input.seasonType);
   try {
     return await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
       let existing: WeeklyGameStats | null;
       try {
         existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
       } catch {
-        return unavailable('durable-read-failed');
+        return unavailable('durable-read-failed', partitionKey);
       }
 
-      const computation = computeWeeklyGameStatsMerge(existing, input);
+      let computation: WeeklyMergeComputation;
+      try {
+        computation = computeWeeklyGameStatsMerge(existing, input);
+      } catch {
+        // Structurally invalid durable state (or a computation defect): throw
+        // the sentinel so the transaction ROLLS BACK before this typed result
+        // surfaces — never mislabeled as a lock failure.
+        throw new MergeComputationFailure(unavailable('merge-computation-failed', partitionKey));
+      }
       if (!computation.changed) {
-        return toResult(computation, noChangeOutcome(computation));
+        return toResult(computation, noChangeOutcome(computation), partitionKey);
       }
 
       try {
         await txn.write(computation.partition!);
       } catch {
-        return unavailable('durable-write-failed');
+        return unavailable('durable-write-failed', partitionKey);
       }
 
       const clean = computation.stale.length === 0 && computation.conflicts.length === 0;
-      return toResult(computation, clean ? 'written' : 'partially-merged');
+      return toResult(computation, clean ? 'written' : 'partially-merged', partitionKey);
     });
   } catch (error) {
+    if (error instanceof MergeComputationFailure) {
+      // The primitive confirmed rollback before rethrowing the sentinel.
+      return error.result;
+    }
     if (error instanceof AppStateTxnFinalizeError) {
-      if (error.didWrite) {
-        return {
-          ...emptyResult('indeterminate'),
-          indeterminate: {
-            reason: 'transaction-finalize-failed',
-            durability: 'unknown',
-            partitionKey: `${GAME_STATS_SCOPE}/${key}`,
-          },
-        };
-      }
-      // Finalization failed but nothing was written — durable state is
-      // certainly untouched.
-      return unavailable('transaction-finalize-failed');
+      // COMMIT failed: with a pending write, durability is genuinely unknown;
+      // with none, durable state is certainly untouched.
+      return error.didWrite
+        ? indeterminate('transaction-finalize-failed', partitionKey)
+        : unavailable('transaction-finalize-failed', partitionKey);
+    }
+    if (error instanceof AppStateTxnCleanupError) {
+      // ROLLBACK failed: with a write statement possibly executed, durability
+      // is unknown; with none, no durable mutation was possible.
+      return error.didWrite
+        ? indeterminate('transaction-cleanup-failed', partitionKey)
+        : unavailable('transaction-cleanup-failed', partitionKey);
     }
     if (error instanceof AppStateKeyLockAcquireError) {
-      return unavailable('lock-unavailable');
+      // ONLY genuine lock acquisition / lock-infrastructure failure.
+      return unavailable('lock-unavailable', partitionKey);
     }
-    // Unexpected machinery failure with no pending write path of its own:
-    // durable state untouched (writes only happen through txn.write above).
-    return unavailable('lock-unavailable');
+    // Anything else is an unexpected programming/machinery defect — surface it
+    // loudly rather than mislabeling it as an operational failure.
+    throw error;
   }
 }

@@ -8,6 +8,7 @@ import { parseV2GameObservation } from '../../gameStats/contract.ts';
 import { wireGame } from '../../gameStats/__tests__/fixtures.ts';
 import {
   AppStateKeyLockAcquireError,
+  AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
   __appStateKeyLockChainCountForTests,
   __deleteAppStateFileForTests,
@@ -17,8 +18,11 @@ import {
 } from '../appStateStore.ts';
 
 // ---------------------------------------------------------------------------
-// Fake pg pool/client harness (PLATFORM-086H2 remediation): proves the
-// single-client advisory-lock transaction lifecycle without a live database.
+// Stateful fake pg harness (PLATFORM-086H2): models advisory-lock ownership by
+// key (same-key waiters BLOCK at the lock query), transaction staging (writes
+// visible only after COMMIT, discarded on ROLLBACK or destroy), committed-state
+// visibility to the next lock owner, pool capacity, and release-vs-destroy
+// disposal — not merely recorded SQL with preconfigured rows.
 // ---------------------------------------------------------------------------
 
 type QueryKind = 'ddl' | 'exists' | 'begin' | 'lock' | 'read' | 'write' | 'commit' | 'rollback';
@@ -36,57 +40,155 @@ function classifyQuery(text: string): QueryKind {
   throw new Error(`unclassified query in fake pool: ${text}`);
 }
 
+type LockEntry = { owner: FakeClient; waiters: Array<{ client: FakeClient; grant: () => void }> };
+
 class FakeClient {
   readonly calls: QueryKind[] = [];
   released = false;
+  destroyed = false;
+  private staged: Map<string, string> | null = null;
+  private readonly heldLocks = new Set<string>();
 
   constructor(
     private readonly pool: FakePool,
-    private readonly index: number
+    readonly index: number
   ) {}
 
   async query(text: string, params?: unknown[]) {
-    if (this.released) throw new Error('query after release');
+    if (this.released) throw new Error(`query after release (client ${this.index})`);
     const kind = classifyQuery(text);
     this.calls.push(kind);
     this.pool.log.push(`client${this.index}:${kind}`);
     const gate = this.pool.gates[`client${this.index}:${kind}`];
     if (gate) await gate;
-    const failure = this.pool.failures[kind];
+    const failure = this.pool.takeFailure(this.index, kind);
     if (failure) throw failure;
-    if (kind === 'read') {
-      return { rows: this.pool.storedRow ? [this.pool.storedRow] : [] };
+
+    switch (kind) {
+      case 'begin':
+        this.staged = new Map();
+        return { rows: [] };
+      case 'lock': {
+        const lockKey = String(params?.[0]);
+        const entry = this.pool.locks.get(lockKey);
+        if (!entry) {
+          this.pool.locks.set(lockKey, { owner: this, waiters: [] });
+          this.heldLocks.add(lockKey);
+          return { rows: [] };
+        }
+        if (entry.owner === this) return { rows: [] };
+        await new Promise<void>((grant) => entry.waiters.push({ client: this, grant }));
+        this.heldLocks.add(lockKey);
+        return { rows: [] };
+      }
+      case 'read': {
+        const compositeKey = `${String(params?.[0])}::${String(params?.[1])}`;
+        const stagedValue = this.staged?.get(compositeKey);
+        const committedValue = this.pool.committed.get(compositeKey);
+        const raw = stagedValue ?? committedValue;
+        if (raw === undefined) return { rows: [] };
+        return { rows: [{ value: JSON.parse(raw), updated_at: '2024-01-01T00:00:00.000Z' }] };
+      }
+      case 'write': {
+        const compositeKey = `${String(params?.[0])}::${String(params?.[1])}`;
+        this.staged!.set(compositeKey, String(params?.[2]));
+        return { rows: [] };
+      }
+      case 'commit': {
+        for (const [compositeKey, value] of this.staged ?? []) {
+          this.pool.committed.set(compositeKey, value);
+        }
+        this.endTransaction();
+        return { rows: [] };
+      }
+      case 'rollback': {
+        this.endTransaction();
+        return { rows: [] };
+      }
+      default:
+        return { rows: [] };
     }
-    if (kind === 'write') {
-      this.pool.writtenValues.push(params?.[2]);
-    }
-    return { rows: [] };
   }
 
-  release(): void {
+  /** Server-side transaction end: discard staging, free advisory locks. */
+  private endTransaction(): void {
+    this.staged = null;
+    for (const lockKey of this.heldLocks) {
+      const entry = this.pool.locks.get(lockKey);
+      if (!entry || entry.owner !== this) continue;
+      const next = entry.waiters.shift();
+      if (next) {
+        entry.owner = next.client;
+        next.grant();
+      } else {
+        this.pool.locks.delete(lockKey);
+      }
+    }
+    this.heldLocks.clear();
+  }
+
+  release(error?: Error): void {
+    if (this.released) throw new Error(`double release (client ${this.index})`);
     this.released = true;
-    this.pool.log.push(`client${this.index}:release`);
+    const destroyed = error !== undefined;
+    this.destroyed = destroyed;
+    if (destroyed) {
+      // Connection teardown: the server discards the open transaction and
+      // frees any advisory locks still attached to it.
+      this.endTransaction();
+    }
+    this.pool.releases.push({ index: this.index, destroyed });
+    this.pool.log.push(`client${this.index}:release${destroyed ? ':destroy' : ''}`);
+    this.pool.freeSlot();
+    if (!destroyed && this.pool.releaseFailure) {
+      const failure = this.pool.releaseFailure;
+      this.pool.releaseFailure = null;
+      throw failure;
+    }
   }
 }
 
 class FakePool {
   readonly log: string[] = [];
-  readonly writtenValues: unknown[] = [];
-  failures: Partial<Record<QueryKind, Error>> = {};
+  readonly releases: Array<{ index: number; destroyed: boolean }> = [];
+  readonly committed = new Map<string, string>();
+  readonly locks = new Map<string, LockEntry>();
   gates: Record<string, Promise<void> | undefined> = {};
-  storedRow: { value: unknown; updated_at: string } | null = null;
-  connectCount = 0;
+  failures: Partial<Record<QueryKind, Error>> = {};
+  perClientFailures: Record<string, Error | undefined> = {};
+  releaseFailure: Error | null = null;
   connectFailure: Error | null = null;
+  capacity = Number.POSITIVE_INFINITY;
+  outstanding = 0;
+  connectCount = 0;
+  private readonly connectQueue: Array<() => void> = [];
+
+  takeFailure(clientIndex: number, kind: QueryKind): Error | null {
+    const perClient = this.perClientFailures[`client${clientIndex}:${kind}`];
+    if (perClient) {
+      this.perClientFailures[`client${clientIndex}:${kind}`] = undefined;
+      return perClient;
+    }
+    return this.failures[kind] ?? null;
+  }
+
+  freeSlot(): void {
+    this.outstanding -= 1;
+    const next = this.connectQueue.shift();
+    if (next) next();
+  }
 
   async connect() {
     if (this.connectFailure) throw this.connectFailure;
+    if (this.outstanding >= this.capacity) {
+      await new Promise<void>((grant) => this.connectQueue.push(grant));
+    }
+    this.outstanding += 1;
     this.connectCount += 1;
     this.log.push('pool:connect');
     return new FakeClient(this, this.connectCount);
   }
 
-  // Ordinary pool queries (ensureDatabase DDL) — must never occur inside the
-  // locked transaction.
   async query(text: string) {
     this.log.push(`pool:${classifyQuery(text)}`);
     return { rows: [{ present: true }] };
@@ -117,25 +219,38 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+function clientLog(pool: FakePool, index: number): string[] {
+  return pool.log.filter((entry) => entry.startsWith(`client${index}:`));
+}
+
+const MERGE_BASE = { year: 2024, week: 6, seasonType: 'regular' as const };
+const MERGE_KEY = 'game-stats::2024:6:regular';
+
+function mergeObservation(id: number) {
+  const parsed = parseV2GameObservation(wireGame({ id }));
+  assert.ok(parsed.ok);
+  return parsed.ok ? parsed.observation : (null as never);
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
 });
 
-// === PostgreSQL single-client transaction lifecycle (fake pool) ===
+// === Single-client transaction lifecycle ===
 
-test('write path: one client runs begin → lock → read → write → commit, then release', async () => {
+test('write path: one client runs begin → lock → read → write → commit; staged writes become visible only at commit', async () => {
   await withFakePg(async (pool) => {
     const result = await withAppStateKeyTransaction('s', 'k', async (txn) => {
-      const existing = await txn.read();
-      assert.equal(existing, null);
+      assert.equal(await txn.read(), null);
       await txn.write({ hello: 'world' });
+      // Staged, not yet committed: durable state is still empty.
+      assert.equal(pool.committed.size, 0);
       return 'ok';
     });
     assert.equal(result, 'ok');
     assert.equal(pool.connectCount, 1);
-    const clientLog = pool.log.filter((entry) => entry.startsWith('client1'));
-    assert.deepEqual(clientLog, [
+    assert.deepEqual(clientLog(pool, 1), [
       'client1:begin',
       'client1:lock',
       'client1:read',
@@ -143,34 +258,19 @@ test('write path: one client runs begin → lock → read → write → commit, 
       'client1:commit',
       'client1:release',
     ]);
-    // The only ordinary pool queries are the pre-transaction DDL bootstrap.
+    assert.deepEqual(JSON.parse(pool.committed.get('s::k')!), { hello: 'world' });
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: false }]);
     const poolQueriesAfterBegin = pool.log
       .slice(pool.log.indexOf('client1:begin'))
       .filter((entry) => entry.startsWith('pool:') && entry !== 'pool:connect');
     assert.deepEqual(poolQueriesAfterBegin, []);
-    assert.equal(pool.writtenValues.length, 1);
   });
 });
 
-test('read-only path: no write statement, still commits and releases', async () => {
+test('read failure and write failure roll back (confirmed) with a healthy release', async () => {
   await withFakePg(async (pool) => {
-    pool.storedRow = { value: { a: 1 }, updated_at: '2024-10-01T00:00:00.000Z' };
-    const result = await withAppStateKeyTransaction('s', 'k', async (txn) => {
-      const record = await txn.read<{ a: number }>();
-      return record?.value.a;
-    });
-    assert.equal(result, 1);
-    assert.deepEqual(
-      pool.log.filter((e) => e.startsWith('client1')),
-      ['client1:begin', 'client1:lock', 'client1:read', 'client1:commit', 'client1:release']
-    );
-  });
-});
-
-test('read failure rolls back (never commits a failed transaction)', async () => {
-  await withFakePg(async (pool) => {
-    pool.failures.read = new Error('read down');
-    const result = await withAppStateKeyTransaction('s', 'k', async (txn) => {
+    pool.perClientFailures['client1:read'] = new Error('read down');
+    const readResult = await withAppStateKeyTransaction('s', 'k', async (txn) => {
       try {
         await txn.read();
         return 'unexpected';
@@ -178,52 +278,86 @@ test('read failure rolls back (never commits a failed transaction)', async () =>
         return 'handled';
       }
     });
-    assert.equal(result, 'handled');
-    const clientLog = pool.log.filter((e) => e.startsWith('client1'));
-    assert.deepEqual(clientLog, [
+    assert.equal(readResult, 'handled');
+    assert.deepEqual(clientLog(pool, 1), [
       'client1:begin',
       'client1:lock',
       'client1:read',
       'client1:rollback',
       'client1:release',
     ]);
-  });
-});
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: false }]);
 
-test('write failure rolls back; callback failure rolls back and rethrows', async () => {
-  await withFakePg(async (pool) => {
-    pool.failures.write = new Error('write down');
+    pool.perClientFailures['client2:write'] = new Error('write down');
     await withAppStateKeyTransaction('s', 'k', async (txn) => {
       try {
         await txn.write({ x: 1 });
       } catch {
-        // handled by caller
+        // handled
       }
       return null;
     });
-    assert.ok(pool.log.includes('client1:rollback'));
-    assert.ok(!pool.log.includes('client1:commit'));
+    assert.ok(clientLog(pool, 2).includes('client2:rollback'));
+    assert.ok(!clientLog(pool, 2).includes('client2:commit'));
+    assert.equal(pool.committed.size, 0);
+  });
+});
 
-    pool.failures = {};
+test('callback failure: confirmed rollback rethrows the callback error with a healthy client', async () => {
+  await withFakePg(async (pool) => {
     await assert.rejects(
       withAppStateKeyTransaction('s', 'k', async () => {
         throw new Error('callback exploded');
       }),
       /callback exploded/
     );
-    const secondClientLog = pool.log.filter((e) => e.startsWith('client2'));
-    assert.deepEqual(secondClientLog, [
-      'client2:begin',
-      'client2:lock',
-      'client2:rollback',
-      'client2:release',
-    ]);
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: false }]);
+    // Lock freed by the rollback: a successor completes.
+    const next = await withAppStateKeyTransaction('s', 'k', async () => 'next');
+    assert.equal(next, 'next');
   });
 });
 
-test('commit failure surfaces AppStateTxnFinalizeError with didWrite', async () => {
+// === Uncertain-client containment ===
+
+test('rollback failure before any write: typed cleanup error, client destroyed', async () => {
   await withFakePg(async (pool) => {
-    pool.failures.commit = new Error('commit lost');
+    pool.perClientFailures['client1:rollback'] = new Error('rollback down');
+    await assert.rejects(
+      withAppStateKeyTransaction('s', 'k', async () => {
+        throw new Error('callback failed first');
+      }),
+      (error: unknown) =>
+        error instanceof AppStateTxnCleanupError &&
+        error.didWrite === false &&
+        String((error.cause as Error).message) === 'callback failed first'
+    );
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
+    // The destroyed connection released its advisory lock: a successor with a
+    // fresh healthy client completes.
+    const next = await withAppStateKeyTransaction('s', 'k', async () => 'recovered');
+    assert.equal(next, 'recovered');
+    assert.deepEqual(pool.releases[1], { index: 2, destroyed: false });
+  });
+});
+
+test('rollback failure after a write may have executed: cleanup error with didWrite=true', async () => {
+  await withFakePg(async (pool) => {
+    pool.perClientFailures['client1:rollback'] = new Error('rollback down');
+    await assert.rejects(
+      withAppStateKeyTransaction('s', 'k', async (txn) => {
+        await txn.write({ x: 1 });
+        throw new Error('after write');
+      }),
+      (error: unknown) => error instanceof AppStateTxnCleanupError && error.didWrite === true
+    );
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
+  });
+});
+
+test('commit failure destroys the uncertain client (with and without pending write)', async () => {
+  await withFakePg(async (pool) => {
+    pool.perClientFailures['client1:commit'] = new Error('commit lost');
     await assert.rejects(
       withAppStateKeyTransaction('s', 'k', async (txn) => {
         await txn.write({ x: 1 });
@@ -231,14 +365,30 @@ test('commit failure surfaces AppStateTxnFinalizeError with didWrite', async () 
       }),
       (error: unknown) => error instanceof AppStateTxnFinalizeError && error.didWrite === true
     );
-    // Release still happens after a finalize failure.
-    assert.ok(pool.log.includes('client1:release'));
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
 
-    pool.failures.commit = new Error('commit lost again');
+    pool.perClientFailures['client2:commit'] = new Error('commit lost again');
     await assert.rejects(
       withAppStateKeyTransaction('s', 'k', async () => 'read-only'),
       (error: unknown) => error instanceof AppStateTxnFinalizeError && error.didWrite === false
     );
+    assert.deepEqual(pool.releases[1], { index: 2, destroyed: true });
+    // Destroyed clients are never offered for reuse: each connect creates a
+    // fresh client and no destroyed index reappears healthy.
+    const destroyedIndexes = pool.releases.filter((r) => r.destroyed).map((r) => r.index);
+    assert.deepEqual(destroyedIndexes, [1, 2]);
+  });
+});
+
+test('a post-commit release failure never replaces the confirmed result', async () => {
+  await withFakePg(async (pool) => {
+    pool.releaseFailure = new Error('release exploded');
+    const result = await withAppStateKeyTransaction('s', 'k', async (txn) => {
+      await txn.write({ committed: true });
+      return 'confirmed';
+    });
+    assert.equal(result, 'confirmed');
+    assert.deepEqual(JSON.parse(pool.committed.get('s::k')!), { committed: true });
   });
 });
 
@@ -251,14 +401,12 @@ test('acquisition failures throw AppStateKeyLockAcquireError', async () => {
     );
 
     pool.connectFailure = null;
-    pool.failures.lock = new Error('lock query failed');
+    pool.perClientFailures['client1:lock'] = new Error('lock query failed');
     await assert.rejects(
       withAppStateKeyTransaction('s', 'k', async () => 'x'),
       (error: unknown) => error instanceof AppStateKeyLockAcquireError
     );
-    // The failed-acquisition client is rolled back and released.
-    const clientLog = pool.log.filter((e) => e.startsWith('client1'));
-    assert.deepEqual(clientLog, [
+    assert.deepEqual(clientLog(pool, 1), [
       'client1:begin',
       'client1:lock',
       'client1:rollback',
@@ -267,7 +415,7 @@ test('acquisition failures throw AppStateKeyLockAcquireError', async () => {
   });
 });
 
-test('the accessor is dead after the transaction finishes', async () => {
+test('the accessor is dead after the transaction finishes (postgres mode)', async () => {
   await withFakePg(async () => {
     let leaked: { read: () => Promise<unknown> } | null = null;
     await withAppStateKeyTransaction('s', 'k', async (txn) => {
@@ -278,25 +426,44 @@ test('the accessor is dead after the transaction finishes', async () => {
   });
 });
 
-test('pool starvation by construction: the lock owner never needs a second connection', async () => {
+// === Real same-key overlap, reread-after-commit, starvation ===
+
+test('overlap: B blocks at the advisory lock while A owns it, then rereads A’s committed value', async () => {
   await withFakePg(async (pool) => {
-    // Writer B's advisory-lock query blocks (a queued same-key waiter) while
-    // writer A — already inside the critical section — completes read + write
-    // + commit using ONLY its own already-held client.
-    const waiterGate = deferred();
-    pool.gates['client2:lock'] = waiterGate.promise;
+    const aInside = deferred();
+    const aRelease = deferred();
+    let bEntered = false;
+    let bSaw: unknown = 'unset';
 
     const a = withAppStateKeyTransaction('s', 'k', async (txn) => {
       await txn.read();
+      aInside.resolve();
+      await aRelease.promise;
       await txn.write({ from: 'A' });
       return 'A';
     });
-    assert.equal(await a, 'A');
-    const b = withAppStateKeyTransaction('s', 'k', async () => 'B');
+    await aInside.promise;
 
-    assert.equal(pool.connectCount <= 2, true);
-    const aLog = pool.log.filter((e) => e.startsWith('client1'));
-    assert.deepEqual(aLog, [
+    // B starts while A still owns the lock and parks INSIDE its lock query.
+    const b = withAppStateKeyTransaction('s', 'k', async (txn) => {
+      bEntered = true;
+      bSaw = (await txn.read())?.value ?? null;
+      await txn.write({ from: 'B' });
+      return 'B';
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(clientLog(pool, 2).includes('client2:lock'), 'B reached its lock query');
+    assert.equal(bEntered, false, 'B cannot enter while A owns the lock');
+
+    aRelease.resolve();
+    assert.equal(await a, 'A');
+    assert.equal(await b, 'B');
+    assert.equal(bEntered, true);
+    // B reread durable state AFTER A committed — never a stale pre-lock view.
+    assert.deepEqual(bSaw, { from: 'A' });
+    assert.deepEqual(JSON.parse(pool.committed.get('s::k')!), { from: 'B' });
+    // A performed its whole lifecycle on client 1 only.
+    assert.deepEqual(clientLog(pool, 1), [
       'client1:begin',
       'client1:lock',
       'client1:read',
@@ -304,82 +471,217 @@ test('pool starvation by construction: the lock owner never needs a second conne
       'client1:commit',
       'client1:release',
     ]);
-
-    waiterGate.resolve();
-    assert.equal(await b, 'B');
   });
 });
 
-test('service level: commit failure yields a typed indeterminate outcome', async () => {
+test('small-pool starvation scenario: the owner completes with only its own client', async () => {
   await withFakePg(async (pool) => {
-    const parsed = parseV2GameObservation(wireGame({ id: 300 }));
-    assert.ok(parsed.ok);
-    const observation = parsed.ok ? parsed.observation : (null as never);
+    pool.capacity = 3;
+    const aInside = deferred();
+    const aRelease = deferred();
+    const completionOrder: string[] = [];
 
-    pool.failures.commit = new Error('commit lost');
-    const result = await mergeGameStatsPartitionDurable({
-      year: 2024,
-      week: 6,
-      seasonType: 'regular',
+    const run = (name: string, hold?: { inside: () => void; release: Promise<void> }) =>
+      withAppStateKeyTransaction('s', 'k', async (txn) => {
+        if (hold) {
+          hold.inside();
+          await hold.release;
+        }
+        await txn.write({ last: name });
+        completionOrder.push(name);
+        return name;
+      });
+
+    const a = run('A', { inside: aInside.resolve, release: aRelease.promise });
+    await aInside.promise;
+    const b = run('B');
+    const c = run('C');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // A owns client 1; B and C each hold a client parked at the lock query.
+    assert.equal(pool.outstanding, 3);
+    assert.equal(pool.connectCount, 3);
+
+    aRelease.resolve();
+    assert.equal(await a, 'A');
+    // A finished without ever requesting a fourth connection.
+    assert.equal(pool.connectCount, 3);
+    await Promise.all([b, c]);
+    // Waiters proceed in deterministic FIFO lock order after A commits.
+    assert.deepEqual(completionOrder, ['A', 'B', 'C']);
+    assert.deepEqual(JSON.parse(pool.committed.get('s::k')!), { last: 'C' });
+  });
+});
+
+// === Service-level behavior over the transactional backend ===
+
+test('service: overlapping same-partition writers preserve disjoint updates', async () => {
+  await withFakePg(async (pool) => {
+    const gate = deferred();
+    // Writer A parks on its WRITE statement while holding the advisory lock.
+    pool.gates['client1:write'] = gate.promise;
+
+    const a = mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
       fetchStartedAt: '2024-10-07T00:00:00.000Z',
-      observations: [observation],
+      observations: [mergeObservation(1)],
     });
-    assert.equal(result.outcome, 'indeterminate');
-    assert.deepEqual(result.indeterminate, {
+    const b = mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-07T01:00:00.000Z',
+      observations: [mergeObservation(2)],
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    gate.resolve();
+
+    const [aResult, bResult] = await Promise.all([a, b]);
+    assert.equal(aResult.outcome, 'written');
+    assert.equal(bResult.outcome, 'written');
+    // B merged against A's COMMITTED partition: both games survive.
+    assert.deepEqual(bResult.retainedExisting, [1]);
+    const stored = JSON.parse(pool.committed.get(MERGE_KEY)!) as {
+      games: Array<{ providerGameId: number }>;
+    };
+    assert.deepEqual(
+      stored.games.map((g) => g.providerGameId).sort((x, y) => x - y),
+      [1, 2]
+    );
+
+    // A late older observation is rejected against the committed newer state.
+    const late = await mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-06T00:00:00.000Z',
+      observations: [mergeObservation(1)],
+    });
+    assert.equal(late.outcome, 'stale');
+  });
+});
+
+test('service: unrelated partitions proceed while a lock is held', async () => {
+  await withFakePg(async (pool) => {
+    const gate = deferred();
+    pool.gates['client1:write'] = gate.promise;
+    const held = mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-07T00:00:00.000Z',
+      observations: [mergeObservation(1)],
+    });
+    const other = await mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      week: 7,
+      fetchStartedAt: '2024-10-07T00:00:00.000Z',
+      observations: [mergeObservation(9)],
+    });
+    assert.equal(other.outcome, 'written', 'different partition key is not serialized');
+    gate.resolve();
+    assert.equal((await held).outcome, 'written');
+  });
+});
+
+test('service: commit failure is indeterminate; retry afterwards is safe', async () => {
+  await withFakePg(async (pool) => {
+    pool.perClientFailures['client1:commit'] = new Error('commit lost');
+    const input = {
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-07T00:00:00.000Z',
+      observations: [mergeObservation(300)],
+    };
+    const first = await mergeGameStatsPartitionDurable(input);
+    assert.equal(first.outcome, 'indeterminate');
+    assert.deepEqual(first.indeterminate, {
       reason: 'transaction-finalize-failed',
       durability: 'unknown',
       partitionKey: 'game-stats/2024:6:regular',
     });
-    assert.equal(pool.connectCount, 1);
-
-    // A no-write finalize failure is certainly-untouched `unavailable`.
-    pool.storedRow = null;
-    const noWrite = await mergeGameStatsPartitionDurable({
-      year: 2024,
-      week: 6,
-      seasonType: 'regular',
-      fetchStartedAt: '2024-10-07T00:00:00.000Z',
-      observations: [],
-    });
-    assert.equal(noWrite.outcome, 'unavailable');
-    assert.equal(noWrite.unavailableReason, 'transaction-finalize-failed');
+    // The retry re-runs against whatever actually committed (here: nothing).
+    const retry = await mergeGameStatsPartitionDurable(input);
+    assert.equal(retry.outcome, 'written');
+    const retryAgain = await mergeGameStatsPartitionDurable(input);
+    assert.equal(retryAgain.outcome, 'unchanged');
   });
 });
 
-test('service level: the merge runs entirely on the lock-owning client', async () => {
+test('service: unconfirmed cleanup is typed transaction-cleanup-failed, never a lock failure', async () => {
   await withFakePg(async (pool) => {
-    const parsed = parseV2GameObservation(wireGame({ id: 301 }));
-    assert.ok(parsed.ok);
-    const observation = parsed.ok ? parsed.observation : (null as never);
-
+    // The write statement fails AND the subsequent rollback fails: cleanup
+    // cannot be confirmed. (In the service the single write is the last
+    // statement, so a rollback failure after a SUCCESSFUL write is structurally
+    // unreachable here — that didWrite=true → indeterminate policy is proven at
+    // the primitive level above; the mapping in the service covers both.)
+    pool.perClientFailures['client1:write'] = new Error('write down');
+    pool.perClientFailures['client1:rollback'] = new Error('rollback down');
     const result = await mergeGameStatsPartitionDurable({
-      year: 2024,
-      week: 6,
-      seasonType: 'regular',
+      ...MERGE_BASE,
       fetchStartedAt: '2024-10-07T00:00:00.000Z',
-      observations: [observation],
+      observations: [mergeObservation(301)],
+    });
+    assert.equal(result.outcome, 'unavailable');
+    assert.equal(result.unavailableReason, 'transaction-cleanup-failed');
+    assert.equal(result.partitionKey, 'game-stats/2024:6:regular');
+    // The uncertain client was destroyed, never returned as healthy.
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: true }]);
+  });
+});
+
+test('service: merge-computation failure rolls back and is not labeled a lock failure', async () => {
+  await withFakePg(async (pool) => {
+    // Structurally invalid durable partition: a null game row.
+    pool.committed.set(MERGE_KEY, JSON.stringify({ ...MERGE_BASE, fetchedAt: 'x', games: [null] }));
+    const result = await mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-07T00:00:00.000Z',
+      observations: [mergeObservation(302)],
+    });
+    assert.equal(result.outcome, 'unavailable');
+    assert.equal(result.unavailableReason, 'merge-computation-failed');
+    assert.equal(result.partitionKey, 'game-stats/2024:6:regular');
+    // The transaction rolled back on the lock-owning client before returning.
+    assert.deepEqual(clientLog(pool, 1), [
+      'client1:begin',
+      'client1:lock',
+      'client1:read',
+      'client1:rollback',
+      'client1:release',
+    ]);
+    assert.deepEqual(pool.releases, [{ index: 1, destroyed: false }]);
+  });
+});
+
+test('service: a post-commit release failure preserves the written outcome', async () => {
+  await withFakePg(async (pool) => {
+    pool.releaseFailure = new Error('release exploded');
+    const result = await mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-07T00:00:00.000Z',
+      observations: [mergeObservation(303)],
     });
     assert.equal(result.outcome, 'written');
-    assert.equal(pool.connectCount, 1);
-    assert.deepEqual(
-      pool.log.filter((e) => e.startsWith('client1')),
-      [
-        'client1:begin',
-        'client1:lock',
-        'client1:read',
-        'client1:write',
-        'client1:commit',
-        'client1:release',
-      ]
-    );
-    const written = JSON.parse(pool.writtenValues[0] as string) as {
-      games: Array<{ providerGameId: number }>;
-    };
-    assert.equal(written.games[0]!.providerGameId, 301);
+    assert.ok(pool.committed.has(MERGE_KEY));
   });
 });
 
-// === File-fallback barrier behavior (dev/test serialization only) ===
+// === File-fallback behavior (dev/test serialization only) ===
+
+test('file accessor is dead after the callback settles (success and failure)', async () => {
+  let leakedSuccess: { read: () => Promise<unknown>; write: (v: unknown) => Promise<void> } | null =
+    null;
+  await withAppStateKeyTransaction('s', 'k', async (txn) => {
+    leakedSuccess = txn;
+    return 'ok';
+  });
+  await assert.rejects(leakedSuccess!.read(), /already finished/);
+  await assert.rejects(leakedSuccess!.write({ late: true }), /already finished/);
+
+  let leakedFailure: { read: () => Promise<unknown> } | null = null;
+  await assert.rejects(
+    withAppStateKeyTransaction('s', 'k', async (txn) => {
+      leakedFailure = txn;
+      throw new Error('callback failed');
+    }),
+    /callback failed/
+  );
+  await assert.rejects(leakedFailure!.read(), /already finished/);
+});
 
 test('barrier: same-key callbacks are mutually exclusive; unrelated keys are concurrent', async () => {
   const aInside = deferred();
@@ -423,13 +725,11 @@ test('a rejected same-key callback does not poison the next; settled chains are 
   const second = await withAppStateKeyTransaction('s', 'k', async () => 'second ok');
   assert.equal(second, 'second ok');
 
-  // Exercise several historical keys, then prove the chain map drains.
   await Promise.all(
     Array.from({ length: 5 }, (_, i) =>
       withAppStateKeyTransaction('s', `historic-${i}`, async () => i)
     )
   );
-  // Cleanup runs on the tail's microtask — yield once.
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(__appStateKeyLockChainCountForTests(), 0);
 });

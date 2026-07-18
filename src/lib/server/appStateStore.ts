@@ -323,6 +323,27 @@ export class AppStateTxnFinalizeError extends Error {
   }
 }
 
+/**
+ * ROLLBACK itself failed, so the transaction could not be confirmed cleanly
+ * aborted. The uncertain client is destroyed (never returned to the pool as
+ * healthy). `didWrite` distinguishes "no write statement ever ran — durable
+ * state defensibly unchanged" from "a write may have executed — durability
+ * unknown"; callers must not claim untouched state in the latter case.
+ * `cause` preserves the ORIGINAL failure that triggered the rollback;
+ * `cleanupCause` preserves the rollback's own error.
+ */
+export class AppStateTxnCleanupError extends Error {
+  readonly didWrite: boolean;
+  readonly cleanupCause: unknown;
+  constructor(cause: unknown, cleanupCause: unknown, didWrite: boolean) {
+    super('app-state key transaction cleanup failed');
+    this.name = 'AppStateTxnCleanupError';
+    this.cause = cause;
+    this.cleanupCause = cleanupCause;
+    this.didWrite = didWrite;
+  }
+}
+
 /** Transaction-scoped accessor for exactly one (scope, key). */
 export type AppStateKeyTxn = {
   read<T>(): Promise<AppStateRecord<T> | null>;
@@ -392,11 +413,34 @@ export async function withAppStateKeyTransaction<T>(
       },
     };
 
-    const rollback = async (): Promise<void> => {
+    // Client containment: a client whose transaction state is uncertain —
+    // failed COMMIT, failed ROLLBACK, protocol failure — must NEVER re-enter
+    // the pool as healthy. `release(error)` destroys the connection (pg
+    // removes it from the pool), which also guarantees the server drops any
+    // advisory lock still attached to it.
+    let released = false;
+    const releaseHealthy = (): void => {
+      if (released) return;
+      released = true;
+      client.release();
+    };
+    const releaseDestroy = (cause: unknown): void => {
+      if (released) return;
+      released = true;
+      try {
+        client.release(cause instanceof Error ? cause : new Error(String(cause)));
+      } catch {
+        // The connection is already gone; nothing healthier to do.
+      }
+    };
+
+    /** Confirmed-clean rollback? Returns the rollback error when NOT. */
+    const tryRollback = async (): Promise<{ ok: true } | { ok: false; error: unknown }> => {
       try {
         await client.query('rollback');
-      } catch {
-        // ignore — releasing the connection still frees the advisory lock
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error };
       }
     };
 
@@ -407,7 +451,9 @@ export async function withAppStateKeyTransaction<T>(
           `${scope}/${key}`,
         ]);
       } catch (error) {
-        await rollback();
+        const cleanup = await tryRollback();
+        if (cleanup.ok) releaseHealthy();
+        else releaseDestroy(cleanup.error);
         throw new AppStateKeyLockAcquireError(error);
       }
 
@@ -415,43 +461,81 @@ export async function withAppStateKeyTransaction<T>(
       try {
         result = await fn(txn);
       } catch (error) {
-        await rollback();
-        throw error;
+        const cleanup = await tryRollback();
+        if (cleanup.ok) {
+          releaseHealthy();
+          throw error;
+        }
+        releaseDestroy(cleanup.error);
+        throw new AppStateTxnCleanupError(error, cleanup.error, didWrite);
       }
 
       if (txnFailed) {
         // A statement inside the transaction failed (the callback handled the
         // rethrown error itself); the transaction is aborted — never COMMIT it.
-        await rollback();
+        const cleanup = await tryRollback();
+        if (cleanup.ok) releaseHealthy();
+        else {
+          releaseDestroy(cleanup.error);
+          throw new AppStateTxnCleanupError(
+            new Error('transaction statement failed'),
+            cleanup.error,
+            didWrite
+          );
+        }
         return result;
       }
 
       try {
         await client.query('commit');
       } catch (error) {
+        releaseDestroy(error);
         throw new AppStateTxnFinalizeError(error, didWrite);
+      }
+      // COMMIT succeeded: the durable result is CONFIRMED. A release failure
+      // after this point must never replace the confirmed result — destroy the
+      // client best-effort and return normally.
+      try {
+        releaseHealthy();
+      } catch (error) {
+        released = false;
+        releaseDestroy(error);
       }
       return result;
     } finally {
       finished = true;
-      client.release();
+      // Safety net for any path that somehow skipped explicit handling; a
+      // client of unknown state is destroyed, never returned as healthy.
+      if (!released) releaseDestroy(new Error('transaction exited without explicit release'));
     }
   }
 
   // File fallback: single-process serialization; reads/writes are immediately
-  // durable (no transaction), so finalization cannot fail here.
+  // durable (no transaction), so finalization cannot fail here. The accessor
+  // honors the SAME lifetime contract as the Postgres branch: once the
+  // callback settles, retained read/write calls fail instead of bypassing the
+  // per-key chain.
   const lockKey = buildCompositeKey(scope, key);
+  let fileFinished = false;
   const txn: AppStateKeyTxn = {
-    read: <V>() => getAppState<V>(scope, key),
+    read: async <V>() => {
+      if (fileFinished) throw new Error('app-state key transaction already finished');
+      return await getAppState<V>(scope, key);
+    },
     write: async <V>(value: V) => {
+      if (fileFinished) throw new Error('app-state key transaction already finished');
       await setAppState(scope, key, value);
     },
   };
+  const invoke = async (): Promise<T> => {
+    try {
+      return await fn(txn);
+    } finally {
+      fileFinished = true;
+    }
+  };
   const prev = keyLockChains.get(lockKey) ?? Promise.resolve();
-  const run = prev.then(
-    () => fn(txn),
-    () => fn(txn)
-  );
+  const run = prev.then(invoke, invoke);
   const tail = run.then(
     () => undefined,
     () => undefined
