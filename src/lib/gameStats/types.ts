@@ -57,10 +57,24 @@ export type TeamGameStats = {
   kickReturnTDs: number;
   puntReturnYards: number;
   puntReturnTDs: number;
+  /**
+   * Structural points evidence (PLATFORM-086H1): true ONLY when the provider
+   * wire carried valid points for this side. Absent on legacy rows — the
+   * legacy normalizer's `points` fallback zero is NOT evidence, so legacy
+   * points trust is bounded by the contract module instead of this flag.
+   */
+  pointsProvided?: boolean;
   raw: Record<string, string>;
 };
 
 export type GameStats = {
+  /**
+   * Per-game-row schema version (PLATFORM-086H1). Absent → legacy row; exactly
+   * `2` → strict-contract row. Interpretation of malformed/future values lives
+   * in `contract.ts` (`classifyGameStatsRow`). Reads never stamp legacy rows;
+   * no production writer emits v2 rows yet (dormant until PR 2/3).
+   */
+  schemaVersion?: 2;
   providerGameId: number;
   week: number;
   seasonType: CfbdSeasonType;
