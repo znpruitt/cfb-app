@@ -4,6 +4,7 @@ import type {
   GameStatsIngestionResult,
   GameStatsSlateExpectation,
   ObservationAttachmentCounts,
+  ParseFailureCounts,
 } from './ingestion.ts';
 import {
   evaluateGameStatsPartitionCoverage,
@@ -12,7 +13,6 @@ import {
 import type { WeeklyGameStats } from './types.ts';
 import type { ProviderRefreshScope } from '../providerRefreshScope.ts';
 import {
-  nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
@@ -55,7 +55,16 @@ import {
  *     definitive post-write coverage (durability is unknown; retry is safe);
  *   - a POST-COMMIT reread failure never reports the partition as
  *     successfully available: the merge may have committed, and the failure
- *     says exactly that (`game-stats-postcommit-reread-failed`).
+ *     says exactly that (`game-stats-postcommit-reread-failed`);
+ *   - success ordering uses the MERGE AUTHORITY'S commit stamp (captured
+ *     immediately after COMMIT, before any reread) — the finalizer never
+ *     generates a timestamp that could reorder commits, so a stalled reread
+ *     cannot let an older commit overwrite newer last-success metadata;
+ *   - provider-attempt DEGRADATION (parse failures, participant mismatches,
+ *     unresolved provider identities) survives a successful commit: the
+ *     attempt records as PARTIAL and the typed diagnostics ride the
+ *     publication — committed availability is not downgraded, but the
+ *     degraded attempt is never hidden.
  */
 
 /** Canonical reason a refresh attempt resolved the way it did (recovery bookkeeping). */
@@ -93,10 +102,41 @@ export type GameStatsRefreshPublication = {
   /** Coverage evaluated from the committed reread (null when unavailable). */
   coverage: GameStatsPartitionCoverage | null;
   reread: 'ok' | 'failed' | 'skipped';
-  /** Whether durable evidence/freshness advanced (recovery tier reset signal). */
-  meaningfulChange: boolean;
+  /** Durable changes the merge ACCEPTED (inserted + updated + fence-refreshed). */
+  acceptedGames: number;
   dispositionReason: GameStatsRefreshDispositionReason;
+  /**
+   * Provider-attempt diagnostics carried through publication (never erased by
+   * a successful commit). `degraded` is true when the payload carried parse
+   * failures, participant mismatches, or unresolved provider identities —
+   * recovery progress is NEVER judged from these (committed-coverage
+   * fingerprints own that); they exist for observability.
+   */
+  attempt: {
+    parseFailures: ParseFailureCounts;
+    attachment: ObservationAttachmentCounts | null;
+    degraded: boolean;
+  };
 };
+
+function attemptDiagnostics(ingestion: GameStatsIngestionResult): {
+  parseFailures: ParseFailureCounts;
+  attachment: ObservationAttachmentCounts | null;
+  degraded: boolean;
+} {
+  const parseFailures =
+    'parseFailures' in ingestion ? ingestion.parseFailures : ({} as ParseFailureCounts);
+  const attachment = 'attachment' in ingestion ? ingestion.attachment : null;
+  const parseFailureCount = Object.values(parseFailures).reduce(
+    (sum, count) => sum + (count ?? 0),
+    0
+  );
+  const degraded =
+    parseFailureCount > 0 ||
+    (attachment !== null &&
+      (attachment.participantMismatch > 0 || attachment.unresolvedParticipant > 0));
+  return { parseFailures, attachment, degraded };
+}
 
 function attachmentDetail(attachment: ObservationAttachmentCounts): string {
   return (
@@ -153,6 +193,7 @@ export async function finalizeGameStatsRefresh(
 ): Promise<GameStatsRefreshPublication> {
   const { ingestion, expectation, seasonRelation, scope, attempt, contextLabel } = params;
   const source = params.source ?? 'cfbd';
+  const diagnostics = attemptDiagnostics(ingestion);
 
   const fail = async (
     code: string,
@@ -175,8 +216,9 @@ export async function finalizeGameStatsRefresh(
       committed: null,
       coverage: null,
       reread: 'skipped',
-      meaningfulChange: false,
+      acceptedGames: 0,
       dispositionReason: reason,
+      attempt: diagnostics,
       ...extras,
     };
   };
@@ -217,8 +259,9 @@ export async function finalizeGameStatsRefresh(
         committed: null,
         coverage: null,
         reread: 'skipped',
-        meaningfulChange: false,
+        acceptedGames: 0,
         dispositionReason: 'empty-expected',
+        attempt: diagnostics,
       };
     }
     case 'no-attachable-observations': {
@@ -291,7 +334,7 @@ export async function finalizeGameStatsRefresh(
     return {
       ...publication,
       reread: 'failed',
-      meaningfulChange: accepted > 0,
+      acceptedGames: accepted,
       detail: error instanceof Error ? `${detail} (${error.message})` : detail,
     };
   }
@@ -300,28 +343,33 @@ export async function finalizeGameStatsRefresh(
   const complete = coverage.state === 'complete' || coverage.state === 'not-applicable';
 
   if (accepted > 0) {
-    const committedAt = new Date().toISOString();
-    const commitSeq = nextProviderCommitSeq();
-    const partial = !complete || merge.conflicts.length > 0;
+    // The commit stamp comes from the MERGE AUTHORITY, captured immediately
+    // after the confirmed COMMIT — never regenerated here, so a stalled
+    // reread/finalizer cannot reorder commits on the status ledger.
+    const partial = !complete || merge.conflicts.length > 0 || diagnostics.degraded;
     await recordProviderRefreshSuccess('game-stats', scope, {
       attempt,
-      committedAt,
-      commitSeq,
+      committedAt: merge.commit?.committedAt,
+      commitSeq: merge.commit?.commitSeq,
       source,
       rowsCommitted: accepted,
       partialFailure: partial,
     });
+    const degradedNote = diagnostics.degraded
+      ? '; provider payload degradation observed (parse/attachment diagnostics retained)'
+      : '';
     return {
       recorded: partial ? 'partial-success' : 'success',
-      detail: partial
-        ? `committed ${accepted} game(s); committed coverage is ${coverage.state} (${coverage.satisfied.length}/${coverage.expected.length} expected games satisfied)`
-        : `committed ${accepted} game(s); committed coverage is complete`,
+      detail: complete
+        ? `committed ${accepted} game(s); committed coverage is complete${degradedNote}`
+        : `committed ${accepted} game(s); committed coverage is ${coverage.state} (${coverage.satisfied.length}/${coverage.expected.length} expected games satisfied)${degradedNote}`,
       httpStatus: 200,
       committed,
       coverage,
       reread: 'ok',
-      meaningfulChange: true,
+      acceptedGames: accepted,
       dispositionReason: complete ? 'satisfied' : 'partial-coverage',
+      attempt: diagnostics,
     };
   }
 
@@ -336,8 +384,9 @@ export async function finalizeGameStatsRefresh(
       committed,
       coverage,
       reread: 'ok',
-      meaningfulChange: false,
+      acceptedGames: 0,
       dispositionReason: 'satisfied',
+      attempt: diagnostics,
     };
   }
 

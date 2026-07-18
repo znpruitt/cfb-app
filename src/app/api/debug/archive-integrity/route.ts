@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 
 import type { CfbdSeasonType } from '@/lib/cfbd';
 import { getCachedGameStats, listCachedGameStatsWeeks } from '@/lib/gameStats/cache';
-import { selectAnalyticsRows, type AnalyticsGameStats } from '@/lib/gameStats/contract';
+import type { AnalyticsGameStats } from '@/lib/gameStats/contract';
+import { buildScoreEvidenceByProviderId } from '@/lib/gameStats/scoreEvidence';
 import type { GameStats } from '@/lib/gameStats/types';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import type { AppGame } from '@/lib/schedule';
@@ -115,11 +116,8 @@ function compareWeeks(a: number | string, b: number | string): number {
 
 /**
  * PLATFORM-086H3: score-integrity comparison consumes the approved H1
- * analytics projection, never raw durable rows. Only rows with ELIGIBLE
- * points evidence project (strict v2 points evidence or bounded
- * legacy-compatible stored points) — a v2 row whose `pointsProvided` is
- * false, or any compatibility-defaulted fallback zero, is NOT a real score
- * and produces no diff. Duplicates resolve through the canonical selection.
+ * analytics projection (`buildScoreEvidenceByProviderId`), never raw durable
+ * rows — see `src/lib/gameStats/scoreEvidence.ts` for the eligibility rules.
  */
 async function loadGameStatsByProviderId(year: number): Promise<Map<number, AnalyticsGameStats>> {
   const weekKeys = await listCachedGameStatsWeeks(year);
@@ -134,11 +132,7 @@ async function loadGameStatsByProviderId(year: number): Promise<Map<number, Anal
     if (!stats) continue;
     rows.push(...stats.games);
   }
-  const map = new Map<number, AnalyticsGameStats>();
-  for (const projection of selectAnalyticsRows(rows).selected) {
-    map.set(projection.providerGameId, projection);
-  }
-  return map;
+  return buildScoreEvidenceByProviderId(rows);
 }
 
 function buildRoster(

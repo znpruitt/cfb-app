@@ -8,7 +8,10 @@ import {
   __resetAppStateForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
-import { seedGameStatsPartitionForTests } from '../../../../../lib/gameStats/__tests__/fixtures.ts';
+import {
+  seedGameStatsPartitionForTests,
+  seedGameStatsTeamDatabaseForTests,
+} from '../../../../../lib/gameStats/__tests__/fixtures.ts';
 import {
   setDatasetAutoRefreshEnabled,
   setGlobalPause,
@@ -52,8 +55,8 @@ async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseas
         startDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
         neutralSite: false,
         conferenceGame: false,
-        homeTeam: 'Alpha',
-        awayTeam: 'Beta',
+        homeTeam: 'Alpha State',
+        awayTeam: 'Beta Tech',
         homeConference: 'X',
         awayConference: 'Y',
         status: 'STATUS_FINAL',
@@ -65,6 +68,7 @@ async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseas
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedGameStatsTeamDatabaseForTests();
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
 });
 

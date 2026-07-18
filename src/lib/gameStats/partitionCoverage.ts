@@ -177,3 +177,24 @@ export function evaluateGameStatsPartitionCoverage(
 export function isPartitionRecoverySatisfied(coverage: GameStatsPartitionCoverage): boolean {
   return coverage.recoverable.length === 0 && coverage.absent.length === 0;
 }
+
+/**
+ * Deterministic committed-coverage fingerprint. Two coverages fingerprint
+ * equally exactly when their schedule-relative gap structure is identical:
+ * the typed state plus the per-game satisfied/recoverable/manual-only/
+ * blocked/absent identity sets (already sorted). Volatile observation fences
+ * and refresh timestamps deliberately do NOT participate — a fence-only
+ * refresh that changes no usable coverage fingerprints identically, so
+ * recovery never mistakes freshness for progress.
+ */
+export function computeCoverageFingerprint(coverage: GameStatsPartitionCoverage): string {
+  return JSON.stringify({
+    state: coverage.state,
+    expected: coverage.expected,
+    satisfied: coverage.satisfied,
+    recoverable: coverage.recoverable,
+    manualOnly: coverage.manualOnly,
+    blocked: coverage.blocked,
+    absent: coverage.absent,
+  });
+}

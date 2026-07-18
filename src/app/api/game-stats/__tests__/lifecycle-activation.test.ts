@@ -20,8 +20,9 @@ import {
   ingestGameStatsObservations,
 } from '../../../../lib/gameStats/ingestion.ts';
 import {
+  claimGameStatsRecoveryPartition,
+  finalizeGameStatsRecoveryClaim,
   readGameStatsRecoveryDisposition,
-  recordGameStatsRecoveryAttempt,
 } from '../../../../lib/gameStats/recoveryDisposition.ts';
 import { aggregateOwnerSeasonStats } from '../../../../lib/gameStats/ownerStats.ts';
 import { createTeamIdentityResolver } from '../../../../lib/teamIdentity.ts';
@@ -30,6 +31,7 @@ import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
 import {
   legacyRowFromWire,
   seedGameStatsPartitionForTests,
+  seedGameStatsTeamDatabaseForTests,
   wireGame,
 } from '../../../../lib/gameStats/__tests__/fixtures.ts';
 import type { Pool } from 'pg';
@@ -156,6 +158,7 @@ function stubThrow(message: string) {
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedGameStatsTeamDatabaseForTests();
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
   MUTABLE_ENV.ADMIN_API_TOKEN = ADMIN_TOKEN;
   MUTABLE_ENV.NODE_ENV = 'development';
@@ -544,19 +547,32 @@ for (const scenario of UNRESOLVED_RUN_SCENARIOS) {
 for (const injected of ['merge-conflict', 'durable-indeterminate', 'stale-insufficient'] as const) {
   test(`recovery bounding: a persisted ${injected} disposition prevents tight cron retry`, async () => {
     await seedSchedule([{ id: '5001' }]);
-    await recordGameStatsRecoveryAttempt({
+    // Seed the disposition through the real claim/finalize lifecycle.
+    const claimed = await claimGameStatsRecoveryPartition({
       year: YEAR,
       week: WEEK,
       seasonType: 'regular',
-      reason: injected,
-      meaningfulChange: false,
       now: Date.now(),
+      coverageFingerprint: 'fp-before',
+      scheduleFingerprint: 'sched-1',
+    });
+    assert.ok(claimed.claimed);
+    await finalizeGameStatsRecoveryClaim({
+      year: YEAR,
+      week: WEEK,
+      seasonType: 'regular',
+      attemptToken: claimed.claimed ? claimed.claim.attemptToken : '',
+      reason: injected,
+      now: Date.now(),
+      postCoverageFingerprint: 'fp-before',
+      priorCoverageFingerprint: 'fp-before',
+      scheduleChanged: false,
     });
     stubThrow('backing-off partitions must not be fetched');
     const res = await cronGet(cronRequest());
     const body = (await res.json()) as { skipped?: string };
     assert.equal(res.status, 200);
-    assert.match(String(body.skipped ?? ''), /backing off|awaiting operator/i);
+    assert.match(String(body.skipped ?? ''), /backing off|awaiting operator|claimed/i);
     assert.equal(fetchCalls, 0);
   });
 }
@@ -641,10 +657,10 @@ test('refresh: an authorized refresh writes v2 through the merge authority; a re
   assert.equal(first.status, 200);
   const firstBody = (await first.json()) as {
     games: unknown[];
-    meta: { durable?: { outcome: string; inserted: number } };
+    meta: { accepted?: number; availability?: { state: string } };
   };
-  assert.equal(firstBody.meta.durable?.outcome, 'written');
-  assert.equal(firstBody.meta.durable?.inserted, 1);
+  assert.equal(firstBody.meta.accepted, 1, 'one accepted durable change');
+  assert.equal(firstBody.meta.availability?.state, 'complete');
   assert.equal(firstBody.games.length, 1);
   const fence1 = (await getCachedGameStats(YEAR, WEEK, 'regular'))!.games[0]!.fetchStartedAt!;
 
@@ -652,11 +668,11 @@ test('refresh: an authorized refresh writes v2 through the merge authority; a re
   stubJson([GAME_A()]);
   const second = await publicGet(refreshRequest());
   const secondBody = (await second.json()) as {
-    meta: { durable?: { outcome: string; refreshed: number }; availability?: { state: string } };
+    meta: { accepted?: number; availability?: { state: string } };
   };
   assert.equal(second.status, 200);
-  assert.equal(secondBody.meta.durable?.outcome, 'written');
-  assert.equal(secondBody.meta.durable?.refreshed, 1);
+  assert.equal(second.status, 200);
+  assert.equal(secondBody.meta.accepted, 1, 'the fence-only refresh is an accepted durable change');
   assert.equal(secondBody.meta.availability?.state, 'complete');
   const fence2 = (await getCachedGameStats(YEAR, WEEK, 'regular'))!.games[0]!.fetchStartedAt!;
   assert.ok(fence2 >= fence1, 'freshness evidence advanced durably');
@@ -878,7 +894,15 @@ test('concurrency: disjoint same-partition writers converge through the transact
       awayTeam: 'Delta Agricultural',
     },
   ];
-  const resolver = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+  const resolver = createTeamIdentityResolver({
+    teams: [
+      { school: 'Alpha State', level: 'FBS' },
+      { school: 'Beta Tech', level: 'FBS' },
+      { school: 'Gamma Poly', level: 'FBS' },
+      { school: 'Delta Agricultural', level: 'FBS' },
+    ],
+    aliasMap: {},
+  });
   const expectation = deriveSlateExpectation({
     scheduleItems,
     resolver,
@@ -984,7 +1008,13 @@ async function withFakePg(fn: (pool: FakePgPool) => Promise<void>): Promise<void
   }
 }
 
-const UNCERTAINTY_RESOLVER = createTeamIdentityResolver({ teams: [], aliasMap: {} });
+const UNCERTAINTY_RESOLVER = createTeamIdentityResolver({
+  teams: [
+    { school: 'Alpha State', level: 'FBS' },
+    { school: 'Beta Tech', level: 'FBS' },
+  ],
+  aliasMap: {},
+});
 const UNCERTAINTY_SLATE = [
   {
     id: '5001',

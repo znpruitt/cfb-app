@@ -1,10 +1,6 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
 import { inferSubdivisionFromConference } from '../conferenceSubdivision.ts';
-import {
-  resolveTeamIdentityKey,
-  type TeamIdentityResolver,
-  type TeamSubdivision,
-} from '../teamIdentity.ts';
+import type { TeamIdentityResolver, TeamSubdivision } from '../teamIdentity.ts';
 import {
   isPersistableIncomingRow,
   isValidProviderGameId,
@@ -30,19 +26,30 @@ import { mergeGameStatsPartitionDurable, type DurableMergeResult } from './durab
  *      defines — a provider game id alone NEVER authorizes persistence: the
  *      observation's participants must resolve through `teamIdentity.ts` and
  *      agree with the canonical schedule's participants and orientation, the
- *      schedule classification must permit persistence (FCS-vs-FCS games are
- *      excluded even when scheduled), and the game must be provider-
- *      addressable with resolved (non-placeholder) participants;
+ *      schedule classification must be EXPLICITLY eligible, and the game must
+ *      be provider-addressable with resolved participants;
  *   3. hands the matched, validated observations to the PLATFORM-086H2
  *      durable merge authority, which serializes the read→merge→write under
  *      the per-partition transaction-scoped advisory lock.
  *
+ * Identity is AUTHORITATIVE-ONLY: a participant counts as identified exactly
+ * when the central resolver resolves it through the team registry or alias
+ * authority (`resolution.status === 'resolved'` with a canonical identity
+ * key). Normalized provider/schedule text is NEVER an identity — punctuation,
+ * whitespace, or case differences collapsing two labels to the same
+ * normalized string cannot authorize persistence, and a registry-unknown
+ * participant DEFERS its game (typed, never ordinary absence) until the team
+ * catalog or alias authority covers it.
+ *
+ * Classification is an EXPLICIT allowlist: a game persists only when both
+ * participants classify (resolver identity first, canonical-schedule
+ * conference policy fallback) to one of FBS/FBS, FBS/FCS, or FCS/FBS.
+ * FCS-vs-FCS is excluded; ANY unknown classification defers — unknown is
+ * never treated as FBS, never as FCS, and never persistable.
+ *
  * Invalid, uncertain, mismatched, unresolved, excluded, or empty responses
  * NEVER reach the merge and therefore can never destructively clear prior
- * durable evidence. Team comparison uses ONLY the centralized identity
- * resolution (`resolveTeamIdentityKey` — canonical identity key with the
- * central normalization fallback); no raw string equality, lowercase/trim
- * matching, or provider-specific alias logic exists here.
+ * durable evidence.
  */
 
 // === Canonical-schedule slate expectation ===
@@ -68,12 +75,12 @@ export type ScheduleSlateItem = {
 
 /** How a canonical schedule participant resolved through `teamIdentity.ts`. */
 export type ExpectedParticipantResolution =
-  /** Resolved to a registry identity (canonical or alias). */
+  /** Resolved to an authoritative registry identity (canonical or alias). */
   | 'resolved'
   /**
-   * A real team label the registry does not know — compared through the
-   * centralized normalization key. Common for FCS opponents outside the FBS
-   * team database; NOT a placeholder.
+   * A real-looking team label the registry/alias authority does not know.
+   * There is NO authoritative identity for it, so its game DEFERS — the
+   * central normalization of the label is never used as an identity.
    */
   | 'registry-unresolved'
   /** A placeholder/invalid label (TBD, bowl names, …) — not yet a team. */
@@ -83,13 +90,17 @@ export type ExpectedParticipant = {
   /** Canonical schedule label (raw wire value; display/debug only). */
   label: string;
   /**
-   * The sanctioned comparison key from `resolveTeamIdentityKey`: the resolved
-   * canonical identity key, or the central normalization of the label when
-   * the registry does not know it. Empty ONLY for placeholders.
+   * AUTHORITATIVE canonical identity key from the central resolver. Empty
+   * exactly when the participant is unresolved or a placeholder — an empty
+   * key can never match anything and never authorizes persistence.
    */
   identityKey: string;
   resolution: ExpectedParticipantResolution;
-  /** FBS/FCS classification: resolver identity first, else canonical-schedule conference policy. */
+  /**
+   * Explicit classification: `FBS`/`FCS` when authoritatively known (resolver
+   * identity first, canonical-schedule conference policy fallback), otherwise
+   * `UNKNOWN`. Unknown never persists and never counts as either subdivision.
+   */
   subdivision: TeamSubdivision;
 };
 
@@ -126,6 +137,17 @@ export type GameStatsSlateExpectation = {
    * id alone does NOT make a placeholder addressable — these defer.
    */
   placeholderIds: ReadonlySet<number>;
+  /**
+   * Numeric provider ids whose participants look like real teams but have NO
+   * authoritative registry/alias identity. Deferred (typed) — normalized
+   * label text never substitutes for identity.
+   */
+  unresolvedIds: ReadonlySet<number>;
+  /**
+   * Numeric provider ids whose participant classification is not explicitly
+   * eligible (any UNKNOWN side). Deferred — unknown never persists.
+   */
+  classificationUnknownIds: ReadonlySet<number>;
   /** Scheduled ids excluded from persistence by classification (FCS-vs-FCS). */
   excludedIds: ReadonlySet<number>;
   /**
@@ -134,6 +156,10 @@ export type GameStatsSlateExpectation = {
    * counted absent, never fetched.
    */
   deferredPlaceholders: number;
+  /** Games deferred because a participant has no authoritative identity. */
+  unresolvedParticipants: number;
+  /** Games deferred because classification is not explicitly eligible. */
+  classificationUnknown: number;
   /** Scheduled games excluded by FCS-vs-FCS classification. */
   excludedByClassification: number;
   /** Disrupted (canceled/postponed/…) slate games — never stat-producing. */
@@ -154,6 +180,33 @@ export function providerAddressableId(id: string | null | undefined): number | n
   return isValidProviderGameId(parsed) ? parsed : null;
 }
 
+/**
+ * Explicit persistence-eligible classification pairs (home|away). Everything
+ * else — any UNKNOWN side, FCS-vs-FCS — is rejected or deferred; eligibility
+ * is NEVER expressed as "not FCS/FCS".
+ */
+const ELIGIBLE_CLASSIFICATION_PAIRS: ReadonlySet<string> = new Set([
+  'FBS|FBS',
+  'FBS|FCS',
+  'FCS|FBS',
+]);
+
+/**
+ * Explicit classification for one participant. Only `FBS` and `FCS` are ever
+ * returned as known: the resolver identity's subdivision wins when it is one
+ * of those; otherwise the canonical-schedule conference policy may supply it;
+ * every other outcome (missing conference, unrecognized conference, OTHER
+ * divisions) is `UNKNOWN` — never eligible, never a default FCS.
+ */
+function classifyParticipant(
+  resolverSubdivision: TeamSubdivision | undefined,
+  conference: string | null | undefined
+): TeamSubdivision {
+  if (resolverSubdivision === 'FBS' || resolverSubdivision === 'FCS') return resolverSubdivision;
+  const inferred = inferSubdivisionFromConference(conference);
+  return inferred === 'FBS' || inferred === 'FCS' ? inferred : 'UNKNOWN';
+}
+
 function deriveParticipant(
   resolver: TeamIdentityResolver,
   label: string | null | undefined,
@@ -164,20 +217,23 @@ function deriveParticipant(
   if (resolution.resolutionSource === 'invalid_label') {
     return { label: raw, identityKey: '', resolution: 'placeholder', subdivision: 'UNKNOWN' };
   }
-  const identityKey = resolveTeamIdentityKey(resolver, raw);
-  if (identityKey.length === 0) {
-    return { label: raw, identityKey: '', resolution: 'placeholder', subdivision: 'UNKNOWN' };
+  // AUTHORITATIVE identity only: the resolver's canonical identity key from
+  // the registry/alias authority. A registry-unknown label keeps an EMPTY
+  // key — the central normalization of the text is deliberately never used,
+  // so two distinct labels that merely normalize alike can never match.
+  if (resolution.status !== 'resolved' || !resolution.identityKey) {
+    return {
+      label: raw,
+      identityKey: '',
+      resolution: 'registry-unresolved',
+      subdivision: 'UNKNOWN',
+    };
   }
-  const resolverSubdivision = resolution.status === 'resolved' ? resolution.subdivision : undefined;
-  const subdivision =
-    resolverSubdivision && resolverSubdivision !== 'UNKNOWN' && resolverSubdivision !== 'OTHER'
-      ? resolverSubdivision
-      : inferSubdivisionFromConference(conference);
   return {
     label: raw,
-    identityKey,
-    resolution: resolution.status === 'resolved' ? 'resolved' : 'registry-unresolved',
-    subdivision,
+    identityKey: resolution.identityKey,
+    resolution: 'resolved',
+    subdivision: classifyParticipant(resolution.subdivision, conference),
   };
 }
 
@@ -204,8 +260,12 @@ export function deriveSlateExpectation(params: {
   const expectedIds = new Set<number>();
   const pendingIds = new Set<number>();
   const placeholderIds = new Set<number>();
+  const unresolvedIds = new Set<number>();
+  const classificationUnknownIds = new Set<number>();
   const excludedIds = new Set<number>();
   let deferredPlaceholders = 0;
+  let unresolvedParticipants = 0;
+  let classificationUnknown = 0;
   let excludedByClassification = 0;
   let disrupted = 0;
 
@@ -224,20 +284,31 @@ export function deriveSlateExpectation(params: {
     const home = deriveParticipant(resolver, item.homeTeam, item.homeConference);
     const away = deriveParticipant(resolver, item.awayTeam, item.awayConference);
 
-    // A numeric provider id is NOT sufficient placeholder resolution: until
-    // both canonical participants resolve to real teams, the game defers.
+    // A numeric provider id is NOT sufficient resolution: until both
+    // canonical participants carry an AUTHORITATIVE identity, the game defers.
     if (home.resolution === 'placeholder' || away.resolution === 'placeholder') {
       placeholderIds.add(providerId);
       deferredPlaceholders += 1;
       continue;
     }
+    if (home.resolution !== 'resolved' || away.resolution !== 'resolved') {
+      unresolvedIds.add(providerId);
+      unresolvedParticipants += 1;
+      continue;
+    }
 
-    // Classification comes from the canonical schedule/team registry, never
-    // from provider-stat availability: FCS-vs-FCS games are excluded even
-    // when scheduled; FBS-vs-FBS, FBS-vs-FCS, and FCS-vs-FBS persist.
+    // Explicit classification allowlist from the canonical schedule/team
+    // registry, never from provider-stat availability: FCS-vs-FCS games are
+    // excluded even when scheduled; ANY unknown classification defers.
+    const pair = `${home.subdivision}|${away.subdivision}`;
     if (home.subdivision === 'FCS' && away.subdivision === 'FCS') {
       excludedIds.add(providerId);
       excludedByClassification += 1;
+      continue;
+    }
+    if (!ELIGIBLE_CLASSIFICATION_PAIRS.has(pair)) {
+      classificationUnknownIds.add(providerId);
+      classificationUnknown += 1;
       continue;
     }
 
@@ -265,11 +336,45 @@ export function deriveSlateExpectation(params: {
     expectedIds,
     pendingIds,
     placeholderIds,
+    unresolvedIds,
+    classificationUnknownIds,
     excludedIds,
     deferredPlaceholders,
+    unresolvedParticipants,
+    classificationUnknown,
     excludedByClassification,
     disrupted,
   };
+}
+
+/**
+ * Deterministic canonical-schedule expectation fingerprint. It changes exactly
+ * when the schedule-relative meaning of the slate changes — a placeholder or
+ * unresolved participant resolving, a participant identity changing, a
+ * classification becoming known (or a game becoming excluded), a new expected
+ * game appearing, or addressability/phase changing — and never from
+ * timestamps, refresh times, or ordering noise. Recovery uses it to reset
+ * backoff ONLY on substantive schedule change.
+ */
+export function computeScheduleExpectationFingerprint(
+  expectation: GameStatsSlateExpectation
+): string {
+  const games = [...expectation.games.values()]
+    .map(
+      (game) =>
+        `${game.providerGameId}:${game.home.identityKey}:${game.away.identityKey}:${game.phase}:${
+          game.neutralSite ? 'n' : 'h'
+        }`
+    )
+    .sort();
+  return JSON.stringify({
+    games,
+    placeholders: [...expectation.placeholderIds].sort((a, b) => a - b),
+    unresolved: [...expectation.unresolvedIds].sort((a, b) => a - b),
+    classificationUnknown: [...expectation.classificationUnknownIds].sort((a, b) => a - b),
+    excluded: [...expectation.excludedIds].sort((a, b) => a - b),
+    deferredPlaceholders: expectation.deferredPlaceholders,
+  });
 }
 
 // === Payload validation ===
@@ -356,16 +461,30 @@ export function emptyAttachmentCounts(): ObservationAttachmentCounts {
 }
 
 /**
+ * AUTHORITATIVE identity key for a provider participant label: the central
+ * resolver's canonical identity, or empty when no registry/alias authority
+ * covers the label. Normalized text is never returned — an unresolved
+ * provider participant can never match anything.
+ */
+function authoritativeIdentityKey(resolver: TeamIdentityResolver, label: string): string {
+  const resolution = resolver.resolveName(label);
+  return resolution.status === 'resolved' && resolution.identityKey ? resolution.identityKey : '';
+}
+
+/**
  * Classify one parsed observation against the canonical slate expectation.
  *
  * Persistence authority requires ALL of: a scheduled provider game id, both
- * provider participants resolving through the centralized identity path, and
+ * provider participants resolving to AUTHORITATIVE canonical identities, and
  * agreement with the canonical schedule participants in schedule orientation.
  * Orientation exception (documented): for a schedule-owned NEUTRAL-SITE game
  * the provider designation may be reversed — the participants must still be
  * the same canonical identities, merely swapped; home/away for a non-neutral
- * game must match exactly. Everything else is typed non-persistable and can
- * never modify durable state.
+ * game must match exactly. Scheduled games whose OWN participants are
+ * placeholders, registry-unresolved, or classification-unknown are deferred
+ * targets (`placeholder-deferred` at the attachment layer; the expectation
+ * keeps the distinct counts). Everything else is typed non-persistable and
+ * can never modify durable state.
  */
 export function classifyObservationAttachment(
   observation: ParsedV2Observation,
@@ -376,12 +495,18 @@ export function classifyObservationAttachment(
   const game = expectation.games.get(id);
   if (!game) {
     if (expectation.excludedIds.has(id)) return 'excluded-classification';
-    if (expectation.placeholderIds.has(id)) return 'placeholder-deferred';
+    if (
+      expectation.placeholderIds.has(id) ||
+      expectation.unresolvedIds.has(id) ||
+      expectation.classificationUnknownIds.has(id)
+    ) {
+      return 'placeholder-deferred';
+    }
     return 'unscheduled-id';
   }
 
-  const homeKey = resolveTeamIdentityKey(resolver, observation.home.school);
-  const awayKey = resolveTeamIdentityKey(resolver, observation.away.school);
+  const homeKey = authoritativeIdentityKey(resolver, observation.home.school);
+  const awayKey = authoritativeIdentityKey(resolver, observation.away.school);
   if (homeKey.length === 0 || awayKey.length === 0) return 'unresolved-participant';
 
   if (homeKey === game.home.identityKey && awayKey === game.away.identityKey) return 'matched';

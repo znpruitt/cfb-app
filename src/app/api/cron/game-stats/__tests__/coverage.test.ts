@@ -16,6 +16,7 @@ import { getCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
 import {
   legacyRowFromWire,
   seedGameStatsPartitionForTests,
+  seedGameStatsTeamDatabaseForTests,
   wireGame,
 } from '../../../../../lib/gameStats/__tests__/fixtures.ts';
 import {
@@ -121,6 +122,7 @@ function stubThrow(message: string) {
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedGameStatsTeamDatabaseForTests();
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
   globalThis.fetch = ORIGINAL_FETCH;
 });

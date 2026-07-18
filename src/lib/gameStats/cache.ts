@@ -36,6 +36,10 @@ export async function listCachedGameStatsWeeks(year: number): Promise<string[]> 
  * game content instead of key existence (PLATFORM-086A 4th-review finding #3).
  */
 export async function listCachedGameStats(year: number): Promise<WeeklyGameStats[]> {
-  const entries = await getAppStateEntries<WeeklyGameStats>(SCOPE, `${year}:`);
-  return entries.map((entry) => entry.value);
+  const entries = await getAppStateEntries<WeeklyGameStats | null>(SCOPE, `${year}:`);
+  // Structural floor only: a null/non-object stored value is not a partition.
+  // Envelope/row validation stays at the read boundary.
+  return entries
+    .map((entry) => entry.value)
+    .filter((value): value is WeeklyGameStats => typeof value === 'object' && value !== null);
 }

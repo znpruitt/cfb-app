@@ -8,7 +8,10 @@ import {
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats } from '../../../../lib/gameStats/cache.ts';
-import { wireGame } from '../../../../lib/gameStats/__tests__/fixtures.ts';
+import {
+  seedGameStatsTeamDatabaseForTests,
+  wireGame,
+} from '../../../../lib/gameStats/__tests__/fixtures.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
 
@@ -65,6 +68,7 @@ function stubJson(body: unknown) {
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedGameStatsTeamDatabaseForTests();
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.ADMIN_API_TOKEN = ADMIN_TOKEN;
   globalThis.fetch = ORIGINAL_FETCH;
@@ -151,11 +155,12 @@ test('manual refresh: a valid payload merges durably and records success after c
   assert.equal(res.status, 200);
   const body = (await res.json()) as {
     games: unknown[];
-    meta: { cache: string; durable?: { outcome: string } };
+    meta: { cache: string; accepted?: number; availability?: { state: string } };
   };
   assert.equal(body.games.length, 1);
   assert.equal(body.meta.cache, 'miss');
-  assert.equal(body.meta.durable?.outcome, 'written');
+  assert.equal(body.meta.accepted, 1);
+  assert.equal(body.meta.availability?.state, 'complete');
 
   const stored = await getCachedGameStats(YEAR, 3, 'regular');
   assert.equal(stored?.games.length, 1, 'the record is committed');

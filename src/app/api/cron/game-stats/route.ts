@@ -2,27 +2,20 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
-import { listCachedGameStats } from '@/lib/gameStats/cache';
-import { loadGameStatsIdentityResolver } from '@/lib/gameStats/identityContext';
-import { ingestGameStatsObservations } from '@/lib/gameStats/ingestion';
-import { planGameStatsRecovery } from '@/lib/gameStats/recovery';
 import {
-  readGameStatsRecoveryDispositions,
-  recordGameStatsRecoveryAttempt,
-} from '@/lib/gameStats/recoveryDisposition';
-import {
-  finalizeGameStatsRefresh,
-  type GameStatsRefreshPublication,
-} from '@/lib/gameStats/refreshPublication';
-import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
+  runScheduledGameStatsRefresh,
+  type ScheduledGameStatsRefreshResult,
+} from '@/lib/gameStats/refreshOrchestration';
+import type { GameStatsRefreshPublication } from '@/lib/gameStats/refreshPublication';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
-import { weekPartitionScope } from '@/lib/providerRefreshScope';
-import {
-  beginProviderRefreshAttempt,
-  recordProviderRefreshFailure,
-} from '@/lib/server/providerRefreshStatus';
 
 export const dynamic = 'force-dynamic';
+
+// PLATFORM-086H3: this route is a THIN shell over the game-stats refresh
+// orchestration boundary — it owns cron authentication, the pause gate, the
+// provider transport (URL/retry policy), and HTTP shaping, and imports NO
+// durable mutation, status publication, recovery disposition, or coverage
+// machinery (the activation guard enforces that ownership).
 
 const CFBD_API_KEY = process.env.CFBD_API_KEY ?? '';
 
@@ -58,6 +51,7 @@ type CronResult = {
   error?: string;
   detail?: string;
   coverage?: CronCoverageSummary;
+  recovery?: string;
 };
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
@@ -88,6 +82,20 @@ function coverageSummary(
   };
 }
 
+function fetchGameTeamStats(target: {
+  year: number;
+  week: number;
+  seasonType: CfbdSeasonType;
+}): Promise<unknown> {
+  const cfbdUrl = buildCfbdGameTeamStatsUrl(target);
+  return fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
+    headers: { Authorization: `Bearer ${CFBD_API_KEY}` },
+    timeoutMs: 15_000,
+    retry: RETRY_POLICY,
+    pacing: PACING_POLICY,
+  });
+}
+
 export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   const authResult = verifyCronSecret(req);
   if (authResult !== 'ok') {
@@ -113,8 +121,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   // Operational auto-refresh control (PLATFORM-086A): game-stats is a
   // NONCRITICAL ingestion job, so it honors the global pause and its per-dataset
   // enable flag. Manual admin refresh (/api/game-stats?bypassCache=1) stays
-  // available even when paused. (The lifecycle-critical season-transition cron is
-  // exempt and does not call this.)
+  // available even when paused.
   if (!(await isAutoRefreshAllowed('game-stats'))) {
     return NextResponse.json({
       ...emptyResult,
@@ -122,208 +129,95 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     });
   }
 
-  // Schedule-relative recovery target resolution (PLATFORM-086H3): compare
-  // canonical schedule expectations (WITH canonical participants and
-  // classification) against COMMITTED durable evidence and the durable
-  // recovery disposition, then take the newest ELIGIBLE slate still needing
-  // repair — a backed-off newer slate rotates selection to older eligible
-  // ones. Cache-only — no provider call — and it runs BEFORE credential
-  // validation so every outcome records against the exact week partition this
-  // run targets, never the year rollup. A failure HERE (schedule, identity
-  // context, durable coverage, or disposition read) uses the established cron
-  // error path WITHOUT assigning the failure to any data scope: no target has
-  // been verified, and a read failure must never be reinterpreted as absent
-  // coverage.
-  let plan: ReturnType<typeof planGameStatsRecovery>;
-  let resolver: Awaited<ReturnType<typeof loadGameStatsIdentityResolver>>;
+  let result: ScheduledGameStatsRefreshResult;
   try {
-    const scheduleItems = await loadCachedScheduleItems(year);
-    if (scheduleItems.length === 0) {
-      return NextResponse.json({
-        ...emptyResult,
-        skipped: 'no completed weeks found in cached schedule',
-      });
-    }
-    const [loadedResolver, records, dispositions] = await Promise.all([
-      loadGameStatsIdentityResolver(),
-      listCachedGameStats(year),
-      readGameStatsRecoveryDispositions(year),
-    ]);
-    resolver = loadedResolver;
-    plan = planGameStatsRecovery({
+    result = await runScheduledGameStatsRefresh({
       year,
-      scheduleItems,
-      resolver,
-      records,
-      dispositions,
       now: Date.now(),
-      seasonRelation: 'current',
+      providerConfigured: Boolean(CFBD_API_KEY),
+      fetchPayload: fetchGameTeamStats,
     });
-    if (!plan.target) {
-      let skipped: string;
-      if (plan.candidates.length > 0) {
-        skipped = `all ${plan.candidates.length} recovery candidate(s) are backing off or awaiting operator action`;
-      } else if (plan.satisfied.length > 0) {
-        skipped = `all ${plan.satisfied.length} completed slate(s) already satisfied by committed durable evidence`;
-      } else {
-        skipped = 'no completed weeks found in cached schedule';
-      }
-      return NextResponse.json({ ...emptyResult, skipped });
-    }
   } catch (err) {
+    // Target resolution / identity context / claim persistence failure: the
+    // established cron error path, with NO provider call spent and no failure
+    // assigned to a data scope that was never verified.
     return NextResponse.json(
       { ...emptyResult, error: err instanceof Error ? err.message : 'unknown error' },
       { status: 500 }
     );
   }
 
-  const target = plan.target;
-  const { week, seasonType, expectation } = target;
-  const weekScope = weekPartitionScope(year, week, seasonType);
-  const contextLabel = `week ${week} ${seasonType}`;
-
-  const recordDisposition = async (
-    reason: GameStatsRefreshPublication['dispositionReason'],
-    meaningfulChange: boolean
-  ): Promise<void> => {
-    try {
-      await recordGameStatsRecoveryAttempt({
-        year,
-        week,
-        seasonType,
-        reason,
-        meaningfulChange,
-        now: Date.now(),
-      });
-    } catch (error) {
-      // Disposition bookkeeping is best-effort operational state: a failed
-      // write must not overturn the already-published refresh outcome.
-      console.error('game-stats recovery disposition write failed', {
-        year,
-        week,
-        seasonType,
-        reason,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
-
-  if (!CFBD_API_KEY) {
-    // Missing credential on an unpaused cron WITH a resolved target: record a
-    // failed attempt against THIS week partition (not the year rollup) so the
-    // panel shows the automatic refresh is broken and a later successful run of
-    // the same week can replace it through normal attempt ordering. Prior-good
-    // data is preserved. No disposition escalation: the failure is local
-    // configuration, not partition state.
-    const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
-      startedAt: new Date().toISOString(),
-    });
-    await recordProviderRefreshFailure('game-stats', weekScope, {
-      attempt,
-      error: 'CFBD_API_KEY not configured',
-      code: 'cfbd-api-key-missing',
-      status: 500,
-    });
-    return NextResponse.json(
-      { ...emptyResult, week, seasonType, error: 'CFBD_API_KEY not configured' },
-      { status: 500 }
-    );
-  }
-
-  const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
-    startedAt: new Date().toISOString(),
-  });
-
-  try {
-    // Observation fence: when THIS provider fetch started. Captured before the
-    // request so a reordered older observation can never outrank a newer one.
-    const fetchStartedAt = new Date().toISOString();
-    const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
-    const rawGames = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
-      headers: { Authorization: `Bearer ${CFBD_API_KEY}` },
-      timeoutMs: 15_000,
-      retry: RETRY_POLICY,
-      pacing: PACING_POLICY,
-    });
-
-    // Validation → canonical attachment → durable merge authority → committed
-    // durable reread → coverage → truthful publication. The finalize path owns
-    // the whole outcome matrix; the cron only shapes the HTTP body and records
-    // the recovery disposition that bounds future runs.
-    const ingestion = await ingestGameStatsObservations({
-      year,
-      week,
-      seasonType,
-      fetchStartedAt,
-      payload: rawGames,
-      expectation,
-      resolver,
-    });
-
-    const publication = await finalizeGameStatsRefresh({
-      ingestion,
-      expectation,
-      seasonRelation: 'current',
-      scope: weekScope,
-      attempt,
-      contextLabel,
-    });
-    await recordDisposition(publication.dispositionReason, publication.meaningfulChange);
-
-    const coverage = coverageSummary(publication);
-    if (publication.recorded === 'failure') {
+  switch (result.kind) {
+    case 'skipped':
+      return NextResponse.json({ ...emptyResult, skipped: result.detail });
+    case 'config-failure':
       return NextResponse.json(
         {
           ...emptyResult,
-          week,
-          seasonType,
-          error: publication.code,
-          detail: publication.detail,
-          coverage,
+          week: result.week,
+          seasonType: result.seasonType,
+          error: 'CFBD_API_KEY not configured',
         },
-        { status: publication.httpStatus }
+        { status: 500 }
       );
-    }
-    if (publication.recorded === 'noop') {
-      return NextResponse.json({
-        year,
-        week,
-        seasonType,
-        gamesProcessed: 0,
-        fetchedAt: null,
-        skipped: `${contextLabel}: ${publication.detail}`,
-        coverage,
-      });
-    }
-    const accepted =
-      ingestion.kind === 'merged'
-        ? ingestion.merge.inserted.length +
-          ingestion.merge.updated.length +
-          ingestion.merge.refreshed.length
-        : 0;
-    return NextResponse.json({
-      year,
-      week,
-      seasonType,
-      gamesProcessed: accepted,
-      fetchedAt: fetchStartedAt,
-      ...(publication.recorded === 'partial-success' ? { detail: publication.detail } : {}),
-      coverage,
-    });
-  } catch (err) {
-    await recordProviderRefreshFailure('game-stats', weekScope, {
-      attempt,
-      error: err instanceof Error ? err.message : 'unknown error',
-    });
-    await recordDisposition('provider-unavailable', false);
+    case 'provider-failure':
+      return NextResponse.json(
+        {
+          ...emptyResult,
+          week: result.week,
+          seasonType: result.seasonType,
+          error: result.error instanceof Error ? result.error.message : 'unknown error',
+          ...(result.recovery.outcome === 'failed'
+            ? { recovery: `disposition finalization failed: ${result.recovery.detail}` }
+            : {}),
+        },
+        { status: 500 }
+      );
+    case 'executed':
+      break;
+  }
+
+  const { publication } = result;
+  const coverage = coverageSummary(publication);
+  const recovery =
+    result.recovery.outcome === 'failed'
+      ? `disposition finalization failed: ${result.recovery.detail}`
+      : undefined;
+
+  if (publication.recorded === 'failure') {
     return NextResponse.json(
       {
         ...emptyResult,
-        week,
-        seasonType,
-        error: err instanceof Error ? err.message : 'unknown error',
+        week: result.week,
+        seasonType: result.seasonType,
+        error: publication.code,
+        detail: publication.detail,
+        coverage,
+        ...(recovery ? { recovery } : {}),
       },
-      { status: 500 }
+      { status: publication.httpStatus }
     );
   }
+  if (publication.recorded === 'noop') {
+    return NextResponse.json({
+      year,
+      week: result.week,
+      seasonType: result.seasonType,
+      gamesProcessed: 0,
+      fetchedAt: null,
+      skipped: `week ${result.week} ${result.seasonType}: ${publication.detail}`,
+      coverage,
+      ...(recovery ? { recovery } : {}),
+    });
+  }
+  return NextResponse.json({
+    year,
+    week: result.week,
+    seasonType: result.seasonType,
+    gamesProcessed: publication.acceptedGames,
+    fetchedAt: result.fetchStartedAt,
+    ...(publication.recorded === 'partial-success' ? { detail: publication.detail } : {}),
+    coverage,
+    ...(recovery ? { recovery } : {}),
+  });
 }

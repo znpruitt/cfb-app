@@ -26,7 +26,9 @@ const FENCE = '2026-10-15T12:00:00.000Z';
 
 // Registry with FBS/FCS classification for the canonical-attachment tests.
 // The fixture wire schools (Alpha State / Beta Tech / …) resolve through the
-// registry; conference policy classifies schedule sides the registry lacks.
+// registry. 'Grass Valley' and 'Pine Flats' are catalogued WITHOUT a level so
+// classification falls back to the canonical-schedule conference policy;
+// anything outside the catalog/alias authority is UNRESOLVED (no identity).
 const RESOLVER = createTeamIdentityResolver({
   teams: [
     { school: 'Alpha State', level: 'FBS' },
@@ -34,6 +36,8 @@ const RESOLVER = createTeamIdentityResolver({
     { school: 'Gamma Poly', level: 'FBS' },
     { school: 'Little Brook', level: 'FCS' },
     { school: 'Stony Vale', level: 'FCS' },
+    { school: 'Grass Valley' },
+    { school: 'Pine Flats' },
   ],
   aliasMap: { 'alpha st.': 'Alpha State' },
 });
@@ -171,20 +175,21 @@ test('expectation: scheduled FCS-vs-FCS games are excluded by classification', (
 });
 
 test('expectation: FCS classification also derives from canonical-schedule conference policy', () => {
-  // Sides the registry does not know classify through the schedule conference
-  // (Big Sky is policy-FCS) — never through provider-stat availability.
+  // Catalogued sides WITHOUT a registry level classify through the schedule
+  // conference (Big Sky is policy-FCS) — never through provider-stat
+  // availability, and never by defaulting an unknown to FCS.
   const expectation = expectationFor([
     item({
       id: '105',
-      homeTeam: 'Unknown Northern',
-      awayTeam: 'Unknown Southern',
+      homeTeam: 'Grass Valley',
+      awayTeam: 'Pine Flats',
       homeConference: 'Big Sky',
       awayConference: 'Big Sky',
     }),
     item({
       id: '106',
       homeTeam: 'Alpha State',
-      awayTeam: 'Unknown Southern',
+      awayTeam: 'Grass Valley',
       awayConference: 'Big Sky',
     }),
   ]);
@@ -193,6 +198,102 @@ test('expectation: FCS classification also derives from canonical-schedule confe
     [...expectation.excludedIds],
     [105],
     'FCS-vs-FCS excluded via conference policy'
+  );
+});
+
+test('expectation: a registry-UNKNOWN participant has no identity and defers its game', () => {
+  // 'Unknown Northern' is outside the catalog/alias authority: normalized
+  // text is never an identity, so the game defers as unresolved — it is not
+  // expected, not excluded, and never provider-eligible.
+  const expectation = expectationFor([
+    item({ id: '107', awayTeam: 'Unknown Northern', awayConference: 'Big Sky' }),
+    item({ id: '108' }),
+  ]);
+  assert.deepEqual([...expectation.expectedIds], [108]);
+  assert.deepEqual([...expectation.unresolvedIds], [107]);
+  assert.equal(expectation.unresolvedParticipants, 1);
+});
+
+test('expectation: UNKNOWN classification defers — never treated as FBS or FCS', () => {
+  // Catalogued identity but no registry level AND no recognized conference:
+  // classification is UNKNOWN, which is outside the explicit allowlist.
+  const expectation = expectationFor([
+    item({ id: '109', awayTeam: 'Grass Valley', awayConference: null }),
+    item({ id: '110', awayTeam: 'Grass Valley', awayConference: 'Mystery League' }),
+    item({ id: '111' }),
+  ]);
+  assert.deepEqual([...expectation.expectedIds], [111]);
+  assert.deepEqual([...expectation.classificationUnknownIds].sort(), [109, 110]);
+  assert.equal(expectation.classificationUnknown, 2);
+});
+
+test('identity: distinct labels that merely NORMALIZE alike can never match (collision regressions)', () => {
+  // 'A-B' and 'AB' normalize to the same string; neither is in the registry,
+  // so neither carries an identity and nothing can match or persist.
+  const collisionPairs: Array<[string, string]> = [
+    ['A-B', 'AB'], // punctuation collapse
+    ['North  Ridge', 'North Ridge'], // whitespace collapse
+    ['pine flats', 'PINE FLATS'], // case-only difference without alias authority
+    ['St. Marks', 'St Marks'], // punctuation difference
+  ];
+  for (const [scheduleLabel, providerLabel] of collisionPairs) {
+    const expectation = expectationFor([
+      item({ id: '150', homeTeam: scheduleLabel, awayTeam: 'Beta Tech' }),
+    ]);
+    if (expectation.games.has(150)) {
+      // Case-only labels of a CATALOGUED school resolve through the central
+      // registry normalization — that is alias/registry authority, not text
+      // matching; the pair still resolves to ONE identity, so a provider
+      // label naming a DIFFERENT school cannot match it (covered below).
+      const observation = observationOf(
+        wireGame({ id: 150, home: { school: providerLabel, teamId: 900 } })
+      );
+      const state = classifyObservationAttachment(observation, expectation, RESOLVER);
+      assert.ok(
+        state === 'matched' || state === 'participant-mismatch',
+        `${scheduleLabel} vs ${providerLabel}: attachment stays identity-governed`
+      );
+    } else {
+      // Registry-unknown labels defer as unresolved; a catalogued case-variant
+      // without classification authority defers as classification-unknown.
+      // Either way the game is NEVER expected and never provider-eligible.
+      assert.ok(
+        expectation.unresolvedIds.has(150) ||
+          expectation.placeholderIds.has(150) ||
+          expectation.classificationUnknownIds.has(150),
+        `${scheduleLabel} defers without authoritative identity/classification`
+      );
+      assert.ok(!expectation.expectedIds.has(150));
+    }
+  }
+});
+
+test('identity: two distinct registry-unknown participants with similar labels never persist', () => {
+  const expectation = expectationFor([
+    item({ id: '152', homeTeam: 'Ridge-Field', awayTeam: 'Beta Tech' }),
+  ]);
+  assert.ok(expectation.unresolvedIds.has(152), 'the schedule side defers');
+  // Even if the game WERE addressable, a registry-unknown provider label
+  // ('RidgeField', normalizing identically) has no identity to match with.
+  const otherSlate = expectationFor([item({ id: '153' })]);
+  const observation = observationOf(
+    wireGame({ id: 153, home: { school: 'RidgeField', teamId: 900 } })
+  );
+  assert.equal(
+    classifyObservationAttachment(observation, otherSlate, RESOLVER),
+    'unresolved-participant'
+  );
+});
+
+test('identity: a schedule-RESOLVED participant never matches an unresolved provider label', () => {
+  const expectation = expectationFor([item({ id: '151' })]); // Alpha State vs Beta Tech
+  const observation = observationOf(
+    wireGame({ id: 151, home: { school: 'Alpha Statee', teamId: 900 } }) // registry-unknown typo
+  );
+  assert.equal(
+    classifyObservationAttachment(observation, expectation, RESOLVER),
+    'unresolved-participant',
+    'an unresolved provider participant never authorizes persistence'
   );
 });
 

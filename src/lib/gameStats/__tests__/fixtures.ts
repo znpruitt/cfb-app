@@ -33,6 +33,31 @@ export async function seedGameStatsPartitionForTests(record: WeeklyGameStats): P
   await setAppState('game-stats', `${record.year}:${record.week}:${record.seasonType}`, record);
 }
 
+/**
+ * Test-only team-database seeding. Identity is AUTHORITATIVE-only since the
+ * canonical-attachment remediation: participants resolve exclusively through
+ * the durable team catalog + alias authority, so route-level tests seed the
+ * catalog their fixture schools (and schedule labels) resolve against.
+ * Defaults cover the shared wire-fixture identities.
+ */
+export async function seedGameStatsTeamDatabaseForTests(
+  extraTeams: Array<{ school: string; level?: string | null; conference?: string | null }> = []
+): Promise<void> {
+  await setAppState('team-database', 'current', {
+    source: 'cfbd',
+    updatedAt: new Date(0).toISOString(),
+    items: [
+      { school: 'Alpha State', level: 'FBS' },
+      { school: 'Beta Tech', level: 'FBS' },
+      { school: 'Gamma Poly', level: 'FBS' },
+      { school: 'Delta Agricultural', level: 'FBS' },
+      { school: 'Little Brook', level: 'FCS' },
+      { school: 'Stony Vale', level: 'FCS' },
+      ...extraTeams,
+    ],
+  });
+}
+
 export type WireStatOverrides = Record<string, string | null>;
 
 /**

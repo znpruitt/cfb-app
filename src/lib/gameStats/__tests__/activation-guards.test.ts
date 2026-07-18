@@ -13,48 +13,36 @@ import * as durableMergeModule from '../durableMerge.ts';
 import * as partitionCoverageModule from '../partitionCoverage.ts';
 import * as recoveryModule from '../recovery.ts';
 import * as recoveryDispositionModule from '../recoveryDisposition.ts';
+import * as refreshOrchestrationModule from '../refreshOrchestration.ts';
 import * as refreshPublicationModule from '../refreshPublication.ts';
+import * as readAvailabilityModule from '../readAvailability.ts';
 import * as publicProjectionModule from '../publicProjection.ts';
 
-// PLATFORM-086H3 — activation guards (AST-based).
+// PLATFORM-086H3 — activation guards.
 //
-// The guards enforce the ACTIVATED game-stats architecture boundary with the
-// TypeScript compiler API rather than fixed-symbol regexes, so ordinary
-// aliases and wrappers cannot slip past them. What the analysis STRUCTURALLY
-// GUARANTEES (documented per requirement — this is a boundary enforcement,
-// not a proof of arbitrary program semantics):
+// The primary boundary is MODULE OWNERSHIP over RESOLVED IMPORTS: sensitive
+// capabilities (durable mutation, the transaction lock, refresh-status
+// publication, recovery-disposition mutation, coverage evaluation, raw
+// durable-row reads) are importable only by their designated owners, so a
+// production file simply cannot obtain the capability outside its ownership
+// domain. A secondary AST pass catches in-file bypass shapes (aliases,
+// namespace members, const-derived scope strings, same-file wrappers) for the
+// capabilities that ARE legitimately imported elsewhere.
 //
-//   1. WRITER BYPASS: in every production source file, no call reaches a
-//      durable mutation primitive (`setAppState` / `deleteAppState`) with the
-//      `game-stats` evidence scope — including calls through renamed imports,
-//      namespace-member access, same-file `const` aliases, and same-file
-//      wrapper functions whose bodies touch a mutation primitive, and
-//      including scope names carried through same-file `const` string
-//      bindings. Cross-FILE wrapper laundering is additionally cut off by
-//      rule 3 (the writer routes may not import mutation primitives at all)
-//      and by the module boundary (only the merge authority owns the
-//      transaction primitive).
-//   2. LOCK OWNERSHIP: `withAppStateKeyTransaction` is referenced ONLY by its
-//      defining module and the durable merge authority — no independent
-//      serialization domain can exist.
-//   3. ROUTE BOUNDARY: the game-stats writer routes import NO durable
-//      mutation primitive, and no game-stats lifecycle file other than the
-//      committed-state finalize path references success/no-op publication —
-//      success cannot be published without the committed reread + coverage
-//      evaluation that path performs.
-//   4. RETIRED PATHS: the blind-overwrite setter name and any production
-//      import of the legacy normalizer module fail the scan.
-//   5. LIFECYCLE WIRING: the activated pipeline is CONNECTED — the routes
-//      call recovery planning / expectation derivation, ingestion, and the
-//      finalize path; ingestion actually calls the merge authority;
-//      finalization actually rereads durable state and evaluates coverage;
-//      analytics, diagnostics, and cache-state reporting actually call the
-//      shared projection/coverage. A dead (disconnected) merge or coverage
-//      call site fails.
-//
-// Self-tests at the bottom prove the analyzer flags representative bypasses
-// (aliases, wrappers, namespace members, const-derived scopes, disconnected
-// wiring) and stays quiet on clean sources.
+// WHAT THIS STRUCTURALLY GUARANTEES (and what it does not):
+//   ✔ no production file outside the allowlists can IMPORT the guarded
+//     capabilities (resolved specifiers, all import forms);
+//   ✔ within any single file, ordinary aliasing/wrapping of an imported
+//     mutation primitive cannot reach the game-stats evidence scope
+//     undetected (fixed-point alias/wrapper propagation, scope strings
+//     through const chains, wrapper scope arguments at any position);
+//   ✔ the activated lifecycle is CONNECTED (each stage's file really calls
+//     its downstream stage).
+//   ✖ it does NOT prove arbitrary cross-file control flow, reachability, or
+//     dead code — those cases cannot arise in production ownership precisely
+//     BECAUSE the import boundary keeps unauthorized files from obtaining
+//     the capability in the first place; a file on an allowlist is owned,
+//     reviewed lifecycle code.
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -72,7 +60,6 @@ function toPosix(p: string): string {
 const EXCLUDED_DIRS = new Set(['__tests__', '__fixtures__', 'fixtures']);
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
 
-/** Repo-relative POSIX paths of every scannable production source file. */
 function listProductionSources(): string[] {
   const results: string[] = [];
   const walk = (dir: string): void => {
@@ -90,56 +77,140 @@ function listProductionSources(): string[] {
   return results.sort();
 }
 
-// --- module-specifier resolution helpers ---
+// --- module-specifier resolution ---
 
-function resolveRelative(specifier: string, importerRepoRelativePath: string): string {
+function resolveSpecifier(specifier: string, importerRepoRelativePath: string): string {
+  const normalized = specifier.replace(/\\/g, '/').replace(/\.(js|mjs|cjs|ts|mts|cts|tsx)$/, '');
+  if (normalized.startsWith('@/')) return `src/${normalized.slice(2)}`;
+  if (!normalized.startsWith('.')) return normalized; // bare package
   return path.posix.normalize(
-    path.posix.join(path.posix.dirname(toPosix(importerRepoRelativePath)), specifier)
+    path.posix.join(path.posix.dirname(toPosix(importerRepoRelativePath)), normalized)
   );
 }
 
-function specifierTargets(
-  specifier: string,
-  importerRepoRelativePath: string,
-  moduleSuffix: string // e.g. 'server/appStateStore' | 'gameStats/normalizers'
-): boolean {
-  const normalized = specifier.replace(/\\/g, '/');
-  const stripped = normalized.replace(/\.(js|mjs|cjs|ts|mts|cts|tsx)$/, '');
-  if (stripped.includes(moduleSuffix)) return true;
-  if (!stripped.startsWith('.')) return false;
-  const resolved = resolveRelative(stripped, importerRepoRelativePath);
-  return resolved === `src/lib/${moduleSuffix}` || resolved.endsWith(`/${moduleSuffix}`);
-}
+// --- ownership boundaries (resolved module → named export → allowed importers) ---
 
-// --- the analyzer ---
+const GAME_STATS_ROUTES = [
+  'src/app/api/cron/game-stats/route.ts',
+  'src/app/api/game-stats/route.ts',
+];
 
-const MUTATION_NAMES = new Set(['setAppState', 'deleteAppState']);
-const LOCK_NAME = 'withAppStateKeyTransaction';
-const RETIRED_SETTER = 'setCachedGameStats';
-const GAME_STATS_SCOPE = 'game-stats';
-
-const LOCK_ALLOWED = new Set([
-  'src/lib/server/appStateStore.ts',
-  'src/lib/gameStats/durableMerge.ts',
-]);
-const NORMALIZERS_SELF = 'src/lib/gameStats/normalizers.ts';
-
-/** Game-stats writer routes: no durable mutation primitive may be imported. */
 function isGameStatsRouteFile(file: string): boolean {
   return (
     file.startsWith('src/app/api/cron/game-stats/') || file.startsWith('src/app/api/game-stats/')
   );
 }
-
-/** Game-stats lifecycle files where success/no-op publication is forbidden. */
-const PUBLICATION_NAMES = new Set(['recordProviderRefreshSuccess', 'recordProviderRefreshNoop']);
-const PUBLICATION_ALLOWED = new Set([
-  'src/lib/server/providerRefreshStatus.ts',
-  'src/lib/gameStats/refreshPublication.ts',
-]);
 function isGameStatsLifecycleFile(file: string): boolean {
   return isGameStatsRouteFile(file) || file.startsWith('src/lib/gameStats/');
 }
+
+type OwnershipRule = {
+  /** Resolved module path (repo-relative, extensionless). */
+  module: string;
+  /** Named exports this rule guards. */
+  names: readonly string[];
+  /** Exact production files allowed to import those names. */
+  allowed: ReadonlySet<string>;
+  /** Restrict enforcement to a subset of files (default: all production). */
+  appliesTo?: (file: string) => boolean;
+  rule: string;
+};
+
+const OWNERSHIP_RULES: OwnershipRule[] = [
+  {
+    // The transaction-lock primitive: only the two durable authorities.
+    module: 'src/lib/server/appStateStore',
+    names: ['withAppStateKeyTransaction'],
+    allowed: new Set([
+      'src/lib/gameStats/durableMerge.ts',
+      'src/lib/gameStats/recoveryDisposition.ts',
+    ]),
+    rule: 'transaction-lock-ownership',
+  },
+  {
+    // Durable mutation primitives: forbidden across the ENTIRE game-stats
+    // lifecycle except the recovery-metadata owner (whose scope usage the AST
+    // pass further restricts). Other datasets' files are out of scope here —
+    // the AST scope check still covers them for the game-stats scope.
+    module: 'src/lib/server/appStateStore',
+    names: ['setAppState', 'deleteAppState'],
+    allowed: new Set(['src/lib/gameStats/recoveryDisposition.ts']),
+    appliesTo: isGameStatsLifecycleFile,
+    rule: 'evidence-mutation-ownership',
+  },
+  {
+    // Refresh-status SUCCESS/NOOP publication: only the committed-coverage
+    // finalization boundary (within the game-stats lifecycle).
+    module: 'src/lib/server/providerRefreshStatus',
+    names: ['recordProviderRefreshSuccess', 'recordProviderRefreshNoop'],
+    allowed: new Set(['src/lib/gameStats/refreshPublication.ts']),
+    appliesTo: isGameStatsLifecycleFile,
+    rule: 'status-publication-ownership',
+  },
+  {
+    // Failure recording + attempt begin: finalization boundary plus the
+    // orchestration (pre-ingestion provider/config failures). Routes: never.
+    module: 'src/lib/server/providerRefreshStatus',
+    names: ['recordProviderRefreshFailure', 'beginProviderRefreshAttempt'],
+    allowed: new Set([
+      'src/lib/gameStats/refreshPublication.ts',
+      'src/lib/gameStats/refreshOrchestration.ts',
+    ]),
+    appliesTo: isGameStatsLifecycleFile,
+    rule: 'status-publication-ownership',
+  },
+  {
+    // Recovery metadata MUTATION: only the orchestration boundary.
+    module: 'src/lib/gameStats/recoveryDisposition',
+    names: [
+      'claimGameStatsRecoveryPartition',
+      'finalizeGameStatsRecoveryClaim',
+      'retireGameStatsRecoveryDisposition',
+    ],
+    allowed: new Set(['src/lib/gameStats/refreshOrchestration.ts']),
+    rule: 'recovery-mutation-ownership',
+  },
+  {
+    // Coverage evaluation: the shared consumers — never the writer routes.
+    module: 'src/lib/gameStats/partitionCoverage',
+    names: ['evaluateGameStatsPartitionCoverage'],
+    allowed: new Set([
+      'src/lib/gameStats/recovery.ts',
+      'src/lib/gameStats/refreshPublication.ts',
+      'src/lib/gameStats/refreshOrchestration.ts',
+      'src/lib/gameStats/readAvailability.ts',
+      'src/lib/server/providerDataDiagnostics.ts',
+    ]),
+    rule: 'coverage-ownership',
+  },
+  {
+    // Raw durable-row readers: lifecycle internals + documented compatibility
+    // readers (insights, debug diagnostics). Writer routes: never — they
+    // serve committed state through the finalize/read boundaries.
+    module: 'src/lib/gameStats/cache',
+    names: ['getCachedGameStats', 'listCachedGameStats', 'listCachedGameStatsWeeks'],
+    allowed: new Set([
+      'src/lib/gameStats/durableMerge.ts',
+      'src/lib/gameStats/refreshPublication.ts',
+      'src/lib/gameStats/refreshOrchestration.ts',
+      'src/lib/gameStats/readAvailability.ts',
+      'src/lib/insights/context.ts',
+      'src/lib/server/providerDataDiagnostics.ts',
+      'src/app/api/debug/archive-integrity/route.ts',
+      'src/app/api/debug/game-stats-diagnostic/route.ts',
+    ]),
+    rule: 'raw-row-ownership',
+  },
+  {
+    // The refresh orchestration entry points: the writer routes only.
+    module: 'src/lib/gameStats/refreshOrchestration',
+    names: ['runScheduledGameStatsRefresh', 'runManualGameStatsRefresh'],
+    allowed: new Set(GAME_STATS_ROUTES),
+    rule: 'orchestration-ownership',
+  },
+];
+
+// --- guard analysis ---
 
 export type GuardViolation = { file: string; rule: string; detail: string; line: number };
 
@@ -147,10 +218,18 @@ function lineAt(sourceFile: ts.SourceFile, node: ts.Node): number {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
+const MUTATION_NAMES = new Set(['setAppState', 'deleteAppState']);
+const LOCK_NAME = 'withAppStateKeyTransaction';
+const RETIRED_SETTER = 'setCachedGameStats';
+const GAME_STATS_SCOPE = 'game-stats';
+const NORMALIZERS_SELF = 'src/lib/gameStats/normalizers.ts';
+
 /**
- * Pure AST analysis of one production source. Two passes: collect import
- * bindings, namespace names, local aliases/wrappers, and const string
- * bindings; then flag violating references/calls.
+ * Analyze one production source. Two passes: (1) resolve imports — ownership
+ * violations, and local binding names for guarded capabilities (including
+ * renames and namespace imports); (2) AST bypass scan — retired setter,
+ * lock use via ANY binding, mutation calls whose scope argument (const-chain
+ * resolved, any wrapper argument position) is the game-stats evidence scope.
  */
 export function analyzeProductionSource(
   source: string,
@@ -165,20 +244,17 @@ export function analyzeProductionSource(
     repoRelativePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   );
 
-  // Pass 1a: import bindings from appStateStore.
-  const mutationBindings = new Set<string>(); // local names bound to setAppState/deleteAppState
-  const lockBindings = new Set<string>(); // local names bound to withAppStateKeyTransaction
-  const storeNamespaces = new Set<string>(); // `import * as ns` of appStateStore
-  let importsNormalizers = false;
+  // Pass 1: imports.
+  const mutationBindings = new Set<string>();
+  const lockBindings = new Set<string>();
+  const storeNamespaces = new Set<string>();
+
   const visitImports = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
       const spec = node.moduleSpecifier;
       if (spec && ts.isStringLiteral(spec)) {
-        if (
-          repoRelativePath !== NORMALIZERS_SELF &&
-          specifierTargets(spec.text, repoRelativePath, 'gameStats/normalizers')
-        ) {
-          importsNormalizers = true;
+        const resolved = resolveSpecifier(spec.text, repoRelativePath);
+        if (repoRelativePath !== NORMALIZERS_SELF && resolved === 'src/lib/gameStats/normalizers') {
           violations.push({
             file: repoRelativePath,
             rule: 'legacy-normalizer-import',
@@ -186,12 +262,51 @@ export function analyzeProductionSource(
             line: lineAt(sourceFile, node),
           });
         }
-        if (
-          ts.isImportDeclaration(node) &&
-          specifierTargets(spec.text, repoRelativePath, 'server/appStateStore')
-        ) {
-          const clause = node.importClause;
-          const bindings = clause?.namedBindings;
+
+        // Ownership rules over the resolved module.
+        for (const rule of OWNERSHIP_RULES) {
+          if (resolved !== rule.module) continue;
+          if (rule.appliesTo && !rule.appliesTo(repoRelativePath)) continue;
+          if (rule.allowed.has(repoRelativePath)) continue;
+          if (ts.isImportDeclaration(node)) {
+            const bindings = node.importClause?.namedBindings;
+            if (bindings && ts.isNamedImports(bindings)) {
+              for (const element of bindings.elements) {
+                const imported = (element.propertyName ?? element.name).text;
+                if (rule.names.includes(imported)) {
+                  violations.push({
+                    file: repoRelativePath,
+                    rule: rule.rule,
+                    detail: `"${imported}" imported outside its ownership boundary`,
+                    line: lineAt(sourceFile, element),
+                  });
+                }
+              }
+            }
+            if (bindings && ts.isNamespaceImport(bindings)) {
+              // A namespace import of a guarded module grants every export —
+              // treat it as importing all guarded names.
+              violations.push({
+                file: repoRelativePath,
+                rule: rule.rule,
+                detail: `namespace import of guarded module "${spec.text}"`,
+                line: lineAt(sourceFile, node),
+              });
+            }
+          } else {
+            // Re-export from a guarded module outside its boundary.
+            violations.push({
+              file: repoRelativePath,
+              rule: rule.rule,
+              detail: `re-export from guarded module "${spec.text}"`,
+              line: lineAt(sourceFile, node),
+            });
+          }
+        }
+
+        // Binding collection for the AST pass (any file, incl. allowed ones).
+        if (resolved === 'src/lib/server/appStateStore' && ts.isImportDeclaration(node)) {
+          const bindings = node.importClause?.namedBindings;
           if (bindings && ts.isNamedImports(bindings)) {
             for (const element of bindings.elements) {
               const imported = (element.propertyName ?? element.name).text;
@@ -200,18 +315,15 @@ export function analyzeProductionSource(
               if (imported === LOCK_NAME) lockBindings.add(local);
             }
           }
-          if (bindings && ts.isNamespaceImport(bindings)) {
-            storeNamespaces.add(bindings.name.text);
-          }
+          if (bindings && ts.isNamespaceImport(bindings)) storeNamespaces.add(bindings.name.text);
         }
       }
     }
     ts.forEachChild(node, visitImports);
   };
   visitImports(sourceFile);
-  void importsNormalizers;
 
-  // Pass 1b: same-file const aliases, wrapper functions, and scope strings.
+  // Pass 1b: same-file alias/wrapper/const-string propagation (fixed point).
   const isTrackedMutationExpr = (expr: ts.Expression): boolean => {
     if (ts.isIdentifier(expr)) return mutationBindings.has(expr.text);
     if (ts.isPropertyAccessExpression(expr)) {
@@ -223,10 +335,20 @@ export function analyzeProductionSource(
     }
     return false;
   };
+  const isTrackedLockExpr = (expr: ts.Expression): boolean => {
+    if (ts.isIdentifier(expr)) return lockBindings.has(expr.text);
+    if (ts.isPropertyAccessExpression(expr)) {
+      return (
+        ts.isIdentifier(expr.expression) &&
+        storeNamespaces.has(expr.expression.text) &&
+        expr.name.text === LOCK_NAME
+      );
+    }
+    return false;
+  };
 
   const constStrings = new Map<string, string>();
   const wrapperNames = new Set<string>();
-  let grew = true;
   const touchesMutation = (node: ts.Node): boolean => {
     let found = false;
     const walk = (n: ts.Node): void => {
@@ -249,7 +371,7 @@ export function analyzeProductionSource(
     walk(node);
     return found;
   };
-  // Iterate to a fixed point so alias-of-alias and wrapper-of-wrapper resolve.
+  let grew = true;
   while (grew) {
     grew = false;
     const collect = (node: ts.Node): void => {
@@ -257,16 +379,24 @@ export function analyzeProductionSource(
         const name = node.name.text;
         if (ts.isStringLiteralLike(node.initializer) && !constStrings.has(name)) {
           constStrings.set(name, node.initializer.text);
+          grew = true;
+        }
+        // Chained const-string aliases: const a = 'game-stats'; const b = a;
+        if (
+          ts.isIdentifier(node.initializer) &&
+          constStrings.has(node.initializer.text) &&
+          !constStrings.has(name)
+        ) {
+          constStrings.set(name, constStrings.get(node.initializer.text)!);
+          grew = true;
         }
         if (isTrackedMutationExpr(node.initializer) && !mutationBindings.has(name)) {
           mutationBindings.add(name);
           grew = true;
         }
-        if (ts.isIdentifier(node.initializer) && lockBindings.has(node.initializer.text)) {
-          if (!lockBindings.has(name)) {
-            lockBindings.add(name);
-            grew = true;
-          }
+        if (isTrackedLockExpr(node.initializer) && !lockBindings.has(name)) {
+          lockBindings.add(name);
+          grew = true;
         }
         if (
           (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
@@ -288,14 +418,18 @@ export function analyzeProductionSource(
     collect(sourceFile);
   }
 
-  const isGameStatsScopeArg = (arg: ts.Expression | undefined): boolean => {
-    if (!arg) return false;
+  const isGameStatsScopeExpr = (arg: ts.Expression): boolean => {
     if (ts.isStringLiteralLike(arg)) return arg.text === GAME_STATS_SCOPE;
     if (ts.isIdentifier(arg)) return constStrings.get(arg.text) === GAME_STATS_SCOPE;
     return false;
   };
 
-  // Pass 2: violations.
+  // Pass 2: bypass violations.
+  const lockAllowed =
+    repoRelativePath === 'src/lib/server/appStateStore.ts' ||
+    repoRelativePath === 'src/lib/gameStats/durableMerge.ts' ||
+    repoRelativePath === 'src/lib/gameStats/recoveryDisposition.ts';
+
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node) && node.text === RETIRED_SETTER) {
       violations.push({
@@ -305,61 +439,43 @@ export function analyzeProductionSource(
         line: lineAt(sourceFile, node),
       });
     }
-    if (ts.isIdentifier(node) && node.text === LOCK_NAME && !LOCK_ALLOWED.has(repoRelativePath)) {
-      violations.push({
-        file: repoRelativePath,
-        rule: 'independent-transaction-lock',
-        detail: 'per-key transaction primitive referenced outside the merge authority',
-        line: lineAt(sourceFile, node),
-      });
-    }
-    if (
-      ts.isIdentifier(node) &&
-      PUBLICATION_NAMES.has(node.text) &&
-      isGameStatsLifecycleFile(repoRelativePath) &&
-      !PUBLICATION_ALLOWED.has(repoRelativePath)
-    ) {
-      violations.push({
-        file: repoRelativePath,
-        rule: 'publication-outside-finalize',
-        detail: `"${node.text}" outside the committed-state finalize path`,
-        line: lineAt(sourceFile, node),
-      });
-    }
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
-      const calleeIsMutation =
-        (ts.isIdentifier(callee) &&
-          (mutationBindings.has(callee.text) || wrapperNames.has(callee.text))) ||
+      // Lock use via ANY binding (aliased import, alias chain, namespace).
+      if (!lockAllowed && isTrackedLockExpr(callee)) {
+        violations.push({
+          file: repoRelativePath,
+          rule: 'independent-transaction-lock',
+          detail: 'per-key transaction primitive invoked outside the durable authorities',
+          line: lineAt(sourceFile, node),
+        });
+      }
+      const calleeIsDirectMutation =
+        (ts.isIdentifier(callee) && mutationBindings.has(callee.text)) ||
         (ts.isPropertyAccessExpression(callee) &&
           ts.isIdentifier(callee.expression) &&
           storeNamespaces.has(callee.expression.text) &&
           MUTATION_NAMES.has(callee.name.text));
-      if (calleeIsMutation && isGameStatsScopeArg(node.arguments[0])) {
-        violations.push({
-          file: repoRelativePath,
-          rule: 'direct-game-stats-write',
-          detail: 'durable mutation reached with the game-stats evidence scope',
-          line: lineAt(sourceFile, node),
-        });
+      const calleeIsWrapper = ts.isIdentifier(callee) && wrapperNames.has(callee.text);
+      if (calleeIsDirectMutation || calleeIsWrapper) {
+        // Direct mutation: scope is the first argument. Wrappers: the scope
+        // may sit at ANY argument position.
+        const args = calleeIsWrapper ? node.arguments : node.arguments.slice(0, 1);
+        // The recovery-metadata owner may write its own scope; the evidence
+        // scope is forbidden for EVERYONE via mutation primitives.
+        if (args.some(isGameStatsScopeExpr)) {
+          violations.push({
+            file: repoRelativePath,
+            rule: 'direct-game-stats-write',
+            detail: 'durable mutation reached with the game-stats evidence scope',
+            line: lineAt(sourceFile, node),
+          });
+        }
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-
-  // Route boundary: the writer routes import NO mutation primitive at all.
-  if (
-    isGameStatsRouteFile(repoRelativePath) &&
-    (mutationBindings.size > 0 || lockBindings.size > 0 || storeNamespaces.size > 0)
-  ) {
-    violations.push({
-      file: repoRelativePath,
-      rule: 'writer-route-mutation-import',
-      detail: 'game-stats writer route imports a durable mutation primitive',
-      line: 1,
-    });
-  }
 
   return violations;
 }
@@ -393,16 +509,20 @@ type WiringRequirement = { file: string; calls: string[] };
 const LIFECYCLE_WIRING: WiringRequirement[] = [
   {
     file: 'src/app/api/cron/game-stats/route.ts',
-    calls: ['planGameStatsRecovery', 'ingestGameStatsObservations', 'finalizeGameStatsRefresh'],
+    calls: ['runScheduledGameStatsRefresh'],
   },
   {
     file: 'src/app/api/game-stats/route.ts',
+    calls: ['readPublicGameStats', 'runManualGameStatsRefresh', 'buildPublicWeeklyGameStats'],
+  },
+  {
+    file: 'src/lib/gameStats/refreshOrchestration.ts',
     calls: [
-      'deriveSlateExpectation',
+      'planGameStatsRecovery',
+      'claimGameStatsRecoveryPartition',
       'ingestGameStatsObservations',
       'finalizeGameStatsRefresh',
-      'toPublicWeeklyGameStats',
-      'evaluateGameStatsPartitionCoverage',
+      'finalizeGameStatsRecoveryClaim',
     ],
   },
   { file: 'src/lib/gameStats/ingestion.ts', calls: ['mergeGameStatsPartitionDurable'] },
@@ -410,13 +530,25 @@ const LIFECYCLE_WIRING: WiringRequirement[] = [
     file: 'src/lib/gameStats/refreshPublication.ts',
     calls: ['getCachedGameStats', 'evaluateGameStatsPartitionCoverage'],
   },
+  {
+    file: 'src/lib/gameStats/readAvailability.ts',
+    calls: ['evaluateGameStatsPartitionCoverage', 'buildPublicWeeklyGameStats'],
+  },
   { file: 'src/lib/gameStats/recovery.ts', calls: ['evaluateGameStatsPartitionCoverage'] },
   { file: 'src/lib/gameStats/ownerStats.ts', calls: ['selectAnalyticsRows'] },
+  { file: 'src/lib/gameStats/scoreEvidence.ts', calls: ['selectAnalyticsRows'] },
   {
     file: 'src/lib/server/providerDataDiagnostics.ts',
     calls: ['evaluateGameStatsPartitionCoverage'],
   },
-  { file: 'src/lib/server/providerCacheState.ts', calls: ['selectAnalyticsRows'] },
+  {
+    file: 'src/lib/server/providerCacheState.ts',
+    calls: ['evaluateYearGameStatsAvailability'],
+  },
+  {
+    file: 'src/app/api/debug/archive-integrity/route.ts',
+    calls: ['buildScoreEvidenceByProviderId'],
+  },
 ];
 
 function findWiringGaps(read: (file: string) => string): string[] {
@@ -432,9 +564,9 @@ function findWiringGaps(read: (file: string) => string): string[] {
   return gaps;
 }
 
-// === 1. Writer-bypass guard over the real production tree ===
+// === 1. Ownership + bypass guard over the real production tree ===
 
-test('no production source bypasses the durable game-stats merge authority', () => {
+test('no production source violates the game-stats architecture boundaries', () => {
   const files = listProductionSources();
   assert.ok(files.length > 100, `expected a full production scan, saw ${files.length} files`);
 
@@ -471,25 +603,30 @@ test('the activated modules expose the lifecycle surface end to end', () => {
   assert.equal(typeof ingestionModule.validateGameStatsPayload, 'function');
   assert.equal(typeof ingestionModule.deriveSlateExpectation, 'function');
   assert.equal(typeof ingestionModule.classifyObservationAttachment, 'function');
+  assert.equal(typeof ingestionModule.computeScheduleExpectationFingerprint, 'function');
   assert.equal(typeof ingestionModule.ingestGameStatsObservations, 'function');
   assert.equal(typeof durableMergeModule.mergeGameStatsPartitionDurable, 'function');
-  assert.equal(typeof durableMergeModule.computeWeeklyGameStatsMerge, 'function');
   assert.equal(typeof partitionCoverageModule.evaluateGameStatsPartitionCoverage, 'function');
-  assert.equal(typeof partitionCoverageModule.isPartitionRecoverySatisfied, 'function');
+  assert.equal(typeof partitionCoverageModule.computeCoverageFingerprint, 'function');
   assert.equal(typeof recoveryModule.planGameStatsRecovery, 'function');
-  assert.equal(typeof recoveryDispositionModule.recordGameStatsRecoveryAttempt, 'function');
+  assert.equal(typeof recoveryDispositionModule.claimGameStatsRecoveryPartition, 'function');
+  assert.equal(typeof recoveryDispositionModule.finalizeGameStatsRecoveryClaim, 'function');
   assert.equal(typeof recoveryDispositionModule.isRecoveryEligible, 'function');
+  assert.equal(typeof refreshOrchestrationModule.runScheduledGameStatsRefresh, 'function');
+  assert.equal(typeof refreshOrchestrationModule.runManualGameStatsRefresh, 'function');
   assert.equal(typeof refreshPublicationModule.finalizeGameStatsRefresh, 'function');
-  assert.equal(typeof publicProjectionModule.toPublicWeeklyGameStats, 'function');
+  assert.equal(typeof readAvailabilityModule.readPublicGameStats, 'function');
+  assert.equal(typeof readAvailabilityModule.validateWeeklyGameStatsEnvelope, 'function');
+  assert.equal(typeof readAvailabilityModule.evaluateYearGameStatsAvailability, 'function');
+  assert.equal(typeof publicProjectionModule.buildPublicWeeklyGameStats, 'function');
   assert.equal(typeof contractModule.selectAnalyticsRows, 'function');
-  assert.equal(typeof contractModule.toAnalyticsGameStats, 'function');
 });
 
-// === Analyzer self-tests: representative bypasses MUST be flagged ===
+// === Analyzer self-tests ===
 
-const STORE_IMPORT = `import { setAppState, deleteAppState } from '../../lib/server/appStateStore';`;
+const STORE_IMPORT = `import { setAppState, deleteAppState } from './server/appStateStore';`;
 
-function rulesOf(source: string, file = 'src/app/api/example/route.ts'): string[] {
+function rulesOf(source: string, file: string): string[] {
   return analyzeProductionSource(source, file).map((v) => v.rule);
 }
 
@@ -497,12 +634,6 @@ test('analyzer: direct literal-scope writes are flagged', () => {
   assert.ok(
     rulesOf(
       `${STORE_IMPORT}\nawait setAppState('game-stats', key, value);`,
-      'src/lib/example.ts'
-    ).includes('direct-game-stats-write')
-  );
-  assert.ok(
-    rulesOf(
-      `${STORE_IMPORT}\nawait deleteAppState(\`game-stats\`, key);`,
       'src/lib/example.ts'
     ).includes('direct-game-stats-write')
   );
@@ -516,31 +647,43 @@ put(scope, value);`;
   assert.ok(rulesOf(source, 'src/lib/example.ts').includes('direct-game-stats-write'));
 });
 
-test('analyzer: renamed import bindings are flagged', () => {
-  const source = `import { setAppState as persist } from '../server/appStateStore';
-await persist('game-stats', key, value);`;
+test('analyzer: CHAINED scope constants are flagged', () => {
+  const source = `${STORE_IMPORT}
+const base = 'game-stats';
+const scope = base;
+const alias = scope;
+await setAppState(alias, key, value);`;
   assert.ok(rulesOf(source, 'src/lib/example.ts').includes('direct-game-stats-write'));
 });
 
-test('analyzer: namespace-member mutation is flagged', () => {
-  const source = `import * as store from '../server/appStateStore';
-await store.setAppState('game-stats', key, value);`;
-  assert.ok(rulesOf(source, 'src/lib/example.ts').includes('direct-game-stats-write'));
+test('analyzer: renamed import bindings and namespace members are flagged', () => {
+  assert.ok(
+    rulesOf(
+      `import { setAppState as persist } from './server/appStateStore';\nawait persist('game-stats', key, value);`,
+      'src/lib/example.ts'
+    ).includes('direct-game-stats-write')
+  );
+  assert.ok(
+    rulesOf(
+      `import * as store from './server/appStateStore';\nawait store.setAppState('game-stats', key, value);`,
+      'src/lib/example.ts'
+    ).includes('direct-game-stats-write')
+  );
 });
 
-test('analyzer: wrapper functions around storage writes are flagged', () => {
+test('analyzer: wrapper functions are flagged, including scope at a NON-FIRST argument', () => {
   const inlineScope = `${STORE_IMPORT}
 function save(value) { return setAppState('game-stats', 'k', value); }`;
   assert.ok(rulesOf(inlineScope, 'src/lib/example.ts').includes('direct-game-stats-write'));
 
-  const parameterScope = `${STORE_IMPORT}
-function save(scope, value) { return setAppState(scope, 'k', value); }
-await save('game-stats', value);`;
-  assert.ok(rulesOf(parameterScope, 'src/lib/example.ts').includes('direct-game-stats-write'));
+  const secondArg = `${STORE_IMPORT}
+function save(value, scope) { return setAppState(scope, 'k', value); }
+await save(payload, 'game-stats');`;
+  assert.ok(rulesOf(secondArg, 'src/lib/example.ts').includes('direct-game-stats-write'));
 
   const arrowWrapper = `${STORE_IMPORT}
-const save = (scope, value) => setAppState(scope, 'k', value);
-await save('game-stats', value);`;
+const save = (value, scope) => setAppState(scope, 'k', value);
+await save(payload, 'game-stats');`;
   assert.ok(rulesOf(arrowWrapper, 'src/lib/example.ts').includes('direct-game-stats-write'));
 });
 
@@ -552,49 +695,129 @@ test('analyzer: the retired setter name is flagged wherever it reappears', () =>
   );
 });
 
-test('analyzer: independent transaction-lock use is flagged; sanctioned homes are not', () => {
-  const source = `import { withAppStateKeyTransaction } from '../server/appStateStore';
+test('analyzer: lock use is flagged through plain, ALIASED, and NAMESPACE forms', () => {
+  const plain = `import { withAppStateKeyTransaction } from './server/appStateStore';
 await withAppStateKeyTransaction('game-stats', key, fn);`;
-  assert.ok(rulesOf(source, 'src/lib/example.ts').includes('independent-transaction-lock'));
-  for (const allowed of LOCK_ALLOWED) {
-    assert.ok(!rulesOf(source, allowed).includes('independent-transaction-lock'), allowed);
+  const aliased = `import { withAppStateKeyTransaction as tx } from './server/appStateStore';
+await tx('game-stats', key, fn);`;
+  const chained = `import { withAppStateKeyTransaction } from './server/appStateStore';
+const lock = withAppStateKeyTransaction;
+await lock('game-stats', key, fn);`;
+  const namespaced = `import * as store from './server/appStateStore';
+await store.withAppStateKeyTransaction('game-stats', key, fn);`;
+  for (const source of [plain, aliased, chained, namespaced]) {
+    const rules = rulesOf(source, 'src/lib/example.ts');
+    assert.ok(
+      rules.includes('independent-transaction-lock') ||
+        rules.includes('transaction-lock-ownership'),
+      source
+    );
   }
-});
-
-test('analyzer: writer routes may not import mutation primitives at all', () => {
-  const source = `${STORE_IMPORT}\nexport const dynamic = 'force-dynamic';`;
+  // The durable authorities stay clean for direct use.
   assert.ok(
-    rulesOf(source, 'src/app/api/game-stats/route.ts').includes('writer-route-mutation-import')
+    !rulesOf(plain, 'src/lib/gameStats/durableMerge.ts').includes('independent-transaction-lock')
   );
   assert.ok(
-    rulesOf(source, 'src/app/api/cron/game-stats/route.ts').includes('writer-route-mutation-import')
-  );
-  // A non-game-stats route importing the store for its own dataset is fine.
-  assert.ok(
-    !rulesOf(source, 'src/app/api/scores/route.ts').includes('writer-route-mutation-import')
-  );
-});
-
-test('analyzer: success/no-op publication outside the finalize path is flagged', () => {
-  const source = `import { recordProviderRefreshSuccess } from '@/lib/server/providerRefreshStatus';
-await recordProviderRefreshSuccess('game-stats', scope, {});`;
-  assert.ok(
-    rulesOf(source, 'src/app/api/game-stats/route.ts').includes('publication-outside-finalize')
-  );
-  assert.ok(
-    !rulesOf(source, 'src/lib/gameStats/refreshPublication.ts').includes(
-      'publication-outside-finalize'
+    !rulesOf(plain, 'src/lib/gameStats/recoveryDisposition.ts').includes(
+      'independent-transaction-lock'
     )
   );
-  // Other datasets' routes are outside this boundary.
+});
+
+test('ownership: forbidden cross-module imports are flagged by module boundary', () => {
+  // A game-stats lifecycle file importing a mutation primitive at all
+  // (specifier relative to the importing lifecycle file).
   assert.ok(
-    !rulesOf(source, 'src/app/api/scores/route.ts').includes('publication-outside-finalize')
+    rulesOf(
+      `import { setAppState } from '../server/appStateStore';`,
+      'src/lib/gameStats/coverage.ts'
+    ).includes('evidence-mutation-ownership')
+  );
+  // A writer route importing the status publisher directly.
+  assert.ok(
+    rulesOf(
+      `import { recordProviderRefreshSuccess } from '@/lib/server/providerRefreshStatus';`,
+      'src/app/api/game-stats/route.ts'
+    ).includes('status-publication-ownership')
+  );
+  // ALIASED publication import is still an ownership violation.
+  assert.ok(
+    rulesOf(
+      `import { recordProviderRefreshSuccess as publish } from '@/lib/server/providerRefreshStatus';`,
+      'src/app/api/game-stats/route.ts'
+    ).includes('status-publication-ownership')
+  );
+  // A route importing the recovery claim/finalize setters directly.
+  assert.ok(
+    rulesOf(
+      `import { claimGameStatsRecoveryPartition } from '@/lib/gameStats/recoveryDisposition';`,
+      'src/app/api/cron/game-stats/route.ts'
+    ).includes('recovery-mutation-ownership')
+  );
+  // A route importing the coverage reducer directly.
+  assert.ok(
+    rulesOf(
+      `import { evaluateGameStatsPartitionCoverage } from '@/lib/gameStats/partitionCoverage';`,
+      'src/app/api/game-stats/route.ts'
+    ).includes('coverage-ownership')
+  );
+  // A route reading raw durable rows (bypassing the public projection path).
+  assert.ok(
+    rulesOf(
+      `import { getCachedGameStats } from '@/lib/gameStats/cache';`,
+      'src/app/api/game-stats/route.ts'
+    ).includes('raw-row-ownership')
+  );
+  // Analytics/diagnostics importing raw persistence helpers.
+  assert.ok(
+    rulesOf(
+      `import { getCachedGameStats } from '../gameStats/cache';`,
+      'src/lib/gameStats/ownerStats.ts'
+    ).includes('raw-row-ownership')
+  );
+  // Namespace import of a guarded module.
+  assert.ok(
+    rulesOf(
+      `import * as disposition from '@/lib/gameStats/recoveryDisposition';`,
+      'src/app/api/cron/game-stats/route.ts'
+    ).includes('recovery-mutation-ownership')
+  );
+  // An unrelated consumer importing the orchestration entry points.
+  assert.ok(
+    rulesOf(
+      `import { runManualGameStatsRefresh } from '@/lib/gameStats/refreshOrchestration';`,
+      'src/lib/insights/context.ts'
+    ).includes('orchestration-ownership')
+  );
+  // The owners themselves stay clean.
+  assert.ok(
+    !rulesOf(
+      `import { recordProviderRefreshSuccess } from '../server/providerRefreshStatus.ts';`,
+      'src/lib/gameStats/refreshPublication.ts'
+    ).includes('status-publication-ownership')
+  );
+  assert.ok(
+    !rulesOf(
+      `import { claimGameStatsRecoveryPartition } from './recoveryDisposition.ts';`,
+      'src/lib/gameStats/refreshOrchestration.ts'
+    ).includes('recovery-mutation-ownership')
+  );
+  // Other datasets' routes may keep importing status recording for themselves.
+  assert.ok(
+    !rulesOf(
+      `import { recordProviderRefreshSuccess } from '@/lib/server/providerRefreshStatus';`,
+      'src/app/api/scores/route.ts'
+    ).includes('status-publication-ownership')
   );
 });
 
 test('analyzer: resurrected legacy-normalizer imports are flagged', () => {
-  const source = `import { normalizeGameTeamStats } from './normalizers.ts';`;
-  assert.ok(rulesOf(source, 'src/lib/gameStats/coverage.ts').includes('legacy-normalizer-import'));
+  assert.ok(
+    rulesOf(
+      `import { normalizeGameTeamStats } from './normalizers.ts';`,
+      'src/lib/gameStats/coverage.ts'
+    ).includes('legacy-normalizer-import')
+  );
   assert.deepEqual(rulesOf(`export function normalizeGameTeamStats() {}`, NORMALIZERS_SELF), []);
   // An unrelated module that shares the basename stays clean.
   assert.deepEqual(rulesOf(`import { x } from './normalizers';`, 'src/lib/scores/cache.ts'), []);
@@ -603,7 +826,7 @@ test('analyzer: resurrected legacy-normalizer imports are flagged', () => {
 test('analyzer: clean sources produce no violations', () => {
   const clean = [
     [
-      `import { getAppState } from '../server/appStateStore';\nawait getAppState('game-stats', k);`,
+      `import { getAppState } from './server/appStateStore';\nawait getAppState('game-stats', k);`,
       'src/lib/example.ts',
     ],
     [`${STORE_IMPORT}\nawait setAppState('schedule', key, value);`, 'src/lib/example.ts'],
@@ -617,57 +840,56 @@ test('analyzer: clean sources produce no violations', () => {
 
 // === Wiring self-tests: disconnected lifecycle paths MUST be detected ===
 
+function wiringFixture(overrides: Map<string, string>): string[] {
+  const read = (file: string): string =>
+    overrides.get(file) ?? readFileSync(path.join(REPO_ROOT, file), 'utf8');
+  return findWiringGaps(read);
+}
+
 test('wiring: a disconnected (dead) merge call site fails', () => {
-  const fixture = new Map<string, string>();
-  for (const requirement of LIFECYCLE_WIRING) {
-    fixture.set(requirement.file, readFileSync(path.join(REPO_ROOT, requirement.file), 'utf8'));
-  }
-  // Ingestion that imports the merge authority but never CALLS it.
-  fixture.set(
-    'src/lib/gameStats/ingestion.ts',
-    `import { mergeGameStatsPartitionDurable } from './durableMerge.ts';\nexport const dead = mergeGameStatsPartitionDurable;`
+  const gaps = wiringFixture(
+    new Map([
+      [
+        'src/lib/gameStats/ingestion.ts',
+        `import { mergeGameStatsPartitionDurable } from './durableMerge.ts';\nexport const dead = mergeGameStatsPartitionDurable;`,
+      ],
+    ])
   );
-  const gaps = findWiringGaps((file) => fixture.get(file)!);
   assert.ok(
     gaps.includes('src/lib/gameStats/ingestion.ts must call mergeGameStatsPartitionDurable')
   );
 });
 
-test('wiring: a route that returns early without committed-coverage finalization fails', () => {
-  const fixture = new Map<string, string>();
-  for (const requirement of LIFECYCLE_WIRING) {
-    fixture.set(requirement.file, readFileSync(path.join(REPO_ROOT, requirement.file), 'utf8'));
-  }
-  fixture.set(
-    'src/app/api/game-stats/route.ts',
-    `import { ingestGameStatsObservations, deriveSlateExpectation } from '@/lib/gameStats/ingestion';
-import { evaluateGameStatsPartitionCoverage } from '@/lib/gameStats/partitionCoverage';
-import { toPublicWeeklyGameStats } from '@/lib/gameStats/publicProjection';
+test('wiring: a route bypassing the orchestration or projection fails', () => {
+  const gaps = wiringFixture(
+    new Map([
+      [
+        'src/app/api/game-stats/route.ts',
+        `import { readPublicGameStats } from '@/lib/gameStats/readAvailability';
 export async function GET() {
-  deriveSlateExpectation({});
-  evaluateGameStatsPartitionCoverage({}, null, {});
-  const r = await ingestGameStatsObservations({});
-  return Response.json(toPublicWeeklyGameStats(r)); // publishes WITHOUT finalize
-}`
+  const read = await readPublicGameStats({});
+  return Response.json(read); // no manual-refresh orchestration, no projection call
+}`,
+      ],
+    ])
   );
-  const gaps = findWiringGaps((file) => fixture.get(file)!);
-  assert.ok(gaps.includes('src/app/api/game-stats/route.ts must call finalizeGameStatsRefresh'));
+  assert.ok(gaps.includes('src/app/api/game-stats/route.ts must call runManualGameStatsRefresh'));
+  assert.ok(gaps.includes('src/app/api/game-stats/route.ts must call buildPublicWeeklyGameStats'));
 });
 
 test('wiring: a raw analytics consumer and a separate diagnostics coverage helper fail', () => {
-  const fixture = new Map<string, string>();
-  for (const requirement of LIFECYCLE_WIRING) {
-    fixture.set(requirement.file, readFileSync(path.join(REPO_ROOT, requirement.file), 'utf8'));
-  }
-  fixture.set(
-    'src/lib/gameStats/ownerStats.ts',
-    `export function aggregateOwnerGameStats(games) { return games.map((g) => g.home.totalYards); }`
+  const gaps = wiringFixture(
+    new Map([
+      [
+        'src/lib/gameStats/ownerStats.ts',
+        `export function aggregateOwnerGameStats(games) { return games.map((g) => g.home.totalYards); }`,
+      ],
+      [
+        'src/lib/server/providerDataDiagnostics.ts',
+        `function myOwnCoverage(record) { return record.games.length > 0; }\nexport const x = myOwnCoverage;`,
+      ],
+    ])
   );
-  fixture.set(
-    'src/lib/server/providerDataDiagnostics.ts',
-    `function myOwnCoverage(record) { return record.games.length > 0; }\nexport const x = myOwnCoverage;`
-  );
-  const gaps = findWiringGaps((file) => fixture.get(file)!);
   assert.ok(gaps.includes('src/lib/gameStats/ownerStats.ts must call selectAnalyticsRows'));
   assert.ok(
     gaps.includes(
@@ -676,27 +898,32 @@ test('wiring: a raw analytics consumer and a separate diagnostics coverage helpe
   );
 });
 
-test('wiring: a public route responding with raw durable rows (no projection) fails', () => {
-  const fixture = new Map<string, string>();
-  for (const requirement of LIFECYCLE_WIRING) {
-    fixture.set(requirement.file, readFileSync(path.join(REPO_ROOT, requirement.file), 'utf8'));
-  }
-  fixture.set(
-    'src/app/api/game-stats/route.ts',
-    `import { deriveSlateExpectation, ingestGameStatsObservations } from '@/lib/gameStats/ingestion';
-import { finalizeGameStatsRefresh } from '@/lib/gameStats/refreshPublication';
-import { evaluateGameStatsPartitionCoverage } from '@/lib/gameStats/partitionCoverage';
-import { getCachedGameStats } from '@/lib/gameStats/cache';
-export async function GET() {
-  deriveSlateExpectation({});
-  evaluateGameStatsPartitionCoverage({}, null, {});
+test('wiring: an orchestration missing the fenced claim or conditional finalization fails', () => {
+  const gaps = wiringFixture(
+    new Map([
+      [
+        'src/lib/gameStats/refreshOrchestration.ts',
+        `import { planGameStatsRecovery } from './recovery.ts';
+import { ingestGameStatsObservations } from './ingestion.ts';
+import { finalizeGameStatsRefresh } from './refreshPublication.ts';
+export async function run() {
+  planGameStatsRecovery({});
   await ingestGameStatsObservations({});
-  await finalizeGameStatsRefresh({});
-  return Response.json(await getCachedGameStats(2026, 1, 'regular')); // raw durable rows
-}`
+  await finalizeGameStatsRefresh({}); // fetches WITHOUT a durable claim
+}`,
+      ],
+    ])
   );
-  const gaps = findWiringGaps((file) => fixture.get(file)!);
-  assert.ok(gaps.includes('src/app/api/game-stats/route.ts must call toPublicWeeklyGameStats'));
+  assert.ok(
+    gaps.includes(
+      'src/lib/gameStats/refreshOrchestration.ts must call claimGameStatsRecoveryPartition'
+    )
+  );
+  assert.ok(
+    gaps.includes(
+      'src/lib/gameStats/refreshOrchestration.ts must call finalizeGameStatsRecoveryClaim'
+    )
+  );
 });
 
 // === Scan hygiene ===
@@ -713,8 +940,11 @@ test('production seams are all scanned; tests and fixtures are not', () => {
     'src/lib/gameStats/partitionCoverage.ts',
     'src/lib/gameStats/recovery.ts',
     'src/lib/gameStats/recoveryDisposition.ts',
+    'src/lib/gameStats/refreshOrchestration.ts',
     'src/lib/gameStats/refreshPublication.ts',
+    'src/lib/gameStats/readAvailability.ts',
     'src/lib/gameStats/publicProjection.ts',
+    'src/lib/gameStats/scoreEvidence.ts',
     'src/lib/gameStats/ownerStats.ts',
     'src/lib/gameStats/cache.ts',
     'src/lib/gameStats/normalizers.ts',

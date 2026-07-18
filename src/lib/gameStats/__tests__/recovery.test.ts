@@ -57,6 +57,11 @@ function disposition(
     backoffTier: 0,
     nextEligibleAt: new Date(NOW + 60 * 60 * 1000).toISOString(), // 1h from now
     lastMeaningfulChangeAt: null,
+    attemptToken: null,
+    leaseAcquiredAt: null,
+    leaseExpiresAt: null,
+    coverageFingerprint: null,
+    scheduleFingerprint: null,
     ...overrides,
   };
 }

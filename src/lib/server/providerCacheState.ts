@@ -19,8 +19,7 @@ import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache'
 import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
-import { listCachedGameStats } from '../gameStats/cache.ts';
-import { selectAnalyticsRows } from '../gameStats/contract.ts';
+import { evaluateYearGameStatsAvailability } from '../gameStats/readAvailability.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 
 export type ProviderCacheAvailability = 'available' | 'absent' | 'unknown';
@@ -68,17 +67,17 @@ export async function getProviderCacheStates(year: number): Promise<ProviderCach
       const rec = await getAppState<{ items?: unknown[] }>('conferences', 'snapshot');
       return (rec?.value?.items?.length ?? 0) > 0;
     }),
-    probe(async () => {
-      // PLATFORM-086H3: availability means the committed rows can actually be
-      // SERVED — judged through the shared H1 classification (analytics
-      // eligibility + deterministic duplicate selection), never a bare
-      // names-and-id usability shell. A row with an unsupported schema or
-      // ineligible evidence does not make the dataset available.
-      for (const record of await listCachedGameStats(year)) {
-        if (selectAnalyticsRows(record.games ?? []).selected.length > 0) return true;
+    // PLATFORM-086H3: game-stats availability comes from the SAME
+    // schedule-relative committed-state coverage authority public reads,
+    // recovery, and diagnostics use — one analytics-eligible row (or a row
+    // unrelated to the canonical schedule) never makes the dataset available.
+    (async () => {
+      try {
+        return await evaluateYearGameStatsAvailability(year, Date.now());
+      } catch {
+        return 'unknown' as const;
       }
-      return false;
-    }),
+    })(),
   ]);
 
   return {

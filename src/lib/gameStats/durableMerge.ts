@@ -13,6 +13,7 @@ import {
   AppStateTxnFinalizeError,
   withAppStateKeyTransaction,
 } from '../server/appStateStore.ts';
+import { nextProviderCommitSeq } from '../server/providerRefreshStatus.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
@@ -125,6 +126,14 @@ export type DurableMergeResult = {
   outcome: DurableMergeOutcome;
   /** The durable partition this merge targeted (`scope/key`). */
   partitionKey: string;
+  /**
+   * Durable-commit stamp (PLATFORM-086H3): captured IMMEDIATELY after the
+   * transaction's successful COMMIT for outcomes that wrote (`written` /
+   * `partially-merged`) — before any reread, coverage evaluation, or
+   * publication. Downstream status ordering uses THIS stamp, so a stalled
+   * finalizer can never make an older commit overwrite a newer one.
+   */
+  commit?: { committedAt: string; commitSeq: number };
   /** Provider game ids — every list sorted ascending and deduplicated. */
   inserted: number[];
   updated: number[];
@@ -745,7 +754,7 @@ export async function mergeGameStatsPartitionDurable(
   }
 
   try {
-    return await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
+    const result = await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
       let existing: WeeklyGameStats | null;
       try {
         existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
@@ -775,6 +784,17 @@ export async function mergeGameStatsPartitionDurable(
       const clean = computation.stale.length === 0 && computation.conflicts.length === 0;
       return toResult(computation, clean ? 'written' : 'partially-merged', partitionKey);
     });
+    // Commit stamp captured IMMEDIATELY after the confirmed COMMIT (the
+    // transaction resolves only post-COMMIT) — never after rereads, coverage
+    // evaluation, or publication, so status ordering reflects TRUE commit
+    // order even when a finalizer stalls.
+    if (result.outcome === 'written' || result.outcome === 'partially-merged') {
+      result.commit = {
+        committedAt: new Date().toISOString(),
+        commitSeq: nextProviderCommitSeq(),
+      };
+    }
+    return result;
   } catch (error) {
     if (error instanceof MergeComputationFailure) {
       // The primitive confirmed rollback before rethrowing the sentinel.

@@ -2,36 +2,25 @@ import { NextResponse } from 'next/server';
 
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
-import { getCachedGameStats } from '@/lib/gameStats/cache';
-import { loadGameStatsIdentityResolver } from '@/lib/gameStats/identityContext';
+import { readPublicGameStats, toAvailabilitySummary } from '@/lib/gameStats/readAvailability';
 import {
-  deriveSlateExpectation,
-  ingestGameStatsObservations,
-  type GameStatsSlateExpectation,
-} from '@/lib/gameStats/ingestion';
-import {
-  evaluateGameStatsPartitionCoverage,
-  type GameStatsPartitionCoverage,
-} from '@/lib/gameStats/partitionCoverage';
-import { recordGameStatsRecoveryAttempt } from '@/lib/gameStats/recoveryDisposition';
-import {
-  finalizeGameStatsRefresh,
-  type GameStatsRefreshPublication,
-} from '@/lib/gameStats/refreshPublication';
-import { toPublicWeeklyGameStats } from '@/lib/gameStats/publicProjection';
-import type { DurableMergeResult } from '@/lib/gameStats/durableMerge';
-import type { WeeklyGameStats } from '@/lib/gameStats/types';
-import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
+  runManualGameStatsRefresh,
+  type ManualGameStatsRefreshResult,
+} from '@/lib/gameStats/refreshOrchestration';
+import { buildPublicWeeklyGameStats } from '@/lib/gameStats/publicProjection';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { weekPartitionScope } from '@/lib/providerRefreshScope';
-import {
-  beginProviderRefreshAttempt,
-  recordProviderRefreshFailure,
-} from '@/lib/server/providerRefreshStatus';
 
 export const dynamic = 'force-dynamic';
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+// PLATFORM-086H3: this route is a THIN shell over two boundaries — the
+// provider-free public read path (`readAvailability.ts`: envelope validation,
+// schema-safe projection, committed-coverage availability) and the refresh
+// orchestration (`refreshOrchestration.ts`: canonical target validation,
+// fenced recovery claim, ingestion, committed-state finalization). It owns
+// parameter validation, authorization, the provider transport, and HTTP
+// shaping — and imports NO durable mutation, status publication, recovery
+// disposition, coverage reducer, or raw durable-row reader (the activation
+// guard enforces that ownership).
 
 const CFBD_RETRY_POLICY = {
   maxAttempts: 3,
@@ -61,57 +50,6 @@ function seasonYearForToday(now = new Date()): number {
   const month = now.getUTCMonth();
   const year = now.getUTCFullYear();
   return month >= 6 ? year : year - 1;
-}
-
-/**
- * Structural sanity of a durable weekly record. A record that exists but is
- * not shaped like a weekly partition is CORRUPT durable state — served as a
- * real failure, never reinterpreted as a cache miss or an empty week.
- */
-function isStructurallyValidRecord(record: WeeklyGameStats): boolean {
-  return record !== null && typeof record === 'object' && Array.isArray(record.games);
-}
-
-/** Public availability summary derived from committed-state coverage. */
-type AvailabilitySummary = {
-  state: GameStatsPartitionCoverage['state'] | 'coverage-unavailable';
-  satisfied?: number;
-  expected?: number;
-  recoverable?: number;
-  manualOnly?: number;
-  blocked?: number;
-  absent?: number;
-  pending?: number;
-  deferredPlaceholders?: number;
-};
-
-function toAvailabilitySummary(coverage: GameStatsPartitionCoverage | null): AvailabilitySummary {
-  if (!coverage) return { state: 'coverage-unavailable' };
-  return {
-    state: coverage.state,
-    satisfied: coverage.satisfied.length,
-    expected: coverage.expected.length,
-    recoverable: coverage.recoverable.length,
-    manualOnly: coverage.manualOnly.length,
-    blocked: coverage.blocked.length,
-    absent: coverage.absent.length,
-    pending: coverage.pending.length,
-    deferredPlaceholders: coverage.deferredPlaceholders,
-  };
-}
-
-function durableSummary(merge: DurableMergeResult) {
-  return {
-    outcome: merge.outcome,
-    inserted: merge.inserted.length,
-    updated: merge.updated.length,
-    refreshed: merge.refreshed.length,
-    unchanged: merge.unchanged.length,
-    stale: merge.stale.length,
-    conflicts: merge.conflicts.length,
-    retainedExisting: merge.retainedExisting.length,
-    skippedNonPersistable: merge.skippedNonPersistable,
-  };
 }
 
 export async function GET(req: Request) {
@@ -182,280 +120,219 @@ export async function GET(req: Request) {
   if (bypassCache) {
     const adminAuthFailure = await requireAdminRequest(req);
     if (adminAuthFailure) return adminAuthFailure;
+    return handleAuthorizedRefresh({ year, week, seasonType });
   }
 
-  // Canonical-schedule expectation context (cache-only). Ordinary reads use it
-  // for truthful availability; the authorized refresh REQUIRES it before any
-  // provider access. A read failure is reported as unavailable context, never
-  // as an empty registry or absent coverage.
-  let expectation: GameStatsSlateExpectation | null = null;
-  let identityResolver: Awaited<ReturnType<typeof loadGameStatsIdentityResolver>> | null = null;
-  let expectationError: string | null = null;
-  try {
-    const [scheduleItems, resolver] = await Promise.all([
-      loadCachedScheduleItems(year),
-      loadGameStatsIdentityResolver(),
-    ]);
-    identityResolver = resolver;
-    expectation = deriveSlateExpectation({
-      scheduleItems,
-      resolver,
-      year,
-      week,
-      seasonType,
-      now: Date.now(),
-    });
-  } catch (error) {
-    expectationError = error instanceof Error ? error.message : 'unknown error';
-  }
-
-  // === Ordinary reads: CACHE-ONLY for every caller (PLATFORM-086H3) ===
-  // They never trigger a provider call; provider access happens exclusively
-  // through the explicit admin-authorized bypass below. Availability derives
-  // from schedule-relative COMMITTED-state coverage; public output flows
-  // through the projection that strips v2 persistence metadata (legacy rows
-  // pass through byte-equivalent).
-  if (!bypassCache) {
-    let cached: WeeklyGameStats | null;
-    try {
-      cached = await getCachedGameStats(year, week, seasonType);
-    } catch (error) {
-      // A failed durable READ is not absence: corrupt or unavailable storage
-      // is reported as a real failure, never as an empty week or a cache miss.
+  // === Ordinary reads: CACHE-ONLY for every caller ===
+  const read = await readPublicGameStats({
+    year,
+    week,
+    seasonType,
+    seasonRelation,
+    now: Date.now(),
+  });
+  switch (read.kind) {
+    case 'read-failed':
       return NextResponse.json(
         {
           error: 'game stats durable state unavailable',
           code: 'game-stats-durable-read-failed',
-          detail: error instanceof Error ? error.message : 'unknown error',
+          detail: read.detail,
         },
         { status: 500 }
       );
-    }
-
-    // Structural sanity BEFORE any coverage evaluation: a malformed partition
-    // is a real failure, never classified or served.
-    if (cached && !isStructurallyValidRecord(cached)) {
+    case 'invalid-envelope':
       return NextResponse.json(
         {
           error: 'game stats durable state is malformed for this partition',
           code: 'game-stats-durable-state-invalid',
+          failures: read.failures,
         },
         { status: 500 }
       );
-    }
-
-    const coverage =
-      expectation !== null
-        ? evaluateGameStatsPartitionCoverage(expectation, cached, { seasonRelation })
-        : null;
-    const availability = toAvailabilitySummary(coverage);
-
-    if (cached) {
-      const age = Date.now() - new Date(cached.fetchedAt).getTime();
-      const stale = !(age < CACHE_TTL_MS);
+    case 'miss':
+      return NextResponse.json(
+        { error: 'game stats cache miss: admin refresh required', availability: read.availability },
+        { status: 503 }
+      );
+    case 'served':
       return NextResponse.json({
-        ...toPublicWeeklyGameStats(cached),
+        ...read.view.record,
         meta: {
           cache: 'hit',
           source: 'cfbd',
-          ...(stale ? { stale: true } : {}),
-          availability,
+          ...(read.stale ? { stale: true } : {}),
+          availability: read.availability,
+          ...(read.view.withheld.unsupportedSchema > 0 || read.view.withheld.malformed > 0
+            ? { withheld: read.view.withheld }
+            : {}),
         },
       });
-    }
-
-    return NextResponse.json(
-      { error: 'game stats cache miss: admin refresh required', availability },
-      { status: 503 }
-    );
   }
+}
 
-  // === Authorized refresh (admin-only, explicit) ===
+function fetchGameTeamStats(target: {
+  year: number;
+  week: number;
+  seasonType: CfbdSeasonType;
+}): Promise<unknown> {
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  const cfbdUrl = buildCfbdGameTeamStatsUrl(target);
+  return fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
+    cache: 'no-store',
+    timeoutMs: 12_000,
+    headers: { Authorization: `Bearer ${cfbdApiKey}` },
+    retry: CFBD_RETRY_POLICY,
+    pacing: CFBD_PACING_POLICY,
+  });
+}
 
-  // Canonical target validation BEFORE the provider fetch: statistics only
-  // ever attach to games the schedule already defines with identified,
-  // classification-eligible participants — and an unavailable or empty
-  // context fails the refresh before quota is spent.
-  if (expectation === null || identityResolver === null) {
+async function handleAuthorizedRefresh(target: {
+  year: number;
+  week: number;
+  seasonType: CfbdSeasonType;
+}) {
+  const { year, week, seasonType } = target;
+  let result: ManualGameStatsRefreshResult;
+  try {
+    result = await runManualGameStatsRefresh({
+      year,
+      week,
+      seasonType,
+      now: Date.now(),
+      providerConfigured: Boolean(process.env.CFBD_API_KEY?.trim()),
+      fetchPayload: fetchGameTeamStats,
+    });
+  } catch (error) {
+    // Claim persistence or unexpected orchestration failure BEFORE or around
+    // provider access — reported, never swallowed.
     return NextResponse.json(
       {
-        error: 'canonical schedule context unavailable for game-stats refresh',
-        code: 'game-stats-schedule-read-failed',
-        detail: expectationError ?? 'unknown error',
+        error: 'game-stats refresh orchestration failed',
+        code: 'game-stats-refresh-orchestration-failed',
+        detail: error instanceof Error ? error.message : 'unknown error',
       },
       { status: 500 }
     );
   }
-  if (!expectation.scheduleAvailable) {
-    return NextResponse.json(
-      {
-        error: `no canonical schedule cached for ${year}; cache the season schedule before refreshing game stats`,
-        code: 'game-stats-schedule-unavailable',
-      },
-      { status: 409 }
-    );
-  }
-  if (expectation.games.size === 0) {
-    // The requested partition defines no canonically-identified,
-    // classification-eligible, provider-addressable (or pending) target: a
-    // year with unrelated schedule rows is insufficient. Refuse before any
-    // provider access, with the typed slate composition for the operator.
-    return NextResponse.json(
-      {
-        error: `week ${week} ${seasonType} ${year} has no canonical scheduled game eligible for game stats`,
-        code: 'game-stats-no-canonical-targets',
-        slate: {
-          deferredPlaceholders: expectation.deferredPlaceholders,
-          excludedByClassification: expectation.excludedByClassification,
-          disrupted: expectation.disrupted,
+
+  switch (result.kind) {
+    case 'context-unavailable':
+      return NextResponse.json(
+        {
+          error: 'canonical schedule context unavailable for game-stats refresh',
+          code: 'game-stats-schedule-read-failed',
+          detail: result.detail,
         },
+        { status: 500 }
+      );
+    case 'no-schedule':
+      return NextResponse.json(
+        {
+          error: `no canonical schedule cached for ${year}; cache the season schedule before refreshing game stats`,
+          code: 'game-stats-schedule-unavailable',
+        },
+        { status: 409 }
+      );
+    case 'no-canonical-targets':
+      return NextResponse.json(
+        {
+          error: `week ${week} ${seasonType} ${year} has no canonical scheduled game eligible for game stats`,
+          code: 'game-stats-no-canonical-targets',
+          slate: result.slate,
+        },
+        { status: 409 }
+      );
+    case 'config-failure':
+      return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
+    case 'provider-failure': {
+      if (result.error instanceof UpstreamFetchError) {
+        return NextResponse.json(
+          { error: 'upstream error', detail: result.error.details },
+          { status: result.error.details.status ?? 502 }
+        );
+      }
+      return NextResponse.json(
+        { error: result.error instanceof Error ? result.error.message : 'unknown error' },
+        { status: 502 }
+      );
+    }
+    case 'executed':
+      break;
+  }
+
+  const { publication } = result;
+  const availability = toAvailabilitySummary(publication.coverage);
+  const recovery =
+    result.recovery.outcome === 'failed'
+      ? { recovery: `disposition finalization failed: ${result.recovery.detail}` }
+      : {};
+
+  if (publication.recorded === 'failure') {
+    return NextResponse.json(
+      {
+        error: publication.detail,
+        code: publication.code,
+        availability,
+        attempt: publication.attempt,
+        ...recovery,
       },
-      { status: 409 }
+      { status: publication.httpStatus }
     );
   }
 
-  // Provider-refresh observability (PLATFORM-086A): record the manual refresh
-  // attempt before credential validation and the fetch, so a missing-key early
-  // return still resolves a recorded failed attempt. Success is recorded only
-  // after the durable merge authority confirms a committed outcome AND the
-  // committed partition has been reread and coverage-evaluated.
-  const gameStatsScope = weekPartitionScope(year, week, seasonType);
-  const attempt = await beginProviderRefreshAttempt('game-stats', gameStatsScope, {
-    startedAt: new Date().toISOString(),
-  });
-
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    await recordProviderRefreshFailure('game-stats', gameStatsScope, {
-      attempt,
-      error: 'CFBD_API_KEY not configured',
-      code: 'cfbd-api-key-missing',
-      status: 500,
-    });
-    return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
-  }
-
-  const recordDisposition = async (publication: GameStatsRefreshPublication): Promise<void> => {
-    try {
-      await recordGameStatsRecoveryAttempt({
-        year,
-        week,
-        seasonType,
-        reason: publication.dispositionReason,
-        meaningfulChange: publication.meaningfulChange,
-        now: Date.now(),
-      });
-    } catch (error) {
-      console.error('game-stats recovery disposition write failed', {
-        year,
-        week,
-        seasonType,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
-
-  try {
-    // Observation fence: when THIS provider fetch started.
-    const fetchStartedAt = new Date().toISOString();
-    const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
-    const rawGames = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
-      cache: 'no-store',
-      timeoutMs: 12_000,
-      headers: { Authorization: `Bearer ${cfbdApiKey}` },
-      retry: CFBD_RETRY_POLICY,
-      pacing: CFBD_PACING_POLICY,
-    });
-
-    const ingestion = await ingestGameStatsObservations({
+  if (publication.recorded === 'noop' && publication.reread === 'skipped') {
+    // Valid EXPECTED-empty provider response: nothing is expected yet.
+    return NextResponse.json({
       year,
       week,
       seasonType,
-      fetchStartedAt,
-      payload: rawGames,
-      expectation,
-      resolver: identityResolver,
+      fetchedAt: null,
+      games: [],
+      meta: {
+        cache: 'miss',
+        source: 'cfbd',
+        noApplicableData: true,
+        emptyContext: 'expected',
+        availability,
+        ...recovery,
+      },
     });
-
-    // Committed-state finalization: durable merge → confirmed commit →
-    // durable reread → coverage evaluation → refresh-status publication —
-    // strictly in that order — then the HTTP response below.
-    const publication = await finalizeGameStatsRefresh({
-      ingestion,
-      expectation,
-      seasonRelation,
-      scope: gameStatsScope,
-      attempt,
-      contextLabel: `week ${week} ${seasonType}`,
-    });
-    await recordDisposition(publication);
-
-    const availability = toAvailabilitySummary(publication.coverage);
-    const durable = ingestion.kind === 'merged' ? durableSummary(ingestion.merge) : undefined;
-
-    if (publication.recorded === 'failure') {
-      return NextResponse.json(
-        {
-          error: publication.detail,
-          code: publication.code,
-          ...(durable ? { durable } : {}),
-          availability,
-        },
-        { status: publication.httpStatus }
-      );
-    }
-
-    if (publication.recorded === 'noop' && publication.reread === 'skipped') {
-      // Valid EXPECTED-empty provider response: nothing is expected yet.
-      return NextResponse.json({
-        year,
-        week,
-        seasonType,
-        fetchedAt: null,
-        games: [],
-        meta: {
-          cache: 'miss',
-          source: 'cfbd',
-          noApplicableData: true,
-          emptyContext: 'expected',
-          availability,
-        },
-      });
-    }
-
-    // Success / partial success / satisfied no-op: serve the COMMITTED
-    // durable partition (reread by the finalize path), never process memory.
-    const committed = publication.committed;
-    if (!committed) {
-      return NextResponse.json({
-        year,
-        week,
-        seasonType,
-        fetchedAt: null,
-        games: [],
-        meta: { cache: 'miss', source: 'cfbd', ...(durable ? { durable } : {}), availability },
-      });
-    }
-    return NextResponse.json({
-      ...toPublicWeeklyGameStats(committed),
-      meta: { cache: 'miss', source: 'cfbd', ...(durable ? { durable } : {}), availability },
-    });
-  } catch (error) {
-    await recordProviderRefreshFailure('game-stats', gameStatsScope, {
-      attempt,
-      error: error instanceof Error ? error.message : 'unknown error',
-      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
-    });
-    if (error instanceof UpstreamFetchError) {
-      return NextResponse.json(
-        { error: 'upstream error', detail: error.details },
-        { status: error.details.status ?? 502 }
-      );
-    }
-
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'unknown error' },
-      { status: 502 }
-    );
   }
+
+  // Success / partial success / satisfied no-op: serve the COMMITTED durable
+  // partition (reread by the finalize path) through the schema-safe public
+  // projection, never process memory and never raw durable rows.
+  const committed = publication.committed;
+  if (!committed) {
+    return NextResponse.json({
+      year,
+      week,
+      seasonType,
+      fetchedAt: null,
+      games: [],
+      meta: {
+        cache: 'miss',
+        source: 'cfbd',
+        availability,
+        attempt: publication.attempt,
+        ...recovery,
+      },
+    });
+  }
+  const view = buildPublicWeeklyGameStats(committed);
+  return NextResponse.json({
+    ...view.record,
+    meta: {
+      cache: 'miss',
+      source: 'cfbd',
+      accepted: publication.acceptedGames,
+      availability,
+      attempt: publication.attempt,
+      ...(view.withheld.unsupportedSchema > 0 || view.withheld.malformed > 0
+        ? { withheld: view.withheld }
+        : {}),
+      ...recovery,
+    },
+  });
 }

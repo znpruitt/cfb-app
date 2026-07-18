@@ -99,7 +99,7 @@ test('written + complete committed coverage → full success after reread', asyn
   assert.equal(publication.recorded, 'success');
   assert.equal(publication.reread, 'ok');
   assert.equal(publication.coverage?.state, 'complete');
-  assert.equal(publication.meaningfulChange, true);
+  assert.equal(publication.acceptedGames, 1);
   assert.equal(publication.dispositionReason, 'satisfied');
   const status = await getProviderRefreshStatus('game-stats', SCOPE);
   assert.equal(status.latestAttemptOutcome, 'succeeded');
@@ -337,7 +337,7 @@ test('a post-commit reread failure never reports the partition as available; ret
   assert.equal(publication.recorded, 'failure');
   assert.equal(publication.code, 'game-stats-postcommit-reread-failed');
   assert.equal(publication.reread, 'failed');
-  assert.equal(publication.meaningfulChange, true, 'the merge may have committed — preserved');
+  assert.equal(publication.acceptedGames, 1, 'the merge may have committed — preserved');
   assert.match(publication.detail, /may have committed|merge committed/i);
   const statusAfterFailure = await getProviderRefreshStatus('game-stats', SCOPE);
   assert.equal(statusAfterFailure.lastSuccessAt, null, 'no success before verified coverage');
@@ -347,4 +347,38 @@ test('a post-commit reread failure never reports the partition as available; ret
   const retry = await finalize(await ingest([GAME_A()]));
   assert.equal(retry.recorded, 'noop');
   assert.equal(retry.coverage?.state, 'complete');
+});
+
+test('commit-order authority: an OLDER commit publishing LAST cannot overwrite newer last-success metadata', async () => {
+  // Two writers commit in order A(older) → B(newer), but their FINALIZERS
+  // publish in the reverse order (B first, then a stalled A). The status
+  // ledger orders by the merge authority's commit stamp — captured at COMMIT,
+  // never regenerated at publication — so A's late publication cannot roll
+  // last-success metadata backward.
+  await finalize(await ingest([GAME_A()])); // durable partition exists
+
+  const older: Awaited<ReturnType<typeof ingest>> = syntheticMerged({
+    outcome: 'written',
+    inserted: [5001],
+    commit: { committedAt: '2026-10-15T11:00:00.000Z', commitSeq: 100 },
+  });
+  const newer: Awaited<ReturnType<typeof ingest>> = syntheticMerged({
+    outcome: 'written',
+    inserted: [5001],
+    commit: { committedAt: '2026-10-15T11:05:00.000Z', commitSeq: 101 },
+  });
+
+  // B (newer commit) publishes FIRST.
+  const newerPublication = await finalize(newer);
+  assert.equal(newerPublication.recorded, 'success');
+  const afterNewer = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(afterNewer.lastSuccessAt, '2026-10-15T11:05:00.000Z');
+  assert.equal(afterNewer.lastSuccessSeq, 101);
+
+  // A (older commit) publishes LAST — a stalled finalizer resuming.
+  const stalePublication = await finalize(older);
+  assert.equal(stalePublication.recorded, 'success', 'the stalled writer still resolves');
+  const final = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(final.lastSuccessAt, '2026-10-15T11:05:00.000Z', 'newer commit owns last-success');
+  assert.equal(final.lastSuccessSeq, 101, 'commit sequence not rolled back');
 });
