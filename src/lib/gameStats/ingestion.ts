@@ -1,4 +1,10 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
+import { inferSubdivisionFromConference } from '../conferenceSubdivision.ts';
+import {
+  resolveTeamIdentityKey,
+  type TeamIdentityResolver,
+  type TeamSubdivision,
+} from '../teamIdentity.ts';
 import {
   isPersistableIncomingRow,
   isValidProviderGameId,
@@ -21,18 +27,22 @@ import { mergeGameStatsPartitionDurable, type DurableMergeResult } from './durab
  *      drift, valid-empty, observations) through the ONE strict parser
  *      (`parseV2GameObservation` — no second parser exists);
  *   2. attaches observations ONLY to games the canonical schedule already
- *      defines (matching by provider game id — never by team-name equality,
- *      and never constructing game identity from a statistics payload);
+ *      defines — a provider game id alone NEVER authorizes persistence: the
+ *      observation's participants must resolve through `teamIdentity.ts` and
+ *      agree with the canonical schedule's participants and orientation, the
+ *      schedule classification must permit persistence (FCS-vs-FCS games are
+ *      excluded even when scheduled), and the game must be provider-
+ *      addressable with resolved (non-placeholder) participants;
  *   3. hands the matched, validated observations to the PLATFORM-086H2
  *      durable merge authority, which serializes the read→merge→write under
  *      the per-partition transaction-scoped advisory lock.
  *
- * Invalid, uncertain, unmatched, or empty responses NEVER reach the merge and
- * therefore can never destructively clear prior durable evidence. The typed
- * result distinguishes provider-unavailable (handled by the caller at the
- * fetch boundary), invalid payload, schema drift, valid empty, contextually
- * unexpected empty, unmatched observations, unresolved identity, and merged
- * outcomes — provider uncertainty is never represented as confirmed absence.
+ * Invalid, uncertain, mismatched, unresolved, excluded, or empty responses
+ * NEVER reach the merge and therefore can never destructively clear prior
+ * durable evidence. Team comparison uses ONLY the centralized identity
+ * resolution (`resolveTeamIdentityKey` — canonical identity key with the
+ * central normalization fallback); no raw string equality, lowercase/trim
+ * matching, or provider-specific alias logic exists here.
  */
 
 // === Canonical-schedule slate expectation ===
@@ -40,8 +50,8 @@ import { mergeGameStatsPartitionDurable, type DurableMergeResult } from './durab
 /**
  * Minimal structural shape of a cached canonical-schedule wire item that
  * game-stats ingestion consumes. Schedule remains the sole owner of game
- * identity: ingestion only ever narrows this list, it never fabricates
- * entries from provider statistics.
+ * identity AND participant identity: ingestion only ever narrows this list,
+ * it never fabricates entries — or participants — from provider statistics.
  */
 export type ScheduleSlateItem = {
   id: string;
@@ -49,6 +59,49 @@ export type ScheduleSlateItem = {
   seasonType?: string | null;
   startDate: string | null;
   status: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeConference?: string | null;
+  awayConference?: string | null;
+  neutralSite?: boolean;
+};
+
+/** How a canonical schedule participant resolved through `teamIdentity.ts`. */
+export type ExpectedParticipantResolution =
+  /** Resolved to a registry identity (canonical or alias). */
+  | 'resolved'
+  /**
+   * A real team label the registry does not know — compared through the
+   * centralized normalization key. Common for FCS opponents outside the FBS
+   * team database; NOT a placeholder.
+   */
+  | 'registry-unresolved'
+  /** A placeholder/invalid label (TBD, bowl names, …) — not yet a team. */
+  | 'placeholder';
+
+export type ExpectedParticipant = {
+  /** Canonical schedule label (raw wire value; display/debug only). */
+  label: string;
+  /**
+   * The sanctioned comparison key from `resolveTeamIdentityKey`: the resolved
+   * canonical identity key, or the central normalization of the label when
+   * the registry does not know it. Empty ONLY for placeholders.
+   */
+  identityKey: string;
+  resolution: ExpectedParticipantResolution;
+  /** FBS/FCS classification: resolver identity first, else canonical-schedule conference policy. */
+  subdivision: TeamSubdivision;
+};
+
+export type ExpectedSlateGame = {
+  providerGameId: number;
+  home: ExpectedParticipant;
+  away: ExpectedParticipant;
+  /** Schedule-owned neutral-site semantics (orientation exception below). */
+  neutralSite: boolean;
+  status: string;
+  /** Whether the game has passed the stats-completion threshold. */
+  phase: 'expected' | 'pending';
 };
 
 export type GameStatsSlateExpectation = {
@@ -58,23 +111,31 @@ export type GameStatsSlateExpectation = {
   /** Whether ANY schedule item exists for the year (slate-independent). */
   scheduleAvailable: boolean;
   /**
-   * Provider-addressable stat-producing schedule games in this slate whose
-   * kickoff is already `completedAfterMs` in the past — the games durable
-   * coverage is judged against.
+   * Attachable canonical games by provider game id: provider-addressable,
+   * participants identified (or centrally normalizable), classification
+   * persistence-eligible. The ONLY games an observation may merge into.
    */
+  games: ReadonlyMap<number, ExpectedSlateGame>;
+  /** Attachable games past the completion threshold (coverage is judged on these). */
   expectedIds: ReadonlySet<number>;
-  /**
-   * Addressable stat-producing games in the slate that have NOT yet reached
-   * the completion threshold (still upcoming or too recent to expect stats).
-   */
+  /** Attachable games not yet past the completion threshold. */
   pendingIds: ReadonlySet<number>;
   /**
-   * Stat-producing schedule games in this slate that are NOT provider-
-   * addressable yet (placeholder ids, e.g. unresolved postseason slots).
-   * They are preserved as schedule placeholders — never expected, never
+   * Numeric provider ids whose participants are still placeholders (e.g. an
+   * unresolved postseason slot that already carries a provider id). A numeric
+   * id alone does NOT make a placeholder addressable — these defer.
+   */
+  placeholderIds: ReadonlySet<number>;
+  /** Scheduled ids excluded from persistence by classification (FCS-vs-FCS). */
+  excludedIds: ReadonlySet<number>;
+  /**
+   * Stat-producing schedule games deferred as placeholders: non-numeric ids
+   * plus every id in `placeholderIds`. Preserved, never expected, never
    * counted absent, never fetched.
    */
   deferredPlaceholders: number;
+  /** Scheduled games excluded by FCS-vs-FCS classification. */
+  excludedByClassification: number;
   /** Disrupted (canceled/postponed/…) slate games — never stat-producing. */
   disrupted: number;
 };
@@ -93,24 +154,59 @@ export function providerAddressableId(id: string | null | undefined): number | n
   return isValidProviderGameId(parsed) ? parsed : null;
 }
 
+function deriveParticipant(
+  resolver: TeamIdentityResolver,
+  label: string | null | undefined,
+  conference: string | null | undefined
+): ExpectedParticipant {
+  const raw = typeof label === 'string' ? label : '';
+  const resolution = resolver.resolveName(raw);
+  if (resolution.resolutionSource === 'invalid_label') {
+    return { label: raw, identityKey: '', resolution: 'placeholder', subdivision: 'UNKNOWN' };
+  }
+  const identityKey = resolveTeamIdentityKey(resolver, raw);
+  if (identityKey.length === 0) {
+    return { label: raw, identityKey: '', resolution: 'placeholder', subdivision: 'UNKNOWN' };
+  }
+  const resolverSubdivision = resolution.status === 'resolved' ? resolution.subdivision : undefined;
+  const subdivision =
+    resolverSubdivision && resolverSubdivision !== 'UNKNOWN' && resolverSubdivision !== 'OTHER'
+      ? resolverSubdivision
+      : inferSubdivisionFromConference(conference);
+  return {
+    label: raw,
+    identityKey,
+    resolution: resolution.status === 'resolved' ? 'resolved' : 'registry-unresolved',
+    subdivision,
+  };
+}
+
 /**
  * Derive the canonical-schedule expectation for one weekly partition. This is
  * the ONLY source of "which games should have stats" — provider payloads never
- * extend it.
+ * extend it. Participant identity is retained (never discarded down to bare
+ * ids) so provider observations can be validated against canonical
+ * participants, orientation, and FBS/FCS classification before persistence.
  */
 export function deriveSlateExpectation(params: {
   scheduleItems: readonly ScheduleSlateItem[];
+  resolver: TeamIdentityResolver;
   year: number;
   week: number;
   seasonType: CfbdSeasonType;
   now: number;
   completedAfterMs?: number;
 }): GameStatsSlateExpectation {
-  const { scheduleItems, year, week, seasonType, now } = params;
+  const { scheduleItems, resolver, year, week, seasonType, now } = params;
   const completedAfterMs = params.completedAfterMs ?? GAME_STATS_COMPLETED_AFTER_MS;
+
+  const games = new Map<number, ExpectedSlateGame>();
   const expectedIds = new Set<number>();
   const pendingIds = new Set<number>();
+  const placeholderIds = new Set<number>();
+  const excludedIds = new Set<number>();
   let deferredPlaceholders = 0;
+  let excludedByClassification = 0;
   let disrupted = 0;
 
   for (const item of scheduleItems) {
@@ -124,12 +220,40 @@ export function deriveSlateExpectation(params: {
       deferredPlaceholders += 1;
       continue;
     }
-    const kickoff = item.startDate ? new Date(item.startDate).getTime() : Number.NaN;
-    if (Number.isFinite(kickoff) && kickoff <= now - completedAfterMs) {
-      expectedIds.add(providerId);
-    } else {
-      pendingIds.add(providerId);
+
+    const home = deriveParticipant(resolver, item.homeTeam, item.homeConference);
+    const away = deriveParticipant(resolver, item.awayTeam, item.awayConference);
+
+    // A numeric provider id is NOT sufficient placeholder resolution: until
+    // both canonical participants resolve to real teams, the game defers.
+    if (home.resolution === 'placeholder' || away.resolution === 'placeholder') {
+      placeholderIds.add(providerId);
+      deferredPlaceholders += 1;
+      continue;
     }
+
+    // Classification comes from the canonical schedule/team registry, never
+    // from provider-stat availability: FCS-vs-FCS games are excluded even
+    // when scheduled; FBS-vs-FBS, FBS-vs-FCS, and FCS-vs-FBS persist.
+    if (home.subdivision === 'FCS' && away.subdivision === 'FCS') {
+      excludedIds.add(providerId);
+      excludedByClassification += 1;
+      continue;
+    }
+
+    const kickoff = item.startDate ? new Date(item.startDate).getTime() : Number.NaN;
+    const phase =
+      Number.isFinite(kickoff) && kickoff <= now - completedAfterMs ? 'expected' : 'pending';
+    games.set(providerId, {
+      providerGameId: providerId,
+      home,
+      away,
+      neutralSite: item.neutralSite === true,
+      status: item.status,
+      phase,
+    });
+    if (phase === 'expected') expectedIds.add(providerId);
+    else pendingIds.add(providerId);
   }
 
   return {
@@ -137,9 +261,13 @@ export function deriveSlateExpectation(params: {
     week,
     seasonType,
     scheduleAvailable: scheduleItems.length > 0,
+    games,
     expectedIds,
     pendingIds,
+    placeholderIds,
+    excludedIds,
     deferredPlaceholders,
+    excludedByClassification,
     disrupted,
   };
 }
@@ -190,7 +318,80 @@ export function validateGameStatsPayload(payload: unknown): GameStatsPayloadVali
   return { kind: 'observations', observations, parseFailures, unresolvedIdentity };
 }
 
-// === Ingestion (validation → schedule matching → durable merge) ===
+// === Canonical attachment classification ===
+
+/** How one parsed observation relates to the canonical schedule slate. */
+export type ObservationAttachmentState =
+  /** Scheduled id + canonical participants agree (incl. the documented neutral-site orientation exception). */
+  | 'matched'
+  /** Scheduled id, resolvable provider participants, but they do NOT agree with the canonical participants/orientation. */
+  | 'participant-mismatch'
+  /** Scheduled id, but a provider participant cannot resolve to any team identity. */
+  | 'unresolved-participant'
+  /** Scheduled id excluded from persistence by classification (FCS-vs-FCS). */
+  | 'excluded-classification'
+  /** Scheduled id whose canonical participants are still unresolved placeholders. */
+  | 'placeholder-deferred'
+  /** Provider id the canonical schedule slate does not define at all. */
+  | 'unscheduled-id';
+
+export type ObservationAttachmentCounts = {
+  matched: number;
+  participantMismatch: number;
+  unresolvedParticipant: number;
+  excludedClassification: number;
+  placeholderDeferred: number;
+  unscheduledId: number;
+};
+
+export function emptyAttachmentCounts(): ObservationAttachmentCounts {
+  return {
+    matched: 0,
+    participantMismatch: 0,
+    unresolvedParticipant: 0,
+    excludedClassification: 0,
+    placeholderDeferred: 0,
+    unscheduledId: 0,
+  };
+}
+
+/**
+ * Classify one parsed observation against the canonical slate expectation.
+ *
+ * Persistence authority requires ALL of: a scheduled provider game id, both
+ * provider participants resolving through the centralized identity path, and
+ * agreement with the canonical schedule participants in schedule orientation.
+ * Orientation exception (documented): for a schedule-owned NEUTRAL-SITE game
+ * the provider designation may be reversed — the participants must still be
+ * the same canonical identities, merely swapped; home/away for a non-neutral
+ * game must match exactly. Everything else is typed non-persistable and can
+ * never modify durable state.
+ */
+export function classifyObservationAttachment(
+  observation: ParsedV2Observation,
+  expectation: GameStatsSlateExpectation,
+  resolver: TeamIdentityResolver
+): ObservationAttachmentState {
+  const id = observation.providerGameId;
+  const game = expectation.games.get(id);
+  if (!game) {
+    if (expectation.excludedIds.has(id)) return 'excluded-classification';
+    if (expectation.placeholderIds.has(id)) return 'placeholder-deferred';
+    return 'unscheduled-id';
+  }
+
+  const homeKey = resolveTeamIdentityKey(resolver, observation.home.school);
+  const awayKey = resolveTeamIdentityKey(resolver, observation.away.school);
+  if (homeKey.length === 0 || awayKey.length === 0) return 'unresolved-participant';
+
+  if (homeKey === game.home.identityKey && awayKey === game.away.identityKey) return 'matched';
+  if (game.neutralSite && homeKey === game.away.identityKey && awayKey === game.home.identityKey) {
+    return 'matched';
+  }
+  return 'participant-mismatch';
+}
+
+// === Ingestion (validation → canonical attachment → durable merge) ===
 
 export type GameStatsIngestionResult =
   | { kind: 'invalid-payload' }
@@ -200,41 +401,41 @@ export type GameStatsIngestionResult =
        * Valid empty provider response. `expected` when the slate has no
        * completed stat-producing games yet (or none at all); `unexpected`
        * when completed games exist that SHOULD have produced stats. Both are
-       * non-destructive no-ops against durable state.
+       * non-destructive against durable state; the unexpected case is a
+       * FAILURE at the publication layer, never "no applicable data".
        */
       kind: 'valid-empty';
       emptyContext: 'expected' | 'unexpected';
     }
   | {
       /**
-       * Observations parsed but none matched a canonical-schedule game in
-       * this slate. Nothing merges — provider statistics never create games.
+       * Observations parsed but none earned canonical attachment. The typed
+       * breakdown distinguishes mismatched participants, unresolved provider
+       * identity, excluded classification, deferred placeholders, and
+       * unscheduled ids — never collapsed into one bucket. Nothing merges.
        */
-      kind: 'unmatched-only';
-      unmatched: number;
-      unresolvedIdentity: number;
+      kind: 'no-attachable-observations';
+      attachment: ObservationAttachmentCounts;
       parseFailures: ParseFailureCounts;
+      unresolvedIdentity: number;
     }
   | {
       /**
-       * Schedule-matched observations exist but NONE carries persistence
+       * Canonically attached observations exist but NONE carries persistence
        * authority (no strictly valid recognized category on both sides).
-       * Nothing merges; prior durable evidence is preserved. Reported as a
-       * content failure, never as an ordinary empty success.
+       * Nothing merges; prior durable evidence is preserved.
        */
       kind: 'no-persistable-observations';
-      matched: number;
-      unmatched: number;
-      unresolvedIdentity: number;
+      attachment: ObservationAttachmentCounts;
       parseFailures: ParseFailureCounts;
+      unresolvedIdentity: number;
     }
   | {
       kind: 'merged';
       merge: DurableMergeResult;
-      matched: number;
-      unmatched: number;
-      unresolvedIdentity: number;
+      attachment: ObservationAttachmentCounts;
       parseFailures: ParseFailureCounts;
+      unresolvedIdentity: number;
     };
 
 export type GameStatsIngestionInput = {
@@ -249,21 +450,23 @@ export type GameStatsIngestionInput = {
   fetchStartedAt: string;
   payload: unknown;
   expectation: GameStatsSlateExpectation;
+  resolver: TeamIdentityResolver;
 };
 
 /**
  * Route one validated provider response into the durable merge authority.
  *
- * Callers must derive `expectation` from the canonical schedule BEFORE the
- * provider fetch (an unavailable schedule fails the operation before quota is
- * spent). Only observations whose provider game id the schedule slate already
- * expects — completed or still pending — are merged; everything else is
- * reported, never persisted.
+ * Callers must derive `expectation` from the canonical schedule (with the
+ * centralized identity resolver) BEFORE the provider fetch — an unavailable
+ * schedule or identity context fails the operation before quota is spent.
+ * Only observations that pass FULL canonical attachment (scheduled id +
+ * resolved participants + participant/orientation agreement + classification
+ * eligibility) are merged; everything else is reported, never persisted.
  */
 export async function ingestGameStatsObservations(
   input: GameStatsIngestionInput
 ): Promise<GameStatsIngestionResult> {
-  const { expectation } = input;
+  const { expectation, resolver } = input;
   const validation = validateGameStatsPayload(input.payload);
   if (validation.kind === 'invalid-payload') return { kind: 'invalid-payload' };
   if (validation.kind === 'schema-drift') {
@@ -280,35 +483,48 @@ export async function ingestGameStatsObservations(
     };
   }
 
+  const attachment = emptyAttachmentCounts();
   const matched: ParsedV2Observation[] = [];
-  let unmatched = 0;
   for (const observation of validation.observations) {
-    if (
-      expectation.expectedIds.has(observation.providerGameId) ||
-      expectation.pendingIds.has(observation.providerGameId)
-    ) {
-      matched.push(observation);
-    } else {
-      unmatched += 1;
+    const state = classifyObservationAttachment(observation, expectation, resolver);
+    switch (state) {
+      case 'matched':
+        attachment.matched += 1;
+        matched.push(observation);
+        break;
+      case 'participant-mismatch':
+        attachment.participantMismatch += 1;
+        break;
+      case 'unresolved-participant':
+        attachment.unresolvedParticipant += 1;
+        break;
+      case 'excluded-classification':
+        attachment.excludedClassification += 1;
+        break;
+      case 'placeholder-deferred':
+        attachment.placeholderDeferred += 1;
+        break;
+      case 'unscheduled-id':
+        attachment.unscheduledId += 1;
+        break;
     }
   }
 
   if (matched.length === 0) {
     return {
-      kind: 'unmatched-only',
-      unmatched,
-      unresolvedIdentity: validation.unresolvedIdentity,
+      kind: 'no-attachable-observations',
+      attachment,
       parseFailures: validation.parseFailures,
+      unresolvedIdentity: validation.unresolvedIdentity,
     };
   }
 
   if (!matched.some(isPersistableIncomingRow)) {
     return {
       kind: 'no-persistable-observations',
-      matched: matched.length,
-      unmatched,
-      unresolvedIdentity: validation.unresolvedIdentity,
+      attachment,
       parseFailures: validation.parseFailures,
+      unresolvedIdentity: validation.unresolvedIdentity,
     };
   }
 
@@ -323,9 +539,8 @@ export async function ingestGameStatsObservations(
   return {
     kind: 'merged',
     merge,
-    matched: matched.length,
-    unmatched,
-    unresolvedIdentity: validation.unresolvedIdentity,
+    attachment,
     parseFailures: validation.parseFailures,
+    unresolvedIdentity: validation.unresolvedIdentity,
   };
 }

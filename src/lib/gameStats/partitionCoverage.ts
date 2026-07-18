@@ -5,20 +5,24 @@ import type { GameStatsSlateExpectation } from './ingestion.ts';
 /**
  * PLATFORM-086H3 — committed-durable-state partition coverage (ACTIVE).
  *
+ * The ONE coverage evaluation for the whole lifecycle: scheduled refresh,
+ * manual refresh, ordinary public reads, recovery planning, provider
+ * diagnostics, and provider cache-state reporting all consume this function —
+ * there is no second interpretation of usability or recoverability anywhere.
+ *
  * Coverage describes what is actually available in COMMITTED durable storage,
  * judged per canonical-schedule expectation through the PLATFORM-086H1 typed
- * classification — never what a provider request was expected to return, and
- * never bare cache-key existence. Callers derive it only AFTER confirmed
- * durable outcomes (an `indeterminate` or `unavailable` merge result must not
- * reach a coverage claim; the writer reports that uncertainty instead).
+ * classification — never what a provider request was expected to return,
+ * never a submitted observation set, never bare cache-key existence. Callers
+ * derive it only AFTER confirmed durable outcomes and only from a durable
+ * REREAD (an `indeterminate` or `unavailable` merge result must not reach a
+ * coverage claim; the writer reports that uncertainty instead).
  *
- * One coverage model serves the scheduled cron, schedule-relative recovery,
- * and the provider-data diagnostics — there is no second coverage
- * implementation to drift against. The per-game sufficiency bar is
- * ANALYTICS ELIGIBILITY (strict v2-complete or bounded legacy-compatible):
- * legacy-compatible rows are durable evidence that already serves analytics,
- * so they are covered — automatically refetching every legacy week would be a
- * de-facto bulk migration, which stays a separately queued task.
+ * The per-game sufficiency bar is ANALYTICS ELIGIBILITY (strict v2-complete
+ * or bounded legacy-compatible): legacy-compatible rows are durable evidence
+ * that already serves analytics, so they are covered — automatically
+ * refetching every legacy week would be a de-facto bulk migration, which
+ * stays a separately queued task.
  */
 
 export type ExpectedGameCoverageState =
@@ -33,7 +37,30 @@ export type ExpectedGameCoverageState =
   /** No durable row exists for this expected game. */
   | 'absent';
 
-export type GameStatsPartitionCoverageState = 'complete' | 'partial' | 'absent' | 'not-applicable';
+/**
+ * Typed top-level partition state, faithful to the per-game buckets:
+ *
+ *   - `complete`       — every expected game satisfied;
+ *   - `partial`        — some satisfied, some gaps (of ANY kind — the typed
+ *                        lists carry the detail);
+ *   - `blocked`        — nothing satisfied and every gap is blocked
+ *                        (operator action required; never auto-recovered and
+ *                        NEVER reported as recoverable absence);
+ *   - `manual-only`    — nothing satisfied and every gap is manual-only
+ *                        (historical season; operator action);
+ *   - `absent`         — nothing satisfied and at least one gap is genuinely
+ *                        absent/recoverable (blocked/manual detail, if mixed
+ *                        in, stays visible in the typed lists);
+ *   - `not-applicable` — no addressable expected games (includes
+ *                        placeholder-only and excluded-only slates).
+ */
+export type GameStatsPartitionCoverageState =
+  | 'complete'
+  | 'partial'
+  | 'blocked'
+  | 'manual-only'
+  | 'absent'
+  | 'not-applicable';
 
 export type GameStatsPartitionCoverage = {
   state: GameStatsPartitionCoverageState;
@@ -50,8 +77,10 @@ export type GameStatsPartitionCoverage = {
    * are retained compatibility data — never coverage, never a recovery target.
    */
   unmatchedStored: number[];
-  /** Stat-producing schedule games not yet provider-addressable (placeholders). */
+  /** Stat-producing schedule games deferred as unresolved placeholders. */
   deferredPlaceholders: number;
+  /** Scheduled games excluded from persistence by classification (FCS-vs-FCS). */
+  excludedByClassification: number;
   /** Addressable stat-producing games not yet past the completion threshold. */
   pending: number[];
 };
@@ -114,11 +143,14 @@ export function evaluateGameStatsPartitionCoverage(
   );
 
   const expected = sortIds(expectedSet);
+  const gapCount = recoverable.length + manualOnly.length + blocked.length + absent.length;
   let state: GameStatsPartitionCoverageState;
   if (expected.length === 0) state = 'not-applicable';
-  else if (satisfied.length === expected.length) state = 'complete';
-  else if (satisfied.length === 0) state = 'absent';
-  else state = 'partial';
+  else if (gapCount === 0) state = 'complete';
+  else if (satisfied.length > 0) state = 'partial';
+  else if (blocked.length === gapCount) state = 'blocked';
+  else if (manualOnly.length === gapCount) state = 'manual-only';
+  else state = 'absent';
 
   return {
     state,
@@ -130,6 +162,7 @@ export function evaluateGameStatsPartitionCoverage(
     absent: sortIds(absent),
     unmatchedStored,
     deferredPlaceholders: expectation.deferredPlaceholders,
+    excludedByClassification: expectation.excludedByClassification,
     pending: sortIds(pendingSet),
   };
 }
@@ -137,9 +170,9 @@ export function evaluateGameStatsPartitionCoverage(
 /**
  * Whether committed durable evidence already satisfies the contract for this
  * partition — the recovery stop condition "current durable evidence is already
- * sufficient". Blocked games do NOT block sufficiency (they are never
- * auto-recoverable, so retrying cannot improve them), but they are also never
- * reported as covered.
+ * sufficient". Blocked and manual-only games do NOT block sufficiency (they
+ * are never auto-recoverable, so retrying cannot improve them), but they are
+ * also never reported as covered — the typed state keeps them visible.
  */
 export function isPartitionRecoverySatisfied(coverage: GameStatsPartitionCoverage): boolean {
   return coverage.recoverable.length === 0 && coverage.absent.length === 0;

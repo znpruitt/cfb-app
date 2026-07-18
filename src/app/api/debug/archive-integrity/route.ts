@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import type { CfbdSeasonType } from '@/lib/cfbd';
 import { getCachedGameStats, listCachedGameStatsWeeks } from '@/lib/gameStats/cache';
+import { selectAnalyticsRows, type AnalyticsGameStats } from '@/lib/gameStats/contract';
 import type { GameStats } from '@/lib/gameStats/types';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import type { AppGame } from '@/lib/schedule';
@@ -112,9 +113,17 @@ function compareWeeks(a: number | string, b: number | string): number {
   return String(a).localeCompare(String(b));
 }
 
-async function loadGameStatsByProviderId(year: number): Promise<Map<number, GameStats>> {
+/**
+ * PLATFORM-086H3: score-integrity comparison consumes the approved H1
+ * analytics projection, never raw durable rows. Only rows with ELIGIBLE
+ * points evidence project (strict v2 points evidence or bounded
+ * legacy-compatible stored points) — a v2 row whose `pointsProvided` is
+ * false, or any compatibility-defaulted fallback zero, is NOT a real score
+ * and produces no diff. Duplicates resolve through the canonical selection.
+ */
+async function loadGameStatsByProviderId(year: number): Promise<Map<number, AnalyticsGameStats>> {
   const weekKeys = await listCachedGameStatsWeeks(year);
-  const map = new Map<number, GameStats>();
+  const rows: GameStats[] = [];
   for (const key of weekKeys) {
     const parts = key.split(':');
     if (parts.length !== 3) continue;
@@ -123,9 +132,11 @@ async function loadGameStatsByProviderId(year: number): Promise<Map<number, Game
     const seasonType = parts[2] as CfbdSeasonType;
     const stats = await getCachedGameStats(year, week, seasonType);
     if (!stats) continue;
-    for (const g of stats.games) {
-      map.set(g.providerGameId, g);
-    }
+    rows.push(...stats.games);
+  }
+  const map = new Map<number, AnalyticsGameStats>();
+  for (const projection of selectAnalyticsRows(rows).selected) {
+    map.set(projection.providerGameId, projection);
   }
   return map;
 }
@@ -274,7 +285,7 @@ function buildGameLogs(
 function buildScoreDiffs(
   archive: SeasonArchive,
   resolver: TeamIdentityResolver,
-  cacheByProviderId: Map<number, GameStats>
+  cacheByProviderId: Map<number, AnalyticsGameStats>
 ): ScoreIntegrityDiff[] {
   const diffs: ScoreIntegrityDiff[] = [];
   for (const game of archive.games) {

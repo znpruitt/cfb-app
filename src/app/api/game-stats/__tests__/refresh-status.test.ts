@@ -100,27 +100,23 @@ test('manual game-stats refresh with a missing CFBD key records a failed attempt
   assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
 });
 
-test('manual refresh: a genuinely empty provider response is a no-op without a durable write', async () => {
+test('manual refresh: an unexpected empty provider response is a stable failure without a durable write', async () => {
   await seedSchedule();
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
   stubJson([]);
 
   const res = await GET(adminRefresh());
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as {
-    games: unknown[];
-    meta: { noApplicableData?: boolean; emptyContext?: string };
-  };
-  assert.deepEqual(body.games, []);
-  assert.equal(body.meta.noApplicableData, true);
-  assert.equal(body.meta.emptyContext, 'unexpected', 'a completed slate expected stats');
+  assert.equal(res.status, 502);
+  const body = (await res.json()) as { code?: string };
+  assert.equal(body.code, 'game-stats-empty-unexpected', 'never "no applicable data"');
 
   assert.equal(await getCachedGameStats(YEAR, 3, 'regular'), null, 'no empty record written');
   const status = await getProviderRefreshStatus(
     'game-stats',
     weekPartitionScope(YEAR, 3, 'regular')
   );
-  assert.equal(status.latestAttemptOutcome, 'no-op');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'game-stats-empty-unexpected');
   assert.equal(status.lastSuccessAt, null);
 });
 

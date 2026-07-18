@@ -6,6 +6,7 @@ import {
   evaluateGameStatsPartitionCoverage,
   isPartitionRecoverySatisfied,
 } from '../partitionCoverage.ts';
+import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 import {
   completeLegacyRow,
@@ -19,7 +20,20 @@ const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 const COMPLETED = '2026-10-11T20:00:00.000Z';
 const FUTURE = '2026-10-18T20:00:00.000Z';
 
-function slate(ids: Array<string | { id: string; startDate?: string; status?: string }>) {
+const RESOLVER = createTeamIdentityResolver({
+  teams: [
+    { school: 'Alpha State', level: 'FBS' },
+    { school: 'Beta Tech', level: 'FBS' },
+  ],
+  aliasMap: {},
+});
+
+function slate(
+  ids: Array<
+    | string
+    | { id: string; startDate?: string; status?: string; homeTeam?: string; awayTeam?: string }
+  >
+) {
   const items: ScheduleSlateItem[] = ids.map((entry) => {
     const spec = typeof entry === 'string' ? { id: entry } : entry;
     return {
@@ -28,10 +42,13 @@ function slate(ids: Array<string | { id: string; startDate?: string; status?: st
       seasonType: 'regular',
       startDate: spec.startDate ?? COMPLETED,
       status: spec.status ?? 'STATUS_FINAL',
+      homeTeam: spec.homeTeam ?? 'Alpha State',
+      awayTeam: spec.awayTeam ?? 'Beta Tech',
     };
   });
   return deriveSlateExpectation({
     scheduleItems: items,
+    resolver: RESOLVER,
     year: 2026,
     week: 3,
     seasonType: 'regular',
@@ -45,6 +62,10 @@ function record(games: GameStats[]): WeeklyGameStats {
 
 function eligibleLegacy(id: number): GameStats {
   return legacyRowFromWire(wireGame({ id }), 3);
+}
+
+function blockedRow(id: number): GameStats {
+  return { ...completeLegacyRow(id), schemaVersion: 3 } as unknown as GameStats;
 }
 
 const CURRENT = { seasonRelation: 'current' as const };
@@ -83,26 +104,30 @@ test('coverage: complete v2 rows satisfy expectations', () => {
   assert.equal(coverage.state, 'complete');
 });
 
-test('coverage: partially covered slates report the exact absent games', () => {
+test('coverage: satisfied + gaps of any kind → partial, with typed per-game buckets', () => {
   const coverage = evaluateGameStatsPartitionCoverage(
-    slate(['101', '102', '103']),
-    record([eligibleLegacy(101)]),
+    slate(['101', '102', '103', '104']),
+    record([eligibleLegacy(101), blockedRow(103), statlessLegacyRow(104)]),
     CURRENT
   );
   assert.equal(coverage.state, 'partial');
   assert.deepEqual(coverage.satisfied, [101]);
-  assert.deepEqual(coverage.absent, [102, 103]);
+  assert.deepEqual(coverage.absent, [102]);
+  assert.deepEqual(coverage.blocked, [103]);
+  assert.deepEqual(coverage.recoverable, [104]);
 });
 
 test('coverage: ineligible durable evidence is recoverable now, manual-only historically', () => {
   const stored = record([statlessLegacyRow(101)]);
   const current = evaluateGameStatsPartitionCoverage(slate(['101']), stored, CURRENT);
   assert.deepEqual(current.recoverable, [101]);
+  assert.equal(current.state, 'absent', 'nothing satisfied and the gap is genuinely recoverable');
   assert.equal(isPartitionRecoverySatisfied(current), false);
 
   const historical = evaluateGameStatsPartitionCoverage(slate(['101']), stored, HISTORICAL);
   assert.deepEqual(historical.manualOnly, [101]);
   assert.deepEqual(historical.recoverable, []);
+  assert.equal(historical.state, 'manual-only', 'a manual-only-only partition is typed as such');
   assert.equal(
     isPartitionRecoverySatisfied(historical),
     true,
@@ -110,21 +135,33 @@ test('coverage: ineligible durable evidence is recoverable now, manual-only hist
   );
 });
 
-test('coverage: unsupported schema versions are blocked, never auto-recovery candidates', () => {
-  const blockedRow = { ...completeLegacyRow(101), schemaVersion: 3 } as unknown as GameStats;
+test('coverage: a blocked-only partition is BLOCKED, never recoverable absence', () => {
   const coverage = evaluateGameStatsPartitionCoverage(
     slate(['101']),
-    record([blockedRow]),
+    record([blockedRow(101)]),
     CURRENT
   );
+  assert.equal(coverage.state, 'blocked');
   assert.deepEqual(coverage.blocked, [101]);
   assert.deepEqual(coverage.recoverable, []);
+  assert.deepEqual(coverage.absent, []);
   assert.equal(
     isPartitionRecoverySatisfied(coverage),
     true,
     'a blocked-only gap must not trigger repeated refetch loops'
   );
-  assert.notEqual(coverage.state, 'complete', 'blocked evidence is never reported covered');
+});
+
+test('coverage: mixed blocked + recoverable with nothing satisfied stays actionable (absent), blocked kept visible', () => {
+  const coverage = evaluateGameStatsPartitionCoverage(
+    slate(['101', '102']),
+    record([blockedRow(101)]),
+    CURRENT
+  );
+  assert.equal(coverage.state, 'absent', 'a genuinely recoverable gap exists');
+  assert.deepEqual(coverage.blocked, [101], 'the blocked game stays typed as blocked');
+  assert.deepEqual(coverage.absent, [102]);
+  assert.equal(isPartitionRecoverySatisfied(coverage), false);
 });
 
 test('coverage: stored rows outside the schedule slate are unmatched, not coverage', () => {
@@ -157,14 +194,19 @@ test('coverage: identical duplicates satisfy; divergent duplicates do not', () =
   assert.deepEqual(divergent.recoverable, [101]);
 });
 
-test('coverage: placeholders and pending games never count absent', () => {
-  const expectation = slate(['101', { id: 'cfp-placeholder' }, { id: '102', startDate: FUTURE }]);
+test('coverage: placeholders, excluded games, and pending games never count absent', () => {
+  const expectation = slate([
+    '101',
+    { id: 'cfp-placeholder' },
+    { id: '7001', homeTeam: 'TBD', awayTeam: 'TBD' },
+    { id: '102', startDate: FUTURE },
+  ]);
   const coverage = evaluateGameStatsPartitionCoverage(
     expectation,
     record([eligibleLegacy(101)]),
     CURRENT
   );
   assert.equal(coverage.state, 'complete');
-  assert.equal(coverage.deferredPlaceholders, 1);
+  assert.equal(coverage.deferredPlaceholders, 2, 'non-numeric AND unresolved-numeric placeholders');
   assert.deepEqual(coverage.pending, [102]);
 });

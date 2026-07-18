@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  classifyObservationAttachment,
   deriveSlateExpectation,
   ingestGameStatsObservations,
   providerAddressableId,
@@ -9,6 +10,8 @@ import {
   type ScheduleSlateItem,
 } from '../ingestion.ts';
 import { getCachedGameStats } from '../cache.ts';
+import { parseV2GameObservation } from '../contract.ts';
+import { createTeamIdentityResolver } from '../../teamIdentity.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -21,12 +24,28 @@ const RECENT = new Date(NOW - 60 * 60 * 1000).toISOString(); // 1h ago (< 6h thr
 const FUTURE = '2026-10-18T20:00:00.000Z';
 const FENCE = '2026-10-15T12:00:00.000Z';
 
+// Registry with FBS/FCS classification for the canonical-attachment tests.
+// The fixture wire schools (Alpha State / Beta Tech / …) resolve through the
+// registry; conference policy classifies schedule sides the registry lacks.
+const RESOLVER = createTeamIdentityResolver({
+  teams: [
+    { school: 'Alpha State', level: 'FBS' },
+    { school: 'Beta Tech', level: 'FBS' },
+    { school: 'Gamma Poly', level: 'FBS' },
+    { school: 'Little Brook', level: 'FCS' },
+    { school: 'Stony Vale', level: 'FCS' },
+  ],
+  aliasMap: { 'alpha st.': 'Alpha State' },
+});
+
 function item(overrides: Partial<ScheduleSlateItem> & { id: string }): ScheduleSlateItem {
   return {
     week: 3,
     seasonType: 'regular',
     startDate: COMPLETED,
     status: 'STATUS_FINAL',
+    homeTeam: 'Alpha State',
+    awayTeam: 'Beta Tech',
     ...overrides,
   };
 }
@@ -36,7 +55,20 @@ function expectationFor(
   week = 3,
   seasonType: 'regular' | 'postseason' = 'regular'
 ) {
-  return deriveSlateExpectation({ scheduleItems: items, year: 2026, week, seasonType, now: NOW });
+  return deriveSlateExpectation({
+    scheduleItems: items,
+    resolver: RESOLVER,
+    year: 2026,
+    week,
+    seasonType,
+    now: NOW,
+  });
+}
+
+function observationOf(payloadEntry: unknown) {
+  const parsed = parseV2GameObservation(payloadEntry);
+  assert.ok(parsed.ok, 'fixture observation parses');
+  return parsed.ok ? parsed.observation : (null as never);
 }
 
 test.beforeEach(async () => {
@@ -54,13 +86,23 @@ test('providerAddressableId accepts only positive safe-integer id strings', () =
   }
 });
 
-// === deriveSlateExpectation ===
+// === deriveSlateExpectation (canonical participants + classification) ===
 
-test('expectation: completed addressable stat-producing games are expected', () => {
-  const expectation = expectationFor([item({ id: '101' }), item({ id: '102' })]);
+test('expectation: completed addressable stat-producing games are expected with canonical participants', () => {
+  const expectation = expectationFor([
+    item({ id: '101' }),
+    item({ id: '102', homeTeam: 'Gamma Poly', awayTeam: 'Alpha St.' }),
+  ]);
   assert.deepEqual([...expectation.expectedIds].sort(), [101, 102]);
-  assert.equal(expectation.scheduleAvailable, true);
-  assert.equal(expectation.deferredPlaceholders, 0);
+  const game = expectation.games.get(101)!;
+  assert.equal(game.home.resolution, 'resolved');
+  assert.equal(game.home.subdivision, 'FBS');
+  assert.ok(game.home.identityKey.length > 0, 'participant identity retained');
+  // Alias resolution flows through the central resolver (Alpha St. → Alpha State).
+  assert.equal(
+    expectation.games.get(102)!.away.identityKey,
+    expectation.games.get(101)!.home.identityKey
+  );
 });
 
 test('expectation: disrupted games are excluded by classification, never expected', () => {
@@ -73,7 +115,7 @@ test('expectation: disrupted games are excluded by classification, never expecte
   assert.equal(expectation.disrupted, 2);
 });
 
-test('expectation: placeholders without a provider-addressable id are deferred, not expected', () => {
+test('expectation: non-numeric ids are deferred placeholders', () => {
   const expectation = expectationFor([
     item({ id: 'cfp-semi-placeholder' }),
     item({ id: '' }),
@@ -81,6 +123,77 @@ test('expectation: placeholders without a provider-addressable id are deferred, 
   ]);
   assert.deepEqual([...expectation.expectedIds], [104]);
   assert.equal(expectation.deferredPlaceholders, 2);
+});
+
+test('expectation: a NUMERIC id with unresolved placeholder participants still defers', () => {
+  // A postseason slot can carry a real provider id before its participants
+  // resolve — a numeric id alone is NOT sufficient resolution.
+  const expectation = expectationFor([
+    item({ id: '7001', homeTeam: 'TBD', awayTeam: 'Beta Tech' }),
+    item({ id: '7002', homeTeam: 'Semifinal Winner TBD', awayTeam: 'TBD' }),
+    item({ id: '7003' }),
+  ]);
+  assert.deepEqual([...expectation.expectedIds], [7003]);
+  assert.deepEqual([...expectation.placeholderIds].sort(), [7001, 7002]);
+  assert.equal(expectation.deferredPlaceholders, 2);
+});
+
+test('expectation: a resolved postseason game becomes addressable once participants resolve', () => {
+  const expectation = deriveSlateExpectation({
+    scheduleItems: [
+      item({
+        id: '7001',
+        seasonType: 'postseason',
+        homeTeam: 'Alpha State',
+        awayTeam: 'Gamma Poly',
+      }),
+    ],
+    resolver: RESOLVER,
+    year: 2026,
+    week: 3,
+    seasonType: 'postseason',
+    now: NOW,
+  });
+  assert.deepEqual([...expectation.expectedIds], [7001]);
+  assert.equal(expectation.placeholderIds.size, 0);
+});
+
+test('expectation: scheduled FCS-vs-FCS games are excluded by classification', () => {
+  const expectation = expectationFor([
+    item({ id: '101' }), // FBS vs FBS — persists
+    item({ id: '102', awayTeam: 'Little Brook' }), // FBS vs FCS — persists
+    item({ id: '103', homeTeam: 'Little Brook', awayTeam: 'Alpha State' }), // FCS vs FBS — persists
+    item({ id: '104', homeTeam: 'Little Brook', awayTeam: 'Stony Vale' }), // FCS vs FCS — excluded
+  ]);
+  assert.deepEqual([...expectation.expectedIds].sort(), [101, 102, 103]);
+  assert.deepEqual([...expectation.excludedIds], [104]);
+  assert.equal(expectation.excludedByClassification, 1);
+});
+
+test('expectation: FCS classification also derives from canonical-schedule conference policy', () => {
+  // Sides the registry does not know classify through the schedule conference
+  // (Big Sky is policy-FCS) — never through provider-stat availability.
+  const expectation = expectationFor([
+    item({
+      id: '105',
+      homeTeam: 'Unknown Northern',
+      awayTeam: 'Unknown Southern',
+      homeConference: 'Big Sky',
+      awayConference: 'Big Sky',
+    }),
+    item({
+      id: '106',
+      homeTeam: 'Alpha State',
+      awayTeam: 'Unknown Southern',
+      awayConference: 'Big Sky',
+    }),
+  ]);
+  assert.deepEqual([...expectation.expectedIds], [106], 'FBS-vs-FCS stays included');
+  assert.deepEqual(
+    [...expectation.excludedIds],
+    [105],
+    'FCS-vs-FCS excluded via conference policy'
+  );
 });
 
 test('expectation: games inside the completion threshold (or future/undated) are pending', () => {
@@ -127,26 +240,124 @@ test('validation: a nonempty payload with zero parseable entries is schema drift
   assert.equal(result.kind === 'schema-drift' && result.entryCount, 3);
 });
 
-test('validation: unresolved team identity is counted distinctly', () => {
-  const blankIdentity = {
-    id: 5002,
-    teams: [
-      { teamId: 1, team: '   ', conference: 'X', homeAway: 'home', points: 3, stats: [] },
-      { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 7, stats: [] },
-    ],
-  };
-  const result = validateGameStatsPayload([wireGame({ id: 5001 }), blankIdentity]);
-  assert.equal(result.kind, 'observations');
-  if (result.kind === 'observations') {
-    assert.equal(result.observations.length, 1);
-    assert.equal(result.unresolvedIdentity, 1);
-    assert.equal(result.parseFailures['unusable-identity'], 1);
+// === classifyObservationAttachment (canonical participant validation) ===
+
+const SLATE = [
+  item({ id: '5001' }),
+  item({ id: '5002', homeTeam: 'Gamma Poly', awayTeam: 'Little Brook' }),
+];
+
+test('attachment: a scheduled id with agreeing canonical participants matches', () => {
+  const expectation = expectationFor(SLATE);
+  const observation = observationOf(wireGame({ id: 5001 }));
+  assert.equal(classifyObservationAttachment(observation, expectation, RESOLVER), 'matched');
+});
+
+test('attachment: a scheduled id with UNRELATED provider teams is a participant mismatch, never merged', async () => {
+  const expectation = expectationFor(SLATE);
+  const unrelated = observationOf(
+    wireGame({ id: 5001, home: { school: 'Gamma Poly', teamId: 303 } })
+  );
+  assert.equal(
+    classifyObservationAttachment(unrelated, expectation, RESOLVER),
+    'participant-mismatch'
+  );
+
+  const result = await ingestGameStatsObservations({
+    year: 2026,
+    week: 3,
+    seasonType: 'regular',
+    fetchStartedAt: FENCE,
+    payload: [wireGame({ id: 5001, home: { school: 'Gamma Poly', teamId: 303 } })],
+    expectation,
+    resolver: RESOLVER,
+  });
+  assert.equal(result.kind, 'no-attachable-observations');
+  if (result.kind === 'no-attachable-observations') {
+    assert.equal(result.attachment.participantMismatch, 1);
+    assert.equal(result.attachment.unscheduledId, 0, 'mismatch is NOT collapsed into unmatched-id');
   }
+  assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'durable state untouched');
+});
+
+test('attachment: a provider participant that cannot resolve is unresolved, never merged', () => {
+  const expectation = expectationFor(SLATE);
+  // "TBD" is an invalid team label → resolves to no identity.
+  const unresolved = observationOf(wireGame({ id: 5001, home: { school: 'TBD' } }));
+  assert.equal(
+    classifyObservationAttachment(unresolved, expectation, RESOLVER),
+    'unresolved-participant'
+  );
+});
+
+test('attachment: orientation must match the schedule for non-neutral games', () => {
+  const expectation = expectationFor(SLATE);
+  // Same canonical pair, reversed home/away on a HOME game → mismatch.
+  const reversed = observationOf(
+    wireGame({
+      id: 5001,
+      home: { school: 'Beta Tech', teamId: 202 },
+      away: { school: 'Alpha State', teamId: 101 },
+    })
+  );
+  assert.equal(
+    classifyObservationAttachment(reversed, expectation, RESOLVER),
+    'participant-mismatch'
+  );
+});
+
+test('attachment: neutral-site games accept the documented reversed orientation', () => {
+  const expectation = expectationFor([item({ id: '5001', neutralSite: true })]);
+  const reversed = observationOf(
+    wireGame({
+      id: 5001,
+      home: { school: 'Beta Tech', teamId: 202 },
+      away: { school: 'Alpha State', teamId: 101 },
+    })
+  );
+  assert.equal(classifyObservationAttachment(reversed, expectation, RESOLVER), 'matched');
+  // Identity still governs: a reversed pair with a WRONG participant mismatches.
+  const wrong = observationOf(
+    wireGame({
+      id: 5001,
+      home: { school: 'Gamma Poly', teamId: 303 },
+      away: { school: 'Alpha State', teamId: 101 },
+    })
+  );
+  assert.equal(classifyObservationAttachment(wrong, expectation, RESOLVER), 'participant-mismatch');
+});
+
+test('attachment: excluded, placeholder, and unscheduled ids classify distinctly', () => {
+  const expectation = expectationFor([
+    item({ id: '104', homeTeam: 'Little Brook', awayTeam: 'Stony Vale' }), // excluded FCS-vs-FCS
+    item({ id: '7001', homeTeam: 'TBD', awayTeam: 'TBD' }), // numeric placeholder
+    item({ id: '5001' }),
+  ]);
+  assert.equal(
+    classifyObservationAttachment(
+      observationOf(
+        wireGame({
+          id: 104,
+          home: { school: 'Little Brook', teamId: 900 },
+          away: { school: 'Stony Vale', teamId: 901 },
+        })
+      ),
+      expectation,
+      RESOLVER
+    ),
+    'excluded-classification'
+  );
+  assert.equal(
+    classifyObservationAttachment(observationOf(wireGame({ id: 7001 })), expectation, RESOLVER),
+    'placeholder-deferred'
+  );
+  assert.equal(
+    classifyObservationAttachment(observationOf(wireGame({ id: 999_999 })), expectation, RESOLVER),
+    'unscheduled-id'
+  );
 });
 
 // === ingestGameStatsObservations ===
-
-const SLATE = [item({ id: '5001' }), item({ id: '5002' })];
 
 function baseInput(payload: unknown, expectation = expectationFor(SLATE)) {
   return {
@@ -156,6 +367,7 @@ function baseInput(payload: unknown, expectation = expectationFor(SLATE)) {
     fetchStartedAt: FENCE,
     payload,
     expectation,
+    resolver: RESOLVER,
   };
 }
 
@@ -170,19 +382,72 @@ test('ingest: an empty payload is UNEXPECTED-empty when completed games expect s
   assert.deepEqual(result, { kind: 'valid-empty', emptyContext: 'unexpected' });
 });
 
-test('ingest: observations outside the canonical schedule never merge (no game creation)', async () => {
+test('ingest: unscheduled provider ids never merge (no game creation from statistics)', async () => {
   const result = await ingestGameStatsObservations(baseInput([wireGame({ id: 999_999 })]));
-  assert.equal(result.kind, 'unmatched-only');
-  assert.equal(result.kind === 'unmatched-only' && result.unmatched, 1);
+  assert.equal(result.kind, 'no-attachable-observations');
+  if (result.kind === 'no-attachable-observations') {
+    assert.equal(result.attachment.unscheduledId, 1);
+  }
   assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'nothing persisted');
+});
+
+test('ingest: a scheduled FCS-vs-FCS game never merges even when the provider covers it', async () => {
+  const expectation = expectationFor([
+    item({ id: '104', homeTeam: 'Little Brook', awayTeam: 'Stony Vale' }),
+  ]);
+  const result = await ingestGameStatsObservations(
+    baseInput(
+      [
+        wireGame({
+          id: 104,
+          home: { school: 'Little Brook', teamId: 900 },
+          away: { school: 'Stony Vale', teamId: 901 },
+        }),
+      ],
+      expectation
+    )
+  );
+  assert.equal(result.kind, 'no-attachable-observations');
+  if (result.kind === 'no-attachable-observations') {
+    assert.equal(result.attachment.excludedClassification, 1);
+  }
+  assert.equal(await getCachedGameStats(2026, 3, 'regular'), null);
+});
+
+test('ingest: one unresolved provider side blocks only that observation, not its siblings', async () => {
+  const result = await ingestGameStatsObservations(
+    baseInput([
+      wireGame({ id: 5001 }),
+      wireGame({ id: 5002, home: { school: 'TBD', teamId: 303 } }),
+    ])
+  );
+  assert.equal(result.kind, 'merged');
+  if (result.kind === 'merged') {
+    assert.equal(result.attachment.matched, 1);
+    assert.equal(result.attachment.unresolvedParticipant, 1);
+    assert.deepEqual(result.merge.inserted, [5001]);
+  }
+  const stored = await getCachedGameStats(2026, 3, 'regular');
+  assert.deepEqual(
+    stored!.games.map((g) => g.providerGameId),
+    [5001],
+    'only the canonically attached observation persisted'
+  );
 });
 
 test('ingest: matched observations with no valid categories are a content failure, not a write', async () => {
   const statless = {
     id: 5001,
     teams: [
-      { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-      { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+      {
+        teamId: 101,
+        team: 'Alpha State',
+        conference: 'X',
+        homeAway: 'home',
+        points: 21,
+        stats: [],
+      },
+      { teamId: 202, team: 'Beta Tech', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
     ],
   };
   const result = await ingestGameStatsObservations(baseInput([statless]));
@@ -190,23 +455,32 @@ test('ingest: matched observations with no valid categories are a content failur
   assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'nothing persisted');
 });
 
-test('ingest: matched observations merge into v2 durable rows; unmatched are dropped', async () => {
+test('ingest: matched FBS-vs-FCS observations merge into v2 durable rows', async () => {
+  const expectation = expectationFor(SLATE);
   const result = await ingestGameStatsObservations(
-    baseInput([wireGame({ id: 5001 }), wireGame({ id: 999_999 })])
+    baseInput(
+      [
+        wireGame({ id: 5001 }),
+        wireGame({
+          id: 5002,
+          home: { school: 'Gamma Poly', teamId: 303 },
+          away: { school: 'Little Brook', teamId: 900 },
+        }),
+      ],
+      expectation
+    )
   );
   assert.equal(result.kind, 'merged');
   if (result.kind === 'merged') {
     assert.equal(result.merge.outcome, 'written');
-    assert.deepEqual(result.merge.inserted, [5001]);
-    assert.equal(result.matched, 1);
-    assert.equal(result.unmatched, 1);
+    assert.deepEqual(result.merge.inserted, [5001, 5002]);
   }
   const stored = await getCachedGameStats(2026, 3, 'regular');
-  assert.equal(stored?.games.length, 1);
-  const row = stored!.games[0]!;
-  assert.equal(row.providerGameId, 5001);
-  assert.equal(row.schemaVersion, 2);
-  assert.equal(row.fetchStartedAt, FENCE);
+  assert.equal(stored?.games.length, 2);
+  for (const row of stored!.games) {
+    assert.equal(row.schemaVersion, 2);
+    assert.equal(row.fetchStartedAt, FENCE);
+  }
 });
 
 test('ingest: a pending (recently kicked off) schedule game may still merge', async () => {
@@ -220,10 +494,13 @@ test('ingest: a pending (recently kicked off) schedule game may still merge', as
 });
 
 test('ingest: a partial batch preserves prior durable games (no partition replacement)', async () => {
-  await ingestGameStatsObservations(baseInput([wireGame({ id: 5001 }), wireGame({ id: 5002 })]));
+  const expectation = expectationFor([item({ id: '5001' }), item({ id: '5002' })]);
+  await ingestGameStatsObservations(
+    baseInput([wireGame({ id: 5001 }), wireGame({ id: 5002 })], expectation)
+  );
   const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
   const result = await ingestGameStatsObservations({
-    ...baseInput([wireGame({ id: 5002, home: { points: 45 } })]),
+    ...baseInput([wireGame({ id: 5002, home: { points: 45 } })], expectation),
     fetchStartedAt: later,
   });
   assert.equal(result.kind, 'merged');

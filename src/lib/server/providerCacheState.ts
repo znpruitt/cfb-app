@@ -20,7 +20,7 @@ import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
-import { usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import { selectAnalyticsRows } from '../gameStats/contract.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 
 export type ProviderCacheAvailability = 'available' | 'absent' | 'unknown';
@@ -69,8 +69,13 @@ export async function getProviderCacheStates(year: number): Promise<ProviderCach
       return (rec?.value?.items?.length ?? 0) > 0;
     }),
     probe(async () => {
+      // PLATFORM-086H3: availability means the committed rows can actually be
+      // SERVED — judged through the shared H1 classification (analytics
+      // eligibility + deterministic duplicate selection), never a bare
+      // names-and-id usability shell. A row with an unsupported schema or
+      // ineligible evidence does not make the dataset available.
       for (const record of await listCachedGameStats(year)) {
-        if (usableGameStatsGameIds(record).size > 0) return true;
+        if (selectAnalyticsRows(record.games ?? []).selected.length > 0) return true;
       }
       return false;
     }),

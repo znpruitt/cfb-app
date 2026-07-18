@@ -12,6 +12,7 @@ import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
+import { loadGameStatsIdentityResolver } from '../gameStats/identityContext.ts';
 import { deriveSlateExpectation } from '../gameStats/ingestion.ts';
 import { evaluateGameStatsPartitionCoverage } from '../gameStats/partitionCoverage.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
@@ -218,13 +219,15 @@ export async function getProviderDataDiagnostics(
       // no warning fires while a slate is still underway. Disrupted games and
       // not-yet-addressable placeholders never manufacture a gap; a record with
       // `games: []` or only ineligible rows is not coverage.
-      const records = await listCachedGameStats(year);
+      const [records, resolver] = await Promise.all([
+        listCachedGameStats(year),
+        loadGameStatsIdentityResolver(),
+      ]);
       const recordBySlate = new Map<SlateKey, (typeof records)[number]>();
       for (const record of records) {
         recordBySlate.set(slateKey(record.week, normalizeSeasonType(record.seasonType)), record);
       }
-      // Season relation for coverage dispositions (recoverable vs manual-only —
-      // the reported messages do not distinguish them, but the shared model does).
+      // Season relation for coverage dispositions (recoverable vs manual-only).
       const nowDate = new Date(now);
       const activeSeasonYear =
         nowDate.getUTCMonth() >= 6 ? nowDate.getUTCFullYear() : nowDate.getUTCFullYear() - 1;
@@ -232,17 +235,21 @@ export async function getProviderDataDiagnostics(
 
       const missing: CompletedSlate[] = [];
       const partial: CompletedSlate[] = [];
+      const blocked: CompletedSlate[] = [];
+      const manualOnly: CompletedSlate[] = [];
       for (const slate of completedSlates) {
         const expectation = deriveSlateExpectation({
           scheduleItems,
+          resolver,
           year,
           week: slate.week,
           seasonType: slate.seasonType,
           now,
         });
         // Applicability BEFORE coverage: a slate with zero expected
-        // stat-producing games (e.g. entirely disrupted or placeholder-only)
-        // is not applicable and must not be reported as missing.
+        // stat-producing games (entirely disrupted, placeholder-deferred, or
+        // classification-excluded) is not applicable and must not be reported
+        // as missing.
         if (expectation.expectedIds.size === 0) continue;
         const coverage = evaluateGameStatsPartitionCoverage(
           expectation,
@@ -251,6 +258,8 @@ export async function getProviderDataDiagnostics(
         );
         if (coverage.state === 'absent') missing.push(slate);
         else if (coverage.state === 'partial') partial.push(slate);
+        else if (coverage.state === 'blocked') blocked.push(slate);
+        else if (coverage.state === 'manual-only') manualOnly.push(slate);
       }
 
       if (missing.length > 0) {
@@ -281,6 +290,23 @@ export async function getProviderDataDiagnostics(
           'game-stats',
           'info',
           `${describeSlates(partial)} partially cached game stats (some games still missing; recoverable via backfill).`
+        );
+      }
+      // Typed non-recoverable states from the shared coverage model: blocked
+      // rows are NEVER reported as recoverable absence, and manual-only gaps
+      // are operator work — neither is auto-refetched.
+      if (blocked.length > 0) {
+        push(
+          'game-stats',
+          'warning',
+          `${describeSlates(blocked)} have game-stats rows with unsupported schema versions (operator investigation required; not auto-recovered).`
+        );
+      }
+      if (manualOnly.length > 0) {
+        push(
+          'game-stats',
+          'info',
+          `${describeSlates(manualOnly)} have ineligible historical game-stats evidence (manual repair only).`
         );
       }
     }

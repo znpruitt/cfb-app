@@ -85,8 +85,10 @@ async function seedScheduleItems(items: ScheduleSeed[]) {
       startDate: it.startDate,
       neutralSite: false,
       conferenceGame: false,
-      homeTeam: `Home ${it.id}`,
-      awayTeam: `Away ${it.id}`,
+      // Canonical participants must agree with the wire fixture's schools —
+      // attachment validation is participant-based, never id-only.
+      homeTeam: 'Alpha State',
+      awayTeam: 'Beta Tech',
       homeConference: 'X',
       awayConference: 'Y',
       status: it.status,
@@ -184,9 +186,15 @@ test('a PARTIAL week (schedule expects more games) is a recovery candidate, and 
   stubTeamStats([5001, 5002]);
 
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { durable?: { inserted: number } };
+  const body = (await res.json()) as {
+    gamesProcessed?: number;
+    coverage?: { state: string };
+  };
   assert.equal(res.status, 200, JSON.stringify(body));
-  assert.equal(body.durable?.inserted, 1, 'only the missing game inserts');
+  // The absent game inserts; the prior legacy row upgrades opportunistically
+  // through the same conservative merge (2 accepted durable changes total).
+  assert.equal(body.gamesProcessed, 2);
+  assert.equal(body.coverage?.state, 'complete', 'committed coverage after the repair');
 
   const stored = await getCachedGameStats(YEAR, WEEK, 'regular');
   assert.deepEqual(stored!.games.map((g) => g.providerGameId).sort(), [5001, 5002]);
@@ -245,13 +253,16 @@ test('an OLDER unsatisfied slate is recovered once the newer slates are satisfie
   assert.equal(body.gamesProcessed, 1);
 });
 
-// Empty provider responses stay non-destructive no-ops.
-test('a genuinely empty provider response resolves as a no-op without a durable write', async () => {
+// An empty response over EXPECTED completed games is a stable failure
+// (PLATFORM-086H3): never "no applicable data", never a durable write, and
+// prior-good evidence is preserved.
+test('an unexpected empty provider response is a stable failure without a durable write', async () => {
   await seedCompletedSchedule();
-  stubJson([]); // CFBD returns [] — stats not published yet
+  stubJson([]); // CFBD returns [] although a completed game expects stats
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { skipped?: string; gamesProcessed?: number };
-  assert.equal(res.status, 200, JSON.stringify(body));
+  const body = (await res.json()) as { error?: string; gamesProcessed?: number };
+  assert.equal(res.status, 502, JSON.stringify(body));
+  assert.equal(body.error, 'game-stats-empty-unexpected');
   assert.equal(body.gamesProcessed, 0);
 
   assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no empty record written');
@@ -259,8 +270,9 @@ test('a genuinely empty provider response resolves as a no-op without a durable 
     'game-stats',
     weekPartitionScope(YEAR, WEEK, 'regular')
   );
-  assert.equal(status.latestAttemptOutcome, 'no-op');
-  assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'game-stats-empty-unexpected');
+  assert.equal(status.lastSuccessAt, null, 'an unexpected empty never advances last-success');
 });
 
 // SCOPED-STATUS review v2 #1 — the resolved week partition owns the outcome, and
@@ -359,8 +371,22 @@ test('matched observations without category evidence resolve as a content failur
     {
       id: 5001,
       teams: [
-        { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-        { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
+        {
+          teamId: 101,
+          team: 'Alpha State',
+          conference: 'X',
+          homeAway: 'home',
+          points: 21,
+          stats: [],
+        },
+        {
+          teamId: 202,
+          team: 'Beta Tech',
+          conference: 'Y',
+          homeAway: 'away',
+          points: 14,
+          stats: [],
+        },
       ],
     },
   ]);
