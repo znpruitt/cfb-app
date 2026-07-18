@@ -50,17 +50,7 @@ function makeTeam(school: string, points: number, homeAway: 'home' | 'away'): Te
     kickReturnTDs: 0,
     puntReturnYards: 0,
     puntReturnTDs: 0,
-    // Legacy-compatible raw evidence (PLATFORM-086H1): analytics eligibility is
-    // decided from raw values, so the fixture must carry the six required
-    // categories, consistent with the stored normalized fields above.
-    raw: {
-      totalYards: String(points * 10),
-      rushingYards: '0',
-      netPassingYards: '0',
-      turnovers: '0',
-      thirdDownEff: '0-0',
-      possessionTime: '0:00',
-    },
+    raw: {},
   };
 }
 
@@ -100,9 +90,9 @@ test('insights context resolves owner stats with global-first alias precedence',
     ['Rival Tech', 'Carol'],
   ]);
 
-  const result = await loadOwnerSeasonStats(slug, year, roster, []);
-  assert.equal(result.state, 'available', 'owner season stats produced');
-  const owners = (result.state === 'available' ? result.stats : []).map((s) => s.owner);
+  const stats = await loadOwnerSeasonStats(slug, year, roster, []);
+  assert.ok(stats, 'owner season stats produced');
+  const owners = stats!.map((s) => s.owner);
   assert.ok(owners.includes('Alice'), 'global target (Texas/Alice) credited the stats');
   assert.ok(!owners.includes('Bob'), 'league target (Georgia/Bob) NOT credited');
 });
