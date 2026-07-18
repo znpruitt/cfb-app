@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 
 import { writeJsonFileAtomic } from './atomicFileWrite.ts';
 
@@ -43,6 +43,12 @@ let __writeFailureScopeForTests: string | null = null;
 // Test-only: when set, `getAppState` throws this (writes unaffected). See
 // `__setAppStateReadFailureForTests`. Always null outside tests.
 let __readFailureForTests: Error | null = null;
+// Test-only: when set, `withAppStateKeyLock` throws this at acquisition (reads
+// and writes unaffected). See `__setAppStateKeyLockFailureForTests`. Always
+// null outside tests.
+let __keyLockFailureForTests: Error | null = null;
+// Test-only: when non-null, the lock failure applies ONLY to this scope.
+let __keyLockFailureScopeForTests: string | null = null;
 // Test-only: when non-null, the read failure applies ONLY to this scope (so a
 // test can fail a `'schedule'` read while `'provider-refresh-status'` reads still
 // succeed). Null means the failure applies to every scope. Always null outside tests.
@@ -265,6 +271,325 @@ export async function assertAppStateWritable(): Promise<void> {
   await getPool().query(APP_STATE_TABLE_DDL);
 }
 
+// ---------------------------------------------------------------------------
+// Durable per-key locked transaction (PLATFORM-086H2).
+//
+// Serializes a durable read→merge→write critical section on ONE app-state
+// (scope, key) across ALL instances. In Postgres mode a SINGLE dedicated
+// pooled client performs the ENTIRE operation — BEGIN, advisory lock
+// (`pg_advisory_xact_lock(hashtextextended(scope/key, 0))`), the caller's
+// read, the caller's optional write, COMMIT — so the read and any write are
+// transaction-scoped on the lock-owning connection, never on ordinary pool
+// helpers. The lock owner therefore never needs a second connection: same-key
+// waiters each block on the advisory lock holding only their own client, and
+// the pool cannot starve the active owner into deadlock. Different keys
+// proceed concurrently subject to pool capacity.
+//
+// Failure semantics:
+//   - acquisition failure (connect/BEGIN/lock) → `AppStateKeyLockAcquireError`
+//     (carrying the rollback's own error as `cleanupCause` when cleanup also
+//     failed);
+//   - a failed `txn.read`/`txn.write` marks the transaction and rethrows to
+//     the callback; if the callback settles normally afterwards the
+//     transaction is ROLLED BACK (never committed half-aborted);
+//   - a callback throw rolls back and rethrows the callback's error;
+//   - a ROLLBACK failure throws `AppStateTxnCleanupError`; a COMMIT failure
+//     throws `AppStateTxnFinalizeError`. Both carry `writeAttempted` (set
+//     BEFORE any mutation SQL is submitted) and `writeAcknowledged` (set only
+//     after PostgreSQL confirms the statement). Durability uncertainty after a
+//     failed cleanup/finalization is governed by `writeAttempted`, NOT by
+//     acknowledgement — a submitted mutation whose acknowledgement was lost or
+//     whose query rejected may still have executed server-side, so callers may
+//     claim untouched state only when no mutation SQL was submitted at all.
+// A client whose transaction state is uncertain is DESTROYED
+// (`release(error)`), never returned to the pool as healthy; disposal happens
+// exactly once, and the accessor is dead after the transaction completes
+// (`read`/`write` then throw), so callback code cannot retain the client past
+// finalization.
+//
+// The file fallback (dev/tests only — production requires DATABASE_URL) has no
+// cross-process authority, so it serializes with a per-(scope,key) in-process
+// promise chain (cleaned up when the tail settles); the durable transaction is
+// the production correctness boundary, and the whole-file `withFileWriteLock`
+// below it still protects the snapshot rename either way.
+
+export class AppStateKeyLockAcquireError extends Error {
+  /** Set when the post-failure ROLLBACK also failed (client destroyed). */
+  readonly cleanupCause?: unknown;
+  constructor(cause: unknown, cleanupCause?: unknown) {
+    super('app-state key lock acquisition failed');
+    this.name = 'AppStateKeyLockAcquireError';
+    this.cause = cause;
+    this.cleanupCause = cleanupCause;
+  }
+}
+
+export class AppStateTxnFinalizeError extends Error {
+  /** Mutation SQL was SUBMITTED (set before the query, regardless of result). */
+  readonly writeAttempted: boolean;
+  /** The mutation query resolved successfully (diagnostic detail only). */
+  readonly writeAcknowledged: boolean;
+  constructor(cause: unknown, writeAttempted: boolean, writeAcknowledged: boolean) {
+    super('app-state key transaction finalization failed');
+    this.name = 'AppStateTxnFinalizeError';
+    this.cause = cause;
+    this.writeAttempted = writeAttempted;
+    this.writeAcknowledged = writeAcknowledged;
+  }
+}
+
+/**
+ * ROLLBACK itself failed, so the transaction could not be confirmed cleanly
+ * aborted. The uncertain client is destroyed (never returned to the pool as
+ * healthy). The durability-uncertainty threshold is `writeAttempted` —
+ * mutation SQL that was SUBMITTED may have executed server-side even when its
+ * acknowledgement was lost or the query rejected, so callers may claim
+ * untouched state ONLY when no mutation SQL was submitted at all
+ * (`writeAttempted === false`). `writeAcknowledged` is retained as diagnostic
+ * detail, never as the uncertainty threshold. `cause` preserves the ACTUAL
+ * initiating failure (first failed statement, callback error, etc.);
+ * `cleanupCause` preserves the rollback's own error.
+ */
+export class AppStateTxnCleanupError extends Error {
+  readonly writeAttempted: boolean;
+  readonly writeAcknowledged: boolean;
+  readonly cleanupCause: unknown;
+  constructor(
+    cause: unknown,
+    cleanupCause: unknown,
+    writeAttempted: boolean,
+    writeAcknowledged: boolean
+  ) {
+    super('app-state key transaction cleanup failed');
+    this.name = 'AppStateTxnCleanupError';
+    this.cause = cause;
+    this.cleanupCause = cleanupCause;
+    this.writeAttempted = writeAttempted;
+    this.writeAcknowledged = writeAcknowledged;
+  }
+}
+
+/** Transaction-scoped accessor for exactly one (scope, key). */
+export type AppStateKeyTxn = {
+  read<T>(): Promise<AppStateRecord<T> | null>;
+  write<T>(value: T): Promise<void>;
+};
+
+const keyLockChains = new Map<string, Promise<unknown>>();
+
+export async function withAppStateKeyTransaction<T>(
+  scope: string,
+  key: string,
+  fn: (txn: AppStateKeyTxn) => Promise<T>
+): Promise<T> {
+  assertDurableStorageAvailable();
+  if (
+    __keyLockFailureForTests &&
+    (__keyLockFailureScopeForTests === null || __keyLockFailureScopeForTests === scope)
+  ) {
+    throw new AppStateKeyLockAcquireError(__keyLockFailureForTests);
+  }
+
+  if (hasDatabaseConfig()) {
+    await ensureDatabase();
+    let client: PoolClient;
+    try {
+      client = await getPool().connect();
+    } catch (error) {
+      throw new AppStateKeyLockAcquireError(error);
+    }
+
+    let finished = false;
+    // Mutation possibility is tracked from SUBMISSION, not acknowledgement: a
+    // mutation statement that rejected (or lost its acknowledgement to a
+    // connection failure) may still have executed server-side.
+    let writeAttempted = false;
+    let writeAcknowledged = false;
+    let txnFailed = false;
+    // The ACTUAL first statement failure — never replaced by a placeholder.
+    let firstStatementFailure: unknown = null;
+    const txn: AppStateKeyTxn = {
+      async read<V>(): Promise<AppStateRecord<V> | null> {
+        if (finished) throw new Error('app-state key transaction already finished');
+        try {
+          const result = await client.query<{ value: V; updated_at: Date | string }>(
+            'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
+            [scope, key]
+          );
+          const row = result.rows[0];
+          if (!row) return null;
+          return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
+        } catch (error) {
+          txnFailed = true;
+          firstStatementFailure ??= error;
+          throw error;
+        }
+      },
+      async write<V>(value: V): Promise<void> {
+        if (finished) throw new Error('app-state key transaction already finished');
+        writeAttempted = true;
+        try {
+          await client.query(
+            `
+              insert into app_state (scope, key, value, updated_at)
+              values ($1, $2, $3::jsonb, $4::timestamptz)
+              on conflict (scope, key)
+              do update set value = excluded.value, updated_at = excluded.updated_at
+            `,
+            [scope, key, JSON.stringify(value), new Date().toISOString()]
+          );
+          writeAcknowledged = true;
+        } catch (error) {
+          txnFailed = true;
+          firstStatementFailure ??= error;
+          throw error;
+        }
+      },
+    };
+
+    // Client containment: a client whose transaction state is uncertain —
+    // failed COMMIT, failed ROLLBACK, protocol failure — must NEVER re-enter
+    // the pool as healthy. `release(error)` destroys the connection (pg
+    // removes it from the pool), which also guarantees the server drops any
+    // advisory lock still attached to it. Disposal is recorded only AFTER it
+    // actually completes: a healthy release that throws falls through to
+    // destruction instead of being believed successful, so neither helper ever
+    // throws and disposal happens exactly once.
+    let disposed = false;
+    const releaseDestroy = (cause: unknown): void => {
+      if (disposed) return;
+      disposed = true;
+      try {
+        client.release(cause instanceof Error ? cause : new Error(String(cause)));
+      } catch {
+        // The connection is already gone; nothing healthier to do.
+      }
+    };
+    const releaseHealthy = (): void => {
+      if (disposed) return;
+      try {
+        client.release();
+        disposed = true;
+      } catch (error) {
+        // Healthy disposal did NOT complete — contain the client instead.
+        releaseDestroy(error);
+      }
+    };
+
+    /** Confirmed-clean rollback? Returns the rollback error when NOT. */
+    const tryRollback = async (): Promise<{ ok: true } | { ok: false; error: unknown }> => {
+      try {
+        await client.query('rollback');
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error };
+      }
+    };
+
+    try {
+      try {
+        await client.query('begin');
+        await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+          `${scope}/${key}`,
+        ]);
+      } catch (error) {
+        const cleanup = await tryRollback();
+        if (cleanup.ok) {
+          releaseHealthy();
+          throw new AppStateKeyLockAcquireError(error);
+        }
+        releaseDestroy(cleanup.error);
+        // Both the acquisition failure AND the cleanup failure are retained.
+        throw new AppStateKeyLockAcquireError(error, cleanup.error);
+      }
+
+      let result: T;
+      try {
+        result = await fn(txn);
+      } catch (error) {
+        const cleanup = await tryRollback();
+        if (cleanup.ok) {
+          releaseHealthy();
+          throw error;
+        }
+        releaseDestroy(cleanup.error);
+        throw new AppStateTxnCleanupError(error, cleanup.error, writeAttempted, writeAcknowledged);
+      }
+
+      if (txnFailed) {
+        // A statement inside the transaction failed (the callback handled the
+        // rethrown error itself); the transaction is aborted — never COMMIT it.
+        const cleanup = await tryRollback();
+        if (cleanup.ok) {
+          releaseHealthy();
+          return result;
+        }
+        releaseDestroy(cleanup.error);
+        throw new AppStateTxnCleanupError(
+          firstStatementFailure ?? new Error('transaction statement failed'),
+          cleanup.error,
+          writeAttempted,
+          writeAcknowledged
+        );
+      }
+
+      try {
+        await client.query('commit');
+      } catch (error) {
+        releaseDestroy(error);
+        throw new AppStateTxnFinalizeError(error, writeAttempted, writeAcknowledged);
+      }
+      // COMMIT succeeded: the durable result is CONFIRMED. `releaseHealthy`
+      // self-contains a release failure (falls through to destruction), so
+      // nothing after this point can replace the confirmed result.
+      releaseHealthy();
+      return result;
+    } finally {
+      finished = true;
+      // Safety net for any path that somehow skipped explicit handling; a
+      // client of unknown state is destroyed, never returned as healthy.
+      if (!disposed) releaseDestroy(new Error('transaction exited without explicit release'));
+    }
+  }
+
+  // File fallback: single-process serialization; reads/writes are immediately
+  // durable (no transaction), so finalization cannot fail here. The accessor
+  // honors the SAME lifetime contract as the Postgres branch: once the
+  // callback settles, retained read/write calls fail instead of bypassing the
+  // per-key chain.
+  const lockKey = buildCompositeKey(scope, key);
+  let fileFinished = false;
+  const txn: AppStateKeyTxn = {
+    read: async <V>() => {
+      if (fileFinished) throw new Error('app-state key transaction already finished');
+      return await getAppState<V>(scope, key);
+    },
+    write: async <V>(value: V) => {
+      if (fileFinished) throw new Error('app-state key transaction already finished');
+      await setAppState(scope, key, value);
+    },
+  };
+  const invoke = async (): Promise<T> => {
+    try {
+      return await fn(txn);
+    } finally {
+      fileFinished = true;
+    }
+  };
+  const prev = keyLockChains.get(lockKey) ?? Promise.resolve();
+  const run = prev.then(invoke, invoke);
+  const tail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  keyLockChains.set(lockKey, tail);
+  void tail.then(() => {
+    // Drop the settled chain — but only when no successor queued behind it.
+    if (keyLockChains.get(lockKey) === tail) keyLockChains.delete(lockKey);
+  });
+  return run;
+}
+
 export async function getAppState<T>(
   scope: string,
   key: string
@@ -484,6 +809,9 @@ export function __resetAppStateForTests(): void {
   __writeFailureScopeForTests = null;
   __readFailureForTests = null;
   __readFailureScopeForTests = null;
+  __keyLockFailureForTests = null;
+  __keyLockFailureScopeForTests = null;
+  keyLockChains.clear();
   if (pool) {
     void pool.end().catch(() => undefined);
   }
@@ -525,4 +853,41 @@ export function __setAppStateReadFailureForTests(
 ): void {
   __readFailureForTests = error;
   __readFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: make subsequent `withAppStateKeyLock` calls reject with `error` at
+ * acquisition time — before `fn` runs — so callers that must map an unavailable
+ * lock to a typed non-destructive outcome (PLATFORM-086H2 durable merge) can be
+ * exercised. Reads and writes are unaffected. Pass `null` to clear; optionally
+ * scope to one app-state `scope`. Cleared automatically by
+ * `__resetAppStateForTests`.
+ */
+export function __setAppStateKeyLockFailureForTests(
+  error: Error | null,
+  scope: string | null = null
+): void {
+  __keyLockFailureForTests = error;
+  __keyLockFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: inject a fake `pg` Pool so the Postgres branch of
+ * `withAppStateKeyTransaction` (single-client transaction lifecycle, advisory
+ * lock ordering, commit-failure indeterminacy) can be exercised without a live
+ * database. Callers must also point DATABASE_URL at a placeholder so
+ * `hasDatabaseConfig()` selects the Postgres path, and must clear both via
+ * `__resetAppStateForTests` / env restore afterwards. Never set in production.
+ */
+export function __setAppStatePoolForTests(fake: Pool | null): void {
+  pool = fake;
+}
+
+/**
+ * Test-only: number of retained per-key file-fallback lock chains. Lets tests
+ * prove settled chains for historical keys are released rather than retained
+ * for the process lifetime.
+ */
+export function __appStateKeyLockChainCountForTests(): number {
+  return keyLockChains.size;
 }

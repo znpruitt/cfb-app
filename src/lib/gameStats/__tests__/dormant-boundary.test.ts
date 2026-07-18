@@ -41,9 +41,14 @@ function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
-// The only permitted non-test homes of dormant names: the contract definition
-// and the optional dormant type declarations.
-const EXCLUDED_FILES = new Set(['src/lib/gameStats/contract.ts', 'src/lib/gameStats/types.ts']);
+// The only permitted non-test homes of dormant names: the contract definition,
+// the optional dormant type declarations, and (PLATFORM-086H2) the dormant
+// durable merge service. Exact files only — never whole directories.
+const EXCLUDED_FILES = new Set([
+  'src/lib/gameStats/contract.ts',
+  'src/lib/gameStats/types.ts',
+  'src/lib/gameStats/durableMerge.ts',
+]);
 const EXCLUDED_DIRS = new Set(['__tests__', '__fixtures__', 'fixtures']);
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
 
@@ -80,6 +85,10 @@ const FORBIDDEN_SYMBOLS = [
   'buildV2GameStats',
   'schemaVersion',
   'pointsProvided',
+  // PLATFORM-086H2 dormant durable-merge APIs and metadata.
+  'fetchStartedAt',
+  'computeWeeklyGameStatsMerge',
+  'mergeGameStatsPartitionDurable',
 ];
 
 const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g');
@@ -88,18 +97,27 @@ const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g')
 const SPECIFIER_PATTERN =
   /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g;
 
-/** Whether a module specifier resolves to the game-stats contract module. */
-function specifierTargetsContract(specifier: string, importerRepoRelativePath: string): boolean {
+/** Whether a module specifier resolves to a dormant game-stats module. */
+function specifierTargetsDormantModule(
+  specifier: string,
+  importerRepoRelativePath: string
+): boolean {
   const normalized = specifier.replace(/\\/g, '/');
   // Alias/absolute forms (`@/lib/gameStats/contract`, deep relative paths).
-  if (normalized.includes('gameStats/contract')) return true;
+  if (normalized.includes('gameStats/contract') || normalized.includes('gameStats/durableMerge')) {
+    return true;
+  }
   // Relative forms resolve against the importing file so an unrelated module
   // that merely happens to be named `contract` elsewhere never matches.
   if (!normalized.startsWith('.')) return false;
   const resolved = path.posix.normalize(
     path.posix.join(path.posix.dirname(toPosix(importerRepoRelativePath)), normalized)
   );
-  return /^src\/lib\/gameStats\/contract(\.ts)?$/.test(resolved);
+  // TypeScript source commonly imports with .js/.mjs/.cjs specifiers (NodeNext
+  // resolution) — every supported extension resolves to the same module.
+  return /^src\/lib\/gameStats\/(contract|durableMerge)(\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$/.test(
+    resolved
+  );
 }
 
 type BoundaryViolation = { file: string; pattern: string; line: number };
@@ -119,10 +137,10 @@ function findBoundaryViolations(source: string, repoRelativePath: string): Bound
     });
   }
   for (const match of source.matchAll(SPECIFIER_PATTERN)) {
-    if (specifierTargetsContract(match[1]!, repoRelativePath)) {
+    if (specifierTargetsDormantModule(match[1]!, repoRelativePath)) {
       violations.push({
         file: repoRelativePath,
-        pattern: `contract import "${match[1]}"`,
+        pattern: `dormant-module import "${match[1]}"`,
         line: lineOf(source, match.index),
       });
     }
@@ -158,6 +176,9 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
     ['if (isPersistableIncomingRow(obs)) {}', 'isPersistableIncomingRow'],
     ['const row = { schemaVersion: 2 };', 'schemaVersion'],
     ['team.pointsProvided = true;', 'pointsProvided'],
+    ['row.fetchStartedAt = now;', 'fetchStartedAt'],
+    ['const r = await mergeGameStatsPartitionDurable(input);', 'mergeGameStatsPartitionDurable'],
+    ['const c = computeWeeklyGameStatsMerge(existing, input);', 'computeWeeklyGameStatsMerge'],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');
@@ -179,12 +200,48 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
   for (const source of flagged) {
     const violations = findBoundaryViolations(source, importer);
     assert.equal(violations.length, 1, source);
-    assert.ok(violations[0]!.pattern.startsWith('contract import'), source);
+    assert.ok(violations[0]!.pattern.startsWith('dormant-module import'), source);
   }
   // A sibling barrel inside gameStats reaches the contract via './contract'.
   assert.equal(
     findBoundaryViolations(`export * from './contract';`, 'src/lib/gameStats/index.ts').length,
     1
+  );
+  // The durable merge service (PLATFORM-086H2) is guarded the same way in
+  // every import form.
+  const mergeFlagged = [
+    `import { anything } from '../gameStats/durableMerge';`,
+    `const m = await import('@/lib/gameStats/durableMerge');`,
+    `const m = require('../gameStats/durableMerge.ts');`,
+    `export * from '../gameStats/durableMerge';`,
+  ];
+  for (const source of mergeFlagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.equal(violations.length, 1, source);
+    assert.ok(violations[0]!.pattern.startsWith('dormant-module import'), source);
+  }
+  assert.equal(
+    findBoundaryViolations(`export * from './durableMerge';`, 'src/lib/gameStats/index.ts').length,
+    1
+  );
+  // Relative specifiers with JavaScript-resolution extensions (NodeNext style)
+  // resolve to the same dormant modules and must be rejected identically.
+  const extensionFlagged: Array<[string, string]> = [
+    [`import { x } from '../gameStats/contract.js';`, importer],
+    [`const m = require('../gameStats/durableMerge.mjs');`, importer],
+    [`export * from '../gameStats/durableMerge.cjs';`, importer],
+    [`import './contract.js';`, 'src/lib/gameStats/index.ts'],
+    [`export { y } from './durableMerge.js';`, 'src/lib/gameStats/index.ts'],
+  ];
+  for (const [source, file] of extensionFlagged) {
+    const violations = findBoundaryViolations(source, file);
+    assert.equal(violations.length, 1, source);
+    assert.ok(violations[0]!.pattern.startsWith('dormant-module import'), source);
+  }
+  // Unrelated modules with those extensions stay clean.
+  assert.deepEqual(
+    findBoundaryViolations(`import { z } from './contract.js';`, 'src/lib/billing/index.ts'),
+    []
   );
 });
 
@@ -202,12 +259,13 @@ test('scanner: clean and unrelated sources produce no violations', () => {
   }
 });
 
-test('scanner: exclusions are exactly the contract, types, tests, and fixtures', () => {
+test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', () => {
   const files = listProductionSources();
   const set = new Set(files);
-  // The two intentional non-test homes of dormant names are excluded…
+  // The three intentional non-test homes of dormant names are excluded…
   assert.ok(!set.has('src/lib/gameStats/contract.ts'));
   assert.ok(!set.has('src/lib/gameStats/types.ts'));
+  assert.ok(!set.has('src/lib/gameStats/durableMerge.ts'));
   // …tests and fixtures never appear…
   assert.ok(files.every((f) => !f.includes('__tests__/') && !TEST_FILE_PATTERN.test(f)));
   // …while real production seams are all scanned.
@@ -221,6 +279,9 @@ test('scanner: exclusions are exactly the contract, types, tests, and fixtures',
     'src/lib/insights/context.ts',
     'src/lib/selectors/historySelectors.ts',
     'src/lib/server/providerDataDiagnostics.ts',
+    // Hosts the generic per-key lock primitive (PLATFORM-086H2) — a production
+    // file, so it MUST stay scanned (it never references merge APIs itself).
+    'src/lib/server/appStateStore.ts',
   ]) {
     assert.ok(set.has(seam), `${seam} must be scanned`);
   }
