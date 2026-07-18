@@ -286,18 +286,26 @@ export async function assertAppStateWritable(): Promise<void> {
 // proceed concurrently subject to pool capacity.
 //
 // Failure semantics:
-//   - acquisition failure (connect/BEGIN/lock) → `AppStateKeyLockAcquireError`;
+//   - acquisition failure (connect/BEGIN/lock) → `AppStateKeyLockAcquireError`
+//     (carrying the rollback's own error as `cleanupCause` when cleanup also
+//     failed);
 //   - a failed `txn.read`/`txn.write` marks the transaction and rethrows to
 //     the callback; if the callback settles normally afterwards the
 //     transaction is ROLLED BACK (never committed half-aborted);
 //   - a callback throw rolls back and rethrows the callback's error;
-//   - a COMMIT failure throws `AppStateTxnFinalizeError` carrying `didWrite` —
-//     when a write was pending, the durable outcome is genuinely UNKNOWN and
-//     callers must represent that truthfully rather than assuming untouched
-//     state.
-// The client is released in every path, and the accessor is dead after the
-// transaction completes (`read`/`write` then throw), so callback code cannot
-// retain the client past finalization.
+//   - a ROLLBACK failure throws `AppStateTxnCleanupError`; a COMMIT failure
+//     throws `AppStateTxnFinalizeError`. Both carry `writeAttempted` (set
+//     BEFORE any mutation SQL is submitted) and `writeAcknowledged` (set only
+//     after PostgreSQL confirms the statement). Durability uncertainty after a
+//     failed cleanup/finalization is governed by `writeAttempted`, NOT by
+//     acknowledgement — a submitted mutation whose acknowledgement was lost or
+//     whose query rejected may still have executed server-side, so callers may
+//     claim untouched state only when no mutation SQL was submitted at all.
+// A client whose transaction state is uncertain is DESTROYED
+// (`release(error)`), never returned to the pool as healthy; disposal happens
+// exactly once, and the accessor is dead after the transaction completes
+// (`read`/`write` then throw), so callback code cannot retain the client past
+// finalization.
 //
 // The file fallback (dev/tests only — production requires DATABASE_URL) has no
 // cross-process authority, so it serializes with a per-(scope,key) in-process
