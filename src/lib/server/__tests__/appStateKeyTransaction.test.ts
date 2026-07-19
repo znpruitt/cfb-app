@@ -13,7 +13,11 @@ import {
   __appStateKeyLockChainCountForTests,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateFileCommitFailureForTests,
   __setAppStatePoolForTests,
+  __setAppStateWriteFailureForTests,
+  getAppState,
+  setAppState,
   withAppStateKeyTransaction,
 } from '../appStateStore.ts';
 
@@ -885,4 +889,294 @@ test('a rejected same-key callback does not poison the next; settled chains are 
   );
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+// ===========================================================================
+// PLATFORM-086H3A — multi-key transactions (readKey/writeKey/lockKey), staged
+// file-fallback atomicity, and accessor lifetime. Every key of a transaction
+// commits together or not at all, on BOTH backends.
+// ===========================================================================
+
+// --- File fallback (no DATABASE_URL): staged, atomic single replacement ---
+
+test('file multi-key: a two-key transaction commits both keys atomically', async () => {
+  await withAppStateKeyTransaction('primary', 'p', async (txn) => {
+    await txn.write({ n: 1 });
+    await txn.writeKey('ledger', 'p', { revision: 1 });
+  });
+  assert.deepEqual((await getAppState('primary', 'p'))?.value, { n: 1 });
+  assert.deepEqual((await getAppState('ledger', 'p'))?.value, { revision: 1 });
+});
+
+test('file multi-key: a three-key transaction commits all keys atomically', async () => {
+  await withAppStateKeyTransaction('primary', 't', async (txn) => {
+    await txn.write({ n: 3 });
+    await txn.writeKey('ledger', 't', { revision: 3 });
+    await txn.writeKey('audit', 't', { at: 'x' });
+  });
+  assert.deepEqual((await getAppState('primary', 't'))?.value, { n: 3 });
+  assert.deepEqual((await getAppState('ledger', 't'))?.value, { revision: 3 });
+  assert.deepEqual((await getAppState('audit', 't'))?.value, { at: 'x' });
+});
+
+test('file multi-key: primary and secondary read-your-writes; latest staged value wins; untouched from snapshot', async () => {
+  await setAppState('primary', 'ryw', { stored: 1 });
+  await setAppState('other', 'untouched', { stored: 'other' });
+  await withAppStateKeyTransaction('primary', 'ryw', async (txn) => {
+    assert.deepEqual((await txn.read())?.value, { stored: 1 }, 'snapshot read');
+    await txn.write({ stored: 2 });
+    assert.deepEqual((await txn.read())?.value, { stored: 2 }, 'primary read-your-writes');
+    await txn.write({ stored: 3 });
+    assert.deepEqual((await txn.read())?.value, { stored: 3 }, 'latest staged value wins');
+    assert.equal(await txn.readKey('ledger', 'ryw'), null, 'unstaged secondary absent');
+    await txn.writeKey('ledger', 'ryw', { revision: 9 });
+    assert.deepEqual(
+      (await txn.readKey('ledger', 'ryw'))?.value,
+      { revision: 9 },
+      'secondary read-your-writes'
+    );
+    assert.deepEqual(
+      (await txn.readKey('other', 'untouched'))?.value,
+      { stored: 'other' },
+      'untouched key served from the snapshot'
+    );
+  });
+  assert.deepEqual((await getAppState('primary', 'ryw'))?.value, { stored: 3 });
+});
+
+test('file multi-key: a callback throw AFTER staged writes rolls back every key', async () => {
+  await setAppState('primary', 'rb', { before: true });
+  await setAppState('ledger', 'rb', { revision: 7 });
+  await assert.rejects(
+    withAppStateKeyTransaction('primary', 'rb', async (txn) => {
+      await txn.write({ after: true });
+      await txn.writeKey('ledger', 'rb', { revision: 8 });
+      throw new Error('late failure');
+    }),
+    /late failure/
+  );
+  assert.deepEqual((await getAppState('primary', 'rb'))?.value, { before: true });
+  assert.deepEqual((await getAppState('ledger', 'rb'))?.value, { revision: 7 });
+});
+
+test('file multi-key: a SECOND staged write failing rolls back the first (neither commits)', async () => {
+  await setAppState('primary', 'sw', { before: true });
+  __setAppStateWriteFailureForTests(new Error('ledger write refused'), 'ledger');
+  try {
+    await assert.rejects(
+      withAppStateKeyTransaction('primary', 'sw', async (txn) => {
+        await txn.write({ after: true }); // stages fine (primary scope unaffected)
+        await txn.writeKey('ledger', 'sw', { revision: 1 }); // throws
+      }),
+      /ledger write refused/
+    );
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.deepEqual(
+    (await getAppState('primary', 'sw'))?.value,
+    { before: true },
+    'first discarded'
+  );
+  assert.equal(await getAppState('ledger', 'sw'), null);
+});
+
+test('file multi-key: a failed FINAL replacement preserves the prior snapshot and types the failure', async () => {
+  await setAppState('primary', 'fc', { before: true });
+  __setAppStateFileCommitFailureForTests(new Error('disk full'));
+  try {
+    await assert.rejects(
+      withAppStateKeyTransaction('primary', 'fc', async (txn) => {
+        await txn.write({ after: true });
+        await txn.writeKey('ledger', 'fc', { revision: 1 });
+        return 'callback-ok';
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof AppStateTxnFinalizeError);
+        assert.equal(err.writeAttempted, false, 'atomic rename proves nothing applied');
+        assert.match(String(err.cause), /disk full/);
+        return true;
+      }
+    );
+  } finally {
+    __setAppStateFileCommitFailureForTests(null);
+  }
+  assert.deepEqual((await getAppState('primary', 'fc'))?.value, { before: true });
+  assert.equal(await getAppState('ledger', 'fc'), null);
+
+  // Retry after the failure commits cleanly (nothing was half-applied).
+  await withAppStateKeyTransaction('primary', 'fc', async (txn) => {
+    await txn.write({ after: true });
+    await txn.writeKey('ledger', 'fc', { revision: 1 });
+  });
+  assert.deepEqual((await getAppState('primary', 'fc'))?.value, { after: true });
+  assert.deepEqual((await getAppState('ledger', 'fc'))?.value, { revision: 1 });
+});
+
+test('file multi-key: staged values are invisible to plain reads before commit', async () => {
+  const midTxn = deferred();
+  const proceed = deferred();
+  let observed: unknown = 'unread';
+  const txnDone = withAppStateKeyTransaction('primary', 'vis', async (txn) => {
+    await txn.write({ committed: true });
+    midTxn.resolve();
+    await proceed.promise;
+  });
+  await midTxn.promise;
+  observed = (await getAppState('primary', 'vis'))?.value ?? null;
+  proceed.resolve();
+  await txnDone;
+  assert.equal(observed, null, 'staged write invisible before the atomic commit');
+  assert.deepEqual((await getAppState('primary', 'vis'))?.value, { committed: true });
+});
+
+test('file multi-key: an unrelated key written AFTER the snapshot is preserved by the commit', async () => {
+  await setAppState('primary', 'u', { before: true });
+  const staged = deferred();
+  const proceed = deferred();
+  const txnDone = withAppStateKeyTransaction('primary', 'u', async (txn) => {
+    await txn.read(); // loads the snapshot now
+    await txn.write({ after: true });
+    staged.resolve();
+    await proceed.promise;
+  });
+  await staged.promise;
+  // A concurrent unrelated-key write lands AFTER this transaction's snapshot.
+  await setAppState('unrelated', 'k', { concurrent: true });
+  proceed.resolve();
+  await txnDone;
+  assert.deepEqual(
+    (await getAppState('primary', 'u'))?.value,
+    { after: true },
+    'txn key committed'
+  );
+  assert.deepEqual(
+    (await getAppState('unrelated', 'k'))?.value,
+    { concurrent: true },
+    'unrelated concurrent write NOT clobbered by the transaction commit'
+  );
+});
+
+test('file accessor lifetime: readKey/writeKey/lockKey reject after the callback settles', async () => {
+  let leaked: {
+    readKey: (s: string, k: string) => Promise<unknown>;
+    writeKey: (s: string, k: string, v: unknown) => Promise<void>;
+    lockKey: (s: string, k: string) => Promise<void>;
+  } | null = null;
+  await withAppStateKeyTransaction('primary', 'life', async (txn) => {
+    leaked = txn;
+    await txn.write({ ok: true });
+  });
+  await assert.rejects(leaked!.readKey('ledger', 'life'), /already finished/);
+  await assert.rejects(leaked!.writeKey('ledger', 'life', { x: 1 }), /already finished/);
+  await assert.rejects(leaked!.lockKey('ledger', 'life'), /already finished/);
+});
+
+test('file lockKey: an explicit secondary lock serializes an independent writer of that key', async () => {
+  await setAppState('status', 's', { floor: 10 });
+  const acquired = deferred();
+  const proceed = deferred();
+  // Transaction A holds the status key's slot mid-flight.
+  const runA = withAppStateKeyTransaction('primary', 'a', async (txn) => {
+    await txn.lockKey('status', 's');
+    acquired.resolve();
+    await proceed.promise;
+    await txn.writeKey('status', 's', { floor: 12 });
+    await txn.write({ done: true });
+  });
+  await acquired.promise;
+  // A transaction rooted at the status key cannot enter until A releases.
+  let bEntered = false;
+  const runB = withAppStateKeyTransaction('status', 's', async (txn) => {
+    bEntered = true;
+    const seen = (await txn.read()) as { value: { floor: number } } | null;
+    return seen?.value.floor;
+  });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(bEntered, false, 'B is excluded while A holds the status slot');
+  proceed.resolve();
+  await runA;
+  const bFloor = await runB;
+  assert.equal(bEntered, true);
+  assert.equal(bFloor, 12, 'B observed the value A committed under the lock');
+});
+
+// --- PostgreSQL: one client, one BEGIN/COMMIT, multi-key + multi-lock ---
+
+test('pg multi-key: two keys commit on ONE client inside one begin/commit; visible only at commit', async () => {
+  await withFakePg(async (pool) => {
+    await withAppStateKeyTransaction('primary', 'p', async (txn) => {
+      await txn.write({ n: 1 });
+      await txn.writeKey('ledger', 'p', { revision: 1 });
+      assert.equal(pool.committed.size, 0, 'staged, not yet committed');
+    });
+    assert.equal(pool.connectCount, 1, 'a single client served both keys');
+    assert.deepEqual(JSON.parse(pool.committed.get('primary::p')!), { n: 1 });
+    assert.deepEqual(JSON.parse(pool.committed.get('ledger::p')!), { revision: 1 });
+  });
+});
+
+test('pg multi-key: read-your-writes across primary and secondary on the same client', async () => {
+  await withFakePg(async (pool) => {
+    await withAppStateKeyTransaction('primary', 'r', async (txn) => {
+      await txn.write({ n: 2 });
+      assert.deepEqual((await txn.read())?.value, { n: 2 }, 'primary RYW pre-commit');
+      await txn.writeKey('ledger', 'r', { revision: 5 });
+      assert.deepEqual((await txn.readKey('ledger', 'r'))?.value, { revision: 5 }, 'secondary RYW');
+    });
+    assert.deepEqual(JSON.parse(pool.committed.get('ledger::r')!), { revision: 5 });
+  });
+});
+
+test('pg multi-key: a callback throw rolls back EVERY key (nothing commits)', async () => {
+  await withFakePg(async (pool) => {
+    await assert.rejects(
+      withAppStateKeyTransaction('primary', 'x', async (txn) => {
+        await txn.write({ n: 9 });
+        await txn.writeKey('ledger', 'x', { revision: 9 });
+        throw new Error('callback failed');
+      }),
+      /callback failed/
+    );
+    assert.equal(pool.committed.size, 0, 'no key committed');
+    const log = clientLog(pool, 1);
+    assert.ok(log.includes('client1:rollback'), 'the transaction rolled back');
+    assert.ok(!log.includes('client1:commit'), 'nothing committed');
+  });
+});
+
+test('pg multi-key: lockKey takes a deterministic set of advisory locks on the same client', async () => {
+  await withFakePg(async (pool) => {
+    await withAppStateKeyTransaction('primary', 'p', async (txn) => {
+      // Explicit secondary lock — acquired on the SAME client.
+      await txn.lockKey('status', 'p');
+      await txn.writeKey('status', 'p', { floor: 1 });
+      await txn.write({ n: 1 });
+    });
+    // Two advisory locks were taken by the one client (primary + status), both
+    // released at commit.
+    const locks = clientLog(pool, 1).filter((e) => e === 'client1:lock');
+    assert.equal(locks.length, 2, 'primary + explicit secondary lock, same client');
+    assert.equal(pool.connectCount, 1, 'no second client acquired');
+    assert.equal(pool.locks.size, 0, 'all advisory locks released at commit');
+  });
+});
+
+test('pg multi-key uncertainty: a lost COMMIT with staged multi-key writes is indeterminate (write-attempted)', async () => {
+  await withFakePg(async (pool) => {
+    pool.failures.commit = new Error('commit confirmation lost');
+    await assert.rejects(
+      withAppStateKeyTransaction('primary', 'u', async (txn) => {
+        await txn.write({ n: 1 });
+        await txn.writeKey('ledger', 'u', { revision: 1 });
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof AppStateTxnFinalizeError);
+        assert.equal(err.writeAttempted, true, 'mutation SQL was submitted → durability unknown');
+        return true;
+      }
+    );
+    // The uncertain client is destroyed, never returned to the pool as healthy.
+    assert.ok(pool.destroyedIds.has(1));
+  });
 });

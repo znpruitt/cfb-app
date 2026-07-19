@@ -245,7 +245,7 @@ Provider limits (canonical): CFBD Tier 1 = 5,000 calls/month; The Odds API = 500
 - **PLATFORM-086A — provider-refresh observability foundation ✓ Complete (PR #391).** Durable per-dataset refresh status with typed canonical scopes and per-scope attempt ordering; cross-scope completion-token rejection; durable operator settings (global noncritical pause + per-dataset enable); `/admin/diagnostics` Provider Data Status panel with manual refresh; cache-aware missing-data diagnostics; CFBD quota normalization (Tier 1 = 5,000); user-facing freshness labels; CFBD as the sole normal score provider (automatic ESPN fallback removed); durable-first commits; empty-response/schema-drift classification; schedule `week + all` read-time cache composition.
 - **PLATFORM-086G1 — CFBD score & quota truthfulness ✓ Complete (PR #394).** Contextual target-scoped Scores empty classification (`cfbd-empty-unexpected` failures retain prior-good data; legitimate empties stay no-ops); CFBD quota missing/malformed fields resolve to unavailable, never false exhaustion.
 - **PLATFORM-086G2 — Odds boundary & usage truthfulness ✓ Complete (PR #395).** Malformed/schema-drift/unexpected-empty Odds payloads rejected before commit (`odds-invalid-payload` / `odds-schema-drift` / `odds-empty-unexpected`, prior-good retained; legitimate empties stay no-ops, with prior events reconciled against the canonical slate via a typed identity-certainty state model); odds-usage read failure now distinct from snapshot absence end to end. Separate PR from G1 (different provider family).
-- **PLATFORM-086H — game-stats recovery (in progress — staged).** 086H1 data-contract foundation ✓ complete (PR #396, dormant). 086H2 durable merge service ✓ complete (PR #397, dormant; single-client advisory-lock transaction, observation fencing, conservative field merge). Next: 086H3 atomic contract activation + recovery integration (schedule-derived completeness, partial-week retry; all consumers flip together). Deferred: 086H4 diagnostics + panel no-op wording, legacy-row migration. Nothing activated yet.
+- **PLATFORM-086H — game-stats recovery (in progress — staged).** 086H1 data-contract foundation ✓ complete (PR #396, dormant). 086H2 durable merge service ✓ complete (PR #397, dormant; single-client advisory-lock transaction, observation fencing, conservative field merge). 086H3 atomic contract activation is **decomposed into prerequisite PRs A–E** (a first single-branch attempt was frozen as a read-only salvage reference after an architecture audit; frozen design in `docs/ai/platform-086h3-contract.md`): A durable multi-key transaction primitive → B revision lineage/ledger + status chronology + operator repair + activation-control fence → C canonical evidence (participant-validated coverage, one duplicate authority) → D recovery/orchestration → E final atomic activation. **086H3A is active** (multi-key app-state transaction primitive, dormant, from `main`). Deferred: 086H4 diagnostics + panel no-op wording, legacy-row migration. Nothing activated yet.
 - **PLATFORM-086I — settings feedback (planned).** Render stored pause/toggle mutation errors beside their controls.
 - **PLATFORM-086B — live-score polling (planned).** Schedule-armed ~3-minute polling only; never bundled with Odds.
 - **PLATFORM-086C — Odds polling (planned).** ~6-hour baseline with modest pre-kickoff priority; separate from live scores.
@@ -380,48 +380,48 @@ App-wide standardization of "view more" / "full view" / "see all" cross-links. C
 
 All completed work is detailed in `docs/completed-work.md`. Key milestones:
 
-| Campaign | Status |
-|----------|--------|
-| Architecture Stabilization | ✅ Complete |
-| Production Hardening | ✅ Complete |
-| League UX / Engagement | ✅ Complete |
-| Overview Visual Redesign | ✅ Complete |
-| Overview Trends Visual Sweep | ✅ Complete |
-| Multi-League Support | ✅ Complete (PRs #192–#196) |
-| Historical Analytics (all subphases) | ✅ Complete |
-| Draft Tool (all subphases P5A–P5D) | ✅ Complete |
-| Admin Cleanup and Auth (P6A–P6E) | ✅ Complete |
-| Product Design Audit (7A–7F) | ✅ Complete |
-| Commissioner Self-Service | ✅ Complete (PRs #252–#256) |
-| Season Lifecycle (P7B-4 through P7B-7) | ✅ Complete |
-| Season Transition Workflow | ✅ Complete |
-| Dry Run Polish | ✅ Complete |
-| App Naming: Turf War | ✅ Complete |
-| Clerk Production Migration | ✅ Complete |
-| Custom Domain Setup | ✅ Complete |
-| Game Stats Pipeline | ✅ Complete (PRs #274–#275) |
-| Insights Engine Foundation | ✅ Complete (PR #276) |
-| Insights Engine — Generators and Wiring | ✅ Complete (PR #278) |
-| Season Rollover UI and Cron | ✅ Complete (PR #278) |
-| History Page Polish | ✅ Complete (PR #278) |
-| Insights Engine — Context Extension | ✅ Complete |
-| Insights Engine — Generator Batch 2 | ✅ Complete |
-| Copy Variation Architecture | ✅ Complete |
-| Insights Panel UI Redesign + Polish | ✅ Complete |
-| Pairing Cards | 🔄 Planned |
-| Luck Score + Bounce-Back Generators | 🔄 Planned |
-| Insights — "See All" Page | 🔄 Planned |
-| Insights Panel — Microlabel Palette | 🔄 Planned |
-| Insights Ranker — Priority Tuning | 🔄 Planned |
-| History Rework — Career Stats Surface | 🔄 Planned |
-| Standings Page — Preseason State | ✅ Complete |
-| Standings Page — Lifecycle Labeling Sweep | 🔄 Planned |
-| Link Styling Audit | 🔄 Planned |
-| AppStateStore Caching — Egress Optimization | 🔄 Planned |
-| Server Fetch Architecture Audit | 🔄 Planned |
-| Standings Ownership Model Redesign (Phases 0–5) | ✅ Complete |
-| Provider Refresh Observability (PLATFORM-086A) | ✅ Complete (PR #391) |
-| Provider Automation & Correctness (PLATFORM-086B–I) | 🔄 In progress |
+| Campaign                                            | Status                      |
+| --------------------------------------------------- | --------------------------- |
+| Architecture Stabilization                          | ✅ Complete                 |
+| Production Hardening                                | ✅ Complete                 |
+| League UX / Engagement                              | ✅ Complete                 |
+| Overview Visual Redesign                            | ✅ Complete                 |
+| Overview Trends Visual Sweep                        | ✅ Complete                 |
+| Multi-League Support                                | ✅ Complete (PRs #192–#196) |
+| Historical Analytics (all subphases)                | ✅ Complete                 |
+| Draft Tool (all subphases P5A–P5D)                  | ✅ Complete                 |
+| Admin Cleanup and Auth (P6A–P6E)                    | ✅ Complete                 |
+| Product Design Audit (7A–7F)                        | ✅ Complete                 |
+| Commissioner Self-Service                           | ✅ Complete (PRs #252–#256) |
+| Season Lifecycle (P7B-4 through P7B-7)              | ✅ Complete                 |
+| Season Transition Workflow                          | ✅ Complete                 |
+| Dry Run Polish                                      | ✅ Complete                 |
+| App Naming: Turf War                                | ✅ Complete                 |
+| Clerk Production Migration                          | ✅ Complete                 |
+| Custom Domain Setup                                 | ✅ Complete                 |
+| Game Stats Pipeline                                 | ✅ Complete (PRs #274–#275) |
+| Insights Engine Foundation                          | ✅ Complete (PR #276)       |
+| Insights Engine — Generators and Wiring             | ✅ Complete (PR #278)       |
+| Season Rollover UI and Cron                         | ✅ Complete (PR #278)       |
+| History Page Polish                                 | ✅ Complete (PR #278)       |
+| Insights Engine — Context Extension                 | ✅ Complete                 |
+| Insights Engine — Generator Batch 2                 | ✅ Complete                 |
+| Copy Variation Architecture                         | ✅ Complete                 |
+| Insights Panel UI Redesign + Polish                 | ✅ Complete                 |
+| Pairing Cards                                       | 🔄 Planned                  |
+| Luck Score + Bounce-Back Generators                 | 🔄 Planned                  |
+| Insights — "See All" Page                           | 🔄 Planned                  |
+| Insights Panel — Microlabel Palette                 | 🔄 Planned                  |
+| Insights Ranker — Priority Tuning                   | 🔄 Planned                  |
+| History Rework — Career Stats Surface               | 🔄 Planned                  |
+| Standings Page — Preseason State                    | ✅ Complete                 |
+| Standings Page — Lifecycle Labeling Sweep           | 🔄 Planned                  |
+| Link Styling Audit                                  | 🔄 Planned                  |
+| AppStateStore Caching — Egress Optimization         | 🔄 Planned                  |
+| Server Fetch Architecture Audit                     | 🔄 Planned                  |
+| Standings Ownership Model Redesign (Phases 0–5)     | ✅ Complete                 |
+| Provider Refresh Observability (PLATFORM-086A)      | ✅ Complete (PR #391)       |
+| Provider Automation & Correctness (PLATFORM-086B–I) | 🔄 In progress              |
 
 ## Architecture rules
 
