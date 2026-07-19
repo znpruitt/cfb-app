@@ -8,6 +8,7 @@ import { parseV2GameObservation } from '../../gameStats/contract.ts';
 import { wireGame } from '../../gameStats/__tests__/fixtures.ts';
 import {
   AppStateKeyLockAcquireError,
+  AppStateTxnCallbackLockError,
   AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
   AppStateTxnLockOrderError,
@@ -1614,7 +1615,14 @@ test('overlapping cannot recreate the opposite-root deadlock; canonical-order re
   await new Promise((r) => setImmediate(r));
   assert.equal(aResolved, false, 'A blocked on B (waiting, not deadlocked)');
   bGo.resolve();
-  await assert.rejects(runB, /B abandons/);
+  // B caught its backward rejections then threw its own error: the callback
+  // error is primary (`cause`), the lock failure is typed secondary context.
+  await assert.rejects(runB, (err: unknown) => {
+    assert.ok(err instanceof AppStateTxnCallbackLockError, String(err));
+    assert.match(String(err.cause), /B abandons/);
+    assert.equal(err.lockFailure.kind, 'ordering');
+    return true;
+  });
   assert.equal(await runA, 'A', 'A completed once B released its primary');
   assert.deepEqual((await getAppState('or', 'a'))?.value, { who: 'A' });
   await new Promise((r) => setImmediate(r));
@@ -1644,10 +1652,6 @@ test('finalization does not race a lockKey invoked during the callback (drain be
 // promise was un-awaited, caught, or discarded; a successful un-awaited
 // acquisition still drains and commits.
 // ===========================================================================
-
-type WithLockFailure = {
-  lockFailure?: { kind: string; scope: string; key: string; error: unknown };
-};
 
 test('poison (file): an un-awaited backward lockKey poisons a returning callback; nothing commits, slots released', async () => {
   await assert.rejects(
@@ -1721,7 +1725,7 @@ test('poison (file): a backend acquisition failure (readFileStore) — caught, f
   assert.equal(await getAppState('pf', 'a'), null, 'nothing persisted');
 });
 
-test('poison: callback error stays PRIMARY with the lock failure attached as typed secondary context', async () => {
+test('dual failure (file): callback error is PRIMARY (cause); lock failure is typed secondary; nothing commits', async () => {
   await assert.rejects(
     withAppStateKeyTransaction('cb', 'b', async (txn) => {
       await txn.write({ staged: true });
@@ -1729,15 +1733,14 @@ test('poison: callback error stays PRIMARY with the lock failure attached as typ
       throw new Error('callback boom'); // callback ALSO fails
     }),
     (err: unknown) => {
-      assert.ok(err instanceof Error);
-      assert.match(String(err), /callback boom/, 'callback error is primary');
-      const secondary = (err as WithLockFailure).lockFailure;
-      assert.ok(secondary, 'lock failure attached as secondary context');
-      assert.equal(secondary.kind, 'ordering');
-      assert.equal(secondary.scope, 'cb');
-      assert.equal(secondary.key, 'a');
+      assert.ok(err instanceof AppStateTxnCallbackLockError, String(err));
+      assert.ok(err.cause instanceof Error);
+      assert.match(String(err.cause), /callback boom/, 'callback value is the primary cause');
+      assert.equal(err.lockFailure.kind, 'ordering');
+      assert.equal(err.lockFailure.scope, 'cb');
+      assert.equal(err.lockFailure.key, 'a');
       assert.ok(
-        secondary.error instanceof AppStateTxnLockOrderError,
+        err.lockFailure.error instanceof AppStateTxnLockOrderError,
         'original lock error class preserved'
       );
       return true;
@@ -1746,7 +1749,7 @@ test('poison: callback error stays PRIMARY with the lock failure attached as typ
   assert.equal(await getAppState('cb', 'b'), null, 'nothing committed');
 });
 
-test('poison (pg): callback error PRIMARY + lock secondary; rollback completes, nothing commits', async () => {
+test('dual failure (pg): callback PRIMARY + lock secondary; rollback completes, nothing commits', async () => {
   await withFakePg(async (pool) => {
     await assert.rejects(
       withAppStateKeyTransaction('cb', 'b', async (txn) => {
@@ -1755,14 +1758,169 @@ test('poison (pg): callback error PRIMARY + lock secondary; rollback completes, 
         throw new Error('callback boom');
       }),
       (err: unknown) => {
-        assert.match(String(err), /callback boom/);
-        assert.ok((err as WithLockFailure).lockFailure, 'lock failure attached');
+        assert.ok(err instanceof AppStateTxnCallbackLockError, String(err));
+        assert.match(String(err.cause), /callback boom/);
+        assert.ok(err.lockFailure.error instanceof AppStateTxnLockOrderError);
         return true;
       }
     );
     assert.equal(pool.committed.size, 0);
     assert.ok(clientLog(pool, 1).includes('client1:rollback'));
     assert.equal(pool.locks.size, 0);
+  });
+});
+
+// --- Total dual-error shaping across every callback throw shape ---
+
+// Each fixture throws a distinct shape after firing an un-awaited backward lock.
+// Expectation: a TOTAL, nonthrowing `AppStateTxnCallbackLockError` whose `cause`
+// is the callback value verbatim and whose `lockFailure` is the typed lock
+// context — for the object shapes; for a propagated lock error the original lock
+// error is thrown directly.
+type ThrowShape = {
+  name: string;
+  makeThrow: () => unknown;
+  expectDirectLockError?: boolean; // callback propagated the lock rejection
+  expectCause?: (cause: unknown) => void;
+};
+
+function throwShapes(): ThrowShape[] {
+  const frozen = Object.freeze(new Error('frozen boom'));
+  const nonExtensible = Object.preventExtensions({ code: 'NON_EXT', msg: 'sealed' });
+  const preloaded = Object.assign(new Error('has-lockFailure'), { lockFailure: 'UNRELATED' });
+  return [
+    {
+      name: 'extensible Error',
+      makeThrow: () => new Error('extensible boom'),
+      expectCause: (c) => assert.match(String(c), /extensible boom/),
+    },
+    {
+      name: 'frozen Error',
+      makeThrow: () => frozen,
+      expectCause: (c) => assert.equal(c, frozen),
+    },
+    {
+      name: 'non-extensible object',
+      makeThrow: () => nonExtensible,
+      expectCause: (c) => assert.equal(c, nonExtensible),
+    },
+    {
+      name: 'primitive string',
+      makeThrow: () => 'primitive boom',
+      expectCause: (c) => assert.equal(c, 'primitive boom'),
+    },
+    {
+      name: 'undefined',
+      makeThrow: () => undefined,
+      expectCause: (c) => assert.equal(c, undefined),
+    },
+    {
+      name: 'preexisting unrelated lockFailure property',
+      makeThrow: () => preloaded,
+      expectCause: (c) => {
+        assert.equal(c, preloaded);
+        assert.equal(
+          (c as { lockFailure: unknown }).lockFailure,
+          'UNRELATED',
+          'unrelated prop kept'
+        );
+      },
+    },
+  ];
+}
+
+for (const shape of throwShapes()) {
+  test(`dual-error shape (file): ${shape.name} → total typed error, nothing commits, slots released`, async () => {
+    await assert.rejects(
+      withAppStateKeyTransaction('sh', 'b', async (txn) => {
+        await txn.write({ staged: true });
+        void txn.lockKey('sh', 'a'); // backward → poisons
+        throw shape.makeThrow();
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof AppStateTxnCallbackLockError, `${shape.name}: ${String(err)}`);
+        shape.expectCause?.(err.cause);
+        assert.ok(err.lockFailure.error instanceof AppStateTxnLockOrderError);
+        assert.equal(err.lockFailure.scope, 'sh');
+        return true;
+      }
+    );
+    assert.equal(await getAppState('sh', 'b'), null, 'staged write discarded');
+    await new Promise((r) => setImmediate(r));
+    assert.equal(__appStateKeyLockChainCountForTests(), 0, 'every file-chain slot released');
+  });
+
+  test(`dual-error shape (pg): ${shape.name} → rollback BEFORE shaping, nothing commits`, async () => {
+    await withFakePg(async (pool) => {
+      await assert.rejects(
+        withAppStateKeyTransaction('sh', 'b', async (txn) => {
+          void txn.lockKey('sh', 'a'); // backward → poisons
+          await txn.write({ ok: true });
+          throw shape.makeThrow();
+        }),
+        (err: unknown) => {
+          assert.ok(err instanceof AppStateTxnCallbackLockError, `${shape.name}: ${String(err)}`);
+          shape.expectCause?.(err.cause);
+          return true;
+        }
+      );
+      assert.ok(clientLog(pool, 1).includes('client1:rollback'), `${shape.name}: rolled back`);
+      assert.equal(pool.committed.size, 0, `${shape.name}: nothing committed`);
+      assert.equal(pool.locks.size, 0);
+    });
+  });
+}
+
+test('dual-error: an IDENTICAL callback+lock object throws the lock error DIRECTLY (not wrapped)', async () => {
+  // The callback propagates the backward rejection (does not catch it), so the
+  // thrown value IS the lock error — preserved as its original class, unwrapped.
+  await assert.rejects(
+    withAppStateKeyTransaction('id', 'b', async (txn) => {
+      await txn.write({ staged: true });
+      await txn.lockKey('id', 'a'); // backward, awaited → rejection propagates
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof AppStateTxnLockOrderError, String(err));
+      assert.ok(!(err instanceof AppStateTxnCallbackLockError));
+      return true;
+    }
+  );
+  assert.equal(await getAppState('id', 'b'), null);
+});
+
+test('dual failure + FAILED rollback (pg): callback, lock, and cleanup all survive in typed structure', async () => {
+  await withFakePg(async (pool) => {
+    pool.failures.rollback = new Error('rollback confirmation lost');
+    await assert.rejects(
+      withAppStateKeyTransaction('cf', 'b', async (txn) => {
+        void txn.lockKey('cf', 'a'); // backward → poisons
+        await txn.write({ ok: true });
+        throw new Error('callback boom');
+      }),
+      (err: unknown) => {
+        // Cleanup uncertainty via the existing typed contract…
+        assert.ok(err instanceof AppStateTxnCleanupError, String(err));
+        assert.match(
+          String(err.cleanupCause),
+          /rollback confirmation lost/,
+          'cleanup failure kept'
+        );
+        // …wrapping the callback+lock dual error (callback primary, lock secondary).
+        assert.ok(
+          err.cause instanceof AppStateTxnCallbackLockError,
+          'dual error retained as cause'
+        );
+        assert.match(String(err.cause.cause), /callback boom/, 'callback failure kept');
+        assert.ok(
+          err.cause.lockFailure.error instanceof AppStateTxnLockOrderError,
+          'lock failure kept'
+        );
+        return true;
+      }
+    );
+    assert.equal(pool.committed.size, 0, 'nothing committed');
+    // The uncertain client was destroyed, not returned healthy.
+    assert.ok(pool.destroyedIds.has(1));
   });
 });
 

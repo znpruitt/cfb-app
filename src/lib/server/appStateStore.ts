@@ -470,7 +470,7 @@ type LockAcquisitionOrder = 'forward' | 'held' | 'backward';
  * requested identity, and whether it was an ordering rejection or a backend
  * acquisition failure.
  */
-type RetainedLockFailure = {
+export type RetainedLockFailure = {
   error: unknown;
   scope: string;
   key: string;
@@ -487,28 +487,45 @@ function retainedLockFailure(scope: string, key: string, error: unknown): Retain
 }
 
 /**
- * When BOTH the callback and a required `lockKey` fail, the callback error stays
- * PRIMARY and the retained lock failure is attached as inspectable, typed
- * secondary context (`error.lockFailure`) without replacing the callback error
- * or losing the lock error's class. No-op when the callback error is not an
- * object or already carries the lock failure. Never exposes data beyond the
- * lock error the caller could already observe from the `lockKey` promise.
+ * BOTH the transaction callback and a REQUIRED `lockKey` acquisition failed.
+ *
+ * A TOTAL, nonthrowing dual representation for EVERY JavaScript throw shape —
+ * an ordinary/frozen/non-extensible/typed `Error`, or a primitive/`null`/
+ * `undefined`: the callback-thrown value is retained as `cause` (the PRIMARY
+ * failure) and the retained lock failure (original typed lock error + scope +
+ * key + kind) as `lockFailure`. The callback value is NEVER mutated, so a
+ * preexisting unrelated `lockFailure` property on it is preserved untouched
+ * inside `cause`. When the callback merely PROPAGATED the lock rejection (the
+ * same object), the primitive throws that lock error DIRECTLY instead of
+ * wrapping it, so the caller still observes the original typed lock error.
  */
-function attachLockFailure(callbackError: unknown, lockFailure: RetainedLockFailure): unknown {
-  if (
-    typeof callbackError === 'object' &&
-    callbackError !== null &&
-    callbackError !== lockFailure.error &&
-    !('lockFailure' in callbackError)
-  ) {
-    Object.defineProperty(callbackError, 'lockFailure', {
-      value: lockFailure,
-      enumerable: false,
-      writable: false,
-      configurable: true,
-    });
+export class AppStateTxnCallbackLockError extends Error {
+  /** The callback-thrown value (any shape) — the primary failure. */
+  readonly cause: unknown;
+  /** The retained required-lock failure (typed error + scope/key/kind). */
+  readonly lockFailure: RetainedLockFailure;
+  constructor(cause: unknown, lockFailure: RetainedLockFailure) {
+    super('app-state transaction callback failed and a required lock acquisition failed');
+    this.name = 'AppStateTxnCallbackLockError';
+    this.cause = cause;
+    this.lockFailure = lockFailure;
   }
-  return callbackError;
+}
+
+/**
+ * Combine a callback-thrown value with a required-lock failure into ONE typed,
+ * inspectable primary error — TOTAL and NONTHROWING for every throw shape (no
+ * mutation of the callback value). Constructed only AFTER backend cleanup. When
+ * the callback simply propagated the lock rejection (same object), returns that
+ * lock error unchanged so its original class is preserved.
+ */
+function combineCallbackAndLockFailure(
+  callbackError: unknown,
+  lockFailure: RetainedLockFailure | null
+): unknown {
+  if (!lockFailure) return callbackError;
+  if (callbackError === lockFailure.error) return callbackError;
+  return new AppStateTxnCallbackLockError(callbackError, lockFailure);
 }
 
 /**
@@ -796,15 +813,17 @@ export async function withAppStateKeyTransaction<T>(
         await drainLocks();
       } catch (error) {
         await drainLocks();
-        // Callback failed. If a REQUIRED lock also failed, keep the callback
-        // error PRIMARY and attach the lock failure as typed secondary context.
-        const lockFailure = currentLockFailure();
-        const primary = lockFailure ? attachLockFailure(error, lockFailure) : error;
+        // CLEANUP FIRST: roll back BEFORE constructing the final typed error, so
+        // shaping never runs (or throws) before rollback. Shaping is TOTAL and
+        // nonthrowing for every callback throw shape.
         const cleanup = await tryRollback();
+        const primary = combineCallbackAndLockFailure(error, currentLockFailure());
         if (cleanup.ok) {
           releaseHealthy();
           throw primary;
         }
+        // Rollback ALSO failed: retain callback (primary, via `primary.cause`
+        // when wrapped), the lock failure (secondary), AND cleanup uncertainty.
         releaseDestroy(cleanup.error);
         throw new AppStateTxnCleanupError(
           primary,
@@ -1043,12 +1062,12 @@ export async function withAppStateKeyTransaction<T>(
     } catch (error) {
       // Drain in-flight acquisitions before releasing slots on the failure path
       // too (the enforced order guarantees this drain cannot itself deadlock).
+      // CLEANUP is implicit: staged writes are discarded by NOT committing and
+      // every slot is released in `finally`. Shaping is total and nonthrowing.
       await drainLocks();
-      // Callback failed AND a required lock failed → callback error stays
-      // PRIMARY, lock failure attached as typed secondary context.
-      const lockFailure = currentLockFailure();
-      if (lockFailure) throw attachLockFailure(error, lockFailure);
-      throw error;
+      // Callback failed AND a required lock failed → one typed dual error
+      // (callback value as `cause`, lock failure as `lockFailure`).
+      throw combineCallbackAndLockFailure(error, currentLockFailure());
     } finally {
       fileFinished = true;
       for (const release of heldSlotReleases) release();

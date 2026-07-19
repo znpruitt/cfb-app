@@ -103,9 +103,15 @@ corrections (see §5 lineage and §17 activation-control fence).
   EVERY invoked lock request, and any failed acquisition — ordering rejection or
   backend failure — makes the transaction NONCOMMITTABLE (rolled back / staged
   writes discarded), even when its individual promise was un-awaited, caught, or
-  discarded. A caught or ignored lock failure therefore cannot be erased; when
-  the callback ALSO fails, the callback error stays primary and the lock failure
-  is attached as typed secondary context. The only multi-lock path is
+  discarded. A caught or ignored lock failure therefore cannot be erased. When
+  the callback ALSO fails, the two combine into ONE total, nonthrowing typed
+  dual error (`AppStateTxnCallbackLockError`: the callback value verbatim as
+  `cause`, the typed lock failure as `lockFailure`) for every JavaScript throw
+  shape — the callback value is never mutated; a propagated lock rejection is
+  thrown directly. Backend cleanup (rollback / staged-state discard + slot
+  release) strictly precedes error construction, and a failed rollback retains
+  all three (callback, lock, cleanup) through the existing typed
+  cleanup/uncertainty contract. The only multi-lock path is
   `partition -> status` (the one-time revision bootstrap consulting status
   history under that key's own lock), and because the `game-stats` partition
   tuple sorts below the `provider-refresh-status` tuple, that direction is the
