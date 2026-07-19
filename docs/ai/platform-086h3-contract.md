@@ -99,8 +99,13 @@ corrections (see §5 lineage and §17 activation-control fence).
   advances ONLY after a lock is successfully acquired; a request that does not
   sort strictly above the highest held tuple is rejected fail-fast with
   `AppStateTxnLockOrderError` before any wait or advisory-lock query (reacquiring
-  a held lock is idempotent), and finalization drains any in-flight acquisition
-  before committing or releasing locks. The only multi-lock path is
+  a held lock is idempotent). A `lockKey` is a REQUIRED lock: finalization drains
+  EVERY invoked lock request, and any failed acquisition — ordering rejection or
+  backend failure — makes the transaction NONCOMMITTABLE (rolled back / staged
+  writes discarded), even when its individual promise was un-awaited, caught, or
+  discarded. A caught or ignored lock failure therefore cannot be erased; when
+  the callback ALSO fails, the callback error stays primary and the lock failure
+  is attached as typed secondary context. The only multi-lock path is
   `partition -> status` (the one-time revision bootstrap consulting status
   history under that key's own lock), and because the `game-stats` partition
   tuple sorts below the `provider-refresh-status` tuple, that direction is the

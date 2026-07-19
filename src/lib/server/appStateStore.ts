@@ -463,6 +463,55 @@ type LockTuple = { scope: string; key: string };
 type LockAcquisitionOrder = 'forward' | 'held' | 'backward';
 
 /**
+ * The FIRST failed `lockKey` acquisition retained for a transaction. A failed
+ * acquisition is a REQUIRED-lock failure: it poisons the enclosing transaction
+ * (which then may not commit) even if the caller never awaited, caught, or kept
+ * the individual `lockKey` promise. Retains the original typed error, the
+ * requested identity, and whether it was an ordering rejection or a backend
+ * acquisition failure.
+ */
+type RetainedLockFailure = {
+  error: unknown;
+  scope: string;
+  key: string;
+  kind: 'ordering' | 'acquisition';
+};
+
+function retainedLockFailure(scope: string, key: string, error: unknown): RetainedLockFailure {
+  return {
+    error,
+    scope,
+    key,
+    kind: error instanceof AppStateTxnLockOrderError ? 'ordering' : 'acquisition',
+  };
+}
+
+/**
+ * When BOTH the callback and a required `lockKey` fail, the callback error stays
+ * PRIMARY and the retained lock failure is attached as inspectable, typed
+ * secondary context (`error.lockFailure`) without replacing the callback error
+ * or losing the lock error's class. No-op when the callback error is not an
+ * object or already carries the lock failure. Never exposes data beyond the
+ * lock error the caller could already observe from the `lockKey` promise.
+ */
+function attachLockFailure(callbackError: unknown, lockFailure: RetainedLockFailure): unknown {
+  if (
+    typeof callbackError === 'object' &&
+    callbackError !== null &&
+    callbackError !== lockFailure.error &&
+    !('lockFailure' in callbackError)
+  ) {
+    Object.defineProperty(callbackError, 'lockFailure', {
+      value: lockFailure,
+      enumerable: false,
+      writable: false,
+      configurable: true,
+    });
+  }
+  return callbackError;
+}
+
+/**
  * The canonical, INJECTIVE serialized identity of an app-state lock target —
  * `JSON.stringify([scope, key])`. Distinct `(scope, key)` tuples ALWAYS produce
  * distinct identities (unlike a delimiter-concatenated encoding, where e.g.
@@ -570,8 +619,12 @@ export async function withAppStateKeyTransaction<T>(
     let highestAcquired: LockTuple = { scope, key };
     // `lockKey` requests are SERIALIZED per transaction: each classifies and
     // acquires (or rejects) fully before the next runs, so overlapping calls
-    // acquire in invocation order and never classify against stale state.
+    // acquire in invocation order and never classify against stale state. The
+    // FIRST failure is retained to POISON finalization regardless of whether the
+    // caller awaited/caught it.
     let lockQueue: Promise<unknown> = Promise.resolve();
+    let firstLockFailure: RetainedLockFailure | null = null;
+    const currentLockFailure = (): RetainedLockFailure | null => firstLockFailure;
     const drainLocks = (): Promise<void> =>
       lockQueue.then(
         () => undefined,
@@ -653,12 +706,19 @@ export async function withAppStateKeyTransaction<T>(
     };
     // Serialize acquisition in invocation order: request N fully settles (or
     // rejects) before request N+1 classifies, so overlapping/`Promise.all`
-    // calls acquire exactly as sequentially-awaited ones would.
+    // calls acquire exactly as sequentially-awaited ones would. The internal
+    // scheduling tail NEVER rejects (no unhandled-rejection noise) but retains
+    // the first failure so finalization can poison the transaction — observing
+    // the rejection here does NOT erase it from finalization, and the returned
+    // promise still rejects with the original typed error for the caller.
     const lockRow = (rowScope: string, rowKey: string): Promise<void> => {
       const run = lockQueue.then(() => acquireLock(rowScope, rowKey));
       lockQueue = run.then(
         () => undefined,
-        () => undefined
+        (error) => {
+          firstLockFailure ??= retainedLockFailure(rowScope, rowKey, error);
+          return undefined;
+        }
       );
       return run;
     };
@@ -729,22 +789,48 @@ export async function withAppStateKeyTransaction<T>(
       let result: T;
       try {
         result = await fn(txn);
-        // RC 10: finalization must not race a `lockKey` invoked during the
-        // callback that is still queued/in flight — drain BEFORE any commit or
-        // client release, so no lock query overlaps COMMIT on this one client.
+        // Finalization must not race a `lockKey` invoked during the callback
+        // that is still queued/in flight — drain BEFORE any commit or client
+        // release, so no lock query overlaps COMMIT on this one client. The
+        // drain also settles the retained-failure state.
         await drainLocks();
       } catch (error) {
-        // Drain any in-flight lock acquisition before ROLLBACK for the same
-        // reason (no concurrent queries on one client; primary lock not
-        // released mid-acquisition).
         await drainLocks();
+        // Callback failed. If a REQUIRED lock also failed, keep the callback
+        // error PRIMARY and attach the lock failure as typed secondary context.
+        const lockFailure = currentLockFailure();
+        const primary = lockFailure ? attachLockFailure(error, lockFailure) : error;
         const cleanup = await tryRollback();
         if (cleanup.ok) {
           releaseHealthy();
-          throw error;
+          throw primary;
         }
         releaseDestroy(cleanup.error);
-        throw new AppStateTxnCleanupError(error, cleanup.error, writeAttempted, writeAcknowledged);
+        throw new AppStateTxnCleanupError(
+          primary,
+          cleanup.error,
+          writeAttempted,
+          writeAcknowledged
+        );
+      }
+
+      // Callback SUCCEEDED, but a required `lockKey` acquisition failed: the
+      // transaction is POISONED. Roll back and throw the retained lock failure —
+      // the callback's success value must never escape after this rollback.
+      const lockFailure = currentLockFailure();
+      if (lockFailure) {
+        const cleanup = await tryRollback();
+        if (cleanup.ok) {
+          releaseHealthy();
+          throw lockFailure.error;
+        }
+        releaseDestroy(cleanup.error);
+        throw new AppStateTxnCleanupError(
+          lockFailure.error,
+          cleanup.error,
+          writeAttempted,
+          writeAcknowledged
+        );
       }
 
       if (txnFailed) {
@@ -807,8 +893,12 @@ export async function withAppStateKeyTransaction<T>(
   let highestAcquired: LockTuple = { scope, key };
   const heldSlotReleases: Array<() => void> = [];
   // `lockKey` requests are SERIALIZED in invocation order (see the Postgres
-  // branch): each fully acquires or rejects before the next classifies.
+  // branch): each fully acquires or rejects before the next classifies. The
+  // first failure is retained to POISON finalization regardless of caller
+  // awaiting/catching.
   let lockQueue: Promise<unknown> = Promise.resolve();
+  let firstLockFailure: RetainedLockFailure | null = null;
+  const currentLockFailure = (): RetainedLockFailure | null => firstLockFailure;
   const drainLocks = (): Promise<void> =>
     lockQueue.then(
       () => undefined,
@@ -901,12 +991,17 @@ export async function withAppStateKeyTransaction<T>(
     if (live[rowId]) entries[rowId] = live[rowId];
     else delete entries[rowId];
   };
-  // Serialize acquisition in invocation order (see the Postgres branch).
+  // Serialize acquisition in invocation order (see the Postgres branch); the
+  // scheduling tail never rejects but retains the first failure to poison
+  // finalization, while the returned promise still rejects for the caller.
   const lockKeySlot = (rowScope: string, rowKey: string): Promise<void> => {
     const run = lockQueue.then(() => acquireKeySlot(rowScope, rowKey));
     lockQueue = run.then(
       () => undefined,
-      () => undefined
+      (error) => {
+        firstLockFailure ??= retainedLockFailure(rowScope, rowKey, error);
+        return undefined;
+      }
     );
     return run;
   };
@@ -920,9 +1015,15 @@ export async function withAppStateKeyTransaction<T>(
   const invoke = async (): Promise<T> => {
     try {
       const result = await fn(txn);
-      // RC 10: drain any queued/in-flight `lockKey` BEFORE committing or
-      // releasing slots, so finalization never races a pending acquisition.
+      // Drain any queued/in-flight `lockKey` BEFORE committing or releasing
+      // slots, so finalization never races a pending acquisition and the
+      // retained-failure state is settled.
       await drainLocks();
+      // A required `lockKey` failed: the transaction is POISONED — DISCARD every
+      // staged write and throw the retained lock failure (no callback success
+      // value escapes, no staged write commits).
+      const lockFailure = currentLockFailure();
+      if (lockFailure) throw lockFailure.error;
       if (staged.size > 0) {
         try {
           await withFileWriteLock(appStateFilePath(), async () => {
@@ -943,6 +1044,10 @@ export async function withAppStateKeyTransaction<T>(
       // Drain in-flight acquisitions before releasing slots on the failure path
       // too (the enforced order guarantees this drain cannot itself deadlock).
       await drainLocks();
+      // Callback failed AND a required lock failed → callback error stays
+      // PRIMARY, lock failure attached as typed secondary context.
+      const lockFailure = currentLockFailure();
+      if (lockFailure) throw attachLockFailure(error, lockFailure);
       throw error;
     } finally {
       fileFinished = true;
