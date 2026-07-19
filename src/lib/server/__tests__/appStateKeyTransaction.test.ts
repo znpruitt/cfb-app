@@ -19,6 +19,7 @@ import {
   __setAppStateFileCommitFailureForTests,
   __setAppStatePoolForTests,
   __setAppStateWriteFailureForTests,
+  __setBeforeDualErrorConstructForTests,
   getAppState,
   setAppState,
   withAppStateKeyTransaction,
@@ -1943,4 +1944,118 @@ test('drain success: a SUCCESSFUL un-awaited acquisition drains and commits norm
     assert.deepEqual(JSON.parse(pool.committed.get('ok::a')!), { committed: true });
     assert.equal(pool.locks.size, 0);
   });
+});
+
+// ===========================================================================
+// PLATFORM-086H3A-CLEANUP-BEFORE-SHAPING — the combined dual error is
+// constructed ONLY after backend cleanup completes: PostgreSQL rollback +
+// client containment, or every file-lock slot release. Proven with the
+// inert-by-default `__setBeforeDualErrorConstructForTests` observer.
+// ===========================================================================
+
+test('temporal (pg): the dual error is constructed AFTER rollback and client containment', async () => {
+  await withFakePg(async (pool) => {
+    let observed: { rolledBack: boolean; released: number; locks: number } | null = null;
+    const read = (): typeof observed => observed;
+    __setBeforeDualErrorConstructForTests(() => {
+      observed = {
+        rolledBack: clientLog(pool, 1).includes('client1:rollback'),
+        released: pool.releases.length,
+        locks: pool.locks.size,
+      };
+    });
+    try {
+      await assert.rejects(
+        withAppStateKeyTransaction('tmp', 'b', async (txn) => {
+          void txn.lockKey('tmp', 'a'); // backward → poisons
+          await txn.write({ ok: true });
+          throw new Error('callback boom');
+        }),
+        (err: unknown) => err instanceof AppStateTxnCallbackLockError
+      );
+    } finally {
+      __setBeforeDualErrorConstructForTests(null);
+    }
+    const obs = read();
+    assert.ok(obs, 'the dual error was constructed');
+    assert.equal(obs.rolledBack, true, 'rollback completed before shaping');
+    assert.equal(obs.released, 1, 'client released/contained before shaping');
+    assert.equal(obs.locks, 0, 'no advisory lock held at shaping');
+    assert.equal(pool.committed.size, 0);
+  });
+});
+
+test('temporal (pg, failed rollback): shaping runs after the uncertain client is DESTROYED', async () => {
+  await withFakePg(async (pool) => {
+    pool.failures.rollback = new Error('rollback lost');
+    let observedDestroyed = -1;
+    const read = (): number => observedDestroyed;
+    __setBeforeDualErrorConstructForTests(() => {
+      observedDestroyed = pool.destroyedIds.has(1) ? 1 : 0;
+    });
+    try {
+      await assert.rejects(
+        withAppStateKeyTransaction('tmp', 'b', async (txn) => {
+          void txn.lockKey('tmp', 'a'); // backward → poisons
+          await txn.write({ ok: true });
+          throw new Error('callback boom');
+        }),
+        (err: unknown) =>
+          err instanceof AppStateTxnCleanupError &&
+          err.cause instanceof AppStateTxnCallbackLockError
+      );
+    } finally {
+      __setBeforeDualErrorConstructForTests(null);
+    }
+    assert.equal(read(), 1, 'uncertain client was destroyed before the dual error was shaped');
+  });
+});
+
+test('temporal (file): the dual error is constructed AFTER every file-lock slot is released', async () => {
+  let chainAtConstruct = -1;
+  const read = (): number => chainAtConstruct;
+  __setBeforeDualErrorConstructForTests(() => {
+    chainAtConstruct = __appStateKeyLockChainCountForTests();
+  });
+  try {
+    await assert.rejects(
+      withAppStateKeyTransaction('tmp', 'b', async (txn) => {
+        await txn.write({ staged: true });
+        void txn.lockKey('tmp', 'a'); // backward → poisons
+        throw new Error('callback boom');
+      }),
+      (err: unknown) => err instanceof AppStateTxnCallbackLockError
+    );
+  } finally {
+    __setBeforeDualErrorConstructForTests(null);
+  }
+  assert.equal(read(), 0, 'all file-lock slots released (chain empty) before shaping');
+  assert.equal(await getAppState('tmp', 'b'), null, 'nothing committed');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+test('temporal (file): a held SECONDARY slot is also released before shaping', async () => {
+  // Acquire a real forward secondary slot, THEN trigger a backward failure, so
+  // both the secondary and primary slots must release before the dual error.
+  let chainAtConstruct = -1;
+  const read = (): number => chainAtConstruct;
+  __setBeforeDualErrorConstructForTests(() => {
+    chainAtConstruct = __appStateKeyLockChainCountForTests();
+  });
+  try {
+    await assert.rejects(
+      withAppStateKeyTransaction('tmp', 'a', async (txn) => {
+        await txn.lockKey('tmp', 'c'); // forward secondary — genuinely held
+        await txn.write({ staged: true });
+        void txn.lockKey('tmp', 'b'); // backward (b < c) → poisons
+        throw new Error('callback boom');
+      }),
+      (err: unknown) => err instanceof AppStateTxnCallbackLockError
+    );
+  } finally {
+    __setBeforeDualErrorConstructForTests(null);
+  }
+  assert.equal(read(), 0, 'primary AND secondary slots released before shaping');
+  assert.equal(await getAppState('tmp', 'a'), null, 'nothing committed');
 });

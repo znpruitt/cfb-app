@@ -108,10 +108,14 @@ corrections (see §5 lineage and §17 activation-control fence).
   dual error (`AppStateTxnCallbackLockError`: the callback value verbatim as
   `cause`, the typed lock failure as `lockFailure`) for every JavaScript throw
   shape — the callback value is never mutated; a propagated lock rejection is
-  thrown directly. Backend cleanup (rollback / staged-state discard + slot
-  release) strictly precedes error construction, and a failed rollback retains
-  all three (callback, lock, cleanup) through the existing typed
-  cleanup/uncertainty contract. The only multi-lock path is
+  thrown directly. The final dual error is CONSTRUCTED only AFTER complete
+  backend cleanup: on PostgreSQL, after `ROLLBACK` and client containment
+  (release when clean, destroy when uncertain); on the file fallback, after the
+  staged state is discarded and every secondary AND the primary lock slot are
+  released (the public error is shaped through a deferred descriptor once the
+  primary slot's chain entry is gone). A failed rollback retains all three
+  (callback, lock, cleanup) through the existing typed cleanup/uncertainty
+  contract. The only multi-lock path is
   `partition -> status` (the one-time revision bootstrap consulting status
   history under that key's own lock), and because the `game-stats` partition
   tuple sorts below the `provider-refresh-status` tuple, that direction is the

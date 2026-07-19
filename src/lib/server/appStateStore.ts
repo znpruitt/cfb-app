@@ -440,8 +440,12 @@ export class AppStateTxnCleanupError extends Error {
  * from store unavailability (`AppStateKeyLockAcquireError`), commit/finalization
  * uncertainty (`AppStateTxnFinalizeError`), cleanup failure
  * (`AppStateTxnCleanupError`), and expired-accessor use (`already finished`).
- * The rejection does NOT abort the transaction: a caller may catch it and
- * proceed without that lock; only the unsafe acquisition is refused.
+ * A caller MAY catch this rejection (or leave the `lockKey` promise un-awaited)
+ * and let the callback keep running — but a `lockKey` is a REQUIRED lock, so the
+ * enclosing transaction is now POISONED: it can never commit successfully.
+ * Catching or discarding the rejection cannot un-poison it; finalization rolls
+ * back / discards staged writes and rejects (with the retained lock failure, or
+ * — when the callback ALSO fails — an `AppStateTxnCallbackLockError`).
  */
 export class AppStateTxnLockOrderError extends Error {
   /** Canonical serialized identity the caller tried to lock (`["scope","key"]`). */
@@ -512,12 +516,20 @@ export class AppStateTxnCallbackLockError extends Error {
   }
 }
 
+// Test-only observer fired at the MOMENT the dual error is constructed, so a
+// temporal regression can assert backend cleanup already completed (rollback +
+// client containment, or every file-lock slot release). Inert (null) outside
+// tests; never a runtime configuration surface.
+let __onDualErrorConstructForTests: (() => void) | null = null;
+
 /**
  * Combine a callback-thrown value with a required-lock failure into ONE typed,
  * inspectable primary error — TOTAL and NONTHROWING for every throw shape (no
- * mutation of the callback value). Constructed only AFTER backend cleanup. When
- * the callback simply propagated the lock rejection (same object), returns that
- * lock error unchanged so its original class is preserved.
+ * mutation of the callback value). Constructed only AFTER backend cleanup
+ * completes (rollback + client containment on PostgreSQL; every file-lock slot
+ * release on the file fallback). When the callback simply propagated the lock
+ * rejection (same object), returns that lock error unchanged so its original
+ * class is preserved.
  */
 function combineCallbackAndLockFailure(
   callbackError: unknown,
@@ -525,7 +537,21 @@ function combineCallbackAndLockFailure(
 ): unknown {
   if (!lockFailure) return callbackError;
   if (callbackError === lockFailure.error) return callbackError;
+  __onDualErrorConstructForTests?.();
   return new AppStateTxnCallbackLockError(callbackError, lockFailure);
+}
+
+/**
+ * File-fallback DEFERRED dual failure: carried out of the lock-owning `invoke`
+ * section so the public `AppStateTxnCallbackLockError` is shaped ONLY after the
+ * primary and every secondary file-lock slot have been released. Never escapes
+ * `withAppStateKeyTransaction`.
+ */
+class DeferredFileDualFailure {
+  constructor(
+    readonly callbackError: unknown,
+    readonly lockFailure: RetainedLockFailure
+  ) {}
 }
 
 /**
@@ -813,18 +839,20 @@ export async function withAppStateKeyTransaction<T>(
         await drainLocks();
       } catch (error) {
         await drainLocks();
-        // CLEANUP FIRST: roll back BEFORE constructing the final typed error, so
-        // shaping never runs (or throws) before rollback. Shaping is TOTAL and
-        // nonthrowing for every callback throw shape.
+        // CLEANUP FIRST, then shape: roll back and CONTAIN the client (release or
+        // destroy) BEFORE constructing the final typed error. Construction is
+        // total and nonthrowing, and never runs while this transaction still
+        // owns the client.
         const cleanup = await tryRollback();
-        const primary = combineCallbackAndLockFailure(error, currentLockFailure());
         if (cleanup.ok) {
           releaseHealthy();
-          throw primary;
+          throw combineCallbackAndLockFailure(error, currentLockFailure());
         }
-        // Rollback ALSO failed: retain callback (primary, via `primary.cause`
-        // when wrapped), the lock failure (secondary), AND cleanup uncertainty.
+        // Rollback ALSO failed: destroy the uncertain client, THEN construct the
+        // dual error (callback primary, lock secondary) and wrap it with the
+        // cleanup uncertainty via the existing typed contract.
         releaseDestroy(cleanup.error);
+        const primary = combineCallbackAndLockFailure(error, currentLockFailure());
         throw new AppStateTxnCleanupError(
           primary,
           cleanup.error,
@@ -1060,14 +1088,20 @@ export async function withAppStateKeyTransaction<T>(
       }
       return result;
     } catch (error) {
-      // Drain in-flight acquisitions before releasing slots on the failure path
-      // too (the enforced order guarantees this drain cannot itself deadlock).
-      // CLEANUP is implicit: staged writes are discarded by NOT committing and
-      // every slot is released in `finally`. Shaping is total and nonthrowing.
+      // Drain in-flight acquisitions before releasing slots (the enforced order
+      // guarantees this drain cannot itself deadlock). Staged writes are
+      // discarded by NOT committing; every SECONDARY slot is released in
+      // `finally`; the PRIMARY slot releases when this `invoke` promise settles.
       await drainLocks();
-      // Callback failed AND a required lock failed → one typed dual error
-      // (callback value as `cause`, lock failure as `lockFailure`).
-      throw combineCallbackAndLockFailure(error, currentLockFailure());
+      const lockFailure = currentLockFailure();
+      // Callback failed AND a DISTINCT required lock failed → DEFER shaping: the
+      // public dual error must be constructed only AFTER the primary slot is
+      // released (below), never while `invoke` still owns it. A propagated lock
+      // rejection (same object) is thrown directly.
+      if (lockFailure && error !== lockFailure.error) {
+        throw new DeferredFileDualFailure(error, lockFailure);
+      }
+      throw error;
     } finally {
       fileFinished = true;
       for (const release of heldSlotReleases) release();
@@ -1080,11 +1114,22 @@ export async function withAppStateKeyTransaction<T>(
     () => undefined
   );
   keyLockChains.set(primaryLockId, tail);
-  void tail.then(() => {
-    // Drop the settled chain — but only when no successor queued behind it.
+  // Chain cleanup: drop the settled entry when no successor queued behind it.
+  // Awaited on the deferred-failure path so the dual error is shaped only after
+  // the primary slot is fully released and its chain entry removed.
+  const primarySlotReleased = tail.then(() => {
     if (keyLockChains.get(primaryLockId) === tail) keyLockChains.delete(primaryLockId);
   });
-  return run;
+  return run.then(
+    (value) => value,
+    async (error) => {
+      if (error instanceof DeferredFileDualFailure) {
+        await primarySlotReleased; // primary + secondary slots released, entry removed
+        throw combineCallbackAndLockFailure(error.callbackError, error.lockFailure);
+      }
+      throw error;
+    }
+  );
 }
 
 export async function getAppState<T>(
@@ -1298,6 +1343,7 @@ export function __resetAppStateForTests(): void {
   __readFailureForTests = null;
   __readFailureScopeForTests = null;
   __fileCommitFailureForTests = null;
+  __onDualErrorConstructForTests = null;
   __keyLockFailureForTests = null;
   __keyLockFailureScopeForTests = null;
   keyLockChains.clear();
@@ -1353,6 +1399,17 @@ export function __setAppStateReadFailureForTests(
  */
 export function __setAppStateFileCommitFailureForTests(error: Error | null): void {
   __fileCommitFailureForTests = error;
+}
+
+/**
+ * Test-only: register an observer fired at the exact moment the combined
+ * callback-plus-lock error (`AppStateTxnCallbackLockError`) is CONSTRUCTED, so a
+ * temporal regression can assert backend cleanup already completed (PostgreSQL
+ * rollback + client containment, or every file-lock slot release). Pass `null`
+ * to clear. Inert (null) outside tests; cleared by `__resetAppStateForTests`.
+ */
+export function __setBeforeDualErrorConstructForTests(fn: (() => void) | null): void {
+  __onDualErrorConstructForTests = fn;
 }
 
 /**
