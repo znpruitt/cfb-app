@@ -1207,8 +1207,8 @@ test('lock order: a BACKWARD secondary acquisition returns the typed error', asy
     }),
     (err: unknown) => {
       assert.ok(err instanceof AppStateTxnLockOrderError, String(err));
-      assert.equal(err.attempted, 'lk::a');
-      assert.equal(err.highestAcquired, 'lk::b');
+      assert.equal(err.attempted, JSON.stringify(['lk', 'a']));
+      assert.equal(err.highestAcquired, JSON.stringify(['lk', 'b']));
       return true;
     }
   );
@@ -1261,8 +1261,8 @@ test('lock order: a backward acquisition AFTER multiple locks is rejected', asyn
     }),
     (err: unknown) => {
       assert.ok(err instanceof AppStateTxnLockOrderError);
-      assert.equal(err.attempted, 'lk::b');
-      assert.equal(err.highestAcquired, 'lk::c');
+      assert.equal(err.attempted, JSON.stringify(['lk', 'b']));
+      assert.equal(err.highestAcquired, JSON.stringify(['lk', 'c']));
       return true;
     }
   );
@@ -1305,8 +1305,11 @@ test('lock order: the prereq-B path game-stats partition -> provider-refresh-sta
     }),
     (err: unknown) => {
       assert.ok(err instanceof AppStateTxnLockOrderError);
-      assert.equal(err.attempted, 'game-stats::2026:3:regular');
-      assert.equal(err.highestAcquired, 'provider-refresh-status::game-stats:2026:3:regular');
+      assert.equal(err.attempted, JSON.stringify(['game-stats', '2026:3:regular']));
+      assert.equal(
+        err.highestAcquired,
+        JSON.stringify(['provider-refresh-status', 'game-stats:2026:3:regular'])
+      );
       return true;
     }
   );
@@ -1427,4 +1430,184 @@ test('pg opposite-root race: reverse lockKey is rejected before any advisory-loc
     // All advisory locks released — nothing wedged.
     assert.equal(pool.locks.size, 0);
   });
+});
+
+// ===========================================================================
+// PLATFORM-086H3A-LOCK-IDENTITY-OVERLAP — injective lock identity (distinct
+// tuples never collide) and per-transaction serialization of `lockKey` (so
+// overlapping calls acquire monotonically in invocation order, never
+// classifying independently).
+// ===========================================================================
+
+// --- Collision safety: distinct tuples a delimiter-only encoding would fuse ---
+
+test('collision safety (file): ("a::b","c") and ("a","b::c") are DISTINCT, never idempotently held', async () => {
+  await withAppStateKeyTransaction('a::b', 'c', async (txn) => {
+    // A delimiter-only identity would treat ('a','b::c') as already held here.
+    // Injective identities make it a genuinely different lock — a backward
+    // rejection (never an idempotent no-op) proves the two are DISTINCT.
+    await assert.rejects(txn.lockKey('a', 'b::c'), (err: unknown) => {
+      assert.ok(err instanceof AppStateTxnLockOrderError, String(err));
+      assert.notEqual(err.attempted, err.highestAcquired, 'distinct identities, not a collision');
+      assert.equal(err.attempted, JSON.stringify(['a', 'b::c']));
+      assert.equal(err.highestAcquired, JSON.stringify(['a::b', 'c']));
+      return true;
+    });
+    await txn.write({ ok: true });
+  });
+  assert.deepEqual((await getAppState('a::b', 'c'))?.value, { ok: true });
+});
+
+test('collision safety: delimiter/quote/unicode characters yield distinct injective identities', async () => {
+  const pairs: Array<[string, string]> = [
+    ['a::b', 'c'],
+    ['a', 'b::c'],
+    ['x/y', 'z'],
+    ['x', 'y/z'],
+    ['has"quote', 'k'],
+    ['k', 'has"quote'],
+    ['emoji-⚽', 'kन'],
+  ];
+  const ids = pairs.map(([s, k]) => JSON.stringify([s, k]));
+  assert.equal(new Set(ids).size, ids.length, 'every distinct tuple has a distinct identity');
+
+  // Root sorts below every fixture scope; acquiring the pairs in ascending
+  // tuple order makes each a forward acquisition and none is mistaken for
+  // already-held (a collision-fused pair would either no-op or reject here).
+  const ascending = [...pairs].sort((x, y) =>
+    x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0
+  );
+  await withAppStateKeyTransaction('  root', 'first', async (txn) => {
+    for (const [s, k] of ascending) await txn.lockKey(s, k);
+    await txn.write({ locked: ascending.length });
+  });
+  assert.deepEqual((await getAppState('  root', 'first'))?.value, { locked: pairs.length });
+});
+
+// --- Overlapping acquisition: serialized in invocation order ---
+
+test('overlapping (file): two overlapping forward requests acquire in invocation order', async () => {
+  const acquired: string[] = [];
+  await withAppStateKeyTransaction('ov', 'a', async (txn) => {
+    const b = txn.lockKey('ov', 'b').then(() => acquired.push('b'));
+    const c = txn.lockKey('ov', 'c').then(() => acquired.push('c'));
+    await Promise.all([b, c]);
+    await txn.write({ ok: true });
+  });
+  assert.deepEqual(acquired, ['b', 'c'], 'invocation order preserved despite overlap');
+});
+
+test('overlapping (file): a later lock cannot acquire while an earlier lock is still pending', async () => {
+  const holderIn = deferred();
+  const holderRelease = deferred();
+  const holder = withAppStateKeyTransaction('ov2', 'b', async () => {
+    holderIn.resolve();
+    await holderRelease.promise;
+  });
+  await holderIn.promise;
+
+  const order: string[] = [];
+  const main = withAppStateKeyTransaction('ov2', 'a', async (txn) => {
+    const b = txn.lockKey('ov2', 'b').then(() => order.push('b')); // parks behind holder
+    const c = txn.lockKey('ov2', 'c').then(() => order.push('c')); // queued behind b
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(order, [], 'c did not jump ahead while b is pending');
+    holderRelease.resolve();
+    await Promise.all([b, c]);
+    await txn.write({ ok: true });
+  });
+  await holder;
+  await main;
+  assert.deepEqual(order, ['b', 'c'], 'serialized invocation order after b resolved');
+});
+
+test('overlapping (file): a queued BACKWARD request rejects; held/highest advance only on success', async () => {
+  await withAppStateKeyTransaction('ov3', 'b', async (txn) => {
+    const c = txn.lockKey('ov3', 'c'); // forward
+    const a = txn.lockKey('ov3', 'a'); // backward
+    await c;
+    await assert.rejects(a, (err: unknown) => err instanceof AppStateTxnLockOrderError);
+    // The rejected backward acquisition never became held: a later forward 'd'
+    // still succeeds (highest is 'c'), proving state advanced only on success.
+    await txn.lockKey('ov3', 'd');
+    await txn.write({ ok: true });
+  });
+  assert.deepEqual((await getAppState('ov3', 'b'))?.value, { ok: true });
+});
+
+test('overlapping (pg): overlapping forward requests serialize; no independent classification', async () => {
+  await withFakePg(async (pool) => {
+    const acquired: string[] = [];
+    await withAppStateKeyTransaction('ov', 'a', async (txn) => {
+      const b = txn.lockKey('ov', 'b').then(() => acquired.push('b'));
+      const c = txn.lockKey('ov', 'c').then(() => acquired.push('c'));
+      await Promise.all([b, c]);
+      await txn.write({ ok: true });
+    });
+    assert.deepEqual(acquired, ['b', 'c']);
+    assert.equal(
+      clientLog(pool, 1).filter((e) => e === 'client1:lock').length,
+      3,
+      'primary + two ordered secondary advisory locks on one client'
+    );
+    assert.deepEqual(JSON.parse(pool.committed.get('ov::a')!), { ok: true });
+  });
+});
+
+test('overlapping cannot recreate the opposite-root deadlock; canonical-order retry succeeds', async () => {
+  const aIn = deferred();
+  const aGo = deferred();
+  const bIn = deferred();
+  const bGo = deferred();
+  let aResolved = false;
+
+  const runA = withAppStateKeyTransaction('or', 'a', async (txn) => {
+    aIn.resolve();
+    await aGo.promise;
+    await txn.lockKey('or', 'b'); // forward — waits for B
+    await txn.write({ who: 'A' });
+    return 'A';
+  });
+  runA.then(() => (aResolved = true)).catch(() => (aResolved = true));
+  await aIn.promise;
+
+  const runB = withAppStateKeyTransaction('or', 'b', async (txn) => {
+    bIn.resolve();
+    await bGo.promise;
+    // Overlapping backward requests — all reject, none waits.
+    const r1 = txn.lockKey('or', 'a');
+    const r2 = txn.lockKey('or', 'a');
+    await assert.rejects(r1, (e: unknown) => e instanceof AppStateTxnLockOrderError);
+    await assert.rejects(r2, (e: unknown) => e instanceof AppStateTxnLockOrderError);
+    throw new Error('B abandons'); // release B's primary
+  });
+  await bIn.promise;
+
+  aGo.resolve();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(aResolved, false, 'A blocked on B (waiting, not deadlocked)');
+  bGo.resolve();
+  await assert.rejects(runB, /B abandons/);
+  assert.equal(await runA, 'A', 'A completed once B released its primary');
+  assert.deepEqual((await getAppState('or', 'a'))?.value, { who: 'A' });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(__appStateKeyLockChainCountForTests(), 0, 'no wedged chains remain');
+
+  await withAppStateKeyTransaction('or', 'a', async (txn) => {
+    await txn.lockKey('or', 'b');
+    await txn.write({ retried: true });
+    await txn.writeKey('or', 'b', { retried: true });
+  });
+  assert.deepEqual((await getAppState('or', 'b'))?.value, { retried: true });
+});
+
+test('finalization does not race a lockKey invoked during the callback (drain before commit)', async () => {
+  await withAppStateKeyTransaction('fin', 'a', async (txn) => {
+    await txn.write({ committed: true });
+    void txn.lockKey('fin', 'b'); // in flight at callback return — must be drained
+  });
+  assert.deepEqual((await getAppState('fin', 'a'))?.value, { committed: true });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
 });

@@ -87,17 +87,26 @@ corrections (see §5 lineage and §17 activation-control fence).
   fallback: staged writes, one atomic replacement, all-or-nothing rollback,
   no partial persistence (dev/test only — production requires PostgreSQL).
 - Lock order is **acyclic and ENFORCED** by the transaction primitive, not by
-  caller discipline: `lockKey` compares the canonical `(scope, key)` identity
-  and rejects any acquisition that does not sort strictly above the highest
-  lock the transaction already holds (fail-fast `AppStateTxnLockOrderError`,
-  before any wait or advisory-lock query; reacquiring a held lock is
-  idempotent). The only multi-lock path is `partition -> status` (the one-time
-  revision bootstrap consulting status history under that key's own lock), and
-  because `game-stats::…` sorts below `provider-refresh-status::…`, that
-  direction is the accepted forward order while the reverse is rejected — so
-  opposite-root transactions can never invert and deadlock. (Prerequisite A
-  ships and enforces this generic comparator; B supplies the partition/status
-  callers.)
+  caller discipline. Lock identity is an INJECTIVE `(scope, key)` tuple
+  (`JSON.stringify([scope, key])`, so distinct tuples never collide — unlike a
+  delimiter-concatenated encoding — and it is identical on both backends and to
+  the PostgreSQL advisory-lock hash input; persisted app-state ROW keys are
+  unchanged). Every `lockKey` request is SERIALIZED by the primitive in
+  invocation order — each classifies and acquires (or rejects) fully before the
+  next runs — so overlapping/`Promise.all` calls behave exactly as
+  sequentially-awaited ones and deadlock prevention does NOT depend on callers
+  awaiting calls sequentially. Ordering state (highest-held tuple, held set)
+  advances ONLY after a lock is successfully acquired; a request that does not
+  sort strictly above the highest held tuple is rejected fail-fast with
+  `AppStateTxnLockOrderError` before any wait or advisory-lock query (reacquiring
+  a held lock is idempotent), and finalization drains any in-flight acquisition
+  before committing or releasing locks. The only multi-lock path is
+  `partition -> status` (the one-time revision bootstrap consulting status
+  history under that key's own lock), and because the `game-stats` partition
+  tuple sorts below the `provider-refresh-status` tuple, that direction is the
+  accepted forward order while the reverse is rejected — so opposite-root
+  transactions can never invert and deadlock. (Prerequisite A ships and enforces
+  this generic comparator; B supplies the partition/status callers.)
 
 ## 7. Refresh-status attempt vs evidence chronology
 
