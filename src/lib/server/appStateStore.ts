@@ -345,9 +345,13 @@ export async function assertAppStateWritable(): Promise<void> {
 //     that secondary key already serializes on the PRIMARY key's lock.
 //     `lockKey` is the EXPLICIT opt-in for a secondary key that has independent
 //     writers: it takes that key's own `pg_advisory_xact_lock` on this client
-//     (released at COMMIT/ROLLBACK). When more than one key is explicitly
-//     locked, callers MUST acquire in a deterministic global order to avoid
-//     lock-order inversion between transactions.
+//     (released at COMMIT/ROLLBACK). Acquisition order is ENFORCED, not left to
+//     caller discipline: the auto-acquired primary lock is the first held
+//     identity and every `lockKey` must sort strictly above the highest held
+//     canonical `(scope, key)` identity, else it is rejected fail-fast with
+//     `AppStateTxnLockOrderError` BEFORE any wait/query — so opposite-root
+//     transactions can never invert and deadlock. Reacquiring an already-held
+//     lock is an idempotent no-op.
 //   - File fallback: the transaction is STAGED. One snapshot is loaded at first
 //     access; reads serve staged values first (read-your-writes) and untouched
 //     keys from the snapshot; writes stage in memory. A successful callback
@@ -428,6 +432,61 @@ export class AppStateTxnCleanupError extends Error {
 }
 
 /**
+ * A `lockKey` acquisition would VIOLATE the monotonic canonical lock order — it
+ * requested a lock identity that does not sort strictly ABOVE one this
+ * transaction already holds. Rejected FAIL-FAST (before any wait or
+ * advisory-lock query), so two transactions rooted at opposite keys can never
+ * deadlock (PostgreSQL) or indefinitely wedge the file-fallback chain. Distinct
+ * from store unavailability (`AppStateKeyLockAcquireError`), commit/finalization
+ * uncertainty (`AppStateTxnFinalizeError`), cleanup failure
+ * (`AppStateTxnCleanupError`), and expired-accessor use (`already finished`).
+ * The rejection does NOT abort the transaction: a caller may catch it and
+ * proceed without that lock; only the unsafe acquisition is refused.
+ */
+export class AppStateTxnLockOrderError extends Error {
+  /** Canonical identity the caller tried to lock. */
+  readonly attempted: string;
+  /** Highest canonical identity already held by this transaction. */
+  readonly highestAcquired: string;
+  constructor(attempted: string, highestAcquired: string) {
+    super(
+      `app-state lock-order violation: cannot acquire "${attempted}" after "${highestAcquired}" ` +
+        '— transaction locks must be acquired in ascending canonical (scope, key) order'
+    );
+    this.name = 'AppStateTxnLockOrderError';
+    this.attempted = attempted;
+    this.highestAcquired = highestAcquired;
+  }
+}
+
+/**
+ * The canonical, deterministic identity of an app-state lock target. IDENTICAL
+ * on both backends and independent of acquisition timing — lock-order
+ * enforcement compares these strings. Generic app-state infrastructure with no
+ * dataset-specific policy.
+ */
+function appStateLockIdentity(scope: string, key: string): string {
+  return buildCompositeKey(scope, key);
+}
+
+type LockAcquisitionOrder = 'forward' | 'held' | 'backward';
+
+/**
+ * Monotonic-acquisition decision for one `lockKey` request: a lock already held
+ * is idempotent (`held`); a candidate sorting strictly ABOVE the highest held
+ * identity is a legal `forward` acquisition; anything else is `backward` and
+ * must be rejected fail-fast. Deterministic and timing-independent.
+ */
+function classifyLockAcquisition(
+  candidate: string,
+  highestAcquired: string,
+  heldLocks: ReadonlySet<string>
+): LockAcquisitionOrder {
+  if (heldLocks.has(candidate)) return 'held';
+  return candidate > highestAcquired ? 'forward' : 'backward';
+}
+
+/**
  * Transaction-scoped accessor for one PRIMARY (scope, key) — the advisory-lock
  * target — plus narrowly scoped SECONDARY-key access within the SAME
  * transaction (PLATFORM-086H3A).
@@ -435,9 +494,14 @@ export class AppStateTxnCleanupError extends Error {
  * `read`/`write` operate on the primary key. `readKey`/`writeKey` reach a
  * secondary key WITHOUT taking any additional lock (the caller guarantees that
  * key's writers already serialize on the primary lock). `lockKey` is the
- * EXPLICIT secondary lock for a key with independent writers; multiple explicit
- * locks MUST be acquired in a deterministic global order. Every method rejects
- * once the transaction callback has settled.
+ * EXPLICIT secondary lock for a key with independent writers. The
+ * automatically-acquired PRIMARY lock counts as the transaction's first
+ * acquired lock, and every `lockKey` is ENFORCED to be monotonic: a request
+ * that does not sort strictly above the highest already-held canonical
+ * `(scope, key)` identity is rejected fail-fast with `AppStateTxnLockOrderError`
+ * (a reacquisition of an already-held lock is an idempotent no-op) — so
+ * ordering is a guarantee of the primitive, not caller discipline. Every method
+ * rejects once the transaction callback has settled.
  */
 export type AppStateKeyTxn = {
   read<T>(): Promise<AppStateRecord<T> | null>;
@@ -480,6 +544,10 @@ export async function withAppStateKeyTransaction<T>(
     let txnFailed = false;
     // The ACTUAL first statement failure — never replaced by a placeholder.
     let firstStatementFailure: unknown = null;
+    // Lock-order tracking: the auto-acquired PRIMARY lock is the first held
+    // identity; every `lockKey` must sort strictly above the highest held one.
+    const heldLocks = new Set<string>([appStateLockIdentity(scope, key)]);
+    let highestAcquired = appStateLockIdentity(scope, key);
     const readRow = async <V>(
       rowScope: string,
       rowKey: string
@@ -521,15 +589,26 @@ export async function withAppStateKeyTransaction<T>(
     };
     const lockRow = async (rowScope: string, rowKey: string): Promise<void> => {
       if (finished) throw new Error('app-state key transaction already finished');
+      const candidate = appStateLockIdentity(rowScope, rowKey);
+      const order = classifyLockAcquisition(candidate, highestAcquired, heldLocks);
+      // Idempotent reacquisition: already held, never re-query.
+      if (order === 'held') return;
+      // Backward acquisition: reject FAIL-FAST — before issuing the
+      // advisory-lock query — so this client never enters a wait that could
+      // deadlock against an opposite-root transaction. The transaction is NOT
+      // aborted; a caller may catch this and proceed without the lock.
+      if (order === 'backward') {
+        throw new AppStateTxnLockOrderError(candidate, highestAcquired);
+      }
       try {
         // The SAME transaction-scoped advisory lock a transaction ROOTED at
         // (rowScope, rowKey) would take, on this client — released at
-        // COMMIT/ROLLBACK. Used only for a secondary key with independent
-        // writers; multiple explicit locks must be acquired in a deterministic
-        // global order by the caller.
+        // COMMIT/ROLLBACK.
         await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
           `${rowScope}/${rowKey}`,
         ]);
+        heldLocks.add(candidate);
+        highestAcquired = candidate;
       } catch (error) {
         txnFailed = true;
         firstStatementFailure ??= error;
@@ -664,7 +743,10 @@ export async function withAppStateKeyTransaction<T>(
   let fileFinished = false;
   let snapshot: Record<string, StoredEntry> | null = null;
   const staged = new Map<string, StoredEntry>();
+  // Lock-order tracking mirrors the Postgres branch: the primary slot is the
+  // first held identity; `lockKey` must sort strictly above the highest held.
   const heldSlots = new Set<string>([lockKey]);
+  let highestAcquired = lockKey;
   const heldSlotReleases: Array<() => void> = [];
 
   const ensureSnapshot = async (): Promise<Record<string, StoredEntry>> => {
@@ -699,12 +781,21 @@ export async function withAppStateKeyTransaction<T>(
   };
   const acquireKeySlot = async (rowScope: string, rowKey: string): Promise<void> => {
     if (fileFinished) throw new Error('app-state key transaction already finished');
-    const ck = buildCompositeKey(rowScope, rowKey);
-    if (heldSlots.has(ck)) return;
+    const ck = appStateLockIdentity(rowScope, rowKey);
+    const order = classifyLockAcquisition(ck, highestAcquired, heldSlots);
+    // Idempotent reacquisition of an already-held slot.
+    if (order === 'held') return;
+    // Backward acquisition: reject FAIL-FAST — before enqueueing on the key's
+    // chain — so this transaction never awaits a slot that could wedge the chain
+    // against an opposite-root transaction. Nothing is staged or persisted.
+    if (order === 'backward') {
+      throw new AppStateTxnLockOrderError(ck, highestAcquired);
+    }
     heldSlots.add(ck);
+    highestAcquired = ck;
     // Join the target key's chain so a transaction rooted at that key queues
-    // behind this slot until THIS transaction settles. Acyclic by the caller's
-    // deterministic ordering discipline.
+    // behind this slot until THIS transaction settles. Acyclic by the enforced
+    // monotonic acquisition order above.
     const prevTail = keyLockChains.get(ck) ?? Promise.resolve();
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));

@@ -10,6 +10,7 @@ import {
   AppStateKeyLockAcquireError,
   AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
+  AppStateTxnLockOrderError,
   __appStateKeyLockChainCountForTests,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -1178,5 +1179,252 @@ test('pg multi-key uncertainty: a lost COMMIT with staged multi-key writes is in
     );
     // The uncertain client is destroyed, never returned to the pool as healthy.
     assert.ok(pool.destroyedIds.has(1));
+  });
+});
+
+// ===========================================================================
+// PLATFORM-086H3A-LOCK-ORDER — enforced monotonic canonical lock acquisition.
+// `lockKey` rejects a backward acquisition FAIL-FAST (before any wait/query),
+// so opposite-root transactions cannot deadlock (Postgres) or wedge the file
+// chain. Ordering compares the canonical (scope, key) identity identically on
+// both backends. Reacquiring a held lock is idempotent.
+// ===========================================================================
+
+// --- Generic comparator semantics (file backend; fast) ---
+
+test('lock order: a forward secondary acquisition is accepted', async () => {
+  await withAppStateKeyTransaction('lk', 'a', async (txn) => {
+    await txn.lockKey('lk', 'b'); // lk::b > lk::a → forward
+    await txn.write({ ok: true });
+  });
+  assert.deepEqual((await getAppState('lk', 'a'))?.value, { ok: true });
+});
+
+test('lock order: a BACKWARD secondary acquisition returns the typed error', async () => {
+  await assert.rejects(
+    withAppStateKeyTransaction('lk', 'b', async (txn) => {
+      await txn.lockKey('lk', 'a'); // lk::a < lk::b → backward
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof AppStateTxnLockOrderError, String(err));
+      assert.equal(err.attempted, 'lk::a');
+      assert.equal(err.highestAcquired, 'lk::b');
+      return true;
+    }
+  );
+});
+
+test('lock order: the typed error is DISTINCT from unavailability/finalize/cleanup', async () => {
+  assert.ok(
+    !(new AppStateTxnLockOrderError('lk::a', 'lk::b') instanceof AppStateKeyLockAcquireError)
+  );
+  assert.ok(!(new AppStateTxnLockOrderError('lk::a', 'lk::b') instanceof AppStateTxnFinalizeError));
+  assert.ok(!(new AppStateTxnLockOrderError('lk::a', 'lk::b') instanceof AppStateTxnCleanupError));
+});
+
+test('lock order: a rejected backward acquisition persists NOTHING', async () => {
+  await assert.rejects(
+    withAppStateKeyTransaction('lk', 'b', async (txn) => {
+      await txn.write({ primary: true }); // staged
+      await txn.lockKey('lk', 'a'); // backward → throws, rolling back the stage
+    }),
+    (err: unknown) => err instanceof AppStateTxnLockOrderError
+  );
+  assert.equal(await getAppState('lk', 'b'), null, 'no staged change committed');
+});
+
+test('lock order: reacquiring an already-held lock is idempotent (primary and secondary)', async () => {
+  await withAppStateKeyTransaction('lk', 'a', async (txn) => {
+    await txn.lockKey('lk', 'a'); // the primary itself — held, no-op
+    await txn.lockKey('lk', 'b'); // forward
+    await txn.lockKey('lk', 'b'); // held — no-op, no error
+    await txn.write({ ok: true });
+  });
+  assert.deepEqual((await getAppState('lk', 'a'))?.value, { ok: true });
+});
+
+test('lock order: multiple forward secondary acquisitions succeed in ascending order', async () => {
+  await withAppStateKeyTransaction('lk', 'a', async (txn) => {
+    await txn.lockKey('lk', 'b');
+    await txn.lockKey('lk', 'c');
+    await txn.writeKey('lk', 'c', { v: 3 });
+    await txn.write({ v: 1 });
+  });
+  assert.deepEqual((await getAppState('lk', 'c'))?.value, { v: 3 });
+});
+
+test('lock order: a backward acquisition AFTER multiple locks is rejected', async () => {
+  await assert.rejects(
+    withAppStateKeyTransaction('lk', 'a', async (txn) => {
+      await txn.lockKey('lk', 'c'); // forward (highest = lk::c)
+      await txn.lockKey('lk', 'b'); // lk::b < lk::c, not held → backward
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof AppStateTxnLockOrderError);
+      assert.equal(err.attempted, 'lk::b');
+      assert.equal(err.highestAcquired, 'lk::c');
+      return true;
+    }
+  );
+});
+
+test('lock order: after a rejection, forward transactions still complete and canonical-order retries succeed', async () => {
+  // A rejected backward transaction leaves nothing behind…
+  await assert.rejects(
+    withAppStateKeyTransaction('lk', 'b', async (txn) => txn.lockKey('lk', 'a')),
+    (err: unknown) => err instanceof AppStateTxnLockOrderError
+  );
+  // …and both keys can then be driven successfully in canonical order (root at
+  // the lower key, lock the higher one forward).
+  await withAppStateKeyTransaction('lk', 'a', async (txn) => {
+    await txn.lockKey('lk', 'b');
+    await txn.write({ retried: 'a' });
+    await txn.writeKey('lk', 'b', { retried: 'b' });
+  });
+  assert.deepEqual((await getAppState('lk', 'a'))?.value, { retried: 'a' });
+  assert.deepEqual((await getAppState('lk', 'b'))?.value, { retried: 'b' });
+});
+
+// --- Prerequisite-B lock path (generic comparator; no B implementation) ---
+
+test('lock order: the prereq-B path game-stats partition -> provider-refresh-status is forward; reverse is rejected', async () => {
+  const PARTITION = ['game-stats', '2026:3:regular'] as const;
+  const STATUS = ['provider-refresh-status', 'game-stats:2026:3:regular'] as const;
+  // game-stats::… sorts BELOW provider-refresh-status::… ('g' < 'p'), so
+  // partition -> status is the accepted forward direction.
+  await withAppStateKeyTransaction(PARTITION[0], PARTITION[1], async (txn) => {
+    await txn.lockKey(STATUS[0], STATUS[1]); // forward — accepted
+    await txn.write({ committed: true });
+  });
+  assert.deepEqual((await getAppState(PARTITION[0], PARTITION[1]))?.value, { committed: true });
+
+  // The reverse (root at status, lock the partition) is a backward violation.
+  await assert.rejects(
+    withAppStateKeyTransaction(STATUS[0], STATUS[1], async (txn) => {
+      await txn.lockKey(PARTITION[0], PARTITION[1]);
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof AppStateTxnLockOrderError);
+      assert.equal(err.attempted, 'game-stats::2026:3:regular');
+      assert.equal(err.highestAcquired, 'provider-refresh-status::game-stats:2026:3:regular');
+      return true;
+    }
+  );
+});
+
+// --- Opposite-root deadlock scenario: FILE backend ---
+
+test('file opposite-root race: reverse lockKey is rejected before waiting; A completes, no deadlock', async () => {
+  const aInside = deferred();
+  const aProceed = deferred();
+  const bInside = deferred();
+  const bProceed = deferred();
+  let bError: unknown = null;
+  let aResolved = false;
+
+  // A is rooted at lk::a and will acquire lk::b FORWARD (waiting for B to release it).
+  const runA = withAppStateKeyTransaction('lk', 'a', async (txn) => {
+    aInside.resolve();
+    await aProceed.promise;
+    await txn.lockKey('lk', 'b'); // forward — queues behind B on lk::b's chain
+    await txn.write({ who: 'A' });
+    return 'A-done';
+  });
+  runA.then(() => (aResolved = true)).catch(() => (aResolved = true));
+  await aInside.promise;
+
+  // B is rooted at lk::b and will attempt lk::a BACKWARD.
+  const runB = withAppStateKeyTransaction('lk', 'b', async (txn) => {
+    bInside.resolve();
+    await bProceed.promise;
+    try {
+      await txn.lockKey('lk', 'a'); // backward → rejected fail-fast
+    } catch (err) {
+      bError = err;
+      throw err;
+    }
+  });
+  await bInside.promise;
+
+  // Let A park on lk::b (held by B's in-flight transaction).
+  aProceed.resolve();
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(aResolved, false, 'A is blocked waiting for lk::b held by B');
+
+  // B attempts its backward lock: rejected immediately, never enqueues on lk::a.
+  bProceed.resolve();
+  await assert.rejects(runB, (err: unknown) => err instanceof AppStateTxnLockOrderError);
+  assert.ok(bError instanceof AppStateTxnLockOrderError);
+
+  // B released lk::b on rollback, so A's forward wait resolves and A commits.
+  assert.equal(await runA, 'A-done');
+  assert.deepEqual((await getAppState('lk', 'a'))?.value, { who: 'A' });
+  assert.equal(await getAppState('lk', 'b'), null, 'B persisted nothing');
+  // No file-fallback chain remains wedged.
+  await new Promise((r) => setImmediate(r));
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+// --- Opposite-root deadlock scenario: PostgreSQL backend ---
+
+test('pg opposite-root race: reverse lockKey is rejected before any advisory-lock query; A completes', async () => {
+  await withFakePg(async (pool) => {
+    const aInside = deferred();
+    const aProceed = deferred();
+    const bInside = deferred();
+    const bProceed = deferred();
+    let bError: unknown = null;
+    let aResolved = false;
+
+    const runA = withAppStateKeyTransaction('lock', 'a', async (txn) => {
+      aInside.resolve();
+      await aProceed.promise;
+      await txn.lockKey('lock', 'b'); // forward — client parks on lock/b (held by B)
+      await txn.write({ who: 'A' });
+      return 'A-done';
+    });
+    runA.then(() => (aResolved = true)).catch(() => (aResolved = true));
+    await aInside.promise;
+
+    const runB = withAppStateKeyTransaction('lock', 'b', async (txn) => {
+      bInside.resolve();
+      await bProceed.promise;
+      try {
+        await txn.lockKey('lock', 'a'); // backward → rejected before the query
+      } catch (err) {
+        bError = err;
+        throw err;
+      }
+    });
+    await bInside.promise;
+
+    // A parks as a waiter on lock/b.
+    aProceed.resolve();
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    assert.equal(aResolved, false, 'A parked waiting for lock/b held by B');
+    assert.equal(
+      clientLog(pool, 1).filter((e) => e === 'client1:lock').length,
+      2,
+      'A issued its primary + forward secondary lock'
+    );
+
+    // B attempts backward: rejected fail-fast, so it issues NO second lock query.
+    bProceed.resolve();
+    await assert.rejects(runB, (err: unknown) => err instanceof AppStateTxnLockOrderError);
+    assert.ok(bError instanceof AppStateTxnLockOrderError);
+    assert.equal(
+      clientLog(pool, 2).filter((e) => e === 'client2:lock').length,
+      1,
+      'B issued ONLY its primary lock — never the backward one'
+    );
+
+    // B rolled back and released lock/b; A was granted it and committed.
+    assert.equal(await runA, 'A-done');
+    assert.deepEqual(JSON.parse(pool.committed.get('lock::a')!), { who: 'A' });
+    assert.equal(pool.committed.has('lock::b'), false, 'B persisted nothing');
+    // All advisory locks released — nothing wedged.
+    assert.equal(pool.locks.size, 0);
   });
 });
