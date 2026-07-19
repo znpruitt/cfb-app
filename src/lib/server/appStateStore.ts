@@ -62,6 +62,37 @@ let __readFailureScopeForTests: string | null = null;
 // e.g. recovery planning — and fail a later one — e.g. the post-claim
 // authoritative reread). Always 0 outside tests.
 let __readFailureRemainingSuccessesForTests = 0;
+// Test-only: when set, the file-fallback transaction COMMIT (the single atomic
+// staged-snapshot replacement) throws this instead of applying, leaving the
+// prior file intact. See `__setAppStateFileCommitFailureForTests`.
+let __fileCommitFailureForTests: Error | null = null;
+
+/** Shared test-only read-failure seam (plain reads AND transaction reads). */
+function applyReadFailureSeamForTests(scope: string): void {
+  if (
+    __readFailureForTests &&
+    (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
+  ) {
+    if (__readFailureRemainingSuccessesForTests > 0) {
+      __readFailureRemainingSuccessesForTests -= 1;
+    } else {
+      throw __readFailureForTests;
+    }
+  }
+}
+
+/** Shared test-only write-failure seam (plain writes AND transaction writes). */
+function shouldFailWriteForTests(scope: string): boolean {
+  if (!__writeFailureForTests) return false;
+  if (__writeFailureScopeForTests !== null && __writeFailureScopeForTests !== scope) {
+    return false;
+  }
+  if (__writeFailureRemainingSuccessesForTests > 0) {
+    __writeFailureRemainingSuccessesForTests -= 1;
+    return false;
+  }
+  return true;
+}
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -384,17 +415,28 @@ export class AppStateTxnCleanupError extends Error {
  * transaction (PLATFORM-086H3). `readKey`/`writeKey` let a lock-owning
  * critical section atomically co-commit closely related bookkeeping (e.g.
  * the game-stats revision ledger) with its primary write: both persist or
- * neither does. Secondary keys take NO additional advisory lock — callers
+ * neither does. By default secondary keys take NO additional lock — callers
  * must ensure every writer of a secondary key already serializes on the
- * primary key's lock (true for the 1:1 partition↔ledger pairing). This is
- * deliberately the smallest extension over the one-key API, not a general
- * multi-key transaction system.
+ * primary key's lock (true for the 1:1 partition↔ledger pairing).
+ *
+ * `lockKey` additionally acquires the SAME per-key mutual exclusion another
+ * transaction rooted at that key would hold (Postgres: a second
+ * `pg_advisory_xact_lock` on this client, released at transaction end; file
+ * fallback: the target key's in-process chain slot, held until the
+ * transaction settles) — used when a secondary key has INDEPENDENT writers
+ * (e.g. the one-time revision-ledger bootstrap consulting refresh-status
+ * history). Lock-ordering discipline: the ONLY multi-lock path is
+ * partition → status (merge bootstrap); status, recovery, and ledger
+ * transactions never acquire a second key, so the lock graph is acyclic and
+ * no reverse-order acquisition exists. This remains the smallest extension
+ * over the one-key API, not a general multi-key transaction system.
  */
 export type AppStateKeyTxn = {
   read<T>(): Promise<AppStateRecord<T> | null>;
   write<T>(value: T): Promise<void>;
   readKey<T>(scope: string, key: string): Promise<AppStateRecord<T> | null>;
   writeKey<T>(scope: string, key: string, value: T): Promise<void>;
+  lockKey(scope: string, key: string): Promise<void>;
 };
 
 const keyLockChains = new Map<string, Promise<unknown>>();
@@ -469,11 +511,27 @@ export async function withAppStateKeyTransaction<T>(
         throw error;
       }
     };
+    const lockRow = async (rowScope: string, rowKey: string): Promise<void> => {
+      if (finished) throw new Error('app-state key transaction already finished');
+      try {
+        // Same lock a transaction ROOTED at (rowScope, rowKey) would take, on
+        // this client, released automatically at transaction end. Acquired
+        // only on the acyclic partition → status path (see AppStateKeyTxn).
+        await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+          `${rowScope}/${rowKey}`,
+        ]);
+      } catch (error) {
+        txnFailed = true;
+        firstStatementFailure ??= error;
+        throw error;
+      }
+    };
     const txn: AppStateKeyTxn = {
       read: <V>() => readRow<V>(scope, key),
       write: <V>(value: V) => writeRow(scope, key, value),
       readKey: readRow,
       writeKey: writeRow,
+      lockKey: lockRow,
     };
 
     // Client containment: a client whose transaction state is uncertain —
@@ -581,36 +639,125 @@ export async function withAppStateKeyTransaction<T>(
     }
   }
 
-  // File fallback: single-process serialization; reads/writes are immediately
-  // durable (no transaction), so finalization cannot fail here. The accessor
-  // honors the SAME lifetime contract as the Postgres branch: once the
-  // callback settles, retained read/write calls fail instead of bypassing the
-  // per-key chain.
+  // File fallback (dev/tests only — production requires DATABASE_URL; the
+  // Postgres branch above is the production correctness boundary). Same-key
+  // callbacks serialize on the in-process chain; the transaction itself is
+  // STAGED (PLATFORM-086H3): one snapshot is loaded at first access, reads
+  // serve staged values first (read-your-writes) and untouched keys from the
+  // snapshot, and every write stages in memory. A successful callback commits
+  // ALL staged keys in ONE atomic file replacement under the whole-file write
+  // lock — the live file is reread inside that critical section and only the
+  // staged keys are overlaid, so concurrent writers of unrelated keys are
+  // never clobbered, and every key this transaction touched either commits
+  // together or not at all. A failed callback discards every staged write. A
+  // failed replacement leaves the previous file intact (temp-write + atomic
+  // rename), so it surfaces as a typed finalize failure with `writeAttempted:
+  // false` — the atomic-rename contract proves nothing staged became durable,
+  // which is exactly the documented may-claim-untouched-state threshold. The
+  // accessor honors the SAME lifetime contract as the Postgres branch: once
+  // the callback settles, retained accessor calls fail instead of bypassing
+  // the per-key chain.
   const lockKey = buildCompositeKey(scope, key);
   let fileFinished = false;
+  let snapshot: Record<string, StoredEntry> | null = null;
+  const staged = new Map<string, StoredEntry>();
+  const heldSlots = new Set<string>([lockKey]);
+  const heldSlotReleases: Array<() => void> = [];
+
+  const ensureSnapshot = async (): Promise<Record<string, StoredEntry>> => {
+    if (snapshot === null) snapshot = await readFileStore();
+    return snapshot;
+  };
+  const readStaged = async <V>(
+    rowScope: string,
+    rowKey: string
+  ): Promise<AppStateRecord<V> | null> => {
+    if (fileFinished) throw new Error('app-state key transaction already finished');
+    applyReadFailureSeamForTests(rowScope);
+    const ck = buildCompositeKey(rowScope, rowKey);
+    const stagedEntry = staged.get(ck);
+    if (stagedEntry) {
+      return { value: stagedEntry.value as V, updatedAt: stagedEntry.updatedAt };
+    }
+    const entries = await ensureSnapshot();
+    const entry = entries[ck];
+    if (!entry) return null;
+    return { value: entry.value as V, updatedAt: entry.updatedAt };
+  };
+  const writeStaged = async <V>(rowScope: string, rowKey: string, value: V): Promise<void> => {
+    if (fileFinished) throw new Error('app-state key transaction already finished');
+    if (shouldFailWriteForTests(rowScope)) throw __writeFailureForTests;
+    staged.set(buildCompositeKey(rowScope, rowKey), {
+      value,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+  const acquireKeySlot = async (rowScope: string, rowKey: string): Promise<void> => {
+    if (fileFinished) throw new Error('app-state key transaction already finished');
+    const ck = buildCompositeKey(rowScope, rowKey);
+    if (heldSlots.has(ck)) return;
+    heldSlots.add(ck);
+    // Join the target key's chain: transactions rooted at that key queue
+    // behind this slot until THIS transaction settles. Acyclic by the
+    // documented ordering discipline (only partition → status acquires here).
+    const prevTail = keyLockChains.get(ck) ?? Promise.resolve();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const slotTail = prevTail
+      .then(
+        () => held,
+        () => held
+      )
+      .then(
+        () => undefined,
+        () => undefined
+      );
+    keyLockChains.set(ck, slotTail);
+    void slotTail.then(() => {
+      if (keyLockChains.get(ck) === slotTail) keyLockChains.delete(ck);
+    });
+    heldSlotReleases.push(release);
+    await prevTail.then(
+      () => undefined,
+      () => undefined
+    );
+    // The slot is ours: refresh this key's snapshot entry from the live file
+    // so the now-serialized read observes the latest committed value.
+    const live = await readFileStore();
+    const entries = await ensureSnapshot();
+    if (live[ck]) entries[ck] = live[ck];
+    else delete entries[ck];
+  };
+
   const txn: AppStateKeyTxn = {
-    read: async <V>() => {
-      if (fileFinished) throw new Error('app-state key transaction already finished');
-      return await getAppState<V>(scope, key);
-    },
-    write: async <V>(value: V) => {
-      if (fileFinished) throw new Error('app-state key transaction already finished');
-      await setAppState(scope, key, value);
-    },
-    readKey: async <V>(rowScope: string, rowKey: string) => {
-      if (fileFinished) throw new Error('app-state key transaction already finished');
-      return await getAppState<V>(rowScope, rowKey);
-    },
-    writeKey: async <V>(rowScope: string, rowKey: string, value: V) => {
-      if (fileFinished) throw new Error('app-state key transaction already finished');
-      await setAppState(rowScope, rowKey, value);
-    },
+    read: <V>() => readStaged<V>(scope, key),
+    write: <V>(value: V) => writeStaged(scope, key, value),
+    readKey: readStaged,
+    writeKey: writeStaged,
+    lockKey: acquireKeySlot,
   };
   const invoke = async (): Promise<T> => {
     try {
-      return await fn(txn);
+      const result = await fn(txn);
+      if (staged.size > 0) {
+        try {
+          await withFileWriteLock(appStateFilePath(), async () => {
+            if (__fileCommitFailureForTests) throw __fileCommitFailureForTests;
+            const current = await readFileStore();
+            const merged = { ...current };
+            for (const [ck, entry] of staged) merged[ck] = entry;
+            await writeFileStore(merged);
+          });
+        } catch (error) {
+          // Nothing staged became durable (atomic rename left the prior file):
+          // writeAttempted=false is the truthful untouched-state threshold.
+          throw new AppStateTxnFinalizeError(error, false, false);
+        }
+      }
+      return result;
     } finally {
       fileFinished = true;
+      for (const release of heldSlotReleases) release();
     }
   };
   const prev = keyLockChains.get(lockKey) ?? Promise.resolve();
@@ -637,16 +784,7 @@ export async function getAppState<T>(
   // providerRefreshStatus, PLATFORM-086A) can be exercised. Optionally scoped so a
   // test can fail one scope's reads (e.g. `'schedule'`) while status-scope reads
   // still succeed. Never set in production paths.
-  if (
-    __readFailureForTests &&
-    (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
-  ) {
-    if (__readFailureRemainingSuccessesForTests > 0) {
-      __readFailureRemainingSuccessesForTests -= 1;
-    } else {
-      throw __readFailureForTests;
-    }
-  }
+  applyReadFailureSeamForTests(scope);
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
@@ -683,17 +821,7 @@ export async function setAppState<T>(
   // persist does not publish process-local "fresh" provider data. Never set in
   // production paths. Optionally scoped so a test can fail one provider-data commit
   // while other scopes still persist.
-  const shouldFailWrite = (): boolean => {
-    if (!__writeFailureForTests) return false;
-    if (__writeFailureScopeForTests !== null && __writeFailureScopeForTests !== scope) {
-      return false;
-    }
-    if (__writeFailureRemainingSuccessesForTests > 0) {
-      __writeFailureRemainingSuccessesForTests -= 1;
-      return false;
-    }
-    return true;
-  };
+  const shouldFailWrite = (): boolean => shouldFailWriteForTests(scope);
 
   if (hasDatabaseConfig()) {
     if (shouldFailWrite()) throw __writeFailureForTests;
@@ -858,6 +986,7 @@ export function __resetAppStateForTests(): void {
   __readFailureForTests = null;
   __readFailureScopeForTests = null;
   __readFailureRemainingSuccessesForTests = 0;
+  __fileCommitFailureForTests = null;
   __keyLockFailureForTests = null;
   __keyLockFailureScopeForTests = null;
   keyLockChains.clear();
@@ -915,6 +1044,17 @@ export function __setAppStateReadFailureForTests(
   __readFailureForTests = error;
   __readFailureScopeForTests = error ? scope : null;
   __readFailureRemainingSuccessesForTests = error ? (options?.afterReads ?? 0) : 0;
+}
+
+/**
+ * Test-only: make the NEXT file-fallback transaction commits (the single
+ * atomic staged-snapshot replacement) reject with `error` while leaving the
+ * prior file intact — exercising the all-or-nothing rollback of multi-key
+ * staged transactions. Pass `null` to clear. Cleared automatically by
+ * `__resetAppStateForTests`.
+ */
+export function __setAppStateFileCommitFailureForTests(error: Error | null): void {
+  __fileCommitFailureForTests = error;
 }
 
 /**

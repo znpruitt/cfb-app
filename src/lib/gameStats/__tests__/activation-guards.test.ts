@@ -32,17 +32,30 @@ import * as publicProjectionModule from '../publicProjection.ts';
 // WHAT THIS STRUCTURALLY GUARANTEES (and what it does not):
 //   ✔ no production file outside the allowlists can IMPORT the guarded
 //     capabilities (resolved specifiers, all import forms);
+//   ✔ guarded capabilities cannot be RE-EXPORTED or laundered onward by any
+//     file (owners included): `export *`, barrels, named/aliased/namespace
+//     re-exports, local `export { x }` of a guarded binding, exported
+//     `const alias = guarded`, and exported forwarding WRAPPERS that pass
+//     their own parameters (or a rest spread) through to the guarded call —
+//     detected through `await`, parentheses, `as`, alias chains, a
+//     namespace-member callee, default/rest params, and any argument
+//     position;
 //   ✔ within any single file, ordinary aliasing/wrapping of an imported
-//     mutation primitive cannot reach the game-stats evidence scope
+//     mutation/read primitive cannot reach the game-stats evidence scope
 //     undetected (fixed-point alias/wrapper propagation, scope strings
 //     through const chains, wrapper scope arguments at any position);
 //   ✔ the activated lifecycle is CONNECTED (each stage's file really calls
 //     its downstream stage).
-//   ✖ it does NOT prove arbitrary cross-file control flow, reachability, or
-//     dead code — those cases cannot arise in production ownership precisely
-//     BECAUSE the import boundary keeps unauthorized files from obtaining
-//     the capability in the first place; a file on an allowlist is owned,
-//     reviewed lifecycle code.
+//   ✖ these are STATIC guarantees over ordinary TypeScript imports, aliases,
+//     wrappers, and exports. The analyzer does NOT claim to prove behavior of
+//     RUNTIME-generated/dynamic dispatch (computed member access on a
+//     namespace, `eval`, `Function`, reflection, dynamic `import()` of a
+//     computed specifier), nor arbitrary cross-file control flow or
+//     reachability — those cannot arise in production ownership precisely
+//     BECAUSE the import boundary keeps unauthorized files from obtaining the
+//     capability in the first place, and every allowlisted file is owned,
+//     reviewed lifecycle code. A genuine domain API that constructs its OWN
+//     scope/key and forwards none of its parameters is intentionally allowed.
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -517,6 +530,16 @@ export function analyzeProductionSource(
           lockBindings.add(name);
           grew = true;
         }
+        // Alias chains of ANY guarded capability (`const g2 = g1`) propagate so
+        // an exported alias/forwarder through a renamed local is still caught.
+        if (
+          ts.isIdentifier(node.initializer) &&
+          guardedBindings.has(node.initializer.text) &&
+          !guardedBindings.has(name)
+        ) {
+          guardedBindings.set(name, guardedBindings.get(node.initializer.text)!);
+          grew = true;
+        }
         if (
           (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
           touchesMutation(node.initializer) &&
@@ -557,30 +580,80 @@ export function analyzeProductionSource(
     return false;
   };
 
+  /** Strip `await`, parentheses, and `as`/`satisfies` off an expression. */
+  const unwrapExpr = (expr: ts.Expression): ts.Expression => {
+    let current = expr;
+    for (;;) {
+      if (ts.isAwaitExpression(current)) current = current.expression;
+      else if (ts.isParenthesizedExpression(current)) current = current.expression;
+      else if (ts.isAsExpression(current) || ts.isSatisfiesExpression(current))
+        current = current.expression;
+      else if (ts.isNonNullExpression(current)) current = current.expression;
+      else return current;
+    }
+  };
+
+  /** The function's own parameter identifier names (including a rest name). */
+  const parameterNames = (
+    fn: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression
+  ): Set<string> => {
+    const names = new Set<string>();
+    for (const param of fn.parameters) {
+      if (ts.isIdentifier(param.name)) names.add(param.name.text);
+    }
+    return names;
+  };
+
+  /** The callee resolves to a guarded capability (bare alias, alias chain, or
+   * store-namespace member). */
+  const isGuardedCallee = (calleeRaw: ts.Expression): boolean => {
+    const callee = unwrapExpr(calleeRaw);
+    if (ts.isIdentifier(callee)) return guardedBindings.has(callee.text);
+    if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+      return storeNamespaces.has(callee.expression.text);
+    }
+    return false;
+  };
+
   /**
-   * A pure FORWARDER: the function body is exactly `return guarded(...)` —
-   * exposing the raw capability to importers. Owner modules wrapping a
-   * capability with real domain semantics (multiple statements, added
-   * logic) are legitimate and not flagged; the import boundary plus this
-   * forwarding check close the trivial laundering shapes.
+   * A FORWARDING wrapper EXPOSES the raw capability: it calls a guarded
+   * capability passing one or more of its OWN PARAMETERS (or a rest-param
+   * spread) straight through, so a caller gains the same arbitrary-target
+   * power the import boundary is meant to withhold. This holds regardless of
+   * preceding validation/harmless statements, `return await`, parentheses, an
+   * aliased/namespace callee, default/rest parameters, or the forwarded
+   * argument's position. A genuine domain API that constructs its OWN scope/key
+   * (module constants, internally-derived locals) and passes THOSE is NOT a
+   * forwarder — the caller cannot retarget it — and is not flagged.
    */
   const forwardsGuardedCapability = (
     fn: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression
   ): boolean => {
-    const isGuardedCallee = (expr: ts.Expression): boolean =>
-      ts.isIdentifier(expr) && guardedBindings.has(expr.text);
     if (!fn.body) return false;
-    if (ts.isBlock(fn.body)) {
-      if (fn.body.statements.length !== 1) return false;
-      const only = fn.body.statements[0]!;
+    const params = parameterNames(fn);
+    const argForwardsParam = (arg: ts.Expression): boolean => {
+      const inner = unwrapExpr(ts.isSpreadElement(arg) ? arg.expression : arg);
+      return ts.isIdentifier(inner) && params.has(inner.text);
+    };
+    const isForwardingCall = (expr: ts.Expression): boolean => {
+      const call = unwrapExpr(expr);
       return (
-        ts.isReturnStatement(only) &&
-        only.expression !== undefined &&
-        ts.isCallExpression(only.expression) &&
-        isGuardedCallee(only.expression.expression)
+        ts.isCallExpression(call) &&
+        isGuardedCallee(call.expression) &&
+        call.arguments.some(argForwardsParam)
+      );
+    };
+    if (ts.isBlock(fn.body)) {
+      // Any RETURN that forwards a guarded call (preceding statements ignored).
+      return fn.body.statements.some(
+        (stmt) =>
+          ts.isReturnStatement(stmt) &&
+          stmt.expression !== undefined &&
+          isForwardingCall(stmt.expression)
       );
     }
-    return ts.isCallExpression(fn.body) && isGuardedCallee(fn.body.expression);
+    // Expression-bodied arrow.
+    return isForwardingCall(fn.body);
   };
 
   // Pass 2: bypass violations.
@@ -667,7 +740,9 @@ export function analyzeProductionSource(
       });
     }
     if (ts.isCallExpression(node)) {
-      const callee = node.expression;
+      // Unwrap await/parens/as off the callee so `(load)(...)` and friends are
+      // recognized identically to a bare callee.
+      const callee = unwrapExpr(node.expression);
       // Lock use via ANY binding (aliased import, alias chain, namespace).
       if (!lockAllowed && isTrackedLockExpr(callee)) {
         violations.push({
@@ -1197,6 +1272,9 @@ test('raw-read guard: generic game-stats reads are blocked in every alias/wrappe
   // Namespace member.
   const namespaced = `import * as store from './server/appStateStore';\nawait store.getAppState('game-stats', key);`;
   assert.ok(rulesOf(namespaced, 'src/lib/example.ts').includes('raw-game-stats-read'));
+  // Awaited + parenthesized wrapper call.
+  const wrappedAwait = `${READ_IMPORT}\nfunction load(scope, key) { return getAppState(scope, key); }\nconst r = await (load)('game-stats', key);`;
+  assert.ok(rulesOf(wrappedAwait, 'src/lib/example.ts').includes('raw-game-stats-read'));
   // The documented debug raw-inspection surface stays legal.
   assert.ok(
     !rulesOf(
@@ -1204,6 +1282,44 @@ test('raw-read guard: generic game-stats reads are blocked in every alias/wrappe
       'src/app/api/debug/game-stats-diagnostic/route.ts'
     ).includes('raw-game-stats-read')
   );
+});
+
+test('module resolution: laundering is caught at the file that re-exports/forwards, per resolved specifier', () => {
+  // A realistic multi-file laundering chain, analyzed file by file exactly as
+  // the production scan does. Each file is scanned against its RESOLVED import
+  // specifiers; the guarantee is that whichever file performs the re-export or
+  // forward is the one flagged — the downstream importer of a non-guarded
+  // barrel path is clean because the barrel already failed the guard.
+  const files = new Map<string, string>([
+    // (1) An OWNER re-exporting an alias of the lock → flagged in the owner.
+    [
+      'src/lib/gameStats/recoveryDisposition.ts',
+      `import { withAppStateKeyTransaction } from '../server/appStateStore';\nexport { withAppStateKeyTransaction as tx };`,
+    ],
+    // (2) A BARREL re-exporting a guarded module wholesale → flagged in barrel.
+    ['src/lib/gameStats/index.ts', `export * from '../server/appStateStore';`],
+    // (3) A route importing the BARREL alias (resolves to the barrel, NOT the
+    //     guarded module) → clean here; the barrel already failed the guard.
+    [
+      'src/app/api/game-stats/route.ts',
+      `import { tx } from '@/lib/gameStats/index';\nexport const GET = () => tx('game-stats', 'k', run);`,
+    ],
+    // (4) An exported forwarding wrapper with an extra statement → flagged.
+    [
+      'src/lib/gameStats/refreshOrchestration.ts',
+      `import { claimGameStatsRecoveryPartition } from './recoveryDisposition.ts';\nexport async function claim(a, b, c) {\n  log('claim');\n  return await claimGameStatsRecoveryPartition(a, b, c);\n}`,
+    ],
+  ]);
+  const rulesFor = (file: string): string[] =>
+    analyzeProductionSource(files.get(file)!, file).map((v) => v.rule);
+
+  assert.ok(rulesFor('src/lib/gameStats/recoveryDisposition.ts').includes('guarded-reexport'));
+  assert.ok(rulesFor('src/lib/gameStats/index.ts').includes('guarded-reexport'));
+  assert.ok(
+    !rulesFor('src/app/api/game-stats/route.ts').includes('guarded-reexport'),
+    'the barrel importer resolves to a non-guarded path and is clean (barrel caught it)'
+  );
+  assert.ok(rulesFor('src/lib/gameStats/refreshOrchestration.ts').includes('guarded-reexport'));
 });
 
 test('ownership: merge, ingestion, and finalizer imports are owner-only', () => {
@@ -1240,29 +1356,45 @@ test('ownership: merge, ingestion, and finalizer imports are owner-only', () => 
   );
 });
 
-test('guarded forwarding wrappers cannot be exported — even by owners', () => {
-  const forwarderFn = `import { withAppStateKeyTransaction } from '../server/appStateStore';
-export function tx(...args) {
-  return withAppStateKeyTransaction(...args);
+test('guarded forwarding wrappers cannot be exported — even by owners (realistic shapes)', () => {
+  const OWNER = 'src/lib/gameStats/recoveryDisposition.ts';
+  const LOCK_IMPORT = `import { withAppStateKeyTransaction } from '../server/appStateStore';`;
+  const flagged = [
+    // Rest-param spread forward.
+    `${LOCK_IMPORT}\nexport function tx(...args) { return withAppStateKeyTransaction(...args); }`,
+    // Arrow rest-spread forward.
+    `import { claimGameStatsRecoveryPartition } from './recoveryDisposition.ts';\nexport const claim = (...args) => claimGameStatsRecoveryPartition(...args);`,
+    // `return await` a forward.
+    `${LOCK_IMPORT}\nexport async function tx(scope, key, fn) { return await withAppStateKeyTransaction(scope, key, fn); }`,
+    // Preceding harmless + validation statements, then forward.
+    `${LOCK_IMPORT}\nexport async function tx(scope, key, fn) {\n  const t = Date.now();\n  if (!scope) throw new Error('x');\n  return withAppStateKeyTransaction(scope, key, fn);\n}`,
+    // Parenthesized callee + parenthesized return.
+    `${LOCK_IMPORT}\nexport function tx(scope, key, fn) { return (withAppStateKeyTransaction)(scope, key, fn); }`,
+    // Aliased callee (local alias chain).
+    `${LOCK_IMPORT}\nconst lock = withAppStateKeyTransaction;\nconst lock2 = lock;\nexport function tx(scope, key, fn) { return lock2(scope, key, fn); }`,
+    // Default params, scope in a NON-first position.
+    `${LOCK_IMPORT}\nexport function tx(key, scope, fn = noop) { return withAppStateKeyTransaction(scope, key, fn); }`,
+  ];
+  for (const source of flagged) {
+    assert.ok(
+      rulesOf(source, OWNER).includes('guarded-reexport'),
+      `should flag forwarder:\n${source}`
+    );
+  }
+
+  // A genuine domain API that constructs its OWN scope/key (a module constant
+  // and an internally-derived local) and forwards NONE of its parameters to
+  // the guarded call is NOT a forwarder — the caller cannot retarget it. This
+  // mirrors the real recovery/merge/status owners.
+  const domainApi = `${LOCK_IMPORT}
+const RECOVERY_SCOPE = 'game-stats-recovery';
+export async function claimPartition(year, week, seasonType) {
+  const key = recoveryKey(year, week, seasonType);
+  return withAppStateKeyTransaction(RECOVERY_SCOPE, key, async (txn) => run(txn));
 }`;
   assert.ok(
-    rulesOf(forwarderFn, 'src/lib/gameStats/recoveryDisposition.ts').includes('guarded-reexport')
-  );
-  const forwarderArrow = `import { claimGameStatsRecoveryPartition } from './recoveryDisposition.ts';
-export const claim = (...args) => claimGameStatsRecoveryPartition(...args);`;
-  assert.ok(
-    rulesOf(forwarderArrow, 'src/lib/gameStats/refreshOrchestration.ts').includes(
-      'guarded-reexport'
-    )
-  );
-  // A real domain API (multiple statements / added semantics) is NOT flagged.
-  const domainApi = `import { withAppStateKeyTransaction } from '../server/appStateStore';
-export async function claimPartition(scope, key) {
-  const guard = validate(scope);
-  return withAppStateKeyTransaction(scope, key, async (txn) => run(txn, guard));
-}`;
-  assert.ok(
-    !rulesOf(domainApi, 'src/lib/gameStats/recoveryDisposition.ts').includes('guarded-reexport')
+    !rulesOf(domainApi, OWNER).includes('guarded-reexport'),
+    'internal-argument domain API must not be flagged'
   );
 });
 

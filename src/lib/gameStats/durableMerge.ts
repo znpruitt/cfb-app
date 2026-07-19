@@ -121,7 +121,15 @@ export type DurableMergeUnavailableReason =
   | 'durable-write-failed'
   | 'merge-computation-failed'
   | 'transaction-cleanup-failed'
-  | 'transaction-finalize-failed';
+  | 'transaction-finalize-failed'
+  /**
+   * Revision history for this scope may previously have existed (a
+   * revision-era marker survives) but NO usable revision source remains —
+   * silently restarting at 1 could reuse committed revisions, so the write is
+   * refused with durable state untouched until explicit repair (or a later
+   * write that restores an authoritative floor).
+   */
+  | 'revision-history-ambiguous';
 
 export type DurableMergeResult = {
   outcome: DurableMergeOutcome;
@@ -749,58 +757,175 @@ class MergeComputationFailure {
 // exact durable key the game-stats cache reads and writes.
 const GAME_STATS_SCOPE = 'game-stats';
 
-// Dedicated per-partition revision LEDGER (PLATFORM-086H3): the durable
-// ordering authority for refresh-status publication. Keyed 1:1 with the
-// evidence partition, so every allocator serializes on the evidence key's
-// advisory lock; co-committed with the evidence write in the SAME
-// transaction (rollback discards both). Unlike the informational copy on the
-// partition envelope, the ledger survives partition restoration/repair — the
-// allocation floor below guarantees the sequence can never reset.
+// Dedicated per-partition revision LEDGER (PLATFORM-086H3): the ENDURING
+// durable ordering authority for refresh-status publication. Keyed 1:1 with
+// the evidence partition, so every allocator serializes on the evidence key's
+// advisory lock; co-committed with the evidence write in the SAME transaction
+// (rollback discards both). Once a scope's ledger is initialized it is the
+// SOLE allocation authority — ordinary allocation never reconstructs ordering
+// from mutable partition or refresh-status rows. Refresh-status history is
+// consulted ONLY by the one-time bootstrap below, under that status key's own
+// lock (`txn.lockKey`), so a concurrently publishing status writer can never
+// race the floor. Lock ordering is strictly partition → status (no other
+// transaction acquires a second key), keeping the lock graph acyclic.
 const GAME_STATS_REVISION_SCOPE = 'game-stats-revision';
 // Mirrors providerRefreshStatus.PROVIDER_REFRESH_STATUS_SCOPE (imported
 // lazily as a literal to avoid a lifecycle → status-module value import; the
-// revision floor only READS the status row).
+// one-time bootstrap only READS the status row, under its key lock).
 const PROVIDER_REFRESH_STATUS_SCOPE = 'provider-refresh-status';
 
-type RevisionLedgerRecord = { revision: number };
+/** The durable revision-ledger row — schema-versioned so bootstrap state is a
+ * MARKER, never an inference from missing fields. */
+type RevisionLedgerRecord = {
+  schemaVersion: 1;
+  /** The last COMMITTED revision for this scope. */
+  revision: number;
+  /** How revision authority was established for this scope. */
+  initializedFrom: 'new' | 'legacy' | 'bootstrap';
+  initializedAt: string;
+};
 
 function validRevision(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
+function validLedger(value: unknown): RevisionLedgerRecord | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (record.schemaVersion !== 1) return null;
+  const revision = validRevision(record.revision);
+  if (revision === null) return null;
+  const from = record.initializedFrom;
+  if (from !== 'new' && from !== 'legacy' && from !== 'bootstrap') return null;
+  return {
+    schemaVersion: 1,
+    revision,
+    initializedFrom: from,
+    initializedAt: typeof record.initializedAt === 'string' ? record.initializedAt : '',
+  };
+}
+
+/**
+ * Recognizes a PROVABLY pre-revision legacy partition — an explicitly known
+ * shape, never merely "revision fields are missing". The revisioned merge
+ * authority stamps v2 row metadata and the partition `commitRevision`
+ * together in one transaction, so every revision-era partition contains at
+ * least one v2-marked row: an envelope carrying ONLY legacy-shaped rows and
+ * no `commitRevision` own-property can only be pre-activation legacy data.
+ * A v2-marked row WITHOUT a partition revision is revision-era damage.
+ */
+function isRecognizedPreRevisionLegacyPartition(partition: WeeklyGameStats): boolean {
+  if (Object.prototype.hasOwnProperty.call(partition, 'commitRevision')) return false;
+  if (!Array.isArray(partition.games)) return false;
+  return partition.games.every(
+    (game) =>
+      typeof game === 'object' &&
+      game !== null &&
+      !('schemaVersion' in game) &&
+      !('fetchStartedAt' in game)
+  );
+}
+
+type RevisionAllocation =
+  | { ok: true; next: number; ledger: RevisionLedgerRecord }
+  | { ok: false; reason: 'revision-history-ambiguous' };
+
 /**
  * Allocate the next durable commit revision for one partition INSIDE the
- * evidence transaction. The next revision is strictly greater than every
- * VALID known revision for the scope — the dedicated ledger, the current
- * partition envelope's informational copy, and the refresh-status ledger's
- * last published success revision — so no restoration, repair, corruption,
- * or missing source can ever reset ordering below prior history (a malformed
- * value simply contributes nothing to the floor and is repaired by the
- * ledger write that follows). Deterministic for every combination of
- * missing/malformed/conflicting sources: the floor is the MAX of the valid
- * values, and entirely legacy state (no valid source anywhere) starts at 1.
+ * evidence transaction.
+ *
+ * ORDINARY path (initialized ledger): `ledger.revision + 1` — the enduring
+ * ledger is the sole authority; refresh-status is never consulted. The
+ * current partition's own valid revision is folded in purely defensively
+ * (conflicting valid floors allocate above the maximum; the atomic ledger
+ * co-commit makes a partition ahead of its ledger structurally impossible).
+ *
+ * ONE-TIME bootstrap (no valid ledger): classify the scope —
+ *   - provably NEW (no partition, no status marker, no ledger marker) → 1;
+ *   - provably pre-revision LEGACY partition (recognized shape) → 1;
+ *   - any VALID surviving floor (partition revision, or status
+ *     `lastSuccessRevision` read under that key's lock so a concurrent
+ *     publisher cannot race the floor) → max(valid floors) + 1;
+ *   - otherwise revision history may have existed (malformed ledger, v2 rows
+ *     without a partition revision, malformed revision fields) but no usable
+ *     source remains → typed AMBIGUOUS refusal; never silently restart at 1.
  */
 async function allocateCommitRevision(
   txn: AppStateKeyTxn,
   input: { year: number; week: number; seasonType: CfbdSeasonType },
   existing: WeeklyGameStats | null,
   key: string
-): Promise<number> {
-  const ledger = await txn.readKey<RevisionLedgerRecord | null>(GAME_STATS_REVISION_SCOPE, key);
+): Promise<RevisionAllocation> {
+  const now = new Date().toISOString();
+  const ledgerRow = await txn.readKey<unknown>(GAME_STATS_REVISION_SCOPE, key);
+  const ledger = validLedger(ledgerRow?.value ?? null);
+  if (ledger) {
+    const next = Math.max(ledger.revision, validRevision(existing?.commitRevision) ?? 0) + 1;
+    return { ok: true, next, ledger: { ...ledger, revision: next } };
+  }
+
+  // --- One-time bootstrap / initialization ---
+  // A ledger row that exists but does not validate is a revision-era marker.
+  let ambiguousMarker = ledgerRow !== null && ledgerRow.value !== null;
+
+  const floors: number[] = [];
+  if (existing !== null) {
+    const partitionRevision = Object.prototype.hasOwnProperty.call(existing, 'commitRevision')
+      ? validRevision(existing.commitRevision)
+      : null;
+    if (partitionRevision !== null) {
+      floors.push(partitionRevision);
+    } else if (!isRecognizedPreRevisionLegacyPartition(existing)) {
+      // Present, not provably legacy, no valid revision → revision era.
+      ambiguousMarker = true;
+    }
+  }
+
+  // Refresh-status history joins the floor ONLY here, under its own key lock
+  // (partition → status is the one multi-lock path; nothing acquires the
+  // reverse order), so a concurrently publishing status writer serializes
+  // with this bootstrap instead of racing it.
   const statusScopeKey = providerRefreshScopeKey(
     'game-stats',
     weekPartitionScope(input.year, input.week, input.seasonType)
   );
-  const status = await txn.readKey<{ lastSuccessRevision?: unknown } | null>(
+  await txn.lockKey(PROVIDER_REFRESH_STATUS_SCOPE, statusScopeKey);
+  const status = await txn.readKey<Record<string, unknown> | null>(
     PROVIDER_REFRESH_STATUS_SCOPE,
     statusScopeKey
   );
-  const floor = Math.max(
-    validRevision(ledger?.value?.revision) ?? 0,
-    validRevision(existing?.commitRevision) ?? 0,
-    validRevision(status?.value?.lastSuccessRevision) ?? 0
-  );
-  return floor + 1;
+  const statusValue = status?.value;
+  if (
+    statusValue &&
+    typeof statusValue === 'object' &&
+    Object.prototype.hasOwnProperty.call(statusValue, 'lastSuccessRevision')
+  ) {
+    const statusRevision = validRevision(statusValue.lastSuccessRevision);
+    if (statusRevision !== null) floors.push(statusRevision);
+    else ambiguousMarker = true;
+  }
+
+  if (floors.length > 0) {
+    const next = Math.max(...floors) + 1;
+    return {
+      ok: true,
+      next,
+      ledger: {
+        schemaVersion: 1,
+        revision: next,
+        initializedFrom: 'bootstrap',
+        initializedAt: now,
+      },
+    };
+  }
+  if (ambiguousMarker) return { ok: false, reason: 'revision-history-ambiguous' };
+  const initializedFrom =
+    existing !== null && isRecognizedPreRevisionLegacyPartition(existing) ? 'legacy' : 'new';
+  return {
+    ok: true,
+    next: 1,
+    ledger: { schemaVersion: 1, revision: 1, initializedFrom, initializedAt: now },
+  };
 }
 
 /**
@@ -852,13 +977,18 @@ export async function mergeGameStatsPartitionDurable(
         return toResult(computation, noChangeOutcome(computation), partitionKey);
       }
 
-      let nextRevision: number;
+      let allocation: RevisionAllocation;
       try {
-        nextRevision = await allocateCommitRevision(txn, input, existing, key);
+        allocation = await allocateCommitRevision(txn, input, existing, key);
       } catch {
         return unavailable('durable-read-failed', partitionKey);
       }
-      computation.partition!.commitRevision = nextRevision;
+      if (!allocation.ok) {
+        // Ambiguous prior revision history: refuse the write with durable
+        // state untouched rather than risk reusing a committed revision.
+        return unavailable(allocation.reason, partitionKey);
+      }
+      computation.partition!.commitRevision = allocation.next;
 
       try {
         await txn.write(computation.partition!);
@@ -866,13 +996,11 @@ export async function mergeGameStatsPartitionDurable(
         // WITH the evidence in one transaction — rollback discards both, and
         // a concurrent writer cannot observe (or reuse) this revision because
         // every allocator holds this partition's advisory lock.
-        await txn.writeKey<RevisionLedgerRecord>(GAME_STATS_REVISION_SCOPE, key, {
-          revision: nextRevision,
-        });
+        await txn.writeKey<RevisionLedgerRecord>(GAME_STATS_REVISION_SCOPE, key, allocation.ledger);
       } catch {
         return unavailable('durable-write-failed', partitionKey);
       }
-      committedRevision = nextRevision;
+      committedRevision = allocation.next;
 
       const clean = computation.stale.length === 0 && computation.conflicts.length === 0;
       return toResult(computation, clean ? 'written' : 'partially-merged', partitionKey);

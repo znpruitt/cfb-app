@@ -21,9 +21,11 @@ import {
   wireGame,
 } from './fixtures.ts';
 
-// PLATFORM-086H3 — schema-safe public projection: legacy rows byte-equivalent
-// by reference, v2 metadata stripped, unsupported schema WITHHELD (never
-// laundered into legacy-looking data), malformed rows withheld.
+// PLATFORM-086H3 — schema-safe public projection (round 5): EVERY level of the
+// wire — envelope, game, team, and `raw` — is CONSTRUCTED from an explicit
+// allowlist; NO row or envelope is returned by reference; unsupported schema is
+// WITHHELD (never laundered); malformed rows withheld; public-only duplicate
+// conflicts are order-independent.
 
 function record(games: GameStats[]): WeeklyGameStats {
   return {
@@ -35,10 +37,19 @@ function record(games: GameStats[]): WeeklyGameStats {
   };
 }
 
-test('legacy rows pass through by reference — public output stays byte-equivalent', () => {
+test('legacy rows are CONSTRUCTED (never by reference); unrecognized raw categories are dropped', () => {
   const row = completeLegacyRow(101);
+  // The fixture carries the deliberately-UNMODELED `completionAttempts` in raw.
+  assert.ok('completionAttempts' in row.home.raw, 'precondition: stored row has the unknown key');
   const view = buildPublicWeeklyGameStats(record([row, completeLegacyRow(102)]));
-  assert.equal(view.record.games[0], row, 'same reference, not a reshaped copy');
+  assert.notEqual(view.record.games[0], row, 'a fresh object, never the stored reference');
+  assert.equal(view.record.games[0]!.providerGameId, 101);
+  assert.ok(
+    !('completionAttempts' in view.record.games[0]!.home.raw),
+    'the unrecognized raw category is dropped by the allowlist'
+  );
+  // The recognized categories survive with identical values.
+  assert.equal(view.record.games[0]!.home.raw.totalYards, row.home.raw.totalYards);
   assert.deepEqual(view.withheld, {
     unsupportedSchema: 0,
     malformed: 0,
@@ -46,12 +57,6 @@ test('legacy rows pass through by reference — public output stays byte-equival
     partitionMismatch: 0,
     conflictingDuplicates: 0,
   });
-  const source = record([completeLegacyRow(101), completeLegacyRow(102)]);
-  assert.equal(
-    JSON.stringify(buildPublicWeeklyGameStats(source).record),
-    JSON.stringify(source),
-    'an all-legacy partition serializes identically'
-  );
 });
 
 test('v2 persistence metadata is stripped from the public wire', async () => {
@@ -87,14 +92,19 @@ test('v2 persistence metadata is stripped from the public wire', async () => {
   assert.equal(publicRow.providerGameId, 5001);
   assert.equal(publicRow.home.points, storedRow.home.points);
   assert.equal(publicRow.home.totalYards, storedRow.home.totalYards);
-  assert.deepEqual(publicRow.home.raw, storedRow.home.raw);
+  // Recognized raw categories survive verbatim; any unrecognized category the
+  // wire carried (e.g. completionAttempts) is dropped by the allowlist.
+  for (const [category, value] of Object.entries(publicRow.home.raw)) {
+    assert.equal(value, storedRow.home.raw[category]);
+  }
+  assert.ok(!('completionAttempts' in publicRow.home.raw));
 
   // The projection never mutates the stored record.
   assert.equal(storedRow.schemaVersion, 2);
   assert.equal(storedRow.home.pointsProvided, true);
 });
 
-test('a mixed partition strips only v2 rows; legacy stays by reference', () => {
+test('a mixed partition strips v2 metadata AND constructs legacy rows fresh', () => {
   const legacy = completeLegacyRow(101);
   const v2ish = {
     ...completeLegacyRow(102),
@@ -102,7 +112,12 @@ test('a mixed partition strips only v2 rows; legacy stays by reference', () => {
     fetchStartedAt: '2026-10-15T12:00:00.000Z',
   };
   const view = buildPublicWeeklyGameStats(record([legacy, v2ish]));
-  assert.equal(view.record.games[0], legacy, 'legacy row is the identical object');
+  assert.notEqual(
+    view.record.games[0],
+    legacy,
+    'legacy row is a fresh construction, not a reference'
+  );
+  assert.equal(view.record.games[0]!.providerGameId, 101);
   assert.ok(!('schemaVersion' in view.record.games[1]!));
   assert.ok(!('fetchStartedAt' in view.record.games[1]!));
   assert.equal(view.record.games[1]!.providerGameId, 102);
@@ -193,7 +208,7 @@ test('projection safety: a malformed v2 row without home/away cannot throw', () 
   assert.equal(view.withheld.defective, 1, 'missing-side v2 is unusable-identity → defective');
 });
 
-test('duplicates: equivalent eligible copies collapse; conflicting copies are ALL withheld', () => {
+test('duplicates: equivalent copies collapse; conflicting copies withhold the game (counted per id)', () => {
   const a = completeLegacyRow(109);
   const identical = completeLegacyRow(109);
   const conflictA = completeLegacyRow(110);
@@ -204,7 +219,7 @@ test('duplicates: equivalent eligible copies collapse; conflicting copies are AL
     [109],
     'one copy of the identical pair; NO copy of the conflicting pair'
   );
-  assert.equal(view.withheld.conflictingDuplicates, 2);
+  assert.equal(view.withheld.conflictingDuplicates, 1, 'one conflicted GAME id, not two copies');
 });
 
 test('partition identity: rows claiming a different week or season type are withheld', () => {
@@ -277,7 +292,7 @@ test('duplicates: conflicting v2 copies withhold all; identical v2-sparse copies
   }) as unknown as GameStats;
   const divergent = buildPublicWeeklyGameStats(record([sparseA, divergentB]));
   assert.deepEqual(divergent.record.games, [], 'divergent sparse copies withhold entirely');
-  assert.equal(divergent.withheld.conflictingDuplicates, 2);
+  assert.equal(divergent.withheld.conflictingDuplicates, 1, 'one conflicted game id');
 });
 
 test('duplicates: a defective or unsupported-schema copy never joins the duplicate decision', () => {
@@ -328,4 +343,173 @@ test('construction allowlist: unknown internal fields on v2 rows/teams are dropp
     assert.ok(!serialized.includes(banned), `${banned} never reaches the wire`);
   }
   assert.equal(view.record.games.length, 1, 'the row itself still publishes');
+});
+
+// === Explicit construction at EVERY level; unknown fields dropped (RC 24–27) ===
+
+test('construction allowlist: unknown fields injected at envelope/game/team/raw/nested never reach the wire', () => {
+  const contaminated = {
+    ...(v2RowLike({
+      id: 300,
+      homeRaw: {
+        totalYards: '412',
+        rushingYards: '187',
+        netPassingYards: '225',
+        turnovers: '1',
+        thirdDownEff: '6-14',
+        possessionTime: '31:24',
+        // Unknown/internal raw categories that must be dropped:
+        completionAttempts: '22-33',
+        sacks: '3',
+        __proto__key: 'x',
+        injectedInternal: 'leak',
+      },
+    }) as unknown as GameStats),
+    // Game-level contamination:
+    commitRevision: 7,
+    attemptToken: 'game-token',
+  } as unknown as GameStats;
+  // Team-level contamination:
+  (contaminated.home as unknown as Record<string, unknown>).recoveryMetadata = 'internal';
+  (contaminated.home as unknown as Record<string, unknown>).writeAttempted = true;
+  // Envelope-level contamination:
+  const envelope = {
+    ...record([contaminated]),
+    commitRevision: 9,
+    internalEnvelopeField: { nested: true },
+  } as unknown as WeeklyGameStats;
+
+  const view = buildPublicWeeklyGameStats(envelope);
+  const serialized = JSON.stringify(view.record);
+  for (const banned of [
+    'commitRevision',
+    'attemptToken',
+    'recoveryMetadata',
+    'writeAttempted',
+    'internalEnvelopeField',
+    'completionAttempts',
+    'sacks',
+    'injectedInternal',
+    'schemaVersion',
+    'fetchStartedAt',
+    'pointsProvided',
+  ]) {
+    assert.ok(!serialized.includes(banned), `${banned} dropped by construction`);
+  }
+  assert.equal(view.record.games.length, 1);
+  // Only the recognized raw categories survive.
+  assert.deepEqual(Object.keys(view.record.games[0]!.home.raw).sort(), [
+    'netPassingYards',
+    'possessionTime',
+    'rushingYards',
+    'thirdDownEff',
+    'totalYards',
+    'turnovers',
+  ]);
+});
+
+test('raw allowlist: a non-string recognized value is dropped (only valid string categories survive)', () => {
+  const row = v2RowLike({
+    id: 301,
+    homeRaw: {
+      totalYards: '412',
+      rushingYards: 187, // number, not a string → dropped
+      netPassingYards: '225',
+      turnovers: '1',
+      thirdDownEff: '6-14',
+      possessionTime: '31:24',
+    },
+  }) as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(record([row]));
+  assert.ok(!('rushingYards' in view.record.games[0]!.home.raw), 'non-string value dropped');
+  assert.equal(view.record.games[0]!.home.raw.totalYards, '412');
+});
+
+// === Public-only duplicate conflicts (RC 28–32): analytics-equal but
+// public-different copies must conflict; array order never decides ===
+
+test('duplicates: two v2 copies EQUAL for analytics but different in a return stat are a PUBLIC conflict', () => {
+  // Both carry identical analytics-required categories (so selectAnalyticsRows
+  // would treat them as one), differing ONLY in kickReturnYards — a public
+  // field analytics never inspects.
+  const analyticsRaw = {
+    totalYards: '412',
+    rushingYards: '187',
+    netPassingYards: '225',
+    turnovers: '1',
+    thirdDownEff: '6-14',
+    possessionTime: '31:24',
+  };
+  const copyA = v2RowLike({
+    id: 310,
+    homeRaw: { ...analyticsRaw, kickReturnYards: '64' },
+    homeOverrides: { kickReturnYards: 64 },
+  }) as unknown as GameStats;
+  const copyB = v2RowLike({
+    id: 310,
+    homeRaw: { ...analyticsRaw, kickReturnYards: '9' },
+    homeOverrides: { kickReturnYards: 9 },
+  }) as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(record([copyA, copyB]));
+  assert.deepEqual(view.record.games, [], 'public-different copies withheld');
+  assert.equal(view.withheld.conflictingDuplicates, 1);
+});
+
+test('duplicates: array ORDER never decides which of two public-conflicting copies serves', () => {
+  const analyticsRaw = {
+    totalYards: '412',
+    rushingYards: '187',
+    netPassingYards: '225',
+    turnovers: '1',
+    thirdDownEff: '6-14',
+    possessionTime: '31:24',
+  };
+  const hi = v2RowLike({
+    id: 311,
+    homeRaw: { ...analyticsRaw, puntReturnYards: '40' },
+    homeOverrides: { puntReturnYards: 40 },
+  }) as unknown as GameStats;
+  const lo = v2RowLike({
+    id: 311,
+    homeRaw: { ...analyticsRaw, puntReturnYards: '2' },
+    homeOverrides: { puntReturnYards: 2 },
+  }) as unknown as GameStats;
+  const forward = buildPublicWeeklyGameStats(record([hi, lo]));
+  const reverse = buildPublicWeeklyGameStats(record([lo, hi]));
+  assert.deepEqual(forward.record.games, [], 'forward order: withheld');
+  assert.deepEqual(reverse.record.games, [], 'reverse order: identically withheld');
+});
+
+test('duplicates: a three-copy group with two equal + one conflicting withholds the whole game', () => {
+  const analyticsRaw = {
+    totalYards: '412',
+    rushingYards: '187',
+    netPassingYards: '225',
+    turnovers: '1',
+    thirdDownEff: '6-14',
+    possessionTime: '31:24',
+  };
+  const equalA = v2RowLike({ id: 312, homeRaw: analyticsRaw }) as unknown as GameStats;
+  const equalB = v2RowLike({ id: 312, homeRaw: analyticsRaw }) as unknown as GameStats;
+  const different = v2RowLike({
+    id: 312,
+    homeOverrides: { points: 99 },
+  }) as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(record([equalA, equalB, different]));
+  assert.deepEqual(view.record.games, [], 'any divergent copy in the winning class conflicts');
+  assert.equal(view.withheld.conflictingDuplicates, 1);
+});
+
+test('duplicates: a coverage-satisfied equivalent legacy+v2 pair still yields ONE public game', () => {
+  const legacy = completeLegacyRow(313);
+  const v2 = v2RowLike({
+    id: 313,
+    homeRaw: legacy.home.raw,
+    awayRaw: legacy.away.raw,
+    homeOverrides: { school: legacy.home.school, points: legacy.home.points },
+    awayOverrides: { school: legacy.away.school, points: legacy.away.points },
+  }) as unknown as GameStats;
+  const view = buildPublicWeeklyGameStats(record([legacy, v2]));
+  assert.equal(view.record.games.length, 1, 'format precedence, never games: []');
+  assert.equal(view.withheld.conflictingDuplicates, 0);
 });

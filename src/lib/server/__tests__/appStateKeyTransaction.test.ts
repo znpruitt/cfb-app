@@ -13,7 +13,11 @@ import {
   __appStateKeyLockChainCountForTests,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateFileCommitFailureForTests,
   __setAppStatePoolForTests,
+  __setAppStateWriteFailureForTests,
+  getAppState,
+  setAppState,
   withAppStateKeyTransaction,
 } from '../appStateStore.ts';
 
@@ -885,4 +889,154 @@ test('a rejected same-key callback does not poison the next; settled chains are 
   );
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+// === File-fallback STAGED multi-key transactions (PLATFORM-086H3 round 5) ===
+// All staged keys commit in one atomic replacement or none do; reads are
+// staged-first (read-your-writes) with untouched keys from the snapshot.
+
+test('file staging: a two-key transaction commits both keys atomically', async () => {
+  await withAppStateKeyTransaction('fs', 'primary', async (txn) => {
+    await txn.write({ n: 1 });
+    await txn.writeKey('fs-ledger', 'primary', { revision: 1 });
+  });
+  assert.deepEqual((await getAppState('fs', 'primary'))?.value, { n: 1 });
+  assert.deepEqual((await getAppState('fs-ledger', 'primary'))?.value, { revision: 1 });
+});
+
+test('file staging: a three-key transaction commits all keys atomically', async () => {
+  await withAppStateKeyTransaction('fs', 'p3', async (txn) => {
+    await txn.write({ n: 3 });
+    await txn.writeKey('fs-ledger', 'p3', { revision: 3 });
+    await txn.writeKey('fs-audit', 'p3', { at: 't' });
+  });
+  assert.deepEqual((await getAppState('fs', 'p3'))?.value, { n: 3 });
+  assert.deepEqual((await getAppState('fs-ledger', 'p3'))?.value, { revision: 3 });
+  assert.deepEqual((await getAppState('fs-audit', 'p3'))?.value, { at: 't' });
+});
+
+test('file staging: a callback throw AFTER staged writes leaves every key unchanged', async () => {
+  await setAppState('fs', 'k', { before: true });
+  await setAppState('fs-ledger', 'k', { revision: 7 });
+  await assert.rejects(
+    withAppStateKeyTransaction('fs', 'k', async (txn) => {
+      await txn.write({ after: true });
+      await txn.writeKey('fs-ledger', 'k', { revision: 8 });
+      throw new Error('late failure');
+    }),
+    /late failure/
+  );
+  assert.deepEqual((await getAppState('fs', 'k'))?.value, { before: true });
+  assert.deepEqual((await getAppState('fs-ledger', 'k'))?.value, { revision: 7 });
+});
+
+test('file staging: a SECOND staged write failing rolls back the first (neither commits)', async () => {
+  await setAppState('fs', 'k2', { before: true });
+  __setAppStateWriteFailureForTests(new Error('ledger write refused'), 'fs-ledger');
+  try {
+    await assert.rejects(
+      withAppStateKeyTransaction('fs', 'k2', async (txn) => {
+        await txn.write({ after: true }); // stages fine ('fs' scope unaffected)
+        await txn.writeKey('fs-ledger', 'k2', { revision: 1 }); // throws
+      }),
+      /ledger write refused/
+    );
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.deepEqual(
+    (await getAppState('fs', 'k2'))?.value,
+    { before: true },
+    'first write discarded'
+  );
+  assert.equal(await getAppState('fs-ledger', 'k2'), null);
+});
+
+test('file staging: a failed FINAL replacement leaves every key unchanged and types the failure', async () => {
+  await setAppState('fs', 'k3', { before: true });
+  __setAppStateFileCommitFailureForTests(new Error('disk full'));
+  try {
+    await assert.rejects(
+      withAppStateKeyTransaction('fs', 'k3', async (txn) => {
+        await txn.write({ after: true });
+        await txn.writeKey('fs-ledger', 'k3', { revision: 1 });
+        return 'callback-ok';
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof AppStateTxnFinalizeError);
+        assert.equal(err.writeAttempted, false, 'atomic rename proves nothing applied');
+        assert.match(String(err.cause), /disk full/);
+        return true;
+      }
+    );
+  } finally {
+    __setAppStateFileCommitFailureForTests(null);
+  }
+  assert.deepEqual((await getAppState('fs', 'k3'))?.value, { before: true });
+  assert.equal(await getAppState('fs-ledger', 'k3'), null);
+
+  // Retry after the failure commits cleanly (nothing was half-applied).
+  await withAppStateKeyTransaction('fs', 'k3', async (txn) => {
+    await txn.write({ after: true });
+    await txn.writeKey('fs-ledger', 'k3', { revision: 1 });
+  });
+  assert.deepEqual((await getAppState('fs', 'k3'))?.value, { after: true });
+  assert.deepEqual((await getAppState('fs-ledger', 'k3'))?.value, { revision: 1 });
+});
+
+test('file staging: a MALFORMED staged value (unserializable) rolls back both keys', async () => {
+  await setAppState('fs', 'k4', { before: true });
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+  await assert.rejects(
+    withAppStateKeyTransaction('fs', 'k4', async (txn) => {
+      await txn.write({ after: true });
+      await txn.writeKey('fs-ledger', 'k4', circular); // JSON serialization fails at commit
+    }),
+    (err: unknown) => err instanceof AppStateTxnFinalizeError && err.writeAttempted === false
+  );
+  assert.deepEqual((await getAppState('fs', 'k4'))?.value, { before: true });
+  assert.equal(await getAppState('fs-ledger', 'k4'), null);
+});
+
+test('file staging: read-your-writes within the transaction; untouched keys from the snapshot', async () => {
+  await setAppState('fs', 'k5', { stored: 1 });
+  await setAppState('fs-other', 'untouched', { stored: 'other' });
+  await withAppStateKeyTransaction('fs', 'k5', async (txn) => {
+    assert.deepEqual((await txn.read())?.value, { stored: 1 }, 'snapshot read');
+    await txn.write({ stored: 2 });
+    assert.deepEqual((await txn.read())?.value, { stored: 2 }, 'primary read-your-writes');
+    await txn.write({ stored: 3 });
+    assert.deepEqual((await txn.read())?.value, { stored: 3 }, 'latest staged value wins');
+    assert.equal(await txn.readKey('fs-ledger', 'k5'), null, 'unstaged secondary absent');
+    await txn.writeKey('fs-ledger', 'k5', { revision: 9 });
+    assert.deepEqual(
+      (await txn.readKey('fs-ledger', 'k5'))?.value,
+      { revision: 9 },
+      'secondary read-your-writes'
+    );
+    assert.deepEqual(
+      (await txn.readKey('fs-other', 'untouched'))?.value,
+      { stored: 'other' },
+      'untouched key served from the snapshot'
+    );
+  });
+  assert.deepEqual((await getAppState('fs', 'k5'))?.value, { stored: 3 });
+});
+
+test('file staging: nothing staged is visible to plain reads before commit', async () => {
+  const midTxnRead = deferred();
+  const proceed = deferred();
+  let observedMidTxn: unknown = 'unread';
+  const txnDone = withAppStateKeyTransaction('fs', 'k6', async (txn) => {
+    await txn.write({ committed: true });
+    midTxnRead.resolve();
+    await proceed.promise;
+  });
+  await midTxnRead.promise;
+  observedMidTxn = (await getAppState('fs', 'k6'))?.value ?? null;
+  proceed.resolve();
+  await txnDone;
+  assert.equal(observedMidTxn, null, 'staged write invisible before the atomic commit');
+  assert.deepEqual((await getAppState('fs', 'k6'))?.value, { committed: true });
 });

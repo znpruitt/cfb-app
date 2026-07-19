@@ -153,8 +153,12 @@ export type ProviderRefreshAttempt = {
   dataset: ProviderDataset;
   /** Scope key the attempt was begun for (self-describing binding). */
   scopeKey: string;
-  /** Whether the begin marker itself persisted (typed, never thrown). */
-  persistence?: ProviderStatusMutationResult;
+  /**
+   * Whether the begin marker itself persisted (typed, never thrown). Carried
+   * so downstream publication can report the COMPLETE status lifecycle —
+   * begin and terminal are separate durable facts, never collapsed.
+   */
+  persistence: ProviderStatusMutationResult;
 };
 
 export function emptyProviderRefreshStatus(
@@ -264,7 +268,9 @@ async function mutateStatusTransactionally(
   op: string,
   mutate: (
     status: ProviderRefreshStatus
-  ) => { write: ProviderRefreshStatus; result: ProviderStatusMutationResult } | ProviderStatusMutationResult
+  ) =>
+    | { write: ProviderRefreshStatus; result: ProviderStatusMutationResult }
+    | ProviderStatusMutationResult
 ): Promise<ProviderStatusMutationResult> {
   const scopeKey = providerRefreshScopeKey(dataset, scope);
   return withScopeLock(scopeKey, async () => {
@@ -330,9 +336,34 @@ function withScopeLock<T>(scopeKey: string, fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** Whether `attempt` is the latest attempt to have written this record. */
+/**
+ * Whether `attempt` may own this record's attempt-chronology fields. The
+ * recorded-id match is the ordinary case: an attempt whose BEGIN marker
+ * persisted owns the record only while its id is still the latest recorded —
+ * a stale attempt whose id was superseded is dropped, EVEN when it shares the
+ * newer attempt's `startedAt` millisecond (strict id equality, never a `>=`
+ * timestamp tie).
+ *
+ * The ONE relaxation (PLATFORM-086H3): a terminal write whose own BEGIN marker
+ * never persisted (`attempt.persistence === 'failed'`) has no recorded id to
+ * match, yet must still be able to record its outcome truthfully. Such an
+ * attempt may own the record only when nothing STRICTLY NEWER has begun since
+ * (`startedAt` strictly greater than the stored attempt time, or no stored
+ * attempt at all), preserving cross-instance protection against a genuinely
+ * stale attempt overwriting a newer one. An unparseable `startedAt` never
+ * takes ownership.
+ */
 function isLatest(status: ProviderRefreshStatus, attempt?: ProviderRefreshAttempt): boolean {
-  return attempt ? status.lastAttemptId === attempt.attemptId : true;
+  if (!attempt) return true;
+  if (status.lastAttemptId === attempt.attemptId) return true;
+  // Only a begin-failed attempt may claim ownership without an id match.
+  if (attempt.persistence !== 'failed') return false;
+  const attemptMs = Date.parse(attempt.startedAt);
+  if (!Number.isFinite(attemptMs)) return false;
+  const storedMs = status.lastAttemptAt ? Date.parse(status.lastAttemptAt) : Number.NaN;
+  if (!Number.isFinite(storedMs)) return true;
+  // STRICTLY newer — an equal-millisecond stale attempt never wins a tie.
+  return attemptMs > storedMs;
 }
 
 /**
@@ -529,7 +560,10 @@ export async function recordProviderRefreshSuccess(
       next.latestAttemptResolvedAt = resolvedAt;
       if (result.diagnostics !== undefined) next.lastAttemptDiagnostics = result.diagnostics;
     }
-    return { write: next, result: advancesSuccess ? 'persisted' : duplicate ? 'idempotent' : 'persisted' };
+    return {
+      write: next,
+      result: advancesSuccess ? 'persisted' : duplicate ? 'idempotent' : 'persisted',
+    };
   });
 }
 

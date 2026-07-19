@@ -6,7 +6,8 @@ import {
   GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
   GameStatsRecoveryRevalidationError,
   runScheduledGameStatsRefresh,
-  type RecoveryMetadataFailure,
+  toPublicRecoveryMetadataFailure,
+  type PublicRecoveryMetadataFailure,
   type ScheduledGameStatsRefreshResult,
 } from '@/lib/gameStats/refreshOrchestration';
 import type {
@@ -66,12 +67,18 @@ type CronResult = {
    * partitions was skipped or already resolved, recovery bookkeeping could
    * not be finalized/retired, and game-stat evidence was NOT changed.
    */
-  recoveryFailures?: RecoveryMetadataFailure[];
+  recoveryFailures?: PublicRecoveryMetadataFailure[];
   recoveryFailureCode?: string;
+  /** Stage of a post-claim revalidation failure (stable, stage-specific). */
+  stage?: string;
+  code?: string;
+  /** Zero-fetch truth on a post-claim revalidation failure. */
+  providerAccessOccurred?: false;
+  leaseMayRemainActive?: boolean;
   /** Typed provider-attempt degradation counts (parse/attachment buckets). */
   attempt?: GameStatsAttemptDiagnostics;
   /** Present when the status-ledger mutation did not persist normally. */
-  statusPublication?: string;
+  statusPublication?: { begin: string; terminal: string; complete: boolean };
 };
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
@@ -159,31 +166,22 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     });
   } catch (err) {
     if (err instanceof GameStatsRecoveryRevalidationError) {
-      // Post-claim revalidation failed: BOTH causes are preserved — the
-      // primary schedule-context/durable-reread failure and every secondary
-      // recovery-metadata failure — along with the zero-fetch truth: no
-      // provider call was made, no game-stat evidence changed, and any
-      // surviving lease stays bounded by its expiry.
-      return NextResponse.json(
-        {
-          ...emptyResult,
-          error: `post-claim revalidation failed (${err.primary.stage}): ${err.primary.detail}`,
-          recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
-          ...(err.recoveryFailures.length > 0 ? { recoveryFailures: err.recoveryFailures } : {}),
-          detail: `partition ${err.partition}: zero provider calls, no evidence mutation; ${
-            err.leaseMayRemainActive
-              ? 'recovery-metadata persistence is uncertain and the claim lease remains bounded by its expiry'
-              : 'the claim was released'
-          }`,
-        },
-        { status: 500 }
-      );
+      // Post-claim revalidation failed. The SAFE projection carries the
+      // stage-specific stable code and summary, the recovery-metadata code
+      // ONLY when a recovery operation actually failed, and only sanitized
+      // secondary failures — the raw storage cause is logged server-side, never
+      // serialized. Zero-fetch/no-mutation/lease-bounded truth is preserved.
+      return NextResponse.json({ ...emptyResult, ...err.toPublic() }, { status: 500 });
     }
     // Target resolution / identity context / claim persistence failure: the
     // established cron error path, with NO provider call spent and no failure
-    // assigned to a data scope that was never verified.
+    // assigned to a data scope that was never verified. The raw cause is
+    // logged; only a generic message reaches the caller.
+    console.error('game-stats cron refresh failed before revalidation', {
+      cause: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json(
-      { ...emptyResult, error: err instanceof Error ? err.message : 'unknown error' },
+      { ...emptyResult, error: 'game-stats cron refresh failed' },
       { status: 500 }
     );
   }
@@ -194,7 +192,8 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       : {}),
     ...(result.recoveryFailures && result.recoveryFailures.length > 0
       ? {
-          recoveryFailures: result.recoveryFailures,
+          // Sanitized: safe per-operation summaries, never raw storage messages.
+          recoveryFailures: result.recoveryFailures.map(toPublicRecoveryMetadataFailure),
           recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
         }
       : {}),
@@ -210,6 +209,9 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           week: result.week,
           seasonType: result.seasonType,
           error: 'CFBD_API_KEY not configured',
+          ...(!result.statusPublication.complete
+            ? { statusPublication: result.statusPublication }
+            : {}),
           ...recoveryMeta,
         },
         { status: 500 }
@@ -224,9 +226,14 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           week: result.week,
           seasonType: result.seasonType,
           error: result.error instanceof Error ? result.error.message : 'unknown error',
+          ...(!result.statusPublication.complete
+            ? { statusPublication: result.statusPublication }
+            : {}),
           ...(result.recovery.outcome === 'failed'
             ? {
-                recovery: `disposition finalization failed: ${result.recovery.detail}`,
+                // Safe summary only — the raw disposition-store cause is logged
+                // by the orchestration layer, never serialized.
+                recovery: 'recovery-disposition finalization did not persist (uncertain)',
                 recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
               }
             : {}),
@@ -241,13 +248,15 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   const { publication } = result;
   const coverage = coverageSummary(publication);
   const attempt = publication.attempt;
-  const statusPublication =
-    publication.statusPublication !== 'persisted' && publication.statusPublication !== 'idempotent'
-      ? { statusPublication: publication.statusPublication }
-      : {};
+  // Surface the composite lifecycle whenever it is anything but fully
+  // complete — a failed BEGIN marker is reportable even when the terminal
+  // record (and the evidence) persisted.
+  const statusPublication = !publication.statusPublication.complete
+    ? { statusPublication: publication.statusPublication }
+    : {};
   const recovery =
     result.recovery.outcome === 'failed'
-      ? `disposition finalization failed: ${result.recovery.detail}`
+      ? 'recovery-disposition finalization did not persist (uncertain)'
       : undefined;
 
   if (publication.recorded === 'failure') {

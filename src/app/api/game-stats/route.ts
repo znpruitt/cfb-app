@@ -245,7 +245,15 @@ async function handleAuthorizedRefresh(target: {
         { status: 409 }
       );
     case 'config-failure':
-      return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
+      return NextResponse.json(
+        {
+          error: 'CFBD_API_KEY not configured',
+          ...(!result.statusPublication.complete
+            ? { statusPublication: result.statusPublication }
+            : {}),
+        },
+        { status: 500 }
+      );
     case 'provider-failure': {
       // BOTH causes are retained: the provider failure stays the primary
       // error, and a recovery-disposition finalization failure is surfaced
@@ -258,20 +266,31 @@ async function handleAuthorizedRefresh(target: {
               recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
               recovery: {
                 outcome: result.recovery.outcome,
-                detail: result.recovery.detail,
+                // Safe summary only — the raw disposition-store cause is logged
+                // by the orchestration layer, never serialized.
+                summary: 'recovery-disposition finalization did not persist',
                 dispositionPersistence: 'uncertain' as const,
               },
             }
           : { recovery: { outcome: result.recovery.outcome } };
+      const providerStatusPublication = !result.statusPublication.complete
+        ? { statusPublication: result.statusPublication }
+        : {};
       if (result.error instanceof UpstreamFetchError) {
         return NextResponse.json(
-          { error: 'upstream error', detail: result.error.details, ...recoveryFailure },
+          {
+            error: 'upstream error',
+            detail: result.error.details,
+            ...providerStatusPublication,
+            ...recoveryFailure,
+          },
           { status: result.error.details.status ?? 502 }
         );
       }
       return NextResponse.json(
         {
           error: result.error instanceof Error ? result.error.message : 'unknown error',
+          ...providerStatusPublication,
           ...recoveryFailure,
         },
         { status: 502 }
@@ -283,17 +302,17 @@ async function handleAuthorizedRefresh(target: {
 
   const { publication } = result;
   const availability = toAvailabilitySummary(publication.coverage);
-  const statusPublication =
-    publication.statusPublication !== 'persisted' && publication.statusPublication !== 'idempotent'
-      ? { statusPublication: publication.statusPublication }
-      : {};
+  // Composite lifecycle surfaced whenever any half failed to durably record.
+  const statusPublication = !publication.statusPublication.complete
+    ? { statusPublication: publication.statusPublication }
+    : {};
   const recovery =
     result.recovery.outcome === 'failed'
       ? {
           recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
           recovery: {
             outcome: result.recovery.outcome,
-            detail: result.recovery.detail,
+            summary: 'recovery-disposition finalization did not persist',
             dispositionPersistence: 'uncertain' as const,
           },
         }

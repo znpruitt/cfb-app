@@ -21,8 +21,10 @@ import {
   type GameStatsRecoveryFinalization,
 } from './recoveryDisposition.ts';
 import {
+  composeGameStatsStatusPublication,
   finalizeGameStatsRefresh,
   type GameStatsRefreshPublication,
+  type GameStatsStatusPublication,
 } from './refreshPublication.ts';
 import { loadSlateExpectationContext } from './readAvailability.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
@@ -85,18 +87,93 @@ export type RecoveryMetadataFailure = {
   detail: string;
 };
 
+/**
+ * Emitted ONLY when a recovery-metadata OPERATION (claim release/finalize,
+ * retirement) actually failed — never for a primary reread failure alone.
+ */
 export const GAME_STATS_RECOVERY_METADATA_FAILURE_CODE = 'game-stats-recovery-metadata-failure';
+
+/** Post-claim revalidation stages, each with a STABLE, stage-specific code. */
+export type GameStatsRevalidationStage =
+  | 'schedule-context'
+  | 'durable-reread'
+  | 'coverage-evaluation';
+
+export const GAME_STATS_REVALIDATION_FAILURE_CODES: Readonly<
+  Record<GameStatsRevalidationStage, string>
+> = {
+  'schedule-context': 'game-stats-revalidation-schedule-context-failed',
+  'durable-reread': 'game-stats-revalidation-durable-reread-failed',
+  'coverage-evaluation': 'game-stats-revalidation-coverage-failed',
+};
+
+const GAME_STATS_REVALIDATION_SUMMARIES: Readonly<Record<GameStatsRevalidationStage, string>> = {
+  'schedule-context': 'canonical schedule context could not be reread after the claim',
+  'durable-reread': 'committed durable partition could not be reread after the claim',
+  'coverage-evaluation': 'committed coverage could not be evaluated after the claim',
+};
+
+/** Safe, per-operation caller-facing summary for a recovery-metadata failure. */
+const RECOVERY_OPERATION_SUMMARIES: Readonly<Record<RecoveryMetadataFailure['operation'], string>> =
+  {
+    finalize: 'recovery-disposition finalization did not persist',
+    retire: 'recovery-disposition retirement did not persist',
+    'stale-claim-finalize': 'the claim release did not persist',
+  };
+
+/** A recovery-metadata failure projected for the wire — NO raw storage/db
+ * messages, file paths, tokens, rows, or stacks. */
+export type PublicRecoveryMetadataFailure = {
+  partition: string;
+  operation: RecoveryMetadataFailure['operation'];
+  code: typeof GAME_STATS_RECOVERY_METADATA_FAILURE_CODE;
+  summary: string;
+  dispositionPersistence: 'uncertain';
+};
+
+export function toPublicRecoveryMetadataFailure(
+  failure: RecoveryMetadataFailure
+): PublicRecoveryMetadataFailure {
+  return {
+    partition: failure.partition,
+    operation: failure.operation,
+    code: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+    summary: RECOVERY_OPERATION_SUMMARIES[failure.operation],
+    dispositionPersistence: 'uncertain',
+  };
+}
+
+/** The safe, caller-facing projection of a revalidation failure. */
+export type PublicGameStatsRevalidationFailure = {
+  error: string;
+  stage: GameStatsRevalidationStage;
+  code: string;
+  /** Present ONLY when a recovery-metadata operation actually failed. */
+  recoveryFailureCode?: typeof GAME_STATS_RECOVERY_METADATA_FAILURE_CODE;
+  recoveryFailures?: PublicRecoveryMetadataFailure[];
+  providerAccessOccurred: false;
+  leaseMayRemainActive: boolean;
+  detail: string;
+};
 
 /**
  * Structured post-claim revalidation failure (PLATFORM-086H3): the
- * authoritative reread (schedule context or committed partition) failed
- * AFTER a claim was acquired. Carries the PRIMARY failure and every
- * secondary recovery-metadata failure — nothing is reduced to a generic
- * message — plus the zero-fetch truth the caller must report.
+ * authoritative reread (schedule context, committed partition, or coverage
+ * evaluation) failed AFTER a claim was acquired.
+ *
+ * Public/internal SEPARATION: the raw underlying cause (`internalCause`) is
+ * for SERVER LOGS ONLY and is never serialized; callers receive a STABLE,
+ * stage-specific `primary.code` and a SAFE `primary.summary`. The
+ * recovery-metadata failure code is attached ONLY when a recovery-metadata
+ * operation (claim release) actually failed — a primary reread failure whose
+ * claim release succeeded carries only the stage code plus safe zero-fetch
+ * metadata. Every secondary failure is projected through
+ * `toPublicRecoveryMetadataFailure` (no raw messages/paths/tokens/rows).
  */
 export class GameStatsRecoveryRevalidationError extends Error {
-  readonly code = GAME_STATS_RECOVERY_METADATA_FAILURE_CODE;
-  readonly primary: { stage: 'schedule-context' | 'durable-reread'; detail: string };
+  readonly primary: { stage: GameStatsRevalidationStage; code: string; summary: string };
+  /** Raw underlying cause — SERVER LOGS ONLY, never serialized to callers. */
+  readonly internalCause: unknown;
   readonly recoveryFailures: RecoveryMetadataFailure[];
   readonly partition: string;
   /** No provider request was made for this claim. */
@@ -104,22 +181,62 @@ export class GameStatsRecoveryRevalidationError extends Error {
   /** Whether the released-claim finalization failed (the lease may persist until expiry — still bounded). */
   readonly leaseMayRemainActive: boolean;
   constructor(params: {
-    primary: { stage: 'schedule-context' | 'durable-reread'; detail: string };
+    stage: GameStatsRevalidationStage;
+    /** Raw cause — logged, never serialized. */
+    internalCause: unknown;
     recoveryFailures: RecoveryMetadataFailure[];
     partition: string;
     leaseMayRemainActive: boolean;
   }) {
-    super(
-      `post-claim revalidation failed (${params.primary.stage}): ${params.primary.detail}` +
-        (params.recoveryFailures.length > 0
-          ? `; ${params.recoveryFailures.length} recovery-metadata failure(s)`
-          : '')
-    );
+    const summary = GAME_STATS_REVALIDATION_SUMMARIES[params.stage];
+    super(`post-claim revalidation failed (${params.stage}): ${summary}`);
     this.name = 'GameStatsRecoveryRevalidationError';
-    this.primary = params.primary;
+    this.primary = {
+      stage: params.stage,
+      code: GAME_STATS_REVALIDATION_FAILURE_CODES[params.stage],
+      summary,
+    };
+    this.internalCause = params.internalCause;
     this.recoveryFailures = params.recoveryFailures;
     this.partition = params.partition;
     this.leaseMayRemainActive = params.leaseMayRemainActive;
+    // Raw cause is logged HERE (server-side) and nowhere near the wire.
+    console.error('game-stats post-claim revalidation failed', {
+      stage: params.stage,
+      partition: params.partition,
+      internalCause:
+        params.internalCause instanceof Error
+          ? params.internalCause.message
+          : String(params.internalCause),
+      recoveryFailures: params.recoveryFailures,
+    });
+  }
+
+  /** True iff a recovery-metadata operation actually failed. */
+  get recoveryMetadataFailed(): boolean {
+    return this.recoveryFailures.length > 0;
+  }
+
+  /** SAFE, caller-facing projection — nothing raw ever reaches the wire. */
+  toPublic(): PublicGameStatsRevalidationFailure {
+    return {
+      error: `post-claim revalidation failed (${this.primary.stage}): ${this.primary.summary}`,
+      stage: this.primary.stage,
+      code: this.primary.code,
+      ...(this.recoveryMetadataFailed
+        ? {
+            recoveryFailureCode: GAME_STATS_RECOVERY_METADATA_FAILURE_CODE,
+            recoveryFailures: this.recoveryFailures.map(toPublicRecoveryMetadataFailure),
+          }
+        : {}),
+      providerAccessOccurred: false,
+      leaseMayRemainActive: this.leaseMayRemainActive,
+      detail: `partition ${this.partition}: zero provider calls, no evidence mutation; ${
+        this.leaseMayRemainActive
+          ? 'recovery-metadata persistence is uncertain and the claim lease remains bounded by its expiry'
+          : 'the claim was released'
+      }`,
+    };
   }
 }
 
@@ -176,7 +293,14 @@ async function executeClaimedRefresh(params: {
   seasonRelation: 'current' | 'historical';
   fetchPayload: ProviderPayloadFetch;
   contextLabel: string;
-}): Promise<ClaimedExecution | { providerError: unknown; recovery: RecoveryFinalizationReport }> {
+}): Promise<
+  | ClaimedExecution
+  | {
+      providerError: unknown;
+      recovery: RecoveryFinalizationReport;
+      statusPublication: GameStatsStatusPublication;
+    }
+> {
   const { claim, expectation, resolver, seasonRelation, fetchPayload, contextLabel } = params;
   const { year, week, seasonType } = claim;
   const scope = weekPartitionScope(year, week, seasonType);
@@ -191,7 +315,9 @@ async function executeClaimedRefresh(params: {
   try {
     payload = await fetchPayload({ year, week, seasonType });
   } catch (error) {
-    await recordProviderRefreshFailure('game-stats', scope, {
+    // BOTH lifecycle mutation results survive to route shaping — a provider
+    // failure never discards whether its begin/terminal records persisted.
+    const terminal = await recordProviderRefreshFailure('game-stats', scope, {
       attempt,
       error: error instanceof Error ? error.message : 'unknown error',
     });
@@ -201,7 +327,11 @@ async function executeClaimedRefresh(params: {
       now: Date.now(),
       postCoverageFingerprint: null,
     });
-    return { providerError: error, recovery };
+    return {
+      providerError: error,
+      recovery,
+      statusPublication: composeGameStatsStatusPublication(attempt.persistence, terminal),
+    };
   }
 
   const ingestion = await ingestGameStatsObservations({
@@ -308,7 +438,8 @@ export async function claimAndRevalidateNextCandidate(params: {
         });
       }
       throw new GameStatsRecoveryRevalidationError({
-        primary: { stage: 'schedule-context', detail: context.detail },
+        stage: 'schedule-context',
+        internalCause: context.detail,
         recoveryFailures,
         partition: claim.partitionKey,
         leaseMayRemainActive: release.outcome === 'failed',
@@ -333,10 +464,8 @@ export async function claimAndRevalidateNextCandidate(params: {
         });
       }
       throw new GameStatsRecoveryRevalidationError({
-        primary: {
-          stage: 'durable-reread',
-          detail: error instanceof Error ? error.message : String(error),
-        },
+        stage: 'durable-reread',
+        internalCause: error,
         recoveryFailures,
         partition: claim.partitionKey,
         leaseMayRemainActive: release.outcome === 'failed',
@@ -396,13 +525,19 @@ export type ScheduledGameStatsRefreshResult = (
       reason: 'no-schedule' | 'all-satisfied' | 'all-ineligible';
       detail: string;
     }
-  | { kind: 'config-failure'; week: number; seasonType: CfbdSeasonType }
+  | {
+      kind: 'config-failure';
+      week: number;
+      seasonType: CfbdSeasonType;
+      statusPublication: GameStatsStatusPublication;
+    }
   | {
       kind: 'provider-failure';
       week: number;
       seasonType: CfbdSeasonType;
       error: unknown;
       recovery: RecoveryFinalizationReport;
+      statusPublication: GameStatsStatusPublication;
     }
   | {
       kind: 'executed';
@@ -522,13 +657,18 @@ export async function runScheduledGameStatsRefresh(params: {
     const attempt = await beginProviderRefreshAttempt('game-stats', scope, {
       startedAt: new Date(now).toISOString(),
     });
-    await recordProviderRefreshFailure('game-stats', scope, {
+    const terminal = await recordProviderRefreshFailure('game-stats', scope, {
       attempt,
       error: 'CFBD_API_KEY not configured',
       code: 'cfbd-api-key-missing',
       status: 500,
     });
-    return withFailures({ kind: 'config-failure', week: first.week, seasonType: first.seasonType });
+    return withFailures({
+      kind: 'config-failure',
+      week: first.week,
+      seasonType: first.seasonType,
+      statusPublication: composeGameStatsStatusPublication(attempt.persistence, terminal),
+    });
   }
 
   // Atomic claim + POST-CLAIM authoritative revalidation with rotation: a
@@ -579,6 +719,7 @@ export async function runScheduledGameStatsRefresh(params: {
       seasonType: target.seasonType,
       error: execution.providerError,
       recovery: execution.recovery,
+      statusPublication: execution.statusPublication,
     });
   }
   return withSelection({
@@ -606,8 +747,13 @@ export type ManualGameStatsRefreshResult =
         disrupted: number;
       };
     }
-  | { kind: 'config-failure' }
-  | { kind: 'provider-failure'; error: unknown; recovery: RecoveryFinalizationReport }
+  | { kind: 'config-failure'; statusPublication: GameStatsStatusPublication }
+  | {
+      kind: 'provider-failure';
+      error: unknown;
+      recovery: RecoveryFinalizationReport;
+      statusPublication: GameStatsStatusPublication;
+    }
   | {
       kind: 'executed';
       publication: GameStatsRefreshPublication;
@@ -661,13 +807,16 @@ export async function runManualGameStatsRefresh(params: {
     const attempt = await beginProviderRefreshAttempt('game-stats', scope, {
       startedAt: new Date(now).toISOString(),
     });
-    await recordProviderRefreshFailure('game-stats', scope, {
+    const terminal = await recordProviderRefreshFailure('game-stats', scope, {
       attempt,
       error: 'CFBD_API_KEY not configured',
       code: 'cfbd-api-key-missing',
       status: 500,
     });
-    return { kind: 'config-failure' };
+    return {
+      kind: 'config-failure',
+      statusPublication: composeGameStatsStatusPublication(attempt.persistence, terminal),
+    };
   }
 
   // Authoritative BEFORE state for progress judgement.
@@ -710,6 +859,7 @@ export async function runManualGameStatsRefresh(params: {
       kind: 'provider-failure',
       error: execution.providerError,
       recovery: execution.recovery,
+      statusPublication: execution.statusPublication,
     };
   }
   return {

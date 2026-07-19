@@ -1,7 +1,7 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
 import {
   classifyGameStatsRow,
-  selectAnalyticsRows,
+  RECOGNIZED_GAME_STAT_CATEGORIES,
   type GameStatsRowClassificationState,
 } from './contract.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
@@ -10,22 +10,20 @@ import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
  * PLATFORM-086H3 — schema-safe public wire projection for game-stats reads
  * (ACTIVE).
  *
- * The public boundary publishes ONLY rows on an EXPLICIT H1-approved
- * allowlist, and v2 output is CONSTRUCTED from explicit field allowlists —
- * never by spreading a persisted object and deleting a short list of
- * internal names. Unknown persisted fields are dropped by construction, so
- * internal metadata (`schemaVersion`, `fetchStartedAt`, `pointsProvided`,
- * `commitRevision`, transaction/recovery bookkeeping, or anything added
- * later) can never reach the wire through a v2 row. LEGACY rows (no own
- * `schemaVersion`) pass BY REFERENCE — the documented byte-equivalence
- * compatibility contract for pre-activation data.
+ * EVERYTHING on the public wire is CONSTRUCTED from explicit allowlists — the
+ * envelope, each game, each team, and each team's `raw` category map. Nothing
+ * is ever produced by spreading a persisted object (and deleting a short list
+ * of internal names), and NO row is returned by reference. Unknown persisted
+ * fields at any level — `schemaVersion`, `fetchStartedAt`, `pointsProvided`,
+ * `commitRevision`, transaction/recovery bookkeeping, an unrecognized future
+ * `raw` category, or anything added later — are dropped by construction and
+ * can never reach a caller.
  *
  *   PUBLISHED (public-compatible states):
- *     - `legacy-compatible` — by reference;
- *     - `v2-complete` / `v2-sparse` — explicit-allowlist construction
- *       (sparse rows still carry the full participant identity and public
- *       structural shape; classification runs BEFORE any field access, so
- *       sparse never means malformed).
+ *     - `legacy-compatible`;
+ *     - `v2-complete` / `v2-sparse` (sparse rows still carry the full
+ *       participant identity and public structural shape; classification runs
+ *       BEFORE any field access, so sparse never means malformed).
  *
  *   WITHHELD (typed, counted, never served):
  *     - `unsupported-version` / `malformed-v2` — never laundered;
@@ -34,16 +32,15 @@ import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
  *     - `unaddressable` structurally malformed rows;
  *     - rows whose OWN `year`/`week`/`seasonType` are malformed or disagree
  *       with the requested partition (a malformed value is NOT "absent");
- *     - duplicate conflicts per the H1 DUPLICATE AUTHORITY (below).
+ *     - duplicate conflicts per the PUBLIC DUPLICATE AUTHORITY (below).
  *
- * Duplicate authority (shared with coverage/analytics/archive-integrity):
- * `selectAnalyticsRows` decides. An analytics-selected game publishes the
- * winning class's first copy (eligible v2 supersedes equivalent compatible
- * legacy per H1 precedence; superseded copies collapse); an analytics
- * CONFLICT withholds every copy. Groups with no analytics-eligible copy
- * (e.g. v2-sparse duplicates) publish only when their PUBLIC projections
- * are indistinguishable; divergent copies are withheld as conflicts. No
- * surface disagrees on which game is authoritative.
+ * Public duplicate authority: a purpose-specific selector that agrees with H1
+ * classification and format precedence (eligible v2 supersedes an equivalent
+ * legacy copy) but compares the ACTUAL PUBLIC PROJECTIONS, not analytics
+ * equality. Two copies that would aggregate identically but differ in ANY
+ * public field (including return statistics that analytics never inspects)
+ * are a public CONFLICT and every copy is withheld — array order never
+ * decides which copy serves.
  */
 
 export type PublicWeeklyGameStatsView = {
@@ -59,7 +56,11 @@ export type PublicWeeklyGameStatsView = {
     defective: number;
     /** Rows whose own year/week/seasonType are malformed or contradict the partition. */
     partitionMismatch: number;
-    /** Duplicate rows withheld under the H1 conflict policy (every copy). */
+    /**
+     * Number of GAME IDS withheld under the public duplicate conflict policy
+     * (counted per conflicted game, never per copy). A single game with three
+     * divergent copies contributes 1.
+     */
     conflictingDuplicates: number;
   };
 };
@@ -83,9 +84,9 @@ const DEFECTIVE_STATES: ReadonlySet<GameStatsRowClassificationState> = new Set([
 ]);
 
 /**
- * The approved PUBLIC team fields — the exact public API surface. Everything
- * else on a persisted team object (including future internal additions) is
- * dropped by construction.
+ * The approved PUBLIC team numeric fields — the exact public API surface.
+ * Everything else on a persisted team object (including future internal
+ * additions) is dropped by construction.
  */
 const PUBLIC_TEAM_NUMERIC_FIELDS = [
   'schoolId',
@@ -120,28 +121,49 @@ const PUBLIC_TEAM_NUMERIC_FIELDS = [
   'puntReturnTDs',
 ] as const;
 
-/** Construct the public team object from the explicit allowlist ONLY. */
-function buildPublicTeam(team: TeamGameStats): TeamGameStats {
-  const raw: Record<string, string> = {};
-  if (typeof team.raw === 'object' && team.raw !== null) {
-    for (const [category, value] of Object.entries(team.raw)) {
-      if (typeof value === 'string') raw[category] = value;
+/**
+ * The approved PUBLIC `raw` categories — exactly the recognized contract
+ * categories (`RECOGNIZED_GAME_STAT_CATEGORIES`). An unrecognized provider
+ * category (future wire additions, injected internal keys) is dropped by
+ * construction, never copied through because it happens to be string-valued.
+ */
+const PUBLIC_RAW_CATEGORIES: ReadonlySet<string> = new Set(RECOGNIZED_GAME_STAT_CATEGORIES);
+
+/** Construct the public `raw` map from the recognized-category allowlist ONLY. */
+function buildPublicRaw(raw: unknown): Record<string, string> {
+  const publicRaw: Record<string, string> = {};
+  if (typeof raw === 'object' && raw !== null) {
+    const record = raw as Record<string, unknown>;
+    // Iterate the allowlist (not the untrusted object's keys) so nothing
+    // outside the contract can appear, and prototype-member keys are never
+    // reachable.
+    for (const category of PUBLIC_RAW_CATEGORIES) {
+      if (!Object.prototype.hasOwnProperty.call(record, category)) continue;
+      const value = record[category];
+      if (typeof value === 'string') publicRaw[category] = value;
     }
   }
+  return publicRaw;
+}
+
+/** Construct the public team object from the explicit allowlist ONLY. */
+function buildPublicTeam(team: TeamGameStats): TeamGameStats {
+  const source = team as unknown as Record<string, unknown>;
   const publicTeam = {
     school: team.school,
     conference: team.conference,
     homeAway: team.homeAway,
-    raw,
+    raw: buildPublicRaw(source.raw),
   } as TeamGameStats;
   for (const field of PUBLIC_TEAM_NUMERIC_FIELDS) {
-    (publicTeam as Record<string, unknown>)[field] = team[field];
+    (publicTeam as Record<string, unknown>)[field] = source[field];
   }
   return publicTeam;
 }
 
-/** Construct the public VERSION-2 row from the explicit row allowlist ONLY. */
-function buildPublicV2Row(row: GameStats): GameStats {
+/** Construct the public row from the explicit row allowlist ONLY (legacy and
+ * v2 alike — no row is ever returned by reference). */
+function buildPublicRow(row: GameStats): GameStats {
   return {
     providerGameId: row.providerGameId,
     week: row.week,
@@ -174,6 +196,27 @@ function rowPartitionMismatch(
   return false;
 }
 
+type Approved = { original: GameStats; isV2: boolean; publicRow: GameStats };
+
+/**
+ * Choose the public copy for one provider game id, or withhold the whole
+ * group as a conflict. H1 format precedence chooses the winning CLASS
+ * (eligible v2 supersedes an equivalent legacy copy); then EVERY copy of that
+ * winning class must project to an indistinguishable public row — otherwise
+ * the copies disagree on public data and are all withheld. Two copies that
+ * agree for analytics but differ in a public-only field (e.g. return yards)
+ * therefore conflict, and array order never picks a winner.
+ */
+function selectPublicCopy(copies: Approved[]): { row: GameStats } | { conflict: true } {
+  const v2Copies = copies.filter((c) => c.isV2);
+  const winningClass = v2Copies.length > 0 ? v2Copies : copies;
+  const serialized = winningClass.map((c) => JSON.stringify(c.publicRow));
+  if (serialized.every((s) => s === serialized[0])) {
+    return { row: winningClass[0]!.publicRow };
+  }
+  return { conflict: true };
+}
+
 /**
  * Build the schema-safe public view of one weekly partition. Pure and
  * exception-free for arbitrary stored shapes: every row is classified before
@@ -192,8 +235,8 @@ export function buildPublicWeeklyGameStats(
     conflictingDuplicates: 0,
   };
 
-  // Pass 1: classify and gate each row (no field access before approval).
-  type Approved = { original: GameStats; isV2: boolean };
+  // Pass 1: classify and gate each row (no field access before approval),
+  // then build its public projection.
   const approved: Approved[] = [];
   for (const row of record.games) {
     const state = classifyGameStatsRow(row).state;
@@ -220,10 +263,11 @@ export function buildPublicWeeklyGameStats(
     approved.push({
       original: typed,
       isV2: Object.prototype.hasOwnProperty.call(typed, 'schemaVersion'),
+      publicRow: buildPublicRow(typed),
     });
   }
 
-  // Pass 2: the H1 DUPLICATE AUTHORITY decides which copy is authoritative.
+  // Pass 2: the PUBLIC DUPLICATE AUTHORITY decides which copy is authoritative.
   const byId = new Map<number, Approved[]>();
   const order: number[] = [];
   for (const entry of approved) {
@@ -236,51 +280,24 @@ export function buildPublicWeeklyGameStats(
     }
   }
 
-  const projectPublic = (entry: Approved): GameStats =>
-    entry.isV2 ? buildPublicV2Row(entry.original) : entry.original;
-
   const games: GameStats[] = [];
   for (const id of order) {
     const copies = byId.get(id)!;
     if (copies.length === 1) {
-      games.push(projectPublic(copies[0]!));
+      games.push(copies[0]!.publicRow);
       continue;
     }
-    // Same selection function coverage/analytics/archive-integrity use.
-    const selection = selectAnalyticsRows(copies.map((c) => c.original));
-    if (selection.conflicts.some((c) => c.providerGameId === id)) {
-      withheld.conflictingDuplicates += copies.length;
+    const decision = selectPublicCopy(copies);
+    if ('conflict' in decision) {
+      withheld.conflictingDuplicates += 1; // per conflicted GAME id
       continue;
     }
-    const selected = selection.selected.find((p) => p.providerGameId === id);
-    if (selected) {
-      // Publish the first copy of the H1-winning class (eligible v2
-      // supersedes equivalent compatible legacy); superseded copies collapse.
-      const winner =
-        selected.source === 'v2' ? copies.find((c) => c.isV2) : copies.find((c) => !c.isV2);
-      games.push(projectPublic(winner ?? copies[0]!));
-      continue;
-    }
-    // No analytics-eligible copy (e.g. v2-sparse duplicates): publish only
-    // when the PUBLIC projections are indistinguishable.
-    const projections = copies.map(projectPublic);
-    const serialized = projections.map((p) => JSON.stringify(p));
-    if (serialized.every((s) => s === serialized[0])) {
-      games.push(projections[0]!);
-    } else {
-      withheld.conflictingDuplicates += copies.length;
-    }
+    games.push(decision.row);
   }
 
-  // The public envelope is constructed explicitly — internal envelope
-  // metadata (commitRevision, anything future) never reaches the wire.
-  const rowsUnchanged =
-    !Object.prototype.hasOwnProperty.call(record, 'commitRevision') &&
-    games.length === record.games.length &&
-    games.every((game, i) => game === record.games[i]);
-  if (rowsUnchanged) {
-    return { record, withheld };
-  }
+  // The public envelope is ALWAYS constructed explicitly — internal envelope
+  // metadata (commitRevision, anything future) never reaches the wire, and no
+  // persisted object is ever returned by reference.
   return {
     record: {
       year: record.year,

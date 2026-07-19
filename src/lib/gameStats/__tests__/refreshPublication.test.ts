@@ -11,7 +11,9 @@ import {
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
+  getAppState,
   setAppState,
+  withAppStateKeyTransaction,
 } from '../../server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
@@ -20,8 +22,8 @@ import {
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '../../server/providerRefreshStatus.ts';
-import { weekPartitionScope } from '../../providerRefreshScope.ts';
-import { wireGame } from './fixtures.ts';
+import { providerRefreshScopeKey, weekPartitionScope } from '../../providerRefreshScope.ts';
+import { legacyRowFromWire, seedGameStatsPartitionForTests, wireGame } from './fixtures.ts';
 
 // PLATFORM-086H3 — the committed-state finalize matrix. Every confirmed merge
 // outcome rereads durable state and evaluates schedule-relative coverage
@@ -604,7 +606,11 @@ test('revision floor: a MALFORMED partition revision contributes nothing and nev
 test('atomic status writers: begin/failure/no-op racing a NEWER success never regress its metadata', async () => {
   // Establish committed success metadata (revision 1).
   const publication = await finalize(await ingest([GAME_A()]));
-  assert.equal(publication.statusPublication, 'persisted');
+  assert.deepEqual(publication.statusPublication, {
+    begin: 'persisted',
+    terminal: 'persisted',
+    complete: true,
+  });
   const afterSuccess = await getProviderRefreshStatus('game-stats', SCOPE);
   assert.equal(afterSuccess.lastSuccessRevision, 1);
 
@@ -662,7 +668,12 @@ test('typed status results: a broken status store yields failed publication — 
   } finally {
     __setAppStateWriteFailureForTests(null);
   }
-  assert.equal(publication.statusPublication, 'failed', 'publication failure is typed, not void');
+  assert.equal(
+    publication.statusPublication.terminal,
+    'failed',
+    'publication failure is typed, not void'
+  );
+  assert.equal(publication.statusPublication.complete, false);
   assert.equal(
     publication.recorded,
     'partial-success',
@@ -814,4 +825,334 @@ test('degradation: a payload with ZERO persistable observations is typed noPersi
   const status = await getProviderRefreshStatus('game-stats', SCOPE);
   const persisted = status.lastAttemptDiagnostics as { noPersistableObservations?: number };
   assert.equal(persisted?.noPersistableObservations, 1, 'typed count persisted durably');
+});
+
+// === Enduring revision-ledger authority (round 5): initialization states,
+// bootstrap floors, ambiguous-history blocking, locked status consultation ===
+
+const LEDGER_KEY = `${YEAR}:${WEEK}:regular`;
+const STATUS_SCOPE_KEY = providerRefreshScopeKey('game-stats', SCOPE);
+
+async function readLedger() {
+  return (await getAppState<Record<string, unknown>>('game-stats-revision', LEDGER_KEY))?.value;
+}
+
+test('ledger: a brand-new scope initializes at revision 1 with a durable initialization marker', async () => {
+  const ingestion = await ingest([GAME_A()]);
+  assert.equal(ingestion.kind, 'merged');
+  if (ingestion.kind === 'merged') assert.equal(ingestion.merge.commit?.commitRevision, 1);
+  const ledger = await readLedger();
+  assert.equal(ledger?.schemaVersion, 1);
+  assert.equal(ledger?.revision, 1);
+  assert.equal(ledger?.initializedFrom, 'new');
+});
+
+test('ledger: a RECOGNIZED pre-revision legacy partition bootstraps safely at revision 1', async () => {
+  // Only legacy-shaped rows, no commitRevision — the explicitly recognized
+  // pre-revision shape (never inferred from missing fields alone).
+  await seedGameStatsPartitionForTests({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    fetchedAt: '2026-10-14T00:00:00.000Z',
+    games: [legacyRowFromWire(wireGame({ id: 5001 }))],
+  });
+  const ingestion = await ingest([wireGame({ id: 5001, home: { points: 30 } })]);
+  assert.equal(ingestion.kind, 'merged');
+  if (ingestion.kind === 'merged') assert.equal(ingestion.merge.commit?.commitRevision, 1);
+  assert.equal((await readLedger())?.initializedFrom, 'legacy');
+});
+
+test('ledger: once initialized, the ledger is the SOLE ordinary allocator (status never consulted)', async () => {
+  await finalize(await ingest([GAME_A()])); // ledger initialized at 1
+  await setAppState('game-stats-revision', LEDGER_KEY, {
+    schemaVersion: 1,
+    revision: 10,
+    initializedFrom: 'new',
+    initializedAt: '2026-01-01T00:00:00.000Z',
+  });
+  // A status floor ABOVE the ledger must be irrelevant on the ordinary path.
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  await setAppState('provider-refresh-status', status.scopeKey, {
+    ...status,
+    lastSuccessRevision: 40,
+  });
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const next = await ingest([wireGame({ id: 5001, home: { points: 42 } })], slate([5001]), later);
+  assert.equal(next.kind, 'merged');
+  if (next.kind === 'merged') {
+    assert.equal(next.merge.commit?.commitRevision, 11, 'ledger + 1, status ignored');
+  }
+});
+
+test('ledger: conflicting VALID floors allocate above the maximum (defensive)', async () => {
+  await finalize(await ingest([GAME_A()]));
+  // Partition revision pushed ABOVE the ledger (a state the atomic co-commit
+  // makes structurally impossible — handled defensively anyway).
+  const stored = (await getCachedGameStats(YEAR, WEEK, 'regular'))!;
+  await setAppState('game-stats', LEDGER_KEY, { ...stored, commitRevision: 12 });
+  await setAppState('game-stats-revision', LEDGER_KEY, {
+    schemaVersion: 1,
+    revision: 5,
+    initializedFrom: 'new',
+    initializedAt: '2026-01-01T00:00:00.000Z',
+  });
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const next = await ingest([wireGame({ id: 5001, home: { points: 42 } })], slate([5001]), later);
+  assert.equal(next.kind, 'merged');
+  if (next.kind === 'merged') assert.equal(next.merge.commit?.commitRevision, 13);
+});
+
+test('ledger bootstrap: a valid revision-era partition with NO ledger and NO status floors above it', async () => {
+  await finalize(await ingest([GAME_A()])); // commit revision 1 normally
+  const stored = (await getCachedGameStats(YEAR, WEEK, 'regular'))!;
+  await setAppState('game-stats', LEDGER_KEY, { ...stored, commitRevision: 10 });
+  await setAppState('game-stats-revision', LEDGER_KEY, null); // ledger lost
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  const bare: Record<string, unknown> = { ...status };
+  delete bare.lastSuccessRevision; // status carries no revision marker
+  await setAppState('provider-refresh-status', status.scopeKey, bare);
+
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const next = await ingest([wireGame({ id: 5001, home: { points: 42 } })], slate([5001]), later);
+  assert.equal(next.kind, 'merged');
+  if (next.kind === 'merged') assert.equal(next.merge.commit?.commitRevision, 11);
+  assert.equal((await readLedger())?.initializedFrom, 'bootstrap');
+});
+
+test('ledger bootstrap: a MALFORMED ledger with a valid status floor rebootstraps above it', async () => {
+  await finalize(await ingest([GAME_A()]));
+  await setAppState('game-stats-revision', LEDGER_KEY, { corrupted: 'yes' });
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  await setAppState('provider-refresh-status', status.scopeKey, {
+    ...status,
+    lastSuccessRevision: 10,
+  });
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const next = await ingest([wireGame({ id: 5001, home: { points: 42 } })], slate([5001]), later);
+  assert.equal(next.kind, 'merged');
+  if (next.kind === 'merged') {
+    assert.equal(next.merge.commit?.commitRevision, 11, 'floor from status; never reset to 1');
+  }
+});
+
+test('ledger AMBIGUOUS: revision-era markers with NO usable source refuse the write (typed, untouched)', async () => {
+  await finalize(await ingest([GAME_A()])); // revision-era: v2 rows committed
+  const stored = (await getCachedGameStats(YEAR, WEEK, 'regular'))!;
+  const restored = { ...stored } as Record<string, unknown>;
+  delete restored.commitRevision; // v2 rows WITHOUT a partition revision = damage
+  await setAppState('game-stats', LEDGER_KEY, restored);
+  await setAppState('game-stats-revision', LEDGER_KEY, null); // ledger lost
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  const bare: Record<string, unknown> = { ...status };
+  delete bare.lastSuccessRevision;
+  await setAppState('provider-refresh-status', status.scopeKey, bare);
+
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const ingestion = await ingest(
+    [wireGame({ id: 5001, home: { points: 42 } })],
+    slate([5001]),
+    later
+  );
+  assert.equal(ingestion.kind, 'merged');
+  if (ingestion.kind === 'merged') {
+    assert.equal(ingestion.merge.outcome, 'unavailable');
+    assert.equal(ingestion.merge.unavailableReason, 'revision-history-ambiguous');
+  }
+  const publication = await finalize(ingestion);
+  assert.equal(publication.recorded, 'failure');
+  assert.equal(publication.code, 'game-stats-revision-history-ambiguous');
+  // Durable evidence untouched: the damaged partition is preserved as-is.
+  const after = await getAppState<Record<string, unknown>>('game-stats', LEDGER_KEY);
+  assert.deepEqual(after?.value, restored, 'no evidence write happened');
+  assert.equal(await readLedger(), null, 'no revision was allocated');
+});
+
+test('ledger AMBIGUOUS: every source malformed refuses the write', async () => {
+  await finalize(await ingest([GAME_A()]));
+  const stored = (await getCachedGameStats(YEAR, WEEK, 'regular'))!;
+  await setAppState('game-stats', LEDGER_KEY, { ...stored, commitRevision: 'ten' });
+  await setAppState('game-stats-revision', LEDGER_KEY, { revision: 'eleven' });
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  await setAppState('provider-refresh-status', status.scopeKey, {
+    ...status,
+    lastSuccessRevision: 'twelve',
+  });
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const ingestion = await ingest(
+    [wireGame({ id: 5001, home: { points: 42 } })],
+    slate([5001]),
+    later
+  );
+  assert.equal(ingestion.kind, 'merged');
+  if (ingestion.kind === 'merged') {
+    assert.equal(ingestion.merge.unavailableReason, 'revision-history-ambiguous');
+  }
+});
+
+test('ledger bootstrap RACE: a delayed status publisher is serialized by the status key lock', async () => {
+  // No ledger; the bootstrap must consult status — while a status-key
+  // transaction is MID-FLIGHT, about to advance the floor from 10 to 12. The
+  // bootstrap's lockKey queues behind that transaction, so it can only ever
+  // observe the COMMITTED 12 — allocating 13, never 11.
+  await seedGameStatsPartitionForTests({
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    fetchedAt: '2026-10-14T00:00:00.000Z',
+    games: [legacyRowFromWire(wireGame({ id: 5001 }))],
+  });
+  await setAppState('provider-refresh-status', STATUS_SCOPE_KEY, { lastSuccessRevision: 10 });
+
+  let entered!: () => void;
+  const enteredP = new Promise<void>((r) => (entered = r));
+  let release!: () => void;
+  const releaseP = new Promise<void>((r) => (release = r));
+  const statusWriter = withAppStateKeyTransaction(
+    'provider-refresh-status',
+    STATUS_SCOPE_KEY,
+    async (txn) => {
+      entered();
+      await releaseP;
+      await txn.write({ lastSuccessRevision: 12 });
+    }
+  );
+  await enteredP;
+
+  const later = new Date(Date.parse(FENCE) + 60_000).toISOString();
+  const mergePromise = ingest([wireGame({ id: 5001, home: { points: 42 } })], slate([5001]), later);
+  // Give the merge time to reach the status lock, then let the writer commit.
+  await new Promise((r) => setImmediate(r));
+  release();
+  await statusWriter;
+  const ingestion = await mergePromise;
+  assert.equal(ingestion.kind, 'merged');
+  if (ingestion.kind === 'merged') {
+    assert.equal(
+      ingestion.merge.commit?.commitRevision,
+      13,
+      'bootstrap floor observed the COMMITTED status write, never the stale one'
+    );
+  }
+});
+
+// === Begin/terminal status lifecycle matrix (round 5): both mutation results
+// are separate durable facts; a lost begin never blocks truthful terminal
+// status and never silently reads as a complete lifecycle ===
+
+async function finalizeWithAttempt(
+  attempt: Awaited<ReturnType<typeof beginProviderRefreshAttempt>>,
+  ingestion: Awaited<ReturnType<typeof ingest>>,
+  expectation = slate([5001])
+) {
+  return finalizeGameStatsRefresh({
+    ingestion,
+    expectation,
+    seasonRelation: 'current',
+    scope: SCOPE,
+    attempt,
+    contextLabel: `week ${WEEK} regular`,
+  });
+}
+
+async function beginWithFailedPersistence() {
+  __setAppStateWriteFailureForTests(new Error('status store down'), 'provider-refresh-status');
+  try {
+    return await beginProviderRefreshAttempt('game-stats', SCOPE, {
+      startedAt: new Date().toISOString(),
+    });
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+}
+
+test('lifecycle matrix: begin FAILS, terminal success persists — attempt identity and diagnostics still recorded', async () => {
+  const attempt = await beginWithFailedPersistence();
+  assert.equal(attempt.persistence, 'failed');
+  const publication = await finalizeWithAttempt(attempt, await ingest([GAME_A()]));
+  assert.equal(publication.recorded, 'success', 'evidence + terminal recorded truthfully');
+  assert.deepEqual(publication.statusPublication, {
+    begin: 'failed',
+    terminal: 'persisted',
+    complete: false,
+  });
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(
+    status.lastAttemptId,
+    attempt.attemptId,
+    'the terminal transaction owns its attempt identity without a durable begin row'
+  );
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
+  assert.equal(status.lastSuccessRevision, 1);
+  assert.ok(status.lastAttemptDiagnostics, 'diagnostics persisted despite the lost begin');
+});
+
+test('lifecycle matrix: begin FAILS, terminal failure persists — failure code and diagnostics survive', async () => {
+  const attempt = await beginWithFailedPersistence();
+  const ingestion = await ingest([wireGame({ id: 999_999 })]); // nothing attaches
+  const publication = await finalizeWithAttempt(attempt, ingestion);
+  assert.equal(publication.recorded, 'failure');
+  assert.equal(publication.statusPublication.begin, 'failed');
+  assert.equal(publication.statusPublication.terminal, 'persisted');
+  assert.equal(publication.statusPublication.complete, false);
+  const status = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(status.lastAttemptId, attempt.attemptId);
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.ok(status.lastError?.code, 'typed failure code persisted');
+  assert.ok(status.lastAttemptDiagnostics, 'diagnostics not null merely because begin failed');
+});
+
+test('lifecycle matrix: BOTH begin and terminal fail — composite reports both, evidence still committed', async () => {
+  __setAppStateWriteFailureForTests(new Error('status store down'), 'provider-refresh-status');
+  let publication;
+  try {
+    const attempt = await beginProviderRefreshAttempt('game-stats', SCOPE, {
+      startedAt: new Date().toISOString(),
+    });
+    publication = await finalizeWithAttempt(attempt, await ingest([GAME_A()]));
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  assert.equal(publication.recorded, 'partial-success', 'terminal failure downgrades success');
+  assert.deepEqual(publication.statusPublication, {
+    begin: 'failed',
+    terminal: 'failed',
+    complete: false,
+  });
+  assert.equal((await getCachedGameStats(YEAR, WEEK, 'regular'))?.games.length, 1);
+});
+
+test('lifecycle matrix: a genuinely STALE attempt still cannot overwrite a newer attempt (protection intact)', async () => {
+  // Normal newer attempt resolves first.
+  await finalize(await ingest([GAME_A()]));
+  const newer = await getProviderRefreshStatus('game-stats', SCOPE);
+  // A stale attempt (started BEFORE the recorded one) whose begin was lost:
+  // chronology comparison refuses ownership — 'skipped-older', never a
+  // begin-row requirement.
+  const stale = {
+    attemptId: 'stale-attempt',
+    startedAt: new Date(Date.parse(newer.lastAttemptAt!) - 60_000).toISOString(),
+    dataset: 'game-stats' as const,
+    scopeKey: newer.scopeKey,
+    persistence: 'failed' as const,
+  };
+  const terminal = await recordProviderRefreshFailure('game-stats', SCOPE, {
+    attempt: stale,
+    error: 'late stale failure',
+  });
+  assert.equal(terminal, 'skipped-older');
+  const after = await getProviderRefreshStatus('game-stats', SCOPE);
+  assert.equal(after.lastAttemptId, newer.lastAttemptId, 'newer attempt state untouched');
+  assert.equal(after.latestAttemptOutcome, 'succeeded');
+});
+
+test('lifecycle matrix: failure-branch publications (unexpected empty) carry the composite result', async () => {
+  const publication = await finalize(await ingest([]));
+  assert.equal(publication.recorded, 'failure');
+  assert.equal(publication.code, 'game-stats-empty-unexpected');
+  assert.deepEqual(publication.statusPublication, {
+    begin: 'persisted',
+    terminal: 'persisted',
+    complete: true,
+  });
 });

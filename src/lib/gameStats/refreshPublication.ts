@@ -89,6 +89,33 @@ export type GameStatsRefreshDispositionReason =
   | 'unchanged-insufficient'
   | 'postcommit-reread-failed';
 
+/**
+ * Composite status-lifecycle publication result (PLATFORM-086H3 round 5).
+ * BOTH lifecycle mutations are separate durable facts: the BEGIN marker and
+ * the TERMINAL success/noop/failure record. `complete` is true only when both
+ * were durably recorded ('persisted' or 'idempotent') — evidence may commit
+ * while the status lifecycle stays incomplete, and callers must be able to
+ * see exactly which half failed.
+ */
+export type GameStatsStatusPublication = {
+  begin: ProviderStatusMutationResult;
+  terminal: ProviderStatusMutationResult;
+  complete: boolean;
+};
+
+function durablyRecorded(result: ProviderStatusMutationResult): boolean {
+  return result === 'persisted' || result === 'idempotent';
+}
+
+/** Compose the two lifecycle facts (also used by orchestration branches that
+ * record status OUTSIDE the finalize path — provider/config failures). */
+export function composeGameStatsStatusPublication(
+  begin: ProviderStatusMutationResult,
+  terminal: ProviderStatusMutationResult
+): GameStatsStatusPublication {
+  return { begin, terminal, complete: durablyRecorded(begin) && durablyRecorded(terminal) };
+}
+
 export type GameStatsRefreshPublication = {
   /** What the provider-refresh status ledger recorded. */
   recorded: 'success' | 'partial-success' | 'noop' | 'failure';
@@ -106,13 +133,15 @@ export type GameStatsRefreshPublication = {
   /** Durable changes the merge ACCEPTED (inserted + updated + fence-refreshed). */
   acceptedGames: number;
   /**
-   * Typed persistence result of the status-ledger mutation (PLATFORM-086H3).
-   * Evidence durability and status publication are SEPARATE facts: when the
-   * evidence committed but the ledger write failed, `recorded` is downgraded
-   * to `partial-success` (never `success` — the ledger was not updated) and
-   * this field says exactly why.
+   * Composite typed persistence result of the status lifecycle
+   * (PLATFORM-086H3). Evidence durability, the begin marker, and the terminal
+   * record are SEPARATE facts: when the evidence committed but the TERMINAL
+   * ledger write failed, `recorded` is downgraded to `partial-success`
+   * (never `success` — the ledger was not updated); a failed BEGIN marker
+   * leaves `recorded` describing evidence + terminal truthfully while
+   * `statusPublication.complete` stays false.
    */
-  statusPublication: ProviderStatusMutationResult;
+  statusPublication: GameStatsStatusPublication;
   dispositionReason: GameStatsRefreshDispositionReason;
   /**
    * Provider-attempt diagnostics carried through publication (never erased by
@@ -225,6 +254,7 @@ export async function finalizeGameStatsRefresh(
   const { ingestion, expectation, seasonRelation, scope, attempt, contextLabel } = params;
   const source = params.source ?? 'cfbd';
   const diagnostics = attemptDiagnostics(ingestion);
+  const begin = attempt.persistence;
 
   const fail = async (
     code: string,
@@ -233,7 +263,7 @@ export async function finalizeGameStatsRefresh(
     httpStatus: number,
     extras: Partial<GameStatsRefreshPublication> = {}
   ): Promise<GameStatsRefreshPublication> => {
-    const statusPublication = await recordProviderRefreshFailure('game-stats', scope, {
+    const terminal = await recordProviderRefreshFailure('game-stats', scope, {
       attempt,
       error: `${contextLabel}: ${detail}`,
       code,
@@ -249,7 +279,7 @@ export async function finalizeGameStatsRefresh(
       coverage: null,
       reread: 'skipped',
       acceptedGames: 0,
-      statusPublication,
+      statusPublication: composeGameStatsStatusPublication(begin, terminal),
       dispositionReason: reason,
       attempt: diagnostics,
       ...extras,
@@ -284,7 +314,7 @@ export async function finalizeGameStatsRefresh(
           502
         );
       }
-      const statusPublication = await recordProviderRefreshNoop('game-stats', scope, {
+      const terminal = await recordProviderRefreshNoop('game-stats', scope, {
         attempt,
         source,
         diagnostics,
@@ -297,7 +327,7 @@ export async function finalizeGameStatsRefresh(
         coverage: null,
         reread: 'skipped',
         acceptedGames: 0,
-        statusPublication,
+        statusPublication: composeGameStatsStatusPublication(begin, terminal),
         dispositionReason: 'empty-expected',
         attempt: diagnostics,
       };
@@ -319,6 +349,20 @@ export async function finalizeGameStatsRefresh(
 
   const { merge } = ingestion;
   if (merge.outcome === 'unavailable') {
+    if (merge.unavailableReason === 'revision-history-ambiguous') {
+      // Prior revision history may have existed but no usable revision source
+      // survives: the merge refused the write rather than risk reusing a
+      // committed revision. Stable code, durable state untouched, explicit
+      // repair (or a write restoring an authoritative floor) required.
+      return fail(
+        'game-stats-revision-history-ambiguous',
+        'durable-unavailable',
+        'revision history for this partition is ambiguous (revision-era markers survive but no ' +
+          'usable revision source remains); write refused, durable state untouched, explicit ' +
+          'repair required',
+        503
+      );
+    }
     return fail(
       'game-stats-durable-unavailable',
       'durable-unavailable',
@@ -386,7 +430,7 @@ export async function finalizeGameStatsRefresh(
     // status ledger's compare-and-write orders by TRUE cross-instance commit
     // order — a stalled reread/finalizer cannot reorder commits.
     const partial = !complete || merge.conflicts.length > 0 || diagnostics.degraded;
-    const statusPublication = await recordProviderRefreshSuccess('game-stats', scope, {
+    const terminal = await recordProviderRefreshSuccess('game-stats', scope, {
       attempt,
       committedAt: merge.commit?.committedAt,
       commitRevision: merge.commit?.commitRevision,
@@ -400,8 +444,8 @@ export async function finalizeGameStatsRefresh(
       : '';
     // Evidence durability and status publication are separate facts: the
     // evidence COMMITTED regardless, but `recorded: success` is truthful only
-    // when the ledger actually recorded it.
-    const publicationFailed = statusPublication === 'failed';
+    // when the ledger actually recorded the TERMINAL result.
+    const publicationFailed = terminal === 'failed';
     return {
       recorded: partial || publicationFailed ? 'partial-success' : 'success',
       detail: `${
@@ -414,7 +458,7 @@ export async function finalizeGameStatsRefresh(
       coverage,
       reread: 'ok',
       acceptedGames: accepted,
-      statusPublication,
+      statusPublication: composeGameStatsStatusPublication(begin, terminal),
       dispositionReason: complete ? 'satisfied' : 'partial-coverage',
       attempt: diagnostics,
     };
@@ -423,7 +467,7 @@ export async function finalizeGameStatsRefresh(
   // No durable change (`unchanged` at an equal fence, or every observation
   // `stale`). Committed coverage — not the outcome label — decides.
   if (complete) {
-    const statusPublication = await recordProviderRefreshNoop('game-stats', scope, {
+    const terminal = await recordProviderRefreshNoop('game-stats', scope, {
       attempt,
       source,
       diagnostics,
@@ -436,7 +480,7 @@ export async function finalizeGameStatsRefresh(
       coverage,
       reread: 'ok',
       acceptedGames: 0,
-      statusPublication,
+      statusPublication: composeGameStatsStatusPublication(begin, terminal),
       dispositionReason: 'satisfied',
       attempt: diagnostics,
     };

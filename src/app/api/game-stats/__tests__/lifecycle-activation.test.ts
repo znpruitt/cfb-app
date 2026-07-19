@@ -16,6 +16,7 @@ import {
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats } from '../../../../lib/gameStats/cache.ts';
+import type { GameStats } from '../../../../lib/gameStats/types.ts';
 import {
   deriveSlateExpectation,
   ingestGameStatsObservations,
@@ -813,7 +814,22 @@ test('reads: ordinary reads are cache-only with coverage-aware availability (fre
   assert.equal(freshBody.meta.cache, 'hit');
   assert.equal(freshBody.meta.stale, undefined);
   assert.equal(freshBody.meta.availability?.state, 'partial', 'game B is absent');
-  assert.deepEqual(freshBody.games, JSON.parse(JSON.stringify(record.games)));
+  // Public rows are CONSTRUCTED from the allowlist: the wire matches the stored
+  // row except that unrecognized `raw` categories (the fixture's deliberately
+  // unmodeled `completionAttempts`) are dropped by construction.
+  const servedGames = freshBody.games as GameStats[];
+  assert.deepEqual(
+    servedGames.map((g) => g.providerGameId),
+    [5001]
+  );
+  const storedRow = record.games[0]!;
+  const servedRow = servedGames[0]!;
+  assert.ok(!('completionAttempts' in servedRow.home.raw), 'unrecognized raw category dropped');
+  for (const [category, value] of Object.entries(servedRow.home.raw)) {
+    assert.equal(value, storedRow.home.raw[category], `recognized raw ${category} preserved`);
+  }
+  assert.equal(servedRow.home.points, storedRow.home.points);
+  assert.equal(servedRow.home.totalYards, storedRow.home.totalYards);
 
   // Stale hit — served truthfully with the stale marker, admin or not.
   await seedGameStatsPartitionForTests({ ...record, fetchedAt: DAYS_AGO(3) });
@@ -1112,12 +1128,31 @@ test('uncertainty: a rejected write with a failed ROLLBACK is indeterminate; ret
 
 type RevalidationFailureBody = {
   error?: string;
+  stage?: string;
+  code?: string;
   recoveryFailureCode?: string;
-  recoveryFailures?: Array<{ partition: string; operation: string; detail: string }>;
+  recoveryFailures?: Array<{
+    partition: string;
+    operation: string;
+    code: string;
+    summary: string;
+    dispositionPersistence: string;
+  }>;
+  providerAccessOccurred?: boolean;
+  leaseMayRemainActive?: boolean;
   detail?: string;
 };
 
-test('cron shaping: schedule-context + finalization dual failure → 500 with BOTH causes, stable code, zero fetches', async () => {
+const REDACTED_TERMS = ['store down', 'select ', 'app_state', '.ts:', '/Users/', 'Error:'];
+
+function assertNoRawLeak(body: unknown): void {
+  const serialized = JSON.stringify(body);
+  for (const term of REDACTED_TERMS) {
+    assert.ok(!serialized.includes(term), `raw storage detail "${term}" must not reach the wire`);
+  }
+}
+
+test('cron shaping: schedule-context + finalization dual failure → 500, stage code + sanitized secondary, zero fetches', async () => {
   await seedSchedule([{ id: '5001' }]);
   stubJson([GAME_A()]); // must never be reached
 
@@ -1141,18 +1176,22 @@ test('cron shaping: schedule-context + finalization dual failure → 500 with BO
   }
   const body = (await res.json()) as RevalidationFailureBody;
   assert.equal(res.status, 500, JSON.stringify(body));
+  assert.equal(body.stage, 'schedule-context');
+  assert.equal(body.code, 'game-stats-revalidation-schedule-context-failed', 'stage-specific code');
   assert.match(body.error ?? '', /post-claim revalidation failed \(schedule-context\)/);
-  assert.match(body.error ?? '', /schedule store down/, 'primary cause on the wire');
+  // A recovery op failed → metadata code + sanitized secondary present.
   assert.equal(body.recoveryFailureCode, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE);
-  assert.equal(body.recoveryFailures?.length, 1, 'secondary cause on the wire');
+  assert.equal(body.recoveryFailures?.length, 1, 'sanitized secondary on the wire');
   assert.equal(body.recoveryFailures?.[0]?.operation, 'stale-claim-finalize');
-  assert.match(body.recoveryFailures?.[0]?.detail ?? '', /recovery release store down/);
+  assert.equal(body.recoveryFailures?.[0]?.dispositionPersistence, 'uncertain');
+  assert.equal(body.providerAccessOccurred, false);
+  assert.equal(body.leaseMayRemainActive, true);
   assert.match(body.detail ?? '', /zero provider calls/);
-  assert.match(body.detail ?? '', /lease remains bounded/);
+  assertNoRawLeak(body);
   assert.equal(fetchCalls, 0, 'no provider request was made');
 });
 
-test('cron shaping: durable-reread + finalization dual failure → 500 with BOTH causes, stable code, zero fetches', async () => {
+test('cron shaping: durable-reread + finalization dual failure → 500, stage code + sanitized secondary, zero fetches', async () => {
   await seedSchedule([{ id: '5001' }]);
   stubJson([GAME_A()]); // must never be reached
 
@@ -1173,12 +1212,70 @@ test('cron shaping: durable-reread + finalization dual failure → 500 with BOTH
   }
   const body = (await res.json()) as RevalidationFailureBody;
   assert.equal(res.status, 500, JSON.stringify(body));
-  assert.match(body.error ?? '', /post-claim revalidation failed \(durable-reread\)/);
-  assert.match(body.error ?? '', /partition store down/, 'primary cause on the wire');
+  assert.equal(body.stage, 'durable-reread');
+  assert.equal(body.code, 'game-stats-revalidation-durable-reread-failed');
   assert.equal(body.recoveryFailureCode, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE);
-  assert.equal(body.recoveryFailures?.length, 1, 'secondary cause on the wire');
-  assert.equal(body.recoveryFailures?.[0]?.operation, 'stale-claim-finalize');
-  assert.match(body.recoveryFailures?.[0]?.detail ?? '', /recovery release store down/);
+  assert.equal(body.recoveryFailures?.length, 1);
+  assert.equal(body.recoveryFailures?.[0]?.dispositionPersistence, 'uncertain');
   assert.match(body.detail ?? '', /zero provider calls/);
+  assertNoRawLeak(body);
   assert.equal(fetchCalls, 0, 'no provider request was made');
+});
+
+test('cron shaping: a PRIMARY-ONLY reread failure (release succeeds) carries only the stage code, no metadata code', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  stubJson([GAME_A()]); // must never be reached
+
+  // Only the post-claim schedule reread fails; the release persists normally.
+  __setAppStateReadFailureForTests(new Error('schedule store down'), 'schedule', {
+    afterReads: 1,
+  });
+  let res: Awaited<ReturnType<typeof cronGet>>;
+  try {
+    res = await cronGet(cronRequest());
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+  const body = (await res.json()) as RevalidationFailureBody;
+  assert.equal(res.status, 500, JSON.stringify(body));
+  assert.equal(body.code, 'game-stats-revalidation-schedule-context-failed');
+  assert.equal(body.recoveryFailureCode, undefined, 'no recovery op failed → no metadata code');
+  assert.equal(body.recoveryFailures, undefined);
+  assert.equal(body.leaseMayRemainActive, false, 'the claim was released');
+  assertNoRawLeak(body);
+  assert.equal(fetchCalls, 0);
+});
+
+test('route shaping: a lost BEGIN marker is visible on a successful refresh (composite lifecycle)', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  // The begin marker write fails; the fetch thunk then clears the seam, so
+  // the terminal success record (and the evidence commit) persist normally.
+  fetchCalls = 0;
+  __setAppStateWriteFailureForTests(new Error('status begin down'), 'provider-refresh-status');
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    __setAppStateWriteFailureForTests(null);
+    return new Response(JSON.stringify([GAME_A()]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  let res: Response;
+  try {
+    res = await publicGet(refreshRequest());
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  const body = (await res.json()) as {
+    games: unknown[];
+    meta: { statusPublication?: { begin: string; terminal: string; complete: boolean } };
+  };
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.equal(body.games.length, 1, 'evidence committed and serves');
+  assert.deepEqual(
+    body.meta.statusPublication,
+    { begin: 'failed', terminal: 'persisted', complete: false },
+    'the incomplete lifecycle is visible, never implied complete'
+  );
+  assert.equal(fetchCalls, 1);
 });

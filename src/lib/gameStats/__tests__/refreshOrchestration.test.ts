@@ -648,14 +648,28 @@ test('dual failure: schedule-context reread AND release finalization both fail �
       }),
       (err: unknown) => {
         assert.ok(err instanceof GameStatsRecoveryRevalidationError, String(err));
-        assert.equal(err.code, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE, 'stable code');
+        // Stage-specific stable primary code; the raw cause is internal only.
         assert.equal(err.primary.stage, 'schedule-context');
-        assert.match(err.primary.detail, /schedule store down/, 'primary cause preserved');
+        assert.equal(err.primary.code, 'game-stats-revalidation-schedule-context-failed');
+        assert.match(
+          String(err.internalCause),
+          /schedule store down/,
+          'raw cause retained internally'
+        );
+        assert.ok(!err.primary.summary.includes('schedule store down'), 'summary is sanitized');
+        // A recovery-metadata op actually failed → both causes preserved.
+        assert.equal(err.recoveryMetadataFailed, true);
         assert.equal(err.recoveryFailures.length, 1, 'secondary cause preserved');
         assert.equal(err.recoveryFailures[0]!.operation, 'stale-claim-finalize');
-        assert.match(err.recoveryFailures[0]!.detail, /recovery release store down/);
         assert.equal(err.leaseMayRemainActive, true, 'uncertain release stays truthful');
         assert.equal(err.providerAccessOccurred, false, 'zero provider access');
+        // The PUBLIC projection carries the metadata code and sanitized secondary.
+        const pub = err.toPublic();
+        assert.equal(pub.code, 'game-stats-revalidation-schedule-context-failed');
+        assert.equal(pub.recoveryFailureCode, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE);
+        assert.equal(pub.recoveryFailures?.[0]?.dispositionPersistence, 'uncertain');
+        assert.ok(!JSON.stringify(pub).includes('schedule store down'), 'no raw cause on the wire');
+        assert.ok(!JSON.stringify(pub).includes('recovery release store down'));
         return true;
       }
     );
@@ -689,19 +703,110 @@ test('dual failure: durable-reread AND release finalization both fail — both c
       }),
       (err: unknown) => {
         assert.ok(err instanceof GameStatsRecoveryRevalidationError, String(err));
-        assert.equal(err.code, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE, 'stable code');
         assert.equal(err.primary.stage, 'durable-reread');
-        assert.match(err.primary.detail, /partition store down/, 'primary cause preserved');
+        assert.equal(err.primary.code, 'game-stats-revalidation-durable-reread-failed');
+        assert.match(String(err.internalCause), /partition store down/, 'raw cause internal only');
+        assert.equal(err.recoveryMetadataFailed, true);
         assert.equal(err.recoveryFailures.length, 1, 'secondary cause preserved');
         assert.equal(err.recoveryFailures[0]!.operation, 'stale-claim-finalize');
-        assert.match(err.recoveryFailures[0]!.detail, /recovery release store down/);
         assert.equal(err.leaseMayRemainActive, true);
         assert.equal(err.providerAccessOccurred, false);
+        const pub = err.toPublic();
+        assert.equal(pub.recoveryFailureCode, GAME_STATS_RECOVERY_METADATA_FAILURE_CODE);
+        assert.ok(!JSON.stringify(pub).includes('partition store down'));
         return true;
       }
     );
   } finally {
     __setAppStateReadFailureForTests(null);
     __setAppStateWriteFailureForTests(null);
+  }
+});
+
+test('primary-only: a schedule-context failure whose claim release SUCCEEDS carries no recovery-metadata code', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  const resolver = await loadGameStatsIdentityResolver();
+  const plan = planSingleCandidate(resolver);
+
+  // Only the schedule reread fails; the token-conditional release persists.
+  __setAppStateReadFailureForTests(new Error('schedule store down'), 'schedule');
+  try {
+    await assert.rejects(
+      claimAndRevalidateNextCandidate({ year: YEAR, now: NOW + 1000, candidates: plan.candidates }),
+      (err: unknown) => {
+        assert.ok(err instanceof GameStatsRecoveryRevalidationError, String(err));
+        assert.equal(err.primary.stage, 'schedule-context');
+        assert.equal(err.recoveryMetadataFailed, false, 'no recovery op failed');
+        assert.equal(err.leaseMayRemainActive, false, 'claim was released');
+        const pub = err.toPublic();
+        assert.equal(pub.code, 'game-stats-revalidation-schedule-context-failed');
+        assert.equal(
+          pub.recoveryFailureCode,
+          undefined,
+          'metadata code omitted when nothing failed'
+        );
+        assert.equal(pub.recoveryFailures, undefined);
+        assert.equal(pub.providerAccessOccurred, false);
+        return true;
+      }
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+});
+
+test('primary-only: a durable-reread failure whose release SUCCEEDS carries no recovery-metadata code', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  const resolver = await loadGameStatsIdentityResolver();
+  const plan = planSingleCandidate(resolver);
+
+  __setAppStateReadFailureForTests(new Error('partition store down'), 'game-stats');
+  try {
+    await assert.rejects(
+      claimAndRevalidateNextCandidate({ year: YEAR, now: NOW + 1000, candidates: plan.candidates }),
+      (err: unknown) => {
+        assert.ok(err instanceof GameStatsRecoveryRevalidationError, String(err));
+        assert.equal(err.primary.stage, 'durable-reread');
+        assert.equal(err.recoveryMetadataFailed, false);
+        assert.equal(err.toPublic().recoveryFailureCode, undefined);
+        return true;
+      }
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+});
+
+test('redaction: injected SQL/paths/tokens/secrets in the raw cause never reach the public projection', async () => {
+  await seedSchedule([{ id: '5001' }]);
+  const resolver = await loadGameStatsIdentityResolver();
+  const plan = planSingleCandidate(resolver);
+
+  const nasty =
+    "select * from app_state where key='/var/secrets/app.json'; token=abcd-SECRET-1234\n" +
+    'at Object.<anonymous> (/Users/zach/cfb-app/src/lib/server/appStateStore.ts:640:11)';
+  __setAppStateReadFailureForTests(new Error(nasty), 'schedule');
+  try {
+    await assert.rejects(
+      claimAndRevalidateNextCandidate({ year: YEAR, now: NOW + 1000, candidates: plan.candidates }),
+      (err: unknown) => {
+        assert.ok(err instanceof GameStatsRecoveryRevalidationError, String(err));
+        const serialized = JSON.stringify(err.toPublic());
+        for (const secret of [
+          'select * from',
+          '/var/secrets',
+          'SECRET',
+          'appStateStore.ts',
+          'token=',
+        ]) {
+          assert.ok(!serialized.includes(secret), `"${secret}" must not reach the wire`);
+        }
+        // The raw cause is still available INTERNALLY for server logs.
+        assert.match(String(err.internalCause), /SECRET/);
+        return true;
+      }
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
   }
 });
