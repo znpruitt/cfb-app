@@ -74,7 +74,18 @@ export type RevisionRepairRefusal =
   // CAS: the durable state changed since inspection (PLATFORM-086H3B-REPAIR-SAFETY-DOCS).
   | 'revision-repair-state-changed'
   | 'active-recovery-claim'
-  | 'floor-below-surviving-evidence'
+  // PLATFORM-086H3B-REPAIR-HIGH-WATER: the proposed floor is below the highest
+  // surviving same-lineage revision across ALL valid durable witnesses (partition
+  // stamp, revision ledger, committed status) — accepting it would let a later
+  // allocator reuse an already-committed revision.
+  | 'revision-repair-floor-below-surviving-history'
+  // A valid revision ledger (or committed status) is AHEAD of the surviving
+  // partition on the same lineage — `rebuild-ledger` must never reconstruct
+  // DOWNWARD (that would erase higher committed chronology / mask evidence loss).
+  | 'revision-repair-ledger-ahead-of-evidence'
+  // Durable witnesses disagree on lineage — resolve with adopt-lineage /
+  // establish-new-lineage, not rebuild-ledger.
+  | 'revision-repair-lineage-conflict'
   // PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION: a floor that cannot advance
   // safely — nonpositive, unsafe, or `Number.MAX_SAFE_INTEGER` — refused during
   // planning AND transactional apply validation.
@@ -89,6 +100,14 @@ export type RevisionRepairRefusal =
   // The durable store read/transaction failed — a REDACTED, typed refusal (the
   // raw storage error is logged server-side only, never returned).
   | 'revision-repair-planning-unavailable';
+
+/**
+ * Safe structured high-water summary for truthful planning output
+ * (PLATFORM-086H3B-REPAIR-HIGH-WATER): the highest surviving revision on the
+ * adopted lineage and which durable witnesses established it. Never exposes raw
+ * game rows or storage internals.
+ */
+export type SurvivingHighWater = { lineage: string; highWater: number; sources: string[] };
 
 /** Safe, structured partition view — never internal SQL/paths/tokens. */
 export type RevisionInspectionState = {
@@ -152,6 +171,8 @@ export type RevisionRepairAuditEntry = {
   };
   /** Historical lineage preserved when a new lineage supersedes it (§14). */
   supersededLineage?: string | null;
+  /** The surviving same-lineage high-water the plan validated against (§16). */
+  survivingHighWater?: SurvivingHighWater | null;
 };
 
 export type RevisionRepairRequest = {
@@ -173,6 +194,8 @@ export type RevisionRepairResult =
       dryRun: boolean;
       beforeDigest: string;
       afterState: RevisionRepairAuditEntry['afterState'];
+      /** Truthful planning output: the surviving high-water the plan cleared. */
+      survivingHighWater: SurvivingHighWater | null;
       auditRef: string;
     }
   | { ok: false; code: RevisionRepairRefusal; detail: string };
@@ -405,6 +428,7 @@ type RepairPlan =
       committedStamp: CommitStamp | null;
       partitionStamp: CommitStamp | null;
       supersededLineage: string | null;
+      survivingHighWater: SurvivingHighWater | null;
     }
   | { ok: false; code: RevisionRepairRefusal; detail: string };
 
@@ -418,13 +442,105 @@ function floorNotAdvanceable(floor: number): boolean {
   return !isValidRevision(floor) || floor >= Number.MAX_SAFE_INTEGER;
 }
 
+type CommittedWitness = {
+  lineage: string;
+  revision: number;
+  source: 'partition' | 'ledger' | 'status';
+};
+
+/** Every VALID same-lineage committed witness relevant to repair. */
+function collectCommittedWitnesses(state: RevisionInspectionState): CommittedWitness[] {
+  const witnesses: CommittedWitness[] = [];
+  if (state.partition.stamp) {
+    witnesses.push({
+      lineage: state.partition.stamp.lineage,
+      revision: state.partition.stamp.revision,
+      source: 'partition',
+    });
+  }
+  if (state.ledger) {
+    // A VALID revision ledger is a committed witness — it MUST participate in the
+    // high-water so repair can never rewrite it to a lower revision.
+    witnesses.push({
+      lineage: state.ledger.lineage,
+      revision: state.ledger.revision,
+      source: 'ledger',
+    });
+  }
+  if (state.status.committedStamp) {
+    witnesses.push({
+      lineage: state.status.committedStamp.lineage,
+      revision: state.status.committedStamp.revision,
+      source: 'status',
+    });
+  }
+  return witnesses;
+}
+
+function hasMalformedRevisionHistory(state: RevisionInspectionState): boolean {
+  return (
+    state.ledgerMarkerPresent ||
+    state.status.committedStampMarkerPresent ||
+    state.partition.stampClass === 'malformed' ||
+    state.partition.stampClass === 'revision-era-no-stamp'
+  );
+}
+
+/**
+ * A structured assessment of the surviving committed revision history across ALL
+ * valid durable witnesses (PLATFORM-086H3B-REPAIR-HIGH-WATER). Revisions are
+ * compared ONLY within one lineage — never across lineages.
+ */
+export type SurvivingHistoryAssessment =
+  | { kind: 'none' }
+  | { kind: 'conflicting-lineages'; lineages: string[] }
+  | { kind: 'malformed' }
+  | {
+      kind: 'one-lineage';
+      lineage: string;
+      highWater: number;
+      sources: string[];
+      /** Committed history (ledger/status) is ahead of the surviving partition. */
+      evidenceLossSuspected: boolean;
+    };
+
+function assessSurvivingHistory(state: RevisionInspectionState): SurvivingHistoryAssessment {
+  const witnesses = collectCommittedWitnesses(state);
+  const lineages = [...new Set(witnesses.map((w) => w.lineage))];
+  if (lineages.length > 1) return { kind: 'conflicting-lineages', lineages };
+  if (lineages.length === 0) {
+    return hasMalformedRevisionHistory(state) ? { kind: 'malformed' } : { kind: 'none' };
+  }
+  const lineage = lineages[0]!;
+  const same = witnesses.filter((w) => w.lineage === lineage);
+  const highWater = Math.max(...same.map((w) => w.revision));
+  const partitionRevision = same.find((w) => w.source === 'partition')?.revision ?? null;
+  const recorded = Math.max(
+    0,
+    ...same.filter((w) => w.source !== 'partition').map((w) => w.revision)
+  );
+  const evidenceLossSuspected =
+    partitionRevision === null ? recorded > 0 : recorded > partitionRevision;
+  return {
+    kind: 'one-lineage',
+    lineage,
+    highWater,
+    sources: same.map((w) => w.source),
+    evidenceLossSuspected,
+  };
+}
+
+/**
+ * The highest surviving committed revision for `lineage` across EVERY valid
+ * durable witness — the partition commit stamp, the revision LEDGER, and the
+ * committed refresh-status stamp (PLATFORM-086H3B-REPAIR-HIGH-WATER: the valid
+ * ledger was previously omitted, which let a repair floor below `ledger.revision`
+ * be accepted and permit revision reuse).
+ */
 function highestSurvivingSameLineage(state: RevisionInspectionState, lineage: string): number {
   let highest = 0;
-  if (state.partition.stamp && state.partition.stamp.lineage === lineage) {
-    highest = Math.max(highest, state.partition.stamp.revision);
-  }
-  if (state.status.committedStamp && state.status.committedStamp.lineage === lineage) {
-    highest = Math.max(highest, state.status.committedStamp.revision);
+  for (const w of collectCommittedWitnesses(state)) {
+    if (w.lineage === lineage) highest = Math.max(highest, w.revision);
   }
   return highest;
 }
@@ -464,6 +580,14 @@ function planRepair(
     repairAuditRef: auditRef,
   });
 
+  const assessment = assessSurvivingHistory(state);
+  const highWaterOf = (lineage: string): SurvivingHighWater => ({
+    lineage,
+    highWater: highestSurvivingSameLineage(state, lineage),
+    sources:
+      assessment.kind === 'one-lineage' && assessment.lineage === lineage ? assessment.sources : [],
+  });
+
   switch (request.action.kind) {
     case 'rebuild-ledger': {
       // Only safe when SURVIVING same-lineage partition evidence proves the
@@ -477,14 +601,34 @@ function planRepair(
             'rebuild-ledger requires a surviving partition with a valid commit stamp to derive the lineage and revision from',
         };
       }
-      // A committed status stamp of the SAME lineage may prove a higher floor.
-      const floor = highestSurvivingSameLineage(state, stamp.lineage);
+      // Witnesses must agree on lineage — a ledger/status on a different lineage
+      // is a conflict rebuild must not paper over.
+      if (assessment.kind === 'conflicting-lineages') {
+        return {
+          ok: false,
+          code: 'revision-repair-lineage-conflict',
+          detail: `surviving witnesses disagree on lineage (${assessment.lineages.join(', ')}); use adopt-lineage or establish-new-lineage`,
+        };
+      }
+      // A valid ledger (or committed status) AHEAD of the surviving partition on
+      // the same lineage → refuse rather than reconstruct DOWNWARD.
+      if (assessment.kind === 'one-lineage' && assessment.evidenceLossSuspected) {
+        return {
+          ok: false,
+          code: 'revision-repair-ledger-ahead-of-evidence',
+          detail: `committed history at revision ${assessment.highWater} is ahead of the surviving partition (revision ${stamp.revision}); rebuild would erase higher chronology — investigate before repairing`,
+        };
+      }
+      // Safe: ledger/status are absent, behind, or equal on the same lineage —
+      // rebuild UP to the highest surviving same-lineage revision (never down).
+      const highWater = highestSurvivingSameLineage(state, stamp.lineage);
       return {
         ok: true,
-        ledger: base(stamp.lineage, Math.max(stamp.revision, floor), 'repair'),
+        ledger: base(stamp.lineage, highWater, 'repair'),
         committedStamp: null, // rebuild does not touch the status stamp
         partitionStamp: null, // partition stamp already matches — unchanged
         supersededLineage: null,
+        survivingHighWater: highWaterOf(stamp.lineage),
       };
     }
     case 'adopt-lineage': {
@@ -499,13 +643,15 @@ function planRepair(
       if (typeof lineage !== 'string' || lineage.length === 0) {
         return { ok: false, code: 'invalid-action', detail: 'lineage must be a non-empty string' };
       }
-      // Never floor BELOW surviving same-lineage evidence.
+      // Never floor BELOW the highest surviving same-lineage revision across ALL
+      // valid witnesses (partition stamp, LEDGER, committed status), so the next
+      // allocator (`floor + 1`) can never reuse a committed revision.
       const survivingSame = highestSurvivingSameLineage(state, lineage);
       if (survivingSame > floor) {
         return {
           ok: false,
-          code: 'floor-below-surviving-evidence',
-          detail: `surviving same-lineage evidence at revision ${survivingSame} exceeds the requested floor ${floor}`,
+          code: 'revision-repair-floor-below-surviving-history',
+          detail: `surviving same-lineage history at revision ${survivingSame} exceeds the requested floor ${floor}; a later allocation would reuse a committed revision`,
         };
       }
       // A partition / ledger / status carrying a DIFFERENT lineage is a lineage
@@ -543,11 +689,14 @@ function planRepair(
       }
       return {
         ok: true,
+        // The floor is the LAST committed revision — the next allocator issues
+        // `floor + 1`, strictly above every surviving same-lineage revision.
         ledger: base(lineage, floor, 'repair'),
         committedStamp: { lineage, revision: floor },
         // Reconcile a PRESENT partition's metadata stamp (rows untouched).
         partitionStamp: state.partition.present ? { lineage, revision: floor } : null,
         supersededLineage: superseded,
+        survivingHighWater: highWaterOf(lineage),
       };
     }
     case 'establish-new-lineage': {
@@ -566,18 +715,26 @@ function planRepair(
           detail: 'floor must be a positive safe integer strictly below Number.MAX_SAFE_INTEGER',
         };
       }
-      const lineage = generateLineage();
+      // A GENUINELY different lineage from every surviving/abandoned one — the new
+      // lineage's revisions are NEVER numerically compared with the prior lineage.
+      const abandoned = new Set(collectCommittedWitnesses(state).map((w) => w.lineage));
+      let lineage = generateLineage();
+      while (abandoned.has(lineage)) lineage = generateLineage();
       const superseded =
         state.partition.stamp?.lineage ??
         state.status.committedStamp?.lineage ??
         state.ledger?.lineage ??
         null;
+      // Preserve the ABANDONED lineage's high-water in the planned audit — the old
+      // evidence is never reinterpreted as belonging to the new lineage.
+      const supersededHighWater = superseded ? highWaterOf(superseded) : null;
       return {
         ok: true,
         ledger: base(lineage, floor, 'repair'),
         committedStamp: { lineage, revision: floor },
         partitionStamp: state.partition.present ? { lineage, revision: floor } : null,
         supersededLineage: superseded,
+        survivingHighWater: supersededHighWater,
       };
     }
   }
@@ -643,7 +800,14 @@ export async function repairRevisionState(
         };
 
         if (dryRun) {
-          return { ok: true, dryRun: true, beforeDigest: loaded.digest, afterState, auditRef };
+          return {
+            ok: true,
+            dryRun: true,
+            beforeDigest: loaded.digest,
+            afterState,
+            survivingHighWater: plan.survivingHighWater,
+            auditRef,
+          };
         }
 
         // Apply-time re-validation of floor advanceability (again, transactionally)
@@ -695,10 +859,18 @@ export async function repairRevisionState(
           beforeDigest: loaded.digest,
           afterState,
           supersededLineage: plan.supersededLineage,
+          survivingHighWater: plan.survivingHighWater,
         };
         await txn.writeKey(REVISION_AUDIT_SCOPE, partitionKey, [...prior, entry]);
 
-        return { ok: true, dryRun: false, beforeDigest: loaded.digest, afterState, auditRef };
+        return {
+          ok: true,
+          dryRun: false,
+          beforeDigest: loaded.digest,
+          afterState,
+          survivingHighWater: plan.survivingHighWater,
+          auditRef,
+        };
       }
     );
   } catch (error) {

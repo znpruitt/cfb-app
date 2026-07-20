@@ -135,17 +135,37 @@ transactional apply):**
 A store failure returns a redacted `revision-repair-planning-unavailable` (raw
 storage/SQL/path/stack text is logged server-side only, never returned).
 
+**Surviving high-water (PLATFORM-086H3B-REPAIR-HIGH-WATER).** The highest
+surviving committed revision for a lineage is computed from **every** valid
+durable witness — the partition commit stamp, the **revision ledger**, and the
+committed refresh-status stamp — comparing revisions only WITHIN one lineage. **A
+valid ledger can never be lowered**, and no accepted plan may let a later
+allocator reuse a revision already represented by surviving history.
+
+**Floor semantics.** A repair `floor` is the **last committed revision** — the
+next allocator issues `floor + 1`. So `floor` must be **at or above** the surviving
+same-lineage high-water; then the next allocation is strictly above all surviving
+history.
+
 **Supported actions (the only ones):**
 
-1. **`rebuild-ledger`** — rebuild a missing/behind ledger from **surviving
-   same-lineage partition evidence**. Refuses malformed/stampless evidence.
+1. **`rebuild-ledger`** — rebuild a missing/behind ledger UP to the surviving
+   same-lineage high-water (never downward). Refuses malformed/stampless evidence,
+   a witness on a different lineage (`revision-repair-lineage-conflict`), and a
+   ledger/status **ahead** of the surviving partition
+   (`revision-repair-ledger-ahead-of-evidence` — rebuilding down would erase higher
+   chronology / mask evidence loss; use adopt- or establish- instead).
 2. **`adopt-lineage` `{ lineage, floor }`** — adopt an operator-attested restored
-   lineage and floor. Refuses a `floor` below surviving same-lineage evidence
-   (`floor-below-surviving-evidence`); requires `acknowledgeLineageConflict` when
-   surviving evidence carries a different/malformed lineage.
+   lineage and floor. Refuses a `floor` below the surviving same-lineage
+   high-water (`revision-repair-floor-below-surviving-history`) or a non-advanceable
+   floor; requires `acknowledgeLineageConflict` when surviving evidence carries a
+   different/malformed lineage.
 3. **`establish-new-lineage` `{ floor? }`** — after **acknowledged** evidence loss
-   (`acknowledgeEvidenceLoss` required), mint a new lineage at `floor` (default 1);
-   the superseded lineage is preserved in the audit trail.
+   (`acknowledgeEvidenceLoss` required), mint a **genuinely different** lineage at
+   `floor` (default 1); the new lineage's revisions are never numerically compared
+   with the abandoned one, and the prior lineage + its high-water are preserved in
+   the audit trail. Conflicting or suspected-lost history is resolved here (a new
+   lineage), never by reusing revisions.
 
 Repair **never alters game-stat rows or fabricates provider evidence.** It writes
 only the revision ledger, the committed-evidence status stamp (to establish a

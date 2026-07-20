@@ -11,6 +11,9 @@ import {
   type RevisionRepairAction,
 } from '../revisionRepair.ts';
 import { GAME_STATS_REVISION_SCOPE, type RevisionLedgerRecord } from '../revisionAuthority.ts';
+import { parseV2GameObservation } from '../contract.ts';
+import { mergeGameStatsPartitionRevisioned } from '../durableMerge.ts';
+import { setActivationState } from '../activationControl.ts';
 import type { CommitStamp } from '../revisionStamp.ts';
 import type { WeeklyGameStats } from '../types.ts';
 import { providerRefreshScopeKey, weekPartitionScope } from '../../providerRefreshScope.ts';
@@ -173,7 +176,7 @@ test('adopt-lineage refuses a floor below surviving same-lineage evidence', asyn
     req({ kind: 'adopt-lineage', lineage: 'L', floor: 2 }, d, { dryRun: false })
   );
   assert.equal(result.ok, false);
-  if (!result.ok) assert.equal(result.code, 'floor-below-surviving-evidence');
+  if (!result.ok) assert.equal(result.code, 'revision-repair-floor-below-surviving-history');
 });
 
 test('repair floors that cannot advance safely are refused (MAX / unsafe / nonpositive)', async () => {
@@ -466,4 +469,173 @@ test('audit availability: absent vs available(empty) vs unavailable(malformed/fa
   __setAppStateReadFailureForTests(new Error('audit store down'), AUDIT_SCOPE);
   assert.deepEqual(await readRevisionAuditTrail(ID), { state: 'unavailable' });
   __setAppStateReadFailureForTests(null);
+});
+
+// === PLATFORM-086H3B-REPAIR-HIGH-WATER ===
+
+/** Seed a partition stamp + optional ledger + optional committed status stamp. */
+async function seedHistory(opts: {
+  partitionStamp?: CommitStamp;
+  ledger?: { lineage: string; revision: number };
+  status?: CommitStamp;
+}): Promise<void> {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await setAppState('game-stats', KEY, partitionWith(opts.partitionStamp));
+  if (opts.ledger)
+    await setAppState(
+      GAME_STATS_REVISION_SCOPE,
+      KEY,
+      ledger(opts.ledger.lineage, opts.ledger.revision)
+    );
+  if (opts.status) {
+    await setAppState('provider-refresh-status', STATUS_KEY, { lastCommittedStamp: opts.status });
+  }
+}
+
+test('EXACT Codex regression: adopt-lineage L floor 5 with partition L/5, ledger L/10 → refused, ledger stays L/10', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 5 },
+    ledger: { lineage: 'L', revision: 10 },
+  });
+  const d = await digest();
+  const result = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 5 }, d, { dryRun: false })
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, 'revision-repair-floor-below-surviving-history');
+  assert.equal((await readLedger())?.revision, 10); // ledger NOT lowered
+});
+
+test('rebuild-ledger with partition L/5, ledger L/10 → refused (no downward reconstruction)', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 5 },
+    ledger: { lineage: 'L', revision: 10 },
+  });
+  const d = await digest();
+  const result = await repairRevisionState(req({ kind: 'rebuild-ledger' }, d, { dryRun: false }));
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, 'revision-repair-ledger-ahead-of-evidence');
+  assert.equal((await readLedger())?.revision, 10); // unchanged
+});
+
+test('the repair high-water includes the valid ledger and committed status', async () => {
+  // adopt floor must be >= max(partition, ledger, status) on the same lineage.
+  const cases: Array<{ p: number; l?: number; s?: number; hw: number }> = [
+    { p: 5, l: 10, hw: 10 },
+    { p: 5, l: 10, s: 8, hw: 10 },
+    { p: 5, l: 10, s: 12, hw: 12 },
+    { p: 10, s: 10, hw: 10 }, // no ledger
+    { p: 10, l: 5, s: 10, hw: 10 },
+    { p: 10, l: 10, s: 8, hw: 10 },
+  ];
+  for (const c of cases) {
+    await seedHistory({
+      partitionStamp: { lineage: 'L', revision: c.p },
+      ...(c.l ? { ledger: { lineage: 'L', revision: c.l } } : {}),
+      ...(c.s ? { status: { lineage: 'L', revision: c.s } } : {}),
+    });
+    const label = JSON.stringify(c);
+    // floor at the high-water is accepted; one below is refused.
+    const at = await repairRevisionState(
+      req({ kind: 'adopt-lineage', lineage: 'L', floor: c.hw }, await digest(), { dryRun: false })
+    );
+    assert.ok(at.ok, `accept floor==hw ${label}`);
+    if (at.ok)
+      assert.deepEqual(at.survivingHighWater, {
+        lineage: 'L',
+        highWater: c.hw,
+        sources: at.survivingHighWater!.sources,
+      });
+    await seedHistory({
+      partitionStamp: { lineage: 'L', revision: c.p },
+      ...(c.l ? { ledger: { lineage: 'L', revision: c.l } } : {}),
+      ...(c.s ? { status: { lineage: 'L', revision: c.s } } : {}),
+    });
+    const below = await repairRevisionState(
+      req({ kind: 'adopt-lineage', lineage: 'L', floor: c.hw - 1 }, await digest(), {
+        dryRun: false,
+      })
+    );
+    assert.equal(below.ok, false, `refuse floor<hw ${label}`);
+    if (!below.ok) assert.equal(below.code, 'revision-repair-floor-below-surviving-history', label);
+  }
+});
+
+test('rebuild-ledger raises a BEHIND ledger up to the high-water (never lowering)', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 10 },
+    ledger: { lineage: 'L', revision: 5 },
+    status: { lineage: 'L', revision: 10 },
+  });
+  const applied = await repairRevisionState(
+    req({ kind: 'rebuild-ledger' }, await digest(), { dryRun: false, apply: true })
+  );
+  assert.ok(applied.ok);
+  assert.equal((await readLedger())?.revision, 10); // raised 5 → 10, never down
+});
+
+test('conflicting-lineage witnesses refuse rebuild-ledger', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 5 },
+    ledger: { lineage: 'M', revision: 5 },
+  });
+  const result = await repairRevisionState(
+    req({ kind: 'rebuild-ledger' }, await digest(), { dryRun: false })
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, 'revision-repair-lineage-conflict');
+});
+
+test('establish-new-lineage after acknowledged loss uses a different lineage, preserving prior high-water', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'OLD', revision: 4 },
+    ledger: { lineage: 'OLD', revision: 9 },
+  });
+  const ok = await repairRevisionState(
+    req({ kind: 'establish-new-lineage', floor: 3 }, await digest(), {
+      dryRun: false,
+      acknowledgeEvidenceLoss: true,
+    })
+  );
+  assert.ok(ok.ok);
+  const led = await readLedger();
+  assert.notEqual(led?.lineage, 'OLD'); // genuinely different lineage
+  assert.equal(led?.revision, 3); // new-lineage floor (not compared to OLD's 9)
+  const audit = await auditEntries();
+  assert.equal(audit[0]!.supersededLineage, 'OLD');
+  assert.equal(audit[0]!.survivingHighWater?.highWater, 9); // OLD's high-water preserved
+});
+
+test('NON-REUSE: after an accepted repair, the next allocation is strictly above all surviving history', async () => {
+  // partition L/5, ledger L/10 — adopt at the high-water (10), then allocate.
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 5 },
+    ledger: { lineage: 'L', revision: 10 },
+  });
+  const applied = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 10 }, await digest(), {
+      dryRun: false,
+      apply: true,
+    })
+  );
+  assert.ok(applied.ok);
+  assert.equal((await readLedger())?.revision, 10);
+
+  // The next revisioned allocation must issue a revision strictly above 10.
+  assert.ok((await setActivationState('armed')).ok);
+  assert.ok((await setActivationState('active')).ok);
+  const parsed = parseV2GameObservation(wireGame({ id: 1, home: { points: 41 } }));
+  assert.ok(parsed.ok);
+  const merge = await mergeGameStatsPartitionRevisioned({
+    ...ID,
+    fetchStartedAt: '2024-10-08T00:00:00.000Z',
+    observations: parsed.ok ? [parsed.observation] : [],
+  });
+  assert.equal(merge.outcome, 'written');
+  assert.equal(merge.commit!.stamp.lineage, 'L');
+  assert.ok(
+    merge.commit!.stamp.revision > 10,
+    `revision ${merge.commit!.stamp.revision} must exceed 10`
+  );
 });
