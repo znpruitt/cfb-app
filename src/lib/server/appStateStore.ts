@@ -53,6 +53,33 @@ let __keyLockFailureScopeForTests: string | null = null;
 // test can fail a `'schedule'` read while `'provider-refresh-status'` reads still
 // succeed). Null means the failure applies to every scope. Always null outside tests.
 let __readFailureScopeForTests: string | null = null;
+// Test-only: when set, the file-fallback transaction COMMIT (the single atomic
+// staged-snapshot replacement) throws this instead of applying, leaving the
+// prior file intact — so the all-or-nothing rollback of a multi-key staged
+// transaction can be exercised. See `__setAppStateFileCommitFailureForTests`.
+// Always null outside tests.
+let __fileCommitFailureForTests: Error | null = null;
+
+/** Shared test-only write-failure predicate (plain `setAppState` AND the
+ * staged file-transaction writes both consult it). Inert in production. */
+function shouldFailWriteForTests(scope: string): boolean {
+  return Boolean(
+    __writeFailureForTests &&
+      (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope)
+  );
+}
+
+/** Shared test-only read-failure seam (plain `getAppState` AND the staged
+ * file-transaction reads both consult it, so a transaction read honors the same
+ * injected failure a plain read would). Inert in production. */
+function applyReadFailureSeamForTests(scope: string): void {
+  if (
+    __readFailureForTests &&
+    (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
+  ) {
+    throw __readFailureForTests;
+  }
+}
 
 function dataDir(): string {
   return path.join(process.cwd(), 'data');
@@ -307,11 +334,46 @@ export async function assertAppStateWritable(): Promise<void> {
 // (`read`/`write` then throw), so callback code cannot retain the client past
 // finalization.
 //
-// The file fallback (dev/tests only — production requires DATABASE_URL) has no
-// cross-process authority, so it serializes with a per-(scope,key) in-process
-// promise chain (cleaned up when the tail settles); the durable transaction is
-// the production correctness boundary, and the whole-file `withFileWriteLock`
-// below it still protects the snapshot rename either way.
+// Multi-key transactions (PLATFORM-086H3A): the accessor also exposes
+// `readKey`/`writeKey`/`lockKey` for narrowly scoped SECONDARY (scope, key)
+// access within the SAME transaction, so a lock-owning critical section can
+// atomically co-commit closely related bookkeeping (e.g. a companion ledger
+// row) with its primary write — all touched keys persist together or none do.
+//   - Postgres: every secondary read/write/lock runs on the SAME single client
+//     inside the one BEGIN/COMMIT boundary. `readKey`/`writeKey` take NO
+//     additional advisory lock — the caller must guarantee that every writer of
+//     that secondary key already serializes on the PRIMARY key's lock.
+//     `lockKey` is the EXPLICIT opt-in for a secondary key that has independent
+//     writers: it takes that key's own `pg_advisory_xact_lock` on this client
+//     (released at COMMIT/ROLLBACK). Acquisition order is ENFORCED, not left to
+//     caller discipline: the auto-acquired primary lock is the first held
+//     identity and every `lockKey` must sort strictly above the highest held
+//     canonical `(scope, key)` identity, else it is rejected fail-fast with
+//     `AppStateTxnLockOrderError` BEFORE any wait/query — so opposite-root
+//     transactions can never invert and deadlock. Reacquiring an already-held
+//     lock is an idempotent no-op.
+//   - File fallback: the transaction is STAGED. One snapshot is loaded at first
+//     access; reads serve staged values first (read-your-writes) and untouched
+//     keys from the snapshot; writes stage in memory. A successful callback
+//     commits ALL staged keys in ONE atomic file replacement under the
+//     whole-file write lock — the live file is REREAD inside that lock and only
+//     the staged keys are overlaid, so a concurrent writer of an UNRELATED key
+//     is never clobbered. A callback throw discards every staged write; a failed
+//     serialization/replacement leaves the previous file intact and surfaces a
+//     typed `AppStateTxnFinalizeError` (`writeAttempted: false` — the atomic
+//     rename proves NOTHING staged became durable). Partial persistence of a
+//     multi-key transaction is therefore impossible on either backend.
+//
+// Accessor lifetime: every accessor method (primary and secondary) fails with
+// "already finished" once the callback settles, so retained references cannot
+// bypass the transaction after it closes.
+//
+// Backend guarantee: the file fallback provides the required in-process
+// atomicity for the SUPPORTED dev/test fallback ONLY. It does NOT provide
+// cross-process filesystem locking; production correctness requires PostgreSQL
+// (DATABASE_URL), whose single-client advisory-locked transaction is the
+// authoritative boundary. The whole-file `withFileWriteLock` below protects the
+// snapshot rename either way.
 
 export class AppStateKeyLockAcquireError extends Error {
   /** Set when the post-failure ROLLBACK also failed (client destroyed). */
@@ -369,10 +431,195 @@ export class AppStateTxnCleanupError extends Error {
   }
 }
 
-/** Transaction-scoped accessor for exactly one (scope, key). */
+/**
+ * A `lockKey` acquisition would VIOLATE the monotonic canonical lock order — it
+ * requested a lock identity that does not sort strictly ABOVE one this
+ * transaction already holds. Rejected FAIL-FAST (before any wait or
+ * advisory-lock query), so two transactions rooted at opposite keys can never
+ * deadlock (PostgreSQL) or indefinitely wedge the file-fallback chain. Distinct
+ * from store unavailability (`AppStateKeyLockAcquireError`), commit/finalization
+ * uncertainty (`AppStateTxnFinalizeError`), cleanup failure
+ * (`AppStateTxnCleanupError`), and expired-accessor use (`already finished`).
+ * A caller MAY catch this rejection (or leave the `lockKey` promise un-awaited)
+ * and let the callback keep running — but a `lockKey` is a REQUIRED lock, so the
+ * enclosing transaction is now POISONED: it can never commit successfully.
+ * Catching or discarding the rejection cannot un-poison it; finalization rolls
+ * back / discards staged writes and rejects (with the retained lock failure, or
+ * — when the callback ALSO fails — an `AppStateTxnCallbackLockError`).
+ */
+export class AppStateTxnLockOrderError extends Error {
+  /** Canonical serialized identity the caller tried to lock (`["scope","key"]`). */
+  readonly attempted: string;
+  /** Highest canonical serialized identity already held by this transaction. */
+  readonly highestAcquired: string;
+  constructor(attempted: string, highestAcquired: string) {
+    super(
+      `app-state lock-order violation: cannot acquire ${attempted} after ${highestAcquired} ` +
+        '— transaction locks must be acquired in ascending canonical (scope, key) order'
+    );
+    this.name = 'AppStateTxnLockOrderError';
+    this.attempted = attempted;
+    this.highestAcquired = highestAcquired;
+  }
+}
+
+type LockTuple = { scope: string; key: string };
+type LockAcquisitionOrder = 'forward' | 'held' | 'backward';
+
+/**
+ * The FIRST failed `lockKey` acquisition retained for a transaction. A failed
+ * acquisition is a REQUIRED-lock failure: it poisons the enclosing transaction
+ * (which then may not commit) even if the caller never awaited, caught, or kept
+ * the individual `lockKey` promise. Retains the original typed error, the
+ * requested identity, and whether it was an ordering rejection or a backend
+ * acquisition failure.
+ */
+export type RetainedLockFailure = {
+  error: unknown;
+  scope: string;
+  key: string;
+  kind: 'ordering' | 'acquisition';
+};
+
+function retainedLockFailure(scope: string, key: string, error: unknown): RetainedLockFailure {
+  return {
+    error,
+    scope,
+    key,
+    kind: error instanceof AppStateTxnLockOrderError ? 'ordering' : 'acquisition',
+  };
+}
+
+/**
+ * BOTH the transaction callback and a REQUIRED `lockKey` acquisition failed.
+ *
+ * A TOTAL, nonthrowing dual representation for EVERY JavaScript throw shape —
+ * an ordinary/frozen/non-extensible/typed `Error`, or a primitive/`null`/
+ * `undefined`: the callback-thrown value is retained as `cause` (the PRIMARY
+ * failure) and the retained lock failure (original typed lock error + scope +
+ * key + kind) as `lockFailure`. The callback value is NEVER mutated, so a
+ * preexisting unrelated `lockFailure` property on it is preserved untouched
+ * inside `cause`. When the callback merely PROPAGATED the lock rejection (the
+ * same object), the primitive throws that lock error DIRECTLY instead of
+ * wrapping it, so the caller still observes the original typed lock error.
+ */
+export class AppStateTxnCallbackLockError extends Error {
+  /** The callback-thrown value (any shape) — the primary failure. */
+  readonly cause: unknown;
+  /** The retained required-lock failure (typed error + scope/key/kind). */
+  readonly lockFailure: RetainedLockFailure;
+  constructor(cause: unknown, lockFailure: RetainedLockFailure) {
+    super('app-state transaction callback failed and a required lock acquisition failed');
+    this.name = 'AppStateTxnCallbackLockError';
+    this.cause = cause;
+    this.lockFailure = lockFailure;
+  }
+}
+
+// Test-only observer fired at the MOMENT the dual error is constructed, so a
+// temporal regression can assert backend cleanup already completed (rollback +
+// client containment, or every file-lock slot release). Inert (null) outside
+// tests; never a runtime configuration surface.
+let __onDualErrorConstructForTests: (() => void) | null = null;
+
+/**
+ * Combine a callback-thrown value with a required-lock failure into ONE typed,
+ * inspectable primary error — TOTAL and NONTHROWING for every throw shape (no
+ * mutation of the callback value). Constructed only AFTER backend cleanup
+ * completes (rollback + client containment on PostgreSQL; every file-lock slot
+ * release on the file fallback). When the callback simply propagated the lock
+ * rejection (same object), returns that lock error unchanged so its original
+ * class is preserved.
+ */
+function combineCallbackAndLockFailure(
+  callbackError: unknown,
+  lockFailure: RetainedLockFailure | null
+): unknown {
+  if (!lockFailure) return callbackError;
+  if (callbackError === lockFailure.error) return callbackError;
+  __onDualErrorConstructForTests?.();
+  return new AppStateTxnCallbackLockError(callbackError, lockFailure);
+}
+
+/**
+ * File-fallback DEFERRED dual failure: carried out of the lock-owning `invoke`
+ * section so the public `AppStateTxnCallbackLockError` is shaped ONLY after the
+ * primary and every secondary file-lock slot have been released. Never escapes
+ * `withAppStateKeyTransaction`.
+ */
+class DeferredFileDualFailure {
+  constructor(
+    readonly callbackError: unknown,
+    readonly lockFailure: RetainedLockFailure
+  ) {}
+}
+
+/**
+ * The canonical, INJECTIVE serialized identity of an app-state lock target —
+ * `JSON.stringify([scope, key])`. Distinct `(scope, key)` tuples ALWAYS produce
+ * distinct identities (unlike a delimiter-concatenated encoding, where e.g.
+ * `('a::b','c')` and `('a','b::c')` collide), and it survives arbitrary
+ * delimiter/quote/Unicode characters. Used IDENTICALLY on both backends for
+ * held-lock tracking, file lock-chain keys, and the PostgreSQL advisory-lock
+ * hash input. Generic app-state infrastructure with no dataset-specific policy.
+ *
+ * NOTE: this is LOCK identity only. Persisted app-state ROW identity remains
+ * `buildCompositeKey` (`${scope}::${key}`) — the durable storage key is
+ * unchanged, so this unification never migrates persisted data.
+ */
+function appStateLockIdentity(scope: string, key: string): string {
+  return JSON.stringify([scope, key]);
+}
+
+/** Deterministic tuple ordering: compare `scope`, then `key`, lexically. */
+function compareLockTuples(a: LockTuple, b: LockTuple): number {
+  if (a.scope < b.scope) return -1;
+  if (a.scope > b.scope) return 1;
+  if (a.key < b.key) return -1;
+  if (a.key > b.key) return 1;
+  return 0;
+}
+
+/**
+ * Monotonic-acquisition decision for one `lockKey` request: a lock already held
+ * (by injective identity) is idempotent (`held`); a candidate tuple sorting
+ * strictly ABOVE the highest successfully-held tuple is a legal `forward`
+ * acquisition; anything else is `backward` and must be rejected fail-fast.
+ * Deterministic and timing-independent.
+ */
+function classifyLockAcquisition(
+  candidate: LockTuple,
+  candidateId: string,
+  highestAcquired: LockTuple,
+  heldLocks: ReadonlySet<string>
+): LockAcquisitionOrder {
+  if (heldLocks.has(candidateId)) return 'held';
+  return compareLockTuples(candidate, highestAcquired) > 0 ? 'forward' : 'backward';
+}
+
+/**
+ * Transaction-scoped accessor for one PRIMARY (scope, key) — the advisory-lock
+ * target — plus narrowly scoped SECONDARY-key access within the SAME
+ * transaction (PLATFORM-086H3A).
+ *
+ * `read`/`write` operate on the primary key. `readKey`/`writeKey` reach a
+ * secondary key WITHOUT taking any additional lock (the caller guarantees that
+ * key's writers already serialize on the primary lock). `lockKey` is the
+ * EXPLICIT secondary lock for a key with independent writers. The
+ * automatically-acquired PRIMARY lock counts as the transaction's first
+ * acquired lock, and every `lockKey` is ENFORCED to be monotonic: a request
+ * that does not sort strictly above the highest already-held canonical
+ * `(scope, key)` identity is rejected fail-fast with `AppStateTxnLockOrderError`
+ * (a reacquisition of an already-held lock is an idempotent no-op) — so
+ * ordering is a guarantee of the primitive, not caller discipline. Every method
+ * rejects once the transaction callback has settled.
+ */
 export type AppStateKeyTxn = {
   read<T>(): Promise<AppStateRecord<T> | null>;
   write<T>(value: T): Promise<void>;
+  readKey<T>(scope: string, key: string): Promise<AppStateRecord<T> | null>;
+  writeKey<T>(scope: string, key: string, value: T): Promise<void>;
+  lockKey(scope: string, key: string): Promise<void>;
 };
 
 const keyLockChains = new Map<string, Promise<unknown>>();
@@ -408,43 +655,122 @@ export async function withAppStateKeyTransaction<T>(
     let txnFailed = false;
     // The ACTUAL first statement failure — never replaced by a placeholder.
     let firstStatementFailure: unknown = null;
+    // Lock-order tracking: the auto-acquired PRIMARY lock is the first held
+    // identity; every `lockKey` must sort strictly above the highest SUCCESSFULLY
+    // held tuple. `heldLocks` stores injective serialized identities.
+    const heldLocks = new Set<string>([appStateLockIdentity(scope, key)]);
+    let highestAcquired: LockTuple = { scope, key };
+    // `lockKey` requests are SERIALIZED per transaction: each classifies and
+    // acquires (or rejects) fully before the next runs, so overlapping calls
+    // acquire in invocation order and never classify against stale state. The
+    // FIRST failure is retained to POISON finalization regardless of whether the
+    // caller awaited/caught it.
+    let lockQueue: Promise<unknown> = Promise.resolve();
+    let firstLockFailure: RetainedLockFailure | null = null;
+    const currentLockFailure = (): RetainedLockFailure | null => firstLockFailure;
+    const drainLocks = (): Promise<void> =>
+      lockQueue.then(
+        () => undefined,
+        () => undefined
+      );
+    const readRow = async <V>(
+      rowScope: string,
+      rowKey: string
+    ): Promise<AppStateRecord<V> | null> => {
+      if (finished) throw new Error('app-state key transaction already finished');
+      try {
+        const result = await client.query<{ value: V; updated_at: Date | string }>(
+          'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
+          [rowScope, rowKey]
+        );
+        const row = result.rows[0];
+        if (!row) return null;
+        return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
+      } catch (error) {
+        txnFailed = true;
+        firstStatementFailure ??= error;
+        throw error;
+      }
+    };
+    const writeRow = async <V>(rowScope: string, rowKey: string, value: V): Promise<void> => {
+      if (finished) throw new Error('app-state key transaction already finished');
+      writeAttempted = true;
+      try {
+        await client.query(
+          `
+            insert into app_state (scope, key, value, updated_at)
+            values ($1, $2, $3::jsonb, $4::timestamptz)
+            on conflict (scope, key)
+            do update set value = excluded.value, updated_at = excluded.updated_at
+          `,
+          [rowScope, rowKey, JSON.stringify(value), new Date().toISOString()]
+        );
+        writeAcknowledged = true;
+      } catch (error) {
+        txnFailed = true;
+        firstStatementFailure ??= error;
+        throw error;
+      }
+    };
+    const acquireLock = async (rowScope: string, rowKey: string): Promise<void> => {
+      if (finished) throw new Error('app-state key transaction already finished');
+      const candidateId = appStateLockIdentity(rowScope, rowKey);
+      const order = classifyLockAcquisition(
+        { scope: rowScope, key: rowKey },
+        candidateId,
+        highestAcquired,
+        heldLocks
+      );
+      // Idempotent reacquisition: already held, never re-query.
+      if (order === 'held') return;
+      // Backward acquisition: reject FAIL-FAST — before mutating lock state or
+      // issuing the advisory-lock query — so this client never enters a wait
+      // that could deadlock against an opposite-root transaction. The
+      // transaction is NOT aborted; a caller may catch this and continue.
+      if (order === 'backward') {
+        throw new AppStateTxnLockOrderError(
+          candidateId,
+          appStateLockIdentity(highestAcquired.scope, highestAcquired.key)
+        );
+      }
+      try {
+        // The SAME transaction-scoped advisory lock a transaction ROOTED at
+        // (rowScope, rowKey) would take, on this client — released at
+        // COMMIT/ROLLBACK. Hash input is the INJECTIVE identity.
+        await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [candidateId]);
+        // State advances ONLY after the lock is genuinely acquired.
+        heldLocks.add(candidateId);
+        highestAcquired = { scope: rowScope, key: rowKey };
+      } catch (error) {
+        txnFailed = true;
+        firstStatementFailure ??= error;
+        throw error;
+      }
+    };
+    // Serialize acquisition in invocation order: request N fully settles (or
+    // rejects) before request N+1 classifies, so overlapping/`Promise.all`
+    // calls acquire exactly as sequentially-awaited ones would. The internal
+    // scheduling tail NEVER rejects (no unhandled-rejection noise) but retains
+    // the first failure so finalization can poison the transaction — observing
+    // the rejection here does NOT erase it from finalization, and the returned
+    // promise still rejects with the original typed error for the caller.
+    const lockRow = (rowScope: string, rowKey: string): Promise<void> => {
+      const run = lockQueue.then(() => acquireLock(rowScope, rowKey));
+      lockQueue = run.then(
+        () => undefined,
+        (error) => {
+          firstLockFailure ??= retainedLockFailure(rowScope, rowKey, error);
+          return undefined;
+        }
+      );
+      return run;
+    };
     const txn: AppStateKeyTxn = {
-      async read<V>(): Promise<AppStateRecord<V> | null> {
-        if (finished) throw new Error('app-state key transaction already finished');
-        try {
-          const result = await client.query<{ value: V; updated_at: Date | string }>(
-            'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
-            [scope, key]
-          );
-          const row = result.rows[0];
-          if (!row) return null;
-          return { value: row.value, updatedAt: new Date(row.updated_at).toISOString() };
-        } catch (error) {
-          txnFailed = true;
-          firstStatementFailure ??= error;
-          throw error;
-        }
-      },
-      async write<V>(value: V): Promise<void> {
-        if (finished) throw new Error('app-state key transaction already finished');
-        writeAttempted = true;
-        try {
-          await client.query(
-            `
-              insert into app_state (scope, key, value, updated_at)
-              values ($1, $2, $3::jsonb, $4::timestamptz)
-              on conflict (scope, key)
-              do update set value = excluded.value, updated_at = excluded.updated_at
-            `,
-            [scope, key, JSON.stringify(value), new Date().toISOString()]
-          );
-          writeAcknowledged = true;
-        } catch (error) {
-          txnFailed = true;
-          firstStatementFailure ??= error;
-          throw error;
-        }
-      },
+      read: <V>() => readRow<V>(scope, key),
+      write: <V>(value: V) => writeRow(scope, key, value),
+      readKey: readRow,
+      writeKey: writeRow,
+      lockKey: lockRow,
     };
 
     // Client containment: a client whose transaction state is uncertain —
@@ -490,7 +816,7 @@ export async function withAppStateKeyTransaction<T>(
       try {
         await client.query('begin');
         await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
-          `${scope}/${key}`,
+          appStateLockIdentity(scope, key),
         ]);
       } catch (error) {
         const cleanup = await tryRollback();
@@ -506,14 +832,52 @@ export async function withAppStateKeyTransaction<T>(
       let result: T;
       try {
         result = await fn(txn);
+        // Finalization must not race a `lockKey` invoked during the callback
+        // that is still queued/in flight — drain BEFORE any commit or client
+        // release, so no lock query overlaps COMMIT on this one client. The
+        // drain also settles the retained-failure state.
+        await drainLocks();
       } catch (error) {
+        await drainLocks();
+        // CLEANUP FIRST, then shape: roll back and CONTAIN the client (release or
+        // destroy) BEFORE constructing the final typed error. Construction is
+        // total and nonthrowing, and never runs while this transaction still
+        // owns the client.
         const cleanup = await tryRollback();
         if (cleanup.ok) {
           releaseHealthy();
-          throw error;
+          throw combineCallbackAndLockFailure(error, currentLockFailure());
+        }
+        // Rollback ALSO failed: destroy the uncertain client, THEN construct the
+        // dual error (callback primary, lock secondary) and wrap it with the
+        // cleanup uncertainty via the existing typed contract.
+        releaseDestroy(cleanup.error);
+        const primary = combineCallbackAndLockFailure(error, currentLockFailure());
+        throw new AppStateTxnCleanupError(
+          primary,
+          cleanup.error,
+          writeAttempted,
+          writeAcknowledged
+        );
+      }
+
+      // Callback SUCCEEDED, but a required `lockKey` acquisition failed: the
+      // transaction is POISONED. Roll back and throw the retained lock failure —
+      // the callback's success value must never escape after this rollback.
+      const lockFailure = currentLockFailure();
+      if (lockFailure) {
+        const cleanup = await tryRollback();
+        if (cleanup.ok) {
+          releaseHealthy();
+          throw lockFailure.error;
         }
         releaseDestroy(cleanup.error);
-        throw new AppStateTxnCleanupError(error, cleanup.error, writeAttempted, writeAcknowledged);
+        throw new AppStateTxnCleanupError(
+          lockFailure.error,
+          cleanup.error,
+          writeAttempted,
+          writeAcknowledged
+        );
       }
 
       if (txnFailed) {
@@ -552,42 +916,220 @@ export async function withAppStateKeyTransaction<T>(
     }
   }
 
-  // File fallback: single-process serialization; reads/writes are immediately
-  // durable (no transaction), so finalization cannot fail here. The accessor
-  // honors the SAME lifetime contract as the Postgres branch: once the
-  // callback settles, retained read/write calls fail instead of bypassing the
-  // per-key chain.
-  const lockKey = buildCompositeKey(scope, key);
+  // File fallback (dev/tests only — production requires DATABASE_URL). Same-key
+  // callbacks serialize on the in-process chain; the transaction itself is
+  // STAGED. One snapshot is loaded at first access, reads serve staged values
+  // first (read-your-writes) and untouched keys from the snapshot, and every
+  // write stages in memory. A successful callback commits ALL staged keys in
+  // ONE atomic replacement under the whole-file write lock (the live file is
+  // reread inside that lock and only the staged keys overlaid, so a concurrent
+  // writer of an unrelated key is never clobbered). A callback throw discards
+  // every staged write; a failed replacement leaves the previous file intact
+  // and surfaces a typed finalize failure with `writeAttempted: false`. The
+  // accessor honors the SAME lifetime contract as the Postgres branch.
+  // Lock-chain identity is the INJECTIVE lock identity; the persisted staged
+  // rows keep their `buildCompositeKey` ROW identity (durable key unchanged).
+  const primaryLockId = appStateLockIdentity(scope, key);
   let fileFinished = false;
+  let snapshot: Record<string, StoredEntry> | null = null;
+  const staged = new Map<string, StoredEntry>();
+  // Lock-order tracking mirrors the Postgres branch: the primary slot is the
+  // first held identity; `lockKey` must sort strictly above the highest
+  // SUCCESSFULLY held tuple. `heldSlots` stores injective serialized identities.
+  const heldSlots = new Set<string>([primaryLockId]);
+  let highestAcquired: LockTuple = { scope, key };
+  const heldSlotReleases: Array<() => void> = [];
+  // `lockKey` requests are SERIALIZED in invocation order (see the Postgres
+  // branch): each fully acquires or rejects before the next classifies. The
+  // first failure is retained to POISON finalization regardless of caller
+  // awaiting/catching.
+  let lockQueue: Promise<unknown> = Promise.resolve();
+  let firstLockFailure: RetainedLockFailure | null = null;
+  const currentLockFailure = (): RetainedLockFailure | null => firstLockFailure;
+  const drainLocks = (): Promise<void> =>
+    lockQueue.then(
+      () => undefined,
+      () => undefined
+    );
+
+  const ensureSnapshot = async (): Promise<Record<string, StoredEntry>> => {
+    if (snapshot === null) snapshot = await readFileStore();
+    return snapshot;
+  };
+  const readStaged = async <V>(
+    rowScope: string,
+    rowKey: string
+  ): Promise<AppStateRecord<V> | null> => {
+    if (fileFinished) throw new Error('app-state key transaction already finished');
+    // Honor the same read-failure seam a plain `getAppState` would (parity with
+    // the pre-staging file accessor, which read through `getAppState`).
+    applyReadFailureSeamForTests(rowScope);
+    const ck = buildCompositeKey(rowScope, rowKey);
+    const stagedEntry = staged.get(ck);
+    if (stagedEntry) return { value: stagedEntry.value as V, updatedAt: stagedEntry.updatedAt };
+    const entries = await ensureSnapshot();
+    const entry = entries[ck];
+    if (!entry) return null;
+    return { value: entry.value as V, updatedAt: entry.updatedAt };
+  };
+  const writeStaged = async <V>(rowScope: string, rowKey: string, value: V): Promise<void> => {
+    if (fileFinished) throw new Error('app-state key transaction already finished');
+    // Mirror `setAppState`'s scoped write-failure seam so a secondary-write
+    // failure rolls the whole staged transaction back at stage time.
+    if (shouldFailWriteForTests(rowScope)) throw __writeFailureForTests;
+    staged.set(buildCompositeKey(rowScope, rowKey), {
+      value,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+  const acquireKeySlot = async (rowScope: string, rowKey: string): Promise<void> => {
+    if (fileFinished) throw new Error('app-state key transaction already finished');
+    const lockId = appStateLockIdentity(rowScope, rowKey);
+    const order = classifyLockAcquisition(
+      { scope: rowScope, key: rowKey },
+      lockId,
+      highestAcquired,
+      heldSlots
+    );
+    // Idempotent reacquisition of an already-held slot.
+    if (order === 'held') return;
+    // Backward acquisition: reject FAIL-FAST — before enqueueing on the key's
+    // chain or mutating lock state — so this transaction never awaits a slot
+    // that could wedge the chain against an opposite-root transaction. Nothing
+    // is staged or persisted.
+    if (order === 'backward') {
+      throw new AppStateTxnLockOrderError(
+        lockId,
+        appStateLockIdentity(highestAcquired.scope, highestAcquired.key)
+      );
+    }
+    // Reserve the chain slot synchronously (invocation order), release it even
+    // if we never actually take it, but DO NOT mark it held / advance the
+    // highest tuple until the slot is genuinely acquired.
+    const prevTail = keyLockChains.get(lockId) ?? Promise.resolve();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const slotTail = prevTail
+      .then(
+        () => held,
+        () => held
+      )
+      .then(
+        () => undefined,
+        () => undefined
+      );
+    keyLockChains.set(lockId, slotTail);
+    void slotTail.then(() => {
+      if (keyLockChains.get(lockId) === slotTail) keyLockChains.delete(lockId);
+    });
+    heldSlotReleases.push(release);
+    await prevTail.then(
+      () => undefined,
+      () => undefined
+    );
+    // The slot is now ours — advance lock-order state ONLY after acquisition.
+    heldSlots.add(lockId);
+    highestAcquired = { scope: rowScope, key: rowKey };
+    // Refresh this key's snapshot entry (ROW identity) from the live file so the
+    // now-serialized read observes the latest committed value.
+    const rowId = buildCompositeKey(rowScope, rowKey);
+    const live = await readFileStore();
+    const entries = await ensureSnapshot();
+    if (live[rowId]) entries[rowId] = live[rowId];
+    else delete entries[rowId];
+  };
+  // Serialize acquisition in invocation order (see the Postgres branch); the
+  // scheduling tail never rejects but retains the first failure to poison
+  // finalization, while the returned promise still rejects for the caller.
+  const lockKeySlot = (rowScope: string, rowKey: string): Promise<void> => {
+    const run = lockQueue.then(() => acquireKeySlot(rowScope, rowKey));
+    lockQueue = run.then(
+      () => undefined,
+      (error) => {
+        firstLockFailure ??= retainedLockFailure(rowScope, rowKey, error);
+        return undefined;
+      }
+    );
+    return run;
+  };
   const txn: AppStateKeyTxn = {
-    read: async <V>() => {
-      if (fileFinished) throw new Error('app-state key transaction already finished');
-      return await getAppState<V>(scope, key);
-    },
-    write: async <V>(value: V) => {
-      if (fileFinished) throw new Error('app-state key transaction already finished');
-      await setAppState(scope, key, value);
-    },
+    read: <V>() => readStaged<V>(scope, key),
+    write: <V>(value: V) => writeStaged(scope, key, value),
+    readKey: readStaged,
+    writeKey: writeStaged,
+    lockKey: lockKeySlot,
   };
   const invoke = async (): Promise<T> => {
     try {
-      return await fn(txn);
+      const result = await fn(txn);
+      // Drain any queued/in-flight `lockKey` BEFORE committing or releasing
+      // slots, so finalization never races a pending acquisition and the
+      // retained-failure state is settled.
+      await drainLocks();
+      // A required `lockKey` failed: the transaction is POISONED — DISCARD every
+      // staged write and throw the retained lock failure (no callback success
+      // value escapes, no staged write commits).
+      const lockFailure = currentLockFailure();
+      if (lockFailure) throw lockFailure.error;
+      if (staged.size > 0) {
+        try {
+          await withFileWriteLock(appStateFilePath(), async () => {
+            if (__fileCommitFailureForTests) throw __fileCommitFailureForTests;
+            const current = await readFileStore();
+            const merged = { ...current };
+            for (const [rowId, entry] of staged) merged[rowId] = entry;
+            await writeFileStore(merged);
+          });
+        } catch (error) {
+          // The atomic rename left the prior file intact: nothing staged became
+          // durable, so `writeAttempted: false` is the truthful threshold.
+          throw new AppStateTxnFinalizeError(error, false, false);
+        }
+      }
+      return result;
+    } catch (error) {
+      // Drain in-flight acquisitions before releasing slots (the enforced order
+      // guarantees this drain cannot itself deadlock). Staged writes are
+      // discarded by NOT committing; every SECONDARY slot is released in
+      // `finally`; the PRIMARY slot releases when this `invoke` promise settles.
+      await drainLocks();
+      const lockFailure = currentLockFailure();
+      // Callback failed AND a DISTINCT required lock failed → DEFER shaping: the
+      // public dual error must be constructed only AFTER the primary slot is
+      // released (below), never while `invoke` still owns it. A propagated lock
+      // rejection (same object) is thrown directly.
+      if (lockFailure && error !== lockFailure.error) {
+        throw new DeferredFileDualFailure(error, lockFailure);
+      }
+      throw error;
     } finally {
       fileFinished = true;
+      for (const release of heldSlotReleases) release();
     }
   };
-  const prev = keyLockChains.get(lockKey) ?? Promise.resolve();
+  const prev = keyLockChains.get(primaryLockId) ?? Promise.resolve();
   const run = prev.then(invoke, invoke);
   const tail = run.then(
     () => undefined,
     () => undefined
   );
-  keyLockChains.set(lockKey, tail);
-  void tail.then(() => {
-    // Drop the settled chain — but only when no successor queued behind it.
-    if (keyLockChains.get(lockKey) === tail) keyLockChains.delete(lockKey);
+  keyLockChains.set(primaryLockId, tail);
+  // Chain cleanup: drop the settled entry when no successor queued behind it.
+  // Awaited on the deferred-failure path so the dual error is shaped only after
+  // the primary slot is fully released and its chain entry removed.
+  const primarySlotReleased = tail.then(() => {
+    if (keyLockChains.get(primaryLockId) === tail) keyLockChains.delete(primaryLockId);
   });
-  return run;
+  return run.then(
+    (value) => value,
+    async (error) => {
+      if (error instanceof DeferredFileDualFailure) {
+        await primarySlotReleased; // primary + secondary slots released, entry removed
+        throw combineCallbackAndLockFailure(error.callbackError, error.lockFailure);
+      }
+      throw error;
+    }
+  );
 }
 
 export async function getAppState<T>(
@@ -600,12 +1142,7 @@ export async function getAppState<T>(
   // providerRefreshStatus, PLATFORM-086A) can be exercised. Optionally scoped so a
   // test can fail one scope's reads (e.g. `'schedule'`) while status-scope reads
   // still succeed. Never set in production paths.
-  if (
-    __readFailureForTests &&
-    (__readFailureScopeForTests === null || __readFailureScopeForTests === scope)
-  ) {
-    throw __readFailureForTests;
-  }
+  applyReadFailureSeamForTests(scope);
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
@@ -642,11 +1179,7 @@ export async function setAppState<T>(
   // persist does not publish process-local "fresh" provider data. Never set in
   // production paths. Optionally scoped so a test can fail one provider-data commit
   // while other scopes still persist.
-  const shouldFailWrite = (): boolean =>
-    Boolean(
-      __writeFailureForTests &&
-        (__writeFailureScopeForTests === null || __writeFailureScopeForTests === scope)
-    );
+  const shouldFailWrite = (): boolean => shouldFailWriteForTests(scope);
 
   if (hasDatabaseConfig()) {
     if (shouldFailWrite()) throw __writeFailureForTests;
@@ -809,6 +1342,8 @@ export function __resetAppStateForTests(): void {
   __writeFailureScopeForTests = null;
   __readFailureForTests = null;
   __readFailureScopeForTests = null;
+  __fileCommitFailureForTests = null;
+  __onDualErrorConstructForTests = null;
   __keyLockFailureForTests = null;
   __keyLockFailureScopeForTests = null;
   keyLockChains.clear();
@@ -853,6 +1388,28 @@ export function __setAppStateReadFailureForTests(
 ): void {
   __readFailureForTests = error;
   __readFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: make the NEXT file-fallback transaction commits (the single atomic
+ * staged-snapshot replacement) reject with `error` while leaving the prior file
+ * intact — exercising the all-or-nothing rollback of a multi-key staged
+ * transaction. Pass `null` to clear. Cleared automatically by
+ * `__resetAppStateForTests`. Never set in production paths.
+ */
+export function __setAppStateFileCommitFailureForTests(error: Error | null): void {
+  __fileCommitFailureForTests = error;
+}
+
+/**
+ * Test-only: register an observer fired at the exact moment the combined
+ * callback-plus-lock error (`AppStateTxnCallbackLockError`) is CONSTRUCTED, so a
+ * temporal regression can assert backend cleanup already completed (PostgreSQL
+ * rollback + client containment, or every file-lock slot release). Pass `null`
+ * to clear. Inert (null) outside tests; cleared by `__resetAppStateForTests`.
+ */
+export function __setBeforeDualErrorConstructForTests(fn: (() => void) | null): void {
+  __onDualErrorConstructForTests = fn;
 }
 
 /**

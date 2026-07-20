@@ -15,6 +15,19 @@ Supersedes: (none)
 
 ## Completed phases / milestones
 
+> **PLATFORM-086H3 status (not a completion — decomposition in progress):** the
+> single-branch H3 activation attempt was frozen as a read-only salvage
+> reference after an architecture audit and is decomposed into prerequisite PRs
+> A–E (frozen design: `docs/ai/platform-086h3-contract.md`). Prerequisite **A**
+> (durable multi-key app-state transaction primitive) is **implemented, Codex
+> reviewed clean, `/verify` passed, and awaiting merge** — dormant, with
+> production HTTP behavior byte-identical to `main` (`src/lib/server/appStateStore.ts`
+> is the only production file changed). **Production activation has NOT
+> occurred**; B begins only after A merges, prerequisites B–D remain
+> unimplemented, and final activation remains E. 086H4 and the legacy-row
+> migration remain deferred. A milestone entry is added below only once a
+> prerequisite actually merges.
+
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 
 **Status:** Complete. Merged to `main` via PR #397 (`platform/086h2-durable-game-stats-merge-service`, merge commit `c48e1ca`, 2026-07-18). Four implementation commits plus a docs closeout; three folded Codex review-remediation rounds, each re-reviewed to a clean closure verdict; Claude `/verify` passed with byte-identical branch-vs-`main` HTTP behavior and no dormant metadata leakage; full suite 1758/1758 before closeout.
@@ -86,7 +99,7 @@ Supersedes: (none)
 **Status:** Complete. Three stacked PRs merged to `main`: #319 (`draft/001-timer-route-tests`), #320 (`draft/002-server-round-boundary`), #321 (`draft/003-optimistic-countdown`).
 **PROMPT_IDs:** DRAFT-001-TIMER-PERSIST-INTEGRITY-v1, DRAFT-002-SERVER-ROUND-BOUNDARY-PAUSE-v1, DRAFT-003-OPTIMISTIC-COUNTDOWN-DISPLAY-ONLY-v1
 
-**Inciting issue:** An audit of the stale `claude/audit-season-transition-pwKfH` branch (draft "pick timer precision" work, ~232 commits / 2 months behind `main`, 3-way merge conflicts). The branch's headline change stamped `timerExpiresAt` *after* the `setAppState` write and returned it unpersisted — leaving stored state with `timerState:'running'` but `timerExpiresAt:null`, which blanked the live countdown for every poller/refresher within ~1s of each pick. The audit recommended abandoning the branch and re-deriving the two salvageable ideas against current `main`. Key correction surfaced during the audit: **`main` never had the persist/response divergence** — it was a stale-branch-only regression — so the "integrity fix" collapsed to regression coverage.
+**Inciting issue:** An audit of the stale `claude/audit-season-transition-pwKfH` branch (draft "pick timer precision" work, ~232 commits / 2 months behind `main`, 3-way merge conflicts). The branch's headline change stamped `timerExpiresAt` _after_ the `setAppState` write and returned it unpersisted — leaving stored state with `timerState:'running'` but `timerExpiresAt:null`, which blanked the live countdown for every poller/refresher within ~1s of each pick. The audit recommended abandoning the branch and re-deriving the two salvageable ideas against current `main`. Key correction surfaced during the audit: **`main` never had the persist/response divergence** — it was a stale-branch-only regression — so the "integrity fix" collapsed to regression coverage.
 
 **Phases shipped:**
 
@@ -98,7 +111,7 @@ Supersedes: (none)
 
 - Server remains the sole authority for draft phase, pick validity, completion, and timer expiry. The optimistic countdown is strictly display-only — it never enters the POST body or governs expiration (the server `timerExpiresAt` + expire-dispatcher are untouched).
 - Round-boundary authority unified in the API layer; no duplicate client/server pause logic remains.
-- Timer values are still computed *before* the store write in both routes, preserving the persisted==response invariant guarded by DRAFT-001.
+- Timer values are still computed _before_ the store write in both routes, preserving the persisted==response invariant guarded by DRAFT-001.
 
 **Tests:** `src/app/api/draft/[slug]/[year]/__tests__/route-timer.test.ts` (7 cases) and `src/components/draft/__tests__/draftTimer.test.ts` (11 cases). Run draft route tests via the wildcard glob `'src/app/api/draft/*/*/__tests__/*.test.ts'` (node's runner treats the `[slug]`/`[year]` dirs as glob char-classes).
 
