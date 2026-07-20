@@ -7,6 +7,12 @@ today the game-stats writers still use the legacy path; the durable merge
 authority (H2) is a merged but dormant foundation. Nothing in this contract is
 active until the final activation prerequisite (E) merges.
 
+Prerequisite progress: **A** (the durable multi-key app-state transaction
+primitive that §6 relies on) is implemented, Codex reviewed clean, `/verify`
+passed, and awaiting merge — dormant, with production behavior unchanged.
+**B–D remain unimplemented and E (final activation) has not occurred**; the
+rest of this contract is future-state architecture, not active behavior.
+
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
 conflict; this file is the domain design freeze the staged PRs implement. The
 oversized single-branch implementation

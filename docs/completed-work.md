@@ -19,10 +19,14 @@ Supersedes: (none)
 > single-branch H3 activation attempt was frozen as a read-only salvage
 > reference after an architecture audit and is decomposed into prerequisite PRs
 > A–E (frozen design: `docs/ai/platform-086h3-contract.md`). Prerequisite **A**
-> (durable multi-key app-state transaction primitive) is the active, dormant
-> prerequisite; **production activation has NOT occurred**. 086H4 and the
-> legacy-row migration remain deferred. Milestone entries are added here only as
-> each prerequisite merges.
+> (durable multi-key app-state transaction primitive) is **implemented, Codex
+> reviewed clean, `/verify` passed, and awaiting merge** — dormant, with
+> production HTTP behavior byte-identical to `main` (`src/lib/server/appStateStore.ts`
+> is the only production file changed). **Production activation has NOT
+> occurred**; B begins only after A merges, prerequisites B–D remain
+> unimplemented, and final activation remains E. 086H4 and the legacy-row
+> migration remain deferred. A milestone entry is added below only once a
+> prerequisite actually merges.
 
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 
