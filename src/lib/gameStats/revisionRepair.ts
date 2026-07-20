@@ -73,6 +73,10 @@ export type RevisionRepairRefusal =
   | 'state-changed'
   | 'active-recovery-claim'
   | 'floor-below-surviving-evidence'
+  // PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION: a floor that cannot advance
+  // safely — nonpositive, unsafe, or `Number.MAX_SAFE_INTEGER` — refused during
+  // planning AND transactional apply validation.
+  | 'revision-repair-floor-not-advanceable'
   | 'malformed-evidence'
   | 'acknowledgement-required'
   | 'invalid-action'
@@ -293,6 +297,16 @@ type RepairPlan =
     }
   | { ok: false; code: RevisionRepairRefusal; detail: string };
 
+/**
+ * A repair floor must be a positive safe integer that can still ADVANCE — a
+ * nonpositive, unsafe, or `Number.MAX_SAFE_INTEGER` floor is refused, so a later
+ * allocation (`floor + 1`) can never wrap past the safe-integer bound
+ * (PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION).
+ */
+function floorNotAdvanceable(floor: number): boolean {
+  return !isValidRevision(floor) || floor >= Number.MAX_SAFE_INTEGER;
+}
+
 function highestSurvivingSameLineage(state: RevisionInspectionState, lineage: string): number {
   let highest = 0;
   if (state.partition.stamp && state.partition.stamp.lineage === lineage) {
@@ -352,11 +366,11 @@ function planRepair(
     }
     case 'adopt-lineage': {
       const { lineage, floor } = request.action;
-      if (!isValidRevision(floor)) {
+      if (floorNotAdvanceable(floor)) {
         return {
           ok: false,
-          code: 'invalid-action',
-          detail: 'floor must be a positive safe integer',
+          code: 'revision-repair-floor-not-advanceable',
+          detail: 'floor must be a positive safe integer strictly below Number.MAX_SAFE_INTEGER',
         };
       }
       if (typeof lineage !== 'string' || lineage.length === 0) {
@@ -422,11 +436,11 @@ function planRepair(
         };
       }
       const floor = request.action.floor ?? 1;
-      if (!isValidRevision(floor)) {
+      if (floorNotAdvanceable(floor)) {
         return {
           ok: false,
-          code: 'invalid-action',
-          detail: 'floor must be a positive safe integer',
+          code: 'revision-repair-floor-not-advanceable',
+          detail: 'floor must be a positive safe integer strictly below Number.MAX_SAFE_INTEGER',
         };
       }
       const lineage = generateLineage();
@@ -506,6 +520,16 @@ export async function repairRevisionState(
 
         if (dryRun) {
           return { ok: true, dryRun: true, beforeDigest: loaded.digest, afterState, auditRef };
+        }
+
+        // Apply-time re-validation of floor advanceability (again, transactionally)
+        // so no unadvanceable ledger revision can ever be persisted.
+        if (floorNotAdvanceable(plan.ledger.revision)) {
+          return {
+            ok: false,
+            code: 'revision-repair-floor-not-advanceable',
+            detail: 'planned ledger revision is not safely advanceable',
+          };
         }
 
         // Apply. Ledger (co-serialized under E). NEVER touches game-stat rows —

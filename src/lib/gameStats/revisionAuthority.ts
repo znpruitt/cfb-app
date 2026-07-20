@@ -38,17 +38,19 @@ import type { WeeklyGameStats } from './types.ts';
  *     typed code, writing no evidence, allocating no stamp, and preserving all
  *     durable state, so an operator can inspect and repair it (§14).
  *
- * Lock discipline (frozen contract §6 / requirement 7):
+ * Lock discipline (frozen contract §6; extended by
+ * PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION):
  *   - the ledger row lives in its own scope but is keyed 1:1 with the evidence
  *     partition and is ONLY ever written co-transactionally with the evidence
  *     write, so every ledger writer already holds the evidence advisory lock —
- *     `readKey`/`writeKey` therefore take NO second lock (E(P) only for ordinary
- *     allocation);
- *   - the ONE multi-lock path is the one-time bootstrap, which consults the
- *     refresh-status committed-evidence stamp under THAT key's own lock
- *     (`E(P) → S(P)`); the `game-stats` partition tuple sorts below the
- *     `provider-refresh-status` tuple, so this is the accepted forward order and
- *     the reverse is rejected by the primitive.
+ *     `readKey`/`writeKey` therefore take NO second lock for the ledger;
+ *   - EVERY allocation (ordinary AND bootstrap) also consults the committed
+ *     refresh-status stamp under THAT key's own lock, so the acquisition is
+ *     `E(P) → S(P)` (or `E(P) → activation-control → S(P)` under the revisioned
+ *     writer, which holds the fence lock first). `game-stats` sorts below
+ *     `game-stats-activation-control` below `provider-refresh-status`, so this is
+ *     the accepted forward order and the reverse is rejected by the primitive.
+ *     (Committed status is a high-water WITNESS, never the allocator.)
  */
 
 export const GAME_STATS_REVISION_SCOPE = 'game-stats-revision';
@@ -178,7 +180,10 @@ export function classifyPartitionStamp(partition: WeeklyGameStats | null): Parti
 export type RevisionBlockCode =
   | 'revision-lineage-conflict'
   | 'revision-history-ambiguous'
-  | 'revision-evidence-loss-suspected';
+  | 'revision-evidence-loss-suspected'
+  // PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION: the counter cannot advance
+  // safely (`Number.MAX_SAFE_INTEGER`) — refuse rather than wrap.
+  | 'revision-counter-exhausted';
 
 export type RevisionAllocation = {
   /** The stamp to write on the partition (and mirror on the ledger lineage). */
@@ -194,9 +199,14 @@ export type RevisionAllocationResult =
   | { ok: false; code: RevisionBlockCode };
 
 /**
- * The facts the state machine decides from. `status` is populated ONLY on the
- * bootstrap path (no valid ledger), where it is read under the status key's own
- * advisory lock; the ordinary path leaves it unconsulted (E(P) only).
+ * The facts the state machine decides from. `status` is the committed
+ * refresh-status stamp, read under the status key's advisory lock and consulted
+ * on BOTH the ordinary AND bootstrap paths
+ * (PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION): it is a mandatory restoration
+ * and HIGH-WATER witness — never the ordinary allocator (the ledger is), but it
+ * BLOCKS allocation when it proves history newer than (or a different lineage
+ * from) the surviving partition/ledger, so a restored-behind ledger can never
+ * reuse a commit stamp already represented in status.
  */
 export type RevisionSources = {
   partition: PartitionStampClass;
@@ -238,10 +248,11 @@ function mintLedger(
 }
 
 /**
- * The frozen revision state machine (frozen contract §5). PURE and deterministic
- * given its inputs (lineage minting and `now` are injected). Blocking is always
- * the safe outcome — it writes nothing and preserves all durable state — so any
- * state the machine cannot positively explain BLOCKS.
+ * The frozen revision state machine (frozen contract §5, extended by the
+ * PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION so committed refresh status is a
+ * mandatory high-water witness on BOTH paths). PURE and deterministic given its
+ * inputs. Blocking is always the safe outcome — it writes nothing and preserves
+ * all durable state — so any state the machine cannot positively explain BLOCKS.
  */
 export function classifyRevisionAllocation(
   sources: RevisionSources,
@@ -251,27 +262,49 @@ export function classifyRevisionAllocation(
   const mintLineage = ctx.mintLineage ?? generateLineage;
   const { partition, ledger, status } = sources;
 
-  // --- ORDINARY path: an initialized ledger is the SOLE authority. ---
+  // Committed status is a WITNESS, never the allocator: it may only BLOCK when it
+  // proves history a `lineage` did not survive up to `highWater`. Absent status
+  // (no committed stamp) — including a legacy/unrelated provider-status record —
+  // never blocks; a malformed revision-era stamp is unexplained → ambiguous.
+  const statusVerdict = (lineage: string, highWater: number): RevisionAllocationResult | null => {
+    if (status.stamp) {
+      if (status.stamp.lineage !== lineage) return block('revision-lineage-conflict');
+      if (status.stamp.revision > highWater) return block('revision-evidence-loss-suspected');
+      return null;
+    }
+    if (status.markerPresent) return block('revision-history-ambiguous');
+    return null;
+  };
+  // Allocate strictly above the surviving high-water, refusing at exhaustion
+  // rather than wrapping past `Number.MAX_SAFE_INTEGER`.
+  const allocateAbove = (
+    lineage: string,
+    highWater: number,
+    ledgerFor: (next: number) => RevisionLedgerRecord,
+    mode: 'ordinary' | RevisionInitMode
+  ): RevisionAllocationResult => {
+    if (highWater >= Number.MAX_SAFE_INTEGER) return block('revision-counter-exhausted');
+    const next = highWater + 1;
+    return {
+      ok: true,
+      allocation: { stamp: { lineage, revision: next }, ledger: ledgerFor(next), mode },
+    };
+  };
+
+  // --- ORDINARY path: an initialized ledger is the SOLE allocator. ---
   if (ledger.valid) {
     const led = ledger.valid;
     switch (partition.kind) {
       case 'absent':
-        // The ledger records committed revisions, but the evidence partition is
-        // gone: committed history survives while its evidence does not →
+        // Committed revisions recorded, but the evidence partition is gone →
         // suspected evidence loss. The ONE exception is an operator-REPAIRED
-        // ledger (`initializedFrom: 'repair'`): the operator has already
-        // attested to the state (§14), so the scope CONTINUES from the ledger
-        // rather than re-blocking a partition the operator chose to rebuild.
+        // ledger (`initializedFrom: 'repair'`): the operator has attested to the
+        // state (§14), so the scope CONTINUES — still gated by the status witness.
         if (led.initializedFrom === 'repair') {
-          const next = led.revision + 1;
-          return {
-            ok: true,
-            allocation: {
-              stamp: { lineage: led.lineage, revision: next },
-              ledger: advanceLedger(led, next),
-              mode: 'ordinary',
-            },
-          };
+          return (
+            statusVerdict(led.lineage, led.revision) ??
+            allocateAbove(led.lineage, led.revision, (n) => advanceLedger(led, n), 'ordinary')
+          );
         }
         return block('revision-evidence-loss-suspected');
       case 'legacy':
@@ -289,67 +322,55 @@ export function classifyRevisionAllocation(
           // the partition lost committed revisions.
           return block('revision-evidence-loss-suspected');
         }
-        // Rp >= led.revision: healthy (equal) or ledger behind surviving
-        // evidence (recoverable same-lineage) — allocate strictly above the
-        // highest surviving revision either way.
-        const next = Rp + 1;
-        return {
-          ok: true,
-          allocation: {
-            stamp: { lineage: led.lineage, revision: next },
-            ledger: advanceLedger(led, next),
-            mode: led.revision === Rp ? 'ordinary' : 'reconstruct-partition',
-          },
-        };
+        // Rp >= led.revision. The committed status witness now decides whether a
+        // restored-behind ledger would reuse a stamp already committed: status
+        // AHEAD of the surviving evidence (or a foreign lineage) BLOCKS.
+        return (
+          statusVerdict(led.lineage, Rp) ??
+          allocateAbove(
+            led.lineage,
+            Rp,
+            (n) => advanceLedger(led, n),
+            led.revision === Rp ? 'ordinary' : 'reconstruct-partition'
+          )
+        );
       }
     }
   }
 
-  // --- BOOTSTRAP path: no valid ledger; status was consulted under S(P). ---
+  // --- BOOTSTRAP path: no valid ledger; status consulted under S(P). ---
   const partStamp = partition.kind === 'valid' ? partition.stamp : null;
-  const statusStamp = status.stamp;
 
   // 1. Valid lineage-bearing sources must agree on lineage.
-  if (partStamp && statusStamp && partStamp.lineage !== statusStamp.lineage) {
+  if (partStamp && status.stamp && partStamp.lineage !== status.stamp.lineage) {
     return block('revision-lineage-conflict');
   }
 
-  // 2. A corrupt partition stamp (own-property present but invalid) or a
-  //    v2-marked partition without a stamp is unexplained revision-era state —
-  //    never guessed past, even alongside a valid same-lineage status stamp.
+  // 2. A corrupt partition stamp or a v2-marked partition without a stamp is
+  //    unexplained revision-era state — never guessed past.
   if (partition.kind === 'malformed' || partition.kind === 'revision-era-no-stamp') {
     return block('revision-history-ambiguous');
   }
 
-  // 3. Exactly one lineage across the valid sources → recover it.
-  if (partStamp || statusStamp) {
-    const lineage = (partStamp ?? statusStamp)!.lineage;
-    const Rpart = partStamp?.revision ?? null;
-    const Rstatus = statusStamp?.revision ?? null;
-    if (Rpart === null) {
-      // Committed history (the status stamp) survives, but the partition carries
-      // no revisioned evidence (absent or legacy) → possible evidence loss.
-      return block('revision-evidence-loss-suspected');
-    }
-    if (Rstatus !== null && Rstatus > Rpart) {
-      // Status recorded a newer commit than the surviving partition proves.
-      return block('revision-evidence-loss-suspected');
-    }
-    const next = Rpart + 1;
-    return {
-      ok: true,
-      allocation: {
-        stamp: { lineage, revision: next },
-        ledger: mintLedger(id, lineage, next, 'reconstruct-partition', ctx.now),
-        mode: 'reconstruct-partition',
-      },
-    };
+  // 3. Surviving same-lineage partition evidence → reconstruct above it, gated by
+  //    the status witness (status ahead → evidence loss; foreign → conflict).
+  if (partStamp) {
+    return (
+      statusVerdict(partStamp.lineage, partStamp.revision) ??
+      allocateAbove(
+        partStamp.lineage,
+        partStamp.revision,
+        (n) => mintLedger(id, partStamp.lineage, n, 'reconstruct-partition', ctx.now),
+        'reconstruct-partition'
+      )
+    );
   }
 
-  // 4. No valid lineage source. Any surviving revision-era marker → ambiguous.
-  if (ledger.markerPresent || status.markerPresent) {
-    return block('revision-history-ambiguous');
-  }
+  // 4. No surviving partition evidence. Committed status history that claims a
+  //    lineage while the partition is absent/legacy → block rather than
+  //    reconstruct; a malformed status/ledger marker → ambiguous.
+  if (status.stamp) return block('revision-evidence-loss-suspected');
+  if (ledger.markerPresent || status.markerPresent) return block('revision-history-ambiguous');
 
   // 5. The only cases that mint lineage 1: genuinely new, or recognized legacy.
   const initializedFrom: RevisionInitMode = partition.kind === 'legacy' ? 'legacy' : 'new';
@@ -391,21 +412,13 @@ export async function allocateGameStatsCommitStamp(
   const ledgerValid = validateLedgerRecord(ledgerRaw, id);
   const ledgerMarkerPresent = ledgerRow !== null && ledgerRaw !== null && ledgerValid === null;
 
-  if (ledgerValid) {
-    // ORDINARY allocation — E(P) only; the ledger is the sole authority.
-    return classifyRevisionAllocation(
-      {
-        partition,
-        ledger: { valid: ledgerValid, markerPresent: false },
-        status: { consulted: false, stamp: null, markerPresent: false },
-      },
-      id,
-      { now }
-    );
-  }
-
-  // BOOTSTRAP — consult the committed-evidence stamp under the status key's own
-  // lock so a concurrently publishing status writer serializes with us.
+  // ALWAYS consult committed refresh status under S(P) — a mandatory restoration
+  // and high-water witness on BOTH the ordinary and bootstrap paths
+  // (PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION). It is acquired under the
+  // status key's own lock so a concurrent publisher cannot race the read; the
+  // acquisition is monotonic within the caller's chain (`E → S`, or
+  // `E → activation-control → S` under the revisioned writer). The status value
+  // is read ONLY after the lock is held — never a stale pre-lock read.
   const statusKey = providerRefreshScopeKey(
     'game-stats',
     weekPartitionScope(id.year, id.week, id.seasonType)
@@ -428,7 +441,7 @@ export async function allocateGameStatsCommitStamp(
   return classifyRevisionAllocation(
     {
       partition,
-      ledger: { valid: null, markerPresent: ledgerMarkerPresent },
+      ledger: { valid: ledgerValid, markerPresent: ledgerMarkerPresent },
       status: { consulted: true, stamp: statusStamp, markerPresent: statusMarkerPresent },
     },
     id,

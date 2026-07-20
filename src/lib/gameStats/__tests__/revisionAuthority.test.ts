@@ -229,6 +229,101 @@ test('bootstrap: partition and status disagree on lineage → lineage conflict',
   );
 });
 
+// === Restoration: committed status as a high-water witness in the ORDINARY path ===
+
+test('ordinary: status AHEAD of a restored-behind ledger/partition → evidence loss', () => {
+  // ledger 5, partition 5, status 10 on the same lineage — the restored-behind
+  // ledger must NOT reuse revisions 6-10 already represented in status.
+  expectBlock(
+    classifyRevisionAllocation(
+      sources(
+        { kind: 'valid', stamp: { lineage: 'L', revision: 5 } },
+        { ledger: ledger('L', 5), statusStamp: { lineage: 'L', revision: 10 } }
+      ),
+      ID,
+      CTX
+    ),
+    'revision-evidence-loss-suspected'
+  );
+});
+
+test('ordinary: status on a FOREIGN lineage → lineage conflict', () => {
+  expectBlock(
+    classifyRevisionAllocation(
+      sources(
+        { kind: 'valid', stamp: { lineage: 'L', revision: 5 } },
+        { ledger: ledger('L', 5), statusStamp: { lineage: 'M', revision: 1 } }
+      ),
+      ID,
+      CTX
+    ),
+    'revision-lineage-conflict'
+  );
+});
+
+test('ordinary: status equal / behind / absent / unrelated-legacy → allocate from ledger', () => {
+  for (const status of [
+    { statusStamp: { lineage: 'L', revision: 5 } as CommitStamp }, // equal
+    { statusStamp: { lineage: 'L', revision: 3 } as CommitStamp }, // behind
+    {}, // absent (also stands in for a legacy/unrelated provider-status shape)
+  ]) {
+    const a = expectOk(
+      classifyRevisionAllocation(
+        sources(
+          { kind: 'valid', stamp: { lineage: 'L', revision: 5 } },
+          { ledger: ledger('L', 5), ...status }
+        ),
+        ID,
+        CTX
+      )
+    );
+    assert.deepEqual(a.stamp, { lineage: 'L', revision: 6 });
+  }
+});
+
+test('ordinary: a malformed revision-era status marker → ambiguous', () => {
+  expectBlock(
+    classifyRevisionAllocation(
+      sources(
+        { kind: 'valid', stamp: { lineage: 'L', revision: 5 } },
+        { ledger: ledger('L', 5), statusMarker: true }
+      ),
+      ID,
+      CTX
+    ),
+    'revision-history-ambiguous'
+  );
+});
+
+// === Safe-integer exhaustion ===
+
+test('exhaustion: ledger/partition at MAX_SAFE_INTEGER → revision-counter-exhausted', () => {
+  const MAX = Number.MAX_SAFE_INTEGER;
+  expectBlock(
+    classifyRevisionAllocation(
+      sources(
+        { kind: 'valid', stamp: { lineage: 'L', revision: MAX } },
+        { ledger: ledger('L', MAX) }
+      ),
+      ID,
+      CTX
+    ),
+    'revision-counter-exhausted'
+  );
+});
+
+test('exhaustion: reconstructed high-water at MAX_SAFE_INTEGER → revision-counter-exhausted', () => {
+  const MAX = Number.MAX_SAFE_INTEGER;
+  expectBlock(
+    classifyRevisionAllocation(
+      sources({ kind: 'valid', stamp: { lineage: 'L', revision: MAX } }, { consulted: true }),
+      ID,
+      CTX
+    ),
+    'revision-counter-exhausted'
+  );
+});
+
 test('bootstrap: evidence absent/legacy while status committed history survives → evidence loss', () => {
   for (const kind of ['absent', 'legacy'] as const) {
     expectBlock(

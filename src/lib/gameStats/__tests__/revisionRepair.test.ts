@@ -166,6 +166,33 @@ test('adopt-lineage refuses a floor below surviving same-lineage evidence', asyn
   if (!result.ok) assert.equal(result.code, 'floor-below-surviving-evidence');
 });
 
+test('repair floors that cannot advance safely are refused (MAX / unsafe / nonpositive)', async () => {
+  await setAppState('game-stats', KEY, partitionWith({ lineage: 'L', revision: 1 }));
+  const MAX = Number.MAX_SAFE_INTEGER;
+  for (const floor of [MAX, MAX + 1, 0, -3]) {
+    const d = await digest();
+    const adopt = await repairRevisionState(
+      req({ kind: 'adopt-lineage', lineage: 'L', floor }, d, {
+        dryRun: false,
+        acknowledgeLineageConflict: true,
+      })
+    );
+    assert.equal(adopt.ok, false, `adopt floor ${floor}`);
+    if (!adopt.ok) assert.equal(adopt.code, 'revision-repair-floor-not-advanceable');
+
+    const establish = await repairRevisionState(
+      req({ kind: 'establish-new-lineage', floor }, d, {
+        dryRun: false,
+        acknowledgeEvidenceLoss: true,
+      })
+    );
+    assert.equal(establish.ok, false, `establish floor ${floor}`);
+    if (!establish.ok) assert.equal(establish.code, 'revision-repair-floor-not-advanceable');
+  }
+  // Nothing was written by any refused plan.
+  assert.equal((await getAppState(GAME_STATS_REVISION_SCOPE, KEY))?.value ?? null, null);
+});
+
 // === establish-new-lineage ===
 
 test('establish-new-lineage requires evidence-loss acknowledgement and preserves history', async () => {

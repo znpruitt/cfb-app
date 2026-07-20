@@ -30,6 +30,11 @@ operational guidance, not a design source of truth.
 - **Revision ledger** (`game-stats-revision`, keyed `year:week:seasonType`) — once
   initialized, the **sole** ordinary allocator (`revision + 1`). Refresh status is
   never the ordinary allocation authority.
+- **Committed refresh status** — a mandatory **restoration / high-water witness**
+  consulted on EVERY allocation (ordinary and bootstrap), under the `S` lock. It
+  never allocates, but it BLOCKS allocation when it proves history newer than (or
+  a different lineage from) the surviving partition/ledger, so a restored-behind
+  ledger can never reuse a commit stamp already represented in status.
 - **Activation control** (`game-stats-activation-control/global`) — the durable
   fence with states `legacy | armed | active | read-only-safe`.
 - **Recovery disposition** (`recovery-disposition`, per partition) — D's per-partition
@@ -55,13 +60,29 @@ state and writes nothing:
 
 | Code                               | Meaning                                                                                                                             |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `revision-lineage-conflict`        | Valid sources disagree on lineage.                                                                                                  |
+| `revision-lineage-conflict`        | Valid sources (partition, ledger, or committed status) disagree on lineage.                                                         |
 | `revision-history-ambiguous`       | Malformed/unexplained revision-era state, no usable source.                                                                         |
 | `revision-evidence-loss-suspected` | Ledger/status record committed evidence newer than the surviving partition, or evidence is absent while committed history survives. |
+| `revision-counter-exhausted`       | The revision counter reached `Number.MAX_SAFE_INTEGER` — refuse rather than wrap.                                                   |
 
 A **missing revision field alone never** proves a scope is new — only a genuinely
 empty scope (no partition, ledger, committed-success lineage, revision-era marker,
 or repair history) mints lineage 1.
+
+**Refresh-status success & counter safety** (PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION):
+
+- A game-stats refresh **success requires a confirmed commit stamp**. A missing,
+  malformed, or unsafe stamp is refused (`game-stats-success-commit-stamp-required`):
+  nothing is persisted, no error is cleared, no attempt is marked succeeded, and
+  the composite is never `complete`. Stamp-free terminals (filtered targets,
+  unchanged evidence, provider-empty, skipped publication) use the explicit no-op
+  API — the ONLY stamp-free successful terminal path.
+- **Counters refuse at exhaustion, never wrap or reset.** A revision at
+  `Number.MAX_SAFE_INTEGER` → `revision-counter-exhausted`; an attempt ordinal at
+  the bound → `refresh-attempt-ordinal-exhausted` (a present-but-invalid ordinal →
+  `refresh-attempt-ordinal-malformed`, never silently restarted at 1); an
+  unadvanceable repair floor (nonpositive / unsafe / `MAX_SAFE_INTEGER`) →
+  `revision-repair-floor-not-advanceable` (refused at planning AND apply).
 
 ## 4. Repair (admin-only, precondition-guarded, audited)
 

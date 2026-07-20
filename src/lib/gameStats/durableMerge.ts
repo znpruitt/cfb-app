@@ -134,7 +134,8 @@ export type DurableMergeUnavailableReason =
   | 'activation-fenced'
   | 'revision-lineage-conflict'
   | 'revision-history-ambiguous'
-  | 'revision-evidence-loss-suspected';
+  | 'revision-evidence-loss-suspected'
+  | 'revision-counter-exhausted';
 
 export type DurableMergeResult = {
   outcome: DurableMergeOutcome;

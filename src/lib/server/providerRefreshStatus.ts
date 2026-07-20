@@ -60,7 +60,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { getAppState, setAppState, withAppStateKeyTransaction } from './appStateStore.ts';
-import { toCommitStamp, type CommitStamp } from '../gameStats/revisionStamp.ts';
+import { isCommitStamp, toCommitStamp, type CommitStamp } from '../gameStats/revisionStamp.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import {
   legacyUnscopedScope,
@@ -645,6 +645,16 @@ const GAME_STATS_DATASET: ProviderDataset = 'game-stats';
  *                       (committed evidence NOT advanced; durable state
  *                       preserved for inspection/repair);
  *   - `failed`        — the durable status transaction failed.
+ *
+ * PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION stable refusals (persist
+ * nothing; never `durablyRecorded`):
+ *   - `game-stats-success-commit-stamp-required` — a success carried no valid
+ *     confirmed commit stamp; nothing is recorded and no attempt is marked
+ *     succeeded (use the explicit no-op API for stamp-free terminals);
+ *   - `refresh-attempt-ordinal-exhausted`         — the per-scope attempt ordinal
+ *     reached `Number.MAX_SAFE_INTEGER`; a new attempt is refused (never reset);
+ *   - `refresh-attempt-ordinal-malformed`         — a present-but-invalid stored
+ *     ordinal (never silently restarted at 1).
  */
 export type ProviderStatusMutationResult =
   | 'persisted'
@@ -652,7 +662,10 @@ export type ProviderStatusMutationResult =
   | 'skipped-older'
   | 'skipped'
   | 'conflict'
-  | 'failed';
+  | 'failed'
+  | 'game-stats-success-commit-stamp-required'
+  | 'refresh-attempt-ordinal-exhausted'
+  | 'refresh-attempt-ordinal-malformed';
 
 function durablyRecorded(result: ProviderStatusMutationResult): boolean {
   return result === 'persisted' || result === 'idempotent';
@@ -808,7 +821,17 @@ export async function beginGameStatsRefreshAttempt(
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
   let ordinal = 1;
   const persistence = await mutateGameStatsStatusTransactionally(scope, 'begin', (status) => {
-    ordinal = (validOrdinal(status.lastAttemptOrdinal) ?? 0) + 1;
+    // Distinguish ABSENT ordinal (genuinely first attempt → 1) from a
+    // present-but-invalid one (revision-era corruption → refuse, never restart
+    // at 1) and from exhaustion at `Number.MAX_SAFE_INTEGER` (refuse, never
+    // wrap/reset). All refusals persist nothing.
+    const stored = status.lastAttemptOrdinal;
+    if (stored !== undefined && validOrdinal(stored) === null) {
+      return 'refresh-attempt-ordinal-malformed';
+    }
+    const current = validOrdinal(stored) ?? 0;
+    if (current >= Number.MAX_SAFE_INTEGER) return 'refresh-attempt-ordinal-exhausted';
+    ordinal = current + 1;
     return {
       write: {
         ...status,
@@ -830,10 +853,14 @@ export async function beginGameStatsRefreshAttempt(
 export type GameStatsRefreshSuccess = {
   attempt?: GameStatsRefreshAttempt;
   /**
-   * The revisioned merge authority's commit stamp, captured immediately after
-   * COMMIT. It is the SOLE committed-evidence ordering authority.
+   * The revisioned merge authority's CONFIRMED commit stamp, captured only after
+   * a durable COMMIT. It is the SOLE committed-evidence ordering authority and is
+   * MANDATORY (PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION): a success with no
+   * valid confirmed stamp is refused, not recorded. Stamp-free terminals (filtered
+   * targets, unchanged evidence, provider-empty, skipped publication) MUST use the
+   * explicit no-op API instead.
    */
-  commitStamp?: CommitStamp;
+  commitStamp: CommitStamp;
   /** Durable commit time (defaults to now). */
   committedAt?: string;
   source?: string | null;
@@ -845,26 +872,33 @@ export type GameStatsRefreshSuccess = {
 };
 
 /**
- * Record a game-stats success. Committed-evidence chronology advances only via a
- * valid same-lineage stamp; attempt chronology is owned separately by the latest
+ * Record a game-stats success. Requires a valid CONFIRMED commit stamp — a
+ * missing/malformed/unsafe stamp is a stable typed refusal
+ * (`game-stats-success-commit-stamp-required`) that persists nothing, does not
+ * clear the latest error, does not mark the attempt succeeded, and never claims
+ * `complete: true`. Committed-evidence chronology then advances only via a valid
+ * same-lineage stamp; attempt chronology is owned separately by the latest
  * attempt. The two are independent — an older commit can update the attempt
  * outcome without advancing committed evidence, and vice versa.
  */
 export async function recordGameStatsRefreshSuccess(
   scope: ProviderRefreshScope,
-  result: GameStatsRefreshSuccess = {}
+  result: GameStatsRefreshSuccess
 ): Promise<ProviderStatusMutationResult> {
   const resolvedAt = new Date().toISOString();
   const committedAt = result.committedAt ?? resolvedAt;
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
   if (isMisroutedGameStatsAttempt(result.attempt, scopeKey, 'success')) return 'skipped';
+  // MANDATORY confirmed commit stamp — refuse before any lock/read/write, so a
+  // stamp-free "success" can never clear an error or mark an attempt succeeded.
+  const incoming = result.commitStamp;
+  if (!isCommitStamp(incoming)) return 'game-stats-success-commit-stamp-required';
   return mutateGameStatsStatusTransactionally(scope, 'success', (status) => {
-    const incoming = result.commitStamp ?? null;
     const stored = toCommitStamp(status.lastCommittedStamp);
-    // Committed-evidence decision (frozen contract §7).
-    let committed: 'advance' | 'idempotent' | 'conflict' | 'skipped' | 'none';
-    if (!incoming) committed = 'none';
-    else if (!stored) committed = 'advance';
+    // Committed-evidence decision (frozen contract §7). `incoming` is a validated
+    // commit stamp (checked above), so there is no stamp-free success path here.
+    let committed: 'advance' | 'idempotent' | 'conflict' | 'skipped';
+    if (!stored) committed = 'advance';
     else if (incoming.lineage !== stored.lineage) committed = 'conflict';
     else if (incoming.revision > stored.revision) committed = 'advance';
     else if (incoming.revision === stored.revision)
@@ -885,7 +919,7 @@ export async function recordGameStatsRefreshSuccess(
       scopeKey,
     };
     if (committed === 'advance') {
-      next.lastCommittedStamp = incoming!;
+      next.lastCommittedStamp = incoming;
       next.lastSuccessAt = committedAt;
       next.source = result.source ?? null;
       next.rowsCommitted = result.rowsCommitted ?? null;

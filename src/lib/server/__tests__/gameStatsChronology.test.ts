@@ -11,9 +11,15 @@ import {
   recordProviderRefreshSuccess,
   beginProviderRefreshAttempt,
 } from '../providerRefreshStatus.ts';
-import { weekPartitionScope, yearScope } from '../../providerRefreshScope.ts';
+import {
+  providerRefreshScopeKey,
+  weekPartitionScope,
+  yearScope,
+} from '../../providerRefreshScope.ts';
 import type { CommitStamp } from '../../gameStats/revisionStamp.ts';
 import {
+  getAppState,
+  setAppState,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateFileCommitFailureForTests,
@@ -26,6 +32,7 @@ test.beforeEach(async () => {
 });
 
 const SCOPE = weekPartitionScope(2024, 6, 'regular');
+const SCOPE_KEY = providerRefreshScopeKey('game-stats', SCOPE);
 const read = () => getProviderRefreshStatus('game-stats', SCOPE);
 const stamp = (lineage: string, revision: number): CommitStamp => ({ lineage, revision });
 
@@ -166,6 +173,86 @@ test('composeGameStatsStatusPublication reports complete only when both halves p
   assert.equal(composeGameStatsStatusPublication('failed', 'persisted').complete, false);
   assert.equal(composeGameStatsStatusPublication('persisted', 'failed').complete, false);
   assert.equal(composeGameStatsStatusPublication('idempotent', 'idempotent').complete, true);
+});
+
+// === Mandatory confirmed commit stamp on success ===
+
+test('success without a confirmed commit stamp is refused and persists nothing', async () => {
+  // Seed a prior failure so we can prove the refusal does NOT clear the error or
+  // mark the attempt succeeded.
+  const a = await beginGameStatsRefreshAttempt(SCOPE);
+  await recordGameStatsRefreshFailure(SCOPE, { attempt: a, error: 'earlier failure' });
+  const before = await read();
+
+  for (const bad of [
+    undefined, // missing
+    { lineage: '', revision: 1 }, // malformed lineage
+    { lineage: 'L', revision: 0 }, // malformed revision
+    { lineage: 'L', revision: Number.MAX_SAFE_INTEGER + 1 }, // unsafe revision
+  ]) {
+    const res = await recordGameStatsRefreshSuccess(
+      SCOPE,
+      // Intentionally bypass the compile-time requirement to exercise the runtime guard.
+      { attempt: a, commitStamp: bad } as unknown as Parameters<
+        typeof recordGameStatsRefreshSuccess
+      >[1]
+    );
+    assert.equal(res, 'game-stats-success-commit-stamp-required', JSON.stringify(bad));
+  }
+
+  const after = await read();
+  assert.deepEqual(after.lastError, before.lastError); // error NOT cleared
+  assert.notEqual(after.lastError, null);
+  assert.equal(after.latestAttemptOutcome, 'failed'); // NOT marked succeeded
+  assert.equal(after.lastCommittedStamp, undefined); // committed evidence untouched
+});
+
+test('the composite publication is never complete when success refused for a missing stamp', () => {
+  const pub = composeGameStatsStatusPublication(
+    'persisted',
+    'game-stats-success-commit-stamp-required'
+  );
+  assert.equal(pub.complete, false);
+});
+
+test('explicit no-op remains the only stamp-free successful terminal path', async () => {
+  const a = await beginGameStatsRefreshAttempt(SCOPE);
+  assert.equal(await recordGameStatsRefreshNoop(SCOPE, { attempt: a }), 'persisted');
+  assert.equal((await read()).latestAttemptOutcome, 'no-op');
+});
+
+// === Attempt-ordinal exhaustion / malformed ===
+
+test('an attempt ordinal at MAX_SAFE_INTEGER refuses (never resets to 1)', async () => {
+  await setAppState('provider-refresh-status', SCOPE_KEY, {
+    dataset: 'game-stats',
+    scope: SCOPE,
+    scopeKey: SCOPE_KEY,
+    lastAttemptOrdinal: Number.MAX_SAFE_INTEGER,
+    latestAttemptOutcome: 'succeeded',
+  });
+  const attempt = await beginGameStatsRefreshAttempt(SCOPE);
+  assert.equal(attempt.persistence, 'refresh-attempt-ordinal-exhausted');
+  // The stored ordinal was NOT reset.
+  const stored = (await getAppState('provider-refresh-status', SCOPE_KEY))?.value as {
+    lastAttemptOrdinal: number;
+  };
+  assert.equal(stored.lastAttemptOrdinal, Number.MAX_SAFE_INTEGER);
+});
+
+test('a malformed stored ordinal refuses (never silently restarts at 1)', async () => {
+  await setAppState('provider-refresh-status', SCOPE_KEY, {
+    dataset: 'game-stats',
+    scope: SCOPE,
+    scopeKey: SCOPE_KEY,
+    lastAttemptOrdinal: -7, // present but invalid → revision-era corruption
+  });
+  const attempt = await beginGameStatsRefreshAttempt(SCOPE);
+  assert.equal(attempt.persistence, 'refresh-attempt-ordinal-malformed');
+  const stored = (await getAppState('provider-refresh-status', SCOPE_KEY))?.value as {
+    lastAttemptOrdinal: number;
+  };
+  assert.equal(stored.lastAttemptOrdinal, -7); // unchanged — not restarted at 1
 });
 
 // === Storage failures ===
