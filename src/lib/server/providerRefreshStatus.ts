@@ -59,7 +59,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { getAppState, setAppState } from './appStateStore.ts';
+import { getAppState, setAppState, withAppStateKeyTransaction } from './appStateStore.ts';
+import { toCommitStamp, type CommitStamp } from '../gameStats/revisionStamp.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import {
   legacyUnscopedScope,
@@ -126,6 +127,24 @@ export type ProviderRefreshStatus = {
   failedPartitions?: string[];
   durationMs?: number | null;
   usage?: ProviderRefreshUsage;
+  /**
+   * Durable per-scope ATTEMPT ordinal (PLATFORM-086H3B game-stats chronology).
+   * A monotonic per-scope counter allocated by `beginGameStatsRefreshAttempt`,
+   * SEPARATE from committed-evidence chronology: it orders attempts so a stale
+   * terminal (lower ordinal) can never overwrite a newer attempt's diagnostics.
+   * Only the game-stats lifecycle sets it; unrelated datasets leave it undefined.
+   */
+  lastAttemptOrdinal?: number;
+  /**
+   * Lineage-aware COMMITTED-evidence stamp (PLATFORM-086H3B game-stats
+   * chronology). The `{ lineage, revision }` of the last durably-committed
+   * revisioned success, SEPARATE from `lastAttemptOrdinal` (attempt chronology).
+   * Committed evidence advances ONLY through a valid same-lineage stamp; a lower
+   * revision is skipped, an equal revision is idempotent only when committed
+   * metadata agrees, and a foreign lineage is a typed conflict. Only the
+   * game-stats lifecycle sets it; unrelated datasets leave it undefined.
+   */
+  lastCommittedStamp?: CommitStamp;
 };
 
 /** Handle returned by `beginProviderRefreshAttempt`; pass it back on resolve. */
@@ -581,3 +600,410 @@ export async function getLegacyProviderRefreshStatus(
 // and authoritative, and explicit commit timestamps + attempt IDs already remove
 // the WITHIN-process ordering and unresolved-attempt hazards. A store-side atomic
 // update would be required to fully close the cross-instance window.
+//
+// (The game-stats chronology below closes the WITHIN-process window further with
+// a durable per-scope attempt ordinal + a transactional read-modify-write.)
+
+// ===========================================================================
+// PLATFORM-086H3B — game-stats refresh-status chronology (DORMANT)
+// ===========================================================================
+//
+// A game-stats-SPECIFIC chronology layered beside the generic best-effort
+// helpers above. The generic helpers (used by scores/odds/schedule/conferences)
+// are UNCHANGED — this section adds new dormant functions so unrelated datasets
+// keep their exact behavior (no transactional-write conversion, no regression).
+//
+// Two chronologies, deliberately SEPARATE (frozen contract §7 / requirement 10):
+//   - ATTEMPT chronology: each begin allocates a durable per-scope ordinal and a
+//     unique token. A terminal owns the attempt fields only while it is still
+//     the latest attempt, so a stale terminal never overwrites newer diagnostics.
+//   - COMMITTED-EVIDENCE chronology: `lastCommittedStamp` advances ONLY through a
+//     valid SAME-lineage commit stamp — a lower revision is skipped, an equal
+//     revision is idempotent only when committed metadata agrees, a divergent
+//     equal revision is a typed conflict, and a foreign lineage is rejected
+//     (repair pre-writes the stamp to establish a lineage transition).
+//
+// Every writer is a transactional read-modify-write returning a typed
+// persistence result, and the composite `{ begin, terminal, complete }` never
+// claims status was recorded when persistence failed. DORMANT: no route/cron/
+// recovery caller — the dormant-boundary guard forbids these symbols in
+// production; C/D/E wire them.
+
+const GAME_STATS_DATASET: ProviderDataset = 'game-stats';
+
+/**
+ * Typed persistence result of one game-stats status mutation. Status writes
+ * never throw into a caller path, but the caller must be able to SEE whether the
+ * ledger recorded the outcome:
+ *   - `persisted`     — the transactional write committed;
+ *   - `idempotent`    — an equal-revision duplicate whose metadata agreed
+ *                       (nothing to change);
+ *   - `skipped-older` — a stale writer (lower committed revision AND non-latest
+ *                       attempt) correctly withheld;
+ *   - `skipped`       — a misrouted token or an unreadable prior state;
+ *   - `conflict`      — a divergent equal revision or a foreign lineage
+ *                       (committed evidence NOT advanced; durable state
+ *                       preserved for inspection/repair);
+ *   - `failed`        — the durable status transaction failed.
+ */
+export type ProviderStatusMutationResult =
+  | 'persisted'
+  | 'idempotent'
+  | 'skipped-older'
+  | 'skipped'
+  | 'conflict'
+  | 'failed';
+
+function durablyRecorded(result: ProviderStatusMutationResult): boolean {
+  return result === 'persisted' || result === 'idempotent';
+}
+
+/** Handle returned by `beginGameStatsRefreshAttempt`; pass it back on resolve. */
+export type GameStatsRefreshAttempt = {
+  attemptId: string;
+  /** Durable per-scope attempt ordinal (attempt chronology). */
+  ordinal: number;
+  startedAt: string;
+  /** Scope key the attempt was begun for (self-describing binding). */
+  scopeKey: string;
+  /** Whether the begin marker itself persisted (typed, never thrown). */
+  persistence: ProviderStatusMutationResult;
+};
+
+/**
+ * Composite status-lifecycle publication (frozen contract §7 / requirement 11).
+ * The BEGIN marker and the TERMINAL record are SEPARATE durable facts; `complete`
+ * is true only when BOTH were durably recorded, so a caller can never claim
+ * status was recorded when persistence failed.
+ */
+export type GameStatsStatusPublication = {
+  begin: ProviderStatusMutationResult;
+  terminal: ProviderStatusMutationResult;
+  complete: boolean;
+};
+
+export function composeGameStatsStatusPublication(
+  begin: ProviderStatusMutationResult,
+  terminal: ProviderStatusMutationResult
+): GameStatsStatusPublication {
+  return { begin, terminal, complete: durablyRecorded(begin) && durablyRecorded(terminal) };
+}
+
+/**
+ * Run ONE atomic read-modify-write of the game-stats status row inside the
+ * per-scope durable transaction. `mutate` receives the transactionally CURRENT
+ * status (normalized over the empty shape; a mislabeled row is treated as
+ * absent) and returns the replacement plus a typed result, or a no-write typed
+ * result. Never throws into the caller — a store failure resolves `failed`.
+ */
+async function mutateGameStatsStatusTransactionally(
+  scope: ProviderRefreshScope,
+  op: string,
+  mutate: (
+    status: ProviderRefreshStatus
+  ) =>
+    | { write: ProviderRefreshStatus; result: ProviderStatusMutationResult }
+    | ProviderStatusMutationResult
+): Promise<ProviderStatusMutationResult> {
+  const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
+  return withScopeLock(scopeKey, async () => {
+    try {
+      return await withAppStateKeyTransaction<ProviderStatusMutationResult>(
+        PROVIDER_REFRESH_STATUS_SCOPE,
+        scopeKey,
+        async (txn) => {
+          let stored: ProviderRefreshStatus | null;
+          try {
+            stored = (await txn.read<ProviderRefreshStatus>())?.value ?? null;
+          } catch {
+            logReadFailureSkip(GAME_STATS_DATASET, scopeKey, op);
+            return 'skipped';
+          }
+          const empty = emptyProviderRefreshStatus(GAME_STATS_DATASET, scope);
+          const status: ProviderRefreshStatus =
+            stored && (typeof stored.scopeKey !== 'string' || stored.scopeKey === scopeKey)
+              ? { ...empty, ...stored, dataset: GAME_STATS_DATASET, scope, scopeKey }
+              : empty;
+          const outcome = mutate(status);
+          if (typeof outcome === 'string') return outcome;
+          await txn.write(outcome.write);
+          return outcome.result;
+        }
+      );
+    } catch (error) {
+      console.error('providerRefreshStatus: game-stats status transaction failed', {
+        scopeKey,
+        op,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'failed';
+    }
+  });
+}
+
+/** A game-stats completion token may resolve ONLY the scope it was begun for. */
+function isMisroutedGameStatsAttempt(
+  attempt: GameStatsRefreshAttempt | undefined,
+  scopeKey: string,
+  op: string
+): boolean {
+  if (!attempt) return false;
+  if (attempt.scopeKey === scopeKey) return false;
+  console.error('providerRefreshStatus: rejected misrouted game-stats completion token', {
+    op,
+    begunScopeKey: attempt.scopeKey,
+    resolveScopeKey: scopeKey,
+  });
+  return true;
+}
+
+function validOrdinal(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Whether `attempt` may own this record's ATTEMPT-chronology fields. The ordinary
+ * case is an exact token match (its begin persisted and it is still the latest).
+ * The ONE relaxation: a terminal whose own begin never persisted
+ * (`persistence === 'failed'`) has no recorded token to match, yet may still
+ * record its outcome truthfully — but only when its ordinal is STRICTLY greater
+ * than the stored ordinal, so a genuinely stale attempt never overwrites a newer
+ * one's diagnostics.
+ */
+function isLatestGameStatsAttempt(
+  status: ProviderRefreshStatus,
+  attempt?: GameStatsRefreshAttempt
+): boolean {
+  if (!attempt) return true;
+  if (status.lastAttemptId === attempt.attemptId) return true;
+  if (attempt.persistence !== 'failed') return false;
+  const storedOrdinal = validOrdinal(status.lastAttemptOrdinal) ?? 0;
+  return attempt.ordinal > storedOrdinal;
+}
+
+/** Whether an equal-revision success carries the SAME committed metadata. */
+function committedMetadataAgrees(
+  status: ProviderRefreshStatus,
+  result: { source?: string | null; rowsCommitted?: number | null; partialFailure?: boolean }
+): boolean {
+  return (
+    (status.source ?? null) === (result.source ?? null) &&
+    (status.rowsCommitted ?? null) === (result.rowsCommitted ?? null) &&
+    (status.partialFailure ?? false) === (result.partialFailure ?? false)
+  );
+}
+
+/**
+ * Begin a game-stats refresh attempt: allocate a durable per-scope ORDINAL and a
+ * unique token, mark the latest attempt `in-progress`, and preserve all
+ * committed-evidence metadata (a begin racing a newer success never regresses
+ * it). The returned handle carries the ordinal + token + begin persistence.
+ */
+export async function beginGameStatsRefreshAttempt(
+  scope: ProviderRefreshScope,
+  opts: { startedAt?: string; attemptId?: string } = {}
+): Promise<GameStatsRefreshAttempt> {
+  const startedAt = opts.startedAt ?? new Date().toISOString();
+  const attemptId = opts.attemptId ?? generateAttemptId();
+  const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
+  let ordinal = 1;
+  const persistence = await mutateGameStatsStatusTransactionally(scope, 'begin', (status) => {
+    ordinal = (validOrdinal(status.lastAttemptOrdinal) ?? 0) + 1;
+    return {
+      write: {
+        ...status,
+        dataset: GAME_STATS_DATASET,
+        scope,
+        scopeKey,
+        lastAttemptAt: startedAt,
+        lastAttemptId: attemptId,
+        lastAttemptOrdinal: ordinal,
+        latestAttemptOutcome: 'in-progress',
+        latestAttemptResolvedAt: null,
+      },
+      result: 'persisted',
+    };
+  });
+  return { attemptId, ordinal, startedAt, scopeKey, persistence };
+}
+
+export type GameStatsRefreshSuccess = {
+  attempt?: GameStatsRefreshAttempt;
+  /**
+   * The revisioned merge authority's commit stamp, captured immediately after
+   * COMMIT. It is the SOLE committed-evidence ordering authority.
+   */
+  commitStamp?: CommitStamp;
+  /** Durable commit time (defaults to now). */
+  committedAt?: string;
+  source?: string | null;
+  rowsCommitted?: number | null;
+  partialFailure?: boolean;
+  failedPartitions?: string[];
+  durationMs?: number | null;
+  usage?: ProviderRefreshUsage;
+};
+
+/**
+ * Record a game-stats success. Committed-evidence chronology advances only via a
+ * valid same-lineage stamp; attempt chronology is owned separately by the latest
+ * attempt. The two are independent — an older commit can update the attempt
+ * outcome without advancing committed evidence, and vice versa.
+ */
+export async function recordGameStatsRefreshSuccess(
+  scope: ProviderRefreshScope,
+  result: GameStatsRefreshSuccess = {}
+): Promise<ProviderStatusMutationResult> {
+  const resolvedAt = new Date().toISOString();
+  const committedAt = result.committedAt ?? resolvedAt;
+  const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
+  if (isMisroutedGameStatsAttempt(result.attempt, scopeKey, 'success')) return 'skipped';
+  return mutateGameStatsStatusTransactionally(scope, 'success', (status) => {
+    const incoming = result.commitStamp ?? null;
+    const stored = toCommitStamp(status.lastCommittedStamp);
+    // Committed-evidence decision (frozen contract §7).
+    let committed: 'advance' | 'idempotent' | 'conflict' | 'skipped' | 'none';
+    if (!incoming) committed = 'none';
+    else if (!stored) committed = 'advance';
+    else if (incoming.lineage !== stored.lineage) committed = 'conflict';
+    else if (incoming.revision > stored.revision) committed = 'advance';
+    else if (incoming.revision === stored.revision)
+      committed = committedMetadataAgrees(status, result) ? 'idempotent' : 'conflict';
+    else committed = 'skipped';
+
+    if (committed === 'conflict') return 'conflict'; // durable state untouched
+
+    const owns = isLatestGameStatsAttempt(status, result.attempt);
+    if (committed !== 'advance' && !owns) {
+      return committed === 'idempotent' ? 'idempotent' : 'skipped-older';
+    }
+
+    const next: ProviderRefreshStatus = {
+      ...status,
+      dataset: GAME_STATS_DATASET,
+      scope,
+      scopeKey,
+    };
+    if (committed === 'advance') {
+      next.lastCommittedStamp = incoming!;
+      next.lastSuccessAt = committedAt;
+      next.source = result.source ?? null;
+      next.rowsCommitted = result.rowsCommitted ?? null;
+      next.partialFailure = result.partialFailure ?? false;
+      next.failedPartitions =
+        result.failedPartitions && result.failedPartitions.length > 0
+          ? result.failedPartitions
+          : undefined;
+      next.durationMs = result.durationMs ?? null;
+      next.usage = result.usage;
+    }
+    if (owns) {
+      next.lastError = null;
+      next.lastAttemptAt = result.attempt?.startedAt ?? status.lastAttemptAt;
+      next.lastAttemptId = result.attempt?.attemptId ?? status.lastAttemptId;
+      next.lastAttemptOrdinal = result.attempt?.ordinal ?? status.lastAttemptOrdinal;
+      next.latestAttemptOutcome = result.partialFailure ? 'partial' : 'succeeded';
+      next.latestAttemptResolvedAt = resolvedAt;
+    }
+    return { write: next, result: 'persisted' };
+  });
+}
+
+export type GameStatsRefreshNoop = {
+  attempt?: GameStatsRefreshAttempt;
+  source?: string | null;
+  durationMs?: number | null;
+};
+
+/**
+ * Record a valid game-stats NO-OP: the latest attempt resolved with no new
+ * durable commit. Never advances committed evidence; clears the latest error;
+ * preserves the prior-good committed stamp/source/rows. A stale attempt is
+ * dropped.
+ */
+export async function recordGameStatsRefreshNoop(
+  scope: ProviderRefreshScope,
+  result: GameStatsRefreshNoop = {}
+): Promise<ProviderStatusMutationResult> {
+  const resolvedAt = new Date().toISOString();
+  const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
+  if (isMisroutedGameStatsAttempt(result.attempt, scopeKey, 'noop')) return 'skipped';
+  return mutateGameStatsStatusTransactionally(scope, 'noop', (status) => {
+    if (!isLatestGameStatsAttempt(status, result.attempt)) return 'skipped-older';
+    return {
+      write: {
+        ...status,
+        dataset: GAME_STATS_DATASET,
+        scope,
+        scopeKey,
+        lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
+        lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
+        lastAttemptOrdinal: result.attempt?.ordinal ?? status.lastAttemptOrdinal,
+        lastError: null,
+        latestAttemptOutcome: 'no-op',
+        latestAttemptResolvedAt: resolvedAt,
+        durationMs: result.durationMs ?? null,
+      },
+      result: 'persisted',
+    };
+  });
+}
+
+export type GameStatsRefreshFailure = {
+  attempt?: GameStatsRefreshAttempt;
+  error: string;
+  code?: string;
+  status?: number;
+  partialFailure?: boolean;
+  failedPartitions?: string[];
+  durationMs?: number | null;
+  usage?: ProviderRefreshUsage;
+};
+
+/**
+ * Record a game-stats failure. Preserves the prior-good committed stamp/source/
+ * rows (a failure never advances or erases committed evidence) and sets the
+ * latest-attempt outcome `failed`. A stale attempt is dropped.
+ */
+export async function recordGameStatsRefreshFailure(
+  scope: ProviderRefreshScope,
+  result: GameStatsRefreshFailure
+): Promise<ProviderStatusMutationResult> {
+  const resolvedAt = new Date().toISOString();
+  const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
+  if (isMisroutedGameStatsAttempt(result.attempt, scopeKey, 'failure')) return 'skipped';
+  return mutateGameStatsStatusTransactionally(scope, 'failure', (status) => {
+    if (!isLatestGameStatsAttempt(status, result.attempt)) return 'skipped-older';
+    return {
+      write: {
+        ...status,
+        dataset: GAME_STATS_DATASET,
+        scope,
+        scopeKey,
+        lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
+        lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
+        lastAttemptOrdinal: result.attempt?.ordinal ?? status.lastAttemptOrdinal,
+        // Preserve the transactionally-current committed evidence.
+        lastSuccessAt: status.lastSuccessAt,
+        lastCommittedStamp: status.lastCommittedStamp,
+        source: status.source,
+        rowsCommitted: status.rowsCommitted,
+        lastError: {
+          message: result.error,
+          ...(result.code ? { code: result.code } : {}),
+          ...(typeof result.status === 'number' ? { status: result.status } : {}),
+        },
+        latestAttemptOutcome: 'failed',
+        latestAttemptResolvedAt: resolvedAt,
+        partialFailure: result.partialFailure ?? status.partialFailure ?? false,
+        failedPartitions:
+          result.failedPartitions && result.failedPartitions.length > 0
+            ? result.failedPartitions
+            : status.failedPartitions,
+        durationMs: result.durationMs ?? null,
+        usage: result.usage ?? status.usage,
+      },
+      result: 'persisted',
+    };
+  });
+}
