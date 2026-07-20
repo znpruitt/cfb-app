@@ -10,7 +10,8 @@ import {
   ACTIVATION_CONTROL_SCOPE,
   REVISIONED_EVIDENCE_WITNESS_KEY,
   classifyLegacyWrite,
-  witnessPresent,
+  toControlRead,
+  witnessSurvives,
   type ActivationState,
 } from './activationControl.ts';
 import type { WeeklyGameStats } from './types.ts';
@@ -85,24 +86,25 @@ export async function writeLegacyGameStatsPartition(
   try {
     return await withAppStateKeyTransaction<LegacyWriteResult>(SCOPE, key, async (txn) => {
       await txn.lockKey(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
-      const recordRaw =
-        (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value ??
-        null;
-      const witnessRaw =
-        (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY))
-          ?.value ?? null;
+      // PRESENCE-AWARE reads: a present-null / malformed control row is NEVER
+      // treated as absence (PLATFORM-086H3B-ACTIVATION-STATE-CORRUPTION-REMEDIATION).
+      const activation = toControlRead(
+        await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY)
+      );
+      const survives = witnessSurvives(
+        toControlRead(
+          await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY)
+        )
+      );
       const existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
-      const ledgerRaw = (await txn.readKey<unknown>(REVISION_LEDGER_SCOPE, key))?.value ?? null;
+      const ledgerRow = await txn.readKey<unknown>(REVISION_LEDGER_SCOPE, key);
       // Per-partition revision history: a surviving commit stamp (own-property) or
-      // any revision-ledger row (valid or a revision-era marker).
+      // ANY present revision-ledger ROW — valid, or a revision-era marker (incl. a
+      // present JSON-null value). Presence, not value, decides.
       const partitionHasRevisionHistory =
         (existing !== null && Object.prototype.hasOwnProperty.call(existing, 'commitStamp')) ||
-        ledgerRaw !== null;
-      const gate = classifyLegacyWrite(
-        recordRaw,
-        witnessPresent(witnessRaw),
-        partitionHasRevisionHistory
-      );
+        ledgerRow !== null;
+      const gate = classifyLegacyWrite(activation, survives, partitionHasRevisionHistory);
       if (!gate.allow) return { ok: false, reason: gate.reason, state: gate.state };
       await txn.write(stats);
       return { ok: true };

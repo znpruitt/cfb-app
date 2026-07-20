@@ -10,8 +10,10 @@ import {
   classifyRevisionedWrite,
   readActivationState,
   setActivationState,
+  toControlRead,
   type ActivationControlRecord,
   type ActivationState,
+  type ControlRead,
 } from '../activationControl.ts';
 import {
   GameStatsFenceError,
@@ -49,83 +51,124 @@ const rec = (state: ActivationState, evidence: boolean): ActivationControlRecord
   updatedAt: '',
   revisionedEvidenceEverExisted: evidence,
 });
+/** A present control read carrying `value`. */
+const present = (value: unknown): ControlRead => ({ present: true, value });
+/** A genuinely absent control read. */
+const ABSENT: ControlRead = { present: false, value: undefined };
 
-// === Pure transition state machine ===
+// === Presence-aware read helper ===
 
-test('classifyActivationTransition: only the four forward transitions + safe idempotent', () => {
+test('toControlRead keeps row presence separate from a present JSON-null value', () => {
+  assert.deepEqual(toControlRead(null), { present: false, value: undefined });
+  assert.deepEqual(toControlRead({ value: null }), { present: true, value: null });
+  assert.deepEqual(toControlRead({ value: { schemaVersion: 1 } }), {
+    present: true,
+    value: { schemaVersion: 1 },
+  });
+});
+
+// === Pure transition state machine (forward-only) ===
+
+test('classifyActivationTransition: exactly the four forward transitions + safe idempotent', () => {
   assert.ok(classifyActivationTransition(rec('legacy', false), 'armed', false).ok);
   assert.ok(classifyActivationTransition(rec('armed', false), 'active', false).ok);
   assert.ok(classifyActivationTransition(rec('armed', false), 'read-only-safe', false).ok);
   assert.ok(classifyActivationTransition(rec('active', false), 'read-only-safe', false).ok);
-  assert.ok(classifyActivationTransition(rec('active', true), 'active', true).ok); // idempotent
-  // active never straight from legacy.
-  assert.deepEqual(classifyActivationTransition(rec('legacy', false), 'active', false), {
-    ok: false,
-    reason: 'invalid-transition',
-  });
-  // active never returns to legacy.
-  assert.deepEqual(classifyActivationTransition(rec('active', false), 'legacy', false), {
-    ok: false,
-    reason: 'invalid-transition',
-  });
+  // Idempotent same-state (safe).
+  for (const s of ['armed', 'active', 'read-only-safe'] as const) {
+    assert.ok(classifyActivationTransition(rec(s, false), s, false).ok, s);
+  }
+  assert.ok(classifyActivationTransition(rec('legacy', false), 'legacy', false).ok);
 });
 
-test('classifyActivationTransition: return to legacy forbidden once history exists', () => {
-  // No history → aborting arming/safe-stop back to legacy is allowed.
-  assert.ok(classifyActivationTransition(rec('armed', false), 'legacy', false).ok);
-  assert.ok(classifyActivationTransition(rec('read-only-safe', false), 'legacy', false).ok);
-  // History (witness or record flag) → permanently forbidden.
-  assert.deepEqual(classifyActivationTransition(rec('armed', false), 'legacy', true), {
+test('classifyActivationTransition: no path back to legacy, and read-only-safe is terminal', () => {
+  // Every backward-to-legacy transition is removed (regardless of history).
+  for (const from of ['armed', 'active', 'read-only-safe'] as const) {
+    assert.deepEqual(classifyActivationTransition(rec(from, false), 'legacy', false), {
+      ok: false,
+      reason: 'invalid-transition',
+    });
+  }
+  // read-only-safe is terminal — no transition out.
+  for (const to of ['legacy', 'armed', 'active'] as const) {
+    assert.deepEqual(classifyActivationTransition(rec('read-only-safe', false), to, false), {
+      ok: false,
+      reason: 'invalid-transition',
+    });
+  }
+  // active only reaches read-only-safe; armed→legacy / legacy→active are invalid.
+  assert.equal(classifyActivationTransition(rec('legacy', false), 'active', false).ok, false);
+  assert.equal(classifyActivationTransition(rec('active', false), 'armed', false).ok, false);
+});
+
+test('classifyActivationTransition: idempotent legacy refuses when history survives', () => {
+  assert.deepEqual(classifyActivationTransition(rec('legacy', true), 'legacy', true), {
+    ok: false,
+    reason: 'legacy-forbidden-after-evidence',
+  });
+  // history via the witness argument (record flag false) still refuses.
+  assert.deepEqual(classifyActivationTransition(rec('legacy', false), 'legacy', true), {
     ok: false,
     reason: 'legacy-forbidden-after-evidence',
   });
 });
 
-// === Pure legacy write gate ===
+// === Pure legacy write gate (presence-aware) ===
 
-test('classifyLegacyWrite: allows legacy-only, fails safe otherwise', () => {
-  assert.deepEqual(classifyLegacyWrite(null, false, false), { allow: true }); // absent, no history
-  assert.deepEqual(classifyLegacyWrite(rec('legacy', false), false, false), { allow: true });
+test('classifyLegacyWrite: allows legacy-only, fails safe on malformed/present-null', () => {
+  assert.deepEqual(classifyLegacyWrite(ABSENT, false, false), { allow: true });
+  assert.deepEqual(classifyLegacyWrite(present(rec('legacy', false)), false, false), {
+    allow: true,
+  });
   // Absent record but surviving history → refuse.
-  assert.equal(classifyLegacyWrite(null, true, false).allow, false);
-  assert.equal(classifyLegacyWrite(null, false, true).allow, false);
+  assert.equal(classifyLegacyWrite(ABSENT, true, false).allow, false);
+  assert.equal(classifyLegacyWrite(ABSENT, false, true).allow, false);
   // Non-legacy states → fenced-non-legacy.
   for (const state of ['armed', 'active', 'read-only-safe'] as const) {
-    const gate = classifyLegacyWrite(rec(state, false), false, false);
+    const gate = classifyLegacyWrite(present(rec(state, false)), false, false);
     assert.equal(gate.allow, false);
     if (!gate.allow) assert.equal(gate.reason, 'fenced-non-legacy');
   }
-  // Malformed → fenced-malformed (never treated as legacy).
-  const malformed = classifyLegacyWrite({ schemaVersion: 9 }, false, false);
-  assert.equal(malformed.allow, false);
-  if (!malformed.allow) assert.equal(malformed.reason, 'fenced-malformed');
+  // PRESENT-but-invalid (JSON null, primitive, array, bad object) → fenced-malformed,
+  // NEVER treated as absence/legacy.
+  for (const bad of [null, 7, 'x', [], { schemaVersion: 9 }, { schemaVersion: 1, state: 'nope' }]) {
+    const gate = classifyLegacyWrite(present(bad), false, false);
+    assert.equal(gate.allow, false, JSON.stringify(bad));
+    if (!gate.allow) assert.equal(gate.reason, 'fenced-malformed', JSON.stringify(bad));
+  }
   // Legacy state but evidence flag / witness / partition history → refuse.
-  assert.equal(classifyLegacyWrite(rec('legacy', true), false, false).allow, false);
-  assert.equal(classifyLegacyWrite(rec('legacy', false), true, false).allow, false);
-  assert.equal(classifyLegacyWrite(rec('legacy', false), false, true).allow, false);
+  assert.equal(classifyLegacyWrite(present(rec('legacy', true)), false, false).allow, false);
+  assert.equal(classifyLegacyWrite(present(rec('legacy', false)), true, false).allow, false);
+  assert.equal(classifyLegacyWrite(present(rec('legacy', false)), false, true).allow, false);
 });
 
-test('classifyRevisionedWrite: only a valid active record allows', () => {
-  assert.deepEqual(classifyRevisionedWrite(rec('active', false)), { allow: true });
-  assert.deepEqual(classifyRevisionedWrite(null), { allow: false, state: 'absent' });
-  assert.deepEqual(classifyRevisionedWrite({ schemaVersion: 9 }), {
-    allow: false,
-    state: 'malformed',
-  });
+test('classifyRevisionedWrite: only a present valid active record allows', () => {
+  assert.deepEqual(classifyRevisionedWrite(present(rec('active', false))), { allow: true });
+  assert.deepEqual(classifyRevisionedWrite(ABSENT), { allow: false, state: 'absent' });
+  for (const bad of [null, 7, [], { schemaVersion: 9 }]) {
+    assert.deepEqual(classifyRevisionedWrite(present(bad)), { allow: false, state: 'malformed' });
+  }
   for (const state of ['legacy', 'armed', 'read-only-safe'] as const) {
-    assert.deepEqual(classifyRevisionedWrite(rec(state, false)), { allow: false, state });
+    assert.deepEqual(classifyRevisionedWrite(present(rec(state, false))), { allow: false, state });
   }
 });
 
 // === Durable reads ===
 
-test('absent → legacy; absent + witness → read-only-safe; malformed → read-only-safe', async () => {
+test('absent → legacy; absent + (valid OR null) witness → read-only-safe; malformed → read-only-safe', async () => {
   assert.equal(await readActivationState(), 'legacy');
+  // A valid witness survives an absent record.
   await setAppState(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY, {
     everExisted: true,
     firstAt: '2024-10-06T00:00:00.000Z',
   });
-  assert.equal(await readActivationState(), 'read-only-safe'); // witness survives an absent record
+  assert.equal(await readActivationState(), 'read-only-safe');
+  // A present JSON-null witness ALSO fails safe (never "no history").
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await setAppState(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY, null);
+  assert.equal(await readActivationState(), 'read-only-safe');
+  // Malformed activation record → read-only-safe.
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   await setAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, { schemaVersion: 9 });
@@ -134,23 +177,65 @@ test('absent → legacy; absent + witness → read-only-safe; malformed → read
 
 // === Durable transitions ===
 
-test('setActivationState persists the fence and forbids legacy once witness exists', async () => {
-  assert.ok((await setActivationState('armed')).ok);
-  assert.ok((await setActivationState('active')).ok);
-  assert.equal(await readActivationState(), 'active');
+test('durable transition matrix: forward succeeds, backward/terminal refuses', async () => {
+  const set = (s: ActivationState) => setActivationState(s);
+  // legacy → armed → active succeeds.
+  assert.ok((await set('armed')).ok);
+  assert.ok((await set('active')).ok);
+  // active → read-only-safe succeeds; then read-only-safe is terminal.
+  assert.ok((await set('read-only-safe')).ok);
+  for (const to of ['legacy', 'armed', 'active'] as const) {
+    const r = await set(to);
+    assert.equal(r.ok, false, `read-only-safe → ${to}`);
+    if (!r.ok) assert.equal(r.reason, 'invalid-transition');
+  }
 
-  // Simulate a durable evidence witness surviving; a return to legacy is refused.
+  // Fresh: legacy → armed is irreversible even with NO evidence.
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
-  await setActivationState('armed');
+  assert.ok((await set('armed')).ok);
+  const backToLegacy = await set('legacy');
+  assert.equal(backToLegacy.ok, false);
+  if (!backToLegacy.ok) assert.equal(backToLegacy.reason, 'invalid-transition');
+  assert.equal(await readActivationState(), 'armed');
+  // armed → read-only-safe still works.
+  assert.ok((await set('read-only-safe')).ok);
+});
+
+test('a present-malformed activation record refuses ALL transitions and is not normalized', async () => {
+  const corrupt = { schemaVersion: 9, junk: true };
+  await setAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, corrupt);
+  for (const to of ['legacy', 'armed', 'active', 'read-only-safe'] as const) {
+    const r = await setActivationState(to);
+    assert.equal(r.ok, false, to);
+    if (!r.ok) assert.equal(r.reason, 'activation-state-malformed', to);
+  }
+  // Byte-identical — never replaced with a default legacy record.
+  assert.deepEqual(
+    (await getAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value,
+    corrupt
+  );
+});
+
+test('a present JSON-null activation record fails safe (transitions refuse, unchanged)', async () => {
+  await setAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, null);
+  const r = await setActivationState('armed');
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.reason, 'activation-state-malformed');
+  const stored = await getAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
+  assert.equal(stored !== null, true); // row still present
+  assert.equal(stored?.value, null); // still JSON null, not normalized
+});
+
+test('same-state legacy refuses when a surviving witness proves history', async () => {
   await setAppState(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY, {
     everExisted: true,
     firstAt: '2024-10-06T00:00:00.000Z',
   });
-  const back = await setActivationState('legacy');
-  assert.equal(back.ok, false);
-  if (!back.ok) assert.equal(back.reason, 'legacy-forbidden-after-evidence');
-  assert.equal(await readActivationState(), 'armed');
+  // Activation record absent but the witness survives → inconsistent → refuse.
+  const r = await setActivationState('legacy');
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.reason, 'activation-state-malformed');
 });
 
 // === The LIVE fenced legacy writer (cache.setCachedGameStats) ===
@@ -160,7 +245,6 @@ test('the live legacy writer persists ONLY while the fence is legacy', async () 
   assert.deepEqual(await writeLegacyGameStatsPartition(stats), { ok: true });
   assert.ok(await getCachedGameStats(BASE.year, BASE.week, BASE.seasonType));
 
-  // Reach each non-legacy state via the permitted forward transitions.
   const reach: Record<'armed' | 'active' | 'read-only-safe', ActivationState[]> = {
     armed: ['armed'],
     active: ['armed', 'active'],
@@ -184,45 +268,45 @@ test('setCachedGameStats throws GameStatsFenceError when fenced', async () => {
   assert.equal(await getCachedGameStats(BASE.year, BASE.week, BASE.seasonType), null);
 });
 
-test('malformed activation record fails safe and is not overwritten', async () => {
-  const corrupt = { schemaVersion: 9, junk: true };
-  await setAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, corrupt);
+test('the legacy writer fails safe on present-null / malformed control rows (nothing mutated)', async () => {
+  const controlCases: Array<[string, string, string, unknown]> = [
+    ['null activation', ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, null],
+    [
+      'malformed activation',
+      ACTIVATION_CONTROL_SCOPE,
+      ACTIVATION_CONTROL_KEY,
+      { schemaVersion: 9 },
+    ],
+    ['null witness', ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY, null],
+    ['null ledger', REVISION_LEDGER_SCOPE, LEDGER_KEY, null],
+  ];
+  for (const [name, scope, key, value] of controlCases) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await setAppState(scope, key, value);
+    const refused = await writeLegacyGameStatsPartition(legacyPartition());
+    assert.equal(refused.ok, false, name);
+    // No partition was written, and the control row is byte-identical.
+    assert.equal(await getCachedGameStats(BASE.year, BASE.week, BASE.seasonType), null, name);
+    assert.deepEqual((await getAppState(scope, key))?.value, value, name);
+  }
+});
+
+test('absent activation with provably no revision history bootstraps safely', async () => {
+  assert.deepEqual(await writeLegacyGameStatsPartition(legacyPartition()), { ok: true });
+});
+
+test('restart-style: a persisted malformed activation still refuses after process reset', async () => {
+  await setAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, { schemaVersion: 9 });
+  // Drop process-local state (locks/pool) but keep the durable file.
+  __resetAppStateForTests();
   const refused = await writeLegacyGameStatsPartition(legacyPartition());
   assert.equal(refused.ok, false);
   if (!refused.ok && refused.reason === 'fenced-malformed') {
     assert.equal(refused.state, 'read-only-safe');
   } else {
-    assert.fail('expected fenced-malformed');
+    assert.fail('expected fenced-malformed after restart');
   }
-  // The corrupt record was NOT auto-normalized to legacy.
-  assert.deepEqual(
-    (await getAppState(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value,
-    corrupt
-  );
-});
-
-test('absent activation + surviving revision history refuses legacy', async () => {
-  // A revision ledger for this partition proves revision history survives.
-  await setAppState(REVISION_LEDGER_SCOPE, LEDGER_KEY, {
-    schemaVersion: 1,
-    ...BASE,
-    lineage: 'L',
-    revision: 3,
-    initializedFrom: 'new',
-    initializedAt: '2024-10-06T00:00:00.000Z',
-  });
-  const refused = await writeLegacyGameStatsPartition(legacyPartition());
-  assert.equal(refused.ok, false);
-  if (!refused.ok && refused.reason === 'fenced-revision-history') {
-    assert.equal(refused.state, 'read-only-safe');
-  } else {
-    assert.fail('expected fenced-revision-history');
-  }
-});
-
-test('absent activation with provably no revision history bootstraps safely', async () => {
-  // Clean store, no witness, no ledger → legacy write permitted.
-  assert.deepEqual(await writeLegacyGameStatsPartition(legacyPartition()), { ok: true });
 });
 
 test('behavior-equivalence: the fenced legacy write matches a raw write in legacy', async () => {

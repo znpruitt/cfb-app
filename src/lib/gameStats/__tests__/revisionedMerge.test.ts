@@ -224,3 +224,20 @@ test('revision block: a lineage conflict refuses the write, durable state untouc
   assert.deepEqual((await readPartition())?.commitStamp, { lineage: 'L1', revision: 1 });
   assert.equal((await readLedger())?.lineage, 'L2');
 });
+
+test('a present-invalid ledger ROW blocks allocation as ambiguous (present, not value, decides)', async () => {
+  for (const bad of [null, { corrupt: true }]) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await activate();
+    // A present ledger row that does not validate (incl. JSON null) is a
+    // revision-era marker — allocation must block, writing nothing.
+    await setAppState(GAME_STATS_REVISION_SCOPE, KEY, bad);
+    const result = await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
+    assert.equal(result.outcome, 'unavailable', JSON.stringify(bad));
+    assert.equal(result.unavailableReason, 'revision-history-ambiguous', JSON.stringify(bad));
+    assert.equal(result.commit, undefined);
+    assert.equal(await readPartition(), null); // no evidence written
+    assert.deepEqual((await getAppState(GAME_STATS_REVISION_SCOPE, KEY))?.value, bad); // ledger unchanged
+  }
+});

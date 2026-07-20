@@ -352,6 +352,12 @@ export function classifyRevisionAllocation(
     return block('revision-history-ambiguous');
   }
 
+  // 2b. A PRESENT-but-invalid revision-ledger row (incl. a present JSON-`null`
+  //     value) is a revision-era marker — unexplained corruption that BLOCKS
+  //     even alongside a valid partition stamp; only a genuinely ABSENT ledger
+  //     row is "no ledger" (PLATFORM-086H3B-ACTIVATION-STATE-CORRUPTION-REMEDIATION).
+  if (ledger.markerPresent) return block('revision-history-ambiguous');
+
   // 3. Surviving same-lineage partition evidence → reconstruct above it, gated by
   //    the status witness (status ahead → evidence loss; foreign → conflict).
   if (partStamp) {
@@ -408,9 +414,13 @@ export async function allocateGameStatsCommitStamp(
 ): Promise<RevisionAllocationResult> {
   const partition = classifyPartitionStamp(existing);
   const ledgerRow = await txn.readKey<unknown>(GAME_STATS_REVISION_SCOPE, partitionKey);
-  const ledgerRaw = ledgerRow?.value ?? null;
-  const ledgerValid = validateLedgerRecord(ledgerRaw, id);
-  const ledgerMarkerPresent = ledgerRow !== null && ledgerRaw !== null && ledgerValid === null;
+  const ledgerValid = validateLedgerRecord(ledgerRow?.value, id);
+  // PRESENCE, not value, decides a revision-era marker
+  // (PLATFORM-086H3B-ACTIVATION-STATE-CORRUPTION-REMEDIATION): a present ledger
+  // ROW that does not validate — INCLUDING a present JSON-`null` value — is a
+  // revision-era marker that blocks allocation as `revision-history-ambiguous`.
+  // Only a genuinely ABSENT row is "no ledger".
+  const ledgerMarkerPresent = ledgerRow !== null && ledgerValid === null;
 
   // ALWAYS consult committed refresh status under S(P) — a mandatory restoration
   // and high-water witness on BOTH the ordinary and bootstrap paths

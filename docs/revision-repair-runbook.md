@@ -175,18 +175,26 @@ Invariants:
 - Revisioned evidence commits ONLY in `active` — `armed` prepares deployment but
   does not authorize evidence. `read-only-safe` fences BOTH writers; a completed
   `read-only-safe` transition excludes any later revisioned commit.
-- `active` is reachable only from `armed` (never straight from `legacy`). Permitted
-  forward transitions: `legacy→armed`, `armed→active`, `armed→read-only-safe`,
-  `active→read-only-safe`.
+- The transition graph is **strictly forward-only** (PLATFORM-086H3B-ACTIVATION-STATE-CORRUPTION-REMEDIATION):
+  the ONLY transitions are `legacy→armed`, `armed→active`, `armed→read-only-safe`,
+  `active→read-only-safe`, plus a safe idempotent same-state. **`legacy→armed` is
+  irreversible** (there is NO path back to `legacy` from any state, even before
+  evidence commits), and **`read-only-safe` is terminal**. An idempotent same-state
+  `legacy` request is refused when revisioned history survives, so idempotence can
+  never mask a resurrection.
 - **Durable global witness:** the first revisioned evidence commit sets a
   write-once, never-cleared `revisioned-evidence-witness`, ATOMICALLY with the
-  evidence. Once it exists, the legacy writer is fenced off and any automatic
-  return to `legacy` is permanently forbidden — even if the activation record
-  itself is lost.
-- An **absent** activation record resolves to `legacy` ONLY when no revision
-  history survives (no witness, no per-partition ledger/stamp); otherwise it
-  resolves to `read-only-safe`. A **malformed** record resolves to
-  `read-only-safe` and is never auto-normalized to `legacy`.
+  evidence. Once it exists, the legacy writer is fenced off and legacy ownership
+  can never be resurrected — even if the activation record itself is lost.
+- **Row presence is distinct from a row's value.** Absence, a present JSON-`null`
+  value, and a present-but-malformed value are three different things and are
+  never conflated. A **present** activation/witness/ledger row whose value is
+  `null` or malformed **fails safe** (activation → `read-only-safe`, refusing both
+  writers and all transitions; a present-invalid revision-ledger row blocks
+  allocation as `revision-history-ambiguous`) and is **never auto-normalized**. An
+  **absent** activation record resolves to `legacy` ONLY when every relevant
+  witness row is genuinely absent (no witness row, no per-partition ledger/stamp);
+  a surviving witness (valid OR malformed) resolves it to `read-only-safe`.
 
 ## 6. Deployment & rollback
 

@@ -295,6 +295,25 @@ test('ordinary: a malformed revision-era status marker → ambiguous', () => {
   );
 });
 
+test('bootstrap: a present-invalid ledger MARKER blocks ambiguous even with a valid partition stamp', () => {
+  // A present JSON-null / malformed ledger row is a revision-era marker — it
+  // blocks even alongside surviving same-lineage partition evidence.
+  expectBlock(
+    classifyRevisionAllocation(
+      sources(
+        { kind: 'valid', stamp: { lineage: 'L', revision: 3 } },
+        {
+          consulted: true,
+          ledgerMarker: true,
+        }
+      ),
+      ID,
+      CTX
+    ),
+    'revision-history-ambiguous'
+  );
+});
+
 // === Safe-integer exhaustion ===
 
 test('exhaustion: ledger/partition at MAX_SAFE_INTEGER → revision-counter-exhausted', () => {

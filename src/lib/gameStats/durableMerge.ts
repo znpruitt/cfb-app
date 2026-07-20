@@ -20,6 +20,7 @@ import {
   classifyRevisionedWrite,
   markRevisionedEvidenceCommitted,
   readActivationState,
+  toControlRead,
 } from './activationControl.ts';
 import type { CommitStamp } from './revisionStamp.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
@@ -892,15 +893,17 @@ export async function mergeGameStatsPartitionRevisioned(
       } catch {
         return unavailable('lock-unavailable', partitionKey);
       }
-      let activationRaw: unknown;
+      let activation;
       try {
-        activationRaw =
-          (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value ??
-          null;
+        // PRESENCE-AWARE: a present-null / malformed activation row is NEVER
+        // treated as absence and is never normalized during the commit attempt.
+        activation = toControlRead(
+          await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY)
+        );
       } catch {
         return unavailable('durable-read-failed', partitionKey);
       }
-      if (!classifyRevisionedWrite(activationRaw).allow) {
+      if (!classifyRevisionedWrite(activation).allow) {
         return unavailable('activation-fenced', partitionKey);
       }
 

@@ -116,6 +116,46 @@ export function revisionedWriteAllowed(state: ActivationState): boolean {
   return state === 'active';
 }
 
+// === Presence-aware durable control reads ===
+//
+// PLATFORM-086H3B-ACTIVATION-STATE-CORRUPTION-REMEDIATION: a durable row's
+// PRESENCE is preserved independently of its decoded value, so a PRESENT row
+// whose JSON value is `null` (or otherwise malformed) is NEVER mistaken for an
+// ABSENT row. Callers must build a `ControlRead` from the raw transaction record
+// (`AppStateRecord | null`) BEFORE decoding — never via `?.value ?? null`, which
+// collapses a present-null value into absence.
+
+/** A durable control read that keeps row presence separate from its value. */
+export type ControlRead = { present: boolean; value: unknown };
+
+/** Build a `ControlRead` from a raw transaction/store record (never `?? null`). */
+export function toControlRead(row: { value: unknown } | null | undefined): ControlRead {
+  return row ? { present: true, value: row.value } : { present: false, value: undefined };
+}
+
+/**
+ * A witness ROW's mere PRESENCE forbids legacy ownership. A present witness is
+ * either the valid write-once `{ everExisted: true }` (history definitely
+ * existed) or a malformed/JSON-null value (which can NEVER prove history never
+ * existed) — both fail safe. Only a genuinely ABSENT witness row proves no
+ * history.
+ */
+export function witnessSurvives(read: ControlRead): boolean {
+  return read.present;
+}
+
+/** Presence-aware resolution of the activation record for a decision. */
+export type ResolvedActivation =
+  | { kind: 'valid'; record: ActivationControlRecord }
+  | { kind: 'malformed' } // present but not a valid record → fail safe (read-only-safe)
+  | { kind: 'absent' }; // no row at all
+
+export function resolveActivation(read: ControlRead): ResolvedActivation {
+  if (!read.present) return { kind: 'absent' };
+  const record = validateActivationRecord(read.value);
+  return record ? { kind: 'valid', record } : { kind: 'malformed' };
+}
+
 // === Pure write gates (evaluated INSIDE the commit transaction) ===
 
 export type LegacyWriteGate =
@@ -127,32 +167,37 @@ export type LegacyWriteGate =
     };
 
 /**
- * Whether a LEGACY (pre-revision) write may commit, given the durable activation
- * record, whether the global witness survives, and whether THIS partition already
- * carries revision history (a ledger row or a partition commit stamp). Blocking is
- * always safe. A missing revision field is never inferred here — the caller passes
- * the concrete witnesses.
+ * Whether a LEGACY (pre-revision) write may commit, given the PRESENCE-AWARE
+ * activation read, whether the global witness survives, and whether THIS
+ * partition already carries revision history (a ledger row or a partition commit
+ * stamp). Blocking is always safe. A PRESENT-but-malformed activation record
+ * (including a JSON-null value) fails safe to `read-only-safe`; only a genuinely
+ * ABSENT record with NO surviving history may write.
  */
 export function classifyLegacyWrite(
-  recordRaw: unknown,
-  witnessSeen: boolean,
+  activation: ControlRead,
+  witnessSurvives: boolean,
   partitionHasRevisionHistory: boolean
 ): LegacyWriteGate {
-  if (recordRaw === null) {
-    // Absent record → `legacy` ONLY when NO revision history is proven to
-    // survive; otherwise a lost activation row must not resurrect legacy writing.
-    if (witnessSeen || partitionHasRevisionHistory) {
+  const resolved = resolveActivation(activation);
+  if (resolved.kind === 'malformed') {
+    // Present but invalid → never normalized, never treated as legacy.
+    return { allow: false, reason: 'fenced-malformed', state: 'read-only-safe' };
+  }
+  if (resolved.kind === 'absent') {
+    // Genuinely absent → `legacy` ONLY when NO revision history survives;
+    // otherwise a lost activation row must not resurrect legacy writing.
+    if (witnessSurvives || partitionHasRevisionHistory) {
       return { allow: false, reason: 'fenced-revision-history', state: 'read-only-safe' };
     }
     return { allow: true };
   }
-  const record = validateActivationRecord(recordRaw);
-  if (!record) return { allow: false, reason: 'fenced-malformed', state: 'read-only-safe' };
+  const record = resolved.record;
   if (record.state !== 'legacy') {
     return { allow: false, reason: 'fenced-non-legacy', state: record.state };
   }
   // State is legacy — fail safe: any surviving revision witness refuses.
-  if (witnessSeen || partitionHasRevisionHistory || record.revisionedEvidenceEverExisted) {
+  if (witnessSurvives || partitionHasRevisionHistory || record.revisionedEvidenceEverExisted) {
     return { allow: false, reason: 'fenced-revision-history', state: 'read-only-safe' };
   }
   return { allow: true };
@@ -162,12 +207,16 @@ export type RevisionedWriteGate =
   | { allow: true }
   | { allow: false; state: ActivationState | 'absent' | 'malformed' };
 
-/** Whether a REVISIONED write may commit — ONLY when the record is valid `active`. */
-export function classifyRevisionedWrite(recordRaw: unknown): RevisionedWriteGate {
-  if (recordRaw === null) return { allow: false, state: 'absent' };
-  const record = validateActivationRecord(recordRaw);
-  if (!record) return { allow: false, state: 'malformed' };
-  if (record.state !== 'active') return { allow: false, state: record.state };
+/**
+ * Whether a REVISIONED write may commit — ONLY when the PRESENT activation record
+ * is a VALID `active`. A present-but-malformed record fails safe (`malformed`,
+ * never normalized); a genuinely absent record is `absent`.
+ */
+export function classifyRevisionedWrite(activation: ControlRead): RevisionedWriteGate {
+  const resolved = resolveActivation(activation);
+  if (resolved.kind === 'absent') return { allow: false, state: 'absent' };
+  if (resolved.kind === 'malformed') return { allow: false, state: 'malformed' };
+  if (resolved.record.state !== 'active') return { allow: false, state: resolved.record.state };
   return { allow: true };
 }
 
@@ -183,17 +232,19 @@ export function classifyRevisionedWrite(recordRaw: unknown): RevisionedWriteGate
 export async function readActivationControl(): Promise<ActivationControlRecord> {
   const stored = await getAppState<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
   if (!stored) {
-    const witness = await getAppState<unknown>(
+    // Activation row absent → `legacy` ONLY when the witness row is ALSO absent.
+    // ANY present witness row (valid OR malformed/JSON-null) fails safe.
+    const witnessRow = await getAppState<unknown>(
       ACTIVATION_CONTROL_SCOPE,
       REVISIONED_EVIDENCE_WITNESS_KEY
     );
-    if (witnessPresent(witness?.value)) {
+    if (witnessSurvives(toControlRead(witnessRow))) {
       return {
         schemaVersion: 1,
         state: 'read-only-safe',
         updatedAt: '',
         revisionedEvidenceEverExisted: true,
-        reason: 'activation record absent but revisioned-evidence witness survives',
+        reason: 'activation record absent but a revisioned-evidence witness row survives',
       };
     }
     return defaultActivationRecord('');
@@ -216,35 +267,47 @@ export async function readActivationState(): Promise<ActivationState> {
 
 // === Transition state machine (DORMANT — no B production caller) ===
 
+export type ActivationTransitionReason =
+  | 'legacy-forbidden-after-evidence'
+  | 'invalid-transition'
+  | 'activation-state-malformed'
+  | 'store-unavailable';
+
 export type ActivationTransitionResult =
   | { ok: true; record: ActivationControlRecord }
   | {
       ok: false;
-      reason: 'legacy-forbidden-after-evidence' | 'invalid-transition' | 'store-unavailable';
+      reason: ActivationTransitionReason;
       current?: ActivationControlRecord;
     };
 
 /**
- * Whether `current.state → next` is a permitted transition, given whether
- * revisioned history has ever existed (`hasHistory` = the durable witness OR the
- * record's own flag). The permitted forward transitions are exactly:
+ * Whether `current.state → next` is a permitted transition. The graph is STRICTLY
+ * FORWARD-ONLY (PLATFORM-086H3B-ACTIVATION-STATE-CORRUPTION-REMEDIATION):
  *
  *   legacy → armed, armed → active, armed → read-only-safe, active → read-only-safe
  *
- * plus an idempotent same-state no-op. A transition TO `legacy` is permitted only
- * when NO revision history has existed (aborting arming/safe-stop before evidence)
- * and never from `active`. Pure — the transactional setter applies the result.
+ * There is NO path back to `legacy` from any other state (arming is irreversible
+ * even before evidence commits), and `read-only-safe` is TERMINAL. Idempotent
+ * same-state requests are permitted where safe; a same-state `legacy` request is
+ * refused when revisioned history survives (`hasHistory`), so idempotence can
+ * never mask a resurrection. Pure — the transactional setter applies the result.
  */
 export function classifyActivationTransition(
   current: ActivationControlRecord,
   next: ActivationState,
   hasHistory: boolean
 ): { ok: true } | { ok: false; reason: 'legacy-forbidden-after-evidence' | 'invalid-transition' } {
-  if (next === current.state) return { ok: true };
+  if (next === current.state) {
+    // Idempotent — safe EXCEPT staying `legacy` while revisioned history survives.
+    if (next === 'legacy' && hasHistory) {
+      return { ok: false, reason: 'legacy-forbidden-after-evidence' };
+    }
+    return { ok: true };
+  }
   switch (next) {
     case 'legacy':
-      if (hasHistory) return { ok: false, reason: 'legacy-forbidden-after-evidence' };
-      if (current.state === 'armed' || current.state === 'read-only-safe') return { ok: true };
+      // No backward path to legacy from armed / active / read-only-safe.
       return { ok: false, reason: 'invalid-transition' };
     case 'armed':
       return current.state === 'legacy'
@@ -276,12 +339,28 @@ export async function setActivationState(
       ACTIVATION_CONTROL_SCOPE,
       ACTIVATION_CONTROL_KEY,
       async (txn) => {
-        const stored = (await txn.read<unknown>())?.value ?? null;
-        const witnessRaw =
-          (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY))
-            ?.value ?? null;
-        const current = validateActivationRecord(stored) ?? defaultActivationRecord(now);
-        const hasHistory = witnessPresent(witnessRaw) || current.revisionedEvidenceEverExisted;
+        // Presence-aware reads — a present-null / malformed row is NEVER absence.
+        const activation = resolveActivation(toControlRead(await txn.read<unknown>()));
+        const survives = witnessSurvives(
+          toControlRead(
+            await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY)
+          )
+        );
+
+        // A present-but-malformed activation record fails safe: refuse EVERY
+        // transition and NEVER normalize it to a default `legacy` record.
+        if (activation.kind === 'malformed') {
+          return { ok: false, reason: 'activation-state-malformed' };
+        }
+        // An absent activation record whose evidence witness nevertheless survives
+        // is an inconsistent (read-only-safe) state — refuse, never resurrect.
+        if (activation.kind === 'absent' && survives) {
+          return { ok: false, reason: 'activation-state-malformed' };
+        }
+
+        const current =
+          activation.kind === 'valid' ? activation.record : defaultActivationRecord(now);
+        const hasHistory = survives || current.revisionedEvidenceEverExisted;
         const decision = classifyActivationTransition(current, next, hasHistory);
         if (!decision.ok) return { ok: false, reason: decision.reason, current };
         const record: ActivationControlRecord = {
@@ -312,19 +391,23 @@ export async function markRevisionedEvidenceCommitted(
   txn: AppStateKeyTxn,
   now: string
 ): Promise<void> {
-  const witnessRaw =
-    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY))
-      ?.value ?? null;
-  if (!witnessPresent(witnessRaw)) {
+  // Write the witness ONLY when its row is genuinely ABSENT — a present row
+  // (valid write-once witness OR a malformed value) is left byte-identical
+  // (never cleared, never normalized).
+  const witnessRow = await txn.readKey<unknown>(
+    ACTIVATION_CONTROL_SCOPE,
+    REVISIONED_EVIDENCE_WITNESS_KEY
+  );
+  if (witnessRow === null) {
     await txn.writeKey<RevisionedEvidenceWitness>(
       ACTIVATION_CONTROL_SCOPE,
       REVISIONED_EVIDENCE_WITNESS_KEY,
       { everExisted: true, firstAt: now }
     );
   }
-  const recordRaw =
-    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value ?? null;
-  const record = validateActivationRecord(recordRaw);
+  const record = validateActivationRecord(
+    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value
+  );
   if (record && !record.revisionedEvidenceEverExisted) {
     await txn.writeKey<ActivationControlRecord>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, {
       ...record,
