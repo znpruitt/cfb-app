@@ -13,6 +13,7 @@ import {
   type RevisionLedgerRecord,
 } from './revisionAuthority.ts';
 import {
+  isCommitStamp,
   isValidRevision,
   generateLineage,
   toCommitStamp,
@@ -70,17 +71,24 @@ export type RevisionRepairAction =
   | { kind: 'establish-new-lineage'; floor?: number };
 
 export type RevisionRepairRefusal =
-  | 'state-changed'
+  // CAS: the durable state changed since inspection (PLATFORM-086H3B-REPAIR-SAFETY-DOCS).
+  | 'revision-repair-state-changed'
   | 'active-recovery-claim'
   | 'floor-below-surviving-evidence'
   // PLATFORM-086H3B-RESTORATION-STATUS-REMEDIATION: a floor that cannot advance
   // safely — nonpositive, unsafe, or `Number.MAX_SAFE_INTEGER` — refused during
   // planning AND transactional apply validation.
   | 'revision-repair-floor-not-advanceable'
+  // PLATFORM-086H3B-REPAIR-SAFETY-DOCS: structurally invalid revision evidence —
+  // a hard refusal for EVERY action that no acknowledgement can override.
+  | 'revision-repair-evidence-malformed'
+  // rebuild-ledger has no surviving valid same-lineage evidence to derive from.
   | 'malformed-evidence'
   | 'acknowledgement-required'
   | 'invalid-action'
-  | 'store-unavailable';
+  // The durable store read/transaction failed — a REDACTED, typed refusal (the
+  // raw storage error is logged server-side only, never returned).
+  | 'revision-repair-planning-unavailable';
 
 /** Safe, structured partition view — never internal SQL/paths/tokens. */
 export type RevisionInspectionState = {
@@ -104,9 +112,31 @@ export type RevisionInspection = {
   partitionKey: string;
   identity: PartitionIdentity;
   state: RevisionInspectionState;
-  /** The digest the operator must echo back to authorize a repair (CAS). */
+  /**
+   * The VERSIONED digest the operator must echo back to authorize a repair (CAS).
+   * Covers the complete inspected durable state (PLATFORM-086H3B-REPAIR-SAFETY-DOCS)
+   * — see `computeStateDigest`. Never embeds or exposes the underlying evidence.
+   */
   expectedStateDigest: string;
 };
+
+/** A redacted, typed inspection failure — never carries a raw storage message. */
+export type RevisionInspectionUnavailable = {
+  ok: false;
+  code: 'revision-repair-inspection-unavailable';
+};
+
+/**
+ * Typed audit availability (PLATFORM-086H3B-REPAIR-SAFETY-DOCS): a failed or
+ * malformed read is NEVER collapsed into an empty history.
+ *   - `available` — read succeeded (a valid EMPTY entry list is still available);
+ *   - `absent`    — no audit dataset has ever been written;
+ *   - `unavailable` — the read failed or returned malformed audit state.
+ */
+export type RevisionAuditRead =
+  | { state: 'available'; entries: RevisionRepairAuditEntry[] }
+  | { state: 'absent' }
+  | { state: 'unavailable' };
 
 export type RevisionRepairAuditEntry = {
   auditRef: string;
@@ -147,37 +177,69 @@ export type RevisionRepairResult =
     }
   | { ok: false; code: RevisionRepairRefusal; detail: string };
 
-// === Digest (compare-and-set over durable state) ===
-
-function stampKey(stamp: CommitStamp | null): string {
-  return stamp ? `${stamp.lineage}#${stamp.revision}` : 'none';
-}
+// === Versioned CAS digest over the COMPLETE inspected durable state ===
 
 /**
- * A stable digest of the salient durable state. Any change to the partition
- * stamp, ledger, committed status stamp, or recovery-claim state changes the
- * digest, so a repair authorized against an old digest is refused (CAS).
+ * Explicit digest schema version. Any change to what the digest covers (or how)
+ * MUST bump this so an old digest fails the CAS clearly rather than silently
+ * comparing incompatible digests.
  */
-function computeStateDigest(state: RevisionInspectionState): string {
-  const canonical = JSON.stringify({
-    p: `${state.partition.stampClass}:${stampKey(state.partition.stamp)}:${state.partition.gameCount ?? -1}`,
-    l: state.ledger
-      ? `${state.ledger.lineage}#${state.ledger.revision}:${state.ledger.initializedFrom}`
-      : 'none',
-    lm: state.ledgerMarkerPresent,
-    s: stampKey(state.status.committedStamp),
-    sm: state.status.committedStampMarkerPresent,
-    r: state.recovery.activeClaim,
-  });
-  return createHash('sha256').update(canonical).digest('hex');
+const STATE_DIGEST_VERSION = 'gsr-state-v1';
+
+/**
+ * Deterministic canonical form: object keys sorted recursively (so key insertion
+ * order never changes the digest), ARRAY ORDER and actual durable values
+ * preserved (they are significant). Primitives pass through.
+ */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      out[key] = canonicalize((value as Record<string, unknown>)[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** The complete durable state the CAS digest binds (raw values, never exposed). */
+type DigestInput = {
+  identity: PartitionIdentity;
+  partition: unknown; // full weekly envelope + every game row + fetchedAt + commitStamp
+  ledger: unknown; // raw revision ledger row
+  status: unknown; // full committed status + attempt state
+  activation: unknown; // activation-control record
+  witness: unknown; // irreversible revision-history witness
+  recovery: unknown; // recovery-disposition (incl. active claim token/owner/expiry)
+  audit: unknown; // repair history used by the planner
+};
+
+/**
+ * A versioned, canonical, cryptographic digest of the COMPLETE inspected durable
+ * state (PLATFORM-086H3B-REPAIR-SAFETY-DOCS). Every material change — a game
+ * identifier/participant/statistic, `fetchedAt`, evidence metadata, the commit
+ * stamp, the ledger, committed status, activation/witness state, or a
+ * recovery-claim token/expiration — changes the digest; equivalent objects with
+ * different key order do not. The evidence is HASHED, never embedded.
+ */
+function computeStateDigest(input: DigestInput): string {
+  const json = JSON.stringify(canonicalize({ v: STATE_DIGEST_VERSION, ...input }));
+  return `${STATE_DIGEST_VERSION}:${createHash('sha256').update(json).digest('hex')}`;
 }
 
 // === Durable reads (inside the locked transaction) ===
+
+const ACTIVATION_CONTROL_SCOPE = 'game-stats-activation-control';
+const ACTIVATION_CONTROL_KEY = 'global';
+const REVISIONED_EVIDENCE_WITNESS_KEY = 'revisioned-evidence-witness';
 
 type LoadedState = {
   existing: WeeklyGameStats | null;
   state: RevisionInspectionState;
   digest: string;
+  /** False when the durable evidence is structurally invalid (hard refusal). */
+  evidenceCertified: boolean;
 };
 
 function recoveryClaimActive(value: unknown, nowMs: number): boolean {
@@ -188,6 +250,31 @@ function recoveryClaimActive(value: unknown, nowMs: number): boolean {
   if (typeof lease !== 'string') return false;
   const ms = Date.parse(lease);
   return Number.isFinite(ms) && ms > nowMs;
+}
+
+/**
+ * Certify that the durable evidence is not STRUCTURALLY invalid. Absent (null) and
+ * recognized-legacy partitions are NOT malformed; a present partition is malformed
+ * when its envelope, identity, commit stamp, or revision-era shape cannot be
+ * safely classified — which no acknowledgement may override.
+ */
+function certifyEvidence(existingRaw: unknown, id: PartitionIdentity): boolean {
+  if (existingRaw === null) return true;
+  if (typeof existingRaw !== 'object') return false;
+  const env = existingRaw as Record<string, unknown>;
+  // Invalid / inconsistent partition identity.
+  if (env.year !== id.year || env.week !== id.week || env.seasonType !== id.seasonType)
+    return false;
+  // Malformed weekly envelope.
+  if (!Array.isArray(env.games)) return false;
+  // Malformed / unsafe commit stamp (own-property present but not a valid stamp).
+  if (Object.prototype.hasOwnProperty.call(env, 'commitStamp') && !isCommitStamp(env.commitStamp)) {
+    return false;
+  }
+  // Revision-era fields (v2-marked rows) without a valid partition stamp.
+  const cls = classifyPartitionStamp(existingRaw as WeeklyGameStats);
+  if (cls.kind === 'malformed' || cls.kind === 'revision-era-no-stamp') return false;
+  return true;
 }
 
 type RepairTxn = {
@@ -202,7 +289,8 @@ async function loadState(
   statusKey: string,
   nowMs: number
 ): Promise<LoadedState> {
-  const existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
+  const existingRaw = (await txn.read<unknown>())?.value ?? null;
+  const existing = existingRaw as WeeklyGameStats | null;
   const partitionClass = classifyPartitionStamp(existing);
 
   const ledgerRow = await txn.readKey<unknown>(GAME_STATS_REVISION_SCOPE, partitionKey);
@@ -230,8 +318,19 @@ async function loadState(
         : null
       : null;
 
-  const recoveryRow = await txn.readKey<unknown>(RECOVERY_DISPOSITION_SCOPE, partitionKey);
-  const activeClaim = recoveryClaimActive(recoveryRow?.value ?? null, nowMs);
+  const recoveryRaw =
+    (await txn.readKey<unknown>(RECOVERY_DISPOSITION_SCOPE, partitionKey))?.value ?? null;
+  const activeClaim = recoveryClaimActive(recoveryRaw, nowMs);
+
+  // Additional durable inputs the digest binds (read within E → S → C; the
+  // activation/witness/audit keys are read, not separately locked — the CAS
+  // recompute catches any change between inspection and apply).
+  const activationRaw =
+    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value ?? null;
+  const witnessRaw =
+    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY))
+      ?.value ?? null;
+  const auditRaw = (await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey))?.value ?? null;
 
   const state: RevisionInspectionState = {
     partition: {
@@ -245,7 +344,17 @@ async function loadState(
     status: { committedStamp, committedStampMarkerPresent, lastAttemptOrdinal },
     recovery: { activeClaim },
   };
-  return { existing, state, digest: computeStateDigest(state) };
+  const digest = computeStateDigest({
+    identity: id,
+    partition: existingRaw,
+    ledger: ledgerRaw,
+    status: statusValue,
+    activation: activationRaw,
+    witness: witnessRaw,
+    recovery: recoveryRaw,
+    audit: auditRaw,
+  });
+  return { existing, state, digest, evidenceCertified: certifyEvidence(existingRaw, id) };
 }
 
 // === Inspection (safe, read-only) ===
@@ -257,7 +366,7 @@ async function loadState(
  */
 export async function inspectRevisionState(
   identity: PartitionIdentity
-): Promise<RevisionInspection | { ok: false; code: 'store-unavailable'; detail: string }> {
+): Promise<RevisionInspection | RevisionInspectionUnavailable> {
   const partitionKey = getGameStatsKey(identity.year, identity.week, identity.seasonType);
   const statusKey = providerRefreshScopeKey(
     'game-stats',
@@ -277,11 +386,13 @@ export async function inspectRevisionState(
       };
     });
   } catch (error) {
-    return {
-      ok: false,
-      code: 'store-unavailable',
-      detail: error instanceof Error ? error.message : String(error),
-    };
+    // REDACT: the raw storage/SQL/path/stack error is logged server-side ONLY;
+    // the caller receives a stable typed code with no diagnostic detail.
+    console.error('revisionRepair: inspection failed', {
+      identity,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, code: 'revision-repair-inspection-unavailable' };
   }
 }
 
@@ -321,10 +432,22 @@ function highestSurvivingSameLineage(state: RevisionInspectionState, lineage: st
 function planRepair(
   request: RevisionRepairRequest,
   state: RevisionInspectionState,
+  evidenceCertified: boolean,
   now: string,
   auditRef: string
 ): RepairPlan {
   const id = request.identity;
+  // HARD refusal for structurally invalid evidence — checked FIRST, for EVERY
+  // action, so no acknowledgement (lineage-conflict / evidence-loss) can convert
+  // malformed evidence into valid evidence.
+  if (!evidenceCertified) {
+    return {
+      ok: false,
+      code: 'revision-repair-evidence-malformed',
+      detail:
+        'the durable revision evidence is structurally invalid (malformed envelope, identity, commit stamp, or revision-era shape); repair refused',
+    };
+  }
   const base = (
     lineage: string,
     revision: number,
@@ -492,11 +615,12 @@ export async function repairRevisionState(
         await txn.lockKey(RECOVERY_DISPOSITION_SCOPE, partitionKey);
         const loaded = await loadState(txn, id, partitionKey, statusKey, nowMs);
 
-        // Compare-and-set: refuse if durable state changed since inspection.
+        // Compare-and-set: recompute the COMPLETE-state digest transactionally and
+        // refuse if ANY included durable state changed since inspection.
         if (loaded.digest !== request.expectedStateDigest) {
           return {
             ok: false,
-            code: 'state-changed',
+            code: 'revision-repair-state-changed',
             detail: 'durable state changed since inspection; re-inspect and retry',
           };
         }
@@ -509,7 +633,7 @@ export async function repairRevisionState(
           };
         }
 
-        const plan = planRepair(request, loaded.state, now, auditRef);
+        const plan = planRepair(request, loaded.state, loaded.evidenceCertified, now, auditRef);
         if (!plan.ok) return plan;
 
         const afterState: RevisionRepairAuditEntry['afterState'] = {
@@ -578,26 +702,49 @@ export async function repairRevisionState(
       }
     );
   } catch (error) {
+    // REDACT: log the raw storage error server-side ONLY; return a stable code.
+    console.error('revisionRepair: repair planning/transaction failed', {
+      identity: request.identity,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return {
       ok: false,
-      code: 'store-unavailable',
-      detail: error instanceof Error ? error.message : String(error),
+      code: 'revision-repair-planning-unavailable',
+      detail: 'the durable store was unavailable; no durable state was changed',
     };
   }
 }
 
-/** Read a partition's operator-repair audit trail (safe, read-only). */
+/**
+ * Read a partition's operator-repair audit trail with TYPED availability
+ * (PLATFORM-086H3B-REPAIR-SAFETY-DOCS). A read failure or malformed audit state is
+ * `unavailable` — NEVER collapsed into an empty history; a genuinely absent
+ * dataset is `absent`; a successfully-read (possibly empty) list is `available`.
+ */
 export async function readRevisionAuditTrail(
   identity: PartitionIdentity
-): Promise<RevisionRepairAuditEntry[]> {
+): Promise<RevisionAuditRead> {
   const partitionKey = getGameStatsKey(identity.year, identity.week, identity.seasonType);
   try {
-    return await withAppStateKeyTransaction(GAME_STATS_SCOPE, partitionKey, async (txn) => {
-      const row = await txn.readKey<RevisionRepairAuditEntry[]>(REVISION_AUDIT_SCOPE, partitionKey);
-      return Array.isArray(row?.value) ? row!.value : [];
+    return await withAppStateKeyTransaction<RevisionAuditRead>(
+      GAME_STATS_SCOPE,
+      partitionKey,
+      async (txn) => {
+        const row = await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey);
+        if (!row) return { state: 'absent' };
+        if (Array.isArray(row.value)) {
+          return { state: 'available', entries: row.value as RevisionRepairAuditEntry[] };
+        }
+        // Present but not an array → malformed audit state.
+        return { state: 'unavailable' };
+      }
+    );
+  } catch (error) {
+    console.error('revisionRepair: audit read failed', {
+      identity,
+      error: error instanceof Error ? error.message : String(error),
     });
-  } catch {
-    return [];
+    return { state: 'unavailable' };
   }
 }
 

@@ -8,10 +8,52 @@ authority (H2) is a merged but dormant foundation. Nothing in this contract is
 active until the final activation prerequisite (E) merges.
 
 Prerequisite progress: **A** (the durable multi-key app-state transaction
-primitive that §6 relies on) is implemented, Codex reviewed clean, `/verify`
-passed, and awaiting merge — dormant, with production behavior unchanged.
-**B–D remain unimplemented and E (final activation) has not occurred**; the
-rest of this contract is future-state architecture, not active behavior.
+primitive that §6 relies on) **merged via PR #398**. **B** (revision
+lineage/ledger authority + atomic status chronology + operator repair +
+activation-control fence) is **implemented and under review-remediation, NOT
+merged and NOT `/verify`-confirmed** (branch `platform/086h3b-revision-status-authority`);
+its production lifecycle is inactive. **C–E remain unimplemented and E (final
+activation) has not occurred**; H3 production activation has not happened; the
+monolithic branch remains a frozen salvage reference; H4 and the legacy-row
+migration remain deferred. The rest of this contract is future-state
+architecture, not active behavior.
+
+**Implemented-B reconciliation (PLATFORM-086H3B, authoritative for what B built):**
+
+- **Lock graph as implemented** (monotonic under A's `(scope, key)` comparator —
+  `game-stats` < `game-stats-activation-control` < `provider-refresh-status` <
+  `recovery-disposition`):
+
+  ```text
+  ordinary allocation:          E(P) → S(P)          (status is a witness, below)
+  legacy writer (fenced):       E(P) → activation-control
+  revisioned writer/bootstrap:  E(P) → activation-control → S(P)
+  operator repair validation:   E(P) → S(P) → C(P)
+  activation transition:        activation-control
+  ```
+
+  §6 originally said ordinary allocation is E(P)-only; the implementation refined
+  this so committed refresh status is consulted on EVERY allocation under `S(P)`
+  as a restoration/high-water **witness** (never the allocator).
+
+- The durable recovery scope is **`recovery-disposition`** (single ownership
+  contract). Prerequisite D MUST adopt this exact scope and MUST NOT create a
+  parallel recovery scope.
+- The committed-evidence status field is the lineage-aware **`lastCommittedStamp`**
+  (`{ lineage, revision }`), not a scalar `lastSuccessRevision`.
+- Revisioned evidence writes require the activation fence to be exactly
+  **`active`**; `armed` prepares deployment but does NOT authorize evidence
+  writes; `read-only-safe` fences BOTH writers; an irreversible durable
+  revision-history witness prevents any resurrection of legacy ownership after
+  revisioned evidence has existed; absent/malformed activation fail safe.
+- Refresh **success requires a confirmed commit stamp**; counters refuse at
+  `Number.MAX_SAFE_INTEGER` rather than wrapping/resetting.
+- Operator repair: **applied repair is unavailable in B** (the live route refuses
+  `apply`), inspection and dry-run remain available, malformed evidence is a hard
+  refusal no acknowledgement can override, the CAS digest is a versioned canonical
+  hash over the COMPLETE inspected durable state, audit availability is explicit
+  (`available`/`absent`/`unavailable`), and raw storage errors never reach a
+  response. The public game-stats wire strips the internal commit stamp.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
 conflict; this file is the domain design freeze the staged PRs implement. The
@@ -132,7 +174,8 @@ corrections (see §5 lineage and §17 activation-control fence).
 ## 7. Refresh-status attempt vs evidence chronology
 
 - Attempt chronology (the begin marker) is SEPARATE from committed-success
-  chronology (`lastSuccessRevision`). Every status mutation (begin / success /
+  chronology (the lineage-aware `lastCommittedStamp`). Every status mutation
+  (begin / success /
   no-op / failure) is ONE per-scope durable transaction returning a typed
   result. Publication reports a composite `{ begin, terminal, complete }`; a
   terminal write records its attempt truthfully even when the begin marker never

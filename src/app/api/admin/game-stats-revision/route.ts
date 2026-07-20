@@ -95,11 +95,11 @@ export async function GET(req: Request): Promise<Response> {
 
   const inspection = await inspectRevisionState(identity);
   if ('ok' in inspection && inspection.ok === false) {
-    return NextResponse.json(
-      { error: 'inspection-failed', detail: inspection.detail },
-      { status: 503 }
-    );
+    // Redacted: only the stable typed code — never a raw storage message.
+    return NextResponse.json({ error: inspection.code }, { status: 503 });
   }
+  // Typed audit availability (available | absent | unavailable) is preserved in
+  // the response so an operator never sees a failed read as an empty history.
   const audit = await readRevisionAuditTrail(identity);
   return NextResponse.json({ generatedAt: new Date().toISOString(), inspection, audit });
 }
@@ -162,7 +162,9 @@ export async function POST(req: Request): Promise<Response> {
 
   const result = await repairRevisionState(request);
   if (!result.ok) {
-    const status = result.code === 'store-unavailable' ? 503 : 409;
+    // `detail` is an authored SAFE string for every typed refusal (never a raw
+    // storage error); a store failure is 503, every other typed refusal is 409.
+    const status = result.code === 'revision-repair-planning-unavailable' ? 503 : 409;
     return NextResponse.json({ error: result.code, detail: result.detail }, { status });
   }
   return NextResponse.json({ result });

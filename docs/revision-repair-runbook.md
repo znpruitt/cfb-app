@@ -47,11 +47,20 @@ operational guidance, not a design source of truth.
 
 - a **safe** structured view of the partition stamp, ledger, committed-evidence
   status stamp, and recovery-claim state (never raw SQL, paths, or tokens);
-- the **`expectedStateDigest`** — a compare-and-set token you must echo back to
-  authorize a repair;
-- the append-only **audit trail** for the partition.
+- the **`expectedStateDigest`** — a versioned, canonical SHA-256 digest over the
+  COMPLETE inspected durable state (partition envelope + every game row +
+  metadata + commit stamp + ledger + committed status + activation + irreversible
+  witness + recovery-disposition/claim + audit + identity). Object-key order does
+  not change it; the raw evidence is hashed, never embedded. Echo it back to
+  authorize a repair (CAS); the version prefix makes an incompatible digest fail
+  clearly.
+- a typed **audit availability** — `available` (a successfully read list, empty
+  or not), `absent` (no audit dataset ever written), or `unavailable` (read
+  failed or malformed). A failed read is NEVER reported as empty history.
 
-Inspection is read-only. It never writes and never contacts a provider.
+Inspection is read-only. It never writes and never contacts a provider. A store
+failure returns a redacted `revision-repair-inspection-unavailable` (raw storage
+errors are logged server-side only, never returned).
 
 ## 3. Safe refusal states (why the automatic writer blocked)
 
@@ -110,9 +119,21 @@ or repair history) mints lineage 1.
 > ownership. The preconditions below describe the intended applied behavior E
 > will enable.
 
-**Preconditions (every applied repair, once enabled):** platform-admin auth;
-exact partition; a matching `expectedStateDigest` (else `state-changed`); no
-unexpired recovery claim (else `active-recovery-claim`); default dry-run.
+**Preconditions (every repair — enforced during planning AND, once enabled,
+transactional apply):**
+
+- platform-admin auth; exact partition;
+- a matching complete-state `expectedStateDigest` (else `revision-repair-state-changed`);
+- **structurally valid evidence** — a malformed weekly envelope, invalid/inconsistent
+  partition identity, malformed commit stamp, revision-era rows without a valid
+  stamp, or an unsafe revision is a HARD refusal (`revision-repair-evidence-malformed`)
+  for EVERY action that **no acknowledgement can override**;
+- no unexpired recovery claim (else `active-recovery-claim`);
+- an advanceable floor (else `revision-repair-floor-not-advanceable`);
+- default dry-run.
+
+A store failure returns a redacted `revision-repair-planning-unavailable` (raw
+storage/SQL/path/stack text is logged server-side only, never returned).
 
 **Supported actions (the only ones):**
 

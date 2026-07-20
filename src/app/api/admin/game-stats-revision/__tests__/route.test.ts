@@ -7,6 +7,7 @@ import {
   setAppState,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
 } from '../../../../../lib/server/appStateStore.ts';
 
 test.beforeEach(async () => {
@@ -51,11 +52,12 @@ test('GET inspects and returns an expected-state digest + audit trail', async ()
   assert.equal(res.status, 200);
   const body = (await res.json()) as {
     inspection: { expectedStateDigest: string; state: { partition: { stampClass: string } } };
-    audit: unknown[];
+    audit: { state: string };
   };
   assert.equal(body.inspection.state.partition.stampClass, 'valid');
   assert.ok(body.inspection.expectedStateDigest.length > 0);
-  assert.deepEqual(body.audit, []);
+  // No audit dataset was ever written → typed `absent`, never an empty array.
+  assert.deepEqual(body.audit, { state: 'absent' });
 });
 
 test('POST dry-run returns a plan and writes nothing', async () => {
@@ -128,4 +130,49 @@ test('a legacy partition cannot acquire a commit stamp through the route', async
   const stored = (await getAppState('game-stats', KEY))?.value as { commitStamp?: unknown };
   assert.equal('commitStamp' in stored, false);
   assert.equal(await ledger(), null);
+});
+
+// === PLATFORM-086H3B-REPAIR-SAFETY-DOCS: error redaction + audit availability ===
+
+test('inspection/repair store errors are redacted — no raw storage text in responses', async () => {
+  const secret =
+    'postgres://user:SECRETPW@db.internal:5432/prod at /var/secrets/key.pem\n at Object.<anonymous>';
+  __setAppStateReadFailureForTests(new Error(secret), 'game-stats');
+
+  const getRes = await GET(getReq());
+  assert.equal(getRes.status, 503);
+  const getBody = JSON.stringify(await getRes.json());
+  assert.ok(getBody.includes('revision-repair-inspection-unavailable'));
+  assert.equal(getBody.includes('SECRETPW'), false);
+  assert.equal(getBody.includes('/var/secrets'), false);
+  assert.equal(getBody.includes('postgres://'), false);
+
+  const postRes = await POST(
+    postReq({
+      identity: { year: YEAR, week: WEEK, seasonType: 'regular' },
+      action: { kind: 'rebuild-ledger' },
+      expectedStateDigest: 'anything',
+      reason: 'attempt',
+    })
+  );
+  assert.equal(postRes.status, 503);
+  const postBody = JSON.stringify(await postRes.json());
+  assert.ok(postBody.includes('revision-repair-planning-unavailable'));
+  assert.equal(postBody.includes('SECRETPW'), false);
+  assert.equal(postBody.includes('/var/secrets'), false);
+
+  __setAppStateReadFailureForTests(null);
+});
+
+test('the route preserves typed audit availability (available / unavailable)', async () => {
+  await setAppState('game-stats', KEY, PARTITION);
+  await setAppState('game-stats-revision-audit', KEY, []); // valid empty history
+  let body = (await (await GET(getReq())).json()) as {
+    audit: { state: string; entries?: unknown[] };
+  };
+  assert.deepEqual(body.audit, { state: 'available', entries: [] });
+
+  await setAppState('game-stats-revision-audit', KEY, { corrupt: true }); // malformed
+  body = (await (await GET(getReq())).json()) as { audit: { state: string } };
+  assert.equal(body.audit.state, 'unavailable');
 });
