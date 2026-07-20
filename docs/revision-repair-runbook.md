@@ -174,8 +174,29 @@ commit-stamp **metadata** (rows untouched). Every applied repair appends an audi
 record (actor, time, reason, before digest, action, safe after state) and stamps
 the ledger with the audit reference.
 
-Lock order is `E(P) → S(P) → C(P)` (evidence → refresh status → recovery
-disposition), enforced by the transaction primitive.
+**Evidence certification (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT).** Before any
+action, a bounded runtime classifier (aligned with the revision authority)
+certifies the full envelope: exact identity, a valid `fetchedAt`, a `games` array
+in which **every** row satisfies the bounded durable game-stat contract (game +
+participant identity, well-formed stat containers), and a valid `commitStamp` if
+present. A malformed timestamp or game row (or a mixed valid/invalid `games`
+array) is a hard `revision-repair-evidence-malformed` refusal that **no
+acknowledgement can override**.
+
+Lock order is **`E(P) → activation-control → S(P) → C(P)`**, enforced by the
+transaction primitive. The activation-control lock is acquired **before** reading
+the activation record and irreversible witness (both bound by the CAS digest), so
+a concurrent activation transition — or another partition's first revisioned
+commit touching the global witness — cannot mutate those inputs inside the CAS
+window; a completed change is caught as `revision-repair-state-changed`.
+
+**Audit history is validated entry-by-entry.** `readRevisionAuditTrail` returns
+`available` only when the dataset is a valid array in which every entry passes
+validation (versioned, allowlisted fields only, order preserved); a non-array, any
+malformed entry, any unapproved/extra field, or a read failure is `unavailable`
+(never silently dropped, never exposing arbitrary stored content). A malformed
+audit history is **never trusted or appended to** — planning and apply refuse with
+`revision-repair-audit-unavailable`.
 
 ## 5. Activation states & the fence
 

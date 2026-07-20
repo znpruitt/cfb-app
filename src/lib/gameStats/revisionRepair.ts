@@ -44,11 +44,13 @@ import type { WeeklyGameStats } from './types.ts';
  *   - appends an audit record (actor, time, reason, before digest, action, safe
  *     after state) and stamps the ledger with the audit reference.
  *
- * Lock order (frozen contract §6 / requirement 7): `E(P) → S(P) → C(P)` — the
- * evidence partition, then the refresh-status stamp, then the recovery
- * disposition. `game-stats` sorts below `provider-refresh-status` below
- * `recovery-disposition`, so this is the accepted forward order; the reverse is
- * rejected by the primitive.
+ * Lock order (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT):
+ * `E(P) → activation-control → S(P) → C(P)` — the evidence partition, then the
+ * global activation-control record (so the activation state + irreversible
+ * witness that the CAS digest binds are read UNDER their lock), then the
+ * refresh-status stamp, then the recovery disposition. Monotonic under A's
+ * comparator: `game-stats` < `game-stats-activation-control` <
+ * `provider-refresh-status` < `recovery-disposition`; the reverse is rejected.
  */
 
 const GAME_STATS_SCOPE = 'game-stats';
@@ -56,8 +58,8 @@ const PROVIDER_REFRESH_STATUS_SCOPE = 'provider-refresh-status';
 /**
  * Per-partition recovery disposition (D owns the full shape; B reads it to
  * refuse a repair racing an active recovery claim, and locks it as C(P)).
- * Named to sort strictly ABOVE `provider-refresh-status` so the `E → S → C`
- * acquisition order is monotonic under the transaction primitive.
+ * Named to sort strictly ABOVE `provider-refresh-status` so the
+ * `E → activation-control → S → C` acquisition order is monotonic.
  */
 export const RECOVERY_DISPOSITION_SCOPE = 'recovery-disposition';
 /** Append-only operator-repair audit trail, keyed 1:1 with the partition. */
@@ -97,6 +99,9 @@ export type RevisionRepairRefusal =
   | 'malformed-evidence'
   | 'acknowledgement-required'
   | 'invalid-action'
+  // PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT: the durable audit history is
+  // malformed/unavailable — a repair refuses rather than trust or append to it.
+  | 'revision-repair-audit-unavailable'
   // The durable store read/transaction failed — a REDACTED, typed refusal (the
   // raw storage error is logged server-side only, never returned).
   | 'revision-repair-planning-unavailable';
@@ -158,6 +163,8 @@ export type RevisionAuditRead =
   | { state: 'unavailable' };
 
 export type RevisionRepairAuditEntry = {
+  /** Versioned so a schema change fails validation instead of parsing silently. */
+  schemaVersion: 1;
   auditRef: string;
   actor: string;
   at: string;
@@ -263,6 +270,8 @@ type LoadedState = {
   digest: string;
   /** False when the durable evidence is structurally invalid (hard refusal). */
   evidenceCertified: boolean;
+  /** Validated audit availability — `unavailable` blocks a repair (never trusted). */
+  auditRead: RevisionAuditRead;
 };
 
 function recoveryClaimActive(value: unknown, nowMs: number): boolean {
@@ -275,29 +284,218 @@ function recoveryClaimActive(value: unknown, nowMs: number): boolean {
   return Number.isFinite(ms) && ms > nowMs;
 }
 
+// === Bounded repair evidence classifier (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT) ===
+
+/** A weekly envelope `fetchedAt` must be a non-empty parseable timestamp string. */
+function isValidEnvelopeFetchedAt(value: unknown): boolean {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
+}
+
 /**
- * Certify that the durable evidence is not STRUCTURALLY invalid. Absent (null) and
- * recognized-legacy partitions are NOT malformed; a present partition is malformed
- * when its envelope, identity, commit stamp, or revision-era shape cannot be
- * safely classified — which no acknowledgement may override.
+ * A bounded structural check for ONE durable game-stat row — sufficient to prove
+ * it is SAFE repair evidence (a valid game identity + participant identity +
+ * well-formed stat containers). Deliberately structural (not the full C canonical
+ * authority): it rejects rows the ordinary/future evidence authority could not
+ * safely consume, without re-deriving analytics eligibility.
  */
-function certifyEvidence(existingRaw: unknown, id: PartitionIdentity): boolean {
-  if (existingRaw === null) return true;
-  if (typeof existingRaw !== 'object') return false;
-  const env = existingRaw as Record<string, unknown>;
-  // Invalid / inconsistent partition identity.
-  if (env.year !== id.year || env.week !== id.week || env.seasonType !== id.seasonType)
-    return false;
-  // Malformed weekly envelope.
-  if (!Array.isArray(env.games)) return false;
-  // Malformed / unsafe commit stamp (own-property present but not a valid stamp).
-  if (Object.prototype.hasOwnProperty.call(env, 'commitStamp') && !isCommitStamp(env.commitStamp)) {
-    return false;
+function isSafeRepairGameRow(row: unknown): boolean {
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return false;
+  const r = row as Record<string, unknown>;
+  // Game identity.
+  if (typeof r.providerGameId !== 'number' || !Number.isSafeInteger(r.providerGameId)) return false;
+  for (const side of ['home', 'away'] as const) {
+    const team = r[side];
+    if (typeof team !== 'object' || team === null || Array.isArray(team)) return false;
+    const t = team as Record<string, unknown>;
+    // Participant identity.
+    if (typeof t.school !== 'string' || t.school.length === 0) return false;
+    if (typeof t.schoolId !== 'number' || !Number.isFinite(t.schoolId)) return false;
+    // Statistics container (when present) must be a plain object.
+    if ('raw' in t && (typeof t.raw !== 'object' || t.raw === null || Array.isArray(t.raw))) {
+      return false;
+    }
   }
-  // Revision-era fields (v2-marked rows) without a valid partition stamp.
-  const cls = classifyPartitionStamp(existingRaw as WeeklyGameStats);
-  if (cls.kind === 'malformed' || cls.kind === 'revision-era-no-stamp') return false;
   return true;
+}
+
+export type RepairEvidenceClass =
+  | 'absent'
+  | 'recognized-legacy'
+  | 'valid-revision-era'
+  | 'malformed';
+
+/**
+ * The ONE bounded runtime evidence classifier for repair — behaviorally aligned
+ * to the ordinary revision authority (it reuses `classifyPartitionStamp` for the
+ * stamp/legacy/revision-era distinction) and adds full envelope certification.
+ * Distinguishes `absent` / `recognized-legacy` / `valid-revision-era` /
+ * `malformed`; only `malformed` is a hard refusal.
+ */
+function classifyRepairEvidence(existingRaw: unknown, id: PartitionIdentity): RepairEvidenceClass {
+  if (existingRaw === null || existingRaw === undefined) return 'absent';
+  if (typeof existingRaw !== 'object' || Array.isArray(existingRaw)) return 'malformed';
+  const env = existingRaw as Record<string, unknown>;
+  // Exact partition identity.
+  if (env.year !== id.year || env.week !== id.week || env.seasonType !== id.seasonType) {
+    return 'malformed';
+  }
+  // `fetchedAt` under the production envelope contract.
+  if (!isValidEnvelopeFetchedAt(env.fetchedAt)) return 'malformed';
+  // `games` array with every row structurally safe (a mixed valid/invalid array
+  // is malformed — no partial acceptance).
+  if (!Array.isArray(env.games)) return 'malformed';
+  if (!env.games.every(isSafeRepairGameRow)) return 'malformed';
+  // Present-but-invalid commit stamp is malformed.
+  if (Object.prototype.hasOwnProperty.call(env, 'commitStamp') && !isCommitStamp(env.commitStamp)) {
+    return 'malformed';
+  }
+  // Stamp/legacy/revision-era classification (shared with the revision authority).
+  switch (classifyPartitionStamp(existingRaw as WeeklyGameStats).kind) {
+    case 'valid':
+      return 'valid-revision-era';
+    case 'legacy':
+      return 'recognized-legacy';
+    default:
+      // 'malformed' | 'revision-era-no-stamp' | 'absent' (unreachable when present)
+      return 'malformed';
+  }
+}
+
+/** Whether the durable evidence is safe for repair (only `malformed` refuses). */
+function certifyEvidence(existingRaw: unknown, id: PartitionIdentity): boolean {
+  return classifyRepairEvidence(existingRaw, id) !== 'malformed';
+}
+
+// === Audit history validation + allowlist (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT) ===
+
+const AUDIT_ENTRY_ALLOWED_KEYS: ReadonlySet<string> = new Set([
+  'schemaVersion',
+  'auditRef',
+  'actor',
+  'at',
+  'reason',
+  'action',
+  'beforeDigest',
+  'afterState',
+  'supersededLineage',
+  'survivingHighWater',
+]);
+const AUDIT_ACTION_KEYS: Record<string, ReadonlySet<string>> = {
+  'rebuild-ledger': new Set(['kind']),
+  'adopt-lineage': new Set(['kind', 'lineage', 'floor']),
+  'establish-new-lineage': new Set(['kind', 'floor']),
+};
+
+function onlyAllowedKeys(obj: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
+  return Object.keys(obj).every((k) => allowed.has(k));
+}
+function isSafeStampOrNull(value: unknown): boolean {
+  return value === null || isCommitStamp(value);
+}
+
+function isValidAuditAction(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const a = value as Record<string, unknown>;
+  const allowed = typeof a.kind === 'string' ? AUDIT_ACTION_KEYS[a.kind] : undefined;
+  if (!allowed || !onlyAllowedKeys(a, allowed)) return false;
+  if (a.kind === 'adopt-lineage') {
+    return (
+      typeof a.lineage === 'string' &&
+      a.lineage.length > 0 &&
+      typeof a.floor === 'number' &&
+      Number.isSafeInteger(a.floor)
+    );
+  }
+  if (a.kind === 'establish-new-lineage') {
+    return !('floor' in a) || (typeof a.floor === 'number' && Number.isSafeInteger(a.floor));
+  }
+  return a.kind === 'rebuild-ledger';
+}
+
+function isValidAuditAfterState(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const s = value as Record<string, unknown>;
+  if (!onlyAllowedKeys(s, new Set(['ledger', 'committedStamp', 'partitionStamp']))) return false;
+  const led = s.ledger;
+  if (typeof led !== 'object' || led === null || Array.isArray(led)) return false;
+  const l = led as Record<string, unknown>;
+  if (l.schemaVersion !== 1 || !isValidRevision(l.revision)) return false;
+  if (typeof l.lineage !== 'string' || l.lineage.length === 0) return false;
+  return isSafeStampOrNull(s.committedStamp) && isSafeStampOrNull(s.partitionStamp);
+}
+
+function isValidSurvivingHighWater(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  const h = value as Record<string, unknown>;
+  if (!onlyAllowedKeys(h, new Set(['lineage', 'highWater', 'sources']))) return false;
+  return (
+    typeof h.lineage === 'string' &&
+    typeof h.highWater === 'number' &&
+    Number.isSafeInteger(h.highWater) &&
+    Array.isArray(h.sources) &&
+    h.sources.every((x) => typeof x === 'string')
+  );
+}
+
+/**
+ * Validate ONE audit entry into a clean ALLOWLISTED entry, or `null` when
+ * malformed — a missing/invalid field OR any unexpected extra field that could
+ * expose stored content. Never casts arbitrary data to the entry type.
+ */
+function validateAuditEntry(value: unknown): RevisionRepairAuditEntry | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const e = value as Record<string, unknown>;
+  if (!onlyAllowedKeys(e, AUDIT_ENTRY_ALLOWED_KEYS)) return null;
+  if (e.schemaVersion !== 1) return null;
+  if (typeof e.auditRef !== 'string' || !e.auditRef) return null;
+  if (typeof e.actor !== 'string' || !e.actor) return null;
+  if (typeof e.at !== 'string' || !Number.isFinite(Date.parse(e.at))) return null;
+  if (typeof e.reason !== 'string') return null;
+  if (typeof e.beforeDigest !== 'string' || !e.beforeDigest) return null;
+  if (!isValidAuditAction(e.action)) return null;
+  if (!isValidAuditAfterState(e.afterState)) return null;
+  if (
+    'supersededLineage' in e &&
+    e.supersededLineage !== null &&
+    typeof e.supersededLineage !== 'string'
+  ) {
+    return null;
+  }
+  if ('survivingHighWater' in e && !isValidSurvivingHighWater(e.survivingHighWater)) return null;
+  // Rebuild a clean allowlisted entry — no arbitrary nested content propagates.
+  const entry: RevisionRepairAuditEntry = {
+    schemaVersion: 1,
+    auditRef: e.auditRef,
+    actor: e.actor,
+    at: e.at,
+    reason: e.reason,
+    action: e.action as RevisionRepairAction,
+    beforeDigest: e.beforeDigest,
+    afterState: e.afterState as RevisionRepairAuditEntry['afterState'],
+  };
+  if ('supersededLineage' in e) entry.supersededLineage = e.supersededLineage as string | null;
+  if ('survivingHighWater' in e)
+    entry.survivingHighWater = e.survivingHighWater as SurvivingHighWater | null;
+  return entry;
+}
+
+/**
+ * Classify a whole audit dataset ALL-OR-NOTHING: `available` only when it is a
+ * valid array in which EVERY entry validates (order preserved); `absent` when no
+ * row exists; `unavailable` when it is a non-array or ANY entry is malformed (a
+ * malformed entry is never silently dropped).
+ */
+function classifyAuditDataset(row: { value: unknown } | null): RevisionAuditRead {
+  if (!row) return { state: 'absent' };
+  if (!Array.isArray(row.value)) return { state: 'unavailable' };
+  const entries: RevisionRepairAuditEntry[] = [];
+  for (const raw of row.value) {
+    const entry = validateAuditEntry(raw);
+    if (!entry) return { state: 'unavailable' };
+    entries.push(entry);
+  }
+  return { state: 'available', entries };
 }
 
 type RepairTxn = {
@@ -353,7 +551,9 @@ async function loadState(
   const witnessRaw =
     (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY))
       ?.value ?? null;
-  const auditRaw = (await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey))?.value ?? null;
+  const auditRow = await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey);
+  const auditRaw = auditRow?.value ?? null;
+  const auditRead = classifyAuditDataset(auditRow ?? null);
 
   const state: RevisionInspectionState = {
     partition: {
@@ -377,15 +577,23 @@ async function loadState(
     recovery: recoveryRaw,
     audit: auditRaw,
   });
-  return { existing, state, digest, evidenceCertified: certifyEvidence(existingRaw, id) };
+  return {
+    existing,
+    state,
+    digest,
+    evidenceCertified: certifyEvidence(existingRaw, id),
+    auditRead,
+  };
 }
 
 // === Inspection (safe, read-only) ===
 
 /**
  * Inspect a partition's revision state and return the expected-current-state
- * digest an operator must echo back to authorize a repair. Read-only — takes
- * the E → S → C locks so the digest is a consistent snapshot, writes nothing.
+ * digest an operator must echo back to authorize a repair. Read-only — takes the
+ * full `E → activation-control → S → C` locks so the digest (which binds the
+ * activation record and irreversible witness) is a consistent snapshot; writes
+ * nothing.
  */
 export async function inspectRevisionState(
   identity: PartitionIdentity
@@ -398,6 +606,9 @@ export async function inspectRevisionState(
   const nowMs = Date.now();
   try {
     return await withAppStateKeyTransaction(GAME_STATS_SCOPE, partitionKey, async (txn) => {
+      // E(P) → activation-control → S(P) → C(P) — activation/witness read under
+      // their lock, so the digest binds a serialized snapshot.
+      await txn.lockKey(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
       await txn.lockKey(PROVIDER_REFRESH_STATUS_SCOPE, statusKey);
       await txn.lockKey(RECOVERY_DISPOSITION_SCOPE, partitionKey);
       const loaded = await loadState(txn, identity, partitionKey, statusKey, nowMs);
@@ -767,7 +978,12 @@ export async function repairRevisionState(
       GAME_STATS_SCOPE,
       partitionKey,
       async (txn) => {
-        // Lock order E → S → C, enforced by the primitive.
+        // Lock order E → activation-control → S → C, enforced by the primitive.
+        // Acquiring activation-control BEFORE reading the activation record and
+        // the irreversible witness serializes those CAS inputs, so a concurrent
+        // activation transition (or another partition's first revisioned commit)
+        // cannot mutate them inside this CAS window.
+        await txn.lockKey(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
         await txn.lockKey(PROVIDER_REFRESH_STATUS_SCOPE, statusKey);
         await txn.lockKey(RECOVERY_DISPOSITION_SCOPE, partitionKey);
         const loaded = await loadState(txn, id, partitionKey, statusKey, nowMs);
@@ -779,6 +995,15 @@ export async function repairRevisionState(
             ok: false,
             code: 'revision-repair-state-changed',
             detail: 'durable state changed since inspection; re-inspect and retry',
+          };
+        }
+        // A malformed durable audit history is NEVER trusted or appended to.
+        if (loaded.auditRead.state === 'unavailable') {
+          return {
+            ok: false,
+            code: 'revision-repair-audit-unavailable',
+            detail:
+              'the durable repair audit history is malformed/unavailable; resolve it before repairing',
           };
         }
         // Refuse racing an active recovery attempt.
@@ -844,13 +1069,24 @@ export async function repairRevisionState(
           });
         }
 
-        // Append the audit entry (co-serialized under E via the audit key).
-        const auditRow = await txn.readKey<RevisionRepairAuditEntry[]>(
-          REVISION_AUDIT_SCOPE,
-          partitionKey
+        // Append to the VALIDATED audit history (a malformed one was already
+        // refused above). `absent` starts a fresh list; `available` uses the
+        // re-validated entries so no unapproved stored content is ever carried
+        // forward.
+        const priorAudit = classifyAuditDataset(
+          (await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey)) ?? null
         );
-        const prior = Array.isArray(auditRow?.value) ? auditRow!.value : [];
+        if (priorAudit.state === 'unavailable') {
+          return {
+            ok: false,
+            code: 'revision-repair-audit-unavailable',
+            detail:
+              'the durable repair audit history is malformed/unavailable; resolve it before repairing',
+          };
+        }
+        const prior = priorAudit.state === 'available' ? priorAudit.entries : [];
         const entry: RevisionRepairAuditEntry = {
+          schemaVersion: 1,
           auditRef,
           actor: request.actor,
           at: now,
@@ -888,10 +1124,14 @@ export async function repairRevisionState(
 }
 
 /**
- * Read a partition's operator-repair audit trail with TYPED availability
- * (PLATFORM-086H3B-REPAIR-SAFETY-DOCS). A read failure or malformed audit state is
- * `unavailable` — NEVER collapsed into an empty history; a genuinely absent
- * dataset is `absent`; a successfully-read (possibly empty) list is `available`.
+ * Read a partition's operator-repair audit trail with TYPED availability and
+ * per-entry validation (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT). `available`
+ * ONLY when the dataset is a valid array AND EVERY entry passes validation (order
+ * preserved, allowlisted fields only); `absent` when no dataset exists;
+ * `unavailable` when the dataset is a non-array, ANY entry is malformed / carries
+ * unapproved fields, or the read fails. A failure/malformed state is NEVER
+ * collapsed into an empty (or partially-dropped) history, and no arbitrary stored
+ * field can reach the response.
  */
 export async function readRevisionAuditTrail(
   identity: PartitionIdentity
@@ -901,15 +1141,10 @@ export async function readRevisionAuditTrail(
     return await withAppStateKeyTransaction<RevisionAuditRead>(
       GAME_STATS_SCOPE,
       partitionKey,
-      async (txn) => {
-        const row = await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey);
-        if (!row) return { state: 'absent' };
-        if (Array.isArray(row.value)) {
-          return { state: 'available', entries: row.value as RevisionRepairAuditEntry[] };
-        }
-        // Present but not an array → malformed audit state.
-        return { state: 'unavailable' };
-      }
+      async (txn) =>
+        classifyAuditDataset(
+          (await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey)) ?? null
+        )
     );
   } catch (error) {
     console.error('revisionRepair: audit read failed', {

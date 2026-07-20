@@ -639,3 +639,209 @@ test('NON-REUSE: after an accepted repair, the next allocation is strictly above
     `revision ${merge.commit!.stamp.revision} must exceed 10`
   );
 });
+
+// === PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT ===
+
+// Bounded evidence certification: malformed envelope / fetchedAt / game rows are a
+// HARD refusal for every action (dry-run and apply), writing nothing.
+test('malformed envelope / fetchedAt / game rows hard-refuse every action', async () => {
+  const good = legacyRowFromWire(wireGame({ id: 1 }));
+  const stamp = { lineage: 'L', revision: 3 };
+  const bad: Array<[string, unknown]> = [
+    ['invalid fetchedAt', { ...ID, fetchedAt: 'not-a-date', games: [good], commitStamp: stamp }],
+    ['missing fetchedAt', { ...ID, games: [good], commitStamp: stamp }],
+    ['non-string fetchedAt', { ...ID, fetchedAt: 12345, games: [good], commitStamp: stamp }],
+    ['empty-object row', { ...ID, fetchedAt: T0, games: [{}], commitStamp: stamp }],
+    ['primitive row', { ...ID, fetchedAt: T0, games: [7], commitStamp: stamp }],
+    [
+      'missing game identity',
+      { ...ID, fetchedAt: T0, games: [{ home: good.home, away: good.away }], commitStamp: stamp },
+    ],
+    [
+      'malformed participant',
+      {
+        ...ID,
+        fetchedAt: T0,
+        games: [{ providerGameId: 1, home: { school: 5, schoolId: 1 }, away: good.away }],
+      },
+    ],
+    [
+      'malformed statistics',
+      { ...ID, fetchedAt: T0, games: [{ ...good, home: { ...good.home, raw: 'nope' } }] },
+    ],
+    ['one invalid row among valid', { ...ID, fetchedAt: T0, games: [good, {}] }],
+  ];
+  const actions: RevisionRepairAction[] = [
+    { kind: 'rebuild-ledger' },
+    { kind: 'adopt-lineage', lineage: 'L', floor: 5 },
+    { kind: 'establish-new-lineage', floor: 5 },
+  ];
+  for (const [name, partition] of bad) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await setAppState('game-stats', KEY, partition);
+    const d = await digest();
+    for (const action of actions) {
+      const r = await repairRevisionState(
+        req(action, d, {
+          dryRun: false,
+          acknowledgeLineageConflict: true,
+          acknowledgeEvidenceLoss: true,
+        })
+      );
+      assert.equal(r.ok, false, `${name}/${action.kind}`);
+      if (!r.ok)
+        assert.equal(r.code, 'revision-repair-evidence-malformed', `${name}/${action.kind}`);
+    }
+    assert.equal(await readLedger(), null); // no writes
+  }
+});
+
+test('structurally valid legacy and revision-era evidence certify (not evidence-malformed)', async () => {
+  await setAppState('game-stats', KEY, partitionWith(undefined)); // valid legacy shape
+  const legacyResult = await repairRevisionState(
+    req({ kind: 'rebuild-ledger' }, await digest(), { dryRun: false })
+  );
+  assert.equal(legacyResult.ok, false);
+  if (!legacyResult.ok) assert.equal(legacyResult.code, 'malformed-evidence'); // stampless, NOT evidence-malformed
+
+  await seedHistory({ partitionStamp: { lineage: 'L', revision: 3 } }); // valid revision-era
+  const revResult = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, await digest(), { dryRun: true })
+  );
+  assert.ok(revResult.ok);
+});
+
+// CAS serialization: activation + witness are read under the activation-control
+// lock and bound by the digest, so a completed change refuses state-changed.
+test('a completed activation or witness change before repair → state-changed', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 3 },
+    ledger: { lineage: 'L', revision: 3 },
+  });
+  const dActivation = await digest();
+  assert.ok((await setActivationState('armed')).ok); // activation changes after inspect
+  const rA = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, dActivation, { dryRun: false })
+  );
+  assert.equal(rA.ok, false);
+  if (!rA.ok) assert.equal(rA.code, 'revision-repair-state-changed');
+
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 3 },
+    ledger: { lineage: 'L', revision: 3 },
+  });
+  const dWitness = await digest();
+  await setAppState(ACTIVATION_SCOPE, 'revisioned-evidence-witness', {
+    everExisted: true,
+    firstAt: T0,
+  });
+  const rW = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, dWitness, { dryRun: false })
+  );
+  assert.equal(rW.ok, false);
+  if (!rW.ok) assert.equal(rW.code, 'revision-repair-state-changed');
+});
+
+test('the repair activation lock is released after success AND refusal', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 3 },
+    ledger: { lineage: 'L', revision: 3 },
+  });
+  const ok = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, await digest(), {
+      dryRun: false,
+      apply: true,
+    })
+  );
+  assert.ok(ok.ok);
+  assert.ok((await setActivationState('armed')).ok); // lock released after success
+
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 3 },
+    ledger: { lineage: 'L', revision: 10 },
+  });
+  const refused = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, await digest(), { dryRun: false })
+  );
+  assert.equal(refused.ok, false);
+  assert.ok((await setActivationState('armed')).ok); // lock released after refusal
+});
+
+test('repair racing a concurrent activation transition never deadlocks and stays consistent', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 3 },
+    ledger: { lineage: 'L', revision: 3 },
+  });
+  const d = await digest();
+  const [repair, transition] = await Promise.all([
+    repairRevisionState(
+      req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, d, { dryRun: false, apply: true })
+    ),
+    setActivationState('armed'),
+  ]);
+  assert.equal(transition.ok, true); // the transition always settles armed
+  // Repair either committed (won the lock first) or observed the armed state and
+  // refused state-changed — never a partial/torn outcome.
+  assert.ok(repair.ok || (repair.ok === false && repair.code === 'revision-repair-state-changed'));
+});
+
+// Audit history validation + allowlist.
+function validAuditEntry(auditRef: string) {
+  return {
+    schemaVersion: 1,
+    auditRef,
+    actor: 'clerk:a',
+    at: T0,
+    reason: 'r',
+    action: { kind: 'rebuild-ledger' },
+    beforeDigest: 'd',
+    afterState: { ledger: ledger('L', 3), committedStamp: null, partitionStamp: null },
+  };
+}
+
+test('audit availability distinguishes empty/populated/non-array/malformed/mixed, preserving order, exposing no arbitrary fields', async () => {
+  await setAppState(AUDIT_SCOPE, KEY, []);
+  assert.deepEqual(await readRevisionAuditTrail(ID), { state: 'available', entries: [] });
+
+  await setAppState(AUDIT_SCOPE, KEY, [validAuditEntry('a1'), validAuditEntry('a2')]);
+  const avail = await readRevisionAuditTrail(ID);
+  assert.equal(avail.state, 'available');
+  if (avail.state === 'available')
+    assert.deepEqual(
+      avail.entries.map((e) => e.auditRef),
+      ['a1', 'a2']
+    );
+
+  await setAppState(AUDIT_SCOPE, KEY, { corrupt: true }); // non-array
+  assert.deepEqual(await readRevisionAuditTrail(ID), { state: 'unavailable' });
+
+  await setAppState(AUDIT_SCOPE, KEY, [{ auditRef: 'x' }]); // malformed entry
+  assert.deepEqual(await readRevisionAuditTrail(ID), { state: 'unavailable' });
+
+  await setAppState(AUDIT_SCOPE, KEY, [validAuditEntry('a1'), { auditRef: 'x' }]); // mixed
+  assert.deepEqual(await readRevisionAuditTrail(ID), { state: 'unavailable' });
+
+  // An unapproved extra field (secret) → unavailable, and never reaches the response.
+  await setAppState(AUDIT_SCOPE, KEY, [
+    { ...validAuditEntry('a1'), secret: 'postgres://user:SECRETPW@db/prod /var/secrets' },
+  ]);
+  const withSecret = await readRevisionAuditTrail(ID);
+  assert.equal(withSecret.state, 'unavailable');
+  assert.equal(JSON.stringify(withSecret).includes('SECRETPW'), false);
+});
+
+test('applied repair refuses to append to a malformed audit history (never trusted)', async () => {
+  await seedHistory({
+    partitionStamp: { lineage: 'L', revision: 3 },
+    ledger: { lineage: 'L', revision: 3 },
+  });
+  await setAppState(AUDIT_SCOPE, KEY, [{ auditRef: 'malformed' }]);
+  const d = await digest();
+  const r = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, d, { dryRun: false, apply: true })
+  );
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.code, 'revision-repair-audit-unavailable');
+  assert.deepEqual((await getAppState(AUDIT_SCOPE, KEY))?.value, [{ auditRef: 'malformed' }]); // unchanged
+});

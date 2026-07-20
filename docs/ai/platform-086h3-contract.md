@@ -28,7 +28,7 @@ architecture, not active behavior.
   ordinary allocation:          E(P) → S(P)          (status is a witness, below)
   legacy writer (fenced):       E(P) → activation-control
   revisioned writer/bootstrap:  E(P) → activation-control → S(P)
-  operator repair validation:   E(P) → S(P) → C(P)
+  operator repair validation:   E(P) → activation-control → S(P) → C(P)
   activation transition:        activation-control
   ```
 
