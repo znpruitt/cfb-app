@@ -180,6 +180,17 @@ corrections (see §5 lineage and §17 activation-control fence).
   result. Publication reports a composite `{ begin, terminal, complete }`; a
   terminal write records its attempt truthfully even when the begin marker never
   persisted, while a genuinely stale attempt never overwrites a newer one.
+- Every TERMINAL mutation REQUIRES an explicit attempt handle (mandatory at the
+  type boundary + runtime-validated): a missing handle →
+  `game-stats-refresh-attempt-required`, a malformed/misrouted one →
+  `game-stats-refresh-attempt-malformed`. Ownership needs BOTH a matching token
+  AND ordinal; tokenless terminals always refuse and are never treated as latest.
+  The failed-begin exception is honored ONLY through the explicit handle whose
+  begin persistence failed (ordinal strictly above the stored ordinal). A stored
+  attempt ordinal is valid only as a POSITIVE safe integer — `0`/negative/unsafe/
+  non-number is `refresh-attempt-ordinal-malformed` (refused, never reset to 1;
+  absence alone begins at 1), and a valid ordinal at `Number.MAX_SAFE_INTEGER` is
+  `refresh-attempt-ordinal-exhausted`.
 
 ## 8. Recovery claims, backoff, quota bounds
 

@@ -88,10 +88,35 @@ or repair history) mints lineage 1.
   API — the ONLY stamp-free successful terminal path.
 - **Counters refuse at exhaustion, never wrap or reset.** A revision at
   `Number.MAX_SAFE_INTEGER` → `revision-counter-exhausted`; an attempt ordinal at
-  the bound → `refresh-attempt-ordinal-exhausted` (a present-but-invalid ordinal →
-  `refresh-attempt-ordinal-malformed`, never silently restarted at 1); an
+  the bound → `refresh-attempt-ordinal-exhausted`; an
   unadvanceable repair floor (nonpositive / unsafe / `MAX_SAFE_INTEGER`) →
   `revision-repair-floor-not-advanceable` (refused at planning AND apply).
+
+**Terminal attempt ownership & ordinal validity** (PLATFORM-086H3B-STATUS-ATTEMPT-OWNERSHIP-REMEDIATION):
+
+- **Every terminal status mutation requires an explicit attempt handle** from
+  `beginGameStatsRefreshAttempt`, mandatory at the type boundary AND re-validated at
+  runtime (non-empty token, positive safe-integer ordinal, non-empty start
+  timestamp, exact scope identity). A missing handle → `game-stats-refresh-attempt-required`;
+  a structurally invalid or misrouted handle → `game-stats-refresh-attempt-malformed`.
+  Both refuse before any storage mutation and never claim `complete`.
+- **Ordinal AND token jointly establish latest-attempt ownership.** A normal
+  persisted attempt owns the chronology only when BOTH match the stored latest; a
+  matching token with a stale/unknown ordinal, or a matching ordinal with a wrong
+  token, does not win. **Tokenless terminals always refuse** — a missing handle is
+  never treated as the latest attempt. Stale attempts return `skipped-older` and
+  write nothing (outcome, error, timestamps, and committed evidence all preserved).
+- **The failed-begin exception requires its explicit returned handle.** Only a
+  handle whose own begin persistence failed (`persistence === 'failed'`) may record
+  its bounded outcome, and only when its ordinal strictly exceeds the stored
+  ordinal; it can never be recreated from a missing/tokenless argument and can never
+  overwrite a later successfully persisted attempt.
+- **Ordinal `0` is malformed history, not absence.** A valid stored ordinal is a
+  POSITIVE safe integer; `0`, negative, fractional, unsafe, or non-number values are
+  `refresh-attempt-ordinal-malformed` (refused, the durable record preserved for
+  inspection/repair, never silently restarted at 1). Only a genuinely ABSENT ordinal
+  begins a first attempt at `1`. Attempt-state absence, ordinal-malformed, and
+  ordinal-exhausted stay distinct states.
 
 ## 4. Repair (admin-only, precondition-guarded, audited)
 

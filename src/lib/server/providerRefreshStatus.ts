@@ -614,9 +614,14 @@ export async function getLegacyProviderRefreshStatus(
 // keep their exact behavior (no transactional-write conversion, no regression).
 //
 // Two chronologies, deliberately SEPARATE (frozen contract §7 / requirement 10):
-//   - ATTEMPT chronology: each begin allocates a durable per-scope ordinal and a
-//     unique token. A terminal owns the attempt fields only while it is still
-//     the latest attempt, so a stale terminal never overwrites newer diagnostics.
+//   - ATTEMPT chronology: each begin allocates a durable per-scope ordinal (a
+//     POSITIVE safe integer; a stored `0`/negative/unsafe value is malformed
+//     history, refused, never reset) and a unique token. Every TERMINAL mutation
+//     requires the concrete handle `begin` returned — validated at runtime before
+//     any storage mutation — and owns the attempt fields only while BOTH its token
+//     AND ordinal still match the stored latest (the sole exception being an
+//     explicit failed-begin handle recording its bounded outcome). A tokenless or
+//     stale terminal is refused/dropped and never overwrites newer diagnostics.
 //   - COMMITTED-EVIDENCE chronology: `lastCommittedStamp` advances ONLY through a
 //     valid SAME-lineage commit stamp — a lower revision is skipped, an equal
 //     revision is idempotent only when committed metadata agrees, a divergent
@@ -654,7 +659,18 @@ const GAME_STATS_DATASET: ProviderDataset = 'game-stats';
  *   - `refresh-attempt-ordinal-exhausted`         — the per-scope attempt ordinal
  *     reached `Number.MAX_SAFE_INTEGER`; a new attempt is refused (never reset);
  *   - `refresh-attempt-ordinal-malformed`         — a present-but-invalid stored
- *     ordinal (never silently restarted at 1).
+ *     ordinal (never silently restarted at 1). Stored ordinal `0` counts as
+ *     malformed history, NOT absence — a valid ordinal is a POSITIVE safe integer.
+ *
+ * PLATFORM-086H3B-STATUS-ATTEMPT-OWNERSHIP-REMEDIATION stable refusals on TERMINAL
+ * mutations (success / no-op / failure — persist nothing; never `durablyRecorded`):
+ *   - `game-stats-refresh-attempt-required`  — no attempt handle was supplied. A
+ *     terminal can never be treated as the latest attempt merely because no handle
+ *     was passed; a missing handle can never impersonate a failed-begin exception.
+ *   - `game-stats-refresh-attempt-malformed` — a handle was supplied but is
+ *     structurally invalid (empty/non-string token, non-positive/unsafe/
+ *     non-integer ordinal, empty `startedAt`, or a scope identity that does not
+ *     match the mutation's scope). Rejected before any storage mutation.
  */
 export type ProviderStatusMutationResult =
   | 'persisted'
@@ -665,7 +681,9 @@ export type ProviderStatusMutationResult =
   | 'failed'
   | 'game-stats-success-commit-stamp-required'
   | 'refresh-attempt-ordinal-exhausted'
-  | 'refresh-attempt-ordinal-malformed';
+  | 'refresh-attempt-ordinal-malformed'
+  | 'game-stats-refresh-attempt-required'
+  | 'game-stats-refresh-attempt-malformed';
 
 function durablyRecorded(result: ProviderStatusMutationResult): boolean {
   return result === 'persisted' || result === 'idempotent';
@@ -754,44 +772,100 @@ async function mutateGameStatsStatusTransactionally(
   });
 }
 
-/** A game-stats completion token may resolve ONLY the scope it was begun for. */
-function isMisroutedGameStatsAttempt(
-  attempt: GameStatsRefreshAttempt | undefined,
-  scopeKey: string,
-  op: string
-): boolean {
-  if (!attempt) return false;
-  if (attempt.scopeKey === scopeKey) return false;
-  console.error('providerRefreshStatus: rejected misrouted game-stats completion token', {
-    op,
-    begunScopeKey: attempt.scopeKey,
-    resolveScopeKey: scopeKey,
-  });
-  return true;
-}
-
-function validOrdinal(value: unknown): number | null {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+/**
+ * A STORED per-scope attempt ordinal is valid history only as a POSITIVE safe
+ * integer (>= 1). Zero, negative, fractional, unsafe, `null`, string, or any
+ * non-number value is MALFORMED history — never absence (absence is `undefined`),
+ * never silently restarted at 1. `begin` only ever writes `current + 1 >= 1`, so a
+ * stored `0` cannot be a legitimate ordinal and is treated as corruption.
+ */
+function validStoredOrdinal(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 ? value : null;
 }
 
 /**
- * Whether `attempt` may own this record's ATTEMPT-chronology fields. The ordinary
- * case is an exact token match (its begin persisted and it is still the latest).
- * The ONE relaxation: a terminal whose own begin never persisted
- * (`persistence === 'failed'`) has no recorded token to match, yet may still
- * record its outcome truthfully — but only when its ordinal is STRICTLY greater
- * than the stored ordinal, so a genuinely stale attempt never overwrites a newer
- * one's diagnostics.
+ * Classify a stored ordinal into the three chronology states that must stay
+ * distinct (requirement 27): genuine absence (first attempt → 1), a valid positive
+ * safe integer, or malformed corruption (refuse; never reset). Exhaustion is a
+ * further distinction applied only by `begin` on a valid ordinal.
+ */
+type StoredOrdinalState =
+  | { kind: 'absent' }
+  | { kind: 'valid'; ordinal: number }
+  | { kind: 'malformed' };
+function classifyStoredOrdinal(value: unknown): StoredOrdinalState {
+  if (value === undefined) return { kind: 'absent' };
+  const ordinal = validStoredOrdinal(value);
+  return ordinal === null ? { kind: 'malformed' } : { kind: 'valid', ordinal };
+}
+
+/**
+ * A concrete attempt handle is MANDATORY on every terminal game-stats status
+ * mutation, and it is validated at RUNTIME (not merely at the TypeScript boundary)
+ * before any storage read/write. A valid handle must carry a non-empty token, a
+ * POSITIVE safe-integer ordinal, a non-empty start timestamp, and the EXACT scope
+ * identity of the mutation. Returns a stable typed refusal for an absent handle
+ * (`game-stats-refresh-attempt-required`) or a structurally invalid / misrouted one
+ * (`game-stats-refresh-attempt-malformed`), or `null` when the handle is usable.
+ * Rejecting here removes the "no attempt supplied → treat as latest" behavior and
+ * blocks tokenless terminals from overwriting a newer attempt's chronology.
+ */
+function validateGameStatsAttemptHandle(
+  attempt: GameStatsRefreshAttempt | undefined,
+  scopeKey: string,
+  op: string
+): 'game-stats-refresh-attempt-required' | 'game-stats-refresh-attempt-malformed' | null {
+  if (attempt === undefined || attempt === null) return 'game-stats-refresh-attempt-required';
+  if (typeof attempt.attemptId !== 'string' || attempt.attemptId.length === 0) {
+    return 'game-stats-refresh-attempt-malformed';
+  }
+  if (validStoredOrdinal(attempt.ordinal) === null) return 'game-stats-refresh-attempt-malformed';
+  if (typeof attempt.startedAt !== 'string' || attempt.startedAt.length === 0) {
+    return 'game-stats-refresh-attempt-malformed';
+  }
+  if (attempt.scopeKey !== scopeKey) {
+    // A handle begun for a different scope is a misrouted completion: it must never
+    // resolve into this scope (it would falsely advance a scope it never began).
+    console.error('providerRefreshStatus: rejected misrouted game-stats completion token', {
+      op,
+      begunScopeKey: attempt.scopeKey,
+      resolveScopeKey: scopeKey,
+    });
+    return 'game-stats-refresh-attempt-malformed';
+  }
+  return null;
+}
+
+/**
+ * Whether `attempt` may own this record's ATTEMPT-chronology fields. A NORMAL
+ * persisted begin is the latest only when BOTH its token AND its ordinal match the
+ * stored latest (requirement 13) — a matching token with a mismatched ordinal, an
+ * older ordinal, or an unknown future ordinal never wins. The ONE relaxation is the
+ * failed-begin exception (requirement 10-12): a terminal whose own begin never
+ * persisted (`persistence === 'failed'`, reachable ONLY through the explicit handle
+ * `begin` returned) has no stored token to match, yet may still record its outcome
+ * truthfully — but only when its ordinal is STRICTLY greater than the stored
+ * ordinal, so a genuinely stale attempt never overwrites a newer one. A missing
+ * handle NEVER owns (requirement 9); callers validate the handle first, so this is
+ * a defensive backstop.
  */
 function isLatestGameStatsAttempt(
   status: ProviderRefreshStatus,
   attempt?: GameStatsRefreshAttempt
 ): boolean {
-  if (!attempt) return true;
-  if (status.lastAttemptId === attempt.attemptId) return true;
-  if (attempt.persistence !== 'failed') return false;
-  const storedOrdinal = validOrdinal(status.lastAttemptOrdinal) ?? 0;
-  return attempt.ordinal > storedOrdinal;
+  if (!attempt) return false;
+  const storedOrdinal = validStoredOrdinal(status.lastAttemptOrdinal);
+  if (
+    status.lastAttemptId === attempt.attemptId &&
+    storedOrdinal !== null &&
+    storedOrdinal === attempt.ordinal
+  ) {
+    return true;
+  }
+  if (attempt.persistence === 'failed') {
+    return attempt.ordinal > (storedOrdinal ?? 0);
+  }
+  return false;
 }
 
 /** Whether an equal-revision success carries the SAME committed metadata. */
@@ -821,15 +895,14 @@ export async function beginGameStatsRefreshAttempt(
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
   let ordinal = 1;
   const persistence = await mutateGameStatsStatusTransactionally(scope, 'begin', (status) => {
-    // Distinguish ABSENT ordinal (genuinely first attempt → 1) from a
-    // present-but-invalid one (revision-era corruption → refuse, never restart
-    // at 1) and from exhaustion at `Number.MAX_SAFE_INTEGER` (refuse, never
-    // wrap/reset). All refusals persist nothing.
-    const stored = status.lastAttemptOrdinal;
-    if (stored !== undefined && validOrdinal(stored) === null) {
-      return 'refresh-attempt-ordinal-malformed';
-    }
-    const current = validOrdinal(stored) ?? 0;
+    // Distinguish ABSENT ordinal (genuinely first attempt → 1) from MALFORMED
+    // corruption (present-but-invalid, INCLUDING a stored `0` — refuse, never
+    // restart at 1) and from a VALID ordinal at `Number.MAX_SAFE_INTEGER`
+    // (exhausted — refuse, never wrap/reset). All refusals persist nothing and
+    // preserve the durable record for inspection/repair.
+    const state = classifyStoredOrdinal(status.lastAttemptOrdinal);
+    if (state.kind === 'malformed') return 'refresh-attempt-ordinal-malformed';
+    const current = state.kind === 'valid' ? state.ordinal : 0;
     if (current >= Number.MAX_SAFE_INTEGER) return 'refresh-attempt-ordinal-exhausted';
     ordinal = current + 1;
     return {
@@ -851,7 +924,12 @@ export async function beginGameStatsRefreshAttempt(
 }
 
 export type GameStatsRefreshSuccess = {
-  attempt?: GameStatsRefreshAttempt;
+  /**
+   * MANDATORY concrete attempt handle from `beginGameStatsRefreshAttempt`. A
+   * terminal without a valid matching handle is refused — never treated as the
+   * latest attempt, never synthesized from status/timestamps/partition identity.
+   */
+  attempt: GameStatsRefreshAttempt;
   /**
    * The revisioned merge authority's CONFIRMED commit stamp, captured only after
    * a durable COMMIT. It is the SOLE committed-evidence ordering authority and is
@@ -888,7 +966,9 @@ export async function recordGameStatsRefreshSuccess(
   const resolvedAt = new Date().toISOString();
   const committedAt = result.committedAt ?? resolvedAt;
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
-  if (isMisroutedGameStatsAttempt(result.attempt, scopeKey, 'success')) return 'skipped';
+  // MANDATORY valid matching attempt handle — refuse before any lock/read/write.
+  const handleRefusal = validateGameStatsAttemptHandle(result.attempt, scopeKey, 'success');
+  if (handleRefusal) return handleRefusal;
   // MANDATORY confirmed commit stamp — refuse before any lock/read/write, so a
   // stamp-free "success" can never clear an error or mark an attempt succeeded.
   const incoming = result.commitStamp;
@@ -932,10 +1012,12 @@ export async function recordGameStatsRefreshSuccess(
       next.usage = result.usage;
     }
     if (owns) {
+      // The handle is validated present; attempt fields come only from it (never
+      // synthesized from stored status).
       next.lastError = null;
-      next.lastAttemptAt = result.attempt?.startedAt ?? status.lastAttemptAt;
-      next.lastAttemptId = result.attempt?.attemptId ?? status.lastAttemptId;
-      next.lastAttemptOrdinal = result.attempt?.ordinal ?? status.lastAttemptOrdinal;
+      next.lastAttemptAt = result.attempt.startedAt;
+      next.lastAttemptId = result.attempt.attemptId;
+      next.lastAttemptOrdinal = result.attempt.ordinal;
       next.latestAttemptOutcome = result.partialFailure ? 'partial' : 'succeeded';
       next.latestAttemptResolvedAt = resolvedAt;
     }
@@ -944,24 +1026,27 @@ export async function recordGameStatsRefreshSuccess(
 }
 
 export type GameStatsRefreshNoop = {
-  attempt?: GameStatsRefreshAttempt;
+  /** MANDATORY concrete attempt handle (see `GameStatsRefreshSuccess.attempt`). */
+  attempt: GameStatsRefreshAttempt;
   source?: string | null;
   durationMs?: number | null;
 };
 
 /**
  * Record a valid game-stats NO-OP: the latest attempt resolved with no new
- * durable commit. Never advances committed evidence; clears the latest error;
- * preserves the prior-good committed stamp/source/rows. A stale attempt is
- * dropped.
+ * durable commit. Requires a valid matching attempt handle (a tokenless no-op is
+ * refused, never treated as latest). Never advances committed evidence; clears the
+ * latest error; preserves the prior-good committed stamp/source/rows. A stale
+ * attempt is dropped.
  */
 export async function recordGameStatsRefreshNoop(
   scope: ProviderRefreshScope,
-  result: GameStatsRefreshNoop = {}
+  result: GameStatsRefreshNoop
 ): Promise<ProviderStatusMutationResult> {
   const resolvedAt = new Date().toISOString();
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
-  if (isMisroutedGameStatsAttempt(result.attempt, scopeKey, 'noop')) return 'skipped';
+  const handleRefusal = validateGameStatsAttemptHandle(result.attempt, scopeKey, 'noop');
+  if (handleRefusal) return handleRefusal;
   return mutateGameStatsStatusTransactionally(scope, 'noop', (status) => {
     if (!isLatestGameStatsAttempt(status, result.attempt)) return 'skipped-older';
     return {
@@ -970,9 +1055,9 @@ export async function recordGameStatsRefreshNoop(
         dataset: GAME_STATS_DATASET,
         scope,
         scopeKey,
-        lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
-        lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
-        lastAttemptOrdinal: result.attempt?.ordinal ?? status.lastAttemptOrdinal,
+        lastAttemptAt: result.attempt.startedAt,
+        lastAttemptId: result.attempt.attemptId,
+        lastAttemptOrdinal: result.attempt.ordinal,
         lastError: null,
         latestAttemptOutcome: 'no-op',
         latestAttemptResolvedAt: resolvedAt,
@@ -984,7 +1069,13 @@ export async function recordGameStatsRefreshNoop(
 }
 
 export type GameStatsRefreshFailure = {
-  attempt?: GameStatsRefreshAttempt;
+  /**
+   * MANDATORY concrete attempt handle (see `GameStatsRefreshSuccess.attempt`). The
+   * failed-begin exception (a handle whose own begin never persisted) is honored
+   * ONLY through this explicit handle — never recreated from a missing/tokenless
+   * argument.
+   */
+  attempt: GameStatsRefreshAttempt;
   error: string;
   code?: string;
   status?: number;
@@ -995,9 +1086,12 @@ export type GameStatsRefreshFailure = {
 };
 
 /**
- * Record a game-stats failure. Preserves the prior-good committed stamp/source/
- * rows (a failure never advances or erases committed evidence) and sets the
- * latest-attempt outcome `failed`. A stale attempt is dropped.
+ * Record a game-stats failure. Requires a valid matching attempt handle (a
+ * tokenless failure is refused, never treated as latest). Preserves the prior-good
+ * committed stamp/source/rows (a failure never advances or erases committed
+ * evidence) and sets the latest-attempt outcome `failed`. A stale attempt is
+ * dropped; a failed-begin handle may record its bounded failure only when its
+ * ordinal strictly exceeds the stored ordinal.
  */
 export async function recordGameStatsRefreshFailure(
   scope: ProviderRefreshScope,
@@ -1005,7 +1099,8 @@ export async function recordGameStatsRefreshFailure(
 ): Promise<ProviderStatusMutationResult> {
   const resolvedAt = new Date().toISOString();
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
-  if (isMisroutedGameStatsAttempt(result.attempt, scopeKey, 'failure')) return 'skipped';
+  const handleRefusal = validateGameStatsAttemptHandle(result.attempt, scopeKey, 'failure');
+  if (handleRefusal) return handleRefusal;
   return mutateGameStatsStatusTransactionally(scope, 'failure', (status) => {
     if (!isLatestGameStatsAttempt(status, result.attempt)) return 'skipped-older';
     return {
@@ -1014,9 +1109,9 @@ export async function recordGameStatsRefreshFailure(
         dataset: GAME_STATS_DATASET,
         scope,
         scopeKey,
-        lastAttemptAt: result.attempt?.startedAt ?? status.lastAttemptAt,
-        lastAttemptId: result.attempt?.attemptId ?? status.lastAttemptId,
-        lastAttemptOrdinal: result.attempt?.ordinal ?? status.lastAttemptOrdinal,
+        lastAttemptAt: result.attempt.startedAt,
+        lastAttemptId: result.attempt.attemptId,
+        lastAttemptOrdinal: result.attempt.ordinal,
         // Preserve the transactionally-current committed evidence.
         lastSuccessAt: status.lastSuccessAt,
         lastCommittedStamp: status.lastCommittedStamp,

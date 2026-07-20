@@ -10,6 +10,7 @@ import {
   recordGameStatsRefreshSuccess,
   recordProviderRefreshSuccess,
   beginProviderRefreshAttempt,
+  type GameStatsRefreshAttempt,
 } from '../providerRefreshStatus.ts';
 import {
   providerRefreshScopeKey,
@@ -290,4 +291,239 @@ test('generic (non-game-stats) status writers are unchanged and independent', as
   await recordGameStatsRefreshSuccess(SCOPE, { attempt: gs, commitStamp: stamp('L', 1) });
   const stillScores = await getProviderRefreshStatus('scores', scoresScope);
   assert.equal(stillScores.rowsCommitted, 12); // untouched
+});
+
+// === Terminal attempt-handle ownership (PLATFORM-086H3B-STATUS-ATTEMPT-OWNERSHIP) ===
+
+// Bypass the compile-time `attempt` requirement to exercise the RUNTIME guard.
+const noSuccessHandle = (r: Omit<Parameters<typeof recordGameStatsRefreshSuccess>[1], 'attempt'>) =>
+  r as unknown as Parameters<typeof recordGameStatsRefreshSuccess>[1];
+const noNoopHandle = (r: Omit<Parameters<typeof recordGameStatsRefreshNoop>[1], 'attempt'>) =>
+  r as unknown as Parameters<typeof recordGameStatsRefreshNoop>[1];
+const noFailureHandle = (r: Omit<Parameters<typeof recordGameStatsRefreshFailure>[1], 'attempt'>) =>
+  r as unknown as Parameters<typeof recordGameStatsRefreshFailure>[1];
+
+test('tokenless terminal mutations (success/no-op/failure/partial) refuse and mutate nothing', async () => {
+  // Seed a newer in-progress attempt so any overwrite would be visible.
+  const a = await beginGameStatsRefreshAttempt(SCOPE);
+  await recordGameStatsRefreshFailure(SCOPE, { attempt: a, error: 'seed' });
+  await beginGameStatsRefreshAttempt(SCOPE); // newer attempt, in-progress
+  const before = await read();
+  assert.equal(before.latestAttemptOutcome, 'in-progress');
+
+  assert.equal(
+    await recordGameStatsRefreshSuccess(SCOPE, noSuccessHandle({ commitStamp: stamp('L', 5) })),
+    'game-stats-refresh-attempt-required'
+  );
+  assert.equal(
+    await recordGameStatsRefreshSuccess(
+      SCOPE,
+      noSuccessHandle({ commitStamp: stamp('L', 5), partialFailure: true }) // partial success
+    ),
+    'game-stats-refresh-attempt-required'
+  );
+  assert.equal(
+    await recordGameStatsRefreshNoop(SCOPE, noNoopHandle({})),
+    'game-stats-refresh-attempt-required'
+  );
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, noFailureHandle({ error: 'boom' })),
+    'game-stats-refresh-attempt-required'
+  );
+
+  assert.deepEqual(await read(), before); // nothing mutated by any tokenless terminal
+});
+
+test('a tokenless terminal never counts as the latest attempt merely for lacking a handle', async () => {
+  // No prior attempt at all: the record is absent. A tokenless terminal must still
+  // refuse (not silently initialize / own the chronology).
+  assert.equal(
+    await recordGameStatsRefreshNoop(SCOPE, noNoopHandle({})),
+    'game-stats-refresh-attempt-required'
+  );
+  assert.equal((await read()).latestAttemptOutcome, null); // untouched, still absent
+});
+
+test('ownership requires BOTH a matching token AND ordinal', async () => {
+  const a = await beginGameStatsRefreshAttempt(SCOPE); // stored latest: ord 1, token a
+  // Correct ordinal AND token → owns.
+  assert.equal(await recordGameStatsRefreshNoop(SCOPE, { attempt: a }), 'persisted');
+  assert.equal((await read()).latestAttemptOutcome, 'no-op');
+
+  // Correct ordinal, WRONG token → does not own.
+  const wrongToken: GameStatsRefreshAttempt = { ...a, attemptId: `${a.attemptId}-x` };
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: wrongToken, error: 'x' }),
+    'skipped-older'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'no-op'); // unchanged
+
+  // Correct token, UNKNOWN FUTURE ordinal → does not own (both must match).
+  const futureOrdinal: GameStatsRefreshAttempt = { ...a, ordinal: a.ordinal + 50 };
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: futureOrdinal, error: 'x' }),
+    'skipped-older'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'no-op'); // unchanged
+});
+
+test('a stale attempt (older ordinal, valid old token) cannot overwrite newer diagnostics', async () => {
+  const a = await beginGameStatsRefreshAttempt(SCOPE); // ord 1
+  const b = await beginGameStatsRefreshAttempt(SCOPE); // ord 2 supersedes a
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: a, error: 'late' }),
+    'skipped-older'
+  );
+  const after = await read();
+  assert.equal(after.lastAttemptId, b.attemptId); // b still latest
+  assert.equal(after.latestAttemptOutcome, 'in-progress'); // b's outcome unchanged
+  assert.equal(after.lastError, null); // stale failure not recorded
+});
+
+test('a structurally invalid or misrouted handle is refused as malformed (no mutation)', async () => {
+  const a = await beginGameStatsRefreshAttempt(SCOPE);
+  const before = await read();
+  const invalid: GameStatsRefreshAttempt[] = [
+    { ...a, attemptId: '' }, // empty token
+    { ...a, ordinal: 0 }, // zero ordinal
+    { ...a, ordinal: -1 }, // negative ordinal
+    { ...a, ordinal: 1.5 }, // fractional ordinal
+    { ...a, ordinal: Number.MAX_SAFE_INTEGER + 1 }, // unsafe ordinal
+    { ...a, startedAt: '' }, // empty start timestamp
+    {
+      ...a,
+      scopeKey: providerRefreshScopeKey('game-stats', weekPartitionScope(2024, 7, 'regular')),
+    }, // scope mismatch
+  ];
+  for (const handle of invalid) {
+    assert.equal(
+      await recordGameStatsRefreshFailure(SCOPE, { attempt: handle, error: 'x' }),
+      'game-stats-refresh-attempt-malformed',
+      JSON.stringify(handle)
+    );
+  }
+  assert.deepEqual(await read(), before); // no malformed handle mutated anything
+});
+
+test('concurrency regression: a tokenless terminal cannot disturb a newer in-progress attempt', async () => {
+  await beginGameStatsRefreshAttempt(SCOPE); // attempt A
+  const b = await beginGameStatsRefreshAttempt(SCOPE); // newer attempt B, in-progress
+  const before = await read();
+  assert.equal(before.lastAttemptId, b.attemptId);
+  assert.equal(before.latestAttemptOutcome, 'in-progress');
+
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, noFailureHandle({ error: 'ghost' })),
+    'game-stats-refresh-attempt-required'
+  );
+  assert.equal(
+    await recordGameStatsRefreshNoop(SCOPE, noNoopHandle({})),
+    'game-stats-refresh-attempt-required'
+  );
+
+  const after = await read();
+  assert.equal(after.lastAttemptId, b.attemptId); // B remains latest
+  assert.equal(after.latestAttemptOutcome, 'in-progress'); // B's outcome unchanged
+  assert.equal(after.lastError, null); // no ghost error recorded
+  assert.deepEqual(after, before); // committed evidence unchanged
+});
+
+// === Failed-begin exception (explicit handle only) ===
+
+test('the failed-begin exception is honored only through its explicit handle', async () => {
+  const persisted = await beginGameStatsRefreshAttempt(SCOPE); // ord 1, persisted
+  assert.equal(persisted.persistence, 'persisted');
+
+  // A begin whose durable write fails returns a bounded failed-begin handle (ord 2).
+  __setAppStateFileCommitFailureForTests(new Error('commit down'));
+  const failedBegin = await beginGameStatsRefreshAttempt(SCOPE);
+  __setAppStateFileCommitFailureForTests(null);
+  assert.equal(failedBegin.persistence, 'failed');
+  assert.equal(failedBegin.ordinal, 2);
+
+  // (a) the failed-begin handle may record its bounded failure (ordinal > stored 1).
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: failedBegin, error: 'bounded' }),
+    'persisted'
+  );
+  const afterFailed = await read();
+  assert.equal(afterFailed.latestAttemptOutcome, 'failed');
+  assert.equal(afterFailed.lastAttemptOrdinal, 2);
+
+  // (b) a MISSING handle cannot impersonate a failed begin.
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, noFailureHandle({ error: 'ghost' })),
+    'game-stats-refresh-attempt-required'
+  );
+
+  // (c) a failed-begin handle cannot overwrite a LATER successfully persisted attempt.
+  const later = await beginGameStatsRefreshAttempt(SCOPE); // ord 3, persisted, in-progress
+  assert.equal(later.ordinal, 3);
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: failedBegin, error: 'late' }),
+    'skipped-older'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'in-progress'); // later still latest
+  assert.equal((await read()).lastAttemptId, later.attemptId);
+});
+
+// === Stored-ordinal state machine (absent / valid / malformed / exhausted) ===
+
+test('stored-ordinal validity: absent→1, zero/negative/fractional/unsafe/non-number→malformed, MAX→exhausted', async () => {
+  const seed = (lastAttemptOrdinal: unknown) =>
+    setAppState('provider-refresh-status', SCOPE_KEY, {
+      dataset: 'game-stats',
+      scope: SCOPE,
+      scopeKey: SCOPE_KEY,
+      lastAttemptOrdinal,
+    });
+  const storedOrdinal = async () =>
+    (
+      (await getAppState('provider-refresh-status', SCOPE_KEY))?.value as {
+        lastAttemptOrdinal: unknown;
+      }
+    ).lastAttemptOrdinal;
+
+  // Absent ordinal (fresh scope) → genuine first attempt, ordinal 1.
+  assert.equal((await beginGameStatsRefreshAttempt(SCOPE)).ordinal, 1);
+
+  const cases: Array<[unknown, string]> = [
+    [0, 'refresh-attempt-ordinal-malformed'], // zero is malformed history, NOT absence
+    [-3, 'refresh-attempt-ordinal-malformed'],
+    [1.5, 'refresh-attempt-ordinal-malformed'],
+    [Number.MAX_SAFE_INTEGER + 1, 'refresh-attempt-ordinal-malformed'], // unsafe
+    ['7', 'refresh-attempt-ordinal-malformed'], // non-number
+    [null, 'refresh-attempt-ordinal-malformed'], // non-number
+    [Number.MAX_SAFE_INTEGER, 'refresh-attempt-ordinal-exhausted'], // valid but exhausted
+  ];
+  for (const [value, expected] of cases) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await seed(value);
+    assert.equal(
+      (await beginGameStatsRefreshAttempt(SCOPE)).persistence,
+      expected,
+      `persistence for ${String(value)}`
+    );
+    assert.deepEqual(await storedOrdinal(), value, `durable state unchanged for ${String(value)}`);
+  }
+});
+
+test('a malformed stored ordinal remains a refusal across a simulated process restart', async () => {
+  await setAppState('provider-refresh-status', SCOPE_KEY, {
+    dataset: 'game-stats',
+    scope: SCOPE,
+    scopeKey: SCOPE_KEY,
+    lastAttemptOrdinal: 0, // malformed
+  });
+  // Simulate a fresh process: drop in-memory init state but KEEP the durable record.
+  __resetAppStateForTests();
+  assert.equal(
+    (await beginGameStatsRefreshAttempt(SCOPE)).persistence,
+    'refresh-attempt-ordinal-malformed'
+  );
+  const stored = (await getAppState('provider-refresh-status', SCOPE_KEY))?.value as {
+    lastAttemptOrdinal: number;
+  };
+  assert.equal(stored.lastAttemptOrdinal, 0); // still malformed — never restarted at 1
 });
